@@ -1,16 +1,17 @@
 //! Server host: serves a [`ToolProvider`] over stdio and loopback HTTP with per-tool admission.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::{poll_fn, Future};
 use std::io::{BufRead, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::client_features::CancellationToken;
 use crate::error::{McpError, Result};
 use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::types::*;
@@ -20,6 +21,11 @@ pub trait ToolProvider: Send + Sync {
     fn list(&self) -> Vec<ToolDescriptor>;
     /// Unknown tool => `Err(McpError::ToolNotFound)`. `Ok(ToolResult::error(..))` is a tool-level failure.
     fn call(&self, name: &str, args: Value) -> Result<ToolResult>;
+    /// Like [`call`](Self::call) with the request-scoped [`CallHandle`] (progress, cancellation).
+    /// The default ignores the handle. Used only when `call_tool*` returns `None`.
+    fn call_with_handle(&self, name: &str, args: Value, _call: &CallHandle) -> Result<ToolResult> {
+        self.call(name, args)
+    }
     /// Complete tools/list payload; preserves custom metadata & pagination.
     fn list_tools(&self, _request: &Value, _context: &RequestContext) -> Result<Value> {
         Ok(json!({"tools": self.list()}))
@@ -29,6 +35,16 @@ pub trait ToolProvider: Send + Sync {
     /// hook, calls must have a string name; without one, raw calls may omit the name.
     fn call_tool(&self, _request: &Value, _context: &RequestContext) -> Option<Result<Value>> {
         None
+    }
+    /// Like [`call_tool`](Self::call_tool) with the request-scoped [`CallHandle`]. The default
+    /// delegates to `call_tool`, so existing providers are unchanged.
+    fn call_tool_with_handle(
+        &self,
+        request: &Value,
+        context: &RequestContext,
+        _call: &CallHandle,
+    ) -> Option<Result<Value>> {
+        self.call_tool(request, context)
     }
     fn resources(&self) -> Vec<ResourceDescriptor> {
         vec![]
@@ -107,6 +123,141 @@ impl Default for RequestContext {
             session: None,
             metadata: Value::Null,
         }
+    }
+}
+
+type Notify = Arc<dyn Fn(Value) -> bool + Send + Sync>;
+
+/// Request-scoped handle passed to a tool handler (`ToolProvider::call_tool_with_handle` /
+/// `call_with_handle`). It carries the request's `_meta.progressToken`, a cancellation signal
+/// that fires on `notifications/cancelled` for this request, and a way to emit server
+/// notifications such as `notifications/progress`.
+///
+/// Notifications and cancellation need a transport that can write outside a reply and read
+/// while a call runs: [`ServerHost::serve_stdio_concurrent`]. Elsewhere (HTTP, `dispatch*`) the
+/// handle is inert: never cancelled, and notifying returns `false`.
+#[derive(Clone, Default)]
+pub struct CallHandle {
+    shared: Option<Arc<CallShared>>,
+}
+
+struct CallShared {
+    token: CancellationToken,
+    progress_token: Option<Value>,
+    notify: Notify,
+}
+
+impl std::fmt::Debug for CallHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallHandle")
+            .field("live", &self.shared.is_some())
+            .field("progress_token", &self.progress_token())
+            .field("cancelled", &self.is_cancelled())
+            .finish()
+    }
+}
+
+impl CallHandle {
+    /// The request's `params._meta.progressToken`, if the client sent one.
+    pub fn progress_token(&self) -> Option<&Value> {
+        self.shared.as_ref().and_then(|s| s.progress_token.as_ref())
+    }
+
+    /// True once the client sent `notifications/cancelled` for this request.
+    pub fn is_cancelled(&self) -> bool {
+        self.shared.as_ref().is_some_and(|s| s.token.is_cancelled())
+    }
+
+    /// A clone of this call's cancellation token (never cancelled when the handle is inert).
+    pub fn cancellation(&self) -> CancellationToken {
+        self.shared
+            .as_ref()
+            .map(|s| s.token.clone())
+            .unwrap_or_default()
+    }
+
+    /// Emits `notifications/progress` with this request's token. Returns `false` (nothing sent)
+    /// when the client sent no progress token or the transport cannot carry notifications.
+    /// Progress must increase between calls; that is the handler's responsibility.
+    pub fn notify_progress(&self, progress: f64, total: Option<f64>, message: Option<&str>) -> bool {
+        let Some(shared) = &self.shared else {
+            return false;
+        };
+        let Some(token) = &shared.progress_token else {
+            return false;
+        };
+        let mut params = json!({"progressToken": token, "progress": progress});
+        if let Some(total) = total {
+            params["total"] = json!(total);
+        }
+        if let Some(message) = message {
+            params["message"] = json!(message);
+        }
+        (shared.notify)(json!({"jsonrpc":"2.0","method":"notifications/progress","params":params}))
+    }
+
+    /// Emits any server-to-client notification. Returns `false` when it could not be sent.
+    pub fn notify(&self, method: &str, params: Value) -> bool {
+        match &self.shared {
+            Some(shared) => {
+                (shared.notify)(json!({"jsonrpc":"2.0","method":method,"params":params}))
+            }
+            None => false,
+        }
+    }
+}
+
+/// Whether a request that was cancelled via `notifications/cancelled` still gets a reply.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CancelledResponse {
+    /// MCP spec: do not reply to a cancelled request.
+    #[default]
+    Suppress,
+    /// Reply with whatever the handler returned.
+    Send,
+}
+
+/// Overrides for the generated `initialize` result. Ignored when
+/// `ServerOptions::initialize_result` supplies a verbatim result. Protocol negotiation is kept.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InitializeOverrides {
+    /// Sets `serverInfo.title`.
+    pub server_title: Option<String>,
+    /// Object merged into `serverInfo` (after `name`/`version`; before `server_title`).
+    pub server_info: Option<Value>,
+    /// Replaces the instructions text (also set by `with_instructions`).
+    pub instructions: Option<String>,
+    /// Object deep-merged into the generated `capabilities`; its values win.
+    pub capabilities: Option<Value>,
+    /// Version answered when the client's request is not negotiable (default `PROTOCOL_VERSION`).
+    pub default_protocol_version: Option<String>,
+}
+
+/// One outgoing response, as seen by the hook set with [`ServerHost::with_response_hook`].
+#[derive(Debug, Clone, Copy)]
+pub struct ResponseInfo<'a> {
+    /// Method of the request answered; `None` for parse errors and oversize frames.
+    pub method: Option<&'a str>,
+    /// The complete JSON-RPC response frame, read only.
+    pub response: &'a Value,
+    pub transport: ServerTransport,
+}
+
+type ResponseHook = Arc<dyn Fn(&ResponseInfo<'_>) + Send + Sync>;
+
+fn merge_json(base: &mut Value, over: &Value) {
+    match (base, over) {
+        (Value::Object(b), Value::Object(o)) => {
+            for (k, v) in o {
+                match b.get_mut(k) {
+                    Some(existing) => merge_json(existing, v),
+                    None => {
+                        b.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (b, o) => *b = o.clone(),
     }
 }
 
@@ -237,6 +388,9 @@ struct Inner {
     protocol_versions: Option<Vec<String>>,
     response_limits: Option<crate::ResponseLimits>,
     max_stdio_frame_bytes: usize,
+    initialize_overrides: Option<InitializeOverrides>,
+    response_hook: Option<ResponseHook>,
+    cancelled_response: CancelledResponse,
 }
 
 #[derive(Clone)]
@@ -244,10 +398,52 @@ pub struct ServerHost {
     inner: Arc<Inner>,
 }
 
+#[derive(Clone)]
 struct Ctx {
     request: RequestContext,
     /// Local id of this serving run (`mcps-N`), used for lifecycle events.
     run: String,
+    /// Present only under concurrent stdio serving.
+    live: Option<Arc<Live>>,
+    call: CallHandle,
+}
+
+impl Ctx {
+    fn new(request: RequestContext, run: String) -> Self {
+        Ctx {
+            request,
+            run,
+            live: None,
+            call: CallHandle::default(),
+        }
+    }
+}
+
+/// Shared state of one concurrent stdio run.
+struct Live {
+    notify: Notify,
+    /// In-flight request id (JSON text) -> its cancellation token.
+    cancels: Mutex<HashMap<String, CancellationToken>>,
+}
+
+struct CancelGuard {
+    live: Arc<Live>,
+    key: String,
+}
+
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        self.live
+            .cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.key);
+    }
+}
+
+enum Incoming {
+    Msg(Value),
+    Fail(std::io::Error),
 }
 
 /// Bytes in the generated loopback bearer token (192 bits, 48 hex characters).
@@ -375,6 +571,9 @@ impl ServerHost {
                 protocol_versions: None,
                 response_limits: None,
                 max_stdio_frame_bytes: DEFAULT_MAX_STDIO_FRAME_BYTES,
+                initialize_overrides: None,
+                response_hook: None,
+                cancelled_response: CancelledResponse::default(),
             }),
         }
     }
@@ -393,6 +592,9 @@ impl ServerHost {
             protocol_versions: i.protocol_versions.clone(),
             response_limits: i.response_limits,
             max_stdio_frame_bytes: i.max_stdio_frame_bytes,
+            initialize_overrides: i.initialize_overrides.clone(),
+            response_hook: i.response_hook.clone(),
+            cancelled_response: i.cancelled_response,
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -425,6 +627,50 @@ impl ServerHost {
         self.rebuild(|i| i.max_stdio_frame_bytes = max)
     }
 
+    /// Overrides parts of the generated `initialize` result (title, server info, instructions,
+    /// capabilities, default protocol version) while keeping protocol negotiation.
+    pub fn with_initialize_overrides(self, overrides: InitializeOverrides) -> Self {
+        self.rebuild(|i| i.initialize_overrides = Some(overrides))
+    }
+
+    /// Observes every outgoing response (result or error, including parse errors) once, after it
+    /// is built and before it is written. The hook gets read-only access; a panic in it is
+    /// caught and ignored. Responses suppressed for a cancelled request are not observed.
+    pub fn with_response_hook(
+        self,
+        hook: impl Fn(&ResponseInfo<'_>) + Send + Sync + 'static,
+    ) -> Self {
+        self.rebuild(|i| i.response_hook = Some(Arc::new(hook)))
+    }
+
+    /// Chooses whether a request cancelled by the client still gets a reply (default: no, per
+    /// the MCP spec). Only concurrent stdio serving delivers cancellation.
+    pub fn with_cancelled_response(self, policy: CancelledResponse) -> Self {
+        self.rebuild(|i| i.cancelled_response = policy)
+    }
+
+    fn observe(&self, method: Option<&str>, response: &Value, transport: ServerTransport) {
+        if let Some(hook) = &self.inner.response_hook {
+            let info = ResponseInfo {
+                method,
+                response,
+                transport,
+            };
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(&info)));
+        }
+    }
+
+    fn observed_error(
+        &self,
+        transport: ServerTransport,
+        code: i64,
+        message: impl Into<String>,
+    ) -> Value {
+        let reply = rpc_error(&Value::Null, code, message);
+        self.observe(None, &reply, transport);
+        reply
+    }
+
     /// Dispatch a parsed frame without transport I/O or HTTP session issuance.
     pub fn dispatch(&self, request: &Value) -> Option<Value> {
         self.dispatch_with_context(request, &RequestContext::default())
@@ -435,13 +681,7 @@ impl ServerHost {
         request: &Value,
         context: &RequestContext,
     ) -> Option<Value> {
-        self.dispatch_frame(
-            request,
-            &Ctx {
-                request: context.clone(),
-                run: next_id("mcps"),
-            },
-        )
+        self.dispatch_frame(request, &Ctx::new(context.clone(), next_id("mcps")))
     }
 
     pub fn dispatch_checked(
@@ -462,10 +702,7 @@ impl ServerHost {
         request: &Value,
         context: &RequestContext,
     ) -> Option<Value> {
-        let ctx = Ctx {
-            request: context.clone(),
-            run: next_id("mcps"),
-        };
+        let ctx = Ctx::new(context.clone(), next_id("mcps"));
         if let Value::Array(items) = request {
             return match self.inner.options.batch_policy {
                 BatchPolicy::Process => {
@@ -480,7 +717,9 @@ impl ServerHost {
                         Some(Value::Array(replies))
                     }
                 }
-                BatchPolicy::Reject => Some(rpc_error(&Value::Null, -32600, "Invalid Request")),
+                BatchPolicy::Reject => {
+                    Some(self.observed_error(ctx.request.transport, -32600, "Invalid Request"))
+                }
                 BatchPolicy::Ignore => None,
             };
         }
@@ -510,6 +749,18 @@ impl ServerHost {
     }
 
     async fn dispatch_async_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        let reply = self.dispatch_async_one_inner(msg, ctx).await;
+        if let Some(r) = &reply {
+            self.observe(
+                msg.get("method").and_then(Value::as_str),
+                r,
+                ctx.request.transport,
+            );
+        }
+        reply
+    }
+
+    async fn dispatch_async_one_inner(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
         let method = msg.get("method").and_then(Value::as_str)?;
         if method == "notifications/initialized"
             && self.inner.options.initialized_policy == InitializedPolicy::Ignore
@@ -540,7 +791,7 @@ impl ServerHost {
                 return Some(self.wrap_result(&id, self.tools_call_inner(msg, &params, ctx, true)));
             }
         }
-        self.handle_one(msg, ctx)
+        self.handle_one_inner(msg, ctx)
     }
 
     fn wrap_result(&self, id: &Value, out: Result<Value>) -> Value {
@@ -670,10 +921,7 @@ impl ServerHost {
         reader: impl BufRead,
         writer: impl Write,
     ) -> std::io::Result<()> {
-        let ctx = Ctx {
-            request: RequestContext::default(),
-            run: next_id("mcps"),
-        };
+        let ctx = Ctx::new(RequestContext::default(), next_id("mcps"));
         self.emit(
             LifecycleKind::Start,
             &ctx.run,
@@ -712,8 +960,8 @@ impl ServerHost {
                 LineRead::Eof => break,
                 // JSON-lines framing also lives in `rightkit-sidecar` (owner); see client.rs.
                 LineRead::Oversize => {
-                    let reply = rpc_error(
-                        &Value::Null,
+                    let reply = self.observed_error(
+                        ServerTransport::Stdio,
                         -32600,
                         format!("request frame exceeds {max} byte limit"),
                     );
@@ -733,7 +981,11 @@ impl ServerHost {
                 Err(e) if self.inner.options.stdio_input_mode == StdioInputMode::FailFast => {
                     return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
                 }
-                Err(e) => Some(rpc_error(&Value::Null, -32700, format!("parse error: {e}"))),
+                Err(e) => Some(self.observed_error(
+                    ServerTransport::Stdio,
+                    -32700,
+                    format!("parse error: {e}"),
+                )),
             };
             if let Some(r) = reply {
                 writeln!(writer, "{}", crate::raw::to_wire_string(&r))?;
@@ -741,6 +993,165 @@ impl ServerHost {
             }
         }
         Ok(())
+    }
+
+    /// Like [`serve_stdio`](Self::serve_stdio) on process stdin/stdout, but reading continues
+    /// while a request runs; see [`serve_stdio_concurrent_on`](Self::serve_stdio_concurrent_on).
+    pub fn serve_stdio_concurrent(&self) -> std::io::Result<()> {
+        self.serve_stdio_concurrent_on(std::io::stdin().lock(), std::io::stdout())
+    }
+
+    /// Stdio serving with concurrent input. A reader thread keeps reading while a request runs:
+    /// it answers `ping` at once, turns `notifications/cancelled` into a signal on the matching
+    /// in-flight request's [`CallHandle`], and queues everything else for in-order handling on
+    /// the calling thread. Handlers can emit `notifications/progress` through their
+    /// [`CallHandle`]; notifications and replies are written whole, one line each.
+    ///
+    /// Returns when input closes (after queued requests are answered) or on an I/O error. The
+    /// reader thread is detached, so a failed write returns without waiting for more input.
+    pub fn serve_stdio_concurrent_on<R, W>(&self, reader: R, writer: W) -> std::io::Result<()>
+    where
+        R: BufRead + Send + 'static,
+        W: Write + Send + 'static,
+    {
+        let run = next_id("mcps");
+        self.emit(LifecycleKind::Start, &run, "stdio", "serving stdio", None);
+        let writer = Arc::new(Mutex::new(writer));
+        let write_line = move |value: &Value| -> std::io::Result<()> {
+            let mut w = writer.lock().unwrap_or_else(|e| e.into_inner());
+            writeln!(w, "{}", crate::raw::to_wire_string(value))?;
+            w.flush()
+        };
+        let write_line = Arc::new(write_line);
+        let notify: Notify = {
+            let write_line = write_line.clone();
+            Arc::new(move |value: Value| (*write_line)(&value).is_ok())
+        };
+        let live = Arc::new(Live {
+            notify,
+            cancels: Mutex::new(HashMap::new()),
+        });
+        let ctx = Ctx {
+            live: Some(live),
+            ..Ctx::new(RequestContext::default(), run.clone())
+        };
+        let (tx, rx) = mpsc::channel::<Incoming>();
+        {
+            let host = self.clone();
+            let ctx = ctx.clone();
+            let write_line = write_line.clone();
+            std::thread::spawn(move || {
+                host.concurrent_reader(reader, &tx, &ctx, &*write_line);
+            });
+        }
+        let result = (|| {
+            for incoming in rx {
+                let msg = match incoming {
+                    Incoming::Msg(msg) => msg,
+                    Incoming::Fail(e) => return Err(e),
+                };
+                if let Some(reply) = self.dispatch_frame(&msg, &ctx) {
+                    (*write_line)(&reply)?;
+                }
+            }
+            Ok(())
+        })();
+        match &result {
+            Ok(()) => self.emit(LifecycleKind::Stop, &run, "stdio", "input closed", None),
+            Err(e) => self.emit(
+                LifecycleKind::Crash,
+                &run,
+                "stdio",
+                format!("serving failed: io error: {e}"),
+                None,
+            ),
+        }
+        result
+    }
+
+    fn concurrent_reader(
+        &self,
+        mut reader: impl BufRead,
+        tx: &mpsc::Sender<Incoming>,
+        ctx: &Ctx,
+        write_line: &dyn Fn(&Value) -> std::io::Result<()>,
+    ) {
+        let fail = |e: std::io::Error| {
+            let _ = tx.send(Incoming::Fail(e));
+        };
+        let max = self.inner.max_stdio_frame_bytes;
+        let mut buf = Vec::new();
+        loop {
+            match read_bounded_line(&mut reader, &mut buf, max) {
+                Err(e) => return fail(e),
+                Ok(LineRead::Eof) => return,
+                Ok(LineRead::Oversize) => {
+                    let reply = self.observed_error(
+                        ServerTransport::Stdio,
+                        -32600,
+                        format!("request frame exceeds {max} byte limit"),
+                    );
+                    if let Err(e) = write_line(&reply) {
+                        return fail(e);
+                    }
+                    continue;
+                }
+                Ok(LineRead::Line) => {}
+            }
+            let line = match std::str::from_utf8(&buf) {
+                Ok(l) => l,
+                Err(e) => return fail(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+            };
+            if line.trim().is_empty() {
+                continue;
+            }
+            let msg = match serde_json::from_str::<Value>(line) {
+                Ok(msg) => msg,
+                Err(e) if self.inner.options.stdio_input_mode == StdioInputMode::FailFast => {
+                    return fail(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                }
+                Err(e) => {
+                    let reply = self.observed_error(
+                        ServerTransport::Stdio,
+                        -32700,
+                        format!("parse error: {e}"),
+                    );
+                    if let Err(e) = write_line(&reply) {
+                        return fail(e);
+                    }
+                    continue;
+                }
+            };
+            let method = msg.get("method").and_then(Value::as_str);
+            let has_id = msg.get("id").is_some_and(|id| !id.is_null());
+            if method == Some("notifications/cancelled") && !has_id {
+                if let (Some(live), Some(request_id)) =
+                    (&ctx.live, msg.pointer("/params/requestId"))
+                {
+                    let token = live
+                        .cancels
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&request_id.to_string())
+                        .cloned();
+                    if let Some(token) = token {
+                        token.cancel();
+                    }
+                }
+                continue;
+            }
+            if method == Some("ping") && has_id {
+                if let Some(reply) = self.handle_one(&msg, ctx) {
+                    if let Err(e) = write_line(&reply) {
+                        return fail(e);
+                    }
+                }
+                continue;
+            }
+            if tx.send(Incoming::Msg(msg)).is_err() {
+                return;
+            }
+        }
     }
 
     /// Returns (reply, issued-session-id-if-initialize). Fails closed when no session id can be
@@ -770,7 +1181,9 @@ impl ServerHost {
                         Some(Value::Array(replies))
                     }
                 }
-                BatchPolicy::Reject => Some(rpc_error(&Value::Null, -32600, "Invalid Request")),
+                BatchPolicy::Reject => {
+                    Some(self.observed_error(ctx.request.transport, -32600, "Invalid Request"))
+                }
                 BatchPolicy::Ignore => None,
             };
         }
@@ -789,7 +1202,56 @@ impl ServerHost {
         )
     }
 
+    /// Builds the request-scoped context (cancellation, progress) for concurrent serving.
+    fn scope_call(&self, msg: &Value, ctx: &Ctx) -> Option<(Ctx, CancelGuard)> {
+        let live = ctx.live.as_ref()?;
+        let id = msg.get("id").filter(|id| !id.is_null())?;
+        msg.get("method").and_then(Value::as_str)?;
+        let token = CancellationToken::new();
+        let key = id.to_string();
+        live.cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone(), token.clone());
+        let mut scoped = ctx.clone();
+        scoped.call = CallHandle {
+            shared: Some(Arc::new(CallShared {
+                token,
+                progress_token: msg
+                    .pointer("/params/_meta/progressToken")
+                    .filter(|t| !t.is_null())
+                    .cloned(),
+                notify: live.notify.clone(),
+            })),
+        };
+        Some((
+            scoped,
+            CancelGuard {
+                live: live.clone(),
+                key,
+            },
+        ))
+    }
+
     fn handle_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        let scoped = self.scope_call(msg, ctx);
+        let ctx = scoped.as_ref().map_or(ctx, |(c, _)| c);
+        let reply = self.handle_one_inner(msg, ctx)?;
+        if scoped.is_some()
+            && ctx.call.is_cancelled()
+            && self.inner.cancelled_response == CancelledResponse::Suppress
+        {
+            return None;
+        }
+        self.observe(
+            msg.get("method").and_then(Value::as_str),
+            &reply,
+            ctx.request.transport,
+        );
+        Some(reply)
+    }
+
+    fn handle_one_inner(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
         let method = msg.get("method").and_then(Value::as_str)?;
         if method == "notifications/initialized"
             && self.inner.options.initialized_policy == InitializedPolicy::Ignore
@@ -863,6 +1325,12 @@ impl ServerHost {
             .get("protocolVersion")
             .and_then(Value::as_str)
             .unwrap_or("");
+        let fallback = self
+            .inner
+            .initialize_overrides
+            .as_ref()
+            .and_then(|o| o.default_protocol_version.as_deref())
+            .unwrap_or(PROTOCOL_VERSION);
         let configured = self.inner.protocol_versions.as_deref().unwrap_or(&[]);
         if self.inner.protocol_versions.is_some()
             && (configured.is_empty() || configured.iter().any(String::is_empty))
@@ -895,24 +1363,24 @@ impl ServerHost {
             } else if SUPPORTED_VERSIONS.contains(&requested) {
                 requested
             } else {
-                PROTOCOL_VERSION
+                fallback
             }
         } else if self.inner.protocol_versions.is_some() {
             if configured.iter().any(|v| v == requested) {
                 requested
-            } else if configured.iter().any(|v| v == PROTOCOL_VERSION) {
-                PROTOCOL_VERSION
+            } else if configured.iter().any(|v| v == fallback) {
+                fallback
             } else {
                 configured
                     .iter()
                     .max()
                     .map(String::as_str)
-                    .unwrap_or(PROTOCOL_VERSION)
+                    .unwrap_or(fallback)
             }
         } else if SUPPORTED_VERSIONS.contains(&requested) {
             requested
         } else {
-            PROTOCOL_VERSION
+            fallback
         };
         let p = &self.inner.provider;
         let mut caps = json!({"tools": {}});
@@ -929,6 +1397,20 @@ impl ServerHost {
         });
         if let Some(i) = &self.inner.instructions {
             r["instructions"] = json!(i);
+        }
+        if let Some(o) = &self.inner.initialize_overrides {
+            if let Some(i) = &o.instructions {
+                r["instructions"] = json!(i);
+            }
+            if let Some(info) = &o.server_info {
+                merge_json(&mut r["serverInfo"], info);
+            }
+            if let Some(title) = &o.server_title {
+                r["serverInfo"]["title"] = json!(title);
+            }
+            if let Some(caps) = &o.capabilities {
+                merge_json(&mut r["capabilities"], caps);
+            }
         }
         Ok(r)
     }
@@ -966,7 +1448,11 @@ impl ServerHost {
     ) -> Result<Value> {
         if params.get("name").and_then(Value::as_str).is_none() {
             if self.inner.admission.is_none() {
-                if let Some(result) = self.inner.provider.call_tool(request, &ctx.request) {
+                if let Some(result) = self.inner.provider.call_tool_with_handle(
+                    request,
+                    &ctx.request,
+                    &ctx.call,
+                ) {
                     return result;
                 }
             }
@@ -1016,13 +1502,20 @@ impl ServerHost {
                 return Ok(r.to_value());
             }
         }
-        if let Some(result) = self.inner.provider.call_tool(request, &ctx.request) {
+        if let Some(result) =
+            self.inner
+                .provider
+                .call_tool_with_handle(request, &ctx.request, &ctx.call)
+        {
             return result;
         }
         if descriptor.is_none() {
             return Err(McpError::ToolNotFound(name.into()));
         }
-        self.inner.provider.call(name, args).map(|r| r.to_value())
+        self.inner
+            .provider
+            .call_with_handle(name, args, &ctx.call)
+            .map(|r| r.to_value())
     }
 
     /// Loopback-only HTTP server on `POST /mcp`, bearer-token and Origin gated.
@@ -1337,18 +1830,22 @@ fn handle_http(
     let msg: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
-            let r = rpc_error(&Value::Null, -32700, format!("parse error: {e}"));
+            let r = host.observed_error(
+                ServerTransport::Http { peer },
+                -32700,
+                format!("parse error: {e}"),
+            );
             return respond(&mut s, "400 Bad Request", &[], &r.to_string());
         }
     };
-    let ctx = Ctx {
-        request: RequestContext {
+    let ctx = Ctx::new(
+        RequestContext {
             transport: ServerTransport::Http { peer },
             session,
             metadata: Value::Null,
         },
-        run: run.to_string(),
-    };
+        run.to_string(),
+    );
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let (reply, new_sid) = match host.handle_any(msg, &ctx) {
         Ok(pair) => pair,

@@ -38,9 +38,10 @@ pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
 pub use raw::{to_wire_string, RawJson};
 pub use sanitize::{parse_qualified_name, sanitize_tool_name};
 pub use server::{
-    Admission, AdmissionHook, AdmissionRequest, AsyncRequestHandler, BatchPolicy, HttpServeOptions,
-    HttpServer, IdPolicy, InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext,
-    ServerHost, ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
+    Admission, AdmissionHook, AdmissionRequest, AsyncRequestHandler, BatchPolicy, CallHandle,
+    CancelledResponse, HttpServeOptions, HttpServer, IdPolicy, InitializeOverrides,
+    InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, ResponseInfo, ServerHost,
+    ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
 };
 pub use trust::{fingerprint, PendingApproval, ServerSource, TrustDecision, TrustStore};
 pub use types::*;
