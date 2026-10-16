@@ -18,6 +18,8 @@ pub enum McpError {
         data: serde_json::Value,
     },
     ToolNotFound(String),
+    /// Unknown resource URI; served as JSON-RPC -32002 with the URI in `data`.
+    ResourceNotFound(String),
     /// Refused by an admission hook or a recorded trust denial; nothing ran.
     Denied(String),
     /// Workspace server not yet approved; nothing was spawned or contacted.
@@ -63,6 +65,7 @@ impl fmt::Display for McpError {
             McpError::Rpc { code, message } => write!(f, "rpc error {code}: {message}"),
             McpError::RpcWithData { code, message, .. } => write!(f, "rpc error {code}: {message}"),
             McpError::ToolNotFound(n) => write!(f, "not found: {n}"),
+            McpError::ResourceNotFound(u) => write!(f, "resource not found: {u}"),
             McpError::Denied(m) => write!(f, "denied: {m}"),
             McpError::NotApproved(p) => write!(
                 f,

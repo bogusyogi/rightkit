@@ -12,6 +12,10 @@
 
 - **New: response hook** (rightkit#238). `ServerHost::with_response_hook(|&ResponseInfo { method, response, transport }| ..)` sees every outgoing response (results, errors, parse errors, batch rejection; one call per response frame; none for notifications or replies suppressed for a cancelled request) read only, for logging or metrics. It cannot change the reply, and a panic in it is caught. Not built or run locally.
 
+- **New: response transform** (rightkit#238 item 3). `ServerHost::with_response_transform(|&TransformInfo { method, transport }, result: &mut Value| ..)` rewrites the `result` of a successful response before it is observed and written, for example to add Ember's `resultType`, `ttlMs` and `cacheScope`. It gets only the result value (a working copy), so `id` and `jsonrpc` cannot be touched and framing cannot break; error replies, parse errors and notifications skip it. It runs before the read-only response hook, which therefore sees the transformed reply, and applies per item in a batch. A panic falls back to the untransformed result (no partial edits). Opt-in; replies are unchanged without it. Not built or run locally.
+
+- **Changed: unknown resource URI is JSON-RPC -32002** (rightkit#238 item 4). New `McpError::ResourceNotFound(uri)`, served as code `-32002`, message `Resource not found`, `data: {"uri": ..}` per the MCP resources spec. The default `ToolProvider::read_resource` returns it, and a provider that still returns `ToolNotFound` from `resources/read` gets the same wire error. Unknown tools and prompts keep `-32602`. Additive variant (`McpError` consumers with an exhaustive match need an arm). Not built or run locally.
+
 ## 0.6.0
 
 - **Runtime budget declared as `held-resource`.** `[package.metadata.rightkit] continuous = "held-resource"` with a `resources` table: `McpClient` (child process, reader thread), `AdvancedHttp` (tokio runtime and SSE reader task, `advanced-http` only), `ConnectionPool` (bounded set of clients) and `ServerHost::serve_http` (loopback listener and accept thread). All are owned by a value the caller holds and end on `Drop`; nothing runs at link time. Metadata only; no code change.

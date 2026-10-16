@@ -41,7 +41,7 @@ pub use server::{
     Admission, AdmissionHook, AdmissionRequest, AsyncRequestHandler, BatchPolicy, CallHandle,
     CancelledResponse, HttpServeOptions, HttpServer, IdPolicy, InitializeOverrides,
     InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, ResponseInfo, ServerHost,
-    ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
+    ServerOptions, ServerTransport, StdioInputMode, ToolProvider, TransformInfo,
 };
 pub use trust::{fingerprint, PendingApproval, ServerSource, TrustDecision, TrustStore};
 pub use types::*;

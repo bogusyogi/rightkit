@@ -61,7 +61,7 @@ pub trait ToolProvider: Send + Sync {
         None
     }
     fn read_resource(&self, uri: &str) -> Result<ResourceContents> {
-        Err(McpError::ToolNotFound(uri.into()))
+        Err(McpError::ResourceNotFound(uri.into()))
     }
     /// Complete resources/read payload. Grants are caller claims, not authorization.
     fn read_resource_with_context(&self, uri: &str, _context: &ReadContext<'_>) -> Result<Value> {
@@ -245,6 +245,16 @@ pub struct ResponseInfo<'a> {
 
 type ResponseHook = Arc<dyn Fn(&ResponseInfo<'_>) + Send + Sync>;
 
+/// Context for the transform set with [`ServerHost::with_response_transform`].
+#[derive(Debug, Clone, Copy)]
+pub struct TransformInfo<'a> {
+    /// Method of the request answered (`None` if the request carried no method).
+    pub method: Option<&'a str>,
+    pub transport: ServerTransport,
+}
+
+type ResponseTransform = Arc<dyn Fn(&TransformInfo<'_>, &mut Value) + Send + Sync>;
+
 fn merge_json(base: &mut Value, over: &Value) {
     match (base, over) {
         (Value::Object(b), Value::Object(o)) => {
@@ -390,6 +400,7 @@ struct Inner {
     max_stdio_frame_bytes: usize,
     initialize_overrides: Option<InitializeOverrides>,
     response_hook: Option<ResponseHook>,
+    response_transform: Option<ResponseTransform>,
     cancelled_response: CancelledResponse,
 }
 
@@ -465,6 +476,13 @@ where
         ));
     }
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// MCP "Resource not found": code -32002 with the URI in `data`.
+fn resource_not_found(id: &Value, uri: &str) -> Value {
+    let mut reply = rpc_error(id, -32002, "Resource not found");
+    reply["error"]["data"] = json!({"uri": uri});
+    reply
 }
 
 fn rpc_error(id: &Value, code: i64, message: impl Into<String>) -> Value {
@@ -573,6 +591,7 @@ impl ServerHost {
                 max_stdio_frame_bytes: DEFAULT_MAX_STDIO_FRAME_BYTES,
                 initialize_overrides: None,
                 response_hook: None,
+                response_transform: None,
                 cancelled_response: CancelledResponse::default(),
             }),
         }
@@ -594,6 +613,7 @@ impl ServerHost {
             max_stdio_frame_bytes: i.max_stdio_frame_bytes,
             initialize_overrides: i.initialize_overrides.clone(),
             response_hook: i.response_hook.clone(),
+            response_transform: i.response_transform.clone(),
             cancelled_response: i.cancelled_response,
         };
         f(&mut n);
@@ -641,6 +661,37 @@ impl ServerHost {
         hook: impl Fn(&ResponseInfo<'_>) + Send + Sync + 'static,
     ) -> Self {
         self.rebuild(|i| i.response_hook = Some(Arc::new(hook)))
+    }
+
+    /// Rewrites the `result` of every successful response before it is observed and written, for
+    /// example to add fields to a tool or resource result. The closure receives only the result
+    /// value (a working copy), never the frame: `id` and `jsonrpc` cannot be touched. Error
+    /// responses, parse errors and notifications skip it. It runs before the hook set with
+    /// [`ServerHost::with_response_hook`]. If it panics, the untransformed result is sent.
+    /// Opt-in: without it replies are unchanged.
+    pub fn with_response_transform(
+        self,
+        transform: impl Fn(&TransformInfo<'_>, &mut Value) + Send + Sync + 'static,
+    ) -> Self {
+        self.rebuild(|i| i.response_transform = Some(Arc::new(transform)))
+    }
+
+    fn transform(&self, method: Option<&str>, reply: &mut Value, transport: ServerTransport) {
+        let Some(transform) = &self.inner.response_transform else {
+            return;
+        };
+        let Some(original) = reply.get("result") else {
+            return;
+        };
+        let mut working = original.clone();
+        let info = TransformInfo { method, transport };
+        let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            transform(&info, &mut working)
+        }))
+        .is_ok();
+        if ok {
+            reply["result"] = working;
+        }
     }
 
     /// Chooses whether a request cancelled by the client still gets a reply (default: no, per
@@ -749,7 +800,14 @@ impl ServerHost {
     }
 
     async fn dispatch_async_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
-        let reply = self.dispatch_async_one_inner(msg, ctx).await;
+        let mut reply = self.dispatch_async_one_inner(msg, ctx).await;
+        if let Some(r) = &mut reply {
+            self.transform(
+                msg.get("method").and_then(Value::as_str),
+                r,
+                ctx.request.transport,
+            );
+        }
         if let Some(r) = &reply {
             self.observe(
                 msg.get("method").and_then(Value::as_str),
@@ -798,6 +856,7 @@ impl ServerHost {
         match out {
             Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
             Err(McpError::ToolNotFound(n)) => rpc_error(id, -32602, format!("unknown: {n}")),
+            Err(McpError::ResourceNotFound(uri)) => resource_not_found(id, &uri),
             Err(McpError::Rpc { code, message }) => rpc_error(id, code, message),
             Err(McpError::RpcWithData {
                 code,
@@ -1236,13 +1295,18 @@ impl ServerHost {
     fn handle_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
         let scoped = self.scope_call(msg, ctx);
         let ctx = scoped.as_ref().map_or(ctx, |(c, _)| c);
-        let reply = self.handle_one_inner(msg, ctx)?;
+        let mut reply = self.handle_one_inner(msg, ctx)?;
         if scoped.is_some()
             && ctx.call.is_cancelled()
             && self.inner.cancelled_response == CancelledResponse::Suppress
         {
             return None;
         }
+        self.transform(
+            msg.get("method").and_then(Value::as_str),
+            &mut reply,
+            ctx.request.transport,
+        );
         self.observe(
             msg.get("method").and_then(Value::as_str),
             &reply,
@@ -1302,6 +1366,10 @@ impl ServerHost {
         };
         Some(match out {
             Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            Err(McpError::ResourceNotFound(uri)) => resource_not_found(&id, &uri),
+            Err(McpError::ToolNotFound(n)) if method == "resources/read" => {
+                resource_not_found(&id, &n)
+            }
             Err(McpError::ToolNotFound(n)) => rpc_error(&id, -32602, format!("unknown: {n}")),
             Err(McpError::Rpc { code, message }) => rpc_error(&id, code, message),
             Err(McpError::RpcWithData {

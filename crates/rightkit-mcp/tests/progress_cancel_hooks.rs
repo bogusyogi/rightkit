@@ -375,3 +375,123 @@ fn a_panicking_hook_does_not_stop_serving() {
     let reply = host.dispatch(&json!({"jsonrpc":"2.0","id":1,"method":"ping"}));
     assert_eq!(reply.unwrap()["result"], json!({}));
 }
+
+// ---- response transform (#238 item 3) ----
+
+fn tools_call_ping() -> Value {
+    json!({"jsonrpc":"2.0","id":7,"method":"ping"})
+}
+
+#[test]
+fn transform_rewrites_the_result_only_and_runs_before_the_observer() {
+    let observed: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let sink = observed.clone();
+    let host = ServerHost::new("ember", "9", Arc::new(Quiet))
+        .with_response_hook(move |info| sink.lock().unwrap().push(info.response.clone()))
+        .with_response_transform(|info, result| {
+            assert_eq!(info.method, Some("ping"));
+            result["resultType"] = json!("complete");
+            result["ttlMs"] = json!(0);
+        });
+    let reply = host.dispatch(&tools_call_ping()).unwrap();
+    assert_eq!(reply["id"], 7);
+    assert_eq!(reply["jsonrpc"], "2.0");
+    assert_eq!(reply["result"], json!({"resultType":"complete","ttlMs":0}));
+    assert_eq!(observed.lock().unwrap()[0], reply, "the observer saw the transformed reply");
+}
+
+#[test]
+fn transform_skips_errors_and_notifications() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let c = calls.clone();
+    let host = ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_transform(move |_, r| {
+        *c.lock().unwrap() += 1;
+        r["x"] = json!(1);
+    });
+    let err = host
+        .dispatch(&json!({"jsonrpc":"2.0","id":1,"method":"nope"}))
+        .unwrap();
+    assert!(err.get("error").is_some() && err.get("result").is_none());
+    assert!(host
+        .dispatch(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+        .is_none());
+    let mut out = Vec::new();
+    host.serve_stdio_on(io::Cursor::new("not json\n"), &mut out).unwrap();
+    assert!(String::from_utf8(out).unwrap().contains("\"error\""));
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[test]
+fn transform_applies_per_item_in_a_batch_and_on_stdio() {
+    let host = ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_transform(|_, r| {
+        r["tagged"] = json!(true);
+    });
+    let batch = host
+        .dispatch(&json!([
+            {"jsonrpc":"2.0","id":1,"method":"ping"},
+            {"jsonrpc":"2.0","id":2,"method":"ping"},
+        ]))
+        .unwrap();
+    for item in batch.as_array().unwrap() {
+        assert_eq!(item["result"]["tagged"], true);
+    }
+    let mut out = Vec::new();
+    host.serve_stdio_on(io::Cursor::new("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n"), &mut out)
+        .unwrap();
+    let v: Value = serde_json::from_slice(out.split(|b| *b == b'\n').next().unwrap()).unwrap();
+    assert_eq!(v["result"]["tagged"], true);
+}
+
+#[test]
+fn a_panicking_transform_falls_back_to_the_untransformed_result() {
+    let host = ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_transform(|_, r| {
+        r["partial"] = json!(1);
+        panic!("transform bug");
+    });
+    let reply = host.dispatch(&tools_call_ping()).unwrap();
+    assert_eq!(reply["id"], 7);
+    assert_eq!(reply["result"], json!({}), "no partial edits leak out of a panic");
+}
+
+// ---- resource not found (#238 item 4) ----
+
+#[test]
+fn unknown_resource_uri_is_minus_32002_with_the_uri_in_data() {
+    let host = ServerHost::new("ember", "9", Arc::new(Quiet));
+    let reply = host
+        .dispatch(&json!({"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"file:///nope"}}))
+        .unwrap();
+    assert_eq!(reply["id"], 5);
+    assert_eq!(reply["error"]["code"], -32002);
+    assert_eq!(reply["error"]["message"], "Resource not found");
+    assert_eq!(reply["error"]["data"], json!({"uri":"file:///nope"}));
+}
+
+struct LegacyResources;
+
+impl ToolProvider for LegacyResources {
+    fn list(&self) -> Vec<ToolDescriptor> {
+        vec![]
+    }
+    fn call(&self, name: &str, _args: Value) -> Result<ToolResult> {
+        Err(McpError::ToolNotFound(name.into()))
+    }
+    fn read_resource(&self, uri: &str) -> Result<ResourceContents> {
+        Err(McpError::ToolNotFound(uri.into()))
+    }
+}
+
+#[test]
+fn a_provider_returning_tool_not_found_for_a_resource_still_gets_minus_32002() {
+    let host = ServerHost::new("ember", "9", Arc::new(LegacyResources));
+    let reply = host
+        .dispatch(&json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"x://y"}}))
+        .unwrap();
+    assert_eq!(reply["error"]["code"], -32002);
+    assert_eq!(reply["error"]["data"]["uri"], "x://y");
+    // Unknown tools keep their code.
+    let tool = host
+        .dispatch(&json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"zzz","arguments":{}}}))
+        .unwrap();
+    assert_eq!(tool["error"]["code"], -32602);
+}
