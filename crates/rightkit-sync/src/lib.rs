@@ -15,6 +15,7 @@ pub mod http;
 mod ledger;
 mod memory;
 mod record;
+mod schedule;
 mod storage;
 mod traits;
 pub mod wire;
@@ -28,5 +29,9 @@ pub use error::{SyncError, SyncResult};
 pub use ledger::{ConsentRequest, Ledger, LedgerStore, RemoteVersion};
 pub use memory::MemoryBackend;
 pub use record::{field, read_tombstone, write_tombstone, FieldValue, RawRecord};
+pub use schedule::{
+    next_delay, should_continue, sync_once, work_outcome, SchedulePolicy, SyncBudget, SyncReport,
+    WorkOutcome,
+};
 pub use storage::{FileStorage, LedgerStorage, MemoryStorage};
 pub use traits::*;

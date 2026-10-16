@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+Nothing compiled or run locally; verification is the CI run.
+
+- **New: `schedule` module** (rightkit#155): `sync_once(&mut engine, &SyncBudget, &SchedulePolicy) -> SyncReport`, one bounded unit of sync for a host scheduler (Android WorkManager first), plus the pure `next_delay`, `work_outcome` and `should_continue`. `WorkOutcome` (`Success`/`Retry`/`Failure`) maps to WorkManager results. Never sleeps or spawns; the default budget is one pass. Suggested delay: 900 s idle, the engine's figure after `Pending`/`Deferred`/failure, never below 15 s, `None` for `Disabled` and `ConsentRequired`. New exports: `sync_once`, `next_delay`, `work_outcome`, `should_continue`, `SyncBudget`, `SchedulePolicy`, `SyncReport`, `WorkOutcome`. Unit tests in `src/schedule.rs`.
+- `BackoffPolicy` now derives `PartialEq`.
+- Docs: Android requirements of the `drive` path (no `target_os` cfgs; `--no-default-features --features drive`; TLS root store needs the `rightkit-android` `platform-verifier` init or `TrustRoots::Bundled`, rightkit#149) in the `drive` module docs and README, with the Kotlin call contract.
+
 ## 0.2.0
 
 Nothing compiled or run locally; verification is the CI run.

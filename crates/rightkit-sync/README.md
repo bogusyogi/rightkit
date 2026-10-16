@@ -40,9 +40,25 @@ Every deletion an encrypting client applies is authenticated: a tombstone the se
 
 The exact analysis, the Drive endpoints used and the error mapping (401 to `Unavailable`, 403 rate limits, 429 and 5xx to `RetryAfter`, 404 to absent or `ZoneMissing`, other 4xx to `Unavailable`) are in the `drive` module docs. Removals seen in the change feed are never turned into deletions (a user clearing the app's hidden Drive data must not delete local data); a removed zone folder yields `ZoneMissing` and the engine republishes local items. What goes into a record (transcripts only? attachments?) and the per-record size cap (`DriveConfig::max_record_bytes`, 1 MiB) are decided by the app. Tests run against an in-process fake (`tests/common/fake_drive.rs`, `tests/drive_backend.rs`, `tests/drive_two_engines.rs`); Drive's real behaviour has not been exercised.
 
+## Scheduling and Android (WorkManager)
+
+`sync_once(&mut engine, &SyncBudget, &SchedulePolicy) -> SyncReport` (module `schedule`, always compiled, platform-neutral) runs one bounded unit of sync and tells the host what to do next. It never sleeps and spawns no thread; it checks the elapsed budget between passes only (it cannot interrupt a running pass; the backend's HTTP timeouts bound that). The default budget is one pass. The engine's own backoff is kept in the ledger, so it survives the process being killed between WorkManager runs.
+
+`SyncReport` carries `passes`, the last `outcome`, the summed `uploaded`/`downloaded`/`tombstones_*`/`quarantined`, `elapsed_ms`, a `work: WorkOutcome`, `next_delay_secs: Option<f64>` and `consent_required`. The pure helpers `next_delay`, `work_outcome` and `should_continue` are public and unit tested. Suggested delay: `idle_secs` (900) after `Synced`, the engine's figure after `Pending`, `Deferred` and failures (exponential 15 s doubling to 900 s, a server hint never shortened), never below `min_secs` (15), and `None` for `Disabled` and `ConsentRequired`.
+
+**Kotlin call contract.** `rightkit-android` exposes only its own bridge (init, paths, Keystore, logcat); it exposes no other crate, so this crate is not added to it. The app's own cdylib (which links `rightkit-android`) wraps `sync_once` in its UniFFI surface, for example `fun syncOnce(maxPasses: UInt, maxElapsedMs: ULong): SyncReportFfi`, and the app's `CoroutineWorker`/`Worker` calls it:
+
+1. `RightKit.init(context, ...)` ran in `Application.onCreate` (this also initialises the TLS verifier, see below). Build the engine once per process (a `DriveBackend` over a `rightkit-http` `Client`, `FileStorage` under `filesDir`).
+2. In `doWork()` (a background thread, never the main thread), fetch a fresh Drive access token from `AuthorizationClient` and hand it to the `DriveTokenSource`; call `syncOnce`.
+3. Map `work`: `Success` -> `Result.success()`, `Retry` -> `Result.retry()`, `Failure` -> `Result.failure()` (surface `consentRequired` in the UI and call `grant_consent`).
+4. Enqueue the next run as a `OneTimeWorkRequest` with `setInitialDelay(nextDelaySecs)` (WorkManager's periodic minimum is 15 minutes and its `retry()` backoff is its own; a one-time chain keeps the engine's delay) and a network constraint. Do not enqueue when `nextDelaySecs` is `None`.
+
+**TLS roots on Android (rightkit#149).** `rightkit-http` defaults to the OS verifier (`rustls-platform-verifier`), which on Android needs the `JavaVM` and `Context` initialised once per process before the first request (`rightkit-android`'s `platform-verifier` feature does it inside `RightKit.init`; the verifier's Kotlin artifact must be on the classpath). Until then requests fail closed. An app that has not wired it builds its `Client` with `TrustRoots::Bundled`. Build the crate for Android with `--no-default-features --features drive` (plus `cipher` if used). Nothing here is compiled for an Android target yet.
+
 ## Platform support
 
 - macOS: the CloudKit helper backend. The helper is a separate Swift binary.
+- Android: the `drive` backend (no cfgs in this crate; see "Scheduling and Android"). Not built for an Android target yet.
 - Windows: `cfg(windows)` process handling in `src/helper/process.rs`.
 - The engine, `MemoryBackend`, and the fake helper (repository only) are portable Rust.
 

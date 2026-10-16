@@ -7,6 +7,31 @@
 //! service) is parked and `drive` replaces it for Windows, Linux and Android. Call it from the
 //! engine's worker thread, never from an async task.
 //!
+//! # Android
+//!
+//! Nothing in the `drive` path is Apple- or desktop-only: it uses `rightkit-http`'s blocking
+//! client (`ureq` with rustls), `rightkit-fs` (`fs` and `digest`, unix `libc`), `serde_json` and,
+//! with `cipher`, `ring` and `zeroize`. There is no `target_os` or `target_vendor` cfg in this
+//! crate. Build it with `--no-default-features --features drive` (add `cipher` if wanted) so the
+//! CloudKit `helper` module and the `rightkit-child-process` dependency stay out.
+//!
+//! **Requirement (rightkit#149): the TLS root store.** `rightkit-http` verifies servers with the
+//! OS verifier (`TrustRoots::Platform`, `rustls-platform-verifier`). On Android that verifier needs
+//! the `JavaVM` and the application `Context` once per process, before the first request, and its
+//! Kotlin component on the app classpath. Until then the handshake fails closed (a request error,
+//! never another root set), so the engine backs off. The `Client` is the caller's: an app that has not
+//! wired the verifier can build it with `TrustRoots::Bundled`, which needs no JNI. Otherwise `rightkit-android`
+//! does the initialisation: call `RightKit.init(context)` in `Application.onCreate` of every
+//! process that syncs, with that crate's `platform-verifier` feature enabled in the app's cdylib
+//! (or call `rustls_platform_verifier::android::init_with_env` yourself from
+//! `rightkit_android::ContextHandleExt::with_env`). This crate does not depend on
+//! `rightkit-android` and cannot check it; the host must initialise first.
+//!
+//! The access token is the host's: Kotlin obtains it (Google `AuthorizationClient`, scope
+//! `drive.appdata`) and the cdylib hands it to a [`DriveTokenSource`] ([`FnToken`]). Run the
+//! engine from a worker thread (WorkManager `doWork` already is one) through
+//! [`crate::sync_once`].
+//!
 //! # Layout
 //!
 //! * One **zone** is one folder named `zone` directly inside `appDataFolder`.

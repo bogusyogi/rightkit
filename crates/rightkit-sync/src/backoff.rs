@@ -1,5 +1,5 @@
 /// Deterministic exponential backoff merged with server hints.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackoffPolicy {
     pub base_secs: f64,
     pub max_secs: f64,
