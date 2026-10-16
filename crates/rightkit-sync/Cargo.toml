@@ -24,6 +24,8 @@ process-usage = ["dep:rightkit-child-process"]
 cipher = ["dep:ring", "dep:zeroize"]
 # `http` module: blocking `HttpBackend` and `HttpAuth` for the `rightkit-sync-http/1` protocol,
 # over `rightkit-http`'s blocking client (ureq, platform verifier).
+# PARKED 2026-10-16: the RightKit sync service is parked (own-cloud sync instead). The feature is kept
+# for the record and is not a supported backend; do not enable it in apps.
 http = ["dep:rightkit-http", "rightkit-fs/digest"]
 
 [dependencies]
