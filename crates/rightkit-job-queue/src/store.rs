@@ -32,6 +32,11 @@ mod import;
 pub use import::{ImportOptions, ImportRecord, Imported, MAX_IMPORT_BATCH};
 mod page;
 pub use page::{Cursor, ListPage};
+mod deferred;
+pub use deferred::{
+    Admitted, DeferredFlush, DeferredKind, DeferredOp, DeleteLater, ProvisionalJob,
+    MAX_DEFERRED_OPS,
+};
 mod settle;
 pub(crate) use settle::{is_storage_error, projected, LifecycleEvent, Settle, SettleRequest};
 pub use settle::{
@@ -569,6 +574,9 @@ pub struct JobStore {
     st_relaxed: AtomicU64,
     /// Terminal writes held for a later retry, and jobs being announced (see `store/settle.rs`).
     settle: settle::SettleState,
+    /// Admissions, extension writes and deletes held while storage was unavailable (see
+    /// `store/deferred.rs`).
+    deferred: deferred::DeferredState,
 }
 
 impl JobStore {
@@ -691,6 +699,7 @@ impl JobStore {
             st_coalesced: AtomicU64::new(0),
             st_relaxed: AtomicU64::new(0),
             settle: settle::SettleState::new(&options.path),
+            deferred: deferred::DeferredState::default(),
         };
         // A terminal write an earlier run could not store (see `store/settle.rs`) lands now.
         // Fails the open when the journal directory exists and cannot be listed: see there.
@@ -779,6 +788,18 @@ impl JobStore {
     ///   the job's [`crate::JobLocks`] lock to know its runner has gone. The new job is returned
     ///   at once and may be run immediately.
     pub fn submit_with(&self, n: &NewJob, ext: &Ext, opts: &SubmitOptions) -> JobResult<Submitted> {
+        self.submit_with_id(n, ext, opts, None)
+    }
+
+    /// [`JobStore::submit_with`] under a chosen job id (`None`: a new one). A held admission
+    /// (see `store/deferred.rs`) lands under the id it was given when it was admitted.
+    pub(crate) fn submit_with_id(
+        &self,
+        n: &NewJob,
+        ext: &Ext,
+        opts: &SubmitOptions,
+        preset_id: Option<&str>,
+    ) -> JobResult<Submitted> {
         let (names, vals) = self.encode_new_ext(ext)?;
         if opts.single_flight.as_deref() == Some("") {
             return Err(JobError::bad_input("single-flight key is empty"));
@@ -806,7 +827,7 @@ impl JobStore {
             Some(p) => self.prune_in(&tx, p)?,
             None => PruneReport::default(),
         };
-        let (id, rec) = self.insert_new(&tx, n, &names, vals)?;
+        let (id, rec) = self.insert_new(&tx, n, &names, vals, preset_id)?;
         if opts.recovery != Recovery::default() || opts.single_flight.is_some() {
             tx.execute(
                 "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
@@ -893,8 +914,11 @@ impl JobStore {
         n: &NewJob,
         names: &[String],
         vals: Vec<rusqlite::types::Value>,
+        preset_id: Option<&str>,
     ) -> JobResult<(String, JobRecord)> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = preset_id
+            .map(str::to_string)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let t = now();
         let mut cols =
             "job_id, request_id, kind, request_json, status, attempts, created_at, updated_at"
@@ -946,7 +970,7 @@ impl JobStore {
                 return Ok(j);
             }
         }
-        let (id, rec) = self.insert_new(&tx, n, &names, vals)?;
+        let (id, rec) = self.insert_new(&tx, n, &names, vals, None)?;
         let t =
             Transition::to(FAILED).error(Some(error.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &rec, &t)?;
@@ -1176,6 +1200,10 @@ impl JobStore {
     /// - [`ClaimScope::All`]: the artifact paths of every job row still in the store, whatever its
     ///   status, followed by `<scratch_root>/<job_id>` of every row when
     ///   [`StoreConfig::scratch_root`] is set. Rows already deleted or pruned claim nothing.
+    ///
+    /// With [`StoreConfig::work_root`] set, `<work_root>/<request_id>` of each job with a
+    /// request id is claimed too: of the non-terminal jobs for `NonTerminal`, of every job
+    /// still in the store for `All`.
     pub fn claimed_paths_with(&self, scope: ClaimScope) -> JobResult<Vec<PathBuf>> {
         let conn = self.c();
         let filter = match scope {
@@ -1201,6 +1229,28 @@ impl JobStore {
                     ids.into_iter()
                         .map(|id| root.join(id).to_string_lossy().into_owned()),
                 );
+            }
+        }
+        if !self.cfg.work_roots.is_empty() {
+            let filter = match scope {
+                ClaimScope::NonTerminal => {
+                    format!("AND status IN {}", self.cfg.statuses.sql_set())
+                }
+                ClaimScope::All => String::new(),
+            };
+            let mut st = conn.prepare(&format!(
+                "SELECT request_id FROM jobs WHERE request_id IS NOT NULL {filter}                  ORDER BY created_at, rowid"
+            ))?;
+            let rids = st
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            for rid in rids {
+                if delete::single_component(&rid).is_none() {
+                    continue;
+                }
+                for root in &self.cfg.work_roots {
+                    all.push(root.join(&rid).to_string_lossy().into_owned());
+                }
             }
         }
         let mut seen = std::collections::HashSet::new();

@@ -886,26 +886,70 @@ impl ReadPool {
 
     /// Checks out an idle reader, opens a new one while under the cap, or waits for a return.
     /// Fails with [`DbError::ReadPoolClosed`] once the pool is closed, including while waiting.
+    /// The wait has no bound; use [`Self::get_timeout`] to give up after a deadline.
     pub fn get(&self) -> Result<PooledReadConnection> {
+        match self.checkout(None)? {
+            Some(reader) => Ok(reader),
+            // Unreachable: an unbounded wait ends only with a reader or an error.
+            None => Err(DbError::ReadPoolClosed),
+        }
+    }
+
+    /// [`Self::get`] with a bounded wait. Returns `Ok(Some(reader))` as soon as a reader is idle
+    /// or can be opened under the cap, and `Ok(None)` if none frees up within `timeout`. A zero
+    /// `timeout` never waits: it returns an idle or newly opened reader, or `Ok(None)`. If the
+    /// pool is closed, or closes while waiting, the result is [`DbError::ReadPoolClosed`], never
+    /// `Ok(None)`. Opening a new reader is not bounded by `timeout`. A timeout too large for the
+    /// clock waits in bounded slices until a reader frees up or the pool closes.
+    pub fn get_timeout(&self, timeout: Duration) -> Result<Option<PooledReadConnection>> {
+        self.checkout(Some(timeout))
+    }
+
+    /// Shared checkout. `wait` is `None` for no deadline.
+    fn checkout(&self, wait: Option<Duration>) -> Result<Option<PooledReadConnection>> {
+        let started = Instant::now();
+        let deadline = wait.and_then(|wait| started.checked_add(wait));
         let mut state = lock_recover(&self.inner.state);
         loop {
             if state.closed {
                 return Err(DbError::ReadPoolClosed);
             }
             if let Some(conn) = state.idle.pop() {
-                return Ok(PooledReadConnection {
+                return Ok(Some(PooledReadConnection {
                     conn: Some(conn),
                     pool: Arc::downgrade(&self.inner),
-                });
+                }));
             }
             if state.total < self.inner.cap {
                 state.total += 1;
                 drop(state);
-                return self.open_checked_out();
+                return self.open_checked_out().map(Some);
             }
-            state = match self.inner.available.wait(state) {
-                Ok(state) => state,
-                Err(poisoned) => poisoned.into_inner(),
+            state = match (wait, deadline) {
+                (None, _) => match self.inner.available.wait(state) {
+                    Ok(state) => state,
+                    Err(poisoned) => poisoned.into_inner(),
+                },
+                (Some(_), Some(at)) => {
+                    let remaining = at.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Ok(None);
+                    }
+                    match self.inner.available.wait_timeout(state, remaining) {
+                        Ok((state, _)) => state,
+                        Err(poisoned) => poisoned.into_inner().0,
+                    }
+                }
+                (Some(_), None) => {
+                    match self
+                        .inner
+                        .available
+                        .wait_timeout(state, Duration::from_secs(60))
+                    {
+                        Ok((state, _)) => state,
+                        Err(poisoned) => poisoned.into_inner().0,
+                    }
+                }
             };
         }
     }

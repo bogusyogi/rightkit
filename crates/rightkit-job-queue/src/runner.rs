@@ -42,6 +42,30 @@ pub struct JobLock {
     _lock: FileLock,
 }
 
+impl JobLock {
+    /// Release the lock and delete its `<id>.lock` file. The runner calls this once the job's
+    /// terminal state is stored, so finished jobs leave no lock files behind. Only for a job
+    /// that will not run again: a runner that opened the old file just before it was removed
+    /// could lock a file nobody else sees (see [`JobLocks::sweep`]). Removal is best effort; a
+    /// file that cannot be removed is left for [`JobLocks::sweep`].
+    pub(crate) fn release_removing(self) {
+        let path = self._lock.path().to_path_buf();
+        // Unix: unlink while the lock is still held, so no other process locks the old file
+        // between the release and the removal. Elsewhere an open lock file cannot be removed:
+        // release first, and a file another process has opened simply stays.
+        #[cfg(unix)]
+        {
+            let _ = std::fs::remove_file(&path);
+            drop(self);
+        }
+        #[cfg(not(unix))]
+        {
+            drop(self);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 fn lock_error(error: FsError) -> JobError {
     match error {
         FsError::Io { path, source } => JobError::from(std::io::Error::new(
@@ -80,6 +104,58 @@ impl JobLocks {
             Err(FsError::Locked { .. }) => Ok(None),
             Err(error) => Err(lock_error(error)),
         }
+    }
+
+    /// Delete the lock file of `job_id` if nobody holds it. `Ok(true)` when a file was removed,
+    /// `Ok(false)` when there was none or it is held. Call it only for a job that is finished or
+    /// gone: a runner that locks the file while it is being removed could end up holding a lock
+    /// on a file nobody else sees.
+    pub fn remove(&self, job_id: &str) -> JobResult<bool> {
+        let path = self.path(job_id)?;
+        if !path.exists() {
+            return Ok(false);
+        }
+        Ok(match self.try_lock(job_id)? {
+            Some(lock) => {
+                lock.release_removing();
+                // A record of a dead owner that an earlier crash left beside the lock file.
+                let mut owner = path.as_os_str().to_os_string();
+                owner.push(".owner");
+                let _ = std::fs::remove_file(PathBuf::from(owner));
+                !path.exists()
+            }
+            None => false,
+        })
+    }
+
+    /// Remove every unheld `<id>.lock` file in the directory whose job id `keep` rejects (return
+    /// `true` for a job that may still run). Held locks are never touched. Returns the job ids
+    /// whose files were removed, sorted. Files that are not `<id>.lock` are ignored. This is the
+    /// sweep an app runs at startup for locks left by crashed runs and by jobs that ended before
+    /// 0.3.2. See [`JobLocks::remove`] for when it is safe.
+    pub fn sweep(&self, keep: impl Fn(&str) -> bool) -> JobResult<Vec<String>> {
+        let mut removed = Vec::new();
+        let Ok(rd) = std::fs::read_dir(&self.dir) else {
+            return Ok(removed);
+        };
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(id) = name.strip_suffix(".lock") else {
+                continue;
+            };
+            if id.is_empty() || keep(id) {
+                continue;
+            }
+            // A name `path` would refuse (a dot in the id) is not ours.
+            if self.path(id).is_err() {
+                continue;
+            }
+            if self.remove(id)? {
+                removed.push(id.to_string());
+            }
+        }
+        removed.sort();
+        Ok(removed)
     }
 }
 
@@ -934,6 +1010,9 @@ impl Runner {
                 _ => ("cancelled", None),
             };
             self.implicit_final(ctl, &now, stage, progress, Some(SETTLED_BY_HANDLER));
+            if let Some(lock) = lock {
+                lock.release_removing();
+            }
             return Ok(RunOutcome::Finished(now));
         }
         // A held row waits for `resolve`: the handler did hand the outcome on.
@@ -1008,6 +1087,15 @@ impl Runner {
                 }
             }
         }
+    }
+
+    /// Remove the lock files of jobs that are terminal or no longer in the store, and are not
+    /// held (see [`JobLocks::sweep`]). A job that is queued, running or held keeps its file.
+    /// Returns the job ids whose files were removed.
+    pub fn sweep_job_locks(&self) -> JobResult<Vec<String>> {
+        let live: std::collections::HashSet<String> =
+            self.store.non_terminal_ids()?.into_iter().collect();
+        self.locks.sweep(|id| live.contains(id))
     }
 
     /// Remove per-job scratch directories (`<root>/<job_id>`) that no

@@ -67,11 +67,12 @@ pub use sched::{Gate, InteractiveGuard, Priority};
 pub use service::DispatcherHandler;
 #[cfg(feature = "store")]
 pub use store::{
-    Adoption, Artifact, CancelToken, ClaimScope, Cursor, DeleteOptions, DeleteReport, Event,
-    FlushReport, ImportOptions, ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter,
-    ListPage, NewJob, OpenRecovery, ProgressStats, PrunePolicy, PruneReport, Recovery, Resolution,
-    Settlement, SettlementShutdown, Submission, SubmissionRecord, SubmitOptions, Submitted,
-    Transition, UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE, FAILED, MAX_EVENTS,
+    Adoption, Admitted, Artifact, CancelToken, ClaimScope, Cursor, DeferredFlush, DeferredKind,
+    DeferredOp, DeleteLater, DeleteOptions, DeleteReport, Event, FlushReport, ImportOptions,
+    ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter, ListPage, NewJob, OpenRecovery,
+    ProgressStats, PrunePolicy, PruneReport, ProvisionalJob, Recovery, Resolution, Settlement,
+    SettlementShutdown, Submission, SubmissionRecord, SubmitOptions, Submitted, Transition,
+    UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE, FAILED, MAX_DEFERRED_OPS, MAX_EVENTS,
     MAX_IMPORT_BATCH, MAX_PENDING_SETTLEMENTS, MAX_PENDING_SETTLEMENT_BYTES, META_TABLE,
     PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
 };

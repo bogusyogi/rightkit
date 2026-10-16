@@ -170,12 +170,16 @@ pub struct SettlementShutdown {
     /// [`UnsettledJob::durable`] are applied at the next open; the others are lost with the
     /// process, and the next open sees them as unfinished.
     pub unsettled: Vec<UnsettledJob>,
+    /// Admissions, extension writes and deletes still held in memory (see
+    /// [`JobStore::admit`], [`JobStore::set_ext_later`], [`JobStore::delete_later`]). They are not
+    /// journalled: they are lost with the process.
+    pub deferred: Vec<crate::DeferredOp>,
 }
 
 impl SettlementShutdown {
     /// Nothing finished is left unstored.
     pub fn is_clean(&self) -> bool {
-        self.unsettled.is_empty()
+        self.unsettled.is_empty() && self.deferred.is_empty()
     }
 }
 
@@ -534,6 +538,12 @@ impl JobStore {
                     // The stored outcome is this one; the stale held write is moot.
                     self.take_entry(&job_id);
                 }
+                // The job is terminal: its lock file goes with its claim.
+                if let Some(claim) = claim {
+                    if record.job.is_terminal() {
+                        claim.release_removing();
+                    }
+                }
                 // A sink may flush; so does `after_write`.
                 drop(flush_guard);
                 if owner {
@@ -566,10 +576,16 @@ impl JobStore {
                     event: None,
                 })
             }
-            Ok(None) => Ok(Settle::Written {
-                record: None,
-                event: None,
-            }),
+            Ok(None) => {
+                // Already terminal (cancelled meanwhile): the claim and its lock file go.
+                if let Some(claim) = claim {
+                    claim.release_removing();
+                }
+                Ok(Settle::Written {
+                    record: None,
+                    event: None,
+                })
+            }
             Err(e) if defer && is_storage_error(&e) => {
                 let bytes = entry_bytes(&job_id, &transition, &event);
                 let entry = Entry {
@@ -821,6 +837,7 @@ impl JobStore {
     /// Run after a store write completed: retry the held writes that are due. Cheap when nothing
     /// is held. Never called with the connection locked.
     pub(super) fn after_write(&self) {
+        self.after_write_deferred();
         if self.settle.len.load(Ordering::Relaxed) == 0 {
             return;
         }
@@ -865,7 +882,10 @@ impl JobStore {
             match self.transition_event_in(&w.job_id, w.generation, &w.transition, w.event.as_ref())
             {
                 Ok(done) => {
-                    let entry = self.take_entry(&w.job_id);
+                    let mut entry = self.take_entry(&w.job_id);
+                    if let Some(claim) = entry.as_mut().and_then(|e| e.claim.take()) {
+                        claim.release_removing();
+                    }
                     if let (Some(Some(sink)), Some((_, Some(ev)))) =
                         (entry.as_ref().map(|e| e.sink.clone()), done)
                     {
@@ -936,10 +956,14 @@ impl JobStore {
     /// process. `Runner::shutdown_detailed` and `StagedPool::shutdown_detailed` call this.
     pub fn shutdown_detailed(&self) -> SettlementShutdown {
         let report = self.flush_pending_settlements();
+        let deferred = self.flush_deferred();
+        let mut dropped = report.dropped;
+        dropped.extend(deferred.dropped);
         SettlementShutdown {
             settled: report.settled,
-            dropped: report.dropped,
+            dropped,
             unsettled: self.pending_settlements(),
+            deferred: self.pending_deferred(),
         }
     }
 

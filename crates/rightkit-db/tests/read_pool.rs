@@ -295,3 +295,122 @@ fn defaults_are_unchanged_when_the_new_options_are_not_used() {
     // Read-write file handles stay the default; read-only is opt-in.
     assert!(!pooled.is_readonly("main").unwrap());
 }
+
+#[test]
+fn get_timeout_returns_none_after_about_the_duration_when_every_reader_is_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    let held = pool.get().unwrap();
+
+    let started = std::time::Instant::now();
+    let outcome = pool.get_timeout(Duration::from_millis(150)).map(|r| r.is_some());
+    let waited = started.elapsed();
+    assert!(matches!(outcome, Ok(false)), "got {outcome:?}");
+    assert!(waited >= Duration::from_millis(140), "returned early: {waited:?}");
+    assert!(waited < Duration::from_secs(5), "waited too long: {waited:?}");
+    // A timed-out wait takes nothing from the pool.
+    assert_eq!(pool.total_len(), 1);
+    drop(held);
+    assert!(pool.get_timeout(Duration::from_millis(50)).unwrap().is_some());
+}
+
+#[test]
+fn get_timeout_with_zero_duration_never_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    // An idle reader is handed out even with a zero timeout.
+    let held = pool.get_timeout(Duration::ZERO).unwrap().expect("idle reader");
+    let started = std::time::Instant::now();
+    assert!(pool.get_timeout(Duration::ZERO).unwrap().is_none());
+    assert!(started.elapsed() < Duration::from_secs(2));
+    drop(held);
+}
+
+#[test]
+fn get_timeout_opens_a_new_reader_while_under_the_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(2).unwrap();
+    let first = pool.get().unwrap();
+    let second = pool
+        .get_timeout(Duration::from_millis(50))
+        .unwrap()
+        .expect("under the cap a reader opens");
+    assert_eq!(pool.total_len(), 2);
+    drop((first, second));
+}
+
+#[test]
+fn get_timeout_hands_out_a_reader_returned_inside_the_duration() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    let held = pool.get().unwrap();
+    let waiting = pool.clone();
+    let waiter = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let got = waiting
+            .get_timeout(Duration::from_secs(10))
+            .map(|reader| reader.is_some());
+        (got.map_err(|e| e.to_string()), started.elapsed())
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    drop(held);
+    let (got, waited) = waiter.join().unwrap();
+    assert_eq!(got, Ok(true));
+    assert!(waited < Duration::from_secs(8), "waited {waited:?}");
+}
+
+#[test]
+fn closing_the_pool_while_get_timeout_waits_returns_read_pool_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    let held = pool.get().unwrap();
+    let waiting = pool.clone();
+    let waiter = std::thread::spawn(move || {
+        waiting
+            .get_timeout(Duration::from_secs(30))
+            .map(|reader| reader.is_some())
+    });
+    std::thread::sleep(Duration::from_millis(100));
+
+    pool.close();
+    let outcome = waiter.join().unwrap();
+    assert!(
+        matches!(outcome, Err(DbError::ReadPoolClosed)),
+        "waiter returned {outcome:?}"
+    );
+    drop(held);
+    assert_eq!(pool.total_len(), 0);
+}
+
+#[test]
+fn get_timeout_on_a_closed_pool_is_read_pool_closed_not_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    pool.close();
+    let outcome = pool.get_timeout(Duration::ZERO).map(|reader| reader.is_some());
+    assert!(matches!(outcome, Err(DbError::ReadPoolClosed)), "got {outcome:?}");
+}
+
+#[test]
+fn get_timeout_with_an_enormous_duration_still_returns_a_returned_reader() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = options.open_read_pool(1).unwrap();
+    let held = pool.get().unwrap();
+    let waiting = pool.clone();
+    let waiter = std::thread::spawn(move || {
+        waiting
+            .get_timeout(Duration::MAX)
+            .map(|reader| reader.is_some())
+            .map_err(|e| e.to_string())
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    drop(held);
+    assert_eq!(waiter.join().unwrap(), Ok(true));
+}

@@ -48,7 +48,9 @@ pub struct DeleteOptions {
 pub struct DeleteReport {
     /// The rows removed (jobs, events, artifact rows with their paths, submissions).
     pub prune: PruneReport,
-    /// Artifact files or directories removed, as recorded on the artifact rows.
+    /// Artifact files or directories removed, as recorded on the artifact rows, followed by the
+    /// per-request work directories removed (`<work_root>/<request_id>`, see
+    /// [`crate::StoreConfig::work_root`]).
     pub removed: Vec<PathBuf>,
     /// Artifact paths that were already missing.
     pub already_gone: Vec<PathBuf>,
@@ -70,6 +72,8 @@ struct Plan {
     job_dirs: Vec<PathBuf>,
     /// `<scratch_root>/<job_id>`.
     scratch: Option<PathBuf>,
+    /// `<work_root>/<request_id>` for each configured work root.
+    work_dirs: Vec<PathBuf>,
 }
 
 enum Removal {
@@ -140,7 +144,7 @@ fn resolve_inside(p: &Path, roots: &[PathBuf]) -> JobResult<PathBuf> {
 
 /// `id` as a single plain path component, or `None` (a job id like `../x` gets no directory
 /// cleanup).
-fn single_component(id: &str) -> Option<&str> {
+pub(super) fn single_component(id: &str) -> Option<&str> {
     let mut comps = Path::new(id).components();
     match (comps.next(), comps.next()) {
         (Some(Component::Normal(n)), None) if n == std::ffi::OsStr::new(id) => Some(id),
@@ -178,7 +182,17 @@ fn remove_target(t: &Path) -> JobResult<Removal> {
 
 impl JobStore {
     fn files_managed(&self) -> bool {
-        !self.cfg.artifact_roots.is_empty() || self.cfg.scratch_root.is_some()
+        !self.cfg.artifact_roots.is_empty()
+            || self.cfg.scratch_root.is_some()
+            || !self.cfg.work_roots.is_empty()
+    }
+
+    fn work_roots_canonical(&self) -> JobResult<Vec<PathBuf>> {
+        self.cfg
+            .work_roots
+            .iter()
+            .map(|r| canonical_deep(r))
+            .collect()
     }
 
     fn artifact_roots_canonical(&self) -> JobResult<Vec<PathBuf>> {
@@ -194,6 +208,7 @@ impl JobStore {
         if let Some(s) = &self.cfg.scratch_root {
             roots.push(canonical_deep(s)?);
         }
+        roots.extend(self.work_roots_canonical()?);
         Ok(roots)
     }
 
@@ -236,6 +251,25 @@ impl JobStore {
                 // Never take a file another job still records down with the scratch directory.
                 if !plan.shared.iter().any(|p| p.starts_with(&dir)) {
                     plan.scratch = Some(dir);
+                }
+            }
+        }
+        if !self.cfg.work_roots.is_empty() {
+            let request_id: Option<String> = conn
+                .query_row(
+                    "SELECT request_id FROM jobs WHERE job_id=?1",
+                    [job_id],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten();
+            if let Some(name) = request_id.as_deref().and_then(single_component) {
+                for root in self.work_roots_canonical()? {
+                    let dir = root.join(name);
+                    // Never take a file another job still records down with the directory.
+                    if !plan.shared.iter().any(|p| p.starts_with(&dir)) {
+                        plan.work_dirs.push(dir);
+                    }
                 }
             }
         }
@@ -343,6 +377,12 @@ impl JobStore {
             if let Some(dir) = &plan.scratch {
                 if let Removal::Removed = remove_target(dir)? {
                     report.scratch_removed = Some(dir.clone());
+                }
+            }
+            for dir in &plan.work_dirs {
+                // Reported with the removed files: the work directory is not an artifact row.
+                if let Removal::Removed = remove_target(dir)? {
+                    report.removed.push(dir.clone());
                 }
             }
         }

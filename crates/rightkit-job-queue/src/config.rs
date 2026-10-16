@@ -466,6 +466,7 @@ pub struct StoreConfig {
     pub(crate) progress: ProgressPolicy,
     pub(crate) artifact_roots: Vec<PathBuf>,
     pub(crate) scratch_root: Option<PathBuf>,
+    pub(crate) work_roots: Vec<PathBuf>,
 }
 
 impl Default for StoreConfig {
@@ -482,6 +483,7 @@ impl Default for StoreConfig {
             progress: ProgressPolicy::default(),
             artifact_roots: vec![],
             scratch_root: None,
+            work_roots: vec![],
         }
     }
 }
@@ -500,6 +502,7 @@ impl std::fmt::Debug for StoreConfig {
             .field("progress", &self.progress)
             .field("artifact_roots", &self.artifact_roots)
             .field("scratch_root", &self.scratch_root)
+            .field("work_roots", &self.work_roots)
             .finish()
     }
 }
@@ -572,6 +575,24 @@ impl StoreConfig {
         self.scratch_root = Some(root.into());
         self
     }
+    /// A directory holding per-request work directories (`<root>/<request_id>`, for example an
+    /// app's `<output>/_work/<request id>`), repeatable. The store treats `<root>/<request_id>`
+    /// of every job that has a `request_id` as that job's own:
+    /// - [`crate::JobStore::claimed_paths_with`] claims it (for [`crate::ClaimScope::NonTerminal`]
+    ///   the directories of non-terminal jobs, for [`crate::ClaimScope::All`] those of every job
+    ///   still in the store), so `Runner::sweep_unclaimed_with` over the root keeps it;
+    /// - [`crate::JobStore::delete`] removes it with the job, and files recorded inside it are
+    ///   deletable like those inside an artifact root. A request id that is not a single plain
+    ///   path component gets no directory. `prune` never touches files.
+    ///
+    /// Nothing changes for a store without a work root. Must be absolute.
+    pub fn work_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.work_roots.push(root.into());
+        self
+    }
+    pub fn work_roots(&self) -> &[PathBuf] {
+        &self.work_roots
+    }
     pub fn artifact_roots(&self) -> &[PathBuf] {
         &self.artifact_roots
     }
@@ -625,12 +646,17 @@ impl StoreConfig {
             }
             c.ddl()?;
         }
-        for r in self.artifact_roots.iter().chain(self.scratch_root.iter()) {
+        for r in self
+            .artifact_roots
+            .iter()
+            .chain(self.scratch_root.iter())
+            .chain(self.work_roots.iter())
+        {
             if !r.is_absolute() {
                 return Err(JobError::new(
                     "config",
                     format!(
-                        "artifact and scratch roots must be absolute: {}",
+                        "artifact, scratch and work roots must be absolute: {}",
                         r.display()
                     ),
                 ));

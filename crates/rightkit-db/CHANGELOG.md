@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Additive: `ReadPool::get_timeout(Duration) -> Result<Option<PooledReadConnection>>`, a checkout with a bounded wait (Orthic-Labs/rightkit#173). `Ok(Some(reader))` as soon as a reader is idle, can be opened under the cap, or is returned inside the duration; `Ok(None)` when none frees up in time; `Err(DbError::ReadPoolClosed)` when the pool is closed or closes while waiting (it wins over a timeout). A zero duration never waits. `get()` is unchanged and still waits without a bound. Tests in `tests/read_pool.rs`. Not compiled when written.
+
 ## 0.4.0 — 2026-10-11
 
 - **Breaking: default features are now empty (`default = []`).** 0.3.x built `bundled` and `statement-cache` by default. Name `features = ["bundled"]` for the bundled SQLite (without it `libsqlite3-sys` links the system library) and `"statement-cache"` for `prepare_cached`. SQLCipher consumers already set `default-features = false` and are unchanged. `rightkit-jobs` (store) now names `bundled` and `statement-cache`.

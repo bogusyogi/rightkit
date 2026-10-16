@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+All additive; a store, runner or config that uses none of it behaves as in 0.3.1 (Orthic-Labs/rightkit#169). Written without running Cargo, CI-only.
+
+- **Lock files no longer outlive the job.** The runner removes `<id>.lock` once the job's terminal state is stored (also for a job found already terminal, and for a held terminal write that lands later). New `JobLocks::remove(job_id)` (deletes a free lock file, never a held one), `JobLocks::sweep(keep)` (removes every unheld `<id>.lock` whose id `keep` rejects, returns the ids) and `Runner::sweep_job_locks()` (keeps the locks of non-terminal jobs, clears the rest) for files left by crashes and by earlier versions. Only call them for finished or gone jobs. A lock file that cannot be removed (Windows, while another process has it open) stays for the sweep.
+- **Work-directory claims and cleanup.** `StoreConfig::work_root(root)` (repeatable, absolute) names a directory of per-request work directories, `<root>/<request_id>`. `JobStore::claimed_paths_with` claims them (`ClaimScope::NonTerminal`: non-terminal jobs; `ClaimScope::All`: every job in the store), so `Runner::sweep_unclaimed_with` over the root keeps them; `JobStore::delete` / `delete_with` remove the job's work directory (reported in `DeleteReport::removed`) and treat the root like an artifact root for path checks. A request id that is not a single plain path component gets no directory; `keep_files` and `prune` leave files alone. `StoreConfig::work_roots()` reads them.
+- **Store-unavailable admission.** `JobStore::admit(new, ext, opts)` is `submit_with` that, when storage refuses the insert with a `db` or `io` error, holds the job in memory under a job id chosen at once (`Admitted::Held(ProvisionalJob)`) and inserts it under that id when storage recovers. `provisional_jobs()` lists held jobs, `cancel_provisional(id)` withdraws one, a repeated `request_id` of a held job returns it again.
+- **Write-behind for non-terminal writes.** `JobStore::set_ext_later(job_id, fence, ext)` (checkpoint in extension columns; a later held write for the job is merged into the earlier one) and `JobStore::delete_later(job_id, opts)` hold a write that storage refuses (`Settlement::Deferred`, `DeleteLater::Deferred`). Held writes are retried in order after the next successful store write and on `JobStore::flush_deferred()` (`DeferredFlush`: applied, admitted ids, dropped with reason, pending); `pending_deferred()` lists them. Bounded by `MAX_DEFERRED_OPS` (256); past it the storage error is returned. They are memory only (no journal, unlike held terminal writes), so a crash loses them; `shutdown_detailed()` flushes them and lists the rest in the new `SettlementShutdown::deferred`, and `is_clean()` is false while any remain.
+- Tests: `tests/lock_cleanup.rs`, `tests/work_root.rs`, `tests/deferred.rs`.
+
 
 ## 0.3.1
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-job-queue"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -200,4 +200,16 @@ required-features = ["store"]
 
 [[test]]
 name = "terminal_announce"
+required-features = ["store"]
+
+[[test]]
+name = "deferred"
+required-features = ["store"]
+
+[[test]]
+name = "lock_cleanup"
+required-features = ["store"]
+
+[[test]]
+name = "work_root"
 required-features = ["store"]
