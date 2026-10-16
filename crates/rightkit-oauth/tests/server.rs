@@ -66,6 +66,7 @@ fn tokens(expires: u64) -> TokenSet {
         refresh_token: Some(Secret::new("old-refresh")),
         token_type: "Bearer".into(),
         scope: None,
+        id_token: None,
         obtained_at: Clock::default().now(),
         expires_in: Some(Duration::from_secs(expires)),
     }

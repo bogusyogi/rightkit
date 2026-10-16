@@ -11,6 +11,8 @@
 //! * Provider presets ([`OAuthConfig::github`], [`OAuthConfig::google`],
 //!   [`OAuthConfig::cloudflare`], [`OAuthConfig::openai`]) carry endpoints only; every app
 //!   supplies its own registered client id.
+//! * `google` (feature `google`): ID-token verification against Google's keys and
+//!   `GoogleSession`, a stored, refreshing Google sign-in for Drive sync.
 //! * `credentials` (feature `secrets`) stores tokens in the OS credential store, refreshes
 //!   them, and resolves a usable token or a typed "needs sign-in" outcome.
 //!
@@ -22,6 +24,8 @@ pub mod callback;
 pub mod credentials;
 mod device;
 pub mod gateway;
+#[cfg(feature = "google")]
+pub mod google;
 pub mod pkce;
 #[cfg(feature = "server")]
 pub mod server;
@@ -51,6 +55,12 @@ const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 const GITHUB_DEVICE_URL: &str = "https://github.com/login/device/code";
 const CLOUDFLARE_AUTHORIZATION_URL: &str = "https://dash.cloudflare.com/oauth2/auth";
 const CLOUDFLARE_TOKEN_URL: &str = "https://dash.cloudflare.com/oauth2/token";
+/// Scopes for Google sign-in plus the hidden per-app Drive folder.
+pub const GOOGLE_SIGNIN_SCOPES: [&str; 3] = [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/drive.appdata",
+];
 const OPENAI_AUTHORIZATION_URL: &str = "https://auth.openai.com/oauth/authorize";
 const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 
@@ -187,6 +197,16 @@ impl OAuthConfig {
         c
     }
 
+    /// Google sign-in for a desktop app: [`Self::google`] with [`GOOGLE_SIGNIN_SCOPES`]
+    /// (openid, email, drive.appdata). `client_id` is the app's own "Desktop app" OAuth client
+    /// from app config; never embed one in a library. Google may require the client's secret
+    /// at the token endpoint even though a desktop client cannot keep it confidential: add it
+    /// with [`Self::with_client_secret`]. Verify the returned ID token with
+    /// `google::GoogleIdVerifier` (feature `google`), or use `google::GoogleSession`.
+    pub fn google_signin(client_id: impl Into<String>) -> Self {
+        Self::google(client_id, GOOGLE_SIGNIN_SCOPES)
+    }
+
     /// GitHub, for the app's own GitHub App (or OAuth App) registration. GitHub Apps with
     /// expiring user tokens return a rotating refresh grant; permissions come from the App,
     /// so `scopes` is usually empty. Device sign-in is supported.
@@ -273,6 +293,9 @@ pub struct TokenSet {
     pub expires_in: Option<Duration>,
     pub refresh_token: Option<Secret>,
     pub scope: Option<String>,
+    /// OpenID Connect ID token (a JWT), when the provider returned one. It is unverified
+    /// here; the `google` feature verifies Google's. Server mode never retains it.
+    pub id_token: Option<Secret>,
     pub obtained_at: SystemTime,
 }
 
@@ -288,6 +311,7 @@ impl fmt::Debug for TokenSet {
                 &self.refresh_token.as_ref().map(|_| "[redacted]"),
             )
             .field("scope", &self.scope.as_ref().map(|_| "[redacted]"))
+            .field("id_token", &self.id_token.as_ref().map(|_| "[redacted]"))
             .field("obtained_at", &self.obtained_at)
             .finish()
     }
@@ -372,6 +396,15 @@ impl OAuthClient {
 
     /// Bind the callback listener before constructing the authorization URL.
     pub fn begin_loopback(&self) -> Result<LoopbackAuthorization, OAuthError> {
+        self.begin_loopback_with(&[])
+    }
+
+    /// [`Self::begin_loopback`] plus per-flow authorization parameters (for example an OpenID
+    /// Connect `nonce`), appended after the configured ones.
+    pub(crate) fn begin_loopback_with(
+        &self,
+        extra: &[(&str, &str)],
+    ) -> Result<LoopbackAuthorization, OAuthError> {
         let listener = TcpListener::bind(("127.0.0.1", self.config.redirect.port))
             .map_err(|e| OAuthError::Callback(format!("bind loopback listener: {e}")))?;
         listener
@@ -401,6 +434,9 @@ impl OAuthClient {
         }
         for (k, v) in &self.config.authorization_params {
             pairs.push((k.as_str(), v.clone()));
+        }
+        for (k, v) in extra {
+            pairs.push((*k, (*v).to_string()));
         }
         let query = pairs
             .iter()
@@ -506,7 +542,13 @@ impl OAuthClient {
             ("refresh_token", refresh.expose()),
             ("client_id", self.config.client_id.as_str()),
         ];
-        self.token_request(&pairs, Some(refresh))
+        let mut fresh = self.token_request(&pairs, Some(refresh))?;
+        // A refresh response may omit the ID token (OpenID Connect Core 12.2); keep the one
+        // the sign-in produced rather than losing the account identity.
+        if fresh.id_token.is_none() {
+            fresh.id_token = current.id_token.clone();
+        }
+        Ok(fresh)
     }
 
     fn token_request(
@@ -672,6 +714,11 @@ pub(crate) fn parse_tokens(
             .map(Duration::from_secs),
         refresh_token: refresh,
         scope: v.get("scope").and_then(|x| x.as_str()).map(String::from),
+        id_token: v
+            .get("id_token")
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .map(Secret::new),
         obtained_at: SystemTime::now(),
     })
 }

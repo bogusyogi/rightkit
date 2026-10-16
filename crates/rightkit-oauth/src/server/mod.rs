@@ -625,6 +625,8 @@ impl ServerAuthFlow {
             }
         })?;
         tokens.obtained_at = self.clock.now();
+        // The ID token goes to the validator (via `value`) only; server mode never retains it.
+        tokens.id_token = None;
         Ok((tokens, value))
     }
 }

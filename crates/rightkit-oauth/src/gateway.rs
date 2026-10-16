@@ -152,6 +152,7 @@ pub(crate) fn parse_gateway_tokens(v: &Value) -> Result<TokenSet, OAuthError> {
         expires_in,
         refresh_token,
         scope,
+        id_token: None,
         obtained_at: SystemTime::now(),
     })
 }

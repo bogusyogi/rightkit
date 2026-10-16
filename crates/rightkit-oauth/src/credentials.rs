@@ -283,9 +283,11 @@ mod tests {
             expires_in: Some(Duration::from_secs(3600)),
             refresh_token: Some(Secret::new("r-1")),
             scope: Some("repo".into()),
+            id_token: Some(Secret::new("i.d.t")),
             obtained_at: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
         };
         let back = decode(&encode(&tokens)).unwrap();
+        assert_eq!(back.id_token.unwrap().expose(), "i.d.t");
         assert_eq!(back.access_token(), "a-1");
         assert_eq!(back.refresh_token.unwrap().expose(), "r-1");
         assert_eq!(back.expires_in, tokens.expires_in);

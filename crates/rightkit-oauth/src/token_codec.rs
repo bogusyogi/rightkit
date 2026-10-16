@@ -22,6 +22,7 @@ pub(crate) fn encode(tokens: &TokenSet) -> String {
         "expires_in": tokens.expires_in.map(|d| d.as_secs()),
         "renew": tokens.refresh_token.as_ref().map(|s| s.expose()),
         "scope": tokens.scope,
+        "id": tokens.id_token.as_ref().map(|s| s.expose()),
         "obtained_at": unix(tokens.obtained_at),
     });
     // Server build wipes JSON-owned copies as well as the caller's encoded buffer.
@@ -64,6 +65,11 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
             .filter(|s| !s.is_empty())
             .map(Secret::new),
         scope: v.get("scope").and_then(|x| x.as_str()).map(String::from),
+        id_token: v
+            .get("id")
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .map(Secret::new),
         obtained_at: UNIX_EPOCH
             .checked_add(Duration::from_secs(
                 v.get("obtained_at").and_then(|x| x.as_u64()).unwrap_or(0),

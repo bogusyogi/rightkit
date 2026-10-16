@@ -171,6 +171,7 @@ fn refresh_preserves_old_refresh_token_and_invalid_grant_requires_reauth() {
         expires_in: Some(Duration::from_secs(1)),
         refresh_token: Some(rightkit_http::Secret::new("keep-me")),
         scope: None,
+        id_token: None,
         obtained_at: std::time::SystemTime::now(),
     };
     let refreshed = oauth.refresh(&current).unwrap();
@@ -300,6 +301,7 @@ fn token_post_is_not_replayed_after_a_5xx() {
         expires_in: Some(Duration::from_secs(1)),
         refresh_token: Some(rightkit_http::Secret::new("single-use")),
         scope: None,
+        id_token: None,
         obtained_at: std::time::SystemTime::now(),
     };
     // The mock must actually be reached (a denied destination would also be an error, with
@@ -336,6 +338,7 @@ fn refresh_with_echo(status: u16) -> OAuthError {
         expires_in: None,
         refresh_token: Some(rightkit_http::Secret::new("single-use")),
         scope: None,
+        id_token: None,
         obtained_at: std::time::SystemTime::now(),
     };
     oauth.refresh(&current).unwrap_err()

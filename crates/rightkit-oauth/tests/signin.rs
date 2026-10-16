@@ -219,6 +219,7 @@ fn tokens(access: &str, renew: Option<&str>, expires_in: Option<u64>, age: Durat
         expires_in: expires_in.map(Duration::from_secs),
         refresh_token: renew.map(Secret::new),
         scope: None,
+        id_token: None,
         obtained_at: SystemTime::now() - age,
     }
 }

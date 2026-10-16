@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-oauth"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."
@@ -17,6 +17,10 @@ default = ["secrets", "system-sources"]
 secrets = ["dep:rightkit-credentials"]
 # Fall back to sign-ins the GitHub CLI / Git credential helper already hold.
 system-sources = ["dep:rightkit-child-process"]
+
+# Sign in with Google: RS256 ID-token verification against Google's JWKS (ring) and a stored,
+# refreshing session over the OS credential store.
+google = ["secrets", "dep:ring"]
 
 # Framework-agnostic daemon flow plus encrypted file persistence (no desktop dependencies).
 server = ["dep:ring", "dep:url", "dep:zeroize", "dep:serde", "dep:libc"]

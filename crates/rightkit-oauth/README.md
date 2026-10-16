@@ -13,6 +13,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 | `secrets` | on | `rightkit-credentials` | Desktop token storage in the OS credential store. |
 | `system-sources` | on | `rightkit-child-process` | Reads credentials from system sources (`src/system.rs`). |
 | `server` | off | `ring`, `url`, `zeroize`, `serde`, `libc` (`Cargo.toml:22`) | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
+| `google` | off | `secrets`, `ring` | Sign in with Google: `rightkit_oauth::google` (`GoogleIdVerifier`, `GoogleSession`). |
 | `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
 
 `rightkit-http` is always a dependency. It is used for every token request.
@@ -34,6 +35,88 @@ Published version: see `INDEX.md` at the repository root. Release notes: see `CH
 ## Example
 
 The server-mode flow below is illustrative. The compiled example is `examples/server_axum.rs`, which needs the `server-example` feature.
+
+## Sign in with Google (feature `google`)
+
+`OAuthConfig::google_signin(client_id)` asks for `openid`, `email` and
+`https://www.googleapis.com/auth/drive.appdata` with offline access and consent. Client id (and
+the client secret, if Google requires one at the token endpoint for the client type) come from
+app config; nothing is embedded.
+
+```rust,ignore
+use std::{sync::Arc, time::Duration};
+use rightkit_oauth::{google::{GoogleIdVerifier, GoogleSession}, credentials::SecretTokenStore,
+    OAuthClient, OAuthConfig};
+
+let http = rightkit_http::Client::new(rightkit_http::ClientConfig::default());
+let oauth = OAuthClient::new(OAuthConfig::google_signin(client_id).with_client_secret(secret), http.clone())?;
+let verifier = GoogleIdVerifier::new(http, [client_id])?;
+let store = Arc::new(SecretTokenStore::new(credentials_store)); // OS credential store
+let session = GoogleSession::new(oauth, verifier, store, "google");
+let who = session.sign_in_loopback(|url| open_in_browser(url), Duration::from_secs(300))?;
+// who.sub is Google's stable account id: key accounts on it, never on email.
+```
+
+What `sign_in_loopback` enforces before it stores anything:
+
+- PKCE `S256`, a random `state`, and a random OpenID Connect `nonce`; the redirect is
+  `http://127.0.0.1:<ephemeral port>/oauth/callback` (Google's loopback rule for desktop clients).
+- The granted `scope` includes `drive.appdata` (users can untick scopes on the consent screen),
+  there is an ID token and a refresh token.
+- The ID token is RS256-verified against Google's JWKS (`GOOGLE_JWKS_URL`, from the discovery
+  document; cached for an hour, one rate-limited refetch on an unknown `kid`), then `iss` is
+  `https://accounts.google.com` or `accounts.google.com`, `aud` is one of the configured client
+  ids (and `azp` too when `aud` has several), `exp` has not passed and `iat`/`nbf` are not in the
+  future (60 s skew), `sub` is present, and `nonce` equals the one sent. `alg` must be `RS256`.
+- Tokens, the refresh token included, are saved in the `TokenStore`; with `SecretTokenStore` that
+  is the OS credential store. Refreshes go through `credentials::Resolver`, so they take the
+  cross-process lock and a revoked grant (`invalid_grant`) removes the stored sign-in. No token,
+  ID token or email is written to `Debug` or error text.
+
+`sign_out` deletes the local sign-in only; the grant stays on the Google account until the user
+revokes it at <https://myaccount.google.com/permissions> (token revocation is not implemented).
+The stored ID token is read back by `identity()` with issuer, audience and subject checks only
+(no signature or expiry, because it was verified at sign-in and is hours old by design).
+
+### Feeding rightkit-sync's Drive backend
+
+`rightkit-sync` takes a `DriveTokenSource` and this crate does not depend on it; the host app
+writes the few lines that join them:
+
+```rust,ignore
+use std::sync::Arc;
+use rightkit_oauth::{google::GoogleSession, OAuthError};
+use rightkit_sync::{drive::{account_scope, DriveTokenSource}, SyncError, SyncResult};
+
+struct GoogleDriveTokens(Arc<GoogleSession>);
+
+impl DriveTokenSource for GoogleDriveTokens {
+    fn access_token(&self) -> SyncResult<Option<String>> {
+        match self.0.access_token() {
+            Ok(token) => Ok(token.map(|t| t.expose().to_string())), // None = signed out
+            Err(OAuthError::Http(e)) => Err(SyncError::Transient(e.to_string())),
+            Err(e) => Err(SyncError::Unavailable(e.to_string())),
+        }
+    }
+    fn rejected(&self, token: &str) {
+        let _ = self.0.rejected(token); // 401: the next access_token() refreshes
+    }
+    fn account_scope(&self) -> Option<String> {
+        let id = self.0.identity().ok()??;
+        Some(account_scope("heardright", "main", &id.sub))
+    }
+    fn generation(&self) -> u64 {
+        self.0.generation()
+    }
+}
+```
+
+Android: Credential Manager returns an ID token only (no refresh token, no Drive access token).
+Request it for the app's web client id with a nonce you generate, add that web client id to
+`GoogleIdVerifier::new`, and check it with `verifier.verify(id_token, Some(nonce))`. Drive
+authorization on Android comes from Google's `AuthorizationClient`; the host hands that access
+token to its own `DriveTokenSource`. The JNI bridge for both is not in this crate or in
+`rightkit-android` yet.
 
 ## Server mode
 
@@ -115,8 +198,8 @@ In-memory state is lost on restart; durable pending storage is required for rest
 OIDC fails closed unless `with_oidc_validator` installs an `OidcValidator`. Host validator
 must check signature, issuer, audience/azp, expiry & expected nonce against trusted JWKS.
 Compare nonce in constant time.
-ID tokens are never accepted through decode-only JWT checks. Existing `TokenSet` stays
-unchanged; ID token is passed only to validator, not retained in token storage.
+ID tokens are never accepted through decode-only JWT checks. Server mode clears
+`TokenSet::id_token` (added in 0.6.0); the ID token is passed only to the validator, not retained in token storage.
 
 ### Persistence & refresh
 

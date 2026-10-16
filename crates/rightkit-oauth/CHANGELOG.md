@@ -1,13 +1,20 @@
 # Changelog
 
-## 0.5.1
+## 0.6.0 (unpublished)
+
+Includes everything listed as 0.5.1 below (never published) plus the Google sign-in work of Orthic-Labs/rightkit#162.
+
+- **Breaking (0.x minor):** `TokenSet` gains `id_token: Option<Secret>`, filled from the token response (a refresh that omits it keeps the previous one), redacted in `Debug`, and written to the stored form (`"id"`; older stored values still load). Struct literals must add the field. Server mode (`server` feature) clears it, so its stored tokens are unchanged. `rightkit-daemon` moves its pin to `0.6.0`.
+- Add `OAuthConfig::google_signin` and `GOOGLE_SIGNIN_SCOPES` (openid, email, drive.appdata).
+- Add opt-in `google` feature (implies `secrets`): `google::GoogleIdVerifier` (RS256 ID-token check against Google's JWKS: signature, issuer, audience/azp, expiry, iat/nbf, subject, nonce) and `google::GoogleSession` (loopback sign-in with PKCE S256 and a nonce, drive.appdata and refresh-token checks before storing, refreshing `access_token`, `rejected`, `identity`, `generation`, `sign_out`). Glue to rightkit-sync's `DriveTokenSource` is in the README; no dependency between the crates.
+
+## 0.5.1 (never published; folded into 0.6.0)
 
 Additive: nothing existing changed; `begin_loopback` / `finish_loopback` behave as in 0.5.0.
 
 - New `pkce` module: RFC 7636 `S256`-only helpers. `PkceVerifier::generate` (32 CSPRNG octets, 43 base64url chars), `PkceVerifier::parse` / `validate_verifier` (43 to 128 chars of `[A-Za-z0-9-._~]`), `challenge_s256`, `Pkce::generate`, `generate_state`, `base64url_encode` and `constant_time_eq`. There is no `plain` method. Verifiers redact in `Debug`.
 - New `callback` module: `CallbackListener`, a tolerant single-use loopback redirect listener per RFC 8252. Binds `127.0.0.1`, `[::1]` or both on an ephemeral (or fixed) port; answers and ignores favicon, CORS preflight, non-GET, other-path, malformed, stalled and wrong-or-missing-`state` requests; checks `state` in constant time; `wait` takes a bounded timeout and an optional `CancelToken` (so a manual paste can win the race) and consumes the listener, which closes on return.
 - New `gateway` module: `GatewayExchange` posts `{"code", "code_verifier", ...extra fields}` as JSON to an HTTPS gateway through `rightkit-http` and parses a strictly typed JSON token response into a `TokenSet`. Extra fields carry values such as `redirect_uri` or an RFC 8707 `resource`. The code and verifier are registered as request secrets and scrubbed from errors; tokens never appear in errors or `Debug`.
-- Version is 0.6.0 (0.x minor). Path dependents that pin `0.5.0` (`rightkit-daemon`) must move to `0.6`.
 
 
 ## 0.5.0
