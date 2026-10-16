@@ -18,7 +18,10 @@ pub fn input(key: &str) -> Option<std::path::PathBuf> {
 pub fn cases() -> Vec<(&'static str, String)> {
     let sentence = "The nightly billing job reconciles every invoice against the ledger. ";
     vec![
-        ("q-short", "Q3 forecast discussion and budget meeting".to_owned()),
+        (
+            "q-short",
+            "Q3 forecast discussion and budget meeting".to_owned(),
+        ),
         ("~32", sentence.repeat(2)),
         ("~64", sentence.repeat(4)),
         ("~128", sentence.repeat(8)),

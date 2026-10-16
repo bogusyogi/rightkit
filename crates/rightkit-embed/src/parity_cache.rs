@@ -133,9 +133,8 @@ impl ParityKey {
 
 /// The cache file for `model_dir` inside `cache_dir`.
 pub(crate) fn cache_file(cache_dir: &Path, model_dir: &Path) -> PathBuf {
-    let digest = rightkit_fs::digest::sha256_bytes(
-        canonical(model_dir).to_string_lossy().as_bytes(),
-    );
+    let digest =
+        rightkit_fs::digest::sha256_bytes(canonical(model_dir).to_string_lossy().as_bytes());
     cache_dir.join(format!("e40-parity-{}.json", &digest[..16]))
 }
 
@@ -249,7 +248,8 @@ pub(crate) fn write(
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
     let temp = path.with_extension(format!("tmp-{}-{nonce}", std::process::id()));
-    let body = serde_json::to_string_pretty(&encode(key, verdict)).map_err(std::io::Error::other)?;
+    let body =
+        serde_json::to_string_pretty(&encode(key, verdict)).map_err(std::io::Error::other)?;
     std::fs::write(&temp, body)?;
     std::fs::rename(&temp, &path).inspect_err(|_| {
         let _ = std::fs::remove_file(&temp);
@@ -282,21 +282,41 @@ mod tests {
         write(cache.path(), model.path(), &key(), &fail()).unwrap();
         let fail_stamp = fail().timestamp_unix;
         assert_eq!(
-            read(cache.path(), model.path(), &key(), fail_stamp + MAX_AGE_SECS),
+            read(
+                cache.path(),
+                model.path(),
+                &key(),
+                fail_stamp + MAX_AGE_SECS
+            ),
             Lookup::Hit(fail())
         );
         assert_eq!(
-            read(cache.path(), model.path(), &key(), fail_stamp + MAX_AGE_SECS + 1),
+            read(
+                cache.path(),
+                model.path(),
+                &key(),
+                fail_stamp + MAX_AGE_SECS + 1
+            ),
             expired
         );
         // A stamp far in the future (clock set back, or edited) is not trusted either; a
         // little skew is tolerated.
         assert_eq!(
-            read(cache.path(), model.path(), &key(), fail_stamp - FUTURE_SKEW_SECS),
+            read(
+                cache.path(),
+                model.path(),
+                &key(),
+                fail_stamp - FUTURE_SKEW_SECS
+            ),
             Lookup::Hit(fail())
         );
         assert_eq!(
-            read(cache.path(), model.path(), &key(), fail_stamp - FUTURE_SKEW_SECS - 1),
+            read(
+                cache.path(),
+                model.path(),
+                &key(),
+                fail_stamp - FUTURE_SKEW_SECS - 1
+            ),
             expired
         );
     }
@@ -304,7 +324,8 @@ mod tests {
     fn key() -> ParityKey {
         ParityKey {
             model: "model_32.onnx:10:1;model.onnx_data:20:2".into(),
-            runtime: "C:/ort/onnxruntime.dll|onnxruntime.dll:5:6|DirectML.dll:7:8|ORT 1.24.4".into(),
+            runtime: "C:/ort/onnxruntime.dll|onnxruntime.dll:5:6|DirectML.dll:7:8|ORT 1.24.4"
+                .into(),
             adapter: "directml".into(),
             floor: "0.995".into(),
         }
@@ -435,7 +456,11 @@ mod tests {
             "{\"schema\": 1, \"key\": {}, \"verdict\": {}}",
         ] {
             std::fs::write(&path, text).unwrap();
-            assert_eq!(read(cache.path(), model.path(), &key(), NOW), corrupt, "{text:?}");
+            assert_eq!(
+                read(cache.path(), model.path(), &key(), NOW),
+                corrupt,
+                "{text:?}"
+            );
         }
         // A pass that does not meet its own floor, has no cosine or compared nothing.
         let mut doc = encode(&key(), &pass());
@@ -492,12 +517,23 @@ mod tests {
         std::fs::write(model.path().join("a.onnx"), b"one").unwrap();
         std::fs::write(&dll, b"dll").unwrap();
         let build = |info: &str| {
-            ParityKey::build(model.path(), &["a.onnx", "b.npy"], &dll, info, "directml", 0.995)
+            ParityKey::build(
+                model.path(),
+                &["a.onnx", "b.npy"],
+                &dll,
+                info,
+                "directml",
+                0.995,
+            )
         };
         let first = build("ORT 1.24.4");
         assert!(first.model.contains("a.onnx:3:"), "{}", first.model);
         assert!(first.model.contains("b.npy:absent"), "{}", first.model);
-        assert!(first.runtime.contains("DirectML.dll:absent"), "{}", first.runtime);
+        assert!(
+            first.runtime.contains("DirectML.dll:absent"),
+            "{}",
+            first.runtime
+        );
         assert_eq!(first.adapter, "directml");
         assert_eq!(first.floor, "0.995");
         assert_eq!(first, build("ORT 1.24.4"));

@@ -44,7 +44,10 @@ fn every_resource_has_the_required_fields() {
     assert!(entries.len() >= 3, "embedder, e40 and coreml entries");
     for entry in &entries {
         for key in ["api", "file", "scale", "release"] {
-            assert!(field(entry, key).is_some(), "resource without {key}: {entry:?}");
+            assert!(
+                field(entry, key).is_some(),
+                "resource without {key}: {entry:?}"
+            );
         }
         let holds = field(entry, "holds").or_else(|| {
             entry
@@ -61,7 +64,10 @@ fn every_resource_has_the_required_fields() {
         );
         let release = field(entry, "release").unwrap();
         assert!(
-            !matches!(release.to_lowercase().as_str(), "none" | "never" | "n/a" | "-"),
+            !matches!(
+                release.to_lowercase().as_str(),
+                "none" | "never" | "n/a" | "-"
+            ),
             "release must name Drop or the function that ends it"
         );
         let file = field(entry, "file").unwrap();
@@ -84,7 +90,9 @@ fn coreml_static_is_listed_with_a_static_note() {
         .collect();
     assert!(!coreml.is_empty(), "no resource lists src/coreml.rs");
     assert!(
-        coreml.iter().any(|entry| field(entry, "static_note").is_some()),
+        coreml
+            .iter()
+            .any(|entry| field(entry, "static_note").is_some()),
         "src/coreml.rs matches resident-static and needs a static_note"
     );
 }

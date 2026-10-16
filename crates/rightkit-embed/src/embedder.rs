@@ -896,7 +896,12 @@ impl Embedder {
         let cache = self.parity_cache_target(config);
         let mut miss_reason: Option<&'static str> = None;
         if let Some(target) = &cache {
-            match parity_cache::read(&target.dir, &config.model_dir, &target.key, parity_cache::now_unix()) {
+            match parity_cache::read(
+                &target.dir,
+                &config.model_dir,
+                &target.key,
+                parity_cache::now_unix(),
+            ) {
                 parity_cache::Lookup::Hit(verdict) => {
                     self.record_parity_timings(
                         check_started,
@@ -1069,11 +1074,13 @@ impl Embedder {
     ) -> Result<Self, EmbedError> {
         let provider = self.provider_used;
         if verdict.passed {
-            self.parity = verdict.lowest_cosine.map(|lowest_cosine| AcceleratorParity {
-                lowest_cosine,
-                at_tokens: verdict.at_tokens,
-                pairs: verdict.pairs,
-            });
+            self.parity = verdict
+                .lowest_cosine
+                .map(|lowest_cosine| AcceleratorParity {
+                    lowest_cosine,
+                    at_tokens: verdict.at_tokens,
+                    pairs: verdict.pairs,
+                });
             if self.prewarms(config) {
                 self.prewarm_graphs()?;
             }
@@ -2277,8 +2284,8 @@ mod tests {
         let with_cache = EmbedderConfig::new("m", "r").with_coreml_cache_dir("cache");
         assert_eq!(with_cache.coreml_cache_dir, Some(PathBuf::from("cache")));
         assert!(EmbedderConfig::new("m", "r").coreml_units.is_none());
-        let forced = EmbedderConfig::new("m", "r")
-            .with_coreml_units(crate::CoreMlComputeUnit::CpuAndGpu);
+        let forced =
+            EmbedderConfig::new("m", "r").with_coreml_units(crate::CoreMlComputeUnit::CpuAndGpu);
         assert_eq!(
             forced.coreml_units,
             Some(CoreMlUnits::uniform(crate::CoreMlComputeUnit::CpuAndGpu))

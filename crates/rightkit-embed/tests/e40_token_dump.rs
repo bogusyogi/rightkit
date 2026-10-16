@@ -7,7 +7,12 @@
 //! `EG2_TOKEN_DUMP=<file.json> cargo test -p rightkit-embed --features bench-internals --test e40_token_dump -- --ignored --nocapture`
 //! Inputs as in `e40_real_model_e2e.rs`.
 
-#![cfg(all(windows, feature = "inference", feature = "vector", feature = "bench-internals"))]
+#![cfg(all(
+    windows,
+    feature = "inference",
+    feature = "vector",
+    feature = "bench-internals"
+))]
 
 mod e40_common;
 

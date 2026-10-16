@@ -20,6 +20,9 @@ mod vector;
 pub use coreml_units::{
     CoreMlComputeUnit, CoreMlUnits, CoreMlUnitsParseError, NEURAL_ENGINE_MAX_TOKENS,
 };
+/// Benchmark support, behind the `bench-internals` feature; not part of the stable API.
+#[cfg(feature = "bench-internals")]
+pub use e40::{E40SessionProfile, RunSplit};
 #[cfg(feature = "inference")]
 pub use embedder::{
     truncate_and_normalize, AcceleratorParity, EmbedError, Embedder, EmbedderConfig,
@@ -27,9 +30,6 @@ pub use embedder::{
     ACCELERATOR_PARITY_MIN_COSINE, DEFAULT_MAX_BATCH, EMBEDDINGGEMMA2_COREML_MODEL_ID,
     EMBEDDINGGEMMA2_E40_MODEL_ID, EMBEDDINGGEMMA2_MODEL_ID, EMBEDDINGGEMMA_MODEL_ID,
 };
-/// Benchmark support, behind the `bench-internals` feature; not part of the stable API.
-#[cfg(feature = "bench-internals")]
-pub use e40::{E40SessionProfile, RunSplit};
 #[cfg(feature = "bench-internals")]
 pub use embedder::{BenchEmbedSplit, BenchTokens};
 #[cfg(feature = "vector")]

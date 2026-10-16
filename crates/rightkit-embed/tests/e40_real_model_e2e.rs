@@ -60,7 +60,9 @@ fn texts() -> Vec<String> {
 #[test]
 #[ignore = "needs a DirectML GPU and the E40 bundle"]
 fn e40_is_admitted_on_directml_and_matches_cpu_on_every_graph() {
-    let Some((dir, runtime)) = inputs() else { return };
+    let Some((dir, runtime)) = inputs() else {
+        return;
+    };
     let auto = Embedder::load(config(&dir, &runtime, ExecutionProvider::Auto)).expect("load E40");
     eprintln!(
         "auto provider: {} (fallback: {:?}, parity: {:?})",

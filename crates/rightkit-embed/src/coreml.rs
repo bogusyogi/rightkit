@@ -453,7 +453,9 @@ fn compile_into(package: &Path, dest: &Path) -> Result<(), EmbedError> {
     // compiles in one process would move or delete each other's output: one at a time, and a
     // compile that waited reuses what the previous one installed.
     static COMPILE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = COMPILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = COMPILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if dest.is_dir() {
         return Ok(());
     }

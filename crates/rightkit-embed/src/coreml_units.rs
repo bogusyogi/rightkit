@@ -269,7 +269,11 @@ mod tests {
         );
         let mixed: CoreMlUnits = "256=cpu_only, 32=all".parse().unwrap();
         assert_eq!(mixed.unit_for(32), Some(All));
-        assert_eq!(mixed.unit_for(64), Some(CpuAndNe), "unlisted keeps the default");
+        assert_eq!(
+            mixed.unit_for(64),
+            Some(CpuAndNe),
+            "unlisted keeps the default"
+        );
         assert_eq!(mixed.unit_for(256), Some(CpuOnly));
         assert_eq!(mixed.unit_for(512), Some(CpuAndGpu));
     }
@@ -288,7 +292,10 @@ mod tests {
             "256=all,,",
             "all,512=all",
         ] {
-            assert!(bad.parse::<CoreMlUnits>().is_err(), "`{bad}` must not parse");
+            assert!(
+                bad.parse::<CoreMlUnits>().is_err(),
+                "`{bad}` must not parse"
+            );
         }
     }
 
