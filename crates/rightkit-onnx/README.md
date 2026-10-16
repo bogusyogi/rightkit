@@ -6,7 +6,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 
 **Use it** in any Right Suite app that runs ONNX models, so every app binds one ONNX Runtime the same way.
 
-**Do not use it** to download, bundle, or choose a runtime version. The crate owns no product environment variable, data root, bundled runtime, model, provider policy, download, or UI. Application adapters convert legacy environment variables and app-data locations into explicit `RuntimeCandidate` values.
+**Do not use it** to download, bundle, or choose a runtime version at app run time. The build-time `provision` feature (below) is the one exception: a build script fetches the catalog runtime into the app bundle. The crate owns no product environment variable, data root, bundled runtime, model, provider policy, download, or UI. Application adapters convert legacy environment variables and app-data locations into explicit `RuntimeCandidate` values.
 
 ## Features
 
@@ -17,6 +17,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 | `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
 | `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
 | `cuda`, `tensorrt`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `acl`, `armnn`, `azure`, `cann`, `nvrtx`, `onednn`, `qnn`, `rknpu`, `tvm`, `vitis`, `xnnpack` | off | `session`, `ort/<same>` | Pass-through execution-provider features (asr, qts). |
+| `provision` | off | `rightkit-ffmpeg`, `rightkit-models` (HTTP, tar, zip) | Build-time `rightkit_onnx::provision` and the `rightkit-onnx-provision` binary. Use it as a build-dependency, never in the shipped app. |
 | `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_onnx::half::f16`. |
 | `ndarray` | off | `session`, `ort/ndarray`, `ndarray` | Re-exports `ndarray` for `Tensor::from_array` and `try_extract_array`. |
 
@@ -141,7 +142,54 @@ Rules:
 On success it returns `VerifiedRuntime { dir, platform, onnxruntime, files }`, with `dir`
 canonicalised. `onnxruntime_library_path()` gives `<dir>/<runtime filename>` when that library is
 listed, and `None` otherwise. Verification loads no library and creates no session. The catalog row
-is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-ffmpeg`.
+is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-ffmpeg`; the `provision` feature applies them when it writes the bundle.
+
+## Provisioning a runtime bundle (build time)
+
+Enable the `provision` feature as a **build-dependency** so the app itself pulls no HTTP, tar or zip code. `provision_runtime` downloads the pinned archive from the native-library catalog, checks its SHA-256 before extraction, extracts only the runtime files, checks each against the catalog digest, and writes the `manifest.json` that `verify_runtime_manifest` reads. Only `approved` and `pinned` catalog rows are used.
+
+| Target | Files written to the bundle directory | Catalog rows |
+|---|---|---|
+| `windows-x64` | `onnxruntime.dll`, `DirectML.dll` | `onnxruntime` + `directml`, windows / x86_64 |
+| `macos-arm64` | `libonnxruntime.dylib` (the versioned dylib, renamed) | `onnxruntime`, macos / aarch64 |
+
+`Cargo.toml` of the app:
+
+```toml
+[build-dependencies]
+rightkit-onnx = { version = "0.2.4", default-features = false, features = ["provision"] }
+```
+
+`build.rs`:
+
+```rust
+use rightkit_onnx::provision::{provision_runtime, ProvisionTarget};
+use std::path::PathBuf;
+
+fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    let Some(target) = ProvisionTarget::from_cargo_env() else { return };
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    // `resources/onnxruntime` is owned by provisioning: other files in it are removed.
+    let outcome = provision_runtime(
+        target,
+        &manifest_dir.join("resources").join("onnxruntime"),
+        &out_dir.join("onnxruntime-archives"),
+    )
+    .expect("provision ONNX Runtime");
+    println!("cargo:warning=onnxruntime {} ready (reused: {})", outcome.runtime.onnxruntime.version, outcome.reused);
+}
+```
+
+The same from a shell or xtask: `rightkit-onnx-provision --dest resources/onnxruntime --cache target/onnxruntime-archives [--target windows-x64|macos-arm64] [--catalog native-libraries.json]`.
+
+Notes:
+
+- The destination directory is owned by provisioning. `verify_runtime_manifest` rejects unlisted files, so the bundle is staged next to it, verified, then swapped in; a failure keeps the previous bundle.
+- A second call with a matching verified bundle returns `reused: true` and downloads nothing. Verified archives stay in the cache directory for later builds.
+- `provision_runtime_with(&catalog, target, dest, cache, &mut fetch)` takes an explicit catalog and a fetcher (`FnMut(url, sha256, dest_file) -> Result<(), String>`), for offline builds from a pre-staged mirror and for tests.
+- The `windows-x64` bundle ships Microsoft's DirectML redistributable under the licence in the catalog notice files; ship those notices with the app.
 
 ## Version policy
 

@@ -38,6 +38,9 @@ pub mod environment;
 #[cfg(feature = "session")]
 pub mod probe;
 pub mod runtime_bundle;
+/// Build-time download, verification and extraction of the catalog runtime (`provision` feature).
+#[cfg(feature = "provision")]
+pub mod provision;
 #[cfg(feature = "session")]
 pub mod session;
 

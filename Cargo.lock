@@ -5979,16 +5979,21 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
+ "flate2",
  "half",
  "ndarray",
  "ort",
  "rightkit-ffmpeg",
+ "rightkit-models",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tar",
+ "tempfile",
  "windows-sys 0.61.2",
+ "zip 2.4.2",
 ]
 
 [[package]]
