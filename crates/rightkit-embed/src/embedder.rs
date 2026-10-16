@@ -260,8 +260,8 @@ pub struct EmbedderConfig {
     /// Where an E40 bundle's parity verdict is cached (see [`Self::with_parity_cache_dir`]).
     pub parity_cache_dir: Option<PathBuf>,
     /// Build and run every kept E40 graph or Core ML function at load (see
-    /// [`Self::with_prewarm`]). Default true.
-    pub prewarm: bool,
+    /// [`Self::with_prewarm`]). `None` is the backend default: on for Core ML, off for E40.
+    pub prewarm: Option<bool>,
     /// Core ML compute units per length; `None` is [`CoreMlUnits::per_length_default`] (see
     /// [`Self::with_coreml_units`]).
     pub coreml_units: Option<CoreMlUnits>,
@@ -282,13 +282,15 @@ impl EmbedderConfig {
             fallback_model_dir: None,
             coreml_cache_dir: None,
             parity_cache_dir: None,
-            prewarm: true,
+            prewarm: None,
             coreml_units: None,
             e40_session_profile: None,
         }
     }
 
-    /// Pre-warm an E40 or Core ML bundle served on an accelerator (default `true`). After the
+    /// Pre-warm an E40 or Core ML bundle served on an accelerator. The default is on for Core ML
+    /// and off for E40: measured on Windows, E40 pre-warm added 6-18 s to a 2 s cached load, while
+    /// a lazily built graph costs about 1-2 s on its first query. After the
     /// parity check passes (or its cached verdict is used) every graph that is kept has its
     /// session built and one dummy run executed during `load`, so no query pays a graph build.
     /// The graphs the parity check built are kept instead of dropped. Costs load time (recorded
@@ -298,7 +300,7 @@ impl EmbedderConfig {
     /// 51 s cold (shader build), so with `false` the first query of that length pays it.
     /// Ignored for CPU and Q4.
     pub fn with_prewarm(mut self, prewarm: bool) -> Self {
-        self.prewarm = prewarm;
+        self.prewarm = Some(prewarm);
         self
     }
 
@@ -855,13 +857,16 @@ impl Embedder {
 
     /// True when `self` is an E40 or Core ML embedder on an accelerator and pre-warm is enabled.
     fn prewarms(&self, config: &EmbedderConfig) -> bool {
-        let fixed_graph_accelerator = match &self.backend {
-            Backend::E40(_) => true,
+        // (fixed-graph accelerator, default when the caller did not choose)
+        let (fixed_graph_accelerator, default_on) = match &self.backend {
+            Backend::E40(_) => (true, false),
             #[cfg(target_os = "macos")]
-            Backend::CoreMl(_) => true,
-            Backend::Onnx(_) => false,
+            Backend::CoreMl(_) => (true, true),
+            Backend::Onnx(_) => (false, false),
         };
-        config.prewarm && self.provider_used != "cpu" && fixed_graph_accelerator
+        config.prewarm.unwrap_or(default_on)
+            && self.provider_used != "cpu"
+            && fixed_graph_accelerator
     }
 
     /// Builds the missing E40 graphs (or loads the Core ML functions) and runs one dummy text
