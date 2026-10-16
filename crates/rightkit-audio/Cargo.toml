@@ -1,12 +1,12 @@
 [package]
 name = "rightkit-audio"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Orthic-Labs/rightkit"
-keywords = ["audio", "ffmpeg", "capture", "loudness"]
+keywords = ["audio", "ffmpeg", "capture", "playback", "loudness"]
 categories = ["multimedia::audio"]
 readme = "README.md"
 include = ["src/**", "tests/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
@@ -16,6 +16,9 @@ default = ["capture"]
 # Live microphone capture (cpal + rubato + ringbuf + tracing), the macOS CoreAudio device probe,
 # and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
 capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
+# Audio output (cpal only, no new dependency): OutputSession with a lock-free sample ring, a
+# latency-adjusted playback clock, pause/volume/mute/flush and device-loss recovery. Off by default.
+playback = ["dep:cpal"]
 
 [dependencies]
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3", default-features = false }
@@ -77,3 +80,17 @@ holds = ["memory"]
 scale = "one block of atomic counters per CaptureSession, shared with its callback; fixed size"
 release = "Drop of the CaptureSession that owns it"
 static_note = "METRICS_CLOCK_ORIGIN is one OnceLock<Instant> (metrics.rs:8) set at the first callback: a single timestamp, not a collection, so it cannot grow; it holds no thread and no stream"
+
+[[package.metadata.rightkit.resources]]
+api = "OutputSession::open"
+file = "src/playback/session.rs"
+holds = ["thread", "memory"]
+scale = "one open cpal output stream: the OS audio callback thread, an interleaved f32 ring of the requested duration (2 s by default, at most 60 s; about 768 KB for 2 s of 48 kHz stereo), one 16 KB callback scratch buffer and one block of atomic counters; fixed per session, independent of how much audio is played"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "list_output_devices"
+file = "src/playback/session.rs"
+holds = ["memory"]
+scale = "one cpal host enumeration per call: a Vec of OutputDeviceInfo returned to the caller; no stream is opened and nothing is retained after the call"
+release = "function return"

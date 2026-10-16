@@ -22,4 +22,7 @@ pub enum AudioError {
     Preset(#[from] serde_json::Error),
     #[error("wav: {0}")]
     Wav(String),
+    /// Audio output (feature `playback`): device selection, stream build or recovery failed.
+    #[error("playback: {0}")]
+    Playback(String),
 }
