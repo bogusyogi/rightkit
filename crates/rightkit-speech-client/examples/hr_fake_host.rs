@@ -176,7 +176,10 @@ mod host {
                         continue;
                     }
                     let schema = v["schema_name"].as_str().unwrap().to_string();
-                    if !ALLOWED.contains(&schema.as_str()) {
+                    // Minor 4 adds the cancel and capture schemas; an older host rejects them.
+                    let minor4 = cfg.minor >= 4
+                        && matches!(schema.as_str(), "request_cancel" | "capture_control");
+                    if !ALLOWED.contains(&schema.as_str()) && !minor4 {
                         let _ = writer.write_all(
                             error_frame(
                                 &rid,
@@ -212,6 +215,15 @@ mod host {
                                     "file_transcription_queue"
                                 ]);
                             }
+                            if cfg.minor >= 4 {
+                                p["capabilities"] = json!([
+                                    "file_transcription",
+                                    "file_transcription_verbatim",
+                                    "file_transcription_queue",
+                                    "request_cancel",
+                                    "capture_ownership"
+                                ]);
+                            }
                             frame("engine_capabilities", &rid, p, Value::Null)
                         }
                         ("engine_info", "engine_info") => frame(
@@ -220,6 +232,37 @@ mod host {
                             json!({"kind":"engine_info","mode":"speech_service","cold_load_s":1.5,"engine_version":"fake-hr-host/1"}),
                             Value::Null,
                         ),
+                        // Minor 4: a cancel frame is recorded and never answered.
+                        ("request_cancel", "request_cancel") => {
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(cfg.state.join("cancel_frames"))
+                                .and_then(|mut f| {
+                                    writeln!(f, "{}", v["payload"]["job_id"].as_str().unwrap_or(""))
+                                });
+                            continue;
+                        }
+                        // Minor 4: capture frames are recorded; `capture_cancel` is never answered.
+                        ("capture_control", k) => {
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(cfg.state.join("capture_frames"))
+                                .and_then(|mut f| writeln!(f, "{}", v["payload"]));
+                            let status = match k {
+                                "capture_acquire" => "granted",
+                                "capture_heartbeat" => "ok",
+                                "capture_release" => "released",
+                                _ => continue,
+                            };
+                            frame(
+                                "capture_control",
+                                &rid,
+                                json!({"kind":"capture_state","status":status,"owner":null}),
+                                Value::Null,
+                            )
+                        }
                         ("file_transcription_status", "file_transcription_status")
                             if cfg.minor >= 3 =>
                         {

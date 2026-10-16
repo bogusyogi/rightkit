@@ -1,4 +1,4 @@
-# rightkit-speech-client 0.3.4: API reference
+# rightkit-speech-client 0.3.6: API reference
 
 Every public item, with one line on its purpose and the errors it returns. Errors are
 `ClientError` variants unless the row says otherwise. The host's input contract (what it
@@ -109,6 +109,63 @@ What each outcome means on the wire:
 
 A true acknowledgement needs a cancel message on the host. None is defined in protocol
 minor 3, and this release does not invent one.
+
+## Cancel frame and capture ownership
+
+New in 0.3.6, protocol minor 4. Additive and version-negotiated: a client uses these only on a
+host whose `service.json` says `protocol_minor >= 4` and whose capabilities list the matching
+entry. An older host never sees them and an older client never sends them. Everything in
+minors 0 to 3 is byte-identical to before. Hosting stays in the speech engine; this crate holds
+the wire frames and the rules.
+
+| Item | Purpose | Errors |
+|---|---|---|
+| `SERVICE_PROTOCOL_MINOR_CAPTURE` | `4`. | |
+| `CAPABILITY_CANCEL`, `CAPABILITY_CAPTURE` | `"request_cancel"`, `"capture_ownership"`. `Capabilities::supports_cancel()` and `supports_capture()` read them. | |
+| `SCHEMA_CANCEL`, `SCHEMA_CAPTURE` | `"request_cancel"`, `"capture_control"`. | |
+| `SERVICE_ALLOWED_SCHEMAS_CAPTURE`, `is_allowed_schema_for_minor(schema, minor)` | The two extra schemas a minor-4 host accepts. `SERVICE_ALLOWED_SCHEMAS` and `is_allowed_schema` are unchanged (five v1 schemas). | |
+| `ServiceEnvelope::cancel_job(request_id, trace_id, job_id)` | Cancel frame (client). Fire and forget: the host may answer nothing. | |
+| `ServiceEnvelope::capture_request(request_id, trace_id, &CaptureCommand)` | Capture command frame (client). | |
+| `ServiceEnvelope::capture_state_frame(request_id, trace_id, &CaptureReply)` | `capture_state` reply (host). | |
+| `ServiceEnvelope::capture_reply()` | Reads a `capture_state` reply. | |
+| `ServiceEnvelope::request_extended() -> Result<ExtendedRequest, &str>` | Classifies a frame for a minor-4 host. `request()` is unchanged and still knows only the v1 requests, so exhaustive matches on `ServiceRequest` keep compiling. | `"missing job id"`, `"invalid capture command"`, else `request()`'s reasons |
+| `ExtendedRequest` | `Base(ServiceRequest)`, `Cancel { job_id }`, `Capture(CaptureCommand)`. `#[non_exhaustive]`. | |
+| `SpeechClient::supports_cancel()`, `supports_capture()` | Minor 4 and the capability. A lower minor answers `false` without a round trip. | Capabilities call errors |
+| `SpeechClient::cancel_job(job_id)` | Writes the cancel frame and returns. | `Unsupported` without the capability |
+| `SpeechClient::capture(&CaptureCommand, timeout)` | One capture command, returns the `CaptureReply`. | `Unsupported` without the capability; `Timeout`, `Io` |
+| `SpeechClient::stop_capture(owner_id)` | Local Stop: writes `capture_cancel` when the host is known to arbitrate capture (capabilities already fetched on this connection), then closes the connection. Never waits for a reply. The client is unusable afterwards. | none |
+
+A cancelled file request (`CancelToken`) now also writes `request_cancel {job_id}` before it
+closes the connection, but only to a minor-4 host whose capabilities (already fetched on that
+connection) list `request_cancel`. It does not wait for a reply. The request still returns
+`Cancelled` within about 100 ms. To any other host nothing changes: the connection closes, and
+`cancel_request` is how to learn what the host did.
+
+### Capture ownership rules
+
+| Item | Purpose |
+|---|---|
+| `CaptureRole` | `HeardRightDictation`, `PulseConversation`, `Meeting`, `Batch`. Wire values `heard_right_dictation`, `pulse_conversation`, `meeting`, `batch`. `outranks(other)`: dictation, then Pulse, then batch. A meeting is outside the ordering. |
+| `CaptureOwner` | `role`, `owner_id` (the key for every later command), `pid`. |
+| `decide_capture(active, requested, confirmed) -> CaptureDecision` | `Free`, `Preempt`, `ConfirmRequired`, `Busy`. A higher role preempts a lower one. A meeting is taken only by dictation with `confirmed` (the user said yes); without it the answer is `ConfirmRequired`. Nothing else takes a meeting. |
+| `CaptureCommand` | `Acquire { owner, confirm_preempt }`, `Heartbeat`, `Release`, `Cancel { owner_id }`. `Cancel` is Stop: close the capture and discard pending uploads. |
+| `CaptureReply`, `CaptureStatus` | `granted`, `preempting`, `confirm_required`, `busy`, `fenced`, `ok`, `preempted`, `released`, `not_owner`, with the other party in `owner`. |
+| `CaptureArbiter` | The reference host state machine. No I/O, no clock: pass `now_ms`. `acquire`, `heartbeat`, `release`, `cancel`, `prove_release`, `tick`, `apply(&CaptureCommand, now_ms)`, `current`, `phase`. |
+| `CAPTURE_HEARTBEAT_MS` (2000), `CAPTURE_LEASE_MS` (6000), `CAPTURE_RESERVATION_MS` (6000) | Heartbeat interval, lease after which an owner is fenced, and how long a waiting preemptor's claim holds. |
+
+Behaviour, all covered by `tests/capture.rs`:
+
+- One capture mode is active at a time. A second request of the same or lower priority gets `busy`.
+- A preempted owner (`preempting`) learns it on its next heartbeat (`preempted`) and must release
+  at once and close its pending uploads. The preemptor is reserved the capture and gets it the
+  moment the owner releases; a lower-priority request cannot slip in meanwhile, and a higher one
+  replaces the waiting preemptor.
+- A silent owner is fenced after `CAPTURE_LEASE_MS`. A late heartbeat does not revive it, no
+  other process gets the capture, and the owner's own `release` or `cancel` is not proof
+  (`StillFenced`). Only `prove_release`, called by the host after it sees the process gone or the
+  device closed, frees the capture.
+- Local Stop never waits for an acknowledgement: `stop_capture` and a cancelled request write
+  the frame and close the connection.
 
 ## Results and cues
 

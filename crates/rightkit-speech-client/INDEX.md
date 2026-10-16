@@ -1,6 +1,6 @@
 # rightkit-speech-client: file index
 
-Version 0.3.4. Start with [README.md](README.md) for scope, then [API.md](API.md) for every
+Version 0.3.6. Start with [README.md](README.md) for scope, then [API.md](API.md) for every
 public item and the host's input contract. The repository-wide index is the generated
 `INDEX.md` at the repository root.
 
@@ -8,7 +8,7 @@ public item and the host's input contract. The repository-wide index is the gene
 
 | Path | What it is |
 |---|---|
-| `Cargo.toml` | Manifest. Version 0.3.4. `include` lists the files that ship. |
+| `Cargo.toml` | Manifest. Version 0.3.6. `include` lists the files that ship. |
 | `README.md` | Scope, platform support, and the contract-extension table. |
 | `API.md` | Public API reference: purpose and errors for each item, the input contract, and known divergences. |
 | `CHANGELOG.md` | Release notes, newest first. |
@@ -21,6 +21,7 @@ public item and the host's input contract. The repository-wide index is the gene
 |---|---|
 | `lib.rs` | The client: discovery, `connect`, `SpeechClient`, transcription, the launch policy (`Launch`, `HostLauncher`, `HeardRightLauncher`, `transcribe_via_service_policy`), and cancel (`cancel_request`, `CancelOutcome`). |
 | `protocol.rs` | Wire types and frame constructors: `ServiceEnvelope`, `ServiceRequest`, capabilities, progress, file options, and the wire constants. Re-exported from `lib.rs`. |
+| `capture.rs` | Capture ownership (protocol minor 4): `CaptureRole`, `CaptureCommand`, `CaptureReply`, `decide_capture`, and the `CaptureArbiter` host state machine. |
 | `cues.rs` | SubRip cue parsing: `Cue`, `parse_srt_cues`, `FileTranscript::cues`. |
 | `preflight.rs` | `preflight_file`, the path check the client can make before sending. |
 | `stage.rs` | Input staging: `StageInput`, the host-readable rule, the staged-copy guard that removes its file on drop, and the host read-denial check. |
@@ -37,6 +38,7 @@ public item and the host's input contract. The repository-wide index is the gene
 |---|---|---|
 | `contract.rs` | all | Role names and ranks, engine selector serialisation, record round trips, host planning on an empty root. |
 | `e2e.rs` | Unix | Wire compatibility against `hr_fake_host`: frames against captured fixtures, discovery, handoff, takeover, cancel, stall, dictation pause, engine selection, verbatim, queue. |
+| `capture.rs` | all | Capture priority, preemption, meeting protection, heartbeat fencing, capture and cancel frames, minor-4 allowlist compatibility. |
 | `windows_pipe.rs` | Windows | Named-pipe round trip. |
 | `input_and_cues.rs` | all | SRT cue parsing on the host's output shape, `FileTranscript::cues`, and `preflight_file`. |
 | `launch_cancel.rs` | Unix | `Launch::Never` and `Auto` with an injected launcher, and each cancel outcome, against an in-process fake service. |

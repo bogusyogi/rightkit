@@ -205,6 +205,21 @@ test('dependency command extraction ignores option values, installed-only comman
   }
 });
 
+test('dependency command extraction stops at shell operators and redirections (rightkit#136)', () => {
+  for (const command of ['pnpm install --frozen-lockfile 2>&1 | tail -2', 'pnpm install > out.log', 'pnpm install >> out.log 2>&1', 'pnpm install 2> err.log', 'pnpm install &> all.log',
+    'npm install < /dev/null', 'pnpm install 1>&2', 'pnpm install --frozen-lockfile || echo failed', 'pnpm install && pnpm build', 'pnpm install & wait',
+    'pnpm install | tee install.log', 'pnpm install; echo done', 'pnpm install 2>/dev/null', 'pnpm install >| out.log', 'yarn add --dev 2>&1 | tail',
+    'echo $(pnpm install --frozen-lockfile 2>&1 | tail -1)', 'x=`pnpm install 2>&1`', '(pnpm install 2>&1) | tail']) {
+    assert.deepEqual(ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command } }), { decision: 'allow' }, command);
+  }
+  for (const command of ['pnpm add playwright 2>&1 | tail -2', 'pnpm add playwright > out.log', 'echo $(pnpm add playwright)', 'echo `pnpm add playwright`',
+    'pnpm install 2>&1 | tail && pnpm add playwright', 'npm i puppeteer-core 2>&1; true', '(cd app && npm i puppeteer-core)']) {
+    const result = ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command } });
+    assert.equal(result.hookSpecificOutput?.permissionDecision, 'deny', command);
+    assert.match(result.hookSpecificOutput.permissionDecisionReason, /rightkit-browser/, command);
+  }
+});
+
 test('Cargo dependencies include renames, target tables, dev/build dependencies & dependency subtables', () => {
   for (const declaration of [
     '[dependencies]\nfoo = { package = "chromiumoxide" }',

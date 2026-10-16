@@ -11,11 +11,17 @@
 //! HeardRight's engine. The API is a superset of `orthic-speech-client` 0.1, so
 //! HeardRight/CutRight swap the dependency only. See `API.md`.
 
+mod capture;
 mod cues;
 mod preflight;
 mod protocol;
 mod stage;
 
+pub use capture::{
+    decide as decide_capture, AcquireOutcome, CaptureArbiter, CaptureCommand, CaptureDecision,
+    CaptureOwner, CapturePhase, CaptureReply, CaptureRole, CaptureStatus, HeartbeatOutcome,
+    ReleaseOutcome, CAPTURE_HEARTBEAT_MS, CAPTURE_LEASE_MS, CAPTURE_RESERVATION_MS,
+};
 pub use cues::{parse_srt_cues, Cue};
 pub use preflight::preflight_file;
 pub use stage::{StageInput, DEFAULT_STAGE_LIMIT_BYTES};
@@ -34,15 +40,17 @@ use rightkit_daemon::{HostPlan as ServicePlan, Suite};
 use rightkit_sidecar::{read_json_line, FrameError};
 
 pub use protocol::{
-    endpoint_for, installed_heardright_path, is_allowed_schema, service_dir, service_record_path,
-    takeover_request_path, Capabilities, EngineInfo, EngineSelector, FileOptions, FileTranscript,
-    FileTranscriptResult, HostProgress, HostRole, InstalledEngine, ProgressState, QueueReason,
-    ServiceEnvelope, ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest,
-    TimedWord, CAPABILITY_FILE_TRANSCRIPTION, CAPABILITY_QUEUE, CAPABILITY_VERBATIM,
-    ENGINE_PARAKEET, ENGINE_WHISPER, ERROR_ENGINE_UNAVAILABLE, ERROR_HOST_HANDOFF,
-    ERROR_JOB_UNKNOWN, ERROR_NOT_ALLOWED, QUEUE_KEEPALIVE_MS, QUEUE_RESULT_RETENTION_MS,
-    SCHEMA_PROGRESS, SCHEMA_STATUS, SERVICE_ALLOWED_SCHEMAS, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR,
-    SERVICE_PROTOCOL_MINOR, SERVICE_PROTOCOL_MINOR_ENGINES, SERVICE_PROTOCOL_MINOR_QUEUE,
+    endpoint_for, installed_heardright_path, is_allowed_schema, is_allowed_schema_for_minor,
+    service_dir, service_record_path, takeover_request_path, Capabilities, EngineInfo,
+    EngineSelector, ExtendedRequest, FileOptions, FileTranscript, FileTranscriptResult,
+    HostProgress, HostRole, InstalledEngine, ProgressState, QueueReason, ServiceEnvelope,
+    ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest, TimedWord,
+    CAPABILITY_CANCEL, CAPABILITY_CAPTURE, CAPABILITY_FILE_TRANSCRIPTION, CAPABILITY_QUEUE,
+    CAPABILITY_VERBATIM, ENGINE_PARAKEET, ENGINE_WHISPER, ERROR_ENGINE_UNAVAILABLE,
+    ERROR_HOST_HANDOFF, ERROR_JOB_UNKNOWN, ERROR_NOT_ALLOWED, QUEUE_KEEPALIVE_MS, QUEUE_RESULT_RETENTION_MS,
+    SCHEMA_CANCEL, SCHEMA_CAPTURE, SCHEMA_PROGRESS, SCHEMA_STATUS, SERVICE_ALLOWED_SCHEMAS,
+    SERVICE_ALLOWED_SCHEMAS_CAPTURE, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR, SERVICE_PROTOCOL_MINOR,
+    SERVICE_PROTOCOL_MINOR_CAPTURE, SERVICE_PROTOCOL_MINOR_ENGINES, SERVICE_PROTOCOL_MINOR_QUEUE,
     SERVICE_PROTOCOL_MINOR_VERBATIM, SPEECH_FAMILY,
 };
 
@@ -702,6 +710,105 @@ impl SpeechClient {
         self.call_inner(frame, Wait::Stall(stall), cancel, report)
     }
 
+    /// Write one frame and do not wait for a reply.
+    fn send_frame(&mut self, frame: &ServiceEnvelope) -> Result<(), ClientError> {
+        if self.dead {
+            return Err(ClientError::Io("connection is no longer usable".into()));
+        }
+        let line = encode_frame(frame)?;
+        if let Err(e) = self
+            .writer
+            .write_all(line.as_bytes())
+            .and_then(|_| self.writer.flush())
+        {
+            self.kill();
+            return Err(io_err(e));
+        }
+        Ok(())
+    }
+
+    /// Minor 4, known without a round trip: the host's capabilities were fetched on this
+    /// connection and list the cancel frame.
+    fn cancel_frame_known(&self) -> bool {
+        self.record.protocol_minor >= SERVICE_PROTOCOL_MINOR_CAPTURE
+            && self.caps.as_ref().is_some_and(Capabilities::supports_cancel)
+    }
+
+    /// Minor 4, known without a round trip: the host lists capture ownership.
+    fn capture_known(&self) -> bool {
+        self.record.protocol_minor >= SERVICE_PROTOCOL_MINOR_CAPTURE
+            && self.caps.as_ref().is_some_and(Capabilities::supports_capture)
+    }
+
+    /// The host accepts a cancel frame (protocol minor 4 and the `request_cancel` capability).
+    pub fn supports_cancel(&mut self) -> Result<bool, ClientError> {
+        if self.record.protocol_minor < SERVICE_PROTOCOL_MINOR_CAPTURE {
+            return Ok(false);
+        }
+        Ok(self.cached_capabilities()?.supports_cancel())
+    }
+
+    /// The host arbitrates capture ownership (protocol minor 4 and the `capture_ownership` capability).
+    pub fn supports_capture(&mut self) -> Result<bool, ClientError> {
+        if self.record.protocol_minor < SERVICE_PROTOCOL_MINOR_CAPTURE {
+            return Ok(false);
+        }
+        Ok(self.cached_capabilities()?.supports_capture())
+    }
+
+    /// Ask the host to stop `job_id`, from this or another connection. Fire and forget: the
+    /// frame is written and nothing is awaited. `Unsupported` when the host lacks the capability
+    /// (an old host never sees the frame).
+    pub fn cancel_job(&mut self, job_id: &str) -> Result<(), ClientError> {
+        if !self.supports_cancel()? {
+            return Err(ClientError::Unsupported(
+                "host does not advertise the cancel frame".into(),
+            ));
+        }
+        let frame = ServiceEnvelope::cancel_job(&next_request_id(), TRACE_ID, job_id);
+        self.send_frame(&frame)
+    }
+
+    /// Send one capture command and return the host's `capture_state` reply. `timeout` bounds the wait.
+    /// `Unsupported` when the host lacks the capability.
+    pub fn capture(
+        &mut self,
+        command: &CaptureCommand,
+        timeout: Duration,
+    ) -> Result<CaptureReply, ClientError> {
+        if !self.supports_capture()? {
+            return Err(ClientError::Unsupported(
+                "host does not advertise capture ownership".into(),
+            ));
+        }
+        let frame = ServiceEnvelope::capture_request(&next_request_id(), TRACE_ID, command);
+        let response = self.call_raw(&frame, timeout, None, None)?;
+        if let Some(error) = &response.error {
+            return Err(map_error(error));
+        }
+        response
+            .capture_reply()
+            .ok_or_else(|| ClientError::Io("unexpected capture response".into()))
+    }
+
+    /// Local Stop. Writes a `capture_cancel` frame when the host is known to arbitrate capture
+    /// (best effort, never waited on), then closes the connection. Capture and pending uploads
+    /// are closed here without waiting for a server acknowledgement; the closed connection also
+    /// tells a host that missed the frame. The client is unusable afterwards.
+    pub fn stop_capture(&mut self, owner_id: &str) {
+        if self.capture_known() {
+            let frame = ServiceEnvelope::capture_request(
+                &next_request_id(),
+                TRACE_ID,
+                &CaptureCommand::Cancel {
+                    owner_id: owner_id.to_string(),
+                },
+            );
+            let _ = self.send_frame(&frame);
+        }
+        self.kill();
+    }
+
     /// Whether the host this client connected to is still the live service host.
     fn host_still_live(&self) -> bool {
         read_live_record(&self.suite_root).is_some_and(|r| r.pid == self.record.pid)
@@ -733,6 +840,13 @@ impl SpeechClient {
         }
         loop {
             if cancel.is_some_and(CancelToken::is_cancelled) {
+                // A host that lists the cancel capability is told to stop the job. This is
+                // best effort and never waited on: Stop closes the connection at once.
+                if frame.schema_name == "file_transcription_request" && self.cancel_frame_known() {
+                    let cancel_frame =
+                        ServiceEnvelope::cancel_job(&next_request_id(), TRACE_ID, &frame.request_id);
+                    let _ = self.send_frame(&cancel_frame);
+                }
                 self.kill();
                 return Err(ClientError::Cancelled);
             }

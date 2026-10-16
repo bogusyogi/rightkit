@@ -558,15 +558,31 @@ function manifestFeedback(path, before, after, created, cwd) {
 
 function commandDependencies(command) {
   if (typeof command !== 'string') return [];
-  const segments = []; let words = []; let word = ''; let quote = '';
-  const flush = () => { if (word) words.push(word); word = ''; };
+  const segments = []; let words = []; let word = ''; let quote = ''; let quoted = false; let skipWord = false;
+  // A finished word is dropped when it is the target of a redirection (`> file`, `2>&1`'s `1`).
+  const flush = () => { if (word || quoted) { if (skipWord) skipWord = false; else if (word) words.push(word); } word = ''; quoted = false; };
+  const split = () => { flush(); skipWord = false; segments.push(words); words = []; };
   for (let at = 0; at < command.length; at += 1) {
     const ch = command[at];
     if (quote) { if (ch === quote) quote = ''; else if (ch === '\\' && quote === '"' && command[at + 1] === '"') word += command[++at]; else word += ch; continue; }
-    if (ch === "'" || ch === '"') { quote = ch; continue; }
-    if (ch === '#' && !word) { while (at < command.length && command[at] !== '\n') at += 1; flush(); segments.push(words); words = []; continue; }
-    if (ch === ';' || ch === '\n' || ch === '&' && command[at + 1] === '&') {
-      flush(); segments.push(words); words = []; if (ch === '&') at += 1;
+    if (ch === "'" || ch === '"') { quote = ch; quoted = true; continue; }
+    if (ch === '\\' && at + 1 < command.length && /[\s|&;<>()$`"'#\\]/.test(command[at + 1])) { word += command[++at]; continue; }
+    if (ch === '#' && !word) { while (at < command.length && command[at] !== '\n') at += 1; split(); continue; }
+    // Command substitution and grouping: `$(`, `(`, `)` and backticks start or end a command.
+    if (ch === '$' && command[at + 1] === '(') { split(); at += 1; continue; }
+    if (ch === '(' || ch === ')' || ch === '`') { split(); continue; }
+    // Redirections: `>`, `>>`, `>&`, `>|`, `<`, `<<`, `<<<`, `<&`, `<>`, `&>`, `&>>`, with an optional leading fd number.
+    if (ch === '>' || ch === '<' || (ch === '&' && command[at + 1] === '>')) {
+      if (/^\d+$/.test(word) && !quoted) word = ''; else flush();
+      if (ch === '&') at += 1;
+      const operator = command[at];
+      while (command[at + 1] === operator || (operator === '>' && command[at + 1] === '|') || ((operator === '>' || operator === '<') && command[at + 1] === '&') || (operator === '<' && command[at + 1] === '>')) {
+        at += 1; if (command[at] === '&' || command[at] === '|' || command[at] === '>' && operator === '<') break;
+      }
+      skipWord = true; continue;
+    }
+    if (ch === ';' || ch === '\n' || ch === '|' || ch === '&') {
+      split(); if ((ch === '&' || ch === '|') && command[at + 1] === ch) at += 1;
     } else if (/\s/.test(ch)) flush();
     else word += ch;
   }

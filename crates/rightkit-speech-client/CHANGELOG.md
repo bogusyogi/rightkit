@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 0.3.6
+
+- Protocol minor 4 (additive, capability-gated, version-negotiated; Orthic-Labs/rightkit#108): a cancel frame and capture ownership for the Pulse voice layer (HeardRight dictation, Pulse conversation, batch, meeting). New `capture.rs` with `CaptureRole`, `CaptureOwner`, `CaptureCommand`, `CaptureReply`, `CaptureStatus`, `decide_capture` and the reference host state machine `CaptureArbiter`: priority HeardRight dictation > Pulse conversation > batch, one capture at a time, dictation preempts Pulse and the preempted owner releases at once, a meeting is never silently preempted (dictation needs an explicit confirmation), and heartbeat expiry fences the owner without handing the mic on until release is proven (`prove_release`).
+- Wire: schemas `request_cancel` and `capture_control`, capabilities `request_cancel` and `capture_ownership`, `SERVICE_PROTOCOL_MINOR_CAPTURE` (4), `ServiceEnvelope::{cancel_job, capture_request, capture_state_frame, capture_reply, request_extended}`, `ExtendedRequest`, `is_allowed_schema_for_minor`. `request()`, `ServiceRequest`, `SERVICE_ALLOWED_SCHEMAS` and `is_allowed_schema` are unchanged, so older hosts and exhaustive matches are untouched, and a client never sends the new frames to a host without the capability.
+- Client: `SpeechClient::{supports_cancel, supports_capture, cancel_job, capture, stop_capture}`. A cancelled file request also writes `request_cancel {job_id}` to a minor-4 host that lists it, then closes the connection as before, without waiting for a reply. `stop_capture` is the local Stop: it closes capture and pending uploads without waiting for a server ack.
+- Tests: `tests/capture.rs` (rules, fencing, preemption, frames, allowlist compatibility), and `tests/e2e.rs` runs the cancel frame and capture frames against `hr_fake_host` minor 4 and checks a minor-3 host never sees them. The fake host speaks minor 4.
+
 ## 0.3.5
 
 - Republished on the renamed dependencies: `rightkit-sidecar` (was `rightkit-framed-sidecar`). The 0.3.4 on crates.io was packaged before the renames and still named the old crates.

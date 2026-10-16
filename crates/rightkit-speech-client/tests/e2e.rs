@@ -1040,3 +1040,127 @@ fn pre_queue_hosts_keep_the_stall_timeout_and_refuse_status() {
     );
     assert_eq!(r.unwrap_err(), ClientError::Timeout);
 }
+
+// ---------------------------------------------------------------------------
+// Protocol minor 4: cancel frame and capture ownership
+// ---------------------------------------------------------------------------
+
+fn cancel_hanging_job(c: &mut SpeechClient) -> ClientError {
+    let cancel = CancelToken::new();
+    let c2 = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        c2.cancel();
+    });
+    let mut opts = TranscribeOptions::new(Duration::from_secs(60))
+        .request_id("job-cancel")
+        .cancel_token(cancel);
+    c.transcribe(Path::new("/x/hang.wav"), &mut opts).unwrap_err()
+}
+
+#[test]
+fn local_stop_sends_the_cancel_frame_to_a_minor_4_host_without_waiting_for_an_ack() {
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 4, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(c.supports_cancel().unwrap() && c.supports_capture().unwrap());
+    let t = Instant::now();
+    assert_eq!(cancel_hanging_job(&mut c), ClientError::Cancelled);
+    assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
+    let frames = e.state.join("cancel_frames");
+    assert!(wait_for(&frames, 5), "the host received the cancel frame");
+    assert_eq!(std::fs::read_to_string(&frames).unwrap().trim(), "job-cancel");
+}
+
+#[test]
+fn a_minor_3_host_never_sees_the_cancel_frame_and_refuses_the_new_calls() {
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 3, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(!c.supports_cancel().unwrap() && !c.supports_capture().unwrap());
+    assert_eq!(cancel_hanging_job(&mut c), ClientError::Cancelled);
+    assert!(
+        wait_for(&e.state.join("cancelled"), 5),
+        "the disconnect still reaches the host"
+    );
+    assert!(!e.state.join("cancel_frames").exists());
+    let mut c = connect(&e.root).unwrap();
+    assert!(matches!(
+        c.cancel_job("x"),
+        Err(ClientError::Unsupported(_))
+    ));
+    let acquire = CaptureCommand::Heartbeat {
+        owner_id: "p".into(),
+    };
+    assert!(matches!(
+        c.capture(&acquire, Duration::from_secs(2)),
+        Err(ClientError::Unsupported(_))
+    ));
+    assert!(!e.state.join("capture_frames").exists());
+}
+
+#[test]
+fn capture_commands_round_trip_and_stop_closes_without_waiting_for_a_reply() {
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 4, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    let pulse = CaptureOwner {
+        role: CaptureRole::PulseConversation,
+        owner_id: "pulse-1".into(),
+        pid: std::process::id(),
+    };
+    let reply = c
+        .capture(
+            &CaptureCommand::Acquire {
+                owner: pulse,
+                confirm_preempt: false,
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    assert_eq!(reply.status, CaptureStatus::Granted);
+    let reply = c
+        .capture(
+            &CaptureCommand::Heartbeat {
+                owner_id: "pulse-1".into(),
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    assert_eq!(reply.status, CaptureStatus::Ok);
+    // Stop returns at once: the host never answers a capture_cancel.
+    let t = Instant::now();
+    c.stop_capture("pulse-1");
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    let frames = e.state.join("capture_frames");
+    let wait_lines = Instant::now() + Duration::from_secs(5);
+    let lines = loop {
+        let text = std::fs::read_to_string(&frames).unwrap_or_default();
+        if text.lines().count() >= 3 || Instant::now() > wait_lines {
+            break text;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let kinds: Vec<String> = lines
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap()["kind"].to_string())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "\"capture_acquire\"",
+            "\"capture_heartbeat\"",
+            "\"capture_cancel\""
+        ]
+    );
+    // The client is closed: it cannot be reused.
+    assert!(matches!(
+        c.capture(
+            &CaptureCommand::Heartbeat {
+                owner_id: "pulse-1".into()
+            },
+            Duration::from_secs(1)
+        ),
+        Err(ClientError::Io(_))
+    ));
+}

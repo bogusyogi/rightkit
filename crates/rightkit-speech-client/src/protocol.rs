@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 
+use crate::capture::{CaptureCommand, CaptureReply};
+
 pub const SPEECH_FAMILY: &str = "parakeet-tdt-v3";
 /// The service name under `<suite>/runtime/`: HeardRight's `speech-service` directory.
 pub const SERVICE_NAME: &str = "speech-service";
@@ -58,6 +60,30 @@ pub const ERROR_JOB_UNKNOWN: &str = "speech_service_job_unknown";
 pub const QUEUE_KEEPALIVE_MS: u64 = 2_000;
 /// Minor 3: how long a host keeps a finished job's result for re-attach.
 pub const QUEUE_RESULT_RETENTION_MS: u64 = 600_000;
+/// Minor 4 (additive): a cancel frame and capture ownership.
+///
+/// 1. A host that lists [`CAPABILITY_CANCEL`] accepts a [`SCHEMA_CANCEL`] frame
+///    (`{kind: "request_cancel", job_id}`) on the connection that submitted the job, or
+///    on another one: it stops the job (queued or running) and discards its result.
+///    The sender does not wait for a reply and the host may send none. A client that
+///    cancels a file request sends it before it closes the connection, to a host that
+///    lists the capability; to any other host nothing changes (the connection just closes).
+/// 2. A host that lists [`CAPABILITY_CAPTURE`] arbitrates the microphone through
+///    [`SCHEMA_CAPTURE`] frames (`capture_acquire`, `capture_heartbeat`,
+///    `capture_release`, `capture_cancel`) and answers with a `capture_state` frame.
+///    Priority is HeardRight dictation, then Pulse conversation, then batch; one mode is
+///    active at a time; a meeting is never silently preempted; a stuck owner is fenced
+///    and the capture is not handed on until its release is proven. The rules are in
+///    [`crate::CaptureArbiter`].
+///
+/// Old hosts do not list either capability and reject the new schemas as not allowed; old
+/// clients never send them. A client sends them only to a host whose `service.json` says
+/// `protocol_minor >= 4` and whose capabilities list the matching entry.
+pub const SERVICE_PROTOCOL_MINOR_CAPTURE: u32 = 4;
+pub const CAPABILITY_CANCEL: &str = "request_cancel";
+pub const CAPABILITY_CAPTURE: &str = "capture_ownership";
+pub const SCHEMA_CANCEL: &str = "request_cancel";
+pub const SCHEMA_CAPTURE: &str = "capture_control";
 pub const ERROR_HOST_HANDOFF: &str = "speech_service_host_handoff";
 pub const ERROR_NOT_ALLOWED: &str = "speech_service_request_not_allowed";
 /// Minor 1: the requested engine is unknown, not installed, or not ready. Not retryable.
@@ -70,6 +96,8 @@ pub const SERVICE_ALLOWED_SCHEMAS: &[&str] = &[
     "file_transcription_request",
     "file_transcription_status",
 ];
+/// The request schemas a minor-4 host accepts in addition to [`SERVICE_ALLOWED_SCHEMAS`].
+pub const SERVICE_ALLOWED_SCHEMAS_CAPTURE: &[&str] = &[SCHEMA_CANCEL, SCHEMA_CAPTURE];
 const ENGINE_PROTOCOL_MAJOR: u16 = 1;
 const ENGINE_PROTOCOL_MINOR: u16 = 0;
 const ENGINE_SCHEMA_VERSION: u16 = 1;
@@ -313,6 +341,14 @@ impl Capabilities {
     pub fn supports_queue(&self) -> bool {
         self.capabilities.iter().any(|c| c == CAPABILITY_QUEUE)
     }
+    /// The host accepts a cancel frame (minor 4).
+    pub fn supports_cancel(&self) -> bool {
+        self.capabilities.iter().any(|c| c == CAPABILITY_CANCEL)
+    }
+    /// The host arbitrates capture ownership (minor 4).
+    pub fn supports_capture(&self) -> bool {
+        self.capabilities.iter().any(|c| c == CAPABILITY_CAPTURE)
+    }
     pub fn engines_or_default(&self) -> Vec<EngineInfo> {
         if self.engines.is_empty() && self.supports_file_transcription() {
             vec![EngineInfo {
@@ -454,6 +490,20 @@ pub enum ServiceRequest {
     Status {
         job_id: String,
     },
+}
+
+/// A request frame as a minor-4 host sees it: the v1 requests plus the cancel frame and
+/// capture commands. [`ServiceEnvelope::request`] is unchanged and still knows only the v1
+/// requests, so existing exhaustive matches on [`ServiceRequest`] keep compiling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExtendedRequest {
+    /// Any request [`ServiceEnvelope::request`] accepts.
+    Base(ServiceRequest),
+    /// Minor 4: stop a queued or running job. Fire and forget.
+    Cancel { job_id: String },
+    /// Minor 4: a capture-ownership command.
+    Capture(CaptureCommand),
 }
 
 /// Minor-1 optional fields of a file request (see [`ServiceEnvelope::file_options`]).
@@ -655,6 +705,42 @@ impl ServiceEnvelope {
             None,
         )
     }
+    /// Minor-4 cancel frame (client): stop `job_id`. Send only to a host that lists
+    /// [`CAPABILITY_CANCEL`]; do not wait for a reply.
+    pub fn cancel_job(request_id: &str, trace_id: &str, job_id: &str) -> Self {
+        Self::base(
+            SCHEMA_CANCEL,
+            request_id,
+            trace_id,
+            Some(json!({"kind": SCHEMA_CANCEL, "job_id": job_id})),
+            None,
+        )
+    }
+    /// Minor-4 capture command (client). Send only to a host that lists [`CAPABILITY_CAPTURE`].
+    pub fn capture_request(request_id: &str, trace_id: &str, command: &CaptureCommand) -> Self {
+        Self::base(
+            SCHEMA_CAPTURE,
+            request_id,
+            trace_id,
+            Some(command.to_payload()),
+            None,
+        )
+    }
+    /// Minor-4 `capture_state` reply (host).
+    pub fn capture_state_frame(request_id: &str, trace_id: &str, reply: &CaptureReply) -> Self {
+        Self::base(
+            SCHEMA_CAPTURE,
+            request_id,
+            trace_id,
+            Some(reply.to_payload()),
+            None,
+        )
+    }
+    /// Reads a `capture_state` reply (client).
+    pub fn capture_reply(&self) -> Option<CaptureReply> {
+        (self.schema_name == SCHEMA_CAPTURE).then_some(())?;
+        CaptureReply::from_payload(self.payload.as_ref()?)
+    }
     pub fn progress(
         request_id: &str,
         trace_id: &str,
@@ -745,6 +831,35 @@ impl ServiceEnvelope {
             _ => Err("request not allowed"),
         }
     }
+    /// Classify a request frame for a minor-4 host: the cancel frame and capture commands, else
+    /// whatever [`request`](Self::request) says. A host checks [`is_allowed_schema_for_minor`] first.
+    pub fn request_extended(&self) -> Result<ExtendedRequest, &'static str> {
+        if self.error.is_some() {
+            return Err("normal frame carried error payload");
+        }
+        let kind = self
+            .payload
+            .as_ref()
+            .and_then(|value| value.get("kind"))
+            .and_then(Value::as_str);
+        match (self.schema_name.as_str(), kind) {
+            (SCHEMA_CANCEL, Some(SCHEMA_CANCEL)) => self
+                .payload
+                .as_ref()
+                .and_then(|v| v.get("job_id"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(|id| ExtendedRequest::Cancel { job_id: id.into() })
+                .ok_or("missing job id"),
+            (SCHEMA_CAPTURE, Some(kind)) => self
+                .payload
+                .as_ref()
+                .and_then(|v| CaptureCommand::from_payload(kind, v))
+                .map(ExtendedRequest::Capture)
+                .ok_or("invalid capture command"),
+            _ => self.request().map(ExtendedRequest::Base),
+        }
+    }
     /// The minor-1 `engine`/`language` of a file request (both `None` from a v1.0 client).
     pub fn file_options(&self) -> FileOptions {
         let p = self.payload.as_ref();
@@ -831,8 +946,17 @@ impl ServiceEnvelope {
     }
 }
 
+/// Whether a v1.0 to v1.3 host accepts `schema`. The minor-4 schemas are not in this list:
+/// see [`is_allowed_schema_for_minor`].
 pub fn is_allowed_schema(schema: &str) -> bool {
     SERVICE_ALLOWED_SCHEMAS.contains(&schema)
+}
+
+/// Whether a host speaking protocol minor `minor` accepts `schema`.
+pub fn is_allowed_schema_for_minor(schema: &str, minor: u32) -> bool {
+    is_allowed_schema(schema)
+        || (minor >= SERVICE_PROTOCOL_MINOR_CAPTURE
+            && SERVICE_ALLOWED_SCHEMAS_CAPTURE.contains(&schema))
 }
 
 fn valid_health(value: &Value) -> bool {

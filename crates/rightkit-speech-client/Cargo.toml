@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-speech-client"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host."
