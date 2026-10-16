@@ -3,6 +3,12 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.1
+
+- **`dev-inspect` now enables `tauri/unstable`** (Orthic-Labs/rightkit#103). `devtools.rs` calls `AppHandle::get_webview`,
+  which Tauri 2 exposes only with `unstable`, so apps no longer add it to their own dev-only feature. No source change;
+  default features unchanged.
+
 ## 0.3.0
 
 Renamed from rightkit-shell; 0.2.0 remains published under the old name.
