@@ -13,6 +13,10 @@
 //! Drive an app with `run` or `batch`, not one command per step: every separate call pays a
 //! process start and a connection, and a model turn between them.
 //!
+//!   right-ctl demo <tool> [args]                 agent demo mode (feature `demo` only): request, apps,
+//!                                                snapshot, act, batch, end. Pass the token from
+//!                                                `demo request` as token=... on each later call.
+//!
 //! Options: --suite-root <abs path> (else RIGHTKIT_SUITE_ROOT / per-user default, fail-closed),
 //!          --journal <file> (content-free JSONL of started/denied/settled).
 //! Exit: 0 ok, 1 tool error, 2 usage, 3 refused (exposure, allowlist, admission).
@@ -93,6 +97,39 @@ fn full_toolbox(suite: &Suite, apps: &[String]) -> Result<Toolbox, ToolError> {
     Ok(tb)
 }
 
+/// `right-ctl demo <request|apps|snapshot|act|batch|end> [args]`, or `demo --tools`.
+/// Each call goes through the same [`Toolbox`] gate as every other tool. Nothing is stored:
+/// the token is an argument on each call.
+#[cfg(feature = "demo")]
+fn demo_command(suite: &Suite, rest: &[String], journal: Option<&str>) -> ExitCode {
+    let mut tb = Toolbox::new();
+    if let Err(e) = tb.register_all(backends::demo::demo_tools(suite)) {
+        return fail(&e);
+    }
+    tb.allow(CTL_CALLER, ["demo.*"]);
+    if let Some(j) = journal {
+        tb.add_journal(Arc::new(JsonlJournal::new(j)));
+    }
+    let Some((verb, args)) = rest.split_first() else {
+        return usage();
+    };
+    if verb == "--tools" {
+        print(&json!(tb.list_for(CTL_CALLER)));
+        return ExitCode::SUCCESS;
+    }
+    let params = match backends::demo::parse_demo_args(args) {
+        Ok(a) => a,
+        Err(e) => return fail(&e),
+    };
+    match tb.call(&Caller::new(CTL_CALLER), &format!("demo.{verb}"), params) {
+        Ok(v) => {
+            print(&v);
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(&e),
+    }
+}
+
 fn main() -> ExitCode {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     let mut suite_root: Option<String> = None;
@@ -117,6 +154,15 @@ fn main() -> ExitCode {
         Ok(s) => s,
         Err(e) => return fail(&ToolError::new("no_suite_root", e.to_string())),
     };
+
+    // Only a `demo` build routes `demo` to the demo subcommand. A default build treats it as an
+    // app name, as before, and contains no demo tool.
+    #[cfg(feature = "demo")]
+    {
+        if argv[0] == "demo" {
+            return demo_command(&suite, &argv[1..], journal.as_deref());
+        }
+    }
 
     if argv[0] == "--list" {
         let mut out = vec![];

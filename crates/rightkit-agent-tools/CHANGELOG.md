@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Agent demo contract (feature `demo`, non-default): `demo.request`, `demo.apps`, `demo.snapshot`, `demo.act`, `demo.batch` and `demo.end` as typed client tools over the host service `rightkit.agent.demo`. Per-session token, typed error codes, and a 20-step batch limit. The wire contract is in `docs/demo-contract.md`. The version bump waits for the owner's release.
+- `right-ctl demo <tool> [args]` (feature `demo`). A default or release build contains no demo code.
+
 ## 0.1.3
 
 - `batch` and `wait` control methods (rightkit-qa-driver 0.4): one call for many steps, and one call that waits in the page. A batch is checked step by step against the app profile, so a sensitive app (HeardRight) cannot reach `eval`, `dom`, `ax` or `screenshot` through it; `wait` and `batch` count as generic read channels. `screenshot` accepts `inline`.
