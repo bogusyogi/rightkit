@@ -10,7 +10,7 @@
 // key held in the protected credential store (Keychain / protected file / CI secret) — not app-writable JSON.
 // The floor, this verifier, and the receipt schema are pinned in the protected policy bundle.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
@@ -48,6 +48,22 @@ export function qaCommandFor({ stage, platform, releaseId, configName = "right-r
 
 export function qaReceiptPath({ repoRoot, releaseId, platform, stage }) {
   return path.join(repoRoot, ".right-release", "qa", releaseId, platformDirOf(platform), `${stage}.receipt.json`);
+}
+
+export const QA_CARRIED_RECEIPT_ENV = "RIGHT_RELEASE_QA_RECEIPT";
+
+/**
+ * Receipt carried from the job that ran source QA to the signing job (Orthic-Labs/rightkit#183).
+ * `RIGHT_RELEASE_QA_RECEIPT` names the receipt file, or a directory holding `source.receipt.json`.
+ * Returns the file path when it exists, else null. The carried file is verified exactly like a local one
+ * (MAC, commit, tree, lockfile closure, config, floor, bundle), so carrying adds no trust.
+ */
+export function carriedSourceReceiptPath(env = process.env) {
+  const value = String(env?.[QA_CARRIED_RECEIPT_ENV] ?? "").trim();
+  if (!value) return null;
+  const resolved = path.resolve(value);
+  const file = existsSync(resolved) && statSync(resolved).isDirectory() ? path.join(resolved, "source.receipt.json") : resolved;
+  return existsSync(file) ? file : null;
 }
 
 export function loadQaFloor(dir = here) {
@@ -247,10 +263,15 @@ function loadKeyOrRefuse(opts, command) {
  */
 export function assertSourceQaAdmission({ repoRoot, releaseId, platform, configName, releaseConfigSha256, ...opts }) {
   const command = qaCommandFor({ stage: "source", platform, releaseId, configName });
-  const receipt = readQaReceipt(qaReceiptPath({ repoRoot, releaseId, platform, stage: "source" }));
+  // A receipt carried from the QA job (RIGHT_RELEASE_QA_RECEIPT) wins over the local path; the signing job has no local one.
+  const carried = carriedSourceReceiptPath(opts.env ?? process.env);
+  const receipt = readQaReceipt(carried ?? qaReceiptPath({ repoRoot, releaseId, platform, stage: "source" }));
   if (!receipt) throw new QaAdmissionError(`no source QA receipt for ${releaseId} (${platform}); a candidate cannot be built or signed without passing source QA`, { command });
   const verdict = verifyQaReceipt(receipt, { key: loadKeyOrRefuse(opts, command), stage: "source", repoRoot, releaseConfigSha256, floorDir: opts.floorDir, gitRunner: opts.gitRunner, policyBundleDigest: opts.policyBundleDigest, source: opts.source, closure: opts.closure });
   if (!verdict.ok) throw new QaAdmissionError(`source QA receipt rejected: ${verdict.reason}`, { command });
+  if (carried && (receipt.releaseId !== releaseId || receipt.platform !== platform)) {
+    throw new QaAdmissionError(`source QA receipt rejected: carried receipt is for ${receipt.releaseId} (${receipt.platform}), not ${releaseId} (${platform})`, { command });
+  }
   return { digest: receipt.digest, floorDigest: receipt.floor.digest };
 }
 

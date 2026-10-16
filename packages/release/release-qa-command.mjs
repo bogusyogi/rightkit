@@ -7,7 +7,8 @@
 //
 // The release config declares the app's QA plan:
 //   qa: { version: "1", config: "rightkit-qa.toml", runner?: "<path to rightkit-qa>",
-//         args?: { source?: [..], installed?: [..] },                                   // {sealedDir} {releaseId} expand
+//         args?: { source?: [..], installed?: [..] },                                   // {sealedDir} {releaseId} expand; installed also {installedApp} {installedDir} {qaRoot}
+//         installed?: { installDir?: "<abs dir>" },                                       // opt in: mount the sealed DMG (mac) / run the sealed NSIS installer (win, needs RIGHT_RELEASE_QA_ALLOW_INSTALL=1 off CI), see release-qa-installed.mjs
 //         checks: { "smoke.launch": ["app.launch"], journey: ["journey.*"] } }          // floor id -> evidence check names
 // Every id in release-qa-floor.json must be mapped; skipped/failed/missing required checks fail the receipt.
 import { createHash } from "node:crypto";
@@ -20,6 +21,7 @@ import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { auditMain } from "./release-qa-audit.mjs";
+import { prepareInstalledArtifacts } from "./release-qa-installed.mjs";
 import { darwinKeyFile, PROTECTED_SECRETS } from "./protected-credentials.mjs";
 import {
   buildQaReceipt, currentPolicyBundleDigest, dependencyClosure, ensureQaReceiptKey, evaluateRequiredChecks, loadQaFloor,
@@ -53,7 +55,7 @@ export function evidencePathFromOutput(stdout) {
 }
 
 /** Run the QA plan through the runner, then seal a receipt. `deps` are test seams; production uses the defaults. */
-export async function runQa({ stage, platform, releaseIdArg, configPath, deps = {} }) {
+export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo = null, deps = {} }) {
   const gitRunner = deps.gitRunner ?? spawnSync;
   const appRoot = path.dirname(configPath);
   const repoRoot = String(gitRunner("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }).stdout ?? "").trim();
@@ -86,12 +88,28 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
   const runnerSha = sha256File(runnerFile);
   const qaConfig = path.resolve(appRoot, config.qa.config);
   if (!existsSync(qaConfig)) throw new Error(`qa.config does not exist: ${qaConfig}`);
-  const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId);
-  const args = ["run", "--config", qaConfig, ...((config.qa.args?.[stage] ?? []).map(expand))];
-  const run = (deps.spawnRunner ?? spawnSync)(runnerFile, args, {
-    cwd: appRoot, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId, ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}) },
-  });
+  // #184: opt in with `qa.installed: { installDir? }`. Mounts the sealed DMG (mac) or runs the sealed NSIS installer into a
+  // throwaway directory (win) and hands the runner the opened app; always cleaned up, even when the runner throws.
+  let installedQa = null;
+  if (stage === "installed" && config.qa.installed && config.qa.installed !== false) {
+    installedQa = (deps.prepareInstalled ?? prepareInstalledArtifacts)({
+      sealedDir: sealed.sealedDir, manifest: sealed.manifest, platform,
+      installDir: typeof config.qa.installed === "object" ? config.qa.installed.installDir ?? null : null,
+      deps: { log: (event) => { if (!deps.quiet) console.error(`[qa] ${JSON.stringify(event)}`); } },
+    });
+  }
+  let run;
+  try {
+    const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId)
+      .replaceAll("{installedApp}", installedQa?.installedApp ?? "").replaceAll("{installedDir}", installedQa?.installedDir ?? "").replaceAll("{qaRoot}", installedQa?.qaRoot ?? "");
+    const args = ["run", "--config", qaConfig, ...((config.qa.args?.[stage] ?? []).map(expand))];
+    run = (deps.spawnRunner ?? spawnSync)(runnerFile, args, {
+      cwd: appRoot, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
+      env: { ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId, ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedQa?.env ?? {}) },
+    });
+  } finally {
+    installedQa?.cleanup();
+  }
   if (!deps.quiet) { process.stdout.write(String(run.stdout ?? "")); process.stderr.write(String(run.stderr ?? "")); }
   const evidenceFile = evidencePathFromOutput(run.stdout);
   let evidence = null, evidenceSha256 = null;
@@ -112,31 +130,39 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
   }), key);
   const file = qaReceiptPath({ repoRoot, releaseId, platform, stage });
   writeQaReceipt(file, receipt);
-  return { receipt, file };
+  // #183: copy the sealed receipt next to the candidate handoff so the signing job (a different runner) can read it.
+  let carriedFile = null;
+  if (carryTo) {
+    carriedFile = path.join(path.resolve(carryTo), `${stage}.receipt.json`);
+    writeQaReceipt(carriedFile, receipt);
+  }
+  return { receipt, file, carriedFile };
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs]\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
+  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
   process.exit(code);
 }
 
 export async function main(args) {
   if (args[0] === "audit") process.exit(auditMain(args.slice(1)));
-  let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = "right-release.config.mjs";
+  let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = "right-release.config.mjs", carryTo = null;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--stage") stage = args[++index];
     else if (arg === "--platform") platform = args[++index];
     else if (arg === "--release") releaseId = args[++index];
     else if (arg === "--config") configName = args[++index];
+    else if (arg === "--carry-to") carryTo = args[++index];
     else if (arg === "-h" || arg === "--help") usage(0);
     else { console.error(`right-release qa: unknown argument: ${arg}`); process.exit(2); }
   }
   if (!QA_STAGES.includes(stage)) { console.error("right-release qa: --stage must be source or installed"); process.exit(2); }
   if (platform !== "win" && platform !== "mac") { console.error("right-release qa: --platform must be win or mac"); process.exit(2); }
   try {
-    const { receipt, file } = await runQa({ stage, platform, releaseIdArg: releaseId, configPath: path.resolve(configName) });
+    const { receipt, file, carriedFile } = await runQa({ stage, platform, releaseIdArg: releaseId, configPath: path.resolve(configName), carryTo });
     console.log(`right-release qa: ${stage} receipt ${receipt.status} ${receipt.digest.slice(0, 16)} -> ${file}`);
+    if (carriedFile) console.log(`right-release qa: carried copy -> ${carriedFile}`);
     for (const item of receipt.required) console.log(`  ${item.id}: ${item.status}`);
     process.exit(receipt.status === "passed" ? 0 : 1);
   } catch (error) {

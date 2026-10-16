@@ -305,6 +305,8 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   assert.match(content, /vars\.AZURE_CLIENT_ID/);
   assert.match(content, /right-release build --platform win --skip-checks/);
   assert.match(content, /Artifact Signing client hash mismatch/);
+  // #183: the signing step reads a source QA receipt carried in the downloaded candidate handoff.
+  assert.ok(content.includes("RIGHT_RELEASE_QA_RECEIPT: ${{ runner.temp }}/unsigned-windows-candidate/qa"));
   // Every downstream job (admission, candidate, and windows-sign here) checks
   // out the exact admitted revision by SHA, never by resolving HEAD after a
   // ref-triggered checkout.
@@ -349,6 +351,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /temporary keychain/i);
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
+  assert.ok(content.includes("RIGHT_RELEASE_QA_RECEIPT: ${{ runner.temp }}/unsigned-macos-candidate/qa"));
   assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
   assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}"));

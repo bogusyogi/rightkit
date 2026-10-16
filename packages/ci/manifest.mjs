@@ -1291,6 +1291,9 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
           RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
           LEGION_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`;
+  // Orthic-Labs/rightkit#183: a source QA receipt carried in the candidate handoff (`qa/source.receipt.json`, written by
+  // `right-release qa --stage source --carry-to <artifact root>/qa`) is read by `right-release build`. Absent file: no effect.
+  const qaReceiptEnvironment = `\n          RIGHT_RELEASE_QA_RECEIPT: \${{ runner.temp }}/unsigned-windows-candidate/qa`;
   const uploadPath = releaseChain
     ? "            ${{ runner.temp }}/finalized-windows/**"
     : "            dist/releases/windows/**\n            .right-release/receipts/windows-*.json";
@@ -1366,7 +1369,7 @@ ${pm.setup}
       - name: Sign & finalize Windows candidate
         run: ${finalizeCommand}
         env:
-${finalizeEnvironment}
+${finalizeEnvironment}${qaReceiptEnvironment}
           RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
           AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -1421,6 +1424,7 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
           RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
           LEGION_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`;
+  const qaReceiptEnvironment = `\n          RIGHT_RELEASE_QA_RECEIPT: \${{ runner.temp }}/unsigned-macos-candidate/qa`;
   const uploadPath = releaseChain
     ? "            ${{ runner.temp }}/finalized-macos/**"
     : "            dist/releases/mac/**\n            .right-release/receipts/macos-*.json";
@@ -1494,7 +1498,7 @@ ${pm.setup}
       - name: Sign, notarize & finalize macOS candidate
         run: ${finalizeCommand}
         env:
-${finalizeEnvironment}
+${finalizeEnvironment}${qaReceiptEnvironment}
           RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
