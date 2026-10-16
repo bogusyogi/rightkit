@@ -4,6 +4,11 @@
 //! per-module result, a per-module deadline that defaults to 3000 ms) and adds one total deadline,
 //! so two modules on one event share one budget. Nothing a module does can fail the host: an
 //! error, a panic or a timeout becomes a typed result, and the reply falls back to nothing.
+//!
+//! A module that times out is not killed: Rust cannot stop a thread. Its thread keeps running
+//! until the module returns (cooperative modules watch [`ModuleContext::is_cancelled`]) and any
+//! side effect it has, such as writing a receipt, can still land after the hook has replied.
+//!
 //! The only non-zero exit is a module's explicit [`Decision::DenyTool`] on Codex, which is exit 2
 //! with the reason on stderr (Legion's shipped shape).
 
@@ -186,7 +191,9 @@ fn run_module(
                 cancelled.store(true, Ordering::Relaxed);
                 Err(format!("HookHost module timed out: {id}"))
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("module ended without a result".into()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err("module ended without a result".into())
+            }
         },
     };
     let elapsed = started.elapsed();
@@ -288,7 +295,11 @@ pub fn dispatch(
             });
             continue;
         }
-        results.push(run_module(module, &event, left.min(options.module_deadline)));
+        results.push(run_module(
+            module,
+            &event,
+            left.min(options.module_deadline),
+        ));
     }
     let failed = results.iter().any(|r| r.status == Status::Error);
     let mut reply = compose_reply(&event, &results, options.context_cap_bytes);

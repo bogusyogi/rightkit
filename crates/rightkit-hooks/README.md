@@ -15,7 +15,7 @@ Typed Claude Code and Codex hook payloads, a deadline-bound dispatcher that exit
 | `HookEvent::from_value / from_slice / from_reader(wire, ..)` | Parse a payload (stdin cap 4 MiB). Field aliases follow `normalizeHookEvent`; the untouched JSON stays in `raw`. `is_own_turn()` is Pulse's subagent guard. |
 | `Wire`, `EventKind` | Harness (`Claude`, `Codex`; chosen by the registration) and event name. Legion's `pre-effect`-style names normalize to host names; unknown names are kept. |
 | `Reply` | `additional_context(kind, text)` (SessionStart, UserPromptSubmit, PostToolUse only), `block_stop(reason)`, `deny_tool(wire, reason)`, `ask_tool(wire, reason)`, `with_system_message(text)`. |
-| `HookModule`, `FnModule`, `dispatch`, `DispatchOptions` | Modules run in order. Defaults: 3 s per module, 8 s total, 60 000-byte context cap. Errors, panics and timeouts become typed results. |
+| `HookModule`, `FnModule`, `dispatch`, `DispatchOptions` | Modules run in order. Defaults: 3 s per module, 8 s total, 60 000-byte context cap. Errors, panics and timeouts become typed results. A timed-out module is not killed: its thread keeps running and can still write receipts after the hook has replied. |
 | `run`, `run_with` | The whole hook process. Returns 0 on every failure, printing the configured fallback (default nothing). |
 | `ReceiptStore`, `tag_context`, `marker`, `scan_transcript_tail` | `emitted` receipts with a marker line on the context; `observe` flips them to `observed` when the marker appears in the host transcript tail. |
 | `ObserveModule` | The transcript-scan hook: on the chat's own `Stop`, runs `observe`. |

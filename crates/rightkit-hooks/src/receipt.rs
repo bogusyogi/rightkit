@@ -9,6 +9,9 @@
 //! The marker is the last line of the emitted context (`[<prefix>:<id>]`, Membrane's
 //! `receipt_marker` with a caller-chosen prefix). A receipt is content-free: it keeps the
 //! length of the context, never the context. [`ObserveModule`] is the transcript-scan hook.
+//!
+//! A module that timed out in the dispatcher keeps running on its detached thread and can still
+//! write a receipt after the hook has replied; such a receipt is real but late.
 
 use crate::dispatch::{HookModule, ModuleContext, ModuleOutput};
 use crate::event::{EventKind, HookEvent, Wire};
@@ -52,16 +55,16 @@ fn unix_seconds() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// A fresh alphanumeric receipt id (time, process id and a counter; unique per process).
+/// A fresh alphanumeric receipt id: nanosecond clock, process id and a per-process counter,
+/// concatenated (not mixed), so ids from different processes or calls cannot collide unless the
+/// clock, pid and counter all agree.
 pub fn new_receipt_id() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as u64);
-    let mixed = nanos
-        ^ u64::from(std::process::id()).rotate_left(32)
-        ^ COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    format!("{mixed:016x}")
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed) & 0xffff;
+    format!("{nanos:016x}{:08x}{count:04x}", std::process::id())
 }
 
 /// The marker line for `id`: `[prefix:id]`.
@@ -70,10 +73,14 @@ pub fn marker(prefix: &str, id: &str) -> String {
 }
 
 /// Append the marker as the final line of `context`, cutting the body (never the marker) so the
-/// whole stays within `cap_bytes`.
+/// whole stays within `cap_bytes`. When the cap is smaller than the marker line itself, the marker
+/// is skipped and the context is cut to the cap: the result never exceeds `cap_bytes`.
 pub fn tag_context(context: &str, prefix: &str, id: &str, cap_bytes: usize) -> String {
     let tail = format!("\n{}", marker(prefix, id));
-    let room = cap_bytes.saturating_sub(tail.len());
+    let (room, tail) = match cap_bytes.checked_sub(tail.len()) {
+        Some(room) => (room, tail),
+        None => (cap_bytes, String::new()),
+    };
     let mut cut = context.len().min(room);
     while !context.is_char_boundary(cut) {
         cut -= 1;
@@ -161,12 +168,19 @@ impl ReceiptStore {
 
     fn write(&self, receipt: &Receipt) -> std::io::Result<()> {
         let Some(path) = self.path(&receipt.session, &receipt.id) else {
-            return Err(std::io::Error::other("receipt id or session is not a file name"));
+            return Err(std::io::Error::other(
+                "receipt id or session is not a file name",
+            ));
         };
-        let parent = path.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| std::io::Error::other("no parent"))?;
         std::fs::create_dir_all(parent)?;
         let tmp = parent.join(format!(".{}.tmp", receipt.id));
-        std::fs::write(&tmp, serde_json::to_vec(receipt).map_err(std::io::Error::other)?)?;
+        std::fs::write(
+            &tmp,
+            serde_json::to_vec(receipt).map_err(std::io::Error::other)?,
+        )?;
         std::fs::rename(&tmp, &path)
     }
 
@@ -235,7 +249,10 @@ impl ReceiptStore {
         if pending.is_empty() {
             return 0;
         }
-        let markers: Vec<String> = pending.iter().map(|r| marker(&self.prefix, &r.id)).collect();
+        let markers: Vec<String> = pending
+            .iter()
+            .map(|r| marker(&self.prefix, &r.id))
+            .collect();
         let found = scan_transcript_tail(transcript, &markers, SCAN_BUDGET);
         pending
             .into_iter()
