@@ -271,6 +271,12 @@ fn download_with_a_wrong_pin_fails_integrity_and_leaves_no_file() {
     )
     .unwrap_err();
     assert_eq!(err.code, ErrorCode::HashMismatch, "{err}");
+    // Apps match their install message to this text; changing it is a breaking change.
+    assert!(
+        err.message
+            .starts_with("downloaded model file failed integrity check: got "),
+        "{err}"
+    );
     assert!(!dest.exists() && !part.exists());
     // Nothing is left in the destination directory: no `*.part`, no `*.part.meta`
     // resume record, and no other temporary file.
