@@ -434,12 +434,14 @@ impl Schtasks {
     #[cfg(windows)]
     fn call(args: &[&str]) -> Result<(bool, String)> {
         use std::os::windows::process::CommandExt;
-        let out = std::process::Command::new(Self::exe())
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .creation_flags(0x0800_0000)
-            .output()
-            .map_err(|e| crate::Error(format!("cannot run schtasks.exe: {e}")))?;
+        let out = crate::process::output_bounded(
+            std::process::Command::new(Self::exe())
+                .args(args)
+                .creation_flags(0x0800_0000),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| crate::Error(format!("cannot run schtasks.exe: {e}")))?
+        .ok_or_else(|| crate::Error("schtasks.exe did not finish within 60s".into()))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         text.push_str(&String::from_utf8_lossy(&out.stderr));
         Ok((out.status.success(), text.trim().to_string()))

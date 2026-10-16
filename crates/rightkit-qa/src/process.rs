@@ -2,13 +2,190 @@
 //! group / Job Object), registered with a [`Tracker`], and killed by recorded pid
 //! only. Nothing here ever matches processes by name for killing.
 use crate::util::{err, Result};
-use rightkit_child_process::OwnedCommand;
+use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Longest a kill helper (`taskkill`, `kill`, `pgrep`, ...) may run before it is abandoned.
+pub const KILL_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
+/// Longest a process-tree termination may wait to reap the leader.
+pub const TERMINATE_REAP_TIMEOUT: Duration = Duration::from_secs(5);
+/// After a helper is killed for overrunning, how long to wait for it to be reaped.
+const HELPER_REAP: Duration = Duration::from_secs(2);
+
+fn poll_exit(
+    child: &mut std::process::Child,
+    deadline: Instant,
+) -> std::io::Result<Option<ExitStatus>> {
+    loop {
+        if let Some(st) = child.try_wait()? {
+            return Ok(Some(st));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+}
+
+/// Kill an overrunning helper and reap it, bounded.
+fn abandon(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = poll_exit(child, Instant::now() + HELPER_REAP);
+}
+
+/// Run a command to completion for its exit status, waiting at most `timeout`. The command
+/// is killed when it overruns. `Ok(None)` means it timed out. The caller sets stdio.
+pub fn status_bounded(
+    cmd: &mut Command,
+    timeout: Duration,
+) -> std::io::Result<Option<ExitStatus>> {
+    let mut child = cmd.spawn()?;
+    match poll_exit(&mut child, Instant::now() + timeout)? {
+        Some(st) => Ok(Some(st)),
+        None => {
+            abandon(&mut child);
+            Ok(None)
+        }
+    }
+}
+
+/// Run a command for its captured output, waiting at most `timeout` (pipe draining is bounded
+/// too, so a descendant holding a pipe open cannot hang the caller). `Ok(None)` means it
+/// timed out and was killed. Stdin is null.
+pub fn output_bounded(
+    cmd: &mut Command,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    let drain = |stream: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut s) = stream {
+                let _ = s.read_to_end(&mut buf);
+            }
+            let _ = tx.send(buf);
+        });
+        rx
+    };
+    let out_rx = drain(
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
+    let err_rx = drain(
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
+    match poll_exit(&mut child, Instant::now() + timeout)? {
+        Some(status) => Ok(Some(std::process::Output {
+            status,
+            stdout: out_rx.recv_timeout(HELPER_REAP).unwrap_or_default(),
+            stderr: err_rx.recv_timeout(HELPER_REAP).unwrap_or_default(),
+        })),
+        None => {
+            abandon(&mut child);
+            Ok(None)
+        }
+    }
+}
+
+/// Bounded `status().success()` with null stdio; a spawn failure or timeout is `false`.
+#[cfg(unix)]
+fn quiet_ok(cmd: &mut Command) -> bool {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    matches!(status_bounded(cmd, KILL_HELPER_TIMEOUT), Ok(Some(s)) if s.success())
+}
+
+/// Run a kill helper (e.g. `taskkill`) bounded by `timeout`. When it cannot finish (it
+/// overran, or could not start) `fallback(pid)` runs instead (`TerminateProcess` on Windows)
+/// and a note for the run log is returned; `None` means the helper finished. Never blocks
+/// longer than `timeout` plus the helper reap.
+pub fn kill_with_fallback(
+    helper: &mut Command,
+    pid: u32,
+    timeout: Duration,
+    fallback: impl FnOnce(u32) -> bool,
+) -> Option<String> {
+    helper
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let why = match status_bounded(helper, timeout) {
+        Ok(Some(_)) => return None,
+        Ok(None) => format!("timed out after {:.1}s", timeout.as_secs_f32()),
+        Err(e) => format!("could not run ({e})"),
+    };
+    let ok = fallback(pid);
+    Some(format!(
+        "[rightkit-qa] kill helper for pid {pid} {why}; fell back to direct termination of the known pid ({})",
+        if ok { "terminated" } else { "not terminated" }
+    ))
+}
+
+/// `TerminateProcess` on one pid (no descendants; the owning Job Object takes those).
+#[cfg(windows)]
+fn terminate_pid(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+    };
+    unsafe {
+        let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let ok = TerminateProcess(h, 1) != 0;
+        CloseHandle(h);
+        ok
+    }
+}
+
+#[cfg(windows)]
+fn taskkill_tree(pid: u32) -> Option<String> {
+    kill_with_fallback(
+        hidden(Command::new("taskkill.exe").args(["/PID", &pid.to_string(), "/T", "/F"])),
+        pid,
+        KILL_HELPER_TIMEOUT,
+        terminate_pid,
+    )
+}
+
+/// Terminate an owned child's tree, waiting at most [`TERMINATE_REAP_TIMEOUT`] for the leader to
+/// be reaped. Returns the exit status when reaped and a run-log note when it was not.
+pub fn terminate_bounded(child: &mut OwnedChild) -> (Option<ExitStatus>, Option<String>) {
+    match child.terminate_tree_bounded(TERMINATE_REAP_TIMEOUT) {
+        Ok(ReapOutcome::Exited(st)) => (Some(st), None),
+        Ok(ReapOutcome::TimedOut) => (
+            None,
+            Some(format!(
+                "[rightkit-qa] pid {} was not reaped within {}s of tree termination; moving on",
+                child.id(),
+                TERMINATE_REAP_TIMEOUT.as_secs()
+            )),
+        ),
+        Err(e) => (
+            None,
+            Some(format!(
+                "[rightkit-qa] tree termination of pid {} failed: {e}",
+                child.id()
+            )),
+        ),
+    }
+}
 
 pub fn is_alive(pid: u32) -> bool {
     if pid == 0 {
@@ -16,13 +193,7 @@ pub fn is_alive(pid: u32) -> bool {
     }
     #[cfg(unix)]
     {
-        Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        quiet_ok(Command::new("kill").args(["-0", &pid.to_string()]))
     }
     #[cfg(windows)]
     {
@@ -55,16 +226,17 @@ fn hidden(cmd: &mut Command) -> &mut Command {
 
 #[cfg(unix)]
 fn children_of(pid: u32) -> Vec<u32> {
-    let out = Command::new("pgrep")
-        .args(["-P", &pid.to_string()])
-        .output();
-    out.map(|o| {
-        String::from_utf8_lossy(&o.stdout)
+    let out = output_bounded(
+        Command::new("pgrep").args(["-P", &pid.to_string()]),
+        KILL_HELPER_TIMEOUT,
+    );
+    match out {
+        Ok(Some(o)) => String::from_utf8_lossy(&o.stdout)
             .lines()
             .filter_map(|l| l.trim().parse().ok())
-            .collect()
-    })
-    .unwrap_or_default()
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Terminate `pid` and its descendants. TERM first, KILL after a short grace.
@@ -74,10 +246,9 @@ pub fn kill_tree(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = hidden(Command::new("taskkill.exe").args(["/PID", &pid.to_string(), "/T", "/F"]))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        if let Some(note) = taskkill_tree(pid) {
+            eprintln!("{note}");
+        }
     }
     #[cfg(unix)]
     {
@@ -90,11 +261,7 @@ pub fn kill_tree(pid: u32) {
         }
         for sig in ["-TERM", "-KILL"] {
             for p in all.iter().rev() {
-                let _ = Command::new("kill")
-                    .args([sig, &p.to_string()])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
+                let _ = quiet_ok(Command::new("kill").args([sig, &p.to_string()]));
             }
             let deadline = std::time::Instant::now() + Duration::from_millis(1500);
             while std::time::Instant::now() < deadline && all.iter().any(|p| is_alive(*p)) {
@@ -109,21 +276,15 @@ pub fn kill_tree(pid: u32) {
 
 /// Kill the process group led by `pid` (the owned-command leader) so descendants that
 /// outlived the leader are cleaned up too. On Windows the Job Object dies with the child handle.
-fn kill_group(pid: u32) {
+fn kill_group(pid: u32) -> Option<String> {
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{pid}")])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let _ = quiet_ok(Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]));
+        None
     }
     #[cfg(windows)]
     {
-        let _ = hidden(Command::new("taskkill.exe").args(["/PID", &pid.to_string(), "/T", "/F"]))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        taskkill_tree(pid)
     }
 }
 
@@ -271,16 +432,19 @@ pub fn run_owned(
         });
     }
     drop(done_tx);
+    let mut notes: Vec<String> = Vec::new();
     let timeout = opts.timeout.unwrap_or(Duration::from_secs(120));
     let status = child.wait_timeout(timeout)?;
     let (code, timed_out) = match status {
         Some(s) => {
-            kill_group(pid); // owned descendants never outlive their command
+            // owned descendants never outlive their command
+            notes.extend(kill_group(pid));
             (s.code(), false)
         }
         None => {
-            let st = child.terminate_tree().ok();
-            kill_group(pid);
+            let (st, note) = terminate_bounded(&mut child);
+            notes.extend(note);
+            notes.extend(kill_group(pid));
             (st.and_then(|s| s.code()), true)
         }
     };
@@ -298,7 +462,7 @@ pub fn run_owned(
     let mut leaked_descendants = false;
     if finished < 2 {
         leaked_descendants = true;
-        kill_group(pid);
+        notes.extend(kill_group(pid));
         let last = Instant::now() + Duration::from_secs(3);
         while finished < 2 {
             match done_rx.recv_timeout(last.saturating_duration_since(Instant::now())) {
@@ -312,6 +476,10 @@ pub fn run_owned(
     let mut stderr = String::from_utf8_lossy(&err_buf.lock().unwrap()).into_owned();
     if leaked_descendants {
         stderr.push_str("\n[rightkit-qa] descendant processes outlived the command and held its output open; the process group was killed");
+    }
+    for note in &notes {
+        stderr.push('\n');
+        stderr.push_str(note);
     }
     let stdout = String::from_utf8_lossy(&out_buf.lock().unwrap()).into_owned();
     Ok(Output {
@@ -330,10 +498,11 @@ pub fn run_owned(
 pub fn fingerprint(pid: u32) -> Option<String> {
     #[cfg(unix)]
     {
-        let out = Command::new("ps")
-            .args(["-o", "command=", "-p", &pid.to_string()])
-            .output()
-            .ok()?;
+        let out = output_bounded(
+            Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]),
+            KILL_HELPER_TIMEOUT,
+        )
+        .ok()??;
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if s.is_empty() {
             None
@@ -418,4 +587,104 @@ pub fn sweep_registries(runs_root: &std::path::Path, skip_run: &str) -> Vec<u32>
         let _ = std::fs::remove_file(&file);
     }
     killed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A command that runs far longer than any test timeout.
+    fn slow() -> Command {
+        #[cfg(windows)]
+        {
+            let mut c = Command::new("ping");
+            c.args(["-n", "60", "127.0.0.1"]);
+            c
+        }
+        #[cfg(unix)]
+        {
+            let mut c = Command::new("sleep");
+            c.arg("60");
+            c
+        }
+    }
+
+    fn fast() -> Command {
+        #[cfg(windows)]
+        {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit 0"]);
+            c
+        }
+        #[cfg(unix)]
+        {
+            Command::new("true")
+        }
+    }
+
+    #[test]
+    fn slow_helper_is_bounded_and_falls_back() {
+        let called = std::cell::Cell::new(None);
+        let started = Instant::now();
+        let note = kill_with_fallback(&mut slow(), 4242, Duration::from_millis(300), |pid| {
+            called.set(Some(pid));
+            true
+        });
+        assert!(started.elapsed() < Duration::from_secs(10), "bounded wait");
+        assert_eq!(called.get(), Some(4242), "fallback ran on the known pid");
+        let note = note.expect("timeout is reported");
+        assert!(note.contains("timed out"), "{note}");
+        assert!(note.contains("4242"), "{note}");
+        assert!(note.contains("(terminated)"), "{note}");
+    }
+
+    #[test]
+    fn finished_helper_skips_fallback_and_reports_nothing() {
+        let called = std::cell::Cell::new(false);
+        let note = kill_with_fallback(&mut fast(), 1, Duration::from_secs(20), |_| {
+            called.set(true);
+            true
+        });
+        assert!(note.is_none());
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn unstartable_helper_falls_back_and_reports() {
+        let called = std::cell::Cell::new(false);
+        let mut missing = Command::new("rightkit-qa-no-such-helper-binary");
+        let note = kill_with_fallback(&mut missing, 7, Duration::from_secs(1), |_| {
+            called.set(true);
+            false
+        })
+        .expect("start failure is reported");
+        assert!(called.get());
+        assert!(note.contains("could not run"), "{note}");
+        assert!(note.contains("(not terminated)"), "{note}");
+    }
+
+    #[test]
+    fn status_bounded_times_out_and_reaps() {
+        let started = Instant::now();
+        let st = status_bounded(
+            slow().stdout(Stdio::null()).stderr(Stdio::null()),
+            Duration::from_millis(200),
+        )
+        .unwrap();
+        assert!(st.is_none());
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn output_bounded_times_out_and_returns_output_when_fast() {
+        let started = Instant::now();
+        assert!(output_bounded(&mut slow(), Duration::from_millis(200))
+            .unwrap()
+            .is_none());
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let out = output_bounded(&mut fast(), Duration::from_secs(20))
+            .unwrap()
+            .expect("finishes");
+        assert!(out.status.success());
+    }
 }

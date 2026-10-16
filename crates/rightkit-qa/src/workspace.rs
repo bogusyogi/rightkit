@@ -380,7 +380,7 @@ fn describe_holders(holders: &[HomeHolder]) -> String {
 #[cfg(windows)]
 fn scan_processes(home: &Path) -> Option<Vec<ScannedProcess>> {
     use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     const SCAN: &str = "$h = $env:RIGHTKIT_QA_SCAN_HOME; \
         Get-CimInstance Win32_Process | ForEach-Object { \
         $f = '-'; \
@@ -393,15 +393,16 @@ fn scan_processes(home: &Path) -> Option<Vec<ScannedProcess>> {
         .join("WindowsPowerShell")
         .join("v1.0")
         .join("powershell.exe");
-    let output = Command::new(powershell)
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCAN])
-        // The home travels in the environment, so the scanner's own command line never names it.
-        .env("RIGHTKIT_QA_SCAN_HOME", home)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(0x0800_0000)
-        .output()
-        .ok()?;
+    // Bounded: a stalled WMI query must not hang the run; no answer reads as "scan unavailable".
+    let output = crate::process::output_bounded(
+        Command::new(powershell)
+            .args(["-NoProfile", "-NonInteractive", "-Command", SCAN])
+            // The home travels in the environment, so the scanner's own command line never names it.
+            .env("RIGHTKIT_QA_SCAN_HOME", home)
+            .creation_flags(0x0800_0000),
+        Duration::from_secs(60),
+    )
+    .ok()??;
     output
         .status
         .success()

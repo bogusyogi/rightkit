@@ -87,10 +87,46 @@ pub struct Fts {
     pub rowid_expr: &'static str,
 }
 
+/// Parent/child match scope for a search unit that groups rows (mail threads,
+/// chat sessions, transcripts). Operator bindings and the FTS `rowid_expr`
+/// describe the **child** row; the compiled `WHERE` body filters the **parent**.
+///
+/// With a scope set, [`Schema::compile`] emits:
+/// - one `EXISTS (SELECT 1 FROM <from> WHERE <link> AND <positive terms>)` for all
+///   positive terms, so they must co-occur in a single child row; and
+/// - one `NOT EXISTS (SELECT 1 FROM <from> WHERE <link> AND <term>)` per negated
+///   term, so a parent is dropped when any child matches the un-negated term.
+///
+/// Real OR groups stay inside the positive `EXISTS` (one child satisfies the group).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChildScope {
+    /// Child row source with its alias, e.g. `"messages m"`.
+    pub from: &'static str,
+    /// Correlation predicate to the parent row, e.g. `"m.thread_id = t.id"`.
+    pub link: &'static str,
+}
+
+impl ChildScope {
+    pub fn new(from: &'static str, link: &'static str) -> Self {
+        Self { from, link }
+    }
+
+    fn exists(&self, negated: bool, conds: &[String]) -> String {
+        let not = if negated { "NOT " } else { "" };
+        format!(
+            "{not}EXISTS (SELECT 1 FROM {} WHERE {} AND {})",
+            self.from,
+            self.link,
+            conds.join(" AND ")
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Schema {
     fts: Option<Fts>,
     bindings: Vec<(&'static str, Binding)>,
+    scope: Option<ChildScope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +159,13 @@ impl Schema {
         self
     }
 
+    /// Group child rows under a parent; see [`ChildScope`]. Without it the
+    /// compiler emits one flat `AND` list over a single row source.
+    pub fn scope(mut self, scope: ChildScope) -> Self {
+        self.scope = Some(scope);
+        self
+    }
+
     pub fn syntax(&self) -> Syntax {
         Syntax::new(self.bindings.iter().map(|(op, _)| *op))
     }
@@ -146,6 +189,9 @@ impl Schema {
         }
         let mut clauses: Vec<String> = Vec::new();
         let mut params: Vec<Param> = Vec::new();
+        // Scoped mode only: each negated term as `(un-negated clause, params)`.
+        let mut scoped_neg: Vec<(String, Vec<Param>)> = Vec::new();
+        let scoped = self.scope.is_some();
 
         let fts_match = q.fts();
         if let Some(expr) = &fts_match {
@@ -155,10 +201,18 @@ impl Schema {
         }
         for neg in q.fts_negated() {
             let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
-            clauses.push(fts_clause(fts, true));
-            params.push(Param::Text(neg));
+            if scoped {
+                scoped_neg.push((fts_clause(fts, false), vec![Param::Text(neg)]));
+            } else {
+                clauses.push(fts_clause(fts, true));
+                params.push(Param::Text(neg));
+            }
         }
         for term in &q.ops {
+            if scoped && term.negated {
+                scoped_neg.push(self.term_core(term, now)?);
+                continue;
+            }
             let (sql, p) = self.term_sql(term, now)?;
             clauses.push(sql);
             params.extend(p);
@@ -181,6 +235,20 @@ impl Schema {
             }
             clauses.push(format!("({})", parts.join(" OR ")));
         }
+        if let Some(scope) = &self.scope {
+            let mut parent: Vec<String> = Vec::new();
+            let mut parent_params: Vec<Param> = Vec::new();
+            if !clauses.is_empty() {
+                parent.push(scope.exists(false, &clauses));
+                parent_params.extend(params);
+            }
+            for (sql, p) in scoped_neg {
+                parent.push(scope.exists(true, &[format!("({sql})")]));
+                parent_params.extend(p);
+            }
+            params = parent_params;
+            clauses = parent;
+        }
         let where_sql = if clauses.is_empty() {
             "1=1".to_string()
         } else {
@@ -194,6 +262,18 @@ impl Schema {
     }
 
     fn term_sql(&self, term: &OpTerm, now: i64) -> Result<(String, Vec<Param>), CompileError> {
+        let (sql, params) = self.term_core(term, now)?;
+        // NULL-safe negation: an unknown column value must not satisfy `-op:x` by accident.
+        let sql = if term.negated {
+            format!("NOT COALESCE(({sql}), 0)")
+        } else {
+            format!("({sql})")
+        };
+        Ok((sql, params))
+    }
+
+    /// The un-negated SQL fragment and params for a term.
+    fn term_core(&self, term: &OpTerm, now: i64) -> Result<(String, Vec<Param>), CompileError> {
         let binding = self
             .bindings
             .iter()
@@ -227,12 +307,6 @@ impl Schema {
                     .ok_or_else(bad)?;
                 ((*frag).to_string(), Vec::new())
             }
-        };
-        // NULL-safe negation: an unknown column value must not satisfy `-op:x` by accident.
-        let sql = if term.negated {
-            format!("NOT COALESCE(({sql}), 0)")
-        } else {
-            format!("({sql})")
         };
         Ok((sql, params))
     }

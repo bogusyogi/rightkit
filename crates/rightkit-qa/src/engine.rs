@@ -702,7 +702,9 @@ impl Sidecar {
             match child.wait_timeout(Duration::from_secs(5)) {
                 Ok(Some(s)) => code = s.code(),
                 _ => {
-                    let _ = child.terminate_tree();
+                    if let (_, Some(note)) = crate::process::terminate_bounded(&mut child) {
+                        eprintln!("{note}");
+                    }
                 }
             }
         }

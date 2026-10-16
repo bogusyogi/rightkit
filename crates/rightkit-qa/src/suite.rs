@@ -564,8 +564,9 @@ fn git_revision(root: &std::path::Path) -> Value {
             use std::os::windows::process::CommandExt;
             git.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
         }
-        git.output()
+        crate::process::output_bounded(&mut git, Duration::from_secs(30))
             .ok()
+            .flatten()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     };

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 **Behaviour change: folding is now Unicode default case folding (fold version 2).** Nothing here was compiled or run locally; verification is the CI run.
 
@@ -10,6 +10,11 @@
 - **Same folding everywhere:** `TextMatcher` (match and snippet offsets, now exact because folding is context-free), `FilenameIndex` (basename, query and extension; were `to_lowercase`), `snippet::excerpt_around` and `snippet::contains_any_term` (were `to_lowercase`; `excerpt_around` now maps the folded hit back to a source character even when folding changes the character count).
 - **Behaviour for existing consumers:** more things match (`ß`/`ss`, `ς`/`σ`, ligatures); `Σ` at a word end no longer folds to `ς`, so anything stored with the old `fold` must be refolded. There is still no diacritic stripping and no normalisation, as before.
 - **Tests:** `tests/fold.rs`.
+
+**Additive: parent/child match scope (Orthic-Labs/rightkit#135).** No existing item changed; without a scope the output is byte-identical. This section is additive on its own; the release already needs a minor bump (0.3.0) for the fold change above. Not compiled or run locally; CI is the compiler.
+
+- **New `ChildScope { from, link }`** (`ChildScope::new`) and **`Schema::scope(ChildScope)`**. Bindings and the FTS `rowid_expr` then describe the child row (e.g. a message) and the `WHERE` body filters the parent (e.g. a thread). All positive terms compile to one `EXISTS (SELECT 1 FROM <from> WHERE <link> AND ...)`, so they co-occur in one child row. Each negated operator term and each negated free-text term compiles to its own `NOT EXISTS (SELECT 1 FROM <from> WHERE <link> AND <un-negated term>)`, so `-from:x` drops the whole parent when any child matches. OR groups stay inside the positive `EXISTS`. A query with only negated terms emits only `NOT EXISTS` clauses.
+- **Tests:** `tests/scope_e2e.rs` (SQLite threads over messages with FTS5).
 
 ## 0.2.1
 

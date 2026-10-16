@@ -553,11 +553,13 @@ fn check_env(env: &[(String, String)]) -> Result<()> {
 #[doc(hidden)]
 pub fn resolve_bundle_executable(bundle: &Path) -> Option<String> {
     let plist = bundle.join("Contents").join("Info.plist");
-    let out = Command::new("plutil")
-        .args(["-extract", "CFBundleExecutable", "raw", "-o", "-"])
-        .arg(&plist)
-        .output()
-        .ok()?;
+    let out = crate::process::output_bounded(
+        Command::new("plutil")
+            .args(["-extract", "CFBundleExecutable", "raw", "-o", "-"])
+            .arg(&plist),
+        Duration::from_secs(30),
+    )
+    .ok()??;
     if !out.status.success() {
         return None;
     }
@@ -614,10 +616,11 @@ fn stage_bundle(spec: &LaunchSpec, ws: &QaWorkspace, id: &str) -> Result<PathBuf
                 .ok_or_else(|| Error("bundle has no file name".into()))?,
         );
         // Preserve bundle resources, framework links, permissions & signatures.
-        let status = Command::new("/usr/bin/ditto")
-            .arg(&source)
-            .arg(&bundle)
-            .status()?;
+        let status = crate::process::status_bounded(
+            Command::new("/usr/bin/ditto").arg(&source).arg(&bundle),
+            Duration::from_secs(300),
+        )?
+        .ok_or_else(|| Error("app bundle staging (ditto) did not finish within 300s".into()))?;
         if !status.success() {
             return err(format!("app bundle staging failed: {status}"));
         }
@@ -732,10 +735,12 @@ fn open_command(
 /// Pids whose command line STARTS with `prefix` (so `open`, which merely carries the
 /// bundle path as an argument, is never mistaken for the app).
 fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, String> {
-    let out = Command::new("ps")
-        .args(["-ax", "-o", "pid=,command="])
-        .output()
-        .map_err(|e| format!("ps PID inventory failed: {e}"))?;
+    let out = crate::process::output_bounded(
+        Command::new("ps").args(["-ax", "-o", "pid=,command="]),
+        Duration::from_secs(30),
+    )
+    .map_err(|e| format!("ps PID inventory failed: {e}"))?
+    .ok_or_else(|| "ps PID inventory did not finish within 30s".to_string())?;
     if !out.status.success() {
         return Err(format!("ps PID inventory exited with {}", out.status));
     }
@@ -967,7 +972,8 @@ fn start_process(
             focus.track_prefix(executable);
         }
         let mut cmd = open_command(spec, ws, env, log_path, &bundle);
-        let st = cmd.status()?;
+        let st = crate::process::status_bounded(&mut cmd, Duration::from_secs(60))?
+            .ok_or_else(|| Error("`open` did not return within 60s".into()))?;
         if !st.success() {
             return err(format!("open exited {st}"));
         }
@@ -1393,7 +1399,9 @@ impl Control {
         }
         self.stopped = true;
         if let Some(mut c) = self.child.take() {
-            let _ = c.terminate_tree();
+            if let (_, Some(note)) = crate::process::terminate_bounded(&mut c) {
+                eprintln!("{note}");
+            }
         }
         kill_tree(self.pid);
         let deadline = Instant::now() + Duration::from_secs(5);
