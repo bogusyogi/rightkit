@@ -19,6 +19,7 @@ pub mod config;
 mod error;
 pub mod events;
 pub mod pool;
+mod raw;
 mod sanitize;
 pub mod server;
 pub mod trust;
@@ -34,6 +35,7 @@ pub use client_features::{
 pub use error::{McpError, Result};
 pub use events::{EventSink, LifecycleKind, McpEvent};
 pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
+pub use raw::{to_wire_string, RawJson};
 pub use sanitize::{parse_qualified_name, sanitize_tool_name};
 pub use server::{
     Admission, AdmissionHook, AdmissionRequest, AsyncRequestHandler, BatchPolicy, HttpServeOptions,

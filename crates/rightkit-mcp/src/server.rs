@@ -500,9 +500,7 @@ impl ServerHost {
             return Ok(None);
         };
         if let Some(limits) = &self.inner.response_limits {
-            let bytes = serde_json::to_vec(&response)
-                .map_err(|e| McpError::Protocol(e.to_string()))?
-                .len();
+            let bytes = crate::raw::to_wire_string(&response).len();
             let limit = limits.max_response_bytes.min(limits.max_frame_bytes);
             if bytes > limit {
                 return Err(McpError::ResponseTooLarge { limit });
@@ -738,7 +736,7 @@ impl ServerHost {
                 Err(e) => Some(rpc_error(&Value::Null, -32700, format!("parse error: {e}"))),
             };
             if let Some(r) = reply {
-                writeln!(writer, "{r}")?;
+                writeln!(writer, "{}", crate::raw::to_wire_string(&r))?;
                 writer.flush()?;
             }
         }
@@ -1370,7 +1368,7 @@ fn handle_http(
                     .insert(sid.clone());
                 extra.push(("Mcp-Session-Id", sid));
             }
-            respond(&mut s, "200 OK", &extra, &r.to_string())
+            respond(&mut s, "200 OK", &extra, &crate::raw::to_wire_string(&r))
         }
     }
 }

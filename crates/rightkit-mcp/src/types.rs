@@ -144,6 +144,19 @@ impl ToolResult {
             is_error: false,
         }
     }
+    /// A result whose text block and `structuredContent` both carry `raw` byte for byte (no
+    /// re-serialisation: key order, number spelling and escapes are kept). The structured part
+    /// is unchanged only through the server host's own writers; see [`crate::to_wire_string`]
+    /// before serialising `to_value()` yourself.
+    pub fn raw_json(raw: crate::RawJson) -> Self {
+        Self {
+            content: vec![Content::Text {
+                text: raw.get().to_string(),
+            }],
+            structured: Some(raw.to_value()),
+            is_error: false,
+        }
+    }
     /// All text blocks joined with newlines.
     pub fn text_content(&self) -> String {
         self.content
