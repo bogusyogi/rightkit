@@ -140,6 +140,29 @@ No Security.framework call is made by this crate. The macOS code-signature team 
 
 `HostProcess::sid` is the host's user SID and `uid` is `None`. Paths are compared after canonicalisation without regard to case; `HostProcess::executable` and `HostIdentityError::found_executable` are given without the `\\?\` prefix. A code-signature check is not built in: do it in `HostExpectation::with_verifier` (for example `WinVerifyTrust` on `HostProcess::executable`), which runs while the process handle is still held. A host running elevated, or as a protected process, may refuse `OpenProcess` to a non-elevated client and is then refused as `Unreadable`.
 
+## Gating a method on the caller's program
+
+`CallContext::verify_peer_executable(&HostExpectation)` is `Client::connect_expecting` turned around: the server asks the kernel which program is on the other end of this connection and refuses anyone else, so an app gates an owner-only method with this crate instead of its own process inspection.
+
+```rust,ignore
+let owner = HostExpectation::executable(app_exe).with_verifier(|p| check_signature(&p.executable));
+if cx.verify_peer_executable(&owner).is_err() {
+    return Err(ServiceError::new(ERROR_FORBIDDEN, "owner only"));
+}
+```
+
+It fails closed (`Err`) for a device caller (no OS peer), a peer with no pid, uid or user SID, a process that exited or whose start time differs from the one recorded when the connection was accepted (a reused pid), an unreadable executable, an expectation naming no executable, a platform that cannot read a process's executable, a connection that has closed, and a refusing verifier. Nothing the client sent is consulted: the `hello` app label is never an input. Call it per request; do not cache the answer past the connection.
+
+The executable is compared the way the client side does it (canonical path, or the same file by identity). Code signing is the caller's verifier: this crate links no signing API. On Windows run `WinVerifyTrust` on `HostProcess::executable` and compare the signer; on macOS build a `SecCode` from `HostProcess::audit_token` (the token the kernel captured at connect time) and check a `SecRequirement`. An unsigned-path match alone is only as strong as the file's location: anyone who can overwrite the expected executable passes.
+
+## Pairing a device by short code (`remote` feature)
+
+`Daemon::open_pairing(PairingOptions)` opens a window in which a device with no credential can run a short-authenticated-string exchange (`rk-pair/1`, the protocol and its argument are in `remote::pairing`): the device commits to its key and a nonce, the host answers with its own nonce, the device reveals, and both derive the same six-digit code from the whole transcript. The owner reads the code off the device and types it into the host (`confirm_pairing`); only a match enrols the committed key. Routes (unauthenticated, outside the daemon-api table like `/v1/link`): `POST /v1/pair`, `POST /v1/pair/{id}/reveal`, `GET /v1/pair/{id}`. Devices use `remote::pairing::PairingInitiator` (feature `link`).
+
+Bounds, all enforced in the daemon: nothing is served unless the owner opened a window; a window expires and serves one pairing; at most `max_pending` sessions at once and `max_begins` in total; a session lives `session_secs`; `max_wrong_codes` wrong codes burn a session and `max_failures` failures close the window. The code is only readable in process (`pairing_code`) and is in no event or response. Pairing state is memory only.
+
+`Daemon::forget_device(id)` (in process, never routed) removes a revoked device and everything keyed by its id so the same key can enrol again as a new device; see its documentation for what is removed and what is kept.
+
 ## Threat model
 
 **Defended against:** another local user (or a service running as one) connecting to the endpoint to call the service; another local user squatting on the endpoint name or path so a client sends its `hello` and requests to an impostor; a remote client (Windows pipes reject remote clients); a server that tries to impersonate the calling user through the pipe (clients open with `SECURITY_IDENTIFICATION`); connection floods growing the host without bound (Windows: `max_pipe_instances`).

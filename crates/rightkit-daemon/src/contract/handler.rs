@@ -1,5 +1,8 @@
 use super::caller::Caller;
 use crate::error::ServiceError;
+use crate::host_identity::{
+    verify_peer_process, HostExpectation, HostIdentityError, HostIdentityReason, HostProcess,
+};
 use crate::peer::PeerIdentity;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,6 +61,53 @@ impl CallContext {
     /// it runs: record it for an audit trail, do not authorise by it later.
     pub fn peer(&self) -> Option<&PeerIdentity> {
         self.caller.peer()
+    }
+    /// Does the process on the other end of this connection run the program `expect` names?
+    /// The server-side counterpart of [`Client::connect_expecting`](crate::Client::connect_expecting):
+    /// the same [`HostExpectation`] (executable paths compared after canonicalisation, same file
+    /// by identity, then the optional [`HostExpectation::with_verifier`] check), applied to
+    /// [`peer`](Self::peer), so an app gates an owner-only method with RightKit code instead of
+    /// its own process inspection:
+    ///
+    /// ```ignore
+    /// let owner = HostExpectation::executable(app_exe);
+    /// if cx.verify_peer_executable(&owner).is_err() {
+    ///     return Err(ServiceError::new(ERROR_FORBIDDEN, "owner only"));
+    /// }
+    /// ```
+    ///
+    /// Fails closed: a device caller (no OS peer), a peer whose pid, uid or executable cannot be
+    /// established, a process that exited or changed while it was identified, an expectation
+    /// naming no executable, a platform that cannot read a process's executable, a connection
+    /// that has closed, and a refusing verifier are all `Err`. Never `Ok` on a guess.
+    ///
+    /// Code signing: this crate links no code-signing API. On macOS the signing requirement
+    /// (`SecRequirementCreateWithString` against the process) and on Windows the Authenticode
+    /// subject (`WinVerifyTrust` on [`HostProcess::executable`]) go in
+    /// [`HostExpectation::with_verifier`], which runs after the executable matched. On macOS
+    /// [`HostProcess::audit_token`] is the token the kernel captured when the client connected,
+    /// the race-free handle for `SecCodeCopyGuestWithAttributes`.
+    ///
+    /// The process is pinned by pid plus its start time (Windows: an open process handle), and
+    /// the connection must still be open when the check ends, so a peer that exited and whose
+    /// pid was reused is refused. The window is the peer-gone watcher's lag, about 40 ms.
+    /// Run it per call; do not cache the answer past the connection.
+    pub fn verify_peer_executable(
+        &self,
+        expect: &HostExpectation,
+    ) -> Result<HostProcess, HostIdentityError> {
+        let host = verify_peer_process(self.peer(), expect)?;
+        if self.peer_closed() {
+            return Err(HostIdentityError {
+                expected: expect.executables().to_vec(),
+                found_pid: Some(host.pid),
+                found_executable: Some(host.executable),
+                reason: HostIdentityReason::HostChanged(
+                    "the connection closed while the peer was identified".to_string(),
+                ),
+            });
+        }
+        Ok(host)
     }
     /// The client went away while this request was running.
     pub fn peer_closed(&self) -> bool {

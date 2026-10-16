@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -108,6 +108,11 @@ required-features = ["testing"]
 [[test]]
 name = "remote_daemon"
 path = "tests/remote_daemon.rs"
+required-features = ["testing"]
+
+[[test]]
+name = "remote_pairing"
+path = "tests/remote_pairing.rs"
 required-features = ["testing"]
 
 [[test]]

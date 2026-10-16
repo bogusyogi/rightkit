@@ -70,6 +70,9 @@ pub enum HostIdentityReason {
     },
     /// The OS could not answer the peer-credential query.
     Query(String),
+    /// The caller is not a local app (a remote device has no OS peer), so there is no process
+    /// to identify. Fails closed.
+    NotLocalPeer,
 }
 
 impl fmt::Display for HostIdentityReason {
@@ -120,6 +123,9 @@ impl fmt::Display for HostIdentityReason {
             }
             HostIdentityReason::Query(why) => {
                 write!(f, "the OS could not identify the peer ({why})")
+            }
+            HostIdentityReason::NotLocalPeer => {
+                write!(f, "the caller is not a local app, so it has no process to identify")
             }
         }
     }
@@ -353,15 +359,70 @@ impl HostExpectation {
     }
 }
 
+/// Server side of [`HostExpectation`]: does the process behind `peer` (the OS-verified identity
+/// of a local caller) run the program `expect` names? `None` (a caller with no OS peer) and any
+/// platform that cannot answer are refused. Used by `CallContext::verify_peer_executable`.
+pub(crate) fn verify_peer_process(
+    peer: Option<&crate::peer::PeerIdentity>,
+    expect: &HostExpectation,
+) -> Result<HostProcess, HostIdentityError> {
+    let Some(peer) = peer else {
+        return Err(HostIdentityError {
+            expected: expect.executables.clone(),
+            found_pid: None,
+            found_executable: None,
+            reason: HostIdentityReason::NotLocalPeer,
+        });
+    };
+    #[cfg(unix)]
+    {
+        verify_unix_pid(peer, expect)
+    }
+    #[cfg(windows)]
+    {
+        verify_pid_host(peer, expect)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(HostIdentityError {
+            expected: expect.executables.clone(),
+            found_pid: peer.pid,
+            found_executable: None,
+            reason: HostIdentityReason::Unverified {
+                platform: std::env::consts::OS,
+                detail: "no process identification is implemented for this platform",
+            },
+        })
+    }
+}
+
+/// The start marker of process `pid` as the OS reports it now (`None` when unreadable or gone).
+/// Recorded at accept into `PeerIdentity::started`, compared by the server-side executable check.
+pub(crate) fn process_start_marker(pid: u32) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        unix_impl::start_marker_of(pid)
+    }
+    #[cfg(windows)]
+    {
+        windows_impl::start_marker_of(pid)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 #[cfg(unix)]
-pub(crate) use unix_impl::verify_unix_host;
+pub(crate) use unix_impl::{peer_audit_token, verify_unix_host, verify_unix_pid};
 
 #[cfg(unix)]
 mod unix_impl {
     use super::{
         HostConnectError, HostExpectation, HostIdentityError, HostIdentityReason, HostProcess,
     };
-    use crate::peer::{current_euid, verify_peer_is_current_user, PeerError};
+    use crate::peer::{current_euid, verify_peer_is_current_user, PeerError, PeerIdentity};
     use std::io;
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::net::UnixStream;
@@ -547,6 +608,24 @@ mod unix_impl {
             _ => return Err(changed("the socket no longer reports the same process id")),
         }
 
+        conclude(expect, pid, exe, after.token).map_err(HostConnectError::Identity)
+    }
+
+    /// The last steps, shared by the client-side and the server-side check: the process's
+    /// executable (canonicalised) must be one of the expected executables, then the caller's
+    /// extra verifier, if any, must accept the process.
+    fn conclude(
+        expect: &HostExpectation,
+        pid: u32,
+        exe: ExeInfo,
+        audit_token: Option<[u32; 8]>,
+    ) -> Result<HostProcess, HostIdentityError> {
+        let refuse = |exe: Option<PathBuf>, reason: HostIdentityReason| HostIdentityError {
+            expected: expect.executables.clone(),
+            found_pid: Some(pid),
+            found_executable: exe,
+            reason,
+        };
         let ExeInfo { path, id } = exe;
         let found = std::fs::canonicalize(&path).unwrap_or(path);
         if !expect
@@ -554,11 +633,7 @@ mod unix_impl {
             .iter()
             .any(|expected| same_executable(expected, &found, id))
         {
-            return Err(refuse(
-                Some(pid),
-                Some(found),
-                HostIdentityReason::ExecutableMismatch,
-            ));
+            return Err(refuse(Some(found), HostIdentityReason::ExecutableMismatch));
         }
 
         let host = HostProcess {
@@ -566,18 +641,133 @@ mod unix_impl {
             uid: Some(current_euid()),
             sid: None,
             executable: found,
-            audit_token: after.token,
+            audit_token,
         };
         if let Some(verifier) = &expect.verifier {
             if let Err(why) = verifier(&host) {
                 return Err(refuse(
-                    Some(pid),
                     Some(host.executable.clone()),
                     HostIdentityReason::Refused(why),
                 ));
             }
         }
         Ok(host)
+    }
+
+    /// Server side: identify the process that opened a connection, from the OS-verified
+    /// [`PeerIdentity`] recorded when it connected, and decide whether it is the program
+    /// `expect` names. Same decision as [`verify_unix_host`] (same executable comparison, same
+    /// verifier), but the socket is no longer at hand, so the process is pinned by its pid, its
+    /// start time read before and after its executable path, and (macOS) the audit token the
+    /// kernel captured at connect time.
+    ///
+    /// Each step fails closed: no uid or a different uid, no pid, a process that is gone, a
+    /// start time that changed, an audit token that names another pid, an unreadable executable,
+    /// no expected executable, an executable that is not expected, a refusing verifier.
+    pub(crate) fn verify_unix_pid(
+        peer: &PeerIdentity,
+        expect: &HostExpectation,
+    ) -> Result<HostProcess, HostIdentityError> {
+        let refuse = |pid: Option<u32>, exe: Option<PathBuf>, reason: HostIdentityReason| {
+            HostIdentityError {
+                expected: expect.executables.clone(),
+                found_pid: pid,
+                found_executable: exe,
+                reason,
+            }
+        };
+        if expect.executables.is_empty() {
+            return Err(refuse(None, None, HostIdentityReason::NoExpectation));
+        }
+        if !os::SUPPORTED {
+            return Err(refuse(
+                None,
+                None,
+                HostIdentityReason::Unverified {
+                    platform: std::env::consts::OS,
+                    detail: "reading a process's executable path is not implemented for this Unix",
+                },
+            ));
+        }
+        if peer.uid != Some(current_euid()) {
+            return Err(refuse(
+                peer.pid,
+                None,
+                HostIdentityReason::UidMismatch {
+                    host: peer.uid,
+                    client: current_euid(),
+                },
+            ));
+        }
+        let Some(pid) = peer.pid else {
+            return Err(refuse(None, None, HostIdentityReason::PidUnavailable));
+        };
+        if let Some(token) = peer.audit_token {
+            // `audit_token_t`: the pid is word 5.
+            if token[5] != pid {
+                return Err(refuse(
+                    Some(pid),
+                    None,
+                    HostIdentityReason::HostChanged(
+                        "the audit token and the process id name different processes"
+                            .to_string(),
+                    ),
+                ));
+            }
+        }
+        let observe = |e: ObserveError| refuse(Some(pid), None, e.into());
+        let start = |pid| match os::start_marker(pid) {
+            Ok(Some(start)) => Ok(start),
+            Ok(None) => Err(ObserveError::Gone),
+            Err(e) => Err(ObserveError::Unreadable(format!("process start time: {e}"))),
+        };
+        let before = start(pid).map_err(&observe)?;
+        // The pid must still be the process that connected: its start time was recorded when
+        // the connection was accepted. No record, or a different one, is a pid that may have
+        // been reused. Fails closed.
+        if peer.started != Some(before) {
+            return Err(refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::HostChanged(
+                    concat!(
+                        "the process is not the one that connected (its start time differs ",
+                        "from the one recorded at connect, or none was recorded)"
+                    )
+                    .to_string(),
+                ),
+            ));
+        }
+        let exe = match os::executable_of(pid) {
+            Ok(Some(exe)) => exe,
+            Ok(None) => return Err(observe(ObserveError::Gone)),
+            Err(e) => {
+                return Err(observe(ObserveError::Unreadable(format!(
+                    "executable path: {e}"
+                ))))
+            }
+        };
+        let after = start(pid).map_err(&observe)?;
+        if before != after {
+            return Err(refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::HostChanged(
+                    "its start time differed before and after its executable path was read"
+                        .to_string(),
+                ),
+            ));
+        }
+        conclude(expect, pid, exe, peer.audit_token)
+    }
+
+    pub(crate) fn start_marker_of(pid: u32) -> Option<(u64, u64)> {
+        os::start_marker(pid).ok().flatten()
+    }
+
+    /// The peer's audit token for [`PeerIdentity::audit_token`]; `None` off macOS.
+    pub(crate) fn peer_audit_token(stream: &UnixStream) -> Option<[u32; 8]> {
+        os::audit_token(stream)
     }
 
     #[cfg(target_os = "macos")]
@@ -919,13 +1109,13 @@ mod unix_impl {
 }
 
 #[cfg(windows)]
-pub(crate) use windows_impl::verify_pipe_host;
+pub(crate) use windows_impl::{verify_pid_host, verify_pipe_host};
 
 /// Windows: which program holds the server end of a named pipe this client opened.
 #[cfg(windows)]
 mod windows_impl {
     use super::*;
-    use crate::peer::{verify_pipe_server_is_current_user, PeerError};
+    use crate::peer::{verify_pipe_server_is_current_user, PeerError, PeerIdentity};
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::io::{AsRawHandle, RawHandle};
@@ -1215,6 +1405,129 @@ mod windows_impl {
             }
         }
         // The process handle is released only now: every check above saw one process.
+        drop(process);
+        Ok(host)
+    }
+
+    pub(super) fn start_marker_of(pid: u32) -> Option<(u64, u64)> {
+        let t = Process::open(pid).ok()?.created().ok()?;
+        Some(((u64::from(t.high) << 32) | u64::from(t.low), 0))
+    }
+
+    /// Server side: identify the process that opened a named-pipe connection, from the
+    /// OS-verified [`PeerIdentity`] recorded when it connected, and decide whether it is the
+    /// program `expect` names. The same executable comparison and verifier as
+    /// [`verify_pipe_host`], with the pipe handle no longer at hand: a handle to the process is
+    /// opened and kept until every check has run (it pins the process object, so its pid cannot
+    /// name another process meanwhile), and the creation time is read before and after the image
+    /// path.
+    ///
+    /// Fails closed: no pid or no user SID recorded for the peer, no expected executable, a
+    /// process that cannot be opened or has exited, a creation time that changed, an unreadable
+    /// image, an executable that is not expected, a refusing verifier. An Authenticode check
+    /// (`WinVerifyTrust` on [`HostProcess::executable`]) belongs in the verifier.
+    pub(crate) fn verify_pid_host(
+        peer: &PeerIdentity,
+        expect: &HostExpectation,
+    ) -> Result<HostProcess, HostIdentityError> {
+        let refuse = |pid: Option<u32>, exe: Option<PathBuf>, reason: HostIdentityReason| {
+            HostIdentityError {
+                expected: expect.executables.clone(),
+                found_pid: pid,
+                found_executable: exe,
+                reason,
+            }
+        };
+        if expect.executables.is_empty() {
+            return Err(refuse(None, None, HostIdentityReason::NoExpectation));
+        }
+        let Some(pid) = peer.pid else {
+            return Err(refuse(None, None, HostIdentityReason::PidUnavailable));
+        };
+        let Some(sid) = peer.sid.clone() else {
+            return Err(refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::Query("no user SID was recorded for the peer".to_string()),
+            ));
+        };
+        let unreadable = |what: &str, e: io::Error| {
+            refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::Unreadable(format!("{what}: {e}")),
+            )
+        };
+        let changed = |why: &str| {
+            refuse(
+                Some(pid),
+                None,
+                HostIdentityReason::HostChanged(why.to_string()),
+            )
+        };
+        let process = match Process::open(pid) {
+            Ok(process) => process,
+            Err(e) if e.raw_os_error() == Some(ERROR_INVALID_PARAMETER) => {
+                return Err(changed("it exited before it could be opened"))
+            }
+            Err(e) => return Err(unreadable("open process", e)),
+        };
+        let before = process
+            .created()
+            .map_err(|e| unreadable("creation time", e))?;
+        // The pid must still be the process that connected (creation time recorded at accept).
+        let marker = ((u64::from(before.high) << 32) | u64::from(before.low), 0);
+        if peer.started != Some(marker) {
+            return Err(changed(concat!(
+                "the process is not the one that connected (its creation time differs ",
+                "from the one recorded at connect, or none was recorded)"
+            )));
+        }
+        let image = process
+            .image()
+            .map_err(|e| unreadable("executable path", e))?;
+        let after = process
+            .created()
+            .map_err(|e| unreadable("creation time", e))?;
+        if before != after {
+            return Err(changed(
+                "its creation time differed before and after its executable path was read",
+            ));
+        }
+        if !process.running() {
+            return Err(changed("it exited while it was being identified"));
+        }
+
+        let found = std::fs::canonicalize(&image).unwrap_or(image);
+        let id = file_id(&found);
+        if !expect
+            .executables
+            .iter()
+            .any(|expected| same_executable(expected, &found, id))
+        {
+            return Err(refuse(
+                Some(pid),
+                Some(plain(found)),
+                HostIdentityReason::ExecutableMismatch,
+            ));
+        }
+        let host = HostProcess {
+            pid,
+            uid: None,
+            sid: Some(sid),
+            executable: plain(found),
+            audit_token: None,
+        };
+        if let Some(verifier) = &expect.verifier {
+            if let Err(why) = verifier(&host) {
+                return Err(refuse(
+                    Some(pid),
+                    Some(host.executable.clone()),
+                    HostIdentityReason::Refused(why),
+                ));
+            }
+        }
+        // Released only now: every check above saw one process.
         drop(process);
         Ok(host)
     }

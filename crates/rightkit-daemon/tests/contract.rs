@@ -196,3 +196,72 @@ fn the_infallible_builder_panics_on_an_unscoped_device_policy() {
         MethodPolicy::local(["a"]).and_remote(Vec::<String>::new()),
     );
 }
+
+// ---- server-side executable check (CallContext::verify_peer_executable) ----------
+
+/// Gates `owner` on the connecting process being the expected program, and reports the answer.
+struct Gate {
+    owner: HostExpectation,
+    other: HostExpectation,
+    empty: HostExpectation,
+    refused: HostExpectation,
+}
+
+impl Handler for Gate {
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        _params: &Value,
+        _emit: &Emit,
+    ) -> Result<Value, ServiceError> {
+        let expect = match method {
+            "owner" => &self.owner,
+            "other" => &self.other,
+            "empty" => &self.empty,
+            _ => &self.refused,
+        };
+        match cx.verify_peer_executable(expect) {
+            Ok(host) => Ok(json!({ "pid": host.pid, "exe": host.executable })),
+            Err(e) => Err(ServiceError::new(
+                ERROR_FORBIDDEN,
+                format!("owner only: {:?}", e.reason),
+            )),
+        }
+    }
+}
+
+#[test]
+fn a_handler_can_gate_a_method_on_the_connecting_executable_and_fails_closed() {
+    let exe = std::env::current_exe().unwrap();
+    // Some other file that exists: the expectation must not match this process.
+    let elsewhere = std::fs::canonicalize(std::env::current_dir().unwrap().join("Cargo.toml"))
+        .expect("tests run in the crate directory");
+    let table = MethodTable::new()
+        .method("owner", MethodPolicy::local(["*"]))
+        .method("other", MethodPolicy::local(["*"]))
+        .method("empty", MethodPolicy::local(["*"]))
+        .method("verifier", MethodPolicy::local(["*"]));
+    let dir = tempfile::tempdir().unwrap();
+    let suite = Suite::at(dir.path().join("suite")).unwrap();
+    let cfg = ServiceConfig::new("gate", "test", 5, "test", Allowlist::new()).with_methods(&table);
+    let gate = Arc::new(Gate {
+        owner: HostExpectation::executable(&exe),
+        other: HostExpectation::executable(elsewhere),
+        empty: HostExpectation::default(),
+        refused: HostExpectation::executable(&exe)
+            .with_verifier(|_| Err("signer not accepted".to_string())),
+    });
+    let _host = host(&suite, cfg, gate).expect("host starts");
+    let client = Client::connect(&suite, "gate", "app").unwrap();
+
+    // This test process is the client, so its own executable passes and is named in the answer.
+    let ok = client.call("owner", json!({})).unwrap();
+    assert_eq!(ok["pid"], std::process::id());
+    // A different program, no program at all, and a refusing verifier (the code-signature hook)
+    // are all refused: nothing is assumed.
+    for method in ["other", "empty", "verifier"] {
+        let err = client.call(method, json!({})).unwrap_err();
+        assert_eq!(err.code, ERROR_FORBIDDEN, "{method}");
+    }
+}

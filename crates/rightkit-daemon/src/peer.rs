@@ -22,6 +22,16 @@ pub struct PeerIdentity {
     pub pid: Option<u32>,
     /// Windows: the peer process token's user SID in `S-1-...` form.
     pub sid: Option<String>,
+    /// macOS: the peer's audit token (`audit_token_t`, eight words: pid at index 5, pid version
+    /// at index 7) as the kernel captured it when the connection was made (`LOCAL_PEERTOKEN`).
+    /// The race-free handle for a code-signature check of the peer. `None` elsewhere, or when
+    /// the kernel did not provide one.
+    pub audit_token: Option<[u32; 8]>,
+    /// The peer process's start marker as read when the connection was accepted (Unix: start
+    /// time from the OS; Windows: creation time). Pins the pid to one process, so a pid reused
+    /// by another process after the peer exited is told apart at the server-side executable
+    /// check. `None` when it could not be read; that check then fails closed.
+    pub started: Option<(u64, u64)>,
 }
 
 /// Why a peer was not accepted as the current user.
@@ -189,6 +199,8 @@ mod unix {
             uid: Some(uid),
             pid: peer_pid(s),
             sid: None,
+            audit_token: crate::host_identity::peer_audit_token(s),
+            started: peer_pid(s).and_then(crate::host_identity::process_start_marker),
         })
     }
 
@@ -276,6 +288,11 @@ mod unix {
             uid: Some(cred.uid),
             pid: u32::try_from(cred.pid).ok().filter(|p| *p != 0),
             sid: None,
+            audit_token: None,
+            started: u32::try_from(cred.pid)
+                .ok()
+                .filter(|p| *p != 0)
+                .and_then(crate::host_identity::process_start_marker),
         })
     }
 
@@ -438,6 +455,8 @@ mod win {
             uid: None,
             pid: Some(pid),
             sid: Some(theirs.clone()),
+            audit_token: None,
+            started: crate::host_identity::process_start_marker(pid),
         };
         // SID strings are canonical (`S-1-5-21-...`), so equality of the strings is
         // equality of the SIDs.

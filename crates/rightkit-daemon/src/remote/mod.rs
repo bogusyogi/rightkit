@@ -31,6 +31,8 @@ pub mod events;
 pub mod http;
 #[cfg(feature = "remote")]
 pub mod oauth;
+#[cfg(feature = "link")]
+pub mod pairing;
 #[cfg(feature = "remote")]
 pub mod routes;
 #[cfg(feature = "link")]
@@ -48,8 +50,9 @@ pub use self::call::DeviceCalls;
 pub use self::config::{DaemonConfig, UploadLimits};
 #[cfg(feature = "remote")]
 pub use self::core::{
-    Accepted, Daemon, DaemonMetrics, DaemonStatus, FrameOutcome, LinkSession, OAuthCallbackHandler,
-    OAuthOutcome, Out, Request, Response, TaskInfo, TaskSpec,
+    Accepted, Daemon, DaemonMetrics, DaemonStatus, ForgetDeviceError, FrameOutcome, LinkSession,
+    OAuthCallbackHandler, OAuthOutcome, Out, PairedDevice, PairingError, PairingInfo,
+    PairingOptions, PairingStage, Request, Response, TaskInfo, TaskSpec,
 };
 #[cfg(feature = "remote")]
 pub use self::events::{Event, EventLog};

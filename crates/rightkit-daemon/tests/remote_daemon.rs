@@ -1047,3 +1047,43 @@ fn provider_outside_the_slug_rule_never_reaches_a_handler() {
         302
     );
 }
+
+// ---- forget_device (admin, in-process) ---------------------------------------
+
+#[test]
+fn forget_device_requires_revocation_and_lets_the_same_key_enrol_again() {
+    use rightkit_daemon::remote::ForgetDeviceError;
+    let h = Harness::new();
+    let dev = h.enrol();
+
+    // Unknown id: nothing to do. Live device: refused, record untouched.
+    assert!(!h.daemon.forget_device("dev_0000000000000000").unwrap());
+    assert!(matches!(
+        h.daemon.forget_device(&dev.id),
+        Err(ForgetDeviceError::NotRevoked)
+    ));
+    assert_eq!(h.daemon.device_ids(), vec![dev.id.clone()]);
+    assert!(h.events("DEVICE_FORGOTTEN").is_empty());
+
+    // Revoked but still in state: the same key cannot enrol (409).
+    assert!(h.daemon.revoke_device(&dev.id).unwrap());
+    let code = h.daemon.issue_enrolment_code(ALL_SCOPES, 600).unwrap();
+    assert_eq!(
+        h.call(dev.enrol_request(&code, h.now(), &next_nonce())).status,
+        409
+    );
+
+    // Forgotten (audited once), the record is gone and a second forget finds nothing.
+    assert!(h.daemon.forget_device(&dev.id).unwrap());
+    assert!(h.daemon.device_ids().is_empty());
+    let forgotten = h.events("DEVICE_FORGOTTEN");
+    assert_eq!(forgotten.len(), 1);
+    assert_eq!(forgotten[0]["deviceId"], dev.id.as_str());
+    assert!(!h.daemon.forget_device(&dev.id).unwrap());
+
+    // The same key re-enrols with the unspent code, to the same id, and works again.
+    let again = h.call(dev.enrol_request(&code, h.now(), &next_nonce()));
+    assert_eq!(again.status, 201, "{:?}", again.body);
+    assert_eq!(again.body["deviceId"], dev.id.as_str());
+    assert_eq!(dev.call(&h, "GET", "/v1/uploads/up_x", b"").status, 404);
+}

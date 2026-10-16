@@ -16,9 +16,13 @@ use ring::hmac;
 use serde_json::{json, Value};
 
 mod link;
+mod pairing;
 mod tasks;
 
 pub use self::link::{Accepted, FrameOutcome, LinkSession, Out};
+pub use self::pairing::{
+    PairedDevice, PairingError, PairingInfo, PairingOptions, PairingStage,
+};
 pub use self::tasks::{TaskInfo, TaskSpec};
 
 use crate::record::write_atomic;
@@ -31,7 +35,7 @@ use crate::remote::signing::{
     H_PROVIDER_SIGNATURE, H_PROVIDER_TIMESTAMP, H_SIGNATURE, H_TIMESTAMP,
 };
 use crate::remote::state::{
-    Device, EnrolCode, IdemRecord, InboxItem, Job, State, Upload, UploadDone,
+    Device, EnrolCode, IdemRecord, InboxItem, Job, State, TaskStatus, Upload, UploadDone,
 };
 use crate::remote::util::{ct_eq, hex, random_bytes, sha256_hex, unhex, Clock};
 
@@ -160,6 +164,36 @@ struct Counters {
     max_state_bytes: AtomicU64,
 }
 
+/// Why [`Daemon::forget_device`] did not remove a device.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ForgetDeviceError {
+    /// The device is not revoked. Revoke it first; a live device is never forgotten.
+    NotRevoked,
+    /// The state could not be written; the record is unchanged.
+    Storage(std::io::Error),
+}
+
+impl std::fmt::Display for ForgetDeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotRevoked => {
+                write!(f, "the device is not revoked; revoke it before forgetting it")
+            }
+            Self::Storage(e) => write!(f, "could not write the daemon state: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ForgetDeviceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Storage(e) => Some(e),
+            Self::NotRevoked => None,
+        }
+    }
+}
+
 pub struct Daemon {
     cfg: DaemonConfig,
     clock: Arc<dyn Clock>,
@@ -168,6 +202,8 @@ pub struct Daemon {
     calls: Option<DeviceCalls>,
     /// Live `rk-link/1` connections by device id (at most one per device).
     links: Mutex<BTreeMap<String, Arc<LinkSession>>>,
+    /// Short-code pairing window and sessions (memory only).
+    pairing: Mutex<pairing::PairingState>,
     inner: Mutex<Inner>,
     counters: Counters,
 }
@@ -234,6 +270,7 @@ impl Daemon {
             oauth,
             calls: None,
             links: Mutex::new(BTreeMap::new()),
+            pairing: Mutex::new(pairing::PairingState::default()),
             inner: Mutex::new(Inner {
                 state,
                 uploads,
@@ -348,6 +385,121 @@ impl Daemon {
         Ok(true)
     }
 
+    /// Remove a REVOKED device and every record that ties its id to this host, so the same key
+    /// can enrol again (enrolment answers 409 `already_enrolled` for any device id still in
+    /// state, revoked or not) and comes back as a brand-new device, with nothing of the old one.
+    ///
+    /// In-process administration only: no route, link frame or call reaches this method, and it
+    /// must stay that way, since it turns a revoked credential back into an enrollable one.
+    ///
+    /// * `Ok(true)`: the device was removed and `DEVICE_FORGOTTEN` was logged (once).
+    /// * `Ok(false)`: no such device. Calling again after success lands here, so it is idempotent.
+    /// * `Err(ForgetDeviceError::NotRevoked)`: the device is live. Call
+    ///   [`revoke_device`](Self::revoke_device) first; a live device is never forgotten.
+    /// * `Err(ForgetDeviceError::Storage)`: `state.json` could not be written; nothing changed.
+    ///
+    /// Removed together, in one durable write: the device record (public key, scopes, label);
+    /// its idempotency records; its in-flight upload sessions (metadata and partial data; a
+    /// committed object stays, it is host data); tasks leased to it that are not pinned to it
+    /// (they go back to the queue); tasks pinned to it that have not finished (they fail with
+    /// `device_forgotten`, since nobody else may run them); and any open link.
+    ///
+    /// Replay nonces still inside the replay window are KEPT on purpose: forgetting must not
+    /// reopen the timestamp window to requests the old record already saw, which an attacker
+    /// holding captured traffic could otherwise replay once the key enrols again. Nonces older
+    /// than the window are dropped (they can no longer match a valid timestamp), as are any
+    /// such leftovers of earlier forgotten devices. A device re-enrols with a fresh enrolment
+    /// code, as for any new device, and gets a new record with the scopes of that code; nothing
+    /// of the old record, its scopes included, is carried over.
+    pub fn forget_device(&self, device_id: &str) -> Result<bool, ForgetDeviceError> {
+        let now = self.clock.now_secs();
+        let window = self.cfg.replay_window_secs;
+        let mut g = self.lock();
+        match g.state.devices.get(device_id) {
+            None => return Ok(false),
+            Some(d) if !d.revoked => return Err(ForgetDeviceError::NotRevoked),
+            Some(_) => {}
+        }
+        // Snapshot everything this touches, so a failed write leaves memory equal to disk.
+        let old_devices = g.state.devices.clone();
+        let old_nonces = g.state.nonces.clone();
+        let old_idem = g.state.idempotency.clone();
+        let old_tasks = g.state.tasks.clone();
+
+        g.state.devices.remove(device_id);
+        {
+            let State { devices, nonces, .. } = &mut g.state;
+            nonces.retain(|id, seen| {
+                seen.retain(|_, t| *t + window >= now);
+                devices.contains_key(id) || !seen.is_empty()
+            });
+        }
+        let idem_prefix = format!("{device_id}:");
+        g.state.idempotency.retain(|k, _| !k.starts_with(&idem_prefix));
+        let mut requeued: Vec<(String, u64)> = Vec::new();
+        let mut failed: Vec<(String, u64)> = Vec::new();
+        for t in g.state.tasks.values_mut() {
+            let live = matches!(t.status, TaskStatus::Queued | TaskStatus::Leased);
+            if !live {
+                continue;
+            }
+            if t.target.as_deref() == Some(device_id) {
+                failed.push((t.id.clone(), t.epoch));
+                t.status = TaskStatus::Failed;
+                t.owner = None;
+                t.acked = false;
+                t.expires = now;
+                t.outcome = Some(json!({ "ok": false, "error": "device_forgotten" }));
+            } else if t.status == TaskStatus::Leased && t.owner.as_deref() == Some(device_id) {
+                requeued.push((t.id.clone(), t.epoch));
+                t.status = TaskStatus::Queued;
+                t.owner = None;
+                t.acked = false;
+            }
+        }
+        if let Err(e) = self.save(&mut g) {
+            // Not durable, so not done: put everything back.
+            g.state.devices = old_devices;
+            g.state.nonces = old_nonces;
+            g.state.idempotency = old_idem;
+            g.state.tasks = old_tasks;
+            g.dirty = true;
+            return Err(ForgetDeviceError::Storage(e));
+        }
+        // Durable: now the upload sessions (their files are not part of `state.json`).
+        let doomed: Vec<String> = g
+            .uploads
+            .values()
+            .filter(|u| u.device_id == device_id && u.complete.is_none() && !u.finalizing)
+            .map(|u| u.id.clone())
+            .collect();
+        for id in &doomed {
+            let _ = fs::remove_file(self.part_path(id));
+            let _ = fs::remove_file(self.meta_path(id));
+            g.uploads.remove(id);
+        }
+        drop(g);
+        self.emit("DEVICE_FORGOTTEN", json!({ "deviceId": device_id }));
+        for (task, epoch) in requeued {
+            self.emit(
+                "TASK_LEASE_LOST",
+                json!({ "taskId": task, "deviceId": device_id, "epoch": epoch,
+                        "reason": "forgotten" }),
+            );
+        }
+        for (task, epoch) in failed {
+            self.emit(
+                "TASK_FAILED",
+                json!({ "taskId": task, "deviceId": device_id, "epoch": epoch,
+                        "reason": "device_forgotten" }),
+            );
+        }
+        // Defensive: a revoked device has no link, but never leave one open for a forgotten id.
+        self.close_link(device_id, "forgotten");
+        self.dispatch();
+        Ok(true)
+    }
+
     pub fn device_ids(&self) -> Vec<String> {
         self.lock().state.devices.keys().cloned().collect()
     }
@@ -458,6 +610,9 @@ impl Daemon {
     /// Largest body the transport should read for this request before the
     /// request is authenticated.
     pub fn body_limit(&self, method: &str, path: &str) -> usize {
+        if Self::is_pair_path(path) {
+            return self.cfg.max_json_body;
+        }
         match match_route(method, path) {
             Matched::Route(r, _) => match r.id {
                 "upload.chunk" => self.cfg.limits.chunk_max as usize + 1,
@@ -470,6 +625,15 @@ impl Daemon {
 
     pub fn handle(&self, req: Request) -> Response {
         self.counters.requests.fetch_add(1, Ordering::Relaxed);
+        // Short-code pairing (`/v1/pair`): not in the daemon-api route table, like `/v1/link`.
+        if Self::is_pair_path(req.path()) {
+            if req.body.len() > self.cfg.max_json_body {
+                return Response::err(413, "body_too_large");
+            }
+            return self
+                .handle_pairing(&req)
+                .unwrap_or_else(|| Response::err(404, "not_found"));
+        }
         let (route, params) = match match_route(&req.method, req.path()) {
             Matched::Route(r, p) => (r, p),
             Matched::MethodNotAllowed => return Response::err(405, "method_not_allowed"),
