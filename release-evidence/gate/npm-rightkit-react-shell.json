@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/react-shell",
+  "version": "0.6.5",
+  "commit": "d4a5879a284faa3d5d7f90f15f01b5919adc7e16",
+  "artifactSha256": "bb0ea5b8dee1d1793244203dabbbdf7c05e9636482b4522cb7d729e4ef9c5730",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "d4a5879a284faa3d5d7f90f15f01b5919adc7e16",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "bb0ea5b8dee1d1793244203dabbbdf7c05e9636482b4522cb7d729e4ef9c5730",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/react-shell run test && pnpm --dir packages/react-shell pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-befmYr",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-16T02:26:44.198Z",
+      "passed": 209,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/react-shell run test",
+          "ok": true,
+          "executed": 209,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
+    }
+  ]
+}
