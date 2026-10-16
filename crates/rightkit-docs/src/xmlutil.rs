@@ -58,11 +58,23 @@ impl<'a> Walk<'a> {
     }
 }
 
-/// Local name without a namespace prefix (`w:p` -> `p`).
-pub(crate) fn local(name: &[u8]) -> &[u8] {
+/// Local name without a namespace prefix (`w:p` -> `p`), as bytes so callers keep matching on
+/// `b"p"` patterns. quick-xml 0.42 hands names out as `&str` (`QName: AsRef<str>`), so every
+/// `local(e.name().as_ref())` call site passes a `&str` here and this is the one conversion point.
+/// `:` is ASCII, so splitting the bytes never lands inside a multi-byte character.
+pub(crate) fn local(name: &str) -> &[u8] {
+    let name = name.as_bytes();
     match name.iter().rposition(|b| *b == b':') {
         Some(i) => &name[i + 1..],
         None => name,
+    }
+}
+
+/// The name prefix including its colon (`w:p` -> `w:`), empty when there is none.
+pub(crate) fn prefix_of(name: &str) -> String {
+    match name.rfind(':') {
+        Some(i) => name[..=i].to_owned(),
+        None => String::new(),
     }
 }
 
@@ -343,5 +355,142 @@ mod tests {
         assert_eq!(esc_text("a&b<c>d\u{0}\u{1}"), "a&amp;b&lt;c&gt;d");
         assert_eq!(esc_attr("q\"\n"), "q&quot;&#10;");
         assert_eq!(clean("ok\u{FFFF}\u{FFFE}\t"), "ok\t");
+    }
+
+    /// Drain a part and return the first error, or `None` when it walks to `Eof`.
+    fn first_error(xml: &[u8]) -> Option<DocsError> {
+        let mut walk = Walk::new(xml, "t.xml");
+        loop {
+            match walk.next() {
+                Ok((Event::Eof, _, _)) => return None,
+                Ok(_) => {}
+                Err(e) => return Some(e),
+            }
+        }
+    }
+
+    #[test]
+    fn names_split_into_prefix_and_local_part() {
+        assert_eq!(local("w:p"), b"p");
+        assert_eq!(local("p"), b"p");
+        assert_eq!(local("a:b:c"), b"c");
+        assert_eq!(local(""), b"");
+        assert_eq!(prefix_of("w:body"), "w:");
+        assert_eq!(prefix_of("body"), "");
+        assert_eq!(prefix_of("a:b:c"), "a:b:");
+    }
+
+    #[test]
+    fn invalid_utf8_is_refused_as_malformed_wherever_it_sits() {
+        for xml in [
+            &b"<a>\xFF\xFE</a>"[..],
+            &b"<a b=\"\xC3\x28\"/>"[..],
+            &b"<a\xFF/>"[..],
+            &b"<a><![CDATA[\x80]]></a>"[..],
+            &b"<a><!-- \xC0\xAF --></a>"[..],
+        ] {
+            assert!(
+                matches!(first_error(xml), Some(DocsError::Malformed(_))),
+                "{xml:?}"
+            );
+        }
+        assert!(first_error("<a b=\"\u{e9}\u{1F600}\">\u{4e2d}</a>".as_bytes()).is_none());
+        // A UTF-8 byte-order mark is skipped, not an error.
+        assert!(first_error(b"\xEF\xBB\xBF<a/>").is_none());
+    }
+
+    #[test]
+    fn nesting_is_capped_at_the_same_depth() {
+        let nest = |n: usize| format!("{}{}", "<a>".repeat(n), "</a>".repeat(n));
+        assert!(first_error(nest(MAX_XML_DEPTH).as_bytes()).is_none());
+        match first_error(nest(MAX_XML_DEPTH + 1).as_bytes()) {
+            Some(DocsError::Malformed(m)) => assert!(m.contains("nesting deeper"), "{m}"),
+            other => panic!("{other:?}"),
+        }
+        // A hostile depth with no closing tags is cut off at the cap, not at end of input.
+        match first_error("<a>".repeat(100_000).as_bytes()) {
+            Some(DocsError::Malformed(m)) => assert!(m.contains("nesting deeper"), "{m}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn doctype_and_mismatched_tags_fail_the_same_way() {
+        assert!(matches!(
+            first_error(b"<!DOCTYPE a [<!ENTITY e \"x\">]><a>&e;</a>"),
+            Some(DocsError::ForbiddenXml {
+                what: "DOCTYPE",
+                ..
+            })
+        ));
+        assert!(matches!(
+            first_error(b"<a><b></a></b>"),
+            Some(DocsError::Malformed(_))
+        ));
+        assert!(matches!(
+            first_error(b"<a></b>"),
+            Some(DocsError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn entities_are_never_expanded_beyond_the_predefined_five_and_numeric_references() {
+        // An undeclared entity is a reference event, not text; the walker never expands it, so a
+        // bomb of references costs one event each and nothing multiplies.
+        let bomb = format!("<a>{}</a>", "&lol;".repeat(50_000));
+        let mut walk = Walk::new(bomb.as_bytes(), "t.xml");
+        let mut refs = 0usize;
+        loop {
+            match walk.next().unwrap().0 {
+                Event::GeneralRef(r) => {
+                    assert_eq!(&*r, "lol");
+                    refs += 1;
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+        }
+        assert_eq!(refs, 50_000);
+        // An unknown entity in an attribute value is no value at all.
+        let mut walk = Walk::new(b"<a v=\"x&lol;y\" w=\"ok\"/>", "t.xml");
+        let (Event::Empty(e), _, _) = walk.next().unwrap() else {
+            panic!("expected the empty element");
+        };
+        assert_eq!(attr(&e, "v"), None);
+        assert_eq!(attr(&e, "w").as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn attributes_normalise_and_huge_values_survive_whole() {
+        let mut walk = Walk::new(b"<a w:v=\"x&amp;y&lt;z\tq\"/>", "t.xml");
+        let (Event::Empty(e), _, _) = walk.next().unwrap() else {
+            panic!("expected the empty element");
+        };
+        assert_eq!(attr(&e, "v").as_deref(), Some("x&y<z q"));
+        assert_eq!(attr(&e, "missing"), None);
+
+        let big = "x".repeat(4 * 1024 * 1024);
+        let xml = format!("<a v=\"{big}\"/>");
+        let mut walk = Walk::new(xml.as_bytes(), "t.xml");
+        let (Event::Empty(e), _, end) = walk.next().unwrap() else {
+            panic!("expected the empty element");
+        };
+        assert_eq!(end, xml.len());
+        assert_eq!(attr(&e, "v").map(|v| v.len()), Some(big.len()));
+    }
+
+    #[test]
+    fn events_report_their_exact_byte_ranges() {
+        let xml = "<a>h\u{e9}llo</a>";
+        let mut walk = Walk::new(xml.as_bytes(), "t.xml");
+        let mut ranges = Vec::new();
+        loop {
+            let (ev, s, e) = walk.next().unwrap();
+            if matches!(ev, Event::Eof) {
+                break;
+            }
+            ranges.push((s, e));
+        }
+        assert_eq!(ranges, vec![(0, 3), (3, 9), (9, 13)]);
     }
 }

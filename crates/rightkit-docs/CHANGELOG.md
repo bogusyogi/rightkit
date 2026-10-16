@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - unreleased
+
+- quick-xml 0.41 to 0.42. Names, attribute values and text now arrive as `&str` and `Cow<str>`, so the `decode()` calls are gone (event content is read through `Deref`, raw and un-normalised exactly as `decode()` returned it), `local` and the new `prefix_of` in `xmlutil` take `&str`, and every `local(e.name().as_ref())` call site is unchanged. The DOCTYPE and entity preflight, the 256-level depth cap, `check_end_names`, entity handling (the five predefined entities and numeric references, nothing else) and attribute normalisation are untouched.
+- One deliberate difference: 0.42 validates UTF-8 while reading, so a part with invalid UTF-8 is now refused as `malformed` where 0.41 silently skipped the text or attribute it could not decode. Pinned by new tests.
+- The namespace-binding cap change (256 to 128) does not apply: the walker uses `Reader`, not `NsReader`.
+- calamine 0.36.1 still depends on quick-xml 0.41, so two copies link until calamine moves.
+
 ## 0.1.0 - unreleased
 
 First version. Issue Orthic-Labs/rightkit#85 (requested by Pulse for the Zenon replacement; second consumer ViewRight).

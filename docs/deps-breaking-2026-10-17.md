@@ -15,7 +15,6 @@ Compatible bumps were applied to the manifests (lockfiles refreshed separately).
 | jni | 0.21.1 | 0.22.4 | android | Reworked `JNIEnv`/attach APIs; plan with the uniffi bump |
 | lopdf | 0.44.0 | 0.45.0 | docs, pdf | Pre-1.0, read the changelog for object API changes |
 | p256 | 0.13 | 0.14.0 | ownership | RustCrypto `elliptic-curve` line; move with spki and sha2 |
-| quick-xml | 0.41.0 | 0.42.0 | docs | Pre-1.0, check reader/writer API changes |
 | rcgen | 0.13 | 0.14.10 | daemon, http, send | Certificate params and key-pair API reshaped |
 | reqwest | 0.12 | 0.13.5 | http | Feature flags and TLS defaults changed; recheck rustls setup |
 | sha1 | 0.10 | 0.11.0 | ownership | RustCrypto `digest` 0.11 line; move with sha2 |
@@ -67,10 +66,6 @@ Bumping vitest, vite and jsdom is best done as one change since they constrain e
 Note: pnpm's `minimumReleaseAge` setting may refuse very recent releases when the lockfile is refreshed; check any resolution failure against that.
 
 ## Deferred
-
-### quick-xml 0.41 to 0.42 (rightkit-docs)
-
-Not bumped. 0.42 is a redesign of the byte API (changelog #963): names, events and attribute values move from `&[u8]`/`Vec<u8>` to `&str`/`String`/`Cow<str>`, `decode()` and `decoder()` are removed, `Reader` rejects non-UTF-8 input unless wrapped in `DecodingReader`, `BytesText` content methods return `Cow<str>` directly, `NamespaceError::TooManyDeclarations` becomes `TooManyBindings`. About 190 call sites in `crates/rightkit-docs/src/docx.rs`, `xlsx.rs` and `xmlutil.rs` touch the changed types, and the crate is a hostile-input parser, so a blind edit is not safe. Plan: (1) bump with a compiler in the loop, starting from `xmlutil.rs` (the shared reader helpers, including the `normalized_value` call) so docx and xlsx only see `&str`; (2) drop the manual UTF-8 and `from_utf8` conversions that become redundant, but keep the preflight DOCTYPE/entity refusal and its tests unchanged; (3) check the lower namespace-binding cap (256 to 128) against the preflight limits and the existing hostile-input fixtures; (4) re-run the docx and xlsx golden tests and the malformed-XML tests; (5) check the `` escaping change (#990, `` is now written as `&#13;`) for round-trip tests of rewritten parts.
 
 ### jni 0.21.1 to 0.22.4 (rightkit-android)
 

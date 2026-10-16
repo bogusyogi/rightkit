@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-docs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -31,8 +31,9 @@ calamine = "0.36.1"
 rust_xlsxwriter = "0.99.1"
 # Package layer and in-place part edits. Same zip line as calamine and rust_xlsxwriter so one copy links.
 zip = { version = "9", default-features = false, features = ["deflate"] }
-# Same quick-xml line as calamine.
-quick-xml = "0.41.0"
+# The in-house walker's own copy. calamine 0.36.1 still pulls quick-xml 0.41 for its reads, so
+# two copies link until calamine moves to 0.42.
+quick-xml = "0.42.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 sha2 = "0.11.1"

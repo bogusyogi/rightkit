@@ -69,7 +69,8 @@ fn styles_map(bytes: &[u8]) -> Result<HashMap<String, String>> {
 }
 
 fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> Option<char> {
-    match r.decode().ok()?.as_ref() {
+    let name: &str = r;
+    match name {
         "amp" => Some('&'),
         "lt" => Some('<'),
         "gt" => Some('>'),
@@ -196,13 +197,13 @@ fn parse_blocks(
                 _ => {}
             },
             Event::Text(t) if in_t => {
-                if let (Some(p), Ok(s)) = (paras.last_mut(), t.decode()) {
-                    p.text.push_str(&s);
+                if let Some(p) = paras.last_mut() {
+                    p.text.push_str(&t);
                 }
             }
             Event::CData(t) if in_t => {
-                if let (Some(p), Ok(s)) = (paras.last_mut(), t.decode()) {
-                    p.text.push_str(&s);
+                if let Some(p) = paras.last_mut() {
+                    p.text.push_str(&t);
                 }
             }
             Event::GeneralRef(r) if in_t => {
@@ -788,7 +789,7 @@ pub(crate) fn append_blocks(o: &Ooxml<'_>, blocks: &[Block]) -> Result<EditOutco
                 depth += 1;
                 let name = e.name();
                 if local(name.as_ref()) == b"body" && body_depth.is_none() {
-                    if name.as_ref() != b"w:body" {
+                    if name.0 != "w:body" {
                         return Err(DocsError::InvalidOp(
                             "document body is not in the conventional w: namespace prefix".into(),
                         ));
@@ -988,13 +989,13 @@ fn replace_in_part(
                 }
             }
             Event::Text(t) => {
-                if let (Some(n), Ok(s)) = (open.as_mut(), t.decode()) {
-                    n.text.push_str(&s);
+                if let Some(n) = open.as_mut() {
+                    n.text.push_str(&t);
                 }
             }
             Event::CData(t) => {
-                if let (Some(n), Ok(s)) = (open.as_mut(), t.decode()) {
-                    n.text.push_str(&s);
+                if let Some(n) = open.as_mut() {
+                    n.text.push_str(&t);
                 }
             }
             Event::GeneralRef(r) => {

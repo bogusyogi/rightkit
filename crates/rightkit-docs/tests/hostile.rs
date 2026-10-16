@@ -607,3 +607,66 @@ fn a_failed_publish_leaves_the_original_and_no_temp_file() {
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(files_in(&dir), vec!["a.docx".to_string()]);
 }
+
+const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+fn doc_xml(body: &[u8]) -> Vec<u8> {
+    let mut xml = format!(r#"<w:document xmlns:w="{W_NS}"><w:body>"#).into_bytes();
+    xml.extend_from_slice(body);
+    xml.extend_from_slice(b"</w:body></w:document>");
+    xml
+}
+
+#[test]
+fn invalid_utf8_in_a_part_is_malformed_not_silently_skipped() {
+    for body in [
+        &b"<w:p><w:r><w:t>ok \xFF\xFE bad</w:t></w:r></w:p>"[..],
+        &b"<w:p><w:pPr><w:pStyle w:val=\"\xC3\x28\"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>"[..],
+        &b"<w:p><w:r><w:t><![CDATA[\x80\x81]]></w:t></w:r></w:p>"[..],
+    ] {
+        let e = read_bytes_err(&docx_with("word/document.xml", &doc_xml(body)));
+        assert_eq!(e.code(), "malformed", "{e}");
+    }
+}
+
+#[test]
+fn undeclared_entities_and_bad_character_references_are_dropped_never_expanded() {
+    let body = format!(
+        "<w:p><w:r><w:t>a&lol;b&amp;&#65;&#x42;&#0;c{}</w:t></w:r></w:p>",
+        "&lol;".repeat(20_000)
+    );
+    let d = read(
+        Source::Bytes(&docx_with("word/document.xml", &doc_xml(body.as_bytes()))),
+        &ReadOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(d.text.trim(), "ab&ABc");
+}
+
+#[test]
+fn mismatched_and_hostile_xml_in_a_part_is_malformed_with_the_part_named() {
+    for xml in [
+        &b"<w:document><w:body><w:p></w:body></w:document>"[..],
+        &b"<w:document></w:p>"[..],
+        &b"<w:document><w:body"[..],
+    ] {
+        let e = read_bytes_err(&docx_with("word/document.xml", xml));
+        assert_eq!(e.code(), "malformed", "{e}");
+        assert!(e.to_string().contains("word/document.xml"), "{e}");
+    }
+}
+
+#[test]
+fn a_huge_attribute_value_does_not_break_the_walk() {
+    // Under the 1 MiB point where the ratio cap starts to apply to a single part.
+    let big = "x".repeat(512 * 1024);
+    let body = format!(
+        r#"<w:p><w:pPr><w:pStyle w:val="{big}"/></w:pPr><w:r><w:t>kept</w:t></w:r></w:p>"#
+    );
+    let d = read(
+        Source::Bytes(&docx_with("word/document.xml", &doc_xml(body.as_bytes()))),
+        &ReadOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(d.text.trim(), "kept");
+}

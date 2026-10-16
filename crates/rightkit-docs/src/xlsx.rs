@@ -22,7 +22,7 @@ use crate::model::{
 use crate::package::Package;
 use crate::xmlutil::{
     attr, cell_name, dir_of, esc_attr, esc_text, local, parse_cell, parse_range, parse_rels,
-    rels_name_for, resolve_target, Walk, MAX_COL, MAX_ROW,
+    prefix_of, rels_name_for, resolve_target, Walk, MAX_COL, MAX_ROW,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -564,13 +564,6 @@ struct SheetScan {
     prefix: String,
     dimension: Option<(usize, usize)>,
     has_table_parts: bool,
-}
-
-fn prefix_of(name: &[u8]) -> String {
-    match name.iter().rposition(|b| *b == b':') {
-        Some(i) => String::from_utf8_lossy(&name[..=i]).into_owned(),
-        None => String::new(),
-    }
 }
 
 /// Range of the `sheetData` element, the range of its body when it has one, and its name prefix.
