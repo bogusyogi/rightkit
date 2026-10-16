@@ -345,6 +345,9 @@ function checkEvidence(m, index, budget, crateDir, { exists, readFile }) {
 
 const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
+// `use`, `pub use` and `pub(crate) use` declarations, including multi-line `{ ... }` lists: an import cannot start work.
+const stripImports = (text) => text.replace(/^[ \t]*(?:pub(?:\([^)]*\))?\s+)?use\s[^;]*;/gm, "");
+
 /** Source with `#[cfg(test)]` modules removed (brace-balanced), for scanning shipped code only. */
 function withoutTestModules(text) {
   const out = [];
@@ -380,7 +383,7 @@ function rustFiles(dir) {
 export function scanContinuousFiles(crateDir) {
   const files = {};
   for (const file of rustFiles(path.join(crateDir, "src")).sort()) {
-    const text = stripComments(withoutTestModules(fs.readFileSync(file, "utf8")));
+    const text = stripImports(stripComments(withoutTestModules(fs.readFileSync(file, "utf8"))));
     const ids = Object.entries(CONTINUOUS_PATTERNS).filter(([, pattern]) => pattern.test(text)).map(([id]) => id);
     if (ids.length) files[path.relative(crateDir, file).split(path.sep).join("/")] = ids;
   }
