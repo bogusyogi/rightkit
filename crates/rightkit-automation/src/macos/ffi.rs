@@ -56,6 +56,7 @@ extern "C" {
     pub fn CFArrayGetTypeID() -> c_ulong;
     pub fn CFNumberGetTypeID() -> c_ulong;
     pub fn CFBooleanGetTypeID() -> c_ulong;
+    pub fn CFNumberIsFloatType(n: CFTypeRef) -> u8;
     pub fn CFStringCreateWithBytes(
         alloc: CFTypeRef,
         bytes: *const u8,
@@ -111,6 +112,10 @@ extern "C" {
     pub fn AXUIElementSetAttributeValue(el: CFTypeRef, attr: CFTypeRef, v: CFTypeRef) -> c_int;
     pub fn AXUIElementIsAttributeSettable(el: CFTypeRef, attr: CFTypeRef, out: *mut u8) -> c_int;
     pub fn AXUIElementCopyActionNames(el: CFTypeRef, out: *mut CFTypeRef) -> c_int;
+    pub fn AXUIElementCopyAttributeNames(el: CFTypeRef, out: *mut CFTypeRef) -> c_int;
+    pub fn AXUIElementGetTypeID() -> c_ulong;
+    pub fn AXValueGetTypeID() -> c_ulong;
+    pub fn AXValueGetType(v: CFTypeRef) -> c_int;
     pub fn AXUIElementPerformAction(el: CFTypeRef, action: CFTypeRef) -> c_int;
     pub fn AXUIElementSetMessagingTimeout(el: CFTypeRef, secs: f32) -> c_int;
     pub fn AXUIElementGetPid(el: CFTypeRef, pid: *mut c_int) -> c_int;

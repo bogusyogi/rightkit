@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-overlay"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared overlay state, hit testing, and placement policy for Right Suite apps"

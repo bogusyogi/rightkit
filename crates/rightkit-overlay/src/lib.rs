@@ -210,6 +210,59 @@ pub fn fills_monitor(window: WorkArea, monitor: WorkArea) -> bool {
         && window.bottom >= monitor.bottom
 }
 
+/// `WS_CAPTION` (`WS_BORDER | WS_DLGFRAME`): a title bar. Held here so the style test runs on
+/// every OS.
+pub const WS_CAPTION_BITS: u32 = 0x00C0_0000;
+/// `WS_THICKFRAME`: a sizing border.
+pub const WS_THICKFRAME_BIT: u32 = 0x0004_0000;
+
+/// True when a window style has neither a caption nor a sizing border (`WS_CAPTION`,
+/// `WS_THICKFRAME` both absent). `WS_CAPTION` is two bits; any of them counts as a caption.
+pub fn style_is_borderless(style: u32) -> bool {
+    style & (WS_CAPTION_BITS | WS_THICKFRAME_BIT) == 0
+}
+
+/// True when `window` is exactly the monitor rectangle (all four edges equal, both finite, the
+/// monitor non-empty). Stricter than [`fills_monitor`], which also accepts a window that
+/// overhangs the monitor.
+pub fn rect_equals_monitor(window: WorkArea, monitor: WorkArea) -> bool {
+    [
+        window.left,
+        window.top,
+        window.right,
+        window.bottom,
+        monitor.left,
+        monitor.top,
+        monitor.right,
+        monitor.bottom,
+    ]
+    .into_iter()
+    .all(f64::is_finite)
+        && monitor.right > monitor.left
+        && monitor.bottom > monitor.top
+        && window.left == monitor.left
+        && window.top == monitor.top
+        && window.right == monitor.right
+        && window.bottom == monitor.bottom
+}
+
+/// True when `pid` belongs to the app itself: `current_pid` or one of `own_pids` (for example a
+/// sidecar or helper process that owns windows for the same app).
+pub fn is_own_pid(pid: u32, current_pid: u32, own_pids: &[u32]) -> bool {
+    pid == current_pid || own_pids.contains(&pid)
+}
+
+/// The full-screen verdict for one foreground window, from plain values: a window that is not
+/// the app's own, has a borderless style and is exactly the monitor rectangle.
+pub fn is_foreign_borderless_fullscreen(
+    style: u32,
+    window: WorkArea,
+    monitor: WorkArea,
+    own_pid: bool,
+) -> bool {
+    !own_pid && style_is_borderless(style) && rect_equals_monitor(window, monitor)
+}
+
 /// One monitor, for placing an overlay on it: its full bounds, its work area (bounds without
 /// the taskbar) and its DPI. Coordinates are physical screen pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -245,7 +298,8 @@ pub mod windows {
     use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, EnumWindows, GetDesktopWindow, GetForegroundWindow,
-        GetShellWindow, GetWindowLongPtrW, GetWindowRect, IsWindowVisible, SetWindowLongPtrW,
+        GetShellWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+        IsWindowVisible, SetWindowLongPtrW, GWL_STYLE,
         SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED,
         SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
         WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
@@ -585,6 +639,45 @@ pub mod windows {
             crate::fills_monitor(area(rect), monitor.bounds)
         }
     }
+
+    /// True when the foreground window is a borderless full-screen window of another program:
+    /// no `WS_CAPTION` and no `WS_THICKFRAME`, its rectangle exactly the rectangle of its
+    /// monitor, visible and not minimised. Windows of this process, and of every pid in
+    /// `own_pids` (helper or sidecar processes of the same app), never count, so the app's own
+    /// full-screen window does not hide its overlay. The desktop and the shell do not count.
+    /// Unlike [`foreground_fills_monitor`] this tests the style, so a maximised or overhanging
+    /// window does not count.
+    pub fn foreground_is_borderless_fullscreen(own_pids: &[u32]) -> bool {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.is_null()
+                || foreground == GetDesktopWindow()
+                || foreground == GetShellWindow()
+                || IsWindowVisible(foreground) == 0
+                || IsIconic(foreground) != 0
+            {
+                return false;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(foreground, &mut pid);
+            let own = crate::is_own_pid(pid, std::process::id(), own_pids);
+            let style = GetWindowLongPtrW(foreground, GWL_STYLE) as u32;
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if GetWindowRect(foreground, &mut rect) == 0 {
+                return false;
+            }
+            let Some(monitor) = placement(MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST))
+            else {
+                return false;
+            };
+            crate::is_foreign_borderless_fullscreen(style, area(rect), monitor.bounds, own)
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -618,6 +711,9 @@ pub mod windows {
         None
     }
     pub fn foreground_fills_monitor() -> bool {
+        false
+    }
+    pub fn foreground_is_borderless_fullscreen(_own_pids: &[u32]) -> bool {
         false
     }
 }
@@ -770,6 +866,55 @@ mod tests {
         // Degenerate or non-finite input never counts.
         assert!(!fills_monitor(monitor, area(0.0, 0.0, 0.0, 0.0)));
         assert!(!fills_monitor(area(f64::NAN, 0.0, 3840.0, 1080.0), monitor));
+    }
+
+    #[test]
+    fn borderless_style_has_no_caption_and_no_thick_frame() {
+        // WS_POPUP | WS_VISIBLE
+        assert!(style_is_borderless(0x8000_0000 | 0x1000_0000));
+        // WS_OVERLAPPEDWINDOW
+        assert!(!style_is_borderless(0x00CF_0000));
+        // Caption only, thick frame only, and a lone WS_BORDER (half of WS_CAPTION).
+        assert!(!style_is_borderless(0x00C0_0000));
+        assert!(!style_is_borderless(0x0004_0000));
+        assert!(!style_is_borderless(0x0080_0000));
+        assert!(!style_is_borderless(0x0040_0000));
+    }
+
+    #[test]
+    fn the_rect_must_equal_the_monitor_rect() {
+        let monitor = area(1920.0, 0.0, 3840.0, 1080.0);
+        assert!(rect_equals_monitor(monitor, monitor));
+        assert!(!rect_equals_monitor(area(1912.0, -8.0, 3848.0, 1088.0), monitor));
+        assert!(!rect_equals_monitor(area(1920.0, 0.0, 3840.0, 1040.0), monitor));
+        assert!(!rect_equals_monitor(monitor, area(0.0, 0.0, 0.0, 0.0)));
+        assert!(!rect_equals_monitor(area(f64::NAN, 0.0, 3840.0, 1080.0), monitor));
+    }
+
+    #[test]
+    fn own_pids_are_excluded() {
+        assert!(is_own_pid(10, 10, &[]));
+        assert!(is_own_pid(22, 10, &[21, 22]));
+        assert!(!is_own_pid(23, 10, &[21, 22]));
+        assert!(!is_own_pid(0, 10, &[]));
+    }
+
+    #[test]
+    fn foreign_borderless_fullscreen_verdict() {
+        let monitor = area(0.0, 0.0, 1920.0, 1080.0);
+        let popup = 0x9000_0000;
+        assert!(is_foreign_borderless_fullscreen(popup, monitor, monitor, false));
+        // The app's own window never counts.
+        assert!(!is_foreign_borderless_fullscreen(popup, monitor, monitor, true));
+        // A bordered window the size of the monitor (maximised on a small display) does not.
+        assert!(!is_foreign_borderless_fullscreen(0x00CF_0000, monitor, monitor, false));
+        // A borderless window that is not the monitor rect does not.
+        assert!(!is_foreign_borderless_fullscreen(
+            popup,
+            area(0.0, 0.0, 1920.0, 1040.0),
+            monitor,
+            false
+        ));
     }
 
     #[test]

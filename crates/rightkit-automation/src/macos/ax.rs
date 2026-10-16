@@ -74,6 +74,163 @@ fn require_trusted() -> Result<()> {
     }
 }
 
+/// A typed AX attribute value from [`El::attribute`].
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum AttrValue {
+    /// The attribute exists but holds no value (`kAXErrorNoValue`).
+    NoValue,
+    Str(String),
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    /// `AXValue` of type CGPoint (for example `AXPosition`).
+    Point { x: f64, y: f64 },
+    /// `AXValue` of type CGSize (for example `AXSize`).
+    Size { w: f64, h: f64 },
+    /// `AXValue` of type CGRect.
+    Rect(Rect),
+    /// `AXValue` of type CFRange (for example `AXSelectedTextRange`), UTF-16 units.
+    Range { location: i64, length: i64 },
+    Element(El),
+    /// An array; each item is converted the same way (a nested array becomes `Other`).
+    List(Vec<AttrValue>),
+    /// A CF type this crate does not convert (URL, date, dictionary, text marker). Holds the
+    /// CF type id.
+    Other(u64),
+}
+
+impl std::fmt::Debug for AttrValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoValue => f.write_str("NoValue"),
+            Self::Str(s) => write!(f, "Str({s:?})"),
+            Self::Bool(b) => write!(f, "Bool({b})"),
+            Self::Int(i) => write!(f, "Int({i})"),
+            Self::Float(v) => write!(f, "Float({v})"),
+            Self::Point { x, y } => write!(f, "Point({x}, {y})"),
+            Self::Size { w, h } => write!(f, "Size({w}, {h})"),
+            Self::Rect(r) => write!(f, "Rect({r:?})"),
+            Self::Range { location, length } => write!(f, "Range({location}, {length})"),
+            Self::Element(_) => f.write_str("Element(..)"),
+            Self::List(v) => write!(f, "List({v:?})"),
+            Self::Other(t) => write!(f, "Other({t})"),
+        }
+    }
+}
+
+/// `AXValueType` codes (`AXValue.h`). Pure so the mapping is tested without a Mac session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AxValueKind {
+    Point,
+    Size,
+    Rect,
+    Range,
+    Unknown(i32),
+}
+
+pub(crate) fn ax_value_kind(code: i32) -> AxValueKind {
+    match code {
+        1 => AxValueKind::Point,
+        2 => AxValueKind::Size,
+        3 => AxValueKind::Rect,
+        4 => AxValueKind::Range,
+        c => AxValueKind::Unknown(c),
+    }
+}
+
+/// Outcome of `AXUIElementCopyAttributeValue` / `...Names`: `Ok(true)` has a value,
+/// `Ok(false)` is `kAXErrorNoValue`, anything else maps through [`ax_err`].
+pub(crate) fn attr_query_has_value(code: i32, op: &'static str) -> Result<bool> {
+    match code {
+        0 => Ok(true),
+        -25212 => Ok(false),
+        c => Err(ax_err(c, op)),
+    }
+}
+
+fn attr_value_from_cf(c: &Cf) -> AttrValue {
+    unsafe {
+        let ty = CFGetTypeID(c.0);
+        let other = AttrValue::Other(ty as u64);
+        if ty == CFStringGetTypeID() {
+            return cf_to_string(c.0).map_or(other, AttrValue::Str);
+        }
+        if ty == CFBooleanGetTypeID() {
+            return cf_to_bool(c.0).map_or(other, AttrValue::Bool);
+        }
+        if ty == CFNumberGetTypeID() {
+            if CFNumberIsFloatType(c.0) != 0 {
+                return cf_to_f64(c.0).map_or(other, AttrValue::Float);
+            }
+            return cf_to_i64(c.0).map_or(other, AttrValue::Int);
+        }
+        if ty == AXUIElementGetTypeID() {
+            return Cf::retain(c.0).map_or(other, |r| AttrValue::Element(El(r)));
+        }
+        if ty == AXValueGetTypeID() {
+            return ax_value_from_cf(c.0).unwrap_or(other);
+        }
+        if ty == CFArrayGetTypeID() {
+            return AttrValue::List(
+                (0..CFArrayGetCount(c.0))
+                    .filter_map(|i| Cf::retain(CFArrayGetValueAtIndex(c.0, i)))
+                    .map(|item| {
+                        if CFGetTypeID(item.0) == CFArrayGetTypeID() {
+                            AttrValue::Other(CFArrayGetTypeID() as u64)
+                        } else {
+                            attr_value_from_cf(&item)
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        other
+    }
+}
+
+unsafe fn ax_value_from_cf(v: CFTypeRef) -> Option<AttrValue> {
+    match ax_value_kind(AXValueGetType(v)) {
+        AxValueKind::Point => {
+            let mut p = CGPoint { x: 0.0, y: 0.0 };
+            (AXValueGetValue(v, 1, &mut p as *mut _ as *mut c_void) != 0)
+                .then_some(AttrValue::Point { x: p.x, y: p.y })
+        }
+        AxValueKind::Size => {
+            let mut s = CGSize { w: 0.0, h: 0.0 };
+            (AXValueGetValue(v, 2, &mut s as *mut _ as *mut c_void) != 0)
+                .then_some(AttrValue::Size { w: s.w, h: s.h })
+        }
+        AxValueKind::Rect => {
+            let mut r = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize { w: 0.0, h: 0.0 },
+            };
+            (AXValueGetValue(v, 3, &mut r as *mut _ as *mut c_void) != 0).then_some(
+                AttrValue::Rect(Rect {
+                    x: r.origin.x,
+                    y: r.origin.y,
+                    w: r.size.w,
+                    h: r.size.h,
+                }),
+            )
+        }
+        AxValueKind::Range => {
+            let mut r = CFRange {
+                location: 0,
+                length: 0,
+            };
+            (AXValueGetValue(v, 4, &mut r as *mut _ as *mut c_void) != 0).then_some(
+                AttrValue::Range {
+                    location: r.location as i64,
+                    length: r.length as i64,
+                },
+            )
+        }
+        AxValueKind::Unknown(_) => None,
+    }
+}
+
 /// The system-wide element (`AXUIElementCreateSystemWide`) with the default 1.5 s timeout.
 /// Process-wide timeout effect: see [`AxOptions`].
 pub fn system_wide() -> Result<El> {
@@ -248,6 +405,53 @@ impl El {
     }
     pub fn children(&self) -> Vec<El> {
         self.list("AXChildren")
+    }
+    /// Read one attribute with its full type and its error. Read-only attribute query.
+    ///
+    /// **Not gated by the interaction switches.** The kill switch (`policy::kill`), `Policy`,
+    /// the allowlist, admission and leases guard *effects* (input, writes, actions, focus
+    /// changes). This call is `AXUIElementCopyAttributeValue` only: it changes nothing in the
+    /// target and posts no event, so it works while interaction is disabled (for example to
+    /// show where a window is while a kill switch is engaged). It still needs the Accessibility
+    /// grant (`PermissionDenied` otherwise) and honours the element's messaging timeout.
+    /// `El::str_attr`, `bool_attr`, `f64_attr`, `el_attr`, `list`, `frame` and `pid` read the
+    /// same way (they are also not gated) but collapse every failure to `None`.
+    ///
+    /// A missing attribute is `Err(Error::Unsupported)`; an attribute that exists but holds no
+    /// value is `Ok(AttrValue::NoValue)`.
+    pub fn attribute(&self, name: &str) -> Result<AttrValue> {
+        require_trusted()?;
+        let k = Cf::string(name);
+        let mut out: CFTypeRef = std::ptr::null();
+        let code = unsafe { AXUIElementCopyAttributeValue((self.0).0, k.0, &mut out) };
+        if !attr_query_has_value(code, "attribute")? {
+            return Ok(AttrValue::NoValue);
+        }
+        let c = Cf::new(out).ok_or(Error::Unsupported("attribute value"))?;
+        Ok(attr_value_from_cf(&c))
+    }
+    /// Attribute names the element supports (`AXUIElementCopyAttributeNames`). Read-only and
+    /// not gated by the interaction switches, like [`El::attribute`].
+    pub fn attribute_names(&self) -> Result<Vec<String>> {
+        require_trusted()?;
+        let mut out: CFTypeRef = std::ptr::null();
+        let code = unsafe { AXUIElementCopyAttributeNames((self.0).0, &mut out) };
+        if !attr_query_has_value(code, "attribute_names")? {
+            return Ok(vec![]);
+        }
+        let a = Cf::new(out).ok_or(Error::Unsupported("attribute names"))?;
+        unsafe {
+            Ok((0..CFArrayGetCount(a.0))
+                .filter_map(|i| cf_to_string(CFArrayGetValueAtIndex(a.0, i)))
+                .collect())
+        }
+    }
+    /// Read several attributes, each with its own result. Read-only and not gated.
+    pub fn attributes(&self, names: &[&str]) -> Vec<(String, Result<AttrValue>)> {
+        names
+            .iter()
+            .map(|n| ((*n).to_string(), self.attribute(n)))
+            .collect()
     }
     pub fn actions(&self) -> Vec<String> {
         let mut out: CFTypeRef = std::ptr::null();
@@ -803,5 +1007,48 @@ mod ax_value_tests {
         let mut back = CGSize { w: 0.0, h: 0.0 };
         assert!(unsafe { AXValueGetValue(v.0, 2, &mut back as *mut _ as *mut c_void) } != 0);
         assert_eq!((back.w, back.h), (800.0, 600.0));
+    }
+}
+
+#[cfg(test)]
+mod attr_query_tests {
+    use super::*;
+
+    #[test]
+    fn ax_value_type_codes_map() {
+        assert_eq!(ax_value_kind(1), AxValueKind::Point);
+        assert_eq!(ax_value_kind(2), AxValueKind::Size);
+        assert_eq!(ax_value_kind(3), AxValueKind::Rect);
+        assert_eq!(ax_value_kind(4), AxValueKind::Range);
+        assert_eq!(ax_value_kind(0), AxValueKind::Unknown(0));
+        assert_eq!(ax_value_kind(5), AxValueKind::Unknown(5));
+    }
+
+    #[test]
+    fn query_outcome_separates_no_value_from_errors() {
+        assert!(matches!(attr_query_has_value(0, "q"), Ok(true)));
+        assert!(matches!(attr_query_has_value(-25212, "q"), Ok(false)));
+        assert!(matches!(
+            attr_query_has_value(-25205, "q"),
+            Err(Error::Unsupported("q"))
+        ));
+        assert!(matches!(
+            attr_query_has_value(-25211, "q"),
+            Err(Error::PermissionDenied("Accessibility"))
+        ));
+        assert!(matches!(
+            attr_query_has_value(-25204, "q"),
+            Err(Error::Platform(-25204, "q"))
+        ));
+    }
+
+    #[test]
+    fn point_value_converts_to_attr_value() {
+        let pt = CGPoint { x: 4.0, y: 9.5 };
+        let v = Cf::new(unsafe { AXValueCreate(1, &pt as *const _ as *const c_void) }).expect("v");
+        assert!(matches!(
+            attr_value_from_cf(&v),
+            AttrValue::Point { x, y } if x == 4.0 && y == 9.5
+        ));
     }
 }

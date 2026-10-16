@@ -19,14 +19,18 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW, SetTimer,
-    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE,
-    WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
     WM_USER,
 };
 
 use crate::chord::Chord;
 use crate::hold::{HoldTracker, KeyStateSource};
 use crate::hook_chord::{AlreadyBound, HookChords};
+pub use crate::hook_detail::{
+    is_thread_message, KeyEventDetail, MouseEvent, MouseKind, LLKHF_ALTDOWN, LLKHF_EXTENDED,
+    LLMHF_INJECTED,
+};
 use crate::register_status::RegisterFailure;
 use crate::registration::{modifier_bits, HotkeyApi, Registrations, UnregisterFailure};
 
@@ -99,12 +103,19 @@ pub enum HookDecision {
     Swallow,
 }
 
-type Handler = Arc<dyn Fn(&KeyEvent) -> HookDecision + Send + Sync + 'static>;
+type Handler = Arc<dyn Fn(&KeyEventDetail) -> HookDecision + Send + Sync + 'static>;
+type MouseHandler = Arc<dyn Fn(&MouseEvent) -> HookDecision + Send + Sync + 'static>;
+type ThreadMessageHandler = Box<dyn FnMut(u32, usize, isize) + Send + 'static>;
 
 static HANDLER: OnceLock<Mutex<Option<Handler>>> = OnceLock::new();
+static MOUSE_HANDLER: OnceLock<Mutex<Option<MouseHandler>>> = OnceLock::new();
 
 fn slot() -> &'static Mutex<Option<Handler>> {
     HANDLER.get_or_init(|| Mutex::new(None))
+}
+
+fn mouse_slot() -> &'static Mutex<Option<MouseHandler>> {
+    MOUSE_HANDLER.get_or_init(|| Mutex::new(None))
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -116,14 +127,37 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         if down || up {
             let handler = slot().lock().ok().and_then(|g| g.clone());
             if let Some(handler) = handler {
-                let event = KeyEvent {
-                    vk: info.vkCode,
+                let event = KeyEventDetail::from_raw(
+                    info.vkCode,
                     down,
-                    injected: info.flags & LLKHF_INJECTED != 0,
-                };
+                    info.scanCode,
+                    info.flags,
+                    info.dwExtraInfo,
+                );
                 if handler(&event) == HookDecision::Swallow {
                     return 1;
                 }
+            }
+        }
+    }
+    CallNextHookEx(null_mut(), code, wparam, lparam)
+}
+
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 {
+        let info = &*(lparam as *const MSLLHOOKSTRUCT);
+        let handler = mouse_slot().lock().ok().and_then(|g| g.clone());
+        if let Some(handler) = handler {
+            let event = MouseEvent::from_raw(
+                wparam as u32,
+                info.pt.x,
+                info.pt.y,
+                info.mouseData,
+                info.flags,
+                info.dwExtraInfo,
+            );
+            if handler(&event) == HookDecision::Swallow {
+                return 1;
             }
         }
     }
@@ -156,9 +190,76 @@ pub enum HookError {
     Install(String),
 }
 
+/// Start the hook thread: install the requested hooks on it, create its message queue, report
+/// its id, then run its message loop. `on_message` runs on this thread for each application
+/// message (`WM_APP..=0xBFFF`) posted with [`LowLevelHooks::post_message`].
+fn spawn_hook_thread(
+    keyboard: bool,
+    mouse: bool,
+    mut on_message: Option<ThreadMessageHandler>,
+) -> Result<(u32, thread::JoinHandle<()>), HookError> {
+    let (tx, rx) = mpsc::channel::<Result<u32, String>>();
+    let thread = thread::Builder::new()
+        .name("rightkit-ll-keyboard-hook".into())
+        .spawn(move || unsafe {
+            // A null module handle is passed through unchanged, matching the previous `None` fallback.
+            let module: HINSTANCE = GetModuleHandleW(null());
+            let mut kb_hook = null_mut();
+            if keyboard {
+                kb_hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0);
+                if kb_hook.is_null() {
+                    let _ = tx.send(Err(last_os_error_message()));
+                    return;
+                }
+            }
+            let mut mouse_hook = null_mut();
+            if mouse {
+                mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), module, 0);
+                if mouse_hook.is_null() {
+                    let message = last_os_error_message();
+                    if !kb_hook.is_null() {
+                        let _ = UnhookWindowsHookEx(kb_hook);
+                    }
+                    let _ = tx.send(Err(message));
+                    return;
+                }
+            }
+            ensure_message_queue();
+            let _ = tx.send(Ok(GetCurrentThreadId()));
+            let mut msg = MSG::default();
+            // A result of 0 is WM_QUIT; -1 is an error and must not spin.
+            while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                if is_thread_message(msg.message) {
+                    if let Some(handler) = on_message.as_mut() {
+                        handler(msg.message, msg.wParam, msg.lParam);
+                    }
+                }
+            }
+            if !kb_hook.is_null() {
+                let _ = UnhookWindowsHookEx(kb_hook);
+            }
+            if !mouse_hook.is_null() {
+                let _ = UnhookWindowsHookEx(mouse_hook);
+            }
+        })
+        .map_err(|e| HookError::Install(e.to_string()))?;
+    match rx.recv() {
+        Ok(Ok(thread_id)) => Ok((thread_id, thread)),
+        Ok(Err(e)) => {
+            let _ = thread.join();
+            Err(HookError::Install(e))
+        }
+        Err(_) => Err(HookError::Install("hook thread exited early".into())),
+    }
+}
+
 /// Process-wide `WH_KEYBOARD_LL` hook on its own message-loop thread. The handler runs inside the
 /// hook procedure: it must be fast (Windows enforces a system-wide responsiveness budget), so do the
 /// real work on another thread.
+///
+/// For the scan code, `dwExtraInfo` and the Alt-down flag use [`LowLevelKeyboardHook::install_detailed`]
+/// (`KeyEvent` keeps its three fields so existing callers still compile), and for a mouse hook or
+/// custom thread messages on the same thread use [`LowLevelHooks`].
 pub struct LowLevelKeyboardHook {
     thread_id: u32,
     thread: Option<thread::JoinHandle<()>>,
@@ -168,6 +269,20 @@ impl LowLevelKeyboardHook {
     pub fn install(
         handler: impl Fn(&KeyEvent) -> HookDecision + Send + Sync + 'static,
     ) -> Result<Self, HookError> {
+        Self::install_detailed(move |d| {
+            handler(&KeyEvent {
+                vk: d.vk,
+                down: d.down,
+                injected: d.injected,
+            })
+        })
+    }
+
+    /// Like [`install`](Self::install), with the full event: scan code, `dwExtraInfo`,
+    /// `LLKHF_ALTDOWN` and `LLKHF_EXTENDED` as well as `vk`, `down` and `injected`.
+    pub fn install_detailed(
+        handler: impl Fn(&KeyEventDetail) -> HookDecision + Send + Sync + 'static,
+    ) -> Result<Self, HookError> {
         {
             let mut guard = slot().lock().unwrap_or_else(|p| p.into_inner());
             if guard.is_some() {
@@ -175,35 +290,15 @@ impl LowLevelKeyboardHook {
             }
             *guard = Some(Arc::new(handler));
         }
-        let (tx, rx) = mpsc::channel::<Result<u32, String>>();
-        let thread = thread::Builder::new()
-            .name("rightkit-ll-keyboard-hook".into())
-            .spawn(move || unsafe {
-                // A null module handle is passed through unchanged, matching the previous `None` fallback.
-                let module: HINSTANCE = GetModuleHandleW(null());
-                let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0);
-                if hook.is_null() {
-                    let _ = tx.send(Err(last_os_error_message()));
-                } else {
-                    ensure_message_queue();
-                    let _ = tx.send(Ok(GetCurrentThreadId()));
-                    let mut msg = MSG::default();
-                    while GetMessageW(&mut msg, null_mut(), 0, 0) != 0 {}
-                    let _ = UnhookWindowsHookEx(hook);
-                }
-            })
-            .map_err(|e| HookError::Install(e.to_string()))?;
-        match rx.recv() {
-            Ok(Ok(thread_id)) => Ok(Self {
+        match spawn_hook_thread(true, false, None) {
+            Ok((thread_id, thread)) => Ok(Self {
                 thread_id,
                 thread: Some(thread),
             }),
-            Ok(Err(e)) => {
+            Err(e) => {
                 *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
-                let _ = thread.join();
-                Err(HookError::Install(e))
+                Err(e)
             }
-            Err(_) => Err(HookError::Install("hook thread exited early".into())),
         }
     }
 }
@@ -217,6 +312,146 @@ impl Drop for LowLevelKeyboardHook {
             let _ = t.join();
         }
         *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+}
+
+/// What a [`LowLevelHooks`] thread runs. Set at least one of the three.
+#[derive(Default)]
+#[non_exhaustive]
+pub struct HookConfig {
+    keyboard: Option<Handler>,
+    mouse: Option<MouseHandler>,
+    on_message: Option<ThreadMessageHandler>,
+}
+
+impl HookConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A `WH_KEYBOARD_LL` handler with the full event. Shares the process-wide keyboard slot
+    /// with [`LowLevelKeyboardHook`]: installing both returns `HookError::AlreadyInstalled`.
+    pub fn keyboard(
+        mut self,
+        handler: impl Fn(&KeyEventDetail) -> HookDecision + Send + Sync + 'static,
+    ) -> Self {
+        self.keyboard = Some(Arc::new(handler));
+        self
+    }
+
+    /// A `WH_MOUSE_LL` handler on the same thread. Returning `Swallow` stops the event from
+    /// reaching other programs. Like the keyboard handler it runs inside the hook procedure and
+    /// must return quickly; moves arrive at the mouse report rate, so keep a `Move` path cheap.
+    /// One mouse hook per process: a second returns `HookError::AlreadyInstalled`.
+    pub fn mouse(
+        mut self,
+        handler: impl Fn(&MouseEvent) -> HookDecision + Send + Sync + 'static,
+    ) -> Self {
+        self.mouse = Some(Arc::new(handler));
+        self
+    }
+
+    /// A handler for custom thread messages, run on the hook thread, for each message in
+    /// `WM_APP..=0xBFFF` sent with [`LowLevelHooks::post_message`]. Use it to run work on
+    /// the hook thread's own queue (for example to read state that must be read there) without
+    /// another thread. It receives `(message, wParam, lParam)`.
+    pub fn thread_message(
+        mut self,
+        handler: impl FnMut(u32, usize, isize) + Send + 'static,
+    ) -> Self {
+        self.on_message = Some(Box::new(handler));
+        self
+    }
+}
+
+/// One hook thread with any of a keyboard hook, a mouse hook and a custom-message handler. The
+/// hooks are removed, and the thread ends, on drop.
+pub struct LowLevelHooks {
+    thread_id: u32,
+    thread: Option<thread::JoinHandle<()>>,
+    keyboard: bool,
+    mouse: bool,
+}
+
+impl LowLevelHooks {
+    pub fn install(config: HookConfig) -> Result<Self, HookError> {
+        let HookConfig {
+            keyboard,
+            mouse,
+            on_message,
+        } = config;
+        if keyboard.is_none() && mouse.is_none() && on_message.is_none() {
+            return Err(HookError::Install("no hook or message handler requested".into()));
+        }
+        let (has_keyboard, has_mouse) = (keyboard.is_some(), mouse.is_some());
+        // Claim the slots; give back the first when the second is taken.
+        if let Some(handler) = keyboard {
+            let mut guard = slot().lock().unwrap_or_else(|p| p.into_inner());
+            if guard.is_some() {
+                return Err(HookError::AlreadyInstalled);
+            }
+            *guard = Some(handler);
+        }
+        if let Some(handler) = mouse {
+            let mut guard = mouse_slot().lock().unwrap_or_else(|p| p.into_inner());
+            if guard.is_some() {
+                drop(guard);
+                if has_keyboard {
+                    *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+                }
+                return Err(HookError::AlreadyInstalled);
+            }
+            *guard = Some(handler);
+        }
+        match spawn_hook_thread(has_keyboard, has_mouse, on_message) {
+            Ok((thread_id, thread)) => Ok(Self {
+                thread_id,
+                thread: Some(thread),
+                keyboard: has_keyboard,
+                mouse: has_mouse,
+            }),
+            Err(e) => {
+                if has_keyboard {
+                    *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+                }
+                if has_mouse {
+                    *mouse_slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Post a custom message to the hook thread's queue. `message` must be in
+    /// `WM_APP..=0xBFFF` ([`is_thread_message`]); anything else is refused with
+    /// `HookError::Install`. Returns once the message is queued, not once the handler ran.
+    pub fn post_message(&self, message: u32, wparam: usize, lparam: isize) -> Result<(), HookError> {
+        if !is_thread_message(message) {
+            return Err(HookError::Install(format!(
+                "message {message:#x} is outside WM_APP..=0xBFFF"
+            )));
+        }
+        if unsafe { PostThreadMessageW(self.thread_id, message, wparam, lparam) } == 0 {
+            return Err(HookError::Install(last_os_error_message()));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for LowLevelHooks {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
+        }
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        if self.keyboard {
+            *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+        }
+        if self.mouse {
+            *mouse_slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
+        }
     }
 }
 

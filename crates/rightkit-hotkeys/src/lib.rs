@@ -18,6 +18,7 @@ pub mod conflict;
 pub mod decision;
 pub mod hold;
 pub mod hook_chord;
+pub mod hook_detail;
 pub mod middle_click;
 pub mod ptt;
 pub mod ptt_timer;
@@ -37,5 +38,6 @@ pub use chord::{
 pub use conflict::{ChordRegistry, HotkeyConflict, RegistryConflict};
 pub use hold::{HoldKeys, HoldTracker, HotkeyState, KeyStateSource};
 pub use hook_chord::{AlreadyBound, HookChords, HookOutcome};
+pub use hook_detail::{is_thread_message, KeyEventDetail, MouseEvent, MouseKind};
 pub use register_status::RegisterFailure;
 pub use registration::{HotkeyApi, Registrations, UnregisterFailure};
