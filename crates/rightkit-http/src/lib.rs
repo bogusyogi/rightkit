@@ -37,7 +37,7 @@ pub mod testing;
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
     form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, ProxyDiagnostic,
-    ProxyMode, Request, Response, ResponseHead, RetryEvent, StreamResponse, TrustRoots,
+    ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent, StreamResponse, TrustRoots,
 };
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::Multipart;

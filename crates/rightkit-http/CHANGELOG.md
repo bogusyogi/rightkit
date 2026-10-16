@@ -4,6 +4,11 @@
 
 - `wrap_untrusted_web_text_coderight` escapes the closing `</coderight-untrusted-context` tag case-insensitively (mixed-case closers can no longer end the block early).
 
+## 0.3.1
+
+- **Fixed (behaviour change, issue #100):** `ProxyMode::System` no longer fails on a default Windows install. "Automatically detect settings" is on by default, and 0.3.0 refused it with `HttpError::SystemProxyUnsupported` even when no proxy was configured at all, so apps fell back to `ProxyMode::Environment` themselves. Now (a) automatic detection with no static proxy string and no PAC script uses the environment proxy variables (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`) when set and a direct connection otherwise, and (b) automatic detection together with a static proxy this client can follow exactly ignores the detection flag and follows the static proxy. Every case where the user configured a proxy that cannot be followed exactly is unchanged and still returns `HttpError::SystemProxyUnsupported`: a PAC script (with or without the detection flag), different routes for HTTP and HTTPS, and `<local>` or another unexpressible bypass entry next to a static proxy.
+- **Added:** `ProxyModeUsed` (`Direct`, `Environment`, `Explicit`, `System`, `SystemFallbackEnvironment { reason }`, `SystemFallbackDirect { reason }`), `Client::proxy_mode_used()` and `AsyncClient::proxy_mode_used()`. For case (a) the mode is `SystemFallbackEnvironment` or `SystemFallbackDirect` with the reason `automatic detection only; no static proxy or PAC configured`. Additive; `ProxyModeUsed` is a new type, not a new variant of an existing one.
+
 ## 0.3.0
 
 - **Breaking: default features are now empty (`default = []`).** 0.2.x built `gzip` and `untrusted` by default. Name what you use: `features = ["gzip"]` for transparent gzip decoding, `features = ["untrusted"]` for `wrap_untrusted_web_text*` and `WrapOptions` (pulls `rightkit-fs` digest). In-repo dependents `rightkit-oauth` and `rightkit-llm` now name `gzip`.

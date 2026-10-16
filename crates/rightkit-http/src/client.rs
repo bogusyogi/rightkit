@@ -94,14 +94,19 @@ pub enum ProxyMode {
     Explicit(String),
     /// The proxy the operating system is configured with for the current user.
     ///
-    /// Windows: the static proxy and bypass list of the system proxy settings, followed
-    /// exactly or not at all. One `http` or `https` proxy for both schemes with a bypass list
-    /// of plain hosts (`host`, `*.example.com`) is used. Anything else (different routes per
-    /// scheme, `<local>`, a scheme-limited or inner-wildcard bypass entry, a proxy
-    /// auto-config script, automatic detection) is
+    /// Windows: the static proxy and bypass list of the system proxy settings. One `http`
+    /// or `https` proxy for both schemes with a bypass list of plain hosts (`host`,
+    /// `*.example.com`) is used. Anything this client cannot follow exactly (different
+    /// routes per scheme, `<local>`, a scheme-limited or inner-wildcard bypass entry, a
+    /// proxy auto-config script) is
     /// [`HttpError::SystemProxyUnsupported`](crate::HttpError::SystemProxyUnsupported) and
-    /// nothing is sent; catch it and use the mode the app used before. When nothing is
-    /// configured, and on other systems, this is [`ProxyMode::Environment`].
+    /// nothing is sent. "Automatically detect settings" (the Windows default) with no static
+    /// proxy and no PAC script is not an error: the environment proxy variables are used
+    /// when set and a direct connection otherwise, reported through `Client::proxy_mode_used`
+    /// and `AsyncClient::proxy_mode_used` ([`ProxyModeUsed::SystemFallbackEnvironment`],
+    /// [`ProxyModeUsed::SystemFallbackDirect`]). With a static proxy the detection flag is
+    /// ignored. When nothing is configured, and on other systems, this is
+    /// [`ProxyMode::Environment`].
     System,
 }
 
@@ -184,6 +189,28 @@ pub(crate) struct ResolvedProxy {
     pub(crate) no_proxy: Vec<String>,
     /// True when the proxy came from the environment or the operating system's settings.
     pub(crate) from_env: bool,
+}
+
+/// Which proxy source a client actually ended up with, as opposed to the [`ProxyMode`] it was
+/// asked for. Differs from the request only for [`ProxyMode::System`] when the operating
+/// system configures automatic detection and nothing else.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProxyModeUsed {
+    /// Connects directly (`ProxyMode::None`, a first-party bypass, or `System`/`Environment`
+    /// with nothing configured anywhere).
+    Direct,
+    /// The environment proxy variables (`ProxyMode::Environment`, or `System` with no
+    /// operating-system proxy configured).
+    Environment,
+    /// The proxy of `ProxyMode::Explicit`.
+    Explicit,
+    /// The operating system's static proxy, followed exactly.
+    System,
+    /// `System` was requested and the operating system configures automatic detection only
+    /// (no static proxy, no PAC script); the environment proxy variables are used.
+    SystemFallbackEnvironment { reason: String },
+    /// As above, but no environment proxy is set: connections are direct.
+    SystemFallbackDirect { reason: String },
 }
 
 /// What a client knows about the proxy it uses, for diagnostics. Credentials are never part
@@ -291,21 +318,79 @@ pub(crate) fn proxy_from_lookup(
 
 impl ClientConfig {
     /// The proxy this config uses, or `None` when it connects directly.
+    #[allow(dead_code)]
     pub(crate) fn resolved_proxy(&self) -> Result<Option<ResolvedProxy>, HttpError> {
+        self.resolved_proxy_with_mode().map(|(proxy, _)| proxy)
+    }
+
+    /// The proxy this config uses and which source it came from.
+    pub(crate) fn resolved_proxy_with_mode(
+        &self,
+    ) -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
         if self.proxy_bypass_first_party && self.address_policy.is_first_party() {
-            return Ok(None);
+            return Ok((None, ProxyModeUsed::Direct));
         }
+        let env = |name: &str| std::env::var(name).ok();
         match &self.proxy {
-            ProxyMode::None => Ok(None),
-            ProxyMode::Explicit(url) => build_proxy(url, &[]).map(Some),
-            ProxyMode::Environment => proxy_from_lookup(&|name| std::env::var(name).ok()),
+            ProxyMode::None => Ok((None, ProxyModeUsed::Direct)),
+            ProxyMode::Explicit(url) => {
+                build_proxy(url, &[]).map(|p| (Some(p), ProxyModeUsed::Explicit))
+            }
+            ProxyMode::Environment => {
+                let proxy = proxy_from_lookup(&env)?;
+                let used = if proxy.is_some() {
+                    ProxyModeUsed::Environment
+                } else {
+                    ProxyModeUsed::Direct
+                };
+                Ok((proxy, used))
+            }
             ProxyMode::System => {
-                match proxy_from_system(&crate::system_proxy::system_proxy_settings())? {
-                    Some(proxy) => Ok(Some(proxy)),
-                    None => proxy_from_lookup(&|name| std::env::var(name).ok()),
-                }
+                resolve_system(&crate::system_proxy::system_proxy_settings(), &env)
             }
         }
+    }
+}
+
+/// Reason reported when the only thing the system configures is automatic detection.
+pub(crate) const AUTO_DETECT_ONLY_REASON: &str =
+    "automatic detection only; no static proxy or PAC configured";
+
+/// `ProxyMode::System` for `settings`.
+///
+/// A static proxy that can be followed exactly is used (the auto-detect flag is ignored when
+/// one is set). Automatic detection with no static proxy and no PAC script is not an
+/// error: the environment proxy is used when set, a direct connection otherwise, and the
+/// result says so. Anything the user configured that this client cannot follow exactly (a
+/// PAC script, different routes per scheme, `<local>` or another unexpressible bypass entry
+/// next to a static proxy) is still [`HttpError::SystemProxyUnsupported`]. No registry or
+/// network access: `settings` and the environment lookup are inputs.
+pub(crate) fn resolve_system(
+    settings: &crate::system_proxy::SystemProxySettings,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
+    let env_or_direct = |used_env: ProxyModeUsed,
+                         used_direct: ProxyModeUsed|
+     -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
+        let proxy = proxy_from_lookup(get)?;
+        let used = if proxy.is_some() { used_env } else { used_direct };
+        Ok((proxy, used))
+    };
+    if matches!(
+        crate::system_proxy::proxy_choice(settings),
+        crate::system_proxy::SystemProxyChoice::AutoDetectOnly
+    ) {
+        let reason = AUTO_DETECT_ONLY_REASON.to_string();
+        return env_or_direct(
+            ProxyModeUsed::SystemFallbackEnvironment {
+                reason: reason.clone(),
+            },
+            ProxyModeUsed::SystemFallbackDirect { reason },
+        );
+    }
+    match proxy_from_system(settings)? {
+        Some(proxy) => Ok((Some(proxy), ProxyModeUsed::System)),
+        None => env_or_direct(ProxyModeUsed::Environment, ProxyModeUsed::Direct),
     }
 }
 
@@ -316,13 +401,14 @@ impl ClientConfig {
 /// names the first such element. A client uses one proxy for every request and a bypass list
 /// of plain hosts, so following them approximately would send traffic to a proxy, or around
 /// it, against what the user configured. The client then fails closed, as for any invalid
-/// proxy setting.
+/// proxy setting. Automatic detection with nothing else configured is `Ok(None)` here;
+/// [`resolve_system`] tells it apart and reports it.
 pub(crate) fn proxy_from_system(
     settings: &crate::system_proxy::SystemProxySettings,
 ) -> Result<Option<ResolvedProxy>, HttpError> {
     use crate::system_proxy::SystemProxyChoice;
     match crate::system_proxy::proxy_choice(settings) {
-        SystemProxyChoice::None => Ok(None),
+        SystemProxyChoice::None | SystemProxyChoice::AutoDetectOnly => Ok(None),
         SystemProxyChoice::Single { url, no_proxy } => {
             Ok(build_proxy(&url, &no_proxy).ok().map(|mut proxy| {
                 proxy.from_env = true;
@@ -849,6 +935,8 @@ pub struct Client {
     /// The proxy in use, for the `NO_PROXY` decision and destination vetting.
     proxy: Option<ureq::Proxy>,
     proxy_diagnostic: Option<ProxyDiagnostic>,
+    /// Which proxy source was actually used.
+    proxy_mode_used: ProxyModeUsed,
     /// Set when the proxy settings were invalid; every request then fails closed.
     config_error: Option<String>,
     /// The invalid setting is a system proxy configuration this client cannot follow:
@@ -877,7 +965,7 @@ impl Client {
             Err(e) => {
                 let mut direct = config;
                 direct.proxy = ProxyMode::None;
-                let mut client = Self::build(direct, None);
+                let mut client = Self::build(direct, None, ProxyModeUsed::Direct);
                 if let HttpError::SystemProxyUnsupported { element } = &e {
                     client.system_proxy_unsupported = Some(element.clone());
                 }
@@ -889,11 +977,11 @@ impl Client {
 
     /// Build a client, failing when the proxy settings are invalid.
     pub fn try_new(config: ClientConfig) -> Result<Self, HttpError> {
-        let proxy = config.resolved_proxy()?;
-        Ok(Self::build(config, proxy))
+        let (proxy, used) = config.resolved_proxy_with_mode()?;
+        Ok(Self::build(config, proxy, used))
     }
 
-    fn build(config: ClientConfig, proxy: Option<ResolvedProxy>) -> Self {
+    fn build(config: ClientConfig, proxy: Option<ResolvedProxy>, used: ProxyModeUsed) -> Self {
         // Redirects are followed by this crate, hop by hop, so the address policy and
         // header stripping run on every hop. ureq must never follow one itself.
         let builder = ureq::Agent::config_builder()
@@ -929,6 +1017,7 @@ impl Client {
             config,
             proxy,
             proxy_diagnostic: diagnostic,
+            proxy_mode_used: used,
             config_error: None,
             system_proxy_unsupported: None,
         }
@@ -943,6 +1032,12 @@ impl Client {
     /// The proxy this client uses, if any, without credentials. See [`ProxyDiagnostic`].
     pub fn proxy_diagnostic(&self) -> Option<&ProxyDiagnostic> {
         self.proxy_diagnostic.as_ref()
+    }
+
+    /// Which proxy source this client actually uses. For [`ProxyMode::System`] it says
+    /// whether the operating system's proxy was followed or a fallback was taken, and why.
+    pub fn proxy_mode_used(&self) -> &ProxyModeUsed {
+        &self.proxy_mode_used
     }
 
     /// Client that may reach only `hosts` (exact match), only over HTTPS; see
@@ -1924,13 +2019,6 @@ mod tests {
                 },
                 "a proxy auto-config script is set",
             ),
-            (
-                SystemProxySettings {
-                    auto_detect: true,
-                    ..SystemProxySettings::default()
-                },
-                "\"Automatically detect settings\" (proxy auto-detect) is on",
-            ),
         ];
         for (settings, expected) in rows {
             let error = proxy_from_system(&settings)
@@ -1949,6 +2037,162 @@ mod tests {
             );
             assert!(matches!(error.class(), crate::error::ErrorClass::Invalid));
         }
+    }
+
+    #[test]
+    fn system_mode_with_automatic_detection_only_goes_direct_or_environment() {
+        use crate::system_proxy::SystemProxySettings;
+        let no_env = |_: &str| None::<String>;
+        let env_proxy =
+            |name: &str| (name == "HTTPS_PROXY").then(|| "http://env.corp:3128".to_string());
+        // The Windows default: "Automatically detect settings" on, nothing else.
+        let detect = SystemProxySettings {
+            auto_detect: true,
+            ..SystemProxySettings::default()
+        };
+        let reason = "automatic detection only; no static proxy or PAC configured";
+        let (proxy, used) = resolve_system(&detect, &no_env).unwrap();
+        assert!(proxy.is_none());
+        assert_eq!(
+            used,
+            ProxyModeUsed::SystemFallbackDirect {
+                reason: reason.to_string()
+            }
+        );
+        let (proxy, used) = resolve_system(&detect, &env_proxy).unwrap();
+        let proxy = proxy.expect("the environment proxy is used");
+        assert_eq!((proxy.host.as_str(), proxy.port), ("env.corp", 3128));
+        assert!(proxy.from_env);
+        assert_eq!(
+            used,
+            ProxyModeUsed::SystemFallbackEnvironment {
+                reason: reason.to_string()
+            }
+        );
+        // A bypass list alone does not change that.
+        let with_bypass = SystemProxySettings {
+            bypass: Some("<local>".into()),
+            ..detect
+        };
+        let (proxy, used) = resolve_system(&with_bypass, &no_env).unwrap();
+        assert!(proxy.is_none());
+        assert!(matches!(used, ProxyModeUsed::SystemFallbackDirect { .. }));
+    }
+
+    #[test]
+    fn system_mode_with_automatic_detection_and_a_static_proxy_follows_the_proxy() {
+        use crate::system_proxy::SystemProxySettings;
+        let no_env = |_: &str| None::<String>;
+        let env_proxy =
+            |name: &str| (name == "HTTPS_PROXY").then(|| "http://env.corp:3128".to_string());
+        let settings = SystemProxySettings {
+            proxy: Some("web.corp:8080".into()),
+            bypass: Some("localhost".into()),
+            auto_detect: true,
+            ..SystemProxySettings::default()
+        };
+        for get in [&no_env as &dyn Fn(&str) -> Option<String>, &env_proxy] {
+            let (proxy, used) = resolve_system(&settings, get).unwrap();
+            let proxy = proxy.expect("the static proxy is used");
+            assert_eq!((proxy.host.as_str(), proxy.port), ("web.corp", 8080));
+            assert_eq!(used, ProxyModeUsed::System);
+        }
+    }
+
+    #[test]
+    fn system_mode_still_refuses_what_it_cannot_follow_exactly() {
+        use crate::system_proxy::SystemProxySettings;
+        let no_env = |_: &str| None::<String>;
+        let env_proxy =
+            |name: &str| (name == "HTTPS_PROXY").then(|| "http://env.corp:3128".to_string());
+        let static_proxy = |proxy: &str, bypass: Option<&str>| SystemProxySettings {
+            proxy: Some(proxy.into()),
+            bypass: bypass.map(str::to_string),
+            ..SystemProxySettings::default()
+        };
+        let rows: Vec<(SystemProxySettings, &str)> = vec![
+            (
+                SystemProxySettings {
+                    auto_config: true,
+                    ..SystemProxySettings::default()
+                },
+                "a proxy auto-config script is set",
+            ),
+            (
+                SystemProxySettings {
+                    auto_config: true,
+                    auto_detect: true,
+                    ..static_proxy("web.corp:8080", None)
+                },
+                "a proxy auto-config script is set",
+            ),
+            (
+                static_proxy("http=web.corp:8080;https=secure.corp:8443", None),
+                "HTTP and HTTPS are given different proxy routes",
+            ),
+            (
+                static_proxy("http=web.corp:8080", None),
+                "HTTP and HTTPS are given different proxy routes",
+            ),
+            (
+                static_proxy("web.corp:8080", Some("<local>")),
+                "the bypass entry `<local>` cannot be followed exactly",
+            ),
+            (
+                SystemProxySettings {
+                    auto_detect: true,
+                    ..static_proxy("web.corp:8080", Some("*.corp.example;<local>"))
+                },
+                "the bypass entry `<local>` cannot be followed exactly",
+            ),
+            (
+                static_proxy("web.corp:8080", Some("10.*")),
+                "the bypass entry `10.*` cannot be followed exactly",
+            ),
+        ];
+        // Whatever the environment says: the user configured a proxy that cannot be
+        // followed, so nothing is built and nothing is sent.
+        for (settings, reason) in rows {
+            for get in [&no_env as &dyn Fn(&str) -> Option<String>, &env_proxy] {
+                let error = resolve_system(&settings, get)
+                    .err()
+                    .unwrap_or_else(|| panic!("{reason}: must be refused"));
+                assert!(
+                    matches!(&error, HttpError::SystemProxyUnsupported { element } if element == reason),
+                    "{reason}: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_mode_reports_what_it_followed() {
+        use crate::system_proxy::SystemProxySettings;
+        let no_env = |_: &str| None::<String>;
+        let env_proxy =
+            |name: &str| (name == "HTTP_PROXY").then(|| "http://env.corp:3128".to_string());
+        // A proxy that can be followed exactly is used, whatever the environment says.
+        let followed = SystemProxySettings {
+            proxy: Some("web.corp:8080".into()),
+            bypass: Some("localhost;*.corp.example".into()),
+            ..SystemProxySettings::default()
+        };
+        let (proxy, used) = resolve_system(&followed, &no_env).unwrap();
+        let proxy = proxy.expect("the system proxy is used");
+        assert_eq!((proxy.host.as_str(), proxy.port), ("web.corp", 8080));
+        assert_eq!(used, ProxyModeUsed::System);
+        let (proxy, used) = resolve_system(&followed, &env_proxy).unwrap();
+        assert_eq!(proxy.expect("the system proxy wins").host, "web.corp");
+        assert_eq!(used, ProxyModeUsed::System);
+        // Nothing configured: the environment proxy when set, direct otherwise, and neither
+        // is a fallback.
+        let none = SystemProxySettings::default();
+        let (proxy, used) = resolve_system(&none, &no_env).unwrap();
+        assert!(proxy.is_none());
+        assert_eq!(used, ProxyModeUsed::Direct);
+        let (proxy, used) = resolve_system(&none, &env_proxy).unwrap();
+        assert!(proxy.is_some());
+        assert_eq!(used, ProxyModeUsed::Environment);
     }
 
     #[test]

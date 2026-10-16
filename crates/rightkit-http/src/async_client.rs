@@ -52,6 +52,7 @@ pub struct AsyncClient {
     /// The proxy in use (its `NO_PROXY` list decides which destinations bypass it).
     proxy: Option<ureq::Proxy>,
     proxy_diagnostic: Option<crate::client::ProxyDiagnostic>,
+    proxy_mode_used: crate::client::ProxyModeUsed,
 }
 
 struct Raw {
@@ -152,7 +153,7 @@ impl AsyncClient {
     pub fn new(config: ClientConfig) -> Result<Self, HttpError> {
         // Redirects are followed by this crate, hop by hop, so the address policy and
         // header stripping run on every hop. reqwest must never follow one itself.
-        let proxy = config.resolved_proxy()?;
+        let (proxy, proxy_mode_used) = config.resolved_proxy_with_mode()?;
         let extra = crate::trust::test_roots();
         let tls = build_tls(config.trust, &extra)?;
         let verifier = tls.kind;
@@ -186,6 +187,7 @@ impl AsyncClient {
             verifier,
             config,
             proxy_diagnostic: proxy.as_ref().map(crate::client::ProxyDiagnostic::of),
+            proxy_mode_used,
             proxy: proxy.map(|p| p.ureq),
         })
     }
@@ -193,6 +195,12 @@ impl AsyncClient {
     /// The proxy this client uses, if any, without credentials.
     pub fn proxy_diagnostic(&self) -> Option<&crate::client::ProxyDiagnostic> {
         self.proxy_diagnostic.as_ref()
+    }
+
+    /// Which proxy source this client actually uses; see
+    /// [`Client::proxy_mode_used`](crate::Client::proxy_mode_used).
+    pub fn proxy_mode_used(&self) -> &crate::client::ProxyModeUsed {
+        &self.proxy_mode_used
     }
 
     /// Client that may reach only `hosts` (exact match), only over HTTPS; see

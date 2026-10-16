@@ -12,8 +12,9 @@
 //! The last is reported with the first element it cannot follow, never approximated: no
 //! entry is dropped while the proxy stays in use, and no scheme is sent to the endpoint
 //! configured for the other. That covers endpoints that differ by scheme, a bypass entry
-//! limited to one scheme, `<local>`, a wildcard this client cannot express, a PAC script and
-//! automatic detection (both of those choose a proxy per URL).
+//! limited to one scheme, `<local>`, a wildcard this client cannot express and a PAC script
+//! (which chooses a proxy per URL). Automatic detection with no static proxy and no PAC script
+//! is [`SystemProxyChoice::AutoDetectOnly`], not an error; with a static proxy the flag is ignored.
 //!
 //! [`ProxyMode::System`]: crate::ProxyMode::System
 
@@ -46,6 +47,11 @@ pub(crate) enum SystemProxyChoice {
         /// `NO_PROXY`-style entries for the hosts that connect directly.
         no_proxy: Vec<String>,
     },
+    /// "Automatically detect settings" is on and nothing else is configured: no static
+    /// proxy string and no PAC script. This is the Windows default. There is nothing the
+    /// user named that this client would be ignoring, so it is not an error; the caller
+    /// falls back to the environment proxy, then to a direct connection, and reports it.
+    AutoDetectOnly,
     /// The configuration holds something this client cannot follow exactly. Carries the
     /// first such element, in words a person can match against the Windows proxy settings.
     Unsupported(String),
@@ -139,15 +145,16 @@ pub(crate) fn bypass_hosts(bypass: &str) -> Result<Vec<String>, String> {
 
 /// What `settings` mean for a client with one proxy for every request.
 pub(crate) fn proxy_choice(settings: &SystemProxySettings) -> SystemProxyChoice {
-    if settings.auto_detect {
-        return SystemProxyChoice::Unsupported(
-            "\"Automatically detect settings\" (proxy auto-detect) is on".into(),
-        );
-    }
+    // A PAC script chooses a proxy per URL: refused, whatever else is set.
     if settings.auto_config {
         return SystemProxyChoice::Unsupported("a proxy auto-config script is set".into());
     }
     let raw = settings.proxy.as_deref().unwrap_or_default().trim();
+    // Automatic detection with no static proxy names nothing to follow. With a static proxy
+    // the flag is ignored and the static proxy is followed exactly (or refused below).
+    if settings.auto_detect && raw.is_empty() {
+        return SystemProxyChoice::AutoDetectOnly;
+    }
     let (http, https) = endpoints_by_scheme(raw);
     match (http, https) {
         (None, None) => SystemProxyChoice::None,
@@ -446,19 +453,10 @@ mod tests {
     }
 
     #[test]
-    fn a_pac_script_or_automatic_detection_is_reported_with_or_without_a_static_proxy() {
-        // Both choose a proxy per URL. Falling back to a direct connection, or to the static
-        // proxy, would not be what Windows itself does with these settings.
+    fn a_pac_script_is_reported_with_or_without_a_static_proxy() {
+        // A PAC script chooses a proxy per URL. Falling back to a direct connection, or to
+        // the static proxy, would not be what Windows itself does with these settings.
         for proxy in ["", "p:1"] {
-            let detect = SystemProxySettings {
-                auto_detect: true,
-                ..settings(proxy, "")
-            };
-            assert_eq!(
-                proxy_choice(&detect),
-                unsupported("\"Automatically detect settings\" (proxy auto-detect) is on"),
-                "{proxy:?}"
-            );
             let pac = SystemProxySettings {
                 auto_config: true,
                 ..settings(proxy, "")
@@ -468,6 +466,48 @@ mod tests {
                 unsupported("a proxy auto-config script is set"),
                 "{proxy:?}"
             );
+            // A PAC script wins over the auto-detect flag.
+            let both = SystemProxySettings {
+                auto_detect: true,
+                ..pac
+            };
+            assert_eq!(
+                proxy_choice(&both),
+                unsupported("a proxy auto-config script is set"),
+                "{proxy:?}"
+            );
         }
+    }
+
+    #[test]
+    fn automatic_detection_alone_is_not_an_error_and_never_overrides_a_static_proxy() {
+        // The Windows default: detection on, no static proxy, no PAC.
+        for proxy in ["", "   "] {
+            let detect = SystemProxySettings {
+                auto_detect: true,
+                ..settings(proxy, "<local>")
+            };
+            assert_eq!(proxy_choice(&detect), SystemProxyChoice::AutoDetectOnly);
+        }
+        // With a static proxy the flag is ignored: the proxy is followed exactly...
+        let detect = SystemProxySettings {
+            auto_detect: true,
+            ..settings("p:1", "localhost")
+        };
+        assert_eq!(proxy_choice(&detect), single("http://p:1", &["localhost"]));
+        // ...or refused for the same reasons as without the flag.
+        let detect = SystemProxySettings {
+            auto_detect: true,
+            ..settings("p:1", "<local>")
+        };
+        assert_eq!(
+            proxy_choice(&detect),
+            unsupported("the bypass entry `<local>` cannot be followed exactly")
+        );
+        let detect = SystemProxySettings {
+            auto_detect: true,
+            ..settings("http=a:1;https=b:2", "")
+        };
+        assert_eq!(proxy_choice(&detect), unsupported(DIFFERENT_ROUTES));
     }
 }

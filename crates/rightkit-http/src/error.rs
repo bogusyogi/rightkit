@@ -67,9 +67,10 @@ pub enum HttpError {
     /// [`ProxyMode::System`](crate::ProxyMode::System): the Windows proxy settings hold
     /// something this version cannot follow exactly, named in `element`: different proxy
     /// routes for HTTP and HTTPS, a bypass entry that is not a plain host (`<local>`, an entry
-    /// limited to one scheme, an inner wildcard), a proxy auto-config script, or automatic
-    /// detection. The client sends nothing: it never drops a bypass entry while still using
-    /// the proxy, and never sends one scheme to the other's proxy. Returned by
+    /// limited to one scheme, an inner wildcard), or a proxy auto-config script. The client
+    /// sends nothing: it never drops a bypass entry while still using the proxy, and never
+    /// sends one scheme to the other's proxy. "Automatically detect settings" alone is not
+    /// refused (since 0.3.1; see `ProxyModeUsed`). Returned by
     /// `Client::try_new` and by every request of a client built with `Client::new`. An app
     /// catches it and uses the mode it used before (`ProxyMode::Environment`, or
     /// `ProxyMode::Explicit`). Never retried.
