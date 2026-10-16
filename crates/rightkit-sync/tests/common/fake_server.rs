@@ -42,12 +42,15 @@ struct Zone {
     records: BTreeMap<String, Rec>,
 }
 
+/// A scripted failure: status, headers, JSON body.
+type FailNext = (u16, Vec<(String, String)>, Value);
+
 #[derive(Default)]
 pub struct FakeState {
     /// bearer token -> account id
     tokens: BTreeMap<String, String>,
     zones: BTreeMap<(String, String), Zone>,
-    fail_next: VecDeque<(u16, Vec<(String, String)>, Value)>,
+    fail_next: VecDeque<FailNext>,
 }
 
 pub struct FakeServer {

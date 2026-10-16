@@ -205,7 +205,7 @@ impl KeyManager {
                 return Ok(InstallOutcome::AlreadyCurrent);
             }
         }
-        let advance = current.as_ref().map_or(true, |c| key.version() > c.version());
+        let advance = current.as_ref().is_none_or(|c| key.version() > c.version());
         if advance && !replace {
             if !self.write_version(key, WriteIntent::CreateOnly)? {
                 // The slot is taken: fine only if it holds this very key.

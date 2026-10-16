@@ -39,6 +39,9 @@ impl DFile {
 
 type Hook = Box<dyn FnOnce(&mut DriveState) + Send>;
 
+/// A scripted failure: status, headers, JSON body.
+type FailNext = (u16, Vec<(String, String)>, Value);
+
 #[derive(Default)]
 pub struct DriveState {
     tokens: BTreeSet<String>,
@@ -46,7 +49,7 @@ pub struct DriveState {
     next: u64,
     /// `(file id, removed)` in commit order; the change token is an index into it.
     changes: Vec<(String, bool)>,
-    fail_next: VecDeque<(u16, Vec<(String, String)>, Value)>,
+    fail_next: VecDeque<FailNext>,
     before_patch: Option<Hook>,
     before_create: Option<Hook>,
     before_meta: Option<Hook>,
@@ -195,7 +198,7 @@ impl FakeDrive {
     /// Run `f` against the state (another client acting on the account).
     pub fn with<R>(&self, f: impl FnOnce(&mut DriveState) -> R) -> R {
         let mut guard = self.state.lock().unwrap();
-        f(&mut *guard)
+        f(&mut guard)
     }
 
     pub fn writes(&self) -> usize {
@@ -357,7 +360,7 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
             if get("alt").as_deref() != Some("media") {
                 let hook = st.before_meta.take();
                 if let Some(h) = hook {
-                    h(&mut *st);
+                    h(&mut st);
                 }
             }
             let Some(f) = st.files.get(*id) else {
@@ -392,7 +395,7 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
         ("POST", ["upload", "drive", "v3", "files"]) => {
             let hook = st.before_create.take();
             if let Some(h) = hook {
-                h(&mut *st);
+                h(&mut st);
             }
             let Some((meta, media)) = parse_multipart(
                 req.header("content-type").unwrap_or(""),
@@ -414,7 +417,7 @@ fn handle(state: &Mutex<DriveState>, req: &RecordedRequest) -> MockResponse {
         ("PATCH", ["upload", "drive", "v3", "files", id]) => {
             let hook = st.before_patch.take();
             if let Some(h) = hook {
-                h(&mut *st);
+                h(&mut st);
             }
             if !st.files.contains_key(*id) {
                 return err(404, "notFound", "File not found");

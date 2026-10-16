@@ -38,7 +38,7 @@ pub use paths::{AppDirs, AppPaths};
 /// app crate (for example from an exported function), or `pub use` [`jni_entry`] instead.
 #[doc(hidden)]
 pub fn link_anchor() -> usize {
-    jni_entry::Java_com_orthiclabs_rightkit_android_RightKitNative_nativeInit as usize
+    jni_entry::Java_com_orthiclabs_rightkit_android_RightKitNative_nativeInit as *const () as usize
 }
 
 /// Initialises `rustls-platform-verifier` (the root store `rightkit-http` uses on Android) from the
@@ -48,7 +48,7 @@ pub fn link_anchor() -> usize {
 /// JObject)` of the 0.5/0.6 line and the `jni` 0.21 types; confirm against the version
 /// `rightkit-http` pins before enabling. The verifier's own Kotlin component must also be on the
 /// app's classpath (see README).
-#[cfg(feature = "platform-verifier")]
+#[cfg(all(feature = "platform-verifier", target_os = "android"))]
 pub fn init_platform_verifier(
     env: &mut jni::JNIEnv<'_>,
     context: &jni::objects::JObject<'_>,

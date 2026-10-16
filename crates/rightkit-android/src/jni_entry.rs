@@ -99,7 +99,7 @@ pub fn initialise(
     rightkit_credentials::android::install(Arc::new(JniKeystoreBridge), &files)
         .map_err(|_| InitCode::KeystoreInstall)?;
 
-    #[cfg(feature = "platform-verifier")]
+    #[cfg(all(feature = "platform-verifier", target_os = "android"))]
     crate::init_platform_verifier(env, app_context).map_err(|_| InitCode::Jni)?;
 
     crate::logcat::write(
