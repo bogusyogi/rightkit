@@ -398,7 +398,10 @@ impl ClientConfig {
 pub(crate) fn resolve_system_for_url(
     settings: &crate::system_proxy::SystemProxySettings,
     url: &str,
-    os: &dyn Fn(&str, &crate::system_proxy::SystemProxySettings) -> Option<crate::system_proxy::UrlRoute>,
+    os: &dyn Fn(
+        &str,
+        &crate::system_proxy::SystemProxySettings,
+    ) -> Option<crate::system_proxy::UrlRoute>,
     get: &dyn Fn(&str) -> Option<String>,
 ) -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
     use crate::system_proxy::UrlRoute;
@@ -407,16 +410,17 @@ pub(crate) fn resolve_system_for_url(
             "invalid URL for system proxy resolution".into(),
         ));
     };
-    let from_route = |route: UrlRoute| -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
-        match route {
-            UrlRoute::Direct => Ok((None, ProxyModeUsed::SystemForUrl)),
-            UrlRoute::Proxy(proxy_url) => {
-                let mut proxy = build_proxy(&proxy_url, &[])?;
-                proxy.from_env = true;
-                Ok((Some(proxy), ProxyModeUsed::SystemForUrl))
+    let from_route =
+        |route: UrlRoute| -> Result<(Option<ResolvedProxy>, ProxyModeUsed), HttpError> {
+            match route {
+                UrlRoute::Direct => Ok((None, ProxyModeUsed::SystemForUrl)),
+                UrlRoute::Proxy(proxy_url) => {
+                    let mut proxy = build_proxy(&proxy_url, &[])?;
+                    proxy.from_env = true;
+                    Ok((Some(proxy), ProxyModeUsed::SystemForUrl))
+                }
             }
-        }
-    };
+        };
     let automatic = settings.auto_config || settings.auto_detect;
     if automatic {
         if let Some(route) = os(url, settings) {
@@ -425,8 +429,7 @@ pub(crate) fn resolve_system_for_url(
         // A PAC script the user set that cannot be evaluated is not guessed around.
         if settings.auto_config {
             return Err(HttpError::SystemProxyUnsupported {
-                element: "the proxy auto-config script could not be evaluated for this URL"
-                    .into(),
+                element: "the proxy auto-config script could not be evaluated for this URL".into(),
             });
         }
     }
@@ -2304,7 +2307,8 @@ mod tests {
         let no_env = |_: &str| None::<String>;
         let url = "https://updates.example.com/feed.json";
         let never = |_: &str, _: &SystemProxySettings| None::<UrlRoute>;
-        let pac_says = |route: UrlRoute| move |_: &str, _: &SystemProxySettings| Some(route.clone());
+        let pac_says =
+            |route: UrlRoute| move |_: &str, _: &SystemProxySettings| Some(route.clone());
 
         // A PAC script (or detection) that resolves wins over the static proxy.
         let pac = SystemProxySettings {
@@ -2323,8 +2327,13 @@ mod tests {
         assert_eq!(used, ProxyModeUsed::SystemForUrl);
 
         // A PAC script that cannot be evaluated fails closed.
-        let err = resolve_system_for_url(&pac, url, &never, &no_env).err().unwrap();
-        assert!(matches!(err, HttpError::SystemProxyUnsupported { .. }), "{err:?}");
+        let err = resolve_system_for_url(&pac, url, &never, &no_env)
+            .err()
+            .unwrap();
+        assert!(
+            matches!(err, HttpError::SystemProxyUnsupported { .. }),
+            "{err:?}"
+        );
 
         // Detection that finds nothing falls back to the static proxy, per URL.
         let detect = SystemProxySettings {
@@ -2339,12 +2348,21 @@ mod tests {
                 .0
                 .map(|p| p.host)
         };
-        assert_eq!(routed("https://api.example.com/").as_deref(), Some("secure.corp"));
-        assert_eq!(routed("http://api.example.com/").as_deref(), Some("web.corp"));
+        assert_eq!(
+            routed("https://api.example.com/").as_deref(),
+            Some("secure.corp")
+        );
+        assert_eq!(
+            routed("http://api.example.com/").as_deref(),
+            Some("web.corp")
+        );
         assert_eq!(routed("https://intranet/").as_deref(), None);
         assert_eq!(routed("https://a.corp.example/").as_deref(), None);
         assert_eq!(routed("http://plain.example/").as_deref(), None);
-        assert_eq!(routed("https://plain.example/").as_deref(), Some("secure.corp"));
+        assert_eq!(
+            routed("https://plain.example/").as_deref(),
+            Some("secure.corp")
+        );
 
         // Detection alone, nothing found: environment, then direct, and it says so.
         let only = SystemProxySettings {
@@ -2358,18 +2376,29 @@ mod tests {
             |name: &str| (name == "HTTPS_PROXY").then(|| "http://env.corp:3128".to_string());
         let (proxy, used) = resolve_system_for_url(&only, url, &never, &env_proxy).unwrap();
         assert_eq!(proxy.expect("environment proxy").host, "env.corp");
-        assert!(matches!(used, ProxyModeUsed::SystemFallbackEnvironment { .. }));
+        assert!(matches!(
+            used,
+            ProxyModeUsed::SystemFallbackEnvironment { .. }
+        ));
 
         // A URL this mode cannot route fails closed.
         for bad in ["not a url", "ftp://host/file", "/relative"] {
-            let err = resolve_system_for_url(&only, bad, &never, &no_env).err().unwrap();
-            assert!(matches!(err, HttpError::InvalidRequest(_)), "{bad}: {err:?}");
+            let err = resolve_system_for_url(&only, bad, &never, &no_env)
+                .err()
+                .unwrap();
+            assert!(
+                matches!(err, HttpError::InvalidRequest(_)),
+                "{bad}: {err:?}"
+            );
         }
     }
 
     #[test]
     fn system_for_url_debug_hides_credentials() {
-        let shown = format!("{:?}", ProxyMode::SystemForUrl("https://u:pw-9@host/p?k=v".into()));
+        let shown = format!(
+            "{:?}",
+            ProxyMode::SystemForUrl("https://u:pw-9@host/p?k=v".into())
+        );
         assert!(!shown.contains("pw-9") && !shown.contains("k=v"), "{shown}");
     }
 

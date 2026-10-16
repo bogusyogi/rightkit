@@ -162,6 +162,7 @@ pub(crate) fn static_route_for_url(
 /// The route for `scheme` from a WinHTTP proxy string (`host:port`, a `;`-separated list of
 /// candidates, or `http=a;https=b`): the first candidate for the scheme. `None` string is
 /// direct.
+#[cfg_attr(not(windows), allow(dead_code))] // the WinHTTP caller is Windows-only; tests run everywhere
 pub(crate) fn route_from_proxy_string(proxy: Option<&str>, scheme: &str) -> UrlRoute {
     let (http, https) = endpoints_by_scheme(proxy.unwrap_or_default());
     let endpoint = if scheme == "https" { https } else { http };
@@ -355,7 +356,9 @@ pub(crate) fn system_proxy_settings() -> SystemProxySettings {
             take(config.proxy_bypass),
         )
     };
-    let auto_config_url = pac.map(|url| url.trim().to_string()).filter(|u| !u.is_empty());
+    let auto_config_url = pac
+        .map(|url| url.trim().to_string())
+        .filter(|u| !u.is_empty());
     SystemProxySettings {
         proxy,
         bypass,
@@ -399,7 +402,10 @@ mod win {
 
 /// No resolver off Windows: there is no automatic or PAC configuration to evaluate.
 #[cfg(not(windows))]
-pub(crate) fn winhttp_route_for_url(_url: &str, _settings: &SystemProxySettings) -> Option<UrlRoute> {
+pub(crate) fn winhttp_route_for_url(
+    _url: &str,
+    _settings: &SystemProxySettings,
+) -> Option<UrlRoute> {
     None
 }
 
@@ -529,9 +535,8 @@ pub(crate) fn winhttp_route_for_url(url: &str, settings: &SystemProxySettings) -
     unsafe { WinHttpSetTimeouts(session.0, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS) };
     // SAFETY: `wide_url` and `wide_pac` are NUL-terminated and outlive the call; `options`
     // and `info` are valid for the layouts the function reads and fills.
-    let ok = unsafe {
-        WinHttpGetProxyForUrl(session.0, wide_url.as_ptr(), &mut options, &mut info)
-    };
+    let ok =
+        unsafe { WinHttpGetProxyForUrl(session.0, wide_url.as_ptr(), &mut options, &mut info) };
     if ok == 0 {
         return None;
     }
@@ -592,7 +597,11 @@ mod tests {
             ("", "http", "x", false),
         ];
         for (bypass, scheme, host, expected) in rows {
-            assert_eq!(bypass_matches(bypass, scheme, host), *expected, "{bypass} {scheme}://{host}");
+            assert_eq!(
+                bypass_matches(bypass, scheme, host),
+                *expected,
+                "{bypass} {scheme}://{host}"
+            );
         }
     }
 
@@ -614,12 +623,18 @@ mod tests {
     #[test]
     fn a_resolver_proxy_string_gives_the_first_candidate_for_the_scheme() {
         let http = |s: &str| UrlRoute::Proxy(s.into());
-        assert_eq!(route_from_proxy_string(Some("a:80;b:80"), "https"), http("http://a:80"));
+        assert_eq!(
+            route_from_proxy_string(Some("a:80;b:80"), "https"),
+            http("http://a:80")
+        );
         assert_eq!(
             route_from_proxy_string(Some("http=h:80;https=s:443"), "https"),
             http("http://s:443")
         );
-        assert_eq!(route_from_proxy_string(Some("http=h:80"), "https"), UrlRoute::Direct);
+        assert_eq!(
+            route_from_proxy_string(Some("http=h:80"), "https"),
+            UrlRoute::Direct
+        );
         assert_eq!(route_from_proxy_string(None, "http"), UrlRoute::Direct);
         assert_eq!(route_from_proxy_string(Some(""), "http"), UrlRoute::Direct);
     }
@@ -627,19 +642,40 @@ mod tests {
     #[test]
     fn the_static_route_for_a_url_applies_bypass_and_scheme() {
         let s = settings("http=h:80;https=s:443", "<local>;*.corp");
-        assert_eq!(static_route_for_url(&s, "http", "x.example"), Some(UrlRoute::Proxy("http://h:80".into())));
-        assert_eq!(static_route_for_url(&s, "https", "x.example"), Some(UrlRoute::Proxy("http://s:443".into())));
-        assert_eq!(static_route_for_url(&s, "https", "box"), Some(UrlRoute::Direct));
-        assert_eq!(static_route_for_url(&s, "https", "a.corp"), Some(UrlRoute::Direct));
+        assert_eq!(
+            static_route_for_url(&s, "http", "x.example"),
+            Some(UrlRoute::Proxy("http://h:80".into()))
+        );
+        assert_eq!(
+            static_route_for_url(&s, "https", "x.example"),
+            Some(UrlRoute::Proxy("http://s:443".into()))
+        );
+        assert_eq!(
+            static_route_for_url(&s, "https", "box"),
+            Some(UrlRoute::Direct)
+        );
+        assert_eq!(
+            static_route_for_url(&s, "https", "a.corp"),
+            Some(UrlRoute::Direct)
+        );
         // One scheme without an entry connects directly.
         let only_https = settings("https=s:443", "");
-        assert_eq!(static_route_for_url(&only_https, "http", "x.example"), Some(UrlRoute::Direct));
+        assert_eq!(
+            static_route_for_url(&only_https, "http", "x.example"),
+            Some(UrlRoute::Direct)
+        );
         // Nothing usable configured: the caller falls back to the environment.
-        assert_eq!(static_route_for_url(&settings("", "<local>"), "http", "x"), None);
-        assert_eq!(static_route_for_url(&settings("socks=k:1", ""), "http", "x"), None);
+        assert_eq!(
+            static_route_for_url(&settings("", "<local>"), "http", "x"),
+            None
+        );
+        assert_eq!(
+            static_route_for_url(&settings("socks=k:1", ""), "http", "x"),
+            None
+        );
     }
 
-    const DIFFERENT_ROUTES: &str ="HTTP and HTTPS are given different proxy routes";
+    const DIFFERENT_ROUTES: &str = "HTTP and HTTPS are given different proxy routes";
 
     #[test]
     fn a_bare_host_and_port_is_one_http_proxy_for_both_schemes() {

@@ -271,15 +271,12 @@ pub fn verify_library_in_manifest(lib: &Path) -> Result<VerifiedFile, RuntimeErr
                 format!("sha256 for {key:?} must be 64 hex digits"),
             )
         })?;
-    let bytes = entry
-        .get("bytes")
-        .and_then(|b| b.as_u64())
-        .ok_or_else(|| {
-            manifest_error(
-                &manifest_path,
-                format!("bytes for {key:?} must be a non-negative integer"),
-            )
-        })?;
+    let bytes = entry.get("bytes").and_then(|b| b.as_u64()).ok_or_else(|| {
+        manifest_error(
+            &manifest_path,
+            format!("bytes for {key:?} must be a non-negative integer"),
+        )
+    })?;
 
     verify_file(
         &dir,

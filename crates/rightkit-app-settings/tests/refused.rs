@@ -1,9 +1,7 @@
 //! `OnRefused::ReadOnlyDefaults`: a file newer than the build, or over `max_bytes`, opens as
 //! defaults and is never moved, written, backed up or locked. And undeclared keys survive a save.
 
-use rightkit_app_settings::{
-    Error, FileFormat, OnRefused, Refusal, Schema, Store, StoreOptions,
-};
+use rightkit_app_settings::{Error, FileFormat, OnRefused, Refusal, Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -32,7 +30,11 @@ const NEWER_ENVELOPE: &str = "{\"schemaVersion\":9,\"namespace\":\"demo\",\"valu
 
 fn only_file(dir: &Path) {
     let names: Vec<_> = fs::read_dir(dir).unwrap().collect();
-    assert_eq!(names.len(), 1, "no quarantine, .bak or .lock beside the file");
+    assert_eq!(
+        names.len(),
+        1,
+        "no quarantine, .bak or .lock beside the file"
+    );
 }
 
 #[test]
@@ -40,7 +42,9 @@ fn a_newer_envelope_fails_open_by_default_and_is_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
     fs::write(&path, NEWER_ENVELOPE).unwrap();
-    let err = Store::<Prefs>::open_path(&path, opts()).err().expect("refused");
+    let err = Store::<Prefs>::open_path(&path, opts())
+        .err()
+        .expect("refused");
     assert!(matches!(
         err,
         Error::NewerSchema {
@@ -138,7 +142,9 @@ fn a_newer_flat_file_is_found_through_flat_version_key() {
             .flat_version_key("schema_version")
     };
 
-    let err = Store::<Prefs>::open_path(&path, flat()).err().expect("refused");
+    let err = Store::<Prefs>::open_path(&path, flat())
+        .err()
+        .expect("refused");
     assert!(matches!(
         err,
         Error::NewerSchema {
@@ -226,16 +232,14 @@ fn undeclared_keys_survive_a_save_in_flat_and_in_envelope_with_allow_unknown_key
         "{\"theme\":\"a\",\"nearby\":{\"on\":true},\"agent\":\"x\",\"font_px\":10}",
     )
     .unwrap();
-    let store =
-        Store::<Prefs>::open_path(&flat_path, opts().format(FileFormat::Flat)).unwrap();
+    let store = Store::<Prefs>::open_path(&flat_path, opts().format(FileFormat::Flat)).unwrap();
     store
         .update(|p| {
             p.theme = "b".into();
             Ok(())
         })
         .unwrap();
-    let doc: serde_json::Value =
-        serde_json::from_slice(&fs::read(&flat_path).unwrap()).unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&fs::read(&flat_path).unwrap()).unwrap();
     assert_eq!(doc["theme"], "b");
     assert_eq!(doc["nearby"], json!({ "on": true }));
     assert_eq!(doc["agent"], "x");
@@ -243,8 +247,7 @@ fn undeclared_keys_survive_a_save_in_flat_and_in_envelope_with_allow_unknown_key
     let env_path = dir.path().join("env.json");
     let env = "{\"schemaVersion\":2,\"namespace\":\"demo\",\"values\":{\"theme\":\"a\",\"remote_tools\":[1,2],\"font_px\":10},\"revision\":1}";
     fs::write(&env_path, env).unwrap();
-    let store =
-        Store::<Prefs>::open_path(&env_path, opts().allow_unknown_keys(|_| false)).unwrap();
+    let store = Store::<Prefs>::open_path(&env_path, opts().allow_unknown_keys(|_| false)).unwrap();
     store
         .update(|p| {
             p.font_px = 11;

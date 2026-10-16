@@ -1,7 +1,7 @@
 //! `configure_runtime_verified` fails closed. One test function, so the process
 //! environment is only touched in a fixed order: every refusal first, then success.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rightkit_onnx::{
     configure_runtime_verified, runtime_filename, CandidateSource, RuntimeCandidate, RuntimeError,
@@ -16,8 +16,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn candidate(path: &PathBuf) -> RuntimeCandidate {
-    RuntimeCandidate::new(path.clone(), CandidateSource::Explicit)
+fn candidate(path: &Path) -> RuntimeCandidate {
+    RuntimeCandidate::new(path.to_path_buf(), CandidateSource::Explicit)
 }
 
 #[test]

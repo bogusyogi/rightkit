@@ -369,7 +369,6 @@ fn symbolic_links_inside_the_bundle_are_rejected() {
     ));
 }
 
-
 // ---- verify_library_in_manifest: one library against a tolerant app manifest ----
 
 use rightkit_onnx::verify_library_in_manifest;

@@ -7,7 +7,8 @@ use rightkit_mcp::*;
 use serde_json::{json, Value};
 
 // Key order not alphabetical, 1.0 vs 1, exponent, trailing zero, escapes, a >u64 integer.
-const BODY: &str = r#"{"z":1.0,"a":1,"m":[1E2,0.10,18446744073709551617],"u":"é😀\/","k":{"b":null,"a":true}}"#;
+const BODY: &str =
+    r#"{"z":1.0,"a":1,"m":[1E2,0.10,18446744073709551617],"u":"é😀\/","k":{"b":null,"a":true}}"#;
 
 const CALL: &str =
     r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"raw","arguments":{}}}"#;

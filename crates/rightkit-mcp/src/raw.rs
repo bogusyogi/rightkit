@@ -35,7 +35,7 @@ impl RawJson {
     /// Like [`RawJson::new`] from UTF-8 bytes.
     pub fn from_slice(json: &[u8]) -> Result<Self, serde_json::Error> {
         let text = std::str::from_utf8(json)
-            .map_err(|e| <serde_json::Error as serde::de::Error>::custom(e))?;
+            .map_err(<serde_json::Error as serde::de::Error>::custom)?;
         Self::new(text)
     }
 
@@ -61,7 +61,10 @@ impl RawJson {
     /// serialise it any other way.
     pub fn to_value(&self) -> Value {
         let mut m = Map::new();
-        m.insert(marker_key().to_string(), Value::String(self.get().to_string()));
+        m.insert(
+            marker_key().to_string(),
+            Value::String(self.get().to_string()),
+        );
         Value::Object(m)
     }
 }

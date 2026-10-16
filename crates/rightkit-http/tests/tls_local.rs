@@ -70,6 +70,7 @@ fn loopback_leaf(ca: &Ca) -> Leaf {
 struct TlsServer {
     port: u16,
     stop: Arc<AtomicBool>,
+    #[cfg_attr(not(feature = "async"), allow(dead_code))] // read by the async ALPN test only
     alpn: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -150,6 +151,7 @@ impl TlsServer {
         format!("https://127.0.0.1:{}{}", self.port, path)
     }
 
+    #[cfg_attr(not(feature = "async"), allow(dead_code))]
     fn negotiated(&self) -> Vec<Option<Vec<u8>>> {
         self.alpn.lock().unwrap().clone()
     }
