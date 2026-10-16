@@ -21,6 +21,8 @@ pub fn config(root: &Path) -> Config {
     c.change_coalesce = Duration::from_millis(100);
     // The re-list gate has its own tests; the general suite keeps the ungated timing.
     c.relist_min_interval = Duration::ZERO;
+    // Likewise the rescan cooldown: a kernel drop under parallel test load must repair at once.
+    c.rescan_cooldown = Duration::ZERO;
     c
 }
 

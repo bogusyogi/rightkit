@@ -11,6 +11,21 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Reads at most `max` bytes from the start of a regular file (never follows a final symlink
+/// check beyond `symlink_metadata`). Lives here because this is a module the policy test in
+/// tests/index.rs allows to open files; used only for the bounded `CACHEDIR.TAG` read.
+pub fn read_file_head(path: &Path, max: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => {}
+        _ => return None,
+    }
+    let f = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::with_capacity(max);
+    f.take(max as u64).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
 const SEG_SHIFT: u32 = 24;
 const SEG: usize = 1 << SEG_SHIFT;
 pub const MAX_SEGS: usize = 256;

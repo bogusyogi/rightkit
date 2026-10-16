@@ -20,6 +20,8 @@ mod content;
 mod error;
 mod gate;
 mod index;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod limits;
 mod names;
 mod query;
 mod store;
