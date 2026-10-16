@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"sess-1","parent_tool_use_id":"toolu-parent","tool_name":"Write","tool_input":{"file_path":"src/signin.rs","content":"fn main() {}"}}
