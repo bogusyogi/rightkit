@@ -5845,7 +5845,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",

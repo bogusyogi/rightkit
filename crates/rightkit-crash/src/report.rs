@@ -28,8 +28,10 @@ pub struct CrashReport {
     #[serde(default)]
     pub native_artifacts: Vec<String>,
     /// Set when a native capture was attempted but not kept cleanly, for example
-    /// `sample_publish_failed` (the sample could not be scrubbed and published, so none was kept).
-    /// A fixed code, optionally followed by a leftover raw file's name; never a path or content.
+    /// `sample_scrub_failed` (the sample could not be scrubbed, so the published file holds only
+    /// the `sample withheld: scrub failed` marker) or `sample_publish_failed` (nothing was
+    /// published). A fixed code, optionally followed by a leftover raw directory's name; never a
+    /// path or content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_capture_note: Option<String>,
     /// Which process boundary produced the report (`window`, `engine`, `helper`), when the host

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Privacy fix (#227), macOS native sample: no unscrubbed byte is ever written to the crash folder, the folder a support bundle is built from. `sample` now writes to a private `0700` directory in the OS temp directory (refused if it would fall inside the crash folder) that is deleted on every path; the old hidden `.sample_raw_*.raw` file inside the crash folder is gone. When scrubbing fails (read error, scrubber panic, or a `redact_values` secret still present in the output) the sample is dropped and the `sample_*.txt` file holds only `sample withheld: scrub failed`, with `native_capture_note` set to `sample_scrub_failed` or `sample_read_failed`. If even that file cannot be written the capture returns `None` (`sample_publish_failed`). `prune` and the next capture also sweep stale raw directories from the temp directory and leftover `.sample_raw_*.raw` from 0.3.0 and earlier.
+- Support bundle: `sample_*` text copied under `include_native_dumps` is scrubbed again on the way in (an older release may have left one unscrubbed), written straight from memory to staging, and replaced by the marker if that fails. Windows minidumps are unchanged.
+- Tests (run on every host, not only macOS): fixture with home paths, an email, a token and a bearer credential is scrubbed before it reaches the crash folder; a scrubber panic, a leaky scrubber and an unreadable raw file each yield the marker and never raw text; no file under the crash folder or the temp base holds raw fixture data; raw directory is private, outside the crash folder and deleted; bundle re-scrub test reads the produced ZIP. Breaking: none.
+
 ## 0.3.0
 
 - Requires `rightkit-logs` 0.3.0 (was 0.2.2), so a fresh resolution no longer reaches a release that names renamed-away crates.

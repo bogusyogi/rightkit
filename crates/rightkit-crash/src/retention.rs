@@ -44,10 +44,12 @@ pub fn prune(dir: &Path, retention: Retention) {
     }
 }
 
-/// Removes unscrubbed raw samples (`.sample_raw_*.raw`) older than a few minutes. A capture
-/// deletes its own raw file before it returns, so anything older is a leftover from a crash or a
+/// Removes unscrubbed raw samples older than a few minutes: leftovers `.sample_raw_*.raw` that
+/// releases up to 0.3.0 wrote in `dir`, and stale raw directories in the OS temp directory. A
+/// capture deletes its own raw file before it returns, so anything older is a leftover from a crash or a
 /// failed delete. Best-effort; the name is invisible to every other listing of the folder.
 pub(crate) fn sweep_raw(dir: &Path) {
+    crate::native::sweep_temp_raw();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
