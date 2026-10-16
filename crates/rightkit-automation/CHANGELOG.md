@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+Added `Policy::deny(app_id)`. A denied id is refused by `Policy::check` before the allow list, so it is refused even when it is also allowed. Deny is case-insensitive and returns `Error::Blocked` (`DeniedBy::Policy`).
+
 ## 0.4.0
 
 Breaking (pre-1.0 minor). The generic input code that lived in `rightkit-qa-driver` moved here, so production no longer reaches QA code. Tier 2 is now a trait only.
