@@ -609,9 +609,26 @@ impl OwnedChild {
     /// Windows: if the leader exits within `grace` the result is `Exited` with its status, but
     /// the retained job is terminated first, so descendants that outlived it do not survive.
     pub fn wait_or_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
+        self.wait_or_kill_inner(grace, true)
+    }
+    /// Like [`wait_or_kill`](Self::wait_or_kill) but without the opening TERM on Unix: the
+    /// leader gets the whole `grace` to exit on its own (for example after its stdin was
+    /// closed) before the tree is killed. A leader that exits in time is never signalled, so
+    /// its status is its own; descendants are still killed before the reap. Windows has no
+    /// TERM step, so it behaves exactly like `wait_or_kill`.
+    pub fn wait_then_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
+        self.wait_or_kill_inner(grace, false)
+    }
+    fn wait_or_kill_inner(
+        &mut self,
+        grace: Duration,
+        term_first: bool,
+    ) -> io::Result<WaitOutcome> {
+        #[cfg(not(unix))]
+        let _ = term_first;
         #[cfg(unix)]
         {
-            if !self.tree_terminated {
+            if term_first && !self.tree_terminated {
                 self.signal(libc::SIGTERM)?;
             }
             // Looks without reaping until the leader has exited or the grace has passed.

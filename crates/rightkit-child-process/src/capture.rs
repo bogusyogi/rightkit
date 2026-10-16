@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn finish_within_returns_early_data_while_the_stream_stays_open() {
-        let (mut writer, reader) = std::io::pipe().expect("pipe");
+        let (reader, mut writer) = std::io::pipe().expect("pipe");
         use std::io::Write;
         writer.write_all(b"partial").unwrap();
         let mut capture = OutputCapture::capture(reader, 64);

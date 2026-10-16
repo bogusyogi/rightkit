@@ -643,12 +643,12 @@ impl Session {
         Ok(self.child.try_wait()?)
     }
 
-    /// Close stdin, then stop the whole process tree: polite stop, `grace` (default
+    /// Close stdin, then stop the whole process tree: the CLI gets `grace` (default
     /// `teardown_grace`), forced kill, reap. Descendants the CLI started do not survive.
     pub fn shutdown(mut self, grace: Option<Duration>) -> Result<ExitInfo, SessionError> {
         drop(lock(&self.shared.stdin).take());
         let grace = grace.unwrap_or(self.teardown_grace);
-        Ok(match self.child.wait_or_kill(grace)? {
+        Ok(match self.child.wait_then_kill(grace)? {
             WaitOutcome::Exited(status) => ExitInfo {
                 status,
                 forced: false,

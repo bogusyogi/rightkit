@@ -2,6 +2,8 @@
 
 ## 0.4.1
 
+- **New: `OwnedChild::wait_then_kill(grace)`.** Like `wait_or_kill` but without the opening SIGTERM on Unix: the leader gets the whole grace period to exit on its own (for example on stdin EOF), then the tree is killed. On Windows it is the same as `wait_or_kill`. `rightkit-agents` `Session::shutdown` uses it, so a CLI that exits cleanly on EOF is no longer raced by SIGTERM.
+
 - **Caller-settable process priority (additive, issue #129).** `OwnedCommand::process_priority(ProcessPriority)` selects
   `ProcessPriority::Normal` (the default, which adds nothing to the spawn), `BelowNormal` or `Idle`; the enum is
   `#[non_exhaustive]` and re-exported from the crate root. On Windows, `BelowNormal` adds `BELOW_NORMAL_PRIORITY_CLASS` and
