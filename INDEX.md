@@ -8,11 +8,11 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 31.
+Flagged mismatches: 33.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (59)
+## Rust crates (60)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -45,12 +45,12 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-hotkeys` | crates.io | 0.1.1 | 0.1.0 | 0.1.0 | **MISMATCH staged 0.1.0 != source 0.1.1** | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.1 | 0.3.0 | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.1** | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
 | `rightkit-job-queue` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | persistent-jobs | Persistent job store, runner, and stdio/CLI command contract for Right Suite engines. |
-| `rightkit-license` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |
+| `rightkit-license` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |
 | `rightkit-llm` | crates.io | 0.3.0 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.3.0** | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.3.1 | 0.3.0 | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.1** | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
 | `rightkit-mcp` | crates.io | 0.7.0 | 0.6.0 | 0.6.0 | **MISMATCH staged 0.6.0 != source 0.7.0** | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
 | `rightkit-models` | crates.io | 0.4.1 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.1** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
-| `rightkit-oauth` | crates.io | 0.5.1 | 0.5.0 | 0.5.0 | **MISMATCH staged 0.5.0 != source 0.5.1** | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
+| `rightkit-oauth` | crates.io | 0.6.0 | 0.5.0 | 0.5.0 | **MISMATCH staged 0.5.0 != source 0.6.0** | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.2 | 0.2.2 | 0.2.2 | ok | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
 | `rightkit-onnx` | crates.io | 0.2.5 | 0.2.3 | 0.2.3 | **MISMATCH staged 0.2.3 != source 0.2.5** | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
 | `rightkit-overlay` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
@@ -74,6 +74,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-tts-qwen` | crates.io | 0.2.6 | 0.2.6 | 0.2.6 | ok | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-vad` | crates.io | 0.1.2 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.1.2** | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
+| `rightkit-vault` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | secret-vault | Split-key secret sync for Right Suite apps: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a client-held secret, the blob kept in the user's own cloud app folder. |
 | `rightkit-workflow` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
 ## npm packages (25)

@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 81 (56 with fingerprints, 25 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 82 (56 with fingerprints, 26 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -77,6 +77,7 @@ Capabilities: 81 (56 with fingerprints, 25 declaration-only). Internal owners th
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.0 (crates.io) |
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
 | search | `rightkit-search` | advise | fingerprinted | 9 (0 block, 9 advise) | rightkit-search: published 0.2.1 (crates.io) |
+| secret-vault | `rightkit-vault` | none | declaration-only | 0 | rightkit-vault: none recorded |
 | settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: published 0.2.0 (crates.io) |
 | settings-ui | `@rightkit/settings-ui` | none | declaration-only | 0 | @rightkit/settings-ui: published 0.4.4 (npm) |
 | shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.3.5 (crates.io) |

@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 84 (59 crates, 25 npm packages).
+- Packages in RightKit: 85 (60 crates, 25 npm packages).
 - Packages with at least one app pin: 0.
 - App pins: 0. Stale: 0. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
@@ -54,12 +54,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-hotkeys` | crates.io | 0.1.1 | 0.1.0 | 0 | none | - |
 | `rightkit-http` | crates.io | 0.3.1 | 0.3.0 | 0 | none | - |
 | `rightkit-job-queue` | crates.io | 0.3.1 | 0.3.1 | 0 | none | - |
-| `rightkit-license` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `rightkit-license` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
 | `rightkit-llm` | crates.io | 0.3.0 | 0.2.1 | 0 | none | - |
 | `rightkit-logs` | crates.io | 0.3.1 | 0.3.0 | 0 | none | - |
 | `rightkit-mcp` | crates.io | 0.7.0 | 0.6.0 | 0 | none | - |
 | `rightkit-models` | crates.io | 0.4.1 | 0.3.2 | 0 | none | - |
-| `rightkit-oauth` | crates.io | 0.5.1 | 0.5.0 | 0 | none | - |
+| `rightkit-oauth` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
 | `rightkit-ocr` | crates.io | 0.2.2 | 0.2.2 | 0 | none | - |
 | `rightkit-onnx` | crates.io | 0.2.5 | 0.2.3 | 0 | none | - |
 | `rightkit-overlay` | crates.io | 0.1.1 | 0.1.1 | 0 | none | - |
@@ -83,6 +83,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-tts-qwen` | crates.io | 0.2.6 | 0.2.6 | 0 | none | - |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
 | `rightkit-vad` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
+| `rightkit-vault` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `@rightkit/app-update` | npm | 0.2.5 | 0.2.5 | 0 | none | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | - |

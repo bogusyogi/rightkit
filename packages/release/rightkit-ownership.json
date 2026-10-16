@@ -3085,6 +3085,17 @@
       ]
     },
     {
+      "package": "rightkit-vault",
+      "capability": "secret-vault",
+      "summary": "Split-key secret vault: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a device-held client secret, blob kept in the user's own cloud app folder; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-workflow",
       "capability": "scenario-runtime",
       "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
