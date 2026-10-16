@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+**Why:** MailRight (bogusyogi/mailright#8) found `ChildScope` (0.3.0) could not express its thread predicates (Orthic-Labs/rightkit#166). **0.x breaking, in the narrow sense below; existing `ChildScope::new` / `Schema::scope` callers compile and behave unchanged.** Not compiled or run locally; CI is the compiler.
+
+- **Breaking (source):** `ChildScope` gained public fields (`negated_text_like`, `op_sources`), so a struct-literal `ChildScope { from, link }` no longer compiles; use `ChildScope::new`. `Binding`, `ValueKind` and `CompileError` gained variants and are not `#[non_exhaustive]`, so an exhaustive `match` over them in a caller needs new arms. With none of the new items used, the compiled SQL and params are byte-identical to 0.3.0.
+- **New `Binding::SqlMulti { sql, kinds }`:** a fragment with one `?` per entry of `kinds`; the operator value is converted by each kind and bound in order (e.g. a recipient `EXISTS` matching an address prefix or an `@domain` suffix). `Binding::Sql` (exactly one `?`) is unchanged. A `?` count different from `kinds.len()` is `CompileError::BindCount`; a `?` inside a SQL string literal is not supported.
+- **New `ValueKind::Prefix` (`value%`) and `ValueKind::Suffix` (`%value`):** `LIKE` patterns with `%`, `_` and `\` in the value escaped (use `ESCAPE '\'` in the SQL), like `Contains`.
+- **New `ChildScope::negated_text_like(&[columns])`:** in a scope, a negated free-text term drops the parent when any listed column `LIKE`s the term (contains, escaped) or the FTS table matches it: one `NOT EXISTS` per term with one bind per column plus one for FTS (subject LIKE, snippet LIKE, FTS MATCH = three). Default (no columns) is the 0.3.0 FTS-only behaviour.
+- **New `ChildScope::op_source(op, from, link)` and `OpSource`:** an operator whose columns live in another child table (`-label:` over `thread_labels`) is evaluated over its own source: `-op:` becomes `NOT EXISTS (SELECT 1 FROM <from> WHERE <link> AND ...)`, and positive `op:` terms share one `EXISTS` over that source. Any number of sources; each operator maps to one. Using such an operator inside an OR group is `CompileError::OpSourceInOrGroup` (it cannot be expressed across sources).
+- **All values stay bound parameters;** only the static fragments supplied by the schema are in the SQL text.
+- **Tests:** `tests/scope_e2e.rs` (multi-bind, three-way negated text, negation and positive terms over a second child table, mixed negation sources, error cases, injection-shaped and wildcard values). Also fixed the pre-existing `unscoped_schema_is_unchanged` expectation, whose Rust string literal had a single backslash (`'\'`, which is just `'`) instead of `'\\'`.
+
 ## 0.3.0
 
 **Behaviour change: folding is now Unicode default case folding (fold version 2).** Nothing here was compiled or run locally; verification is the CI run.

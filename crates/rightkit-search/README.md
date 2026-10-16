@@ -30,6 +30,10 @@ Illustrative; not compiled as a doctest. For compiled usage against a real SQLit
 // that maps the app's searchable fields to columns or an FTS5 table.
 ```
 
+## Parent/child scope (threads over messages)
+
+`Schema::scope(ChildScope::new("messages m", "m.thread_id = t.id"))` makes bindings describe the child row while the `WHERE` body filters the parent: positive terms co-occur in one child (`EXISTS`), each negated term is its own `NOT EXISTS`. Refinements (0.4.0): `.negated_text_like(&["m.subject", "m.snippet"])` makes negated free text also `LIKE`-match those columns besides FTS; `.op_source("label", "thread_labels l", "l.thread_id = t.id")` evaluates an operator over another child table; `Binding::SqlMulti { sql, kinds }` binds one operator value to several `?` (with `ValueKind::Prefix`/`Suffix`). See `tests/scope_e2e.rs`.
+
 ## Paging, substring matching and bounded scans
 
 Three additions for paging and free-text search, all in 0.2.1. Each is purely additive. Shared pieces are the query syntax (`Query`), operator filters (`Schema`), `Keyset`/`Cursor`, and `Span`. What differs by backend is how free text is evaluated.

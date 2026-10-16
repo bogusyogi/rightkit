@@ -29,5 +29,5 @@ pub use fold::{check_fold_version, fold, fold_with, FoldOptions, RebuildNeeded, 
 pub use matcher::{MatchError, Snippet, TextMatcher};
 pub use page::{Cursor, CursorError, Keyset, PagedSql};
 pub use scan::{read_text_prefix, scan_page, ScanBudget, ScanPage};
-pub use sql::{Binding, ChildScope, CompileError, Compiled, Param, Schema, ValueKind};
+pub use sql::{Binding, ChildScope, CompileError, Compiled, OpSource, Param, Schema, ValueKind};
 pub use terms::{OpTerm, Query};

@@ -31,6 +31,10 @@ pub enum ValueKind {
     Text,
     /// `%value%` for `LIKE` (wildcards in the value are escaped; SQL uses `ESCAPE`).
     Contains,
+    /// `value%` for `LIKE` (wildcards in the value are escaped; SQL uses `ESCAPE`).
+    Prefix,
+    /// `%value` for `LIKE` (wildcards in the value are escaped; SQL uses `ESCAPE`).
+    Suffix,
     /// Plain integer.
     Int,
     /// `5k`/`2m`/`1g` bytes.
@@ -57,6 +61,17 @@ pub enum Binding {
     },
     /// Arbitrary fragment containing exactly one `?` (e.g. a subquery).
     Sql { sql: &'static str, kind: ValueKind },
+    /// Arbitrary fragment with one `?` per entry of `kinds`, in order. The same
+    /// operator value is converted by each kind and bound to its `?`, so one
+    /// predicate can match a prefix and a `@domain` suffix, for example
+    /// `EXISTS (SELECT 1 FROM r WHERE r.m = m.id AND (r.addr LIKE ? ESCAPE '\' OR r.addr LIKE ? ESCAPE '\'))`
+    /// with `kinds: &[ValueKind::Prefix, ValueKind::Suffix]`. A `?` inside a SQL
+    /// string literal is not allowed (the count is checked textually); a count
+    /// mismatch is [`CompileError::BindCount`].
+    SqlMulti {
+        sql: &'static str,
+        kinds: &'static [ValueKind],
+    },
     /// `value -> fragment` table without parameters (`is:unread`).
     Flags(&'static [(&'static str, &'static str)]),
 }
@@ -66,6 +81,15 @@ pub enum CompileError {
     UnboundOperator(String),
     BadValue { op: String, value: String },
     NoFtsTable,
+    /// A [`Binding::SqlMulti`] fragment has a different number of `?` than `kinds`.
+    BindCount {
+        op: String,
+        expected: usize,
+        found: usize,
+    },
+    /// An operator with its own [`OpSource`] was used inside an OR group, which
+    /// cannot be expressed across different child sources.
+    OpSourceInOrGroup(String),
 }
 
 impl fmt::Display for CompileError {
@@ -74,6 +98,18 @@ impl fmt::Display for CompileError {
             Self::UnboundOperator(op) => write!(f, "operator \"{op}\" has no column binding"),
             Self::BadValue { op, value } => write!(f, "invalid value \"{value}\" for \"{op}:\""),
             Self::NoFtsTable => write!(f, "free-text search requires an FTS table in the schema"),
+            Self::BindCount {
+                op,
+                expected,
+                found,
+            } => write!(
+                f,
+                "operator \"{op}\" binding has {found} placeholders but {expected} value kinds"
+            ),
+            Self::OpSourceInOrGroup(op) => write!(
+                f,
+                "operator \"{op}\" has its own child source and cannot appear in an OR group"
+            ),
         }
     }
 }
@@ -98,28 +134,73 @@ pub struct Fts {
 ///   term, so a parent is dropped when any child matches the un-negated term.
 ///
 /// Real OR groups stay inside the positive `EXISTS` (one child satisfies the group).
+///
+/// Optional refinements (builder methods, all default to the behaviour above):
+/// - [`ChildScope::negated_text_like`]: a negated free-text term excludes a parent
+///   when any listed column `LIKE`s the term **or** the FTS table matches it
+///   (one `?` per column plus one for FTS).
+/// - [`ChildScope::op_source`]: an operator whose columns live in a different child
+///   table (`-label:` over `thread_labels`) gets its own `EXISTS`/`NOT EXISTS`
+///   over that source. Positive terms of that operator share one `EXISTS` per source.
+///   Several sources may be registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChildScope {
     /// Child row source with its alias, e.g. `"messages m"`.
     pub from: &'static str,
     /// Correlation predicate to the parent row, e.g. `"m.thread_id = t.id"`.
     pub link: &'static str,
+    /// Columns a negated free-text term is `LIKE`-matched against in addition to FTS.
+    pub negated_text_like: Vec<&'static str>,
+    /// Operators evaluated over a different child source than `from`.
+    pub op_sources: Vec<OpSource>,
+}
+
+/// A child source for one operator; see [`ChildScope::op_source`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpSource {
+    /// Operator name as bound with [`Schema::bind`].
+    pub op: &'static str,
+    /// Child row source with its alias, e.g. `"thread_labels l"`.
+    pub from: &'static str,
+    /// Correlation predicate to the parent row, e.g. `"l.thread_id = t.id"`.
+    pub link: &'static str,
 }
 
 impl ChildScope {
     pub fn new(from: &'static str, link: &'static str) -> Self {
-        Self { from, link }
+        Self {
+            from,
+            link,
+            negated_text_like: Vec::new(),
+            op_sources: Vec::new(),
+        }
     }
 
-    fn exists(&self, negated: bool, conds: &[String]) -> String {
-        let not = if negated { "NOT " } else { "" };
-        format!(
-            "{not}EXISTS (SELECT 1 FROM {} WHERE {} AND {})",
-            self.from,
-            self.link,
-            conds.join(" AND ")
-        )
+    /// Negated free text also excludes a parent when any of `columns` `LIKE`s the
+    /// term (contains, wildcards escaped), besides the FTS match.
+    pub fn negated_text_like(mut self, columns: &[&'static str]) -> Self {
+        self.negated_text_like = columns.to_vec();
+        self
     }
+
+    /// Evaluate operator `op` over its own child source (its binding's columns
+    /// must belong to `from`).
+    pub fn op_source(mut self, op: &'static str, from: &'static str, link: &'static str) -> Self {
+        self.op_sources.push(OpSource { op, from, link });
+        self
+    }
+
+    fn source_index(&self, op: &str) -> Option<usize> {
+        self.op_sources.iter().position(|s| s.op == op)
+    }
+}
+
+fn exists_over(from: &str, link: &str, negated: bool, conds: &[String]) -> String {
+    let not = if negated { "NOT " } else { "" };
+    format!(
+        "{not}EXISTS (SELECT 1 FROM {from} WHERE {link} AND {})",
+        conds.join(" AND ")
+    )
 }
 
 #[derive(Debug, Clone, Default)]
@@ -190,7 +271,14 @@ impl Schema {
         let mut clauses: Vec<String> = Vec::new();
         let mut params: Vec<Param> = Vec::new();
         // Scoped mode only: each negated term as `(un-negated clause, params)`.
-        let mut scoped_neg: Vec<(String, Vec<Param>)> = Vec::new();
+        // The source index is `Some(i)` for an operator with its own [`OpSource`].
+        let mut scoped_neg: Vec<(Option<usize>, String, Vec<Param>)> = Vec::new();
+        // Scoped mode only: positive terms of operators with their own source, per source.
+        let mut source_pos: Vec<(Vec<String>, Vec<Param>)> = self
+            .scope
+            .as_ref()
+            .map(|s| s.op_sources.iter().map(|_| (Vec::new(), Vec::new())).collect())
+            .unwrap_or_default();
         let scoped = self.scope.is_some();
 
         let fts_match = q.fts();
@@ -199,18 +287,44 @@ impl Schema {
             clauses.push(fts_clause(fts, false));
             params.push(Param::Text(expr.clone()));
         }
-        for neg in q.fts_negated() {
+        // `fts_negated` keeps exactly the terms with an alphanumeric character, in order.
+        let neg_raw = q
+            .negated_text
+            .iter()
+            .filter(|t| t.chars().any(char::is_alphanumeric));
+        for (raw, neg) in neg_raw.zip(q.fts_negated()) {
             let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
-            if scoped {
-                scoped_neg.push((fts_clause(fts, false), vec![Param::Text(neg)]));
+            if let Some(scope) = &self.scope {
+                let mut parts: Vec<String> = Vec::new();
+                let mut p: Vec<Param> = Vec::new();
+                for col in &scope.negated_text_like {
+                    parts.push(format!("{col} LIKE ? ESCAPE '\\'"));
+                    p.push(Param::Text(format!("%{}%", escape_like(raw))));
+                }
+                parts.push(fts_clause(fts, false));
+                p.push(Param::Text(neg));
+                scoped_neg.push((None, parts.join(" OR "), p));
             } else {
                 clauses.push(fts_clause(fts, true));
                 params.push(Param::Text(neg));
             }
         }
         for term in &q.ops {
+            if let Some(scope) = &self.scope {
+                if let Some(i) = scope.source_index(&term.op) {
+                    let (sql, p) = self.term_core(term, now)?;
+                    if term.negated {
+                        scoped_neg.push((Some(i), sql, p));
+                    } else {
+                        source_pos[i].0.push(format!("({sql})"));
+                        source_pos[i].1.extend(p);
+                    }
+                    continue;
+                }
+            }
             if scoped && term.negated {
-                scoped_neg.push(self.term_core(term, now)?);
+                let (sql, p) = self.term_core(term, now)?;
+                scoped_neg.push((None, sql, p));
                 continue;
             }
             let (sql, p) = self.term_sql(term, now)?;
@@ -228,6 +342,11 @@ impl Schema {
                         vec![Param::Text(fts_term(&term.value, term.is_phrase))],
                     )
                 } else {
+                    if let Some(scope) = &self.scope {
+                        if scope.source_index(&term.op).is_some() {
+                            return Err(CompileError::OpSourceInOrGroup(term.op.clone()));
+                        }
+                    }
                     self.term_sql(term, now)?
                 };
                 parts.push(sql);
@@ -239,11 +358,21 @@ impl Schema {
             let mut parent: Vec<String> = Vec::new();
             let mut parent_params: Vec<Param> = Vec::new();
             if !clauses.is_empty() {
-                parent.push(scope.exists(false, &clauses));
+                parent.push(exists_over(scope.from, scope.link, false, &clauses));
                 parent_params.extend(params);
             }
-            for (sql, p) in scoped_neg {
-                parent.push(scope.exists(true, &[format!("({sql})")]));
+            for (src, (conds, p)) in scope.op_sources.iter().zip(source_pos) {
+                if !conds.is_empty() {
+                    parent.push(exists_over(src.from, src.link, false, &conds));
+                    parent_params.extend(p);
+                }
+            }
+            for (src, sql, p) in scoped_neg {
+                let (from, link) = match src {
+                    Some(i) => (scope.op_sources[i].from, scope.op_sources[i].link),
+                    None => (scope.from, scope.link),
+                };
+                parent.push(exists_over(from, link, true, &[format!("({sql})")]));
                 parent_params.extend(p);
             }
             params = parent_params;
@@ -298,6 +427,21 @@ impl Schema {
                 (*sql).to_string(),
                 vec![convert(*kind, &term.value, now).ok_or_else(bad)?],
             ),
+            Binding::SqlMulti { sql, kinds } => {
+                let found = sql.matches('?').count();
+                if found != kinds.len() {
+                    return Err(CompileError::BindCount {
+                        op: term.op.clone(),
+                        expected: kinds.len(),
+                        found,
+                    });
+                }
+                let mut ps = Vec::with_capacity(kinds.len());
+                for kind in *kinds {
+                    ps.push(convert(*kind, &term.value, now).ok_or_else(bad)?);
+                }
+                ((*sql).to_string(), ps)
+            }
             Binding::Flags(table) => {
                 let lower = term.value.to_ascii_lowercase();
                 let frag = table
@@ -345,6 +489,8 @@ fn convert(kind: ValueKind, value: &str, now: i64) -> Option<Param> {
     Some(match kind {
         ValueKind::Text => Param::Text(value.to_string()),
         ValueKind::Contains => Param::Text(format!("%{}%", escape_like(value))),
+        ValueKind::Prefix => Param::Text(format!("{}%", escape_like(value))),
+        ValueKind::Suffix => Param::Text(format!("%{}", escape_like(value))),
         ValueKind::Int => Param::Int(value.trim().parse().ok()?),
         ValueKind::SizeBytes => Param::Int(parse_size_bytes(value)?),
         ValueKind::DateMs => Param::Int(parse_date_ms(value)?),
