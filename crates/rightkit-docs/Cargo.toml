@@ -33,12 +33,12 @@ rust_xlsxwriter = "0.99.1"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 # Same quick-xml line as calamine.
 quick-xml = "0.41.0"
-serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.20"
-sha2 = "0.11.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+sha2 = "0.11.1"
 
 [dev-dependencies]
-serde_json = "1.0.150"
+serde_json = "1.0.154"
 # Fault seam around the replace call (debug and test builds only).
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
 

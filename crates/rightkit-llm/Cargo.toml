@@ -19,8 +19,8 @@ cli = ["dep:rightkit-child-process"]
 [dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip"] }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [dev-dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip", "testing"] }

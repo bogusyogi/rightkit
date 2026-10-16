@@ -11,14 +11,14 @@
   "sideEffects": false,
   "peerDependencies": { "react": ">=18 <21" },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.1.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "jsdom": "^25.0.1",
-    "react": "^19.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^2.1.8"
+    "react": "^19.3.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

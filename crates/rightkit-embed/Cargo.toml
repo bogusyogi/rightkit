@@ -23,8 +23,8 @@ bench-internals = ["inference"]
 rightkit-db = { version = "0.4", path = "../rightkit-db", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", features = ["half"], optional = true }
-rusqlite = { version = "0.40.1", default-features = false, optional = true }
-serde_json = { version = "1.0.150", optional = true }
+rusqlite = { version = "0.40.2", default-features = false, optional = true }
+serde_json = { version = "1.0.154", optional = true }
 thiserror = "2"
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
 
@@ -36,7 +36,7 @@ objc2-core-ml = { version = "0.3", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
 
 [dev-dependencies]
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 tempfile = "3"
 
 [package.metadata.rightkit]

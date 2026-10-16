@@ -25,11 +25,11 @@ name = "rightkit-credentials"
 path = "src/bin/rightkit-credentials.rs"
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 thiserror = "2"
 getrandom = "0.3"
-zeroize = "1.8"
+zeroize = "1.9"
 rightkit-app-settings = { version = "0.2.0", path = "../rightkit-app-settings", optional = true }
 
 [target.'cfg(windows)'.dependencies]

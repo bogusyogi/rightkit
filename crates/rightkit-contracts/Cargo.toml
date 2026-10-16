@@ -27,8 +27,8 @@ default = ["schema"]
 schema = ["dep:jsonschema"]
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 # Draft 2020-12 validation. Default features are off: the schemas are embedded
 # and reference only themselves, so the crate never resolves a remote URI or
 # pulls the HTTP or TLS stack.

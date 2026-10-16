@@ -17,8 +17,8 @@ sqlite = ["dep:rusqlite"]
 filename-index = []
 
 [dependencies]
-rusqlite = { version = "0.40.1", default-features = false, optional = true }
+rusqlite = { version = "0.40.2", default-features = false, optional = true }
 
 [dev-dependencies]
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 tempfile = "3"

@@ -44,13 +44,13 @@ rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["gzi
 rightkit-credentials = { path = "../rightkit-credentials", version = "0.2.0", optional = true }
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.4.0", optional = true }
 getrandom = "0.3"
-serde_json = "1.0.150"
+serde_json = "1.0.154"
 sha2 = "0.10.9"
 
 ring = { version = "0.17", optional = true }
 url = { version = "2.5", optional = true }
-zeroize = { version = "1.8", optional = true }
-serde = { version = "1.0.228", features = ["derive"], optional = true }
+zeroize = { version = "1.9", optional = true }
+serde = { version = "1.0.229", features = ["derive"], optional = true }
 axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
 

@@ -19,12 +19,12 @@ capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-co
 
 [dependencies]
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3", default-features = false }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 thiserror = "2"
 hound = "3"
 cpal = { version = "0.18.2", optional = true }
-rubato = { version = "5.0.0", optional = true }
+rubato = { version = "5.0.1", optional = true }
 ringbuf = { version = "0.5", optional = true }
 tracing = { version = "0.1", optional = true }
 

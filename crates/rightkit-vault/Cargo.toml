@@ -14,12 +14,12 @@ include = ["src/**", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICE
 [dependencies]
 rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
 rightkit-http = { version = "0.3.1", path = "../rightkit-http" }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 thiserror = "2"
 # Same primitives as rightkit-sync's `cipher` module: ChaCha20-Poly1305 and HKDF-SHA256 from ring.
 ring = "0.17"
-zeroize = "1.8"
+zeroize = "1.9"
 base64 = "0.22"
 
 [package.metadata.rightkit]

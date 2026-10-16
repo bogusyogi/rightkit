@@ -34,8 +34,8 @@ vulkan = ["engine", "qts/vulkan"]
 dev-overrides = ["rightkit-onnx?/dev-overrides"]
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"], optional = true }
-serde_json = { version = "1.0.150", optional = true }
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "1.0.154", optional = true }
 thiserror = { version = "2", optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-onnx = { version = "0.2.5", path = "../rightkit-onnx", default-features = false, optional = true }
