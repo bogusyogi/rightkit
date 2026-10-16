@@ -47,14 +47,13 @@
 //! - Key unavailable (provider error, or a record sealed with a key version the provider does
 //!   not have): the call fails with a retryable error and the change cursor does not advance,
 //!   so nothing is skipped; the pass resumes from the same page once the key arrives.
-//! - Compacted tombstone (no `enc`, a `deletedAt` date): the server may strip the body of an
-//!   old tombstone (`packages/sync-worker`). `EncryptingBackend` passes it through as a
-//!   tombstone carrying only `updatedAt` and `deletedAt`; the engine takes the record name as
-//!   the id (`read_tombstone`), which is right unless the record had a legacy alias. Trade-off:
-//!   a server (or an attacker who controls it) can therefore delete records on clients by
-//!   serving a tombstone without `enc`. It could already withhold them; this is the one
-//!   place encryption does not authenticate a deletion. Counted in
-//!   [`CipherStats::compacted_tombstones`].
+//! - Tombstone without `enc` (a `deletedAt` date but no sealed field): quarantined like any
+//!   other unauthenticated record, never passed through as a deletion. A server may drop the
+//!   out-of-line body of an old tombstone when it compacts (`packages/sync-worker`) but must
+//!   keep the sealed `enc`, so every honest tombstone still authenticates. A tombstone
+//!   without `enc` therefore cannot come from an honest server; it could be a forged
+//!   deletion, and no client acts on it. Every deletion a client applies is authenticated.
+//!   Counted in [`CipherStats::unauthenticated_tombstones`].
 //! - Corrupt ciphertext (authentication failure under a held key version, or broken framing,
 //!   or a record without `enc` that is not a tombstone): the record is quarantined. It is returned as a shell with no
 //!   fields (never a tombstone), so the mapper rejects it and the engine counts it and moves
@@ -551,8 +550,9 @@ pub struct CipherStats {
     pub malformed: u64,
     /// Downloads that failed because a key or key version was not available.
     pub key_unavailable: u64,
-    /// Tombstones without `enc` passed through as deletions (server-side compaction).
-    pub compacted_tombstones: u64,
+    /// Tombstones (a `deletedAt` date) that carried no sealed field, quarantined because a
+    /// deletion without `enc` cannot be authenticated. Not also counted in `malformed`.
+    pub unauthenticated_tombstones: u64,
 }
 
 #[derive(Default)]
@@ -562,7 +562,7 @@ struct Counters {
     authentication_failed: AtomicU64,
     malformed: AtomicU64,
     key_unavailable: AtomicU64,
-    compacted_tombstones: AtomicU64,
+    unauthenticated_tombstones: AtomicU64,
 }
 
 struct NullEvents;
@@ -604,18 +604,20 @@ impl EncryptingBackend {
             authentication_failed: c.authentication_failed.load(Ordering::Relaxed),
             malformed: c.malformed.load(Ordering::Relaxed),
             key_unavailable: c.key_unavailable.load(Ordering::Relaxed),
-            compacted_tombstones: c.compacted_tombstones.load(Ordering::Relaxed),
+            unauthenticated_tombstones: c.unauthenticated_tombstones.load(Ordering::Relaxed),
         }
     }
 
     /// Open one record for the engine. Key problems fail the call (retryable, cursor stays);
     /// corrupt records become a field-less shell the mapper rejects.
     fn open_record(&self, record: RawRecord) -> SyncResult<RawRecord> {
-        if let Some(tombstone) = compacted_tombstone(&record) {
+        if is_unsealed_tombstone(&record) {
             self.counters
-                .compacted_tombstones
+                .unauthenticated_tombstones
                 .fetch_add(1, Ordering::Relaxed);
-            return Ok(tombstone);
+            self.observer
+                .event("cipher_tombstone_unauthenticated", &record.record_name);
+            return Ok(shell(record));
         }
         match self.cipher.open(&record) {
             Ok(opened) => {
@@ -656,26 +658,15 @@ impl EncryptingBackend {
     }
 }
 
-/// A record with no sealed field and a `deletedAt` date: a tombstone whose body the server
-/// compacted away. Returns it reduced to `updatedAt` and `deletedAt`.
-fn compacted_tombstone(record: &RawRecord) -> Option<RawRecord> {
-    if record.fields.contains_key(ENC_FIELD) {
-        return None;
-    }
-    let deleted = record.fields.get(field::DELETED_AT)?.as_date_ms()?;
-    let mut fields = BTreeMap::new();
-    fields.insert(field::DELETED_AT.to_string(), FieldValue::Date(deleted));
-    if let Some(updated) = record.fields.get(field::UPDATED_AT).and_then(FieldValue::as_date_ms) {
-        fields.insert(field::UPDATED_AT.to_string(), FieldValue::Date(updated));
-    }
-    Some(RawRecord {
-        record_type: record.record_type.clone(),
-        record_name: record.record_name.clone(),
-        fields,
-        modified_ms: None,
-        created_ms: None,
-        change_tag: record.change_tag.clone(),
-    })
+/// A record with no sealed field and a `deletedAt` date: a deletion nothing authenticates.
+/// It is quarantined, never applied.
+fn is_unsealed_tombstone(record: &RawRecord) -> bool {
+    !record.fields.contains_key(ENC_FIELD)
+        && record
+            .fields
+            .get(field::DELETED_AT)
+            .and_then(FieldValue::as_date_ms)
+            .is_some()
 }
 
 /// A record the mapper must reject: identity and change tag only, no fields (so no

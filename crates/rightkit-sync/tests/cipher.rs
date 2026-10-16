@@ -420,7 +420,7 @@ fn a_forged_tombstone_on_a_sealed_record_does_not_delete_local_data() {
 }
 
 #[test]
-fn a_compacted_tombstone_without_enc_is_a_deletion_not_a_quarantine() {
+fn a_tombstone_without_enc_is_quarantined_and_the_local_record_survives() {
     let zone = MemoryBackend::new();
     let k = keys(1, 7);
     let mut a = device(enc_backend(&zone, k.clone()), false);
@@ -434,22 +434,44 @@ fn a_compacted_tombstone_without_enc_is_a_deletion_not_a_quarantine() {
     a.local.delete("n1");
     a.engine.note_deleted("n1").unwrap();
     a.pass();
-    // The server compacts the tombstone: body gone, ordering fields kept.
-    let mut compacted = zone.record("n1").unwrap();
-    assert!(compacted.date_ms("deletedAt").is_some());
-    compacted.fields.remove(ENC_FIELD);
-    zone.put_record(compacted);
+    // A server strips the sealed field of the tombstone: ordering fields kept, no `enc`.
+    let mut stripped = zone.record("n1").unwrap();
+    assert!(stripped.date_ms("deletedAt").is_some());
+    stripped.fields.remove(ENC_FIELD);
+    zone.put_record(stripped);
+
+    let r = b.pass();
+    assert_eq!(r.quarantined, 1);
+    assert_eq!(r.tombstones_applied, 0);
+    assert_eq!(b.local.text("n1").as_deref(), Some("one"), "the local record survives");
+    let s = backend_b.stats();
+    assert_eq!(s.unauthenticated_tombstones, 1);
+    assert_eq!(s.malformed, 0, "counted once, under its own reason");
+}
+
+#[test]
+fn a_tombstone_that_keeps_enc_through_compaction_is_an_authenticated_deletion() {
+    let zone = MemoryBackend::new();
+    let k = keys(1, 7);
+    let mut a = device(enc_backend(&zone, k.clone()), false);
+    let backend_b = enc_backend(&zone, k);
+    let mut b = device(backend_b.clone(), false);
+    a.local.put("n1", "one", 100, 100);
+    a.pass();
+    b.pass();
+    assert_eq!(b.local.len(), 1);
+
+    a.local.delete("n1");
+    a.engine.note_deleted("n1").unwrap();
+    a.pass();
+    // Compaction keeps the sealed `enc` on the tombstone (only out-of-line bodies go).
+    let kept = zone.record("n1").unwrap();
+    assert!(kept.date_ms("deletedAt").is_some());
+    assert!(kept.fields.contains_key(ENC_FIELD));
 
     let r = b.pass();
     assert_eq!(r.quarantined, 0);
     assert_eq!(r.tombstones_applied, 1);
     assert_eq!(b.local.len(), 0);
-    assert_eq!(backend_b.stats().compacted_tombstones, 1);
-
-    // A device that never saw the record also takes the deletion without noise.
-    let mut c = device(enc_backend(&zone, keys(1, 7)), false);
-    c.local.put("n1", "late copy", 100, 100);
-    let r = c.pass();
-    assert_eq!(r.quarantined, 0);
-    assert_eq!(c.local.len(), 0, "tombstone wins over a local copy");
+    assert_eq!(backend_b.stats().unauthenticated_tombstones, 0);
 }

@@ -100,7 +100,7 @@ fn devices_converge_over_http_and_the_server_holds_only_ciphertext() {
 }
 
 #[test]
-fn a_replay_after_server_compaction_takes_compacted_tombstones_as_deletions() {
+fn a_replay_after_server_compaction_that_keeps_enc_is_an_authenticated_deletion() {
     let server = FakeServer::start(&[("tok", "acct")]);
     let eb = stack(&server, Tok::new("tok"), keys());
     let mut a = device(stack(&server, Tok::new("tok"), keys()), false);
@@ -114,24 +114,57 @@ fn a_replay_after_server_compaction_takes_compacted_tombstones_as_deletions() {
     a.local.delete("n1");
     a.engine.note_deleted("n1").unwrap();
     assert_eq!(a.pass().outcome, PassOutcome::Synced);
-    // The server drops the tombstone's body and raises its compaction floor above B's cursor.
+    // The server compacts: it raises its floor above B's cursor and keeps the sealed `enc`.
     server.compact_tombstone("acct", "notes", "n1");
     let compacted = server.record("acct", "notes", "n1").unwrap();
-    assert!(compacted["enc"].is_null());
+    assert!(compacted["enc"].is_string());
 
     // B's cursor is now below the floor (410 token_expired): the engine replays from the
-    // start, and the compacted tombstone arrives without `enc`.
+    // start, and the tombstone authenticates and applies as a deletion.
     let r = b.pass();
     assert_eq!(r.outcome, PassOutcome::Synced, "{r:?}");
     assert_eq!(r.quarantined, 0);
     assert_eq!(b.local.snapshot(), vec![("n2".to_string(), "two".to_string())]);
-    assert_eq!(eb.stats().compacted_tombstones, 1);
+    assert_eq!(eb.stats().unauthenticated_tombstones, 0);
 
     // A fresh device replays the same history and ends in the same place.
     let mut c = device(stack(&server, Tok::new("tok"), keys()), false);
     let r = c.pass();
     assert_eq!(r.quarantined, 0);
     assert_eq!(c.local.snapshot(), vec![("n2".to_string(), "two".to_string())]);
+}
+
+#[test]
+fn a_tombstone_served_without_enc_is_quarantined_and_the_local_record_survives() {
+    let server = FakeServer::start(&[("tok", "acct")]);
+    let eb = stack(&server, Tok::new("tok"), keys());
+    let mut a = device(stack(&server, Tok::new("tok"), keys()), false);
+    let mut b = device(eb.clone(), false);
+    a.local.put("n1", "one", 100, 100);
+    a.local.put("n2", "two", 101, 101);
+    a.pass();
+    b.pass();
+    assert_eq!(b.local.len(), 2);
+
+    a.local.delete("n1");
+    a.engine.note_deleted("n1").unwrap();
+    assert_eq!(a.pass().outcome, PassOutcome::Synced);
+    // A server that strips the sealed body of a tombstone forges an unauthenticated deletion.
+    server.strip_tombstone_enc("acct", "notes", "n1");
+    assert!(server.record("acct", "notes", "n1").unwrap()["enc"].is_null());
+
+    let r = b.pass();
+    assert_eq!(r.outcome, PassOutcome::Synced, "{r:?}");
+    assert_eq!(r.quarantined, 1);
+    assert_eq!(r.tombstones_applied, 0);
+    assert_eq!(
+        b.local.snapshot(),
+        vec![
+            ("n1".to_string(), "one".to_string()),
+            ("n2".to_string(), "two".to_string())
+        ]
+    );
+    assert_eq!(eb.stats().unauthenticated_tombstones, 1);
 }
 
 #[test]

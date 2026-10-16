@@ -136,7 +136,10 @@ pub struct HttpBackendConfig {
     pub base_url: String,
     /// Zone name, `[A-Za-z0-9._-]{1,64}`.
     pub zone: String,
-    /// Records per save call (the server accepts at most 100).
+    /// Records per save call. Default 40, the `max_save_records` of a server on the Cloudflare
+    /// free plan (a paid-plan server accepts up to 100, the protocol maximum). A server
+    /// advertises its own cap as `max_save_records` in the health response; `health()` does
+    /// not read it, so set this to at most that value when the server has a lower one.
     pub max_batch: usize,
     /// Records per changes page (the server caps it at 200).
     pub page_limit: usize,
@@ -149,7 +152,7 @@ impl HttpBackendConfig {
         Self {
             base_url: base_url.into(),
             zone: zone.into(),
-            max_batch: 100,
+            max_batch: 40,
             page_limit: 200,
             request_timeout: None,
         }
@@ -427,18 +430,12 @@ impl Backend for HttpBackend {
         {
             records.push(record_from_wire(v)?);
         }
-        let deleted_record_names = body
-            .get("deleted_record_names")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
+        // `deleted_record_names` is deliberately ignored: in this protocol a deletion is a
+        // tombstone record, which `EncryptingBackend` authenticates. A bare name list cannot
+        // be authenticated, so honouring it would let a server delete records on clients.
         Ok(ChangePage {
             records,
-            deleted_record_names,
+            deleted_record_names: Vec::new(),
             new_token: body
                 .get("new_token")
                 .and_then(Value::as_str)

@@ -25,6 +25,8 @@ Always: `serde`, `serde_json`, and `rightkit-fs` (`fs` feature, for the durable 
 
 A provider that encrypts (`HttpBackend` + `EncryptingBackend`) must run its engine with `SyncConfig::require_consent_on_scope_change` (`http::sync_config()` sets it) and an `account_scope` that includes the key id. Plaintext downloaded records the engine could not apply yet are kept in the ledger's `pending_apply`; the ledger file is owner-only but not encrypted.
 
+Every deletion an encrypting client applies is authenticated: a tombstone the server serves without its sealed `enc` is quarantined (counted in `CipherStats::unauthenticated_tombstones`), never applied. A server may compact tombstones but must keep their `enc`. `HttpBackend::max_batch` defaults to 40 (the Cloudflare free-plan save cap); raise it only up to the server's `max_save_records`.
+
 ## Platform support
 
 - macOS: the CloudKit helper backend. The helper is a separate Swift binary.

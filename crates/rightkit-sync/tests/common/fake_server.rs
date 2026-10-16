@@ -117,7 +117,9 @@ impl FakeServer {
             .unwrap_or_default()
     }
 
-    /// Server-side compaction of a tombstone: drop its body and raise the floor to its seq.
+    /// Server-side compaction of a tombstone as the spec requires: the sealed `enc` stays
+    /// (only an out-of-line body would be dropped, and this fake keeps `enc` inline), and the
+    /// floor rises to its seq.
     pub fn compact_tombstone(&self, account: &str, zone: &str, name: &str) {
         let mut st = self.state.lock().unwrap();
         let z = st
@@ -126,6 +128,19 @@ impl FakeServer {
             .expect("zone");
         let r = z.records.get_mut(name).expect("record");
         assert!(r.deleted_at.is_some(), "only tombstones are compacted");
+        z.floor = z.floor.max(r.seq);
+    }
+
+    /// What a non-conforming or hostile server could serve: a tombstone with its sealed `enc`
+    /// stripped. Clients must quarantine it.
+    pub fn strip_tombstone_enc(&self, account: &str, zone: &str, name: &str) {
+        let mut st = self.state.lock().unwrap();
+        let z = st
+            .zones
+            .get_mut(&(account.to_string(), zone.to_string()))
+            .expect("zone");
+        let r = z.records.get_mut(name).expect("record");
+        assert!(r.deleted_at.is_some(), "only tombstones are stripped");
         r.enc = None;
         z.floor = z.floor.max(r.seq);
     }

@@ -68,7 +68,7 @@ Ledger JSON is a new document (`Ledger`); the ScrapeRight `icloud-sync-ledger.js
 | `http::HttpBackend` + `HttpAuth` (feature `http`) | this crate | any server speaking `rightkit-sync-http/1` (`HTTP-PROTOCOL.md`); reference server `packages/sync-worker`. Blocking; refuses plaintext fields |
 | `cipher::EncryptingBackend` (feature `cipher`) | this crate | wraps any backend; the provider stores only ciphertext plus `name`, `type`, `change_tag`, `updatedAt`, `deletedAt`. Required in front of `HttpBackend` |
 
-An encrypting provider runs its engine with `require_consent_on_scope_change` and an `account_scope` that includes the key id (`http::sync_config()`, `http::account_scope`). A missing key fails the pass (cursor stays); corrupt ciphertext is quarantined. Plaintext of downloads the engine could not apply yet sits in the ledger's `pending_apply` (owner-only file, not encrypted).
+An encrypting provider runs its engine with `require_consent_on_scope_change` and an `account_scope` that includes the key id (`http::sync_config()`, `http::account_scope`). A missing key fails the pass (cursor stays); corrupt ciphertext is quarantined, and so is a tombstone without `enc` (`CipherStats::unauthenticated_tombstones`), so every deletion is authenticated. `HttpBackend::max_batch` defaults to 40 (server `max_save_records`, health). Plaintext of downloads the engine could not apply yet sits in the ledger's `pending_apply` (owner-only file, not encrypted).
 
 ```rust
 let helper = CloudKitHelper::new(

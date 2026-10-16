@@ -111,7 +111,7 @@ fn health_prepare_save_and_paged_changes_round_trip() {
     assert_eq!(r.date_ms("updatedAt"), Some(103));
     assert_eq!(r.get("enc"), Some(&FieldValue::Bytes(vec![3, 0, 255])));
     assert_eq!(b.fetch_record("nope").unwrap(), None);
-    assert_eq!(b.max_batch(), 100);
+    assert_eq!(b.max_batch(), 40);
 }
 
 #[test]
