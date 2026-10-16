@@ -295,10 +295,19 @@ impl AdvancedHttp {
             .resolve_endpoint(url, url)?;
         // One attempt, no redirects, no phase deadlines other than connect: the
         // MCP layer owns retry (auth refresh), timeout and cancellation itself.
+        let base_policy = || {
+            let policy = rightkit_http::AddressPolicy::default();
+            match loopback_host(url) {
+                Some(host) if extensions.allow_loopback => {
+                    policy.allow_if(vec![host], |ip: &std::net::IpAddr| ip.is_loopback())
+                }
+                _ => policy,
+            }
+        };
         #[cfg(feature = "testing")]
-        let address_policy = extensions.address_policy.clone().unwrap_or_default();
+        let address_policy = extensions.address_policy.clone().unwrap_or_else(base_policy);
         #[cfg(not(feature = "testing"))]
-        let address_policy = rightkit_http::AddressPolicy::default();
+        let address_policy = base_policy();
         let client = AsyncClient::new(ClientConfig {
             user_agent: concat!("rightkit-mcp/", env!("CARGO_PKG_VERSION")).into(),
             connect_timeout: Some(options.connect_timeout.unwrap_or(options.request_timeout)),
@@ -940,5 +949,36 @@ mod tests {
             too_small.push(bytes),
             Err(McpError::ResponseTooLarge { .. })
         ));
+    }
+}
+
+/// The endpoint host when it is literally a loopback name (`localhost`, `127.0.0.1`, `::1`),
+/// as the address policy spells it; `None` for anything else (rightkit#165).
+fn loopback_host(url: &str) -> Option<String> {
+    if !crate::server::host_is_loopback(url, true) {
+        return None;
+    }
+    let rest = url.split_once("://")?.1;
+    let hp = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let host = match hp.strip_prefix('[') {
+        Some(r) => r.split(']').next().unwrap_or(r),
+        None => hp.rsplit_once(':').map(|(h, _)| h).unwrap_or(hp),
+    };
+    Some(host.to_string())
+}
+
+#[cfg(test)]
+mod loopback_host_tests {
+    use super::loopback_host;
+
+    #[test]
+    fn only_literal_loopback_hosts_qualify() {
+        assert_eq!(loopback_host("http://localhost:3000/mcp").as_deref(), Some("localhost"));
+        assert_eq!(loopback_host("http://127.0.0.1:8080").as_deref(), Some("127.0.0.1"));
+        assert_eq!(loopback_host("http://[::1]:9000/x").as_deref(), Some("::1"));
+        assert_eq!(loopback_host("http://localhost.evil.com/mcp"), None);
+        assert_eq!(loopback_host("http://user@localhost/mcp"), None);
+        assert_eq!(loopback_host("https://example.com/mcp"), None);
+        assert_eq!(loopback_host("http://10.0.0.5/mcp"), None);
     }
 }

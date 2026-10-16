@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+- **New: `ClientExtensions::allow_loopback`** (rightkit#165). 0.6.0 put HTTP MCP on the public-web address policy, which refuses loopback, and the only override (`address_policy`) is behind `testing`, so a user-configured `http://localhost` MCP server was refused in production. Setting `allow_loopback` lets that connection reach loopback addresses when the endpoint host is literally `localhost`, `127.0.0.1` or `[::1]`. A name that resolves to loopback, and private, link-local and metadata addresses, stay refused. Off by default, so behaviour is unchanged unless a host opts in. **Breaking only for struct literals** that list every `ClientExtensions` field without `..Default::default()`; hence 0.7.0.
+
 ## 0.6.0
 
 - **Runtime budget declared as `held-resource`.** `[package.metadata.rightkit] continuous = "held-resource"` with a `resources` table: `McpClient` (child process, reader thread), `AdvancedHttp` (tokio runtime and SSE reader task, `advanced-http` only), `ConnectionPool` (bounded set of clients) and `ServerHost::serve_http` (loopback listener and accept thread). All are owned by a value the caller holds and end on `Drop`; nothing runs at link time. Metadata only; no code change.

@@ -298,6 +298,13 @@ pub struct ClientExtensions {
     /// None retains existing version pin; Some advertises & negotiates highest common.
     pub protocol_versions: Option<Vec<String>>,
     pub response_limits: ResponseLimits,
+    /// Let an HTTP connection reach a loopback MCP server (a user-configured local dev server).
+    /// Off by default: HTTP MCP uses the public-web address policy, which refuses loopback.
+    /// Applies only when the endpoint URL's host is literally `localhost`, `127.0.0.1` or
+    /// `[::1]`, and then only loopback addresses are added for that host. A name that merely
+    /// resolves to loopback, and every other private, link-local or metadata address, stays
+    /// refused. Hosts should set it only for user-configured servers (rightkit#165).
+    pub allow_loopback: bool,
     /// Test-only: replaces the HTTP client's address policy (default: public-web).
     #[cfg(feature = "testing")]
     pub address_policy: Option<rightkit_http::AddressPolicy>,
