@@ -354,6 +354,23 @@ test("the continuous-work scan ignores comments and #[cfg(test)] modules but not
   assert.deepEqual(Object.keys(scanContinuousPatterns(dir)), ["listener"]);
 });
 
+test("the continuous-work scan skips use and re-export declarations but not real code after them", (t) => {
+  const reexport = [
+    "use std::net::TcpListener;",
+    "pub use server::ServerOptions;",
+    "pub(crate) use pool::ConnectionPool;",
+    "pub fn quiet() {}",
+    "",
+  ].join("\n");
+  assert.deepEqual(scanContinuousFiles(crate(t, { file: false, readme: null, manifest: declared("pure"), src: reexport })), {});
+
+  const real = "pub use server::ServerOptions;\npub fn go() {\n    let l =\n        TcpListener::bind(A);\n}\n";
+  assert.deepEqual(Object.keys(scanContinuousPatterns(crate(t, { file: false, readme: null, manifest: declared("pure"), src: real }))), ["listener"]);
+
+  const multi = "pub use x::{\n    ServerOptions,\n    ConnectionPool\n};\npub fn quiet() {}\n";
+  assert.deepEqual(scanContinuousFiles(crate(t, { file: false, readme: null, manifest: declared("pure"), src: multi })), {});
+});
+
 test("a listed continuous owner can never declare continuous = false, and a budget file plus continuous = false conflicts", (t) => {
   const listed = check(crate(t, { file: false, readme: null, manifest: '[package]\nname = "rightkit-sync"\nversion = "0.1.0"\n[package.metadata.rightkit]\ncontinuous = false\ncontinuous_reason = "x"\n', src: quietLib }), "rightkit-sync");
   assert.match(listed.detail, /listed as a continuous owner in RUNTIME_BUDGET_CRATES; it cannot declare continuous = false/);

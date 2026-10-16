@@ -2,6 +2,8 @@
 
 ## 0.6.0
 
+- **Runtime budget declared as `held-resource`.** `[package.metadata.rightkit] continuous = "held-resource"` with a `resources` table: `McpClient` (child process, reader thread), `AdvancedHttp` (tokio runtime and SSE reader task, `advanced-http` only), `ConnectionPool` (bounded set of clients) and `ServerHost::serve_http` (loopback listener and accept thread). All are owned by a value the caller holds and end on `Drop`; nothing runs at link time. Metadata only; no code change.
+
 - **BREAKING (0.6.0): default features are now empty (`default = []`).** 0.5.x built `advanced-http` by default. A consumer that connects with `ClientExtensions` over HTTP, or uses legacy SSE, must name `features = ["advanced-http"]`; without it `ServerSpec::Http` with `ClientExtensions` returns `McpError::Config`. Stdio and plain blocking HTTP need nothing. Naming `advanced-http` restores the 0.5.x dependency tree (tokio, http, futures-util, `rightkit-http/async`); the empty default drops them.
 
 - **BREAKING (0.6.0): `McpClient::connect`, `connect_with_extensions` and `connect_with_extensions_cancellable` are trust gated.**

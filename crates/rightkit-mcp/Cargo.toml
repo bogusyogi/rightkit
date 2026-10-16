@@ -11,6 +11,37 @@ keywords = ["mcp", "agent", "tools", "json-rpc"]
 categories = ["development-tools"]
 include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "McpClient"
+file = "src/client.rs"
+holds = ["child", "thread", "memory"]
+scale = "per connected stdio server: one child process, one reader thread that lives until the child's stdout closes, plus short-lived helper threads (a bounded launch thread per connect, a blocked-write thread per cancellable send, one thread per in-flight elicitation callback); a 20 ms crash-status poll of at most 25 iterations inside the reader on unexpected EOF, and a 10 ms try_lock poll bounded by the call's cancellation token; pending-call and handler maps hold only in-flight requests; fixed per McpClient, independent of how many calls are made"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "AdvancedHttp"
+file = "src/advanced_http.rs"
+holds = ["thread", "task", "memory"]
+scale = "feature advanced-http only: one multi-thread tokio runtime with one worker thread per HTTP McpClient, one SSE reader task per legacy-SSE session (aborted when the session drops), a scoped thread per synchronous block_on, and a spawn_blocking or spawned task per elicitation callback; none grows with the number of calls"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "ConnectionPool"
+file = "src/pool.rs"
+holds = ["child", "thread", "memory"]
+scale = "at most PoolConfig::max_connections (default 16) shared McpClient values, one per (source, name, fingerprint), each with the resources listed for McpClient; least-recently-used idle clients are evicted; no thread or task of its own"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "ServerHost::serve_http"
+file = "src/server.rs"
+holds = ["thread", "listener"]
+scale = "one loopback TcpListener and one accept thread per HttpServer, plus one short-lived thread per accepted connection that ends with that request; stdio serving runs on the caller's thread; fixed per HttpServer"
+release = "HttpServer::shutdown or Drop"
+
 [dependencies]
 getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }
