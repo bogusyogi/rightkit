@@ -189,6 +189,6 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: false
           name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-summary-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}${{ needs.admission.outputs.artifact_suffix }}
           path: ${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
-${WINDOWS_SIGNING_JOB}
+${DEV_QUALIFICATION_JOB}${WINDOWS_SIGNING_JOB}
 ${MACOS_SIGNING_JOB}
 ${RELEASE_CHAIN_JOBS}

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hosted-workflow policy (`right-git-ci-only`): the admitted signing gate accepts `needs: [admission, candidate, dev-qualification]` as well as `[admission, candidate]` (Orthic-Labs/rightkit#107, @rightkit/ci 0.2.46 `candidate.devQualification`). The extra need only adds a gate: in-app journeys run on the dev build, and the signed candidate stays QA-free.
 - Runtime-budget scanner skips `use`, `pub use` and `pub(crate) use` declarations (including multi-line `{ ... }` lists) when matching `CONTINUOUS_PATTERNS`: an import cannot start work. A crate whose `lib.rs` only re-exports `ServerOptions` or `ConnectionPool` no longer matches `listener` or `conn-pool` there; real code is still scanned.
 - QA adoption is now a release gate (`assertQaAdoption` in `qa-contract.mjs`, called from `release.mjs`): an app with no QA lane (`right-qa.config.mjs`, `@rightkit/qa`, or `rightkit-qa`) is refused; a lagging `@rightkit/qa`, `@rightkit/qa-chrome` or `rightkit-qa` pin warns and a breaking-bump lag refuses. Only non-app repositories are exempt, via `qa-adoption-exemptions.json`. See the README section "QA adoption (mandatory)".
 

@@ -1740,3 +1740,105 @@ test("rust-hybrid: no job that runs the ownership step is hard-coded to a Linux 
   }
   assert.deepEqual(rendered.sort(), ["ci/ci", "regenerate/regenerate", "release-candidate/admission"]);
 });
+
+// Orthic-Labs/rightkit#107: optional dev-qualification lane beside a QA-free candidate.
+const DEV_QUAL_TEMPLATE = fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8");
+
+function devQualManifest(devQualification) {
+  return {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      targets: [
+        { os: "windows-2025", platform: "windows", architecture: "x86_64" },
+        { os: "macos-15", platform: "macos", architecture: "arm64" },
+      ],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
+        windowsFinalizeScript: "release:finalize-windows",
+        macosFinalizeScript: "release:finalize-macos",
+        installedQualificationScript: "release:qualify-installed",
+        publishScript: "release:publish-qualified",
+        qualificationRunnerVariable: "WIDGETS_QUALIFICATION_RUNNER",
+      },
+      ...(devQualification ? { devQualification } : {}),
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.8.0",
+  };
+}
+
+function renderDevQual(manifest) {
+  return renderTemplate(DEV_QUAL_TEMPLATE, buildRenderContext(manifest, "/repos/widgets", "release-candidate"));
+}
+
+test("dev-qualification unset: release-candidate workflow is byte-identical to the template without the placeholder", () => {
+  const manifest = devQualManifest();
+  const before = renderTemplate(
+    DEV_QUAL_TEMPLATE.replace("${DEV_QUALIFICATION_JOB}${WINDOWS_SIGNING_JOB}", "${WINDOWS_SIGNING_JOB}"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
+  );
+  const content = renderDevQual(manifest);
+  assert.equal(content, before);
+  assert.doesNotMatch(content, /dev-qualification|devqual/);
+  assert.match(content, /windows-sign:\n    needs: \[admission, candidate\]\n/);
+  assert.match(content, /macos-sign:\n    needs: \[admission, candidate\]\n/);
+  // Unsigned manifests (no signing jobs, no chain) stay free of the job too.
+  const unsigned = devQualManifest();
+  delete unsigned.candidate.releaseChain;
+  unsigned.candidate.signWindows = false;
+  unsigned.candidate.signMacos = false;
+  assert.doesNotMatch(renderDevQual(unsigned), /dev-qualification/);
+});
+
+test("dev-qualification set: job needs admission, builds the dev build, uploads devqual evidence and gates both signing jobs", () => {
+  const manifest = devQualManifest({ buildScript: "build:dev-qualification", journeyScript: "qa:journeys" });
+  const content = renderDevQual(manifest);
+  const job = content.slice(content.indexOf("\n  dev-qualification:\n"), content.indexOf("\n  windows-sign:\n"));
+  assert.ok(job.length > 0, "dev-qualification job renders before windows-sign");
+  assert.match(job, /^\n {2}dev-qualification:\n {4}needs: \[admission\]\n/);
+  assert.match(job, /matrix:\n {8}include:\n {10}- os: "windows-2025"[\s\S]*- os: "macos-15"/);
+  assert.match(job, /ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
+  assert.match(job, /run: pnpm run build:dev-qualification\n/);
+  assert.match(job, /run: pnpm run qa:journeys\n/);
+  assert.doesNotMatch(job, /ci:candidate|release:finalize|secrets\.|id-token|environment:/);
+  assert.match(job, /RIGHT_GIT_STAGE_ACTION: init[\s\S]*RIGHT_GIT_STAGE: dev-qualification/);
+  assert.match(job, /RIGHT_GIT_STAGE_ACTION: finalize[\s\S]*RIGHT_GIT_STAGE: dev-qualification/);
+  assert.match(job, /name: widgets-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-devqual-\$\{\{ matrix\.platform \}\}-\$\{\{ matrix\.architecture \}\}-\$\{\{ needs\.admission\.outputs\.version \}\}-\$\{\{ needs\.admission\.outputs\.source_revision \}\}\$\{\{ needs\.admission\.outputs\.artifact_suffix \}\}/);
+  assert.match(job, /widgets-unsigned-devqual\/\*\*/);
+  // Pinned action SHAs match the candidate job's.
+  const candidateJob = content.slice(content.indexOf("\n  candidate:\n"), content.indexOf("\n  dev-qualification:\n"));
+  for (const action of ["actions/checkout", "actions/setup-node", "dtolnay/rust-toolchain", "Swatinem/rust-cache", "Mozilla-Actions/sccache-action", "actions/upload-artifact"]) {
+    const pins = (text) => [...new Set([...text.matchAll(new RegExp(`${action.replace("/", "\\/")}@([a-f0-9]{40})`, "g"))].map((m) => m[1]))];
+    assert.deepEqual(pins(job), pins(candidateJob), action);
+  }
+  // The candidate build stays the QA-free one and the candidate never runs journeys.
+  assert.match(candidateJob, /run: pnpm run ci:candidate\n/);
+  assert.doesNotMatch(candidateJob, /build:dev-qualification|qa:journeys/);
+  // Both signing jobs need it; a failed dev qualification skips signing (no always()).
+  assert.match(content, /windows-sign:\n    needs: \[admission, candidate, dev-qualification\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  assert.match(content, /macos-sign:\n    needs: \[admission, candidate, dev-qualification\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  // Installed qualification still reaches the signed bytes only through windows-sign.
+  assert.match(content, /installed-qualification:\n    needs: \[admission, candidate, windows-sign\]/);
+});
+
+test("dev-qualification gates a Windows-only signing job and renders without a release chain", () => {
+  const manifest = devQualManifest({ buildScript: "build:dev-qualification", journeyScript: "qa:journeys" });
+  delete manifest.candidate.releaseChain;
+  delete manifest.candidate.signMacos;
+  manifest.candidate.os = ["windows-2025"];
+  manifest.candidate.targets = [{ os: "windows-2025", platform: "windows", architecture: "x86_64" }];
+  const content = renderDevQual(manifest);
+  assert.match(content, /windows-sign:\n    needs: \[admission, candidate, dev-qualification\]\n/);
+  assert.doesNotMatch(content, /macos-sign:/);
+});

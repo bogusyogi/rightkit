@@ -256,6 +256,16 @@
             }
           }
         },
+        "devQualification": {
+          "type": "object",
+          "required": ["buildScript", "journeyScript"],
+          "additionalProperties": false,
+          "description": "Optional `dev-qualification` job (Orthic-Labs/rightkit#107): builds the dev build (QA surface on) from the admitted revision and runs the app's in-app journeys against it. Gates windows-sign and macos-sign. The sealed candidate stays QA-free. Unset renders nothing.",
+          "properties": {
+            "buildScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$", "description": "Package script that builds the dev build. Must differ from candidate.buildScript." },
+            "journeyScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$", "description": "Package script that runs the in-app journeys against the dev build." }
+          }
+        },
         "signWindows": { "type": "boolean" },
         "signMacos": { "type": "boolean" },
         "releaseChain": {

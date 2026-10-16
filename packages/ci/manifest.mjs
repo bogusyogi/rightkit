@@ -84,6 +84,7 @@ const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
+const QA_SURFACE_SCRIPT_RE = /qa-native|qa-control|dev-native|dev-inspect|test-mode/i;
 const GITHUB_VARIABLE_RE = /^[A-Z][A-Z0-9_]*$/;
 const RELEASE_PLATFORMS = new Set(["windows", "macos", "linux"]);
 const RELEASE_ARCHITECTURES = new Set(["x86_64", "arm64"]);
@@ -259,7 +260,34 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os", "targets", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os", "targets", "signWindows", "signMacos", "releaseChain", "devQualification"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+      }
+      // The sealed, signed candidate must be QA-free (@rightkit/release refuses
+      // these surfaces in any release tier). The manifest only carries script
+      // names, not the build command's features, so this can only catch a
+      // script NAMED after a QA surface; the real check stays in @rightkit/release.
+      for (const key of ["buildScript", "checkScript"]) {
+        if (typeof candidate[key] === "string" && QA_SURFACE_SCRIPT_RE.test(candidate[key])) {
+          errors.push(`candidate.${key} '${candidate[key]}' names a QA surface (qa-native, qa-control, dev-native, dev-inspect or test-mode); the signed candidate must be QA-free. Run in-app journeys against the dev build with candidate.devQualification (see Orthic-Labs/rightkit#107)`);
+        }
+      }
+      if (candidate.devQualification !== undefined) {
+        const dev = candidate.devQualification;
+        if (dev === null || typeof dev !== "object" || Array.isArray(dev)) {
+          errors.push("candidate.devQualification must be an object { buildScript, journeyScript }");
+        } else {
+          for (const key of Object.keys(dev)) {
+            if (!["buildScript", "journeyScript"].includes(key)) errors.push(`unknown candidate.devQualification field: ${key}`);
+          }
+          for (const key of ["buildScript", "journeyScript"]) {
+            if (typeof dev[key] !== "string" || !PACKAGE_SCRIPT_RE.test(dev[key])) {
+              errors.push(`candidate.devQualification.${key} must be one safe package script name`);
+            }
+          }
+          if (typeof dev.buildScript === "string" && dev.buildScript === candidate.buildScript) {
+            errors.push("candidate.devQualification.buildScript must differ from candidate.buildScript: the dev build (QA surface on) is never the sealed candidate build (Orthic-Labs/rightkit#107)");
+          }
+        }
       }
       // admissionScript & stageSummaryScript are required for EVERY release-candidate
       // lane, not just signed/full-releaseChain ones: the tag-last workflow's
@@ -1116,6 +1144,112 @@ ${notarizeStep}      - name: ${uploadLabel}
 `;
 }
 
+// A configured dev-qualification job gates both signing jobs: a failed or
+// skipped dev qualification leaves signing skipped (neither signing job uses
+// always()). Unconfigured, the list is byte-identical to the original.
+function signingNeeds(manifest) {
+  return manifest.candidate?.devQualification ? "[admission, candidate, dev-qualification]" : "[admission, candidate]";
+}
+
+// Optional lane (Orthic-Labs/rightkit#107): builds the DEV build (QA surface on)
+// from the same admitted source_revision and runs the app's in-app journeys
+// against it. Never touches candidate or signed bytes; the signed candidate stays
+// QA-free and is qualified from outside by installed-qualification.
+function devQualificationJob(manifest, pm, artifactPrefix, cacheKeyLine) {
+  const dev = manifest.candidate?.devQualification;
+  if (!dev) return "";
+  const root = `\${{ runner.temp }}/${manifest.candidate.artifactRoot}-devqual`;
+  const identity = `\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}`;
+  const stageEnv = (action, extra = "") => `          RIGHT_GIT_STAGE_ACTION: ${action}
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: ${root}
+          RIGHT_GIT_STAGE: dev-qualification
+          RIGHT_GIT_STAGE_PRODUCER: dev-qualification-\${{ matrix.platform }}-\${{ matrix.architecture }}${extra}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}`;
+  const stepEnv = `          RIGHT_GIT_ARTIFACT_ROOT: ${root}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`;
+  return `
+  dev-qualification:
+    needs: [admission]
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    strategy:
+      fail-fast: false
+      matrix:
+${candidateMatrix(manifest)}
+    runs-on: \${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: \${{ needs.admission.outputs.source_revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: \${{ matrix.node }}
+          package-manager-cache: false
+${pm.setup}
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        with:
+          components: rustfmt, clippy
+          targets: \${{ matrix.targetTriple }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+${(manifest.rustCache?.workspaces ?? ["engine"]).map((workspace) => `            ${workspace} -> target`).join("\n")}
+          shared-key: ${artifactPrefix}-rust
+          add-job-id-key: false
+${cacheKeyLine ? `${cacheKeyLine}\n` : ""}          cache-workspace-crates: false
+          cache-on-failure: true
+          save-if: true
+      - uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.16.0"
+      - run: ${pm.installCommand}
+      - name: Initialize dev-qualification stage summary
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
+        env:
+${stageEnv("init")}${swiftPrivatePackagesConfigureStep(manifest)}
+      - name: Build dev build (QA surface on, never signed)
+        run: ${pm.runPrefix} ${dev.buildScript}
+        env:
+${stepEnv}
+      - name: Run in-app journeys against the dev build
+        run: ${pm.runPrefix} ${dev.journeyScript}
+        env:
+${stepEnv}${swiftPrivatePackagesCleanupStep(manifest)}
+      - name: Finalize dev-qualification stage summary
+        if: \${{ always() }}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
+        env:
+${stageEnv("finalize", `
+          RIGHT_GIT_STAGE_STATUS: \${{ job.status == 'success' && 'SUCCEEDED' || 'FAILED' }}
+          RIGHT_GIT_STAGE_EXIT_CODE: \${{ job.status == 'success' && '0' || '1' }}`)}
+      - name: Upload dev-qualification evidence
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-devqual-\${{ matrix.platform }}-\${{ matrix.architecture }}-${identity}
+          path: ${root}/**
+          if-no-files-found: error
+      - name: Upload dev-qualification stage summary
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-dev-qualification-\${{ matrix.platform }}-\${{ matrix.architecture }}-${identity}
+          path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
+          if-no-files-found: error
+`;
+}
+
 function windowsSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signWindows !== true) return "";
   const nodeVersion = String(manifest.matrix.node[0]);
@@ -1135,7 +1269,7 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
     : "            dist/releases/windows/**\n            .right-release/receipts/windows-*.json";
   return `
   windows-sign:
-    needs: [admission, candidate]
+    needs: ${signingNeeds(manifest)}
     if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
     environment: ${releaseEnvironment(manifest, "signing")}
     strategy:
@@ -1265,7 +1399,7 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
     : "            dist/releases/mac/**\n            .right-release/receipts/macos-*.json";
   return `
   macos-sign:
-    needs: [admission, candidate]
+    needs: ${signingNeeds(manifest)}
     if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
     environment: ${releaseEnvironment(manifest, "signing")}
     strategy:
@@ -1784,6 +1918,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     TEMPLATE_VERSION: manifest.templateVersion,
     RUST_CACHE_WORKSPACES: rustWorkspaces.map((workspace) => `            ${workspace} -> target`).join("\n"),
     RUST_REQUIRED_FOR_GATE: manifest.rustCache?.requiredForGate === true ? "true" : "false",
+    DEV_QUALIFICATION_JOB: devQualificationJob(manifest, pm, artifactPrefix, cacheKeyLine),
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),

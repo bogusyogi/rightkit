@@ -485,3 +485,51 @@ test("defaultBranch is an optional safe branch name", () => {
     assert.equal(validateManifest({ ...VALID_MINIMAL, defaultBranch }).valid, false, String(defaultBranch));
   }
 });
+
+// Orthic-Labs/rightkit#107: candidate.devQualification and the QA-surface guard.
+const DEV_QUAL_BASE = {
+  ...VALID_MINIMAL,
+  profile: "rust-hybrid",
+  gate: { path: "scripts/gate.sh" },
+  lanes: ["ci", "release-candidate"],
+  candidate: {
+    buildScript: "ci:candidate",
+    checkScript: "ci:candidate-check",
+    admissionScript: "release:admit",
+    stageSummaryScript: "release:stage-summary",
+    artifactRoot: "widgets-unsigned",
+    os: ["ubuntu-latest"],
+  },
+};
+
+test("candidate.devQualification validates build and journey scripts", () => {
+  const withDev = (devQualification) => ({ ...DEV_QUAL_BASE, candidate: { ...DEV_QUAL_BASE.candidate, devQualification } });
+  const ok = validateManifest(withDev({ buildScript: "build:dev-qualification", journeyScript: "qa:journeys" }));
+  assert.equal(ok.valid, true, JSON.stringify(ok.errors));
+  for (const bad of [
+    null,
+    [],
+    {},
+    { buildScript: "build:dev" },
+    { journeyScript: "qa:journeys" },
+    { buildScript: "echo unsafe", journeyScript: "qa:journeys" },
+    { buildScript: "build:dev", journeyScript: "qa journeys" },
+    { buildScript: "build:dev", journeyScript: "qa:journeys", extra: "x" },
+  ]) {
+    assert.equal(validateManifest(withDev(bad)).valid, false, JSON.stringify(bad));
+  }
+  const same = validateManifest(withDev({ buildScript: "ci:candidate", journeyScript: "qa:journeys" }));
+  assert.equal(same.valid, false);
+  assert.ok(same.errors.some((error) => error.includes("must differ from candidate.buildScript") && error.includes("#107")));
+});
+
+test("candidate scripts named after a QA surface are refused and point at dev-qualification", () => {
+  for (const name of ["build:qa-native", "ci:qa-control", "build:dev-native", "build:dev-inspect", "ci:test-mode"]) {
+    for (const key of ["buildScript", "checkScript"]) {
+      const result = validateManifest({ ...DEV_QUAL_BASE, candidate: { ...DEV_QUAL_BASE.candidate, [key]: name } });
+      assert.equal(result.valid, false, `${key}=${name}`);
+      assert.ok(result.errors.some((error) => error.includes(`candidate.${key}`) && error.includes("#107") && error.includes("devQualification")), `${key}=${name}`);
+    }
+  }
+  assert.equal(validateManifest(DEV_QUAL_BASE).valid, true);
+});

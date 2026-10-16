@@ -121,6 +121,10 @@ Both keys are opt-in; unset, the rendered workflows are byte-identical.
 }
 ```
 
+## Dev qualification (rust-hybrid release-candidate)
+
+`candidate.devQualification: { "buildScript": "...", "journeyScript": "..." }` adds a `dev-qualification` job beside the QA-free candidate (Orthic-Labs/rightkit#107). `@rightkit/release` refuses `qa-native`, `qa-control`, `dev-native`, `dev-inspect` and `test-mode` in any release tier, so in-app journeys cannot run against the sealed candidate. The job needs `admission`, uses the candidate's target matrix, checks out the same `source_revision`, runs `buildScript` (the dev build, QA surface on) and then `journeyScript`, and uploads its evidence as `<prefix>-<run>-<attempt>-devqual-<platform>-<arch>-<version>-<revision><suffix>` plus a `dev-qualification` stage summary. When set, `windows-sign` and `macos-sign` need it, so a failure blocks signing. Installed qualification of the signed candidate is unchanged. Unset, the workflow is byte-identical. Validation refuses a candidate build or check script whose name mentions a QA surface and a `devQualification.buildScript` equal to `candidate.buildScript`; it cannot see cargo features inside a script.
+
 ## Private Swift packages (ci, qualification, release-candidate, regenerate lanes)
 
 Set `swift.privatePackages` to let a public repository's workflows fetch a private Swift package, for example `example-org/private-swift-package`:
