@@ -669,12 +669,18 @@ mod sys {
     unsafe fn reset_errno() {
         unsafe { *libc::__error() = 0 };
     }
+    // Bionic has no `__errno_location`; its accessor is `__errno`.
+    #[cfg(target_os = "android")]
+    unsafe fn reset_errno() {
+        unsafe { *libc::__errno() = 0 };
+    }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "android"
     )))]
     unsafe fn reset_errno() {
         unsafe { *libc::__errno_location() = 0 };

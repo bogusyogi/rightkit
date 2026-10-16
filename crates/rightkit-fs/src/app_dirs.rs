@@ -24,6 +24,14 @@
 //!   relative, contains `..`, or points at or inside a real per-user app folder of this app.
 //!   A release build (without `test-mode`) contains none of these variable names and reads none.
 //!
+//! * **Android.** There is no environment-based resolution on Android: the app gets its folders
+//!   from the `Context` (`getFilesDir()`, `getCacheDir()`) and passes them in with
+//!   [`AppDirs::injected`]. [`AppDirs::resolve`] (and `resolve_with` for [`Os::Android`]) return
+//!   [`AppDirsError::AndroidNeedsInjectedRoots`] instead of guessing from `HOME`. Those folders are
+//!   already private to the package and already separate per `applicationId` (a dev build uses its
+//!   own id), so no org or `Dev` namespace is added. The injected constructor is compiled on every
+//!   target, so host tests cover it.
+//!
 //! All the logic is in [`AppDirs::resolve_with`], a pure function over an injected environment.
 //! Nothing here creates a directory except [`AppDirs::create_all`].
 //!
@@ -60,6 +68,12 @@ pub enum AppDirsError {
     /// An override points at (or inside) the real per-user folder; it is refused, not honoured.
     #[error("{var} points at the real per-user folder {}; refusing", .path.display())]
     RealFolder { var: String, path: PathBuf },
+    /// Android has no environment-based mapping; the folders come from the `Context`.
+    #[error("Android has no environment-based folder resolution: pass the Context's filesDir and cacheDir to AppDirs::injected")]
+    AndroidNeedsInjectedRoots,
+    /// An injected root is unusable (relative, `..`, empty, or the two roots overlap).
+    #[error("injected {what} folder is unusable: {why}")]
+    BadInjectedRoot { what: &'static str, why: String },
     #[error("{0}")]
     Io(#[from] io::Error),
 }
@@ -73,13 +87,18 @@ pub enum Os {
     Windows,
     MacOs,
     Linux,
+    /// No environment mapping exists; folders are injected ([`AppDirs::injected`]).
+    Android,
 }
 
 impl Os {
-    /// The OS this build targets (anything that is neither Windows nor macOS maps as Linux/XDG).
+    /// The OS this build targets (anything that is neither Windows, Android nor macOS maps as
+    /// Linux/XDG).
     pub fn current() -> Os {
         if cfg!(windows) {
             Os::Windows
+        } else if cfg!(target_os = "android") {
+            Os::Android
         } else if cfg!(target_os = "macos") {
             Os::MacOs
         } else {
@@ -256,6 +275,10 @@ impl AppDirs {
             });
         }
 
+        if opts.os == Os::Android {
+            return Err(AppDirsError::AndroidNeedsInjectedRoots);
+        }
+
         let bases = Bases::read(opts.os, env);
         let (qa_data, qa_home) = if opts.qa_overrides {
             read_qa(app, opts, env, &bases)?
@@ -282,6 +305,52 @@ impl AppDirs {
                 ..dirs
             },
             None => dirs,
+        })
+    }
+
+    /// Folders handed in by the host app (Android: `Context.getFilesDir()` and
+    /// `Context.getCacheDir()`), for targets with no environment mapping. `data` and `local` are
+    /// `files_dir` (as on macOS, where the two are one folder), `cache` is `cache_dir`, and `home`
+    /// is `files_dir` too: Android has no user home to show. Nothing is appended (no org, no `Dev`
+    /// namespace): the OS already gives each package its own private folders. `isolated` is false.
+    ///
+    /// Both must be absolute and free of `..`, and neither may be the other or inside it (the OS
+    /// may clear the cache folder, which must never be able to take state with it). Pure: touches
+    /// no file and reads no environment, and it is compiled on every target.
+    pub fn injected(
+        files_dir: impl Into<PathBuf>,
+        cache_dir: impl Into<PathBuf>,
+    ) -> Result<AppDirs> {
+        AppDirs::injected_for(Os::current(), files_dir.into(), cache_dir.into())
+    }
+
+    /// [`AppDirs::injected`] with the path syntax of `os` named, so each syntax is testable on any
+    /// host.
+    pub fn injected_for(os: Os, files_dir: PathBuf, cache_dir: PathBuf) -> Result<AppDirs> {
+        let bad = |what: &'static str, why: &str| AppDirsError::BadInjectedRoot {
+            what,
+            why: why.to_string(),
+        };
+        for (what, path) in [("files", &files_dir), ("cache", &cache_dir)] {
+            if path.as_os_str().is_empty() {
+                return Err(bad(what, "empty"));
+            }
+            if !looks_absolute(os, path) {
+                return Err(bad(what, "must be an absolute path without `..`"));
+            }
+        }
+        let win = os == Os::Windows;
+        if inside_or_equal(&files_dir, &cache_dir, win)
+            || inside_or_equal(&cache_dir, &files_dir, win)
+        {
+            return Err(bad("cache", "must not equal or nest with the files folder"));
+        }
+        Ok(AppDirs {
+            data: files_dir.clone(),
+            local: files_dir.clone(),
+            cache: cache_dir,
+            home: files_dir,
+            isolated: false,
         })
     }
 
@@ -335,6 +404,12 @@ impl Bases {
                     home,
                 }
             }
+            Os::Android => Bases {
+                data: None,
+                local: None,
+                cache: None,
+                home: None,
+            },
             Os::Linux => {
                 let home = absolute_env(os, env, "HOME");
                 let data = absolute_env(os, env, "XDG_DATA_HOME")
@@ -499,7 +574,6 @@ fn components(s: &str, windows: bool, lower: bool) -> Vec<String> {
 }
 
 /// Whether `path` is `base` or below it (component-wise; case-insensitive on Windows).
-#[cfg_attr(not(feature = "test-mode"), allow(dead_code))]
 fn inside_or_equal(path: &Path, base: &Path, windows: bool) -> bool {
     let p = components(&path.to_string_lossy(), windows, windows);
     let b = components(&base.to_string_lossy(), windows, windows);
@@ -600,6 +674,77 @@ mod tests {
         )
         .unwrap();
         same(&d.data, "/home/a/.local/share/Orthic Labs/CutRight");
+    }
+
+    #[test]
+    fn android_has_no_environment_mapping_and_points_at_the_injected_constructor() {
+        let env = env_of(&[("HOME", "/data/user/0/x"), ("XDG_DATA_HOME", "/x")]);
+        let err = AppDirs::resolve_with(&AppId::new("A"), &Options::new(Os::Android), &env)
+            .unwrap_err();
+        assert!(matches!(err, AppDirsError::AndroidNeedsInjectedRoots));
+        assert!(err.to_string().contains("AppDirs::injected"), "{err}");
+        // The test root still applies (an instrumented test on a device).
+        let o = Options::new(Os::Android).test_root(Some(process_test_root()));
+        assert!(AppDirs::resolve_with(&AppId::new("A"), &o, &env_of(&[])).unwrap().isolated);
+    }
+
+    #[test]
+    fn injected_roots_map_files_and_cache_without_a_namespace() {
+        let d = AppDirs::injected_for(
+            Os::Android,
+            p("/data/user/0/com.orthiclabs.heardright/files"),
+            p("/data/user/0/com.orthiclabs.heardright/cache"),
+        )
+        .unwrap();
+        same(&d.data, "/data/user/0/com.orthiclabs.heardright/files");
+        assert_eq!(d.local, d.data);
+        assert_eq!(d.home, d.data);
+        same(&d.cache, "/data/user/0/com.orthiclabs.heardright/cache");
+        assert!(!d.isolated);
+        // The host-OS constructor agrees on a path in the host's own syntax.
+        let (f, c) = if cfg!(windows) {
+            (r"C:\app\files", r"C:\app\cache")
+        } else {
+            ("/app/files", "/app/cache")
+        };
+        let d = AppDirs::injected(f, c).unwrap();
+        assert_eq!((d.data, d.cache), (p(f), p(c)));
+    }
+
+    #[test]
+    fn injected_roots_refuse_unusable_input() {
+        let ok = |f: &str, c: &str| AppDirs::injected_for(Os::Android, p(f), p(c));
+        for (f, c) in [
+            ("", "/c"),
+            ("/f", ""),
+            ("files", "/c"),
+            ("/f", "cache"),
+            ("/f/../g", "/c"),
+            ("/f", "/c/.."),
+            ("/same", "/same"),
+            ("/f", "/f/cache"),
+            ("/f/files", "/f"),
+        ] {
+            assert!(
+                matches!(ok(f, c), Err(AppDirsError::BadInjectedRoot { .. })),
+                "{f:?} {c:?}"
+            );
+        }
+        // A sibling that merely shares a prefix is fine.
+        assert!(ok("/data/files", "/data/files-cache").is_ok());
+        // Windows syntax is checked as Windows text, case-insensitively.
+        assert!(
+            AppDirs::injected_for(Os::Windows, p(r"C:\a\Files"), p(r"c:\a\files\cache")).is_err()
+        );
+    }
+
+    #[test]
+    fn injected_roots_work_with_create_all() {
+        let root = process_test_root().join("InjectedCreateAll");
+        let d = AppDirs::injected(root.join("files"), root.join("cache")).unwrap();
+        d.create_all().unwrap();
+        assert!(d.data.is_dir() && d.cache.is_dir());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -13,6 +13,9 @@
 //! * app UI: [`control::Control`] launches the real Tauri app hidden/backgrounded
 //!   and drives it through the in-app server (`embedded`, feature `control`).
 //! * Chrome: `browser` feature, through `rightkit-browser`.
+//! * Android: `android::AndroidSession` (feature `android`) installs and launches the dev APK on an
+//!   emulator or USB device through `adb`, records logcat by pid, and forwards the in-app control
+//!   server to a loopback port.
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
 //! integration tests wrapped by [`harness::Harness::scenario`] (tier gating, requires-skip,
@@ -27,6 +30,9 @@
 //! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
+/// Android journeys through `adb` (emulator or USB device); feature `android`.
+#[cfg(feature = "android")]
+pub mod android;
 pub mod audio;
 pub mod binary;
 #[cfg(feature = "browser")]

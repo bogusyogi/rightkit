@@ -11,6 +11,9 @@ include = ["src/**", "tests/**", "docs/**", "README.md", "CHANGELOG.md", "LICENS
 
 [features]
 default = []
+# Android journeys (`android` module): `adb`-backed install, launch, logcat capture, control-server
+# port forward and teardown for an emulator or USB device. No dependencies beyond the crate's own.
+android = []
 # Chrome (CDP) targets through rightkit-browser. Off by default: it pulls tokio + chromiumoxide.
 browser = ["dep:rightkit-browser", "dep:tokio"]
 # QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded` module): input injection, DOM and

@@ -36,6 +36,7 @@ Rust QA harness for Right Suite applications. It owns declarative scenarios (`ha
 |---|---|---|---|
 | `browser` | off | `rightkit-browser`, `tokio` | Chrome (CDP) targets for browser scenarios. Off by default because it pulls `tokio` and `chromiumoxide`. |
 | `control` | off | `tauri` 2, `rightkit-daemon/test-mode` | QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded`) and the tier-2 `InApp` client (`in_app::ServiceBridge`). Emits the release marker `RIGHTKIT-QA-CONTROL-SERVER-PRESENT`; `right-release` refuses any build that carries it. |
+| `android` | off | nothing extra | `android` module: `adb`-backed Android journeys (install the test APK, `am start` with test-mode extras, logcat by pid into the run dir, control-server port forward, force-stop and uninstall at teardown). Test packages only (`TestPackage`); device chosen by serial. Needs the Android SDK platform-tools (`ANDROID_HOME` or `ANDROID_SDK_ROOT`) at run time. |
 | `wv2-0_38`, `wv2-0_39` | off | `windows` and `webview2-com` 0.38 / 0.39 (Windows only) | WebView2 generation for Tauri 2.11 / 2.12+; enable exactly one with `control` on Windows. |
 
 Other dependencies include `rightkit-sidecar`, `rightkit-daemon`, `rightkit-child-process`, `getrandom`, and `png`. `rightkit-automation` supplies the foreground-app reads and the shared input and lease types; on Windows, `windows-sys` is a target dependency. The app under test links `rightkit-qa` with `control` (optional, from `qa-native`), not the harness (see the Windows section).

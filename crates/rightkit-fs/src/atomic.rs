@@ -48,6 +48,7 @@
 //! | U3 | Unix | `NoReplace` | yes | absent | temp before; dir after | `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (Apple) | as U1 | as U1 | `atomic_publish.rs::no_replace_flushes_publishes_exclusively_then_syncs_the_directory`, `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
 //! | U4 | Unix | `NoReplace` | any | exists, or appears first | temp (durable) | the same call, which fails `EEXIST` | destination untouched, temp removed, no dir sync | `AlreadyExists` | `atomic_publish.rs::a_no_replace_loser_syncs_no_directory_and_leaves_the_winner`, `atomic_exclusive.rs::racing_publishers_have_exactly_one_winner_and_the_losers_leave_no_temp` |
 //! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves the temp name for the sweep | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
+//! | U6 | Android | all | any | any | as U1 to U5 | `rename(2)` and `fsync(2)` as on Linux (`sync_all`, reported `SyncLevel::Full`; there is no `F_FULLFSYNC` and none is tried); `NoReplace` always takes the U5 `link` then `unlink` path (no raw `renameat2`) | as the row it follows | as the row it follows | host: `app_dirs` injected-root tests; device behaviour is unverified (needs an emulator run) |
 //! | W1 | Windows | `Rename` | yes | exists or not | temp (`FlushFileBuffers`) before the call; no dir sync exists | `std::fs::rename` (POSIX-semantics rename; not write-through) | before: destination as it was, orphan temp. After: old or new, never a mix, but the *swap itself* may be lost in a power failure (`FileFlushedOnly`) | `Io`, temp removed | `atomic_publish.rs::a_durable_write_on_windows_flushes_the_temp_and_claims_no_directory_sync`; plan: unit `plan_tests::publication_durability_states_what_each_windows_mode_gives` |
 //! | W2 | Windows | `Rename` | no | exists or not | nothing | `std::fs::rename` | as W1, without the temp flush | `Io` | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing` |
 //! | W3 | Windows | `MoveWriteThrough` | yes / no | exists or not | temp flushed (durable) | `MoveFileExW(MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` (also when not `durable`) | destination old or new; committed when the call returns | `Io`; sharing/lock violations retried per [`RetryPolicy`] | `atomic_testing.rs::the_flags_each_mode_hands_the_os`, unit `retry_tests::*`; no power-loss test has been run (the guarantee is Microsoft's) |
@@ -466,6 +467,11 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Option<std::io
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
     let cto = CString::new(to.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    // Android is `target_os = "android"`, not `"linux"`, so it skips the raw `renameat2` on purpose and
+    // takes the `link` then `unlink` path below (row U5): an app process runs under a seccomp
+    // allow-list on some releases, where a syscall outside the list kills the process (SIGSYS)
+    // instead of failing with ENOSYS, and the `ENOSYS` probe here cannot catch that. Everything
+    // else in the Unix rows (`fsync`, `rename(2)`, directory `fsync`) is plain Linux behaviour.
     #[cfg(target_os = "linux")]
     {
         const RENAME_NOREPLACE: libc::c_uint = 1;
