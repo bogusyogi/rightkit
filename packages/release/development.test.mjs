@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
+import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 // Not run on Windows: installs a macOS app bundle through POSIX paths.
@@ -18,7 +18,7 @@ test("dev configuration requires explicit build commands and valid installers", 
   assert.throws(() => validateDevelopmentConfig({}, "win"), /non-empty command array/);
   assert.throws(() => validateDevelopmentConfig({ development: { targets: { win: { build: [{ cmd: "pnpm" }], install: { kind: "tauri", productName: "App" } } } } }, "win"), /targetTriple/);
   assert.equal(validateDevelopmentConfig({ development: { targets: { mac: { build: [{ cmd: "pnpm", args: ["build"] }] } } } }, "mac").build.length, 1);
-  assert.equal(validateDevelopmentConfig({ development: { targets: { win: { build: [{ cmd: "pnpm" }], install: { kind: "portable", installRoot: "C:\\Apps\\Example", activation: { kind: "current" }, sourceDirectory: "target/release-iterate", entrypoint: "example.exe" } } } } }, "win").install.kind, "portable");
+  assert.equal(validateDevelopmentConfig({ development: { targets: { win: { build: [{ cmd: "pnpm" }], install: { kind: "portable", installRoot: "C:\\Apps\\Example", activation: { kind: "current" }, sourceDirectory: "target/debug", entrypoint: "example.exe" } } } } }, "win").install.kind, "portable");
 });
 
 test("native target selection fails closed on another host", () => {
@@ -30,7 +30,7 @@ test("native target selection fails closed on another host", () => {
 test("development environment preserves Team identity and disables release-only signing material", () => {
   const env = developmentEnvironment({ APPLE_ID: "secret", APPLE_API_KEY: "release-only", APPLE_API_ISSUER: "release-only", APPLE_API_KEY_PATH: "release-only", APPLE_CERTIFICATE: "release-only", APPLE_CERTIFICATE_PASSWORD: "release-only", TAURI_SIGNING_PRIVATE_KEY: "secret", APPLE_SIGNING_IDENTITY: "Developer ID Application: Fixture (6KLGD3LLKF)", APPLE_DEVELOPER_ID: "configured", APPLE_TEAM_ID: "6KLGD3LLKF", KEEP: "yes" });
   assert.equal(env.RIGHTKIT_BUILD_MODE, "dev");
-  assert.equal(env.RIGHTKIT_CARGO_PROFILE, "release-iterate");
+  assert.equal(env.RIGHTKIT_CARGO_PROFILE, "dev");
   assert.equal(env.TAURI_SIGNING_PRIVATE_KEY, "");
   for (const key of ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"]) assert.equal(env[key], undefined);
   assert.equal(env.KEEP, "yes");
@@ -119,7 +119,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
       },
     });
     const jsonLine = output.trim().split(/\r?\n/).at(-1);
-    assert.deepEqual(JSON.parse(jsonLine), { args: ["a \"quoted\" value"], profile: "release-iterate", incremental: null });
+    assert.deepEqual(JSON.parse(jsonLine), { args: ["a \"quoted\" value"], profile: "dev", incremental: null });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -130,7 +130,7 @@ test("Tauri installer resolution uses RightKit metadata target and fails missing
     mkdirSync(path.join(root, "src-tauri"), { recursive: true });
     writeFileSync(path.join(root, "src-tauri", "Cargo.toml"), "[package]\nname='fixture'\nversion='0.1.0'\n");
     const descriptor = { productName: "Fixture", manifestPath: "src-tauri/Cargo.toml", targetTriple: "x86_64-pc-windows-msvc" };
-    const bundleDir = path.join(target, descriptor.targetTriple, "release-iterate", "bundle", "nsis");
+    const bundleDir = path.join(target, descriptor.targetTriple, "debug", "bundle", "nsis");
     mkdirSync(bundleDir, { recursive: true });
     const calls = [];
     const runCargo = (args) => { calls.push(args); return { status: 0, stdout: JSON.stringify({ target_directory: target }) }; };
@@ -143,7 +143,7 @@ test("Tauri installer resolution uses RightKit metadata target and fails missing
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
 
-test("Windows installed executable must match built release-iterate bytes", () => {
+test("Windows installed executable must match built dev bytes", () => {
   const root = temp();
   try {
     const built = path.join(root, "coderight.exe");
@@ -272,4 +272,13 @@ test("macOS dev install restores the previous app and throws a typed error when 
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISSING" && /missing/.test(error.message));
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
   assert.equal(files.get("/Apps/Fixture.app/Contents/Info.plist"), INFO);
+});
+
+test("right-release dev uses Cargo's built-in dev profile, written to target/<triple>/debug", () => {
+  assert.equal(DEVELOPMENT_PROFILE, "dev");
+  assert.equal(cargoProfileDirectory("dev"), "debug");
+  assert.equal(cargoProfileDirectory("test"), "debug");
+  assert.equal(cargoProfileDirectory("release"), "release");
+  assert.equal(cargoProfileDirectory("bench"), "release");
+  assert.equal(cargoProfileDirectory("dist"), "dist");
 });

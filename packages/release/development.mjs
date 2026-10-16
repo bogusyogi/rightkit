@@ -12,7 +12,16 @@ import { installPortableDevelopment } from "./portable-development.mjs";
 import { readBundleExecutable, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
-export const DEVELOPMENT_PROFILE = "release-iterate";
+// One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
+// `--profile dev` is valid and no flag also means dev.
+export const DEVELOPMENT_PROFILE = "dev";
+// Cargo writes the `dev` (and `test`) profile to target/<triple>/debug, never .../dev; `bench` goes to release.
+// Every path built from a profile name must go through this.
+export function cargoProfileDirectory(profile) {
+  if (profile === "dev" || profile === "test") return "debug";
+  if (profile === "bench") return "release";
+  return profile;
+}
 const RELEASE_ONLY_APPLE_ENV = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"];
 
 export function developmentEnvironment(env = process.env) {
@@ -223,7 +232,7 @@ function resolveBundleRoot(descriptor, { root, env, runCargo }) {
   let targetDirectory;
   try { targetDirectory = JSON.parse(metadata.stdout).target_directory; } catch { throw new Error("RightKit Cargo metadata returned invalid JSON"); }
   if (!targetDirectory || !path.isAbsolute(targetDirectory)) throw new Error("Cargo metadata omitted absolute target_directory");
-  return path.join(targetDirectory, descriptor.targetTriple, DEVELOPMENT_PROFILE, "bundle", platformBundleKind(descriptor));
+  return path.join(targetDirectory, descriptor.targetTriple, cargoProfileDirectory(DEVELOPMENT_PROFILE), "bundle", platformBundleKind(descriptor));
 }
 
 function platformBundleKind(descriptor) { return descriptor.targetTriple.includes("apple") ? "macos" : "nsis"; }

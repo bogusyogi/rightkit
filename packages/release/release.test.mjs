@@ -14,6 +14,8 @@ import test from "node:test";
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
 const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
+// Fixture apps carry the standard Cargo profile tables, as the release contract requires.
+const profileTemplate = readFileSync(new URL("./templates/cargo-profiles.toml", import.meta.url), "utf8");
 const defaultBuildInputs = { include: ["package.json", "pnpm-lock.yaml", "src-tauri/**"] };
 const hostPlatform = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
 
@@ -77,12 +79,12 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   const tauriDir = path.join(dir, "src-tauri");
   mkdirSync(tauriDir, { recursive: true });
   if (includeCargoSources) {
-    writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`, "utf8");
+    writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n${profileTemplate}`, "utf8");
     writeFileSync(path.join(tauriDir, "Cargo.lock"), "# fixture lock\n", "utf8");
   }
   writeFileSync(path.join(tauriDir, "lib.rs"), "pub fn fixture() {}\n", "utf8");
   if (cargoManifest) {
-    writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n`, "utf8");
+    writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n${profileTemplate}`, "utf8");
     writeFileSync(path.join(dir, "fixture.rs"), "", "utf8");
   }
   if (cargoConfig) {
