@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-fsindex",
-  "version": "0.2.1",
-  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
-  "artifactSha256": "1c46b59f10513b8984a068b35cdcf57025abb1f0cd788d1c1209fa11cb8ae206",
+  "version": "0.3.0",
+  "commit": "545b46b4fde62f91d5bc18102f5c318d16cdb6cd",
+  "artifactSha256": "7db188d196ab0a070de17558da8aa443cda1a76f77378bad201e76e457b7d7ed",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,25 +13,26 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+      "commit": "545b46b4fde62f91d5bc18102f5c318d16cdb6cd",
       "features": [
         "default"
       ],
-      "artifactSha256": "1c46b59f10513b8984a068b35cdcf57025abb1f0cd788d1c1209fa11cb8ae206",
-      "command": "cargo test -p rightkit-fsindex --no-fail-fast -- --show-output && cargo clippy -p rightkit-fsindex --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-fsindex && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "7db188d196ab0a070de17558da8aa443cda1a76f77378bad201e76e457b7d7ed",
+      "command": "cargo test -p rightkit-fsindex --no-fail-fast -- --show-output && cargo clippy -p rightkit-fsindex --no-deps --all-targets -- -D warnings && cargo check -p rightkit-fsindex --all-targets --all-features && cargo package --locked -p rightkit-fsindex && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:06:01.351Z",
-      "passed": 71,
+      "timestamp": "2026-10-16T01:13:27.908Z",
+      "passed": 87,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
+      "allowIgnored": true,
       "requireAssets": "1",
       "assetGated": false,
       "steps": [
         {
           "command": "cargo test -p rightkit-fsindex --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 71,
+          "executed": 87,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -39,6 +40,10 @@
         },
         {
           "command": "cargo clippy -p rightkit-fsindex --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-fsindex --all-targets --all-features",
           "ok": true
         }
       ]
