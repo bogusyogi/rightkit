@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."

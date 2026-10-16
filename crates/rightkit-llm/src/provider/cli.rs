@@ -395,6 +395,7 @@ pub enum StreamKind {
 /// Typed failures of a CLI route. Messages carry stderr only truncated and
 /// redacted.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CliError {
     /// The spec is unusable (relative program, credential-like env name, ...).
     InvalidSpec(String),
