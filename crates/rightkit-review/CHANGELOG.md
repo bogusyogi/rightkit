@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Autonomy ladder (`ladder` module), ported from CutRight's `cutright-rules::ladder` (RightKit #236). Every (content type, platform) pairing starts at `Reviewed`.
+  - Promotion: at `Reviewed`, `approvals_to_review_light` clean approved finals promote to `ReviewLight`; at `ReviewLight`, `approvals_to_autonomous` more promote to `Autonomous`. The streak restarts at each promotion.
+  - Demotion: a rejected final drops to `Reviewed` at any level. A failed critic check resets the streak and, on an `Autonomous` final, drops one level to `ReviewLight`.
+  - `LadderPolicy` holds the thresholds (defaults 5 and 10; omitted JSON fields keep defaults; zero and unknown fields are refused).
+  - `Ladder::to_json` / `from_json` write and read a state tagged `schema` = `rightkit-review.ladder`, `version` = `1.0.0`. A snapshot with another schema or a newer version is refused. A snapshot with neither field (CutRight's original format) is read as 1.0.0.
+- Additive: no existing API, rule id, or verdict record format changed. No new dependencies.
+
 ## 0.2.0
 
 - Text rule family on `ArtifactKind::Text`. Each rule is pure and takes its thresholds and lists as data. Each returns pass, fail, or inconclusive with a stable rule id and offsets or counts in the reason:

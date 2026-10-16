@@ -20,12 +20,15 @@
 //!    change the disposition. No model is called in this crate.
 //! 6. [`VerdictRecord`] is the versioned audit record. It is refused when the
 //!    schema or version is not one this build reads.
+//! 7. [`ladder`] is the autonomy ladder (reviewed, review-light, autonomous) per
+//!    content type and platform, with overridable thresholds and a versioned state.
 
 #![forbid(unsafe_code)]
 
 mod error;
 mod extension;
 mod judge;
+pub mod ladder;
 mod record;
 mod repair;
 mod rules;
