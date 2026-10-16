@@ -15,7 +15,7 @@ One optional feature, off by default: `tokio` (adds `tokio` with `process` and `
 
 ## Platform support
 
-- Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group, under the identity rule below. `kill_on_parent_exit` is Linux only.
+- Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group, under the identity rule below. `kill_on_parent_exit` is Linux and macOS (see below).
 - Windows: children are created suspended, assigned to a Job Object, then resumed. Termination uses the Job Object.
 - The crate has `cfg(unix)`, `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` branches across `src/owned.rs`, `src/process_handle.rs`, `src/unix_child.rs`, `src/exit_watch.rs`, `src/identity.rs`, `src/process_unix.rs`, `src/process_windows.rs`, and `src/spawn_windows.rs`.
 
@@ -164,14 +164,39 @@ in which that could happen. The rule that replaces it:
   exits, not only when the process exits, so spawn from a thread that lives as long as the child. The child
   gets one TERM and no KILL escalation, so a child that ignores TERM survives. Descendants in the group are not
   signalled.
-  - macOS and other Unix hosts: the spawn fails with `ErrorKind::Unsupported` before anything is started. A
-    macOS helper process was written and removed from this release (see `CHANGELOG.md`); until a parent-death
-    tie can be established there with an owner that cannot be confused with another child, the option is
-    refused rather than run the child untied.
+  - macOS (0.4.2): a watchdog process, because macOS has no parent-death primitive. After the child starts,
+    `spawn` forks a helper (double fork, so it is never this process's zombie; `setsid`; every inherited
+    descriptor closed) that waits in a `kqueue` for `EVFILT_PROC | NOTE_EXIT` on this process and on the child.
+    If this process exits first (SIGKILL included) it sends `SIGTERM` to the child's process group, and `SIGKILL`
+    two seconds later if the group's leader is still there; if the child exits first it just exits. The helper
+    never waits for or reaps any process, so it cannot take another child's status; the only pid this process
+    waits on is the helper's short-lived middle process. `spawn` returns only after the helper reported both
+    registrations (the child is still this process's unreaped child then, so the registration cannot name a
+    recycled pid) and kills the child and fails if it cannot be armed. Trade-offs against Linux: one extra
+    process per tied child; the trigger is the whole process exiting, not the spawning thread; the signal reaches
+    the group and escalates to KILL; the child runs untied from its spawn until `spawn` returns; and the
+    helper's final signal names the pid after the owner died (a child that exits and whose number is recycled
+    inside that window of microseconds could be mistaken for the child).
+  - Other Unix hosts: the spawn fails with `ErrorKind::Unsupported` before anything is started.
   - Windows: a no-op. Kill-on-close job objects already terminate the tree when the owner handle closes.
   - Combining the option with `spawn_uncontained_detached` returns `InvalidInput`.
-- `tests/parent_death.rs` (Linux) re-executes the test binary as the parent, SIGKILLs it, and checks the child
-  pid. `src/owned.rs` has the unit tests for the refusals.
+- `tests/parent_death.rs` (Linux and macOS) re-executes the test binary as the parent, SIGKILLs it, and checks the
+  child pid. `src/owned.rs` has the unit tests for the refusals.
+
+## Also (0.4.2)
+
+- `terminate_all_owned(TerminationOptions) -> TerminateAllReport` stops every child this process owns (every
+  `OwnedCommand::spawn` whose `OwnedChild` is not dropped) in one call, for a shutdown path. Unix: TERM to every
+  group, one shared `grace`, KILL to every group, bounded reap, each signal under the identity rule. Windows: the
+  retained jobs and processes are terminated (no graceful stage). Detached children are not owned and not touched.
+  `owned_count()` reports how many are listed. The list holds weak references only. Tests:
+  `tests/owned_tree_control.rs`.
+- `OwnedChild::terminate_tree_deep(TerminationOptions) -> TreeTermination` is the on-demand tree kill for a child
+  that is not terminated on drop (`spawn_uncontained_detached`) and works for ordinary children too: it records the
+  descendants' identities, signals the leader's whole group (a detached child leads its own session), reaps the
+  leader, then sweeps the recorded descendants by identity (a recycled pid is refused). Descendants whose parent
+  already exited before the call are not findable.
+- Not done: a sweep by command line or executable path (item 4 of the issue).
 
 ## Known limits
 

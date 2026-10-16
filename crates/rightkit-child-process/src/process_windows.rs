@@ -191,7 +191,7 @@ pub(crate) fn assign_jobs(
     process: &ProcessHandle,
     caller_job: Option<OwnedHandle>,
     mode: JobAssignmentMode,
-    owned_job: &mut Option<KillOnCloseJob>,
+    owned_job: &mut Option<std::sync::Arc<KillOnCloseJob>>,
     failures: &mut Vec<JobAssignmentFailure>,
 ) -> io::Result<()> {
     // Caller job precedes the empty nested RightKit job. No user code runs yet.
@@ -204,7 +204,7 @@ pub(crate) fn assign_jobs(
         )?;
     }
     match KillOnCloseJob::assign(process) {
-        Ok(job) => *owned_job = Some(job),
+        Ok(job) => *owned_job = Some(std::sync::Arc::new(job)),
         Err(error) => assignment_result(
             Err(error),
             mode,

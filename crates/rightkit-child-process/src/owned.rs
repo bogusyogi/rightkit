@@ -283,10 +283,20 @@ impl OwnedCommand {
     /// `SIGKILL` escalation. It is keyed to the spawning *thread*, so spawn from a thread
     /// that lives as long as the child.
     ///
-    /// Other Unix hosts, macOS included, have no parent-death primitive this crate relies on:
-    /// the spawn fails with `ErrorKind::Unsupported` before anything is started, rather than
-    /// run the child untied. Windows ignores the option because kill-on-close job objects
-    /// already cover parent death. Rejected (`InvalidInput`) for detached spawns.
+    /// macOS has no `PR_SET_PDEATHSIG`, so the tie is a small watchdog process started right
+    /// after the child (a `kqueue` with `EVFILT_PROC`/`NOTE_EXIT` on this process and on the
+    /// child; see `process_unix::arm_parent_death_watch`). When this process dies, SIGKILL
+    /// included, the watchdog sends `SIGTERM` to the child's whole process group and `SIGKILL`
+    /// two seconds later. Differences from Linux: the trigger is the whole process exiting,
+    /// not the spawning thread; the signal goes to the group and escalates; it costs one
+    /// extra helper process per tied child (it exits when the child or this process does);
+    /// the child runs untied between its spawn and the moment `spawn` returns (a few
+    /// milliseconds), and `spawn` kills the child and fails if the watchdog cannot be armed.
+    ///
+    /// Other Unix hosts have no parent-death primitive this crate relies on: the spawn fails
+    /// with `ErrorKind::Unsupported` before anything is started, rather than run the child
+    /// untied. Windows ignores the option because kill-on-close job objects already cover
+    /// parent death. Rejected (`InvalidInput`) for detached spawns.
     pub fn kill_on_parent_exit(&mut self, enabled: bool) -> &mut Self {
         self.kill_on_parent_exit = enabled;
         self
@@ -323,11 +333,11 @@ impl OwnedCommand {
                 "kill_on_parent_exit cannot combine with a detached launch",
             ));
         }
-        #[cfg(all(unix, not(target_os = "linux")))]
+        #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
         if self.kill_on_parent_exit {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
-                "kill_on_parent_exit is supported on Linux only",
+                "kill_on_parent_exit is supported on Linux and macOS only",
             ));
         }
         #[cfg(unix)]
@@ -389,6 +399,17 @@ impl OwnedCommand {
             // A child whose pid cannot be tied to it is stopped here, while the pid is
             // certainly still its own: no later signal could be proven to reach it.
             child.require_identity()?;
+            // macOS: the tie is a watchdog armed while the pid is still certainly ours. A
+            // child that could not be tied is stopped, never handed out untied.
+            #[cfg(target_os = "macos")]
+            if self.kill_on_parent_exit {
+                if let Err(error) = crate::process_unix::arm_parent_death_watch(child.id()) {
+                    let _ = child.signal(SignalTarget::Group, libc::SIGKILL);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            }
             child
         };
         #[cfg(windows)]
@@ -464,7 +485,23 @@ impl OwnedCommand {
         if fail_after_spawn {
             return Err(io::Error::other("injected post-spawn wrapping failure"));
         }
-        Ok(partial.child.take().expect("partial child is present"))
+        let owned = partial.child.take().expect("partial child is present");
+        if !detached {
+            // Detached children are deliberately not owned: they outlive their handle.
+            #[cfg(unix)]
+            crate::registry::register(&owned.child, owned.pid);
+            #[cfg(windows)]
+            crate::registry::register(
+                &owned.child,
+                &owned.handle,
+                owned
+                    .job
+                    .as_ref()
+                    .map_or_else(std::sync::Weak::new, std::sync::Arc::downgrade),
+                owned.pid,
+            );
+        }
+        Ok(owned)
     }
 }
 
@@ -505,8 +542,18 @@ pub struct OwnedChild {
     drop_reap_timeout: Duration,
     tree_terminated: bool,
     assignment_failures: Vec<JobAssignmentFailure>,
+    // Shared so the owned-children registry can reach the job without keeping it open
+    // (it holds a `Weak`): the kill-on-close job still closes with this child.
     #[cfg(windows)]
-    job: Option<crate::process_windows::KillOnCloseJob>,
+    job: Option<std::sync::Arc<crate::process_windows::KillOnCloseJob>>,
+}
+/// The result of [`OwnedChild::terminate_tree_deep`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreeTermination {
+    /// The leader's exit status.
+    pub status: ExitStatus,
+    /// What happened to the descendants recorded before the leader was stopped.
+    pub descendants: crate::SweepReport,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReapOutcome {
@@ -688,6 +735,48 @@ impl OwnedChild {
             },
         )
     }
+    /// On-demand termination of the whole tree, for a child that is not terminated on drop (a
+    /// [`spawn_uncontained_detached`](OwnedCommand::spawn_uncontained_detached) child whose
+    /// helpers should die now) as well as for an ordinary one. Unlike
+    /// [`terminate_tree_with_options`](Self::terminate_tree_with_options), a detached child's
+    /// descendants are not left alone:
+    ///
+    /// 1. While the leader is proven to be this child, the identities of its descendants are
+    ///    recorded (parent links; descendants that already outlived a parent that exited are
+    ///    not findable, as for [`descendant_identities`](Self::descendant_identities)).
+    /// 2. Unix: `SIGTERM` to the leader's whole process group (a detached child leads its own
+    ///    session, so that group is its own), up to `options.grace` for the group to leave,
+    ///    then `SIGKILL` to the group, all before the leader is reaped, so the group id cannot
+    ///    be recycled. Windows: the retained job if there is one (ordinary children), and the
+    ///    leader (`options.windows_exit_code`).
+    /// 3. The leader is reaped.
+    /// 4. The recorded descendants that are still the same process (pid and start time; a
+    ///    recycled pid is refused, never signalled) are swept, leaves first, with
+    ///    `options.grace`. This is what reaches a helper that left the group (a daemon that
+    ///    called `setsid`) and, on Windows, the descendants of a detached child.
+    ///
+    /// If another path already reaped the leader on Unix, nothing is signalled and the cached
+    /// status is returned with an empty sweep. No terminate-on-drop is implied: calling this
+    /// or not does not change what `Drop` does.
+    pub fn terminate_tree_deep(
+        &mut self,
+        options: TerminationOptions,
+    ) -> io::Result<TreeTermination> {
+        let mut found = self.descendant_identities()?;
+        found.reverse(); // leaves first
+        #[cfg(unix)]
+        if !self.tree_terminated {
+            signal_shared(&self.child, SignalTarget::Group, libc::SIGTERM)?;
+            await_tree_shared(&self.child, &self.handle, options.grace, true)?;
+            signal_shared(&self.child, SignalTarget::Group, libc::SIGKILL)?;
+            self.tree_terminated = true;
+        }
+        #[cfg(windows)]
+        self.force_kill(options.windows_exit_code)?;
+        let status = self.wait()?;
+        let descendants = crate::sweep(&found, options.grace)?;
+        Ok(TreeTermination { status, descendants })
+    }
     fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
         #[cfg(unix)]
         if !self.tree_terminated {
@@ -707,29 +796,8 @@ impl OwnedChild {
     /// releases it before the thread sleeps. Bounded by `grace` in every case.
     #[cfg(unix)]
     fn await_tree(&self, grace: Duration) -> io::Result<()> {
-        use crate::{exit_watch::POLL_INTERVAL, unix_child::Members};
-        let Some(deadline) = Instant::now().checked_add(grace) else {
-            return Ok(());
-        };
-        let left = |deadline: Instant| deadline.saturating_duration_since(Instant::now());
-        if !self.handle.wait_exited_timeout(left(deadline))? {
-            return Ok(()); // the leader outlived the grace
-        }
-        if self.detached {
-            return Ok(()); // a detached child owns only its direct pid
-        }
-        loop {
-            match lock_child(&self.child).group_other_members()? {
-                Members::Pids(pids) if pids.is_empty() => return Ok(()),
-                Members::Pids(_) => {}
-                Members::Unknown => return wait_out(left(deadline)),
-            }
-            let remaining = left(deadline);
-            if remaining.is_zero() {
-                return Ok(()); // the grace is over
-            }
-            thread::sleep(POLL_INTERVAL.min(remaining));
-        }
+        // A detached child owns only its direct pid.
+        await_tree_shared(&self.child, &self.handle, grace, !self.detached)
     }
     /// Sends `signal` to the group (or, for a detached child, to the leader alone) while the
     /// leader is unreaped and proven. Takes the child lock for each attempt and releases it
@@ -743,23 +811,7 @@ impl OwnedChild {
         } else {
             SignalTarget::Group
         };
-        let started = Instant::now();
-        loop {
-            let (outcome, watch) = {
-                let mut child = lock_child(&self.child);
-                (child.signal(target, signal)?, child.exit_watch())
-            };
-            if outcome != SignalOutcome::MidExit {
-                return Ok(());
-            }
-            // macOS refused the group signal while its last members are mid-exit. The group is
-            // gone once the exit completes: look again, for a bounded time, without the lock.
-            let remaining = MID_EXIT_RETRY.saturating_sub(started.elapsed());
-            if remaining.is_zero() {
-                return Err(io::Error::from_raw_os_error(libc::EPERM));
-            }
-            watch.pause(remaining);
-        }
+        signal_shared(&self.child, target, signal).map(|_| ())
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
         if self.tree_terminated {
@@ -771,7 +823,7 @@ impl OwnedChild {
             self.signal(libc::SIGKILL)?;
         }
         #[cfg(windows)]
-        crate::process_windows::terminate(&self.handle, self.job.as_ref(), code)?;
+        crate::process_windows::terminate(&self.handle, self.job.as_deref(), code)?;
         self.tree_terminated = true;
         Ok(())
     }
@@ -819,6 +871,8 @@ impl OwnedChild {
 }
 impl Drop for OwnedChild {
     fn drop(&mut self) {
+        // No longer owned: leave the registry before anything below can take long.
+        crate::registry::forget(&self.child);
         if self.terminate_on_drop {
             // Bounded: the kill is sent at once, the reap is awaited for at most
             // `drop_reap_timeout`, and a child that has not been reaped by then is reaped by
@@ -874,6 +928,67 @@ impl Drop for PartialChild {
 /// retried before the refusal is reported.
 #[cfg(unix)]
 const MID_EXIT_RETRY: Duration = Duration::from_millis(300);
+
+/// One signal to a shared child's group or leader (see `OwnedChild::signal`), retrying for a
+/// bounded time while macOS reports the last members mid-exit. The lock is taken for each
+/// attempt and released between attempts. Returns the final outcome.
+#[cfg(unix)]
+pub(crate) fn signal_shared(
+    shared: &Mutex<crate::unix_child::UnixChild>,
+    target: SignalTarget,
+    signal: i32,
+) -> io::Result<SignalOutcome> {
+    let started = Instant::now();
+    loop {
+        let (outcome, watch) = {
+            let mut child = lock_child(shared);
+            (child.signal(target, signal)?, child.exit_watch())
+        };
+        if outcome != SignalOutcome::MidExit {
+            return Ok(outcome);
+        }
+        // macOS refused the group signal while its last members are mid-exit. The group is
+        // gone once the exit completes: look again, for a bounded time, without the lock.
+        let remaining = MID_EXIT_RETRY.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(io::Error::from_raw_os_error(libc::EPERM));
+        }
+        watch.pause(remaining);
+    }
+}
+
+/// `OwnedChild::await_tree` over a shared child. `whole_group` false waits only for the leader.
+#[cfg(unix)]
+pub(crate) fn await_tree_shared(
+    shared: &Mutex<crate::unix_child::UnixChild>,
+    handle: &ProcessHandle,
+    grace: Duration,
+    whole_group: bool,
+) -> io::Result<()> {
+    use crate::{exit_watch::POLL_INTERVAL, unix_child::Members};
+    let Some(deadline) = Instant::now().checked_add(grace) else {
+        return Ok(());
+    };
+    let left = |deadline: Instant| deadline.saturating_duration_since(Instant::now());
+    if !handle.wait_exited_timeout(left(deadline))? {
+        return Ok(()); // the leader outlived the grace
+    }
+    if !whole_group {
+        return Ok(());
+    }
+    loop {
+        match lock_child(shared).group_other_members()? {
+            Members::Pids(pids) if pids.is_empty() => return Ok(()),
+            Members::Pids(_) => {}
+            Members::Unknown => return wait_out(left(deadline)),
+        }
+        let remaining = left(deadline);
+        if remaining.is_zero() {
+            return Ok(()); // the grace is over
+        }
+        thread::sleep(POLL_INTERVAL.min(remaining));
+    }
+}
 
 /// The rest of a grace for a group that cannot be listed. There is nothing to look at, so this
 /// is one timed sleep, not a loop.
@@ -1166,9 +1281,9 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
-    /// Hosts other than Linux have no parent-death primitive: the option fails closed, and the
-    /// program is never started (it would create the marker file).
-    #[cfg(all(unix, not(target_os = "linux")))]
+    /// Hosts other than Linux and macOS have no parent-death primitive: the option fails closed,
+    /// and the program is never started (it would create the marker file).
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     #[test]
     fn a_host_without_a_parent_death_primitive_refuses_before_starting_anything() {
         let marker =

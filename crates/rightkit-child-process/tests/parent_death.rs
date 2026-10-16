@@ -1,13 +1,15 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
-//! `kill_on_parent_exit` integration tests (Linux only: `PR_SET_PDEATHSIG`; other hosts refuse
-//! the option, see the unit tests in `src/owned.rs`). The "parent" is this test binary
+//! `kill_on_parent_exit` integration tests (Linux: `PR_SET_PDEATHSIG`; macOS: the kqueue
+//! watchdog; other hosts refuse the option, see the unit tests in `src/owned.rs`). The
+//! "parent" is this test binary
 //! re-executed with `ROLE_ENV` set. It spawns a sleeping child and prints its
 //! pid. The outer test SIGKILLs the parent, which runs no cleanup code, then
 //! checks whether the child is gone.
 
+#[cfg(target_os = "linux")]
+use std::fs;
 use std::{
-    fs,
     io::{self, BufRead, BufReader},
     process::{Child, Command, Stdio},
     sync::mpsc,
@@ -31,8 +33,18 @@ fn parent_death_role() {
         return;
     };
     let tied = role != "untied";
-    let mut command = OwnedCommand::new("sleep");
-    command.command_mut().arg("600");
+    let mut command = if role == "stubborn" {
+        // Ignores SIGTERM, so only the escalation to SIGKILL can end it (macOS watchdog).
+        let mut command = OwnedCommand::new("/bin/sh");
+        command
+            .command_mut()
+            .args(["-c", "trap '' TERM; while :; do sleep 1; done"]);
+        command
+    } else {
+        let mut command = OwnedCommand::new("sleep");
+        command.command_mut().arg("600");
+        command
+    };
     command
         .command_mut()
         .stdin(Stdio::null())
@@ -106,11 +118,25 @@ fn group_kill(pid: u32) {
     }
 }
 
-/// Reads /proc for the state character.
+/// The process state character: /proc on Linux, `ps` on macOS.
 fn process_state(pid: u32) -> Option<char> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let after = stat.rsplit_once(')')?.1;
-    after.trim_start().chars().next()
+    #[cfg(target_os = "linux")]
+    {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let after = stat.rsplit_once(')')?.1;
+        after.trim_start().chars().next()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .chars()
+            .next()
+    }
 }
 
 /// True once the pid no longer names a live process. A zombie counts as gone
@@ -212,6 +238,44 @@ fn tied_child_dies_when_its_parent_is_killed_right_after_spawn() {
             "round {round}: child {} outlived its parent killed right after spawn",
             role.child_pid
         );
+    }
+}
+
+/// macOS: the watchdog escalates to SIGKILL for a child that ignores SIGTERM (Linux sends one
+/// catchable SIGTERM to the direct child only, so this is macOS-specific).
+#[cfg(target_os = "macos")]
+#[test]
+fn tied_child_that_ignores_term_is_killed_after_its_parent_is_sigkilled() {
+    let mut role = start_role("stubborn");
+    assert!(!is_gone(role.child_pid));
+    sigkill(role.process.id());
+    role.process.wait().expect("reap killed role");
+    let gone = wait_until_gone(role.child_pid, Duration::from_secs(10));
+    let group_gone = wait_until_group_gone(role.child_pid, Duration::from_secs(10));
+    if !(gone && group_gone) {
+        group_kill(role.child_pid);
+    }
+    assert!(gone, "stubborn child {} survived", role.child_pid);
+    assert!(group_gone, "stubborn group {} survived", role.child_pid);
+}
+
+/// A tied child that exits on its own while the parent lives: spawn succeeds (the watchdog is
+/// armed or finds nothing to watch, however early the child exits), the status is the child's
+/// own, and repeating it leaves nothing behind. Repeated to catch the arming race.
+#[test]
+fn tied_children_that_exit_at_once_spawn_and_report_their_status() {
+    for round in 0..20 {
+        let mut command = OwnedCommand::new("sh");
+        command
+            .command_mut()
+            .args(["-c", "exit 7"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command.kill_on_parent_exit(true);
+        let mut child = command.spawn().expect("a tied spawn succeeds");
+        let status = child.wait().expect("wait");
+        assert_eq!(status.code(), Some(7), "round {round}");
     }
 }
 

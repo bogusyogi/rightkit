@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.2
+
+Issue #171. Written without compiling or running Cargo here; CI builds and runs the tests.
+
+- **New: `terminate_all_owned(TerminationOptions) -> TerminateAllReport` and `owned_count()`.** A process-wide list of
+  owned children (weak references; every `OwnedCommand::spawn`, never detached ones) lets a shutdown path stop them
+  all without an app-kept list. Unix: SIGTERM to every group, one shared grace, SIGKILL to every group, bounded reap
+  (2 s total); every signal goes through `UnixChild::signal`, so a reaped or recycled pid is never signalled
+  (reported `already_gone`). Windows: each retained job and process is terminated (no graceful stage; the job is now
+  an `Arc` inside `OwnedChild` so the list can hold a `Weak`, with unchanged close-with-the-child behaviour). The
+  `OwnedChild` values stay valid. Dropping an `OwnedChild` removes it from the list.
+- **New: `OwnedChild::terminate_tree_deep(options) -> TreeTermination { status, descendants }`.** On-demand tree
+  termination without terminate-on-drop, for `spawn_uncontained_detached` children (which `terminate_tree` only
+  signals directly) and ordinary ones: descendants' identities are recorded while the leader is proven, the leader's
+  whole group gets TERM, the grace, KILL (Unix; a detached child leads its own session), the leader is reaped, then
+  the recorded descendants are swept by identity, leaves first (the only path for a detached child's descendants on
+  Windows). `Drop` behaviour is unchanged.
+- **New: `kill_on_parent_exit` works on macOS.** A watchdog process (double fork, `setsid`, `kqueue` with
+  `EVFILT_PROC | NOTE_EXIT` on the supervisor and the child) sends SIGTERM to the child's group when the supervisor
+  exits however it exits, and SIGKILL after 2 s; it exits when the child does. `spawn` returns after the watchdog is
+  armed and kills the child and fails otherwise. Differences from Linux: whole-process trigger (not the spawning
+  thread), group-wide with KILL escalation, one helper process per tied child, a short untied window between spawn and
+  arming, and a final signal that names the pid after the owner died. The helper never waits on or reaps a process
+  (the problem that removed the earlier helper). Other Unix hosts still return `Unsupported`.
+- **Tests.** `tests/owned_tree_control.rs` (list, shared grace, detached untouched, drop leaves the list, deep
+  termination of detached and ordinary trees, repeat call); `tests/parent_death.rs` now runs on macOS too, plus a
+  SIGTERM-ignoring child (macOS) and 20 tied children that exit at once (arming race).
+- **Not done:** scoped sweep by command line or executable path (item 4 of #171).
+
 ## 0.4.1
 
 - **New: `OwnedChild::wait_then_kill(grace)`.** Like `wait_or_kill` but without the opening SIGTERM on Unix: the leader gets the whole grace period to exit on its own (for example on stdin EOF), then the tree is killed. On Windows it is the same as `wait_or_kill`. `rightkit-agents` `Session::shutdown` uses it, so a CLI that exits cleanly on EOF is no longer raced by SIGTERM.

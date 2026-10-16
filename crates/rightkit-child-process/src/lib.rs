@@ -16,6 +16,7 @@ mod process_handle;
 mod process_unix;
 #[cfg(windows)]
 mod process_windows;
+mod registry;
 mod restart;
 pub mod reveal;
 #[cfg(windows)]
@@ -39,10 +40,11 @@ pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use no_window::{NoWindow, CREATE_NO_WINDOW};
 pub use owned::{
     AdoptedProcess, JobAssignmentFailure, JobAssignmentMode, OwnedChild, OwnedCommand,
-    ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions, UnixContainment, WaitOutcome,
-    DEFAULT_DROP_REAP_TIMEOUT, DEFAULT_ENV_ALLOWLIST,
+    ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions, TreeTermination,
+    UnixContainment, WaitOutcome, DEFAULT_DROP_REAP_TIMEOUT, DEFAULT_ENV_ALLOWLIST,
 };
 pub use process_handle::ProcessHandle;
+pub use registry::{owned_count, terminate_all_owned, TerminateAllReport};
 pub use restart::{
     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
     RestartTracker,

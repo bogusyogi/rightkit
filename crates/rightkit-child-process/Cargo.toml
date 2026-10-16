@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-child-process"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps."
@@ -13,7 +13,7 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: per-call pipe drain threads (capture.rs OutputCapture) and the macOS kqueue exit watcher (exit_watch.rs), each ending with its child or stream; detached-child: spawning and owning children is this crate's purpose, every child is owned by an OwnedChild/job object and torn down with a bounded staged kill; task-spawn/runtime-builder: none, the optional tokio feature only awaits tokio::time::sleep inside terminate_tree; no listener, resident cache or model (reviewed 2026-10-16)"
+continuous_reason = "thread-spawn: per-call pipe drain threads (capture.rs OutputCapture) and the macOS kqueue exit watcher (exit_watch.rs), each ending with its child or stream, plus the opt-in macOS parent-death watchdog process (process_unix.rs arm_parent_death_watch, one per tied child, exits with its child or its owner); detached-child: spawning and owning children is this crate's purpose, every child is owned by an OwnedChild/job object and torn down with a bounded staged kill; task-spawn/runtime-builder: none, the optional tokio feature only awaits tokio::time::sleep inside terminate_tree; no listener, resident cache or model (reviewed 2026-10-16)"
 
 [features]
 # Async helpers for callers that build tokio commands: `NoWindow` for `tokio::process::Command`
