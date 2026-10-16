@@ -213,7 +213,7 @@ impl TokenStoreGuard for FileGuard<'_> {
     }
 }
 
-fn private_dir(path: &Path) -> Result<(), ServerAuthError> {
+pub(super) fn private_dir(path: &Path) -> Result<(), ServerAuthError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -247,7 +247,7 @@ fn check_permissions(meta: &fs::Metadata) -> Result<(), ServerAuthError> {
         Err(ServerAuthError::InvalidConfig)
     }
 }
-fn private_file(path: &Path, exclusive: bool) -> Result<File, ServerAuthError> {
+pub(super) fn private_file(path: &Path, exclusive: bool) -> Result<File, ServerAuthError> {
     if let Ok(meta) = fs::symlink_metadata(path) {
         if !meta.is_file() {
             return Err(ServerAuthError::Storage);
@@ -274,14 +274,14 @@ fn private_file(path: &Path, exclusive: bool) -> Result<File, ServerAuthError> {
     Ok(file)
 }
 
-fn check_dir(path: &Path) -> Result<(), ServerAuthError> {
+pub(super) fn check_dir(path: &Path) -> Result<(), ServerAuthError> {
     let meta = fs::symlink_metadata(path).map_err(|_| ServerAuthError::Storage)?;
     if !meta.is_dir() {
         return Err(ServerAuthError::Storage);
     }
     check_permissions(&meta)
 }
-fn check_private_file(meta: &fs::Metadata) -> Result<(), ServerAuthError> {
+pub(super) fn check_private_file(meta: &fs::Metadata) -> Result<(), ServerAuthError> {
     if !meta.is_file() {
         return Err(ServerAuthError::Storage);
     }
@@ -294,7 +294,7 @@ fn check_private_file(meta: &fs::Metadata) -> Result<(), ServerAuthError> {
     }
     check_permissions(meta)
 }
-fn open_existing_private_file(path: &Path) -> std::io::Result<File> {
+pub(super) fn open_existing_private_file(path: &Path) -> std::io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]

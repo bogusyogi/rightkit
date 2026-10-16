@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 (unpublished)
+
+Orthic-Labs/rightkit#194: what the PostRight engine needs for Mastodon and X OAuth with refresh. All additions are under the `server` feature; nothing existing changed except one new `ServerAuthError` variant (the enum is `#[non_exhaustive]`). `rightkit-daemon` moves its pin to `0.7.0`.
+
+- Add `server::KeychainTokenStore` (needs `server` + `secrets`, on by default): a cross-platform durable `TokenStore` over the OS credential store (macOS Keychain, Windows Credential Manager) via `rightkit-credentials`, keyed by `(account, provider)`. A file lock in a caller-chosen per-user directory serializes get/refresh/put across processes. `SealedFileTokenStore` is unchanged.
+- Add `server::FilePendingStateStore`: a durable `PendingStateStore` shared by processes, so `begin` and `complete` can run in separate CLI invocations. AES-256-GCM sealed record per state, bound to its file name and expiry, under a directory lock; `take` deletes before decrypting (single use, even when corrupt); expired records are purged on insert; capacity bounded. `with_keychain_key` keeps the sealing key in the OS credential store.
+- Add `ServerAuthFlow::refresh_token(provider, &Secret)`: refresh from a bare refresh token, independent of any stored `TokenSet`. The returned set carries the rotated refresh token when the provider sends one, else the one passed in.
+- Add `ServerAuthFlow::refresh_token_and_store(store, account, provider, &Secret)`: the same under the store lock with an atomic replacement of the stored set (rotated token included); `RefreshPersistence` still returns the new tokens when the write fails; `invalid_grant` deletes the stored set only if it still holds the rejected token.
+- Add presets `ServerProvider::mastodon(instance, ..)`, `x_confidential(..)`, `x_public(..)`, `with_default_scopes`, and `register_mastodon_app` (`POST {instance}/api/v1/apps`, JSON body) returning `RegisteredApp { client_id, client_secret, .. }` (redacted `Debug`). New `ServerAuthError::RegistrationFailure { status }`.
+- Unverified, see the preset docs: Mastodon PKCE enforcement per version, and the default scope lists.
+
 ## 0.6.0 (unpublished)
 
 Includes everything listed as 0.5.1 below (never published) plus the Google sign-in work of Orthic-Labs/rightkit#162.

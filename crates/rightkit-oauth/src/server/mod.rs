@@ -1,8 +1,20 @@
 //! Confidential-client authorization for daemons. Blocking I/O; use a blocking executor
 //! in async routes. No listener, browser launch, token logging or automatic retry.
+#[cfg(feature = "secrets")]
+mod keychain;
+mod lock;
+mod pending_file;
+mod presets;
 mod provider;
 pub(crate) mod sensitive;
 mod store;
+#[cfg(feature = "secrets")]
+pub use keychain::KeychainTokenStore;
+pub use pending_file::FilePendingStateStore;
+pub use presets::{
+    register_mastodon_app, RegisteredApp, MASTODON_DEFAULT_SCOPES, X_AUTHORIZATION_URL,
+    X_DEFAULT_SCOPES, X_TOKEN_URL,
+};
 pub use provider::{ClientIdParameter, ServerProvider};
 pub use store::{SealedFileTokenStore, TokenStore, TokenStoreGuard};
 
@@ -54,6 +66,10 @@ pub enum ServerAuthError {
     ReauthRequired,
     Storage,
     OidcValidation,
+    /// Dynamic client registration was declined or returned no usable credentials.
+    RegistrationFailure {
+        status: Option<u16>,
+    },
     /// Rotation succeeded but persistence failed. Recover these tokens through secure
     /// storage; do not spend the old refresh token again. Debug redacts all fields.
     /// Boxed to keep this error small; dereference to recover an owned `TokenSet`.
@@ -66,6 +82,10 @@ impl fmt::Debug for ServerAuthError {
         match self {
             Self::ExchangeFailure { status } => f
                 .debug_struct("ExchangeFailure")
+                .field("status", status)
+                .finish(),
+            Self::RegistrationFailure { status } => f
+                .debug_struct("RegistrationFailure")
                 .field("status", status)
                 .finish(),
             Self::RefreshPersistence { .. } => {
@@ -88,6 +108,7 @@ impl fmt::Display for ServerAuthError {
             Self::ReauthRequired => "OAuth reauthorization required",
             Self::Storage => "OAuth storage failed",
             Self::OidcValidation => "OIDC validation failed or validator missing",
+            Self::RegistrationFailure { .. } => "OAuth app registration failed",
             Self::RefreshPersistence { .. } => "rotated OAuth tokens require persistence recovery",
         })
     }
@@ -536,6 +557,70 @@ impl ServerAuthFlow {
             }
             Err(ServerAuthError::ReauthRequired) => {
                 guard.delete()?;
+                Err(ServerAuthError::ReauthRequired)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Refresh from a bare refresh token, independent of any stored `TokenSet`. Spends exactly
+    /// `refresh_token` once; no retry. The returned set carries the provider's replacement
+    /// refresh token when it rotated (X does), otherwise the one passed in, so
+    /// `tokens.refresh_token` is always the token to keep. The caller must persist it before
+    /// using the access token: the old token may already be spent. `ReauthRequired` means the
+    /// grant is dead (`invalid_grant`). Prefer [`Self::refresh`] or
+    /// [`Self::refresh_token_and_store`] where a store is available; they persist atomically.
+    pub fn refresh_token(
+        &self,
+        provider: &str,
+        refresh_token: &Secret,
+    ) -> Result<TokenSet, ServerAuthError> {
+        let p = self.provider(provider)?;
+        if refresh_token.expose().is_empty() {
+            return Err(ServerAuthError::InvalidConfig);
+        }
+        self.token_request(
+            p,
+            &[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.expose()),
+            ],
+            Some(refresh_token),
+            true,
+        )
+        .map(|(tokens, _)| tokens)
+    }
+
+    /// [`Self::refresh_token`] under the store's lock, then an atomic replacement of the
+    /// stored set (a rotated refresh token included). A failed write returns
+    /// `RefreshPersistence` with the new tokens. On `invalid_grant` the stored set is deleted
+    /// only if it still holds the refresh token that was just rejected; a newer one written by
+    /// another process is kept.
+    pub fn refresh_token_and_store(
+        &self,
+        store: &dyn TokenStore,
+        account: &str,
+        provider: &str,
+        refresh_token: &Secret,
+    ) -> Result<TokenSet, ServerAuthError> {
+        let mut guard = store.lock(account, provider)?;
+        match self.refresh_token(provider, refresh_token) {
+            Ok(tokens) => {
+                if guard.put(&tokens).is_err() {
+                    return Err(ServerAuthError::RefreshPersistence {
+                        tokens: Box::new(tokens),
+                    });
+                }
+                Ok(tokens)
+            }
+            Err(ServerAuthError::ReauthRequired) => {
+                let same = guard
+                    .get()?
+                    .and_then(|current| current.refresh_token)
+                    .is_some_and(|stored| ct_eq(stored.expose(), refresh_token.expose()));
+                if same {
+                    guard.delete()?;
+                }
                 Err(ServerAuthError::ReauthRequired)
             }
             Err(e) => Err(e),

@@ -18,6 +18,28 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 `rightkit-http` is always a dependency. It is used for every token request.
 
+## Durable server-mode pieces (PostRight engine)
+
+All under `server`; `KeychainTokenStore` also needs `secrets` (default on).
+
+- `KeychainTokenStore::new(credentials_store, lock_dir)`: `TokenStore` in the OS credential store, macOS and Windows. `lock_dir` holds only empty lock files (per-user: 0700 on Unix, under `%LOCALAPPDATA%` on Windows). The Windows credential blob limit is 2560 bytes.
+- `FilePendingStateStore::new(dir, key)` or `::with_keychain_key(dir, &credentials_store, "pending-key")`: pending PKCE state shared across processes; single use, expiry enforced by the flow, sealed at rest.
+- `flow.refresh_token("x", &Secret::new(refresh))` returns a `TokenSet` whose `refresh_token` is the one to keep (rotated or unchanged). `flow.refresh_token_and_store(&store, account, "x", &refresh)` also persists it atomically; `flow.refresh(&store, ..)` does the same from the stored set.
+- Presets: `ServerProvider::mastodon("https://instance", id, secret, redirect)`, `x_confidential(id, secret, redirect)`, `x_public(id, redirect)`; `register_mastodon_app(&http, instance, name, &[redirect], &scopes, website)` for per-instance credentials.
+
+```rust,ignore
+let creds = rightkit_credentials::Store::open(rightkit_credentials::Config::new(ns));
+let tokens = KeychainTokenStore::new(creds.clone(), data_dir.join("locks"))?;
+let pending = Arc::new(FilePendingStateStore::with_keychain_key(data_dir.join("pending"), &creds, "pending-key")?);
+let flow = ServerAuthFlow::new(http, [ServerProvider::x_public(client_id, redirect)], pending, Duration::from_secs(600))?;
+let start = flow.begin("x", "me", &[])?;            // process 1
+let done = flow.complete(callback)?;                // process 2, same directories
+tokens.put("me", "x", &done.tokens)?;
+let fresh = flow.refresh(&tokens, "me", "x", Duration::from_secs(120))?;
+```
+
+Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http` and Mastodon's `urn:ietf:wg:oauth:2.0:oob` are not accepted.
+
 ## PKCE, loopback listener and gateway exchange
 
 - `pkce`: `PkceVerifier::generate`, `challenge_s256`, `generate_state`, `constant_time_eq`. `S256` only.
