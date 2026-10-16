@@ -29,10 +29,22 @@ target (`src/lib.rs` `Context`, `DispatcherMainThreadContext`). `Context` is `un
    runs on the event-loop thread, not on whichever worker drops the last runtime handle. (HeardRight's 2.11.4
    patch did not need this because 2.11.4's `make_event_handler` borrowed the runtime; the 2.12 signature
    changed.)
-4. New Windows-only test module `rightkit_windows_context_tests` with
+   Under `tracing` the closure reaches the span store through that owner instead of cloning its `Rc`.
+4. Thread-affine drop guard `MainThreadOwned<V>` (Windows only): the `Arc` payload is
+   `Arc<MainThreadOwned<DispatcherMainThreadContext<T>>>`. The guard records the creating (event-loop) `ThreadId`
+   and keeps the value in `ManuallyDrop`. Its `Drop` runs the inner drop only on that thread; on any other thread
+   it deliberately leaks the payload (Tao's `Rc` and the tracing `Rc` included), logs a `log::warn!`, and bumps
+   `LEAKED_MAIN_THREAD_PAYLOADS`. This covers `run_return` (Tao drops the handler and its owner before
+   `self.event_loop`, so a worker's last `WryHandle` can outlive the loop) and `Wry` dropped unrun or after
+   `run_iteration` while a handle lives on a worker. Remaining behaviour: a leak at shutdown, never a racy `Rc`
+   decrement. Residual: the leaked payload keeps Tao's runner `Rc` and window target alive for the process life.
+5. New Windows-only test module `rightkit_windows_context_tests` with
    `worker_handle_clone_drop_preserves_live_event_loop_context`: 8 workers x 100,000 handle clone/drop cycles plus
    100,000 on the UI thread; asserts `Arc::ptr_eq`, strong count 1 afterwards, and thread gating of
-   `run_threaded`.
+   `run_threaded` (it does not run the loop). Plus `guard_drops_on_creating_thread_and_leaks_elsewhere` (guard
+   unit test: inner drop runs on the creating thread, leaks elsewhere) and the `#[ignore]`d
+   `run_iteration_with_worker_handles_leaks_off_thread_last_drop` (4 workers clone/drop while `run_iteration` runs,
+   then a worker drops the last handle after the runtime; asserts no panic and a leak).
 
 Searchable marker: `RIGHTKIT PATCH`. Everything else is byte-identical to the upstream crate (original
 manifests, build script and licenses are retained; upstream `Cargo.lock` and `.cargo_vcs_info.json` are not
@@ -47,7 +59,7 @@ design doc. Do not create the tag `trw-2.12.2-rk1` until the regression test pas
 
 1. Download the new `.crate` from static.crates.io into an empty directory, extract it, treat it as data.
 2. Replace `vendor/tauri-runtime-wry/{src,build.rs,Cargo.toml,Cargo.toml.orig,README.md,LICENSE-*}` with the new
-   files, then re-apply the four changes above (search the old tree for `RIGHTKIT PATCH`, the
+   files, then re-apply the five changes above (search the old tree for `RIGHTKIT PATCH`, the
    `target_os = "windows"` cfg on `main_thread`, and the `rightkit_windows_context_tests` module).
 3. Check the Tao version the new crate requires. If Tao no longer keeps an `Rc` in its Windows
    `EventLoopWindowTarget`, or upstream `Context` no longer clones it off the main thread, delete the patch and

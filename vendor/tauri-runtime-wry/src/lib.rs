@@ -231,6 +231,71 @@ macro_rules! webview_getter {
   }};
 }
 
+/// RIGHTKIT PATCH (see PATCH.md): a thread-affine drop guard (Windows only).
+///
+/// Holds a value that contains non-atomic `Rc`s owned by the event loop. It records the
+/// creating (event-loop) thread and runs the inner drop only there. Dropped anywhere else
+/// (a worker holding the last `Arc` after the loop was torn down), the value is leaked on
+/// purpose: a leak at shutdown is safe, a racy `Rc` decrement is not.
+#[cfg(target_os = "windows")]
+pub struct MainThreadOwned<V> {
+  owner: ThreadId,
+  value: std::mem::ManuallyDrop<V>,
+}
+
+/// Number of payloads leaked because their last owner dropped off the event-loop thread.
+#[cfg(target_os = "windows")]
+pub static LEAKED_MAIN_THREAD_PAYLOADS: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(target_os = "windows")]
+impl<V> MainThreadOwned<V> {
+  /// Records the current thread as the only thread allowed to drop `value`.
+  pub fn new(value: V) -> Self {
+    Self::new_for_thread(current_thread().id(), value)
+  }
+
+  pub(crate) fn new_for_thread(owner: ThreadId, value: V) -> Self {
+    Self {
+      owner,
+      value: std::mem::ManuallyDrop::new(value),
+    }
+  }
+}
+
+#[cfg(target_os = "windows")]
+impl<V> Deref for MainThreadOwned<V> {
+  type Target = V;
+
+  fn deref(&self) -> &V {
+    &self.value
+  }
+}
+
+#[cfg(target_os = "windows")]
+impl<V: fmt::Debug> fmt::Debug for MainThreadOwned<V> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt::Debug::fmt(&*self.value, f)
+  }
+}
+
+#[cfg(target_os = "windows")]
+impl<V> Drop for MainThreadOwned<V> {
+  fn drop(&mut self) {
+    if current_thread().id() == self.owner {
+      // SAFETY: `value` is dropped exactly once, here, and never used afterwards.
+      unsafe { std::mem::ManuallyDrop::drop(&mut self.value) };
+    } else {
+      // Deliberate leak: the value holds event-loop `Rc`s that the loop thread may be
+      // decrementing concurrently.
+      LEAKED_MAIN_THREAD_PAYLOADS.fetch_add(1, Ordering::SeqCst);
+      log::warn!(
+        "dropping the event-loop context off its event-loop thread; leaking it instead of racing its Rc counts"
+      );
+    }
+  }
+}
+
 #[derive(Clone)]
 pub struct Context<T: UserEvent> {
   pub window_id_map: WindowIdStore,
@@ -238,9 +303,11 @@ pub struct Context<T: UserEvent> {
   pub proxy: TaoEventLoopProxy<Message<T>>,
   // RIGHTKIT PATCH (see PATCH.md): Windows' Tao target contains an Rc. Context is
   // cloned/dropped on workers, so share this main-thread-only payload atomically
-  // instead of cloning it. Wry retains an owner for the lifetime of its event loop.
+  // instead of cloning it. The payload is wrapped in `MainThreadOwned`, so only a last
+  // drop on the event-loop thread runs the inner drop; any other last drop leaks it.
+  // The event-loop handler closure keeps an owner as the normal-path (loop-thread) owner.
   #[cfg(target_os = "windows")]
-  main_thread: Arc<DispatcherMainThreadContext<T>>,
+  main_thread: Arc<MainThreadOwned<DispatcherMainThreadContext<T>>>,
   #[cfg(not(target_os = "windows"))]
   main_thread: DispatcherMainThreadContext<T>,
   plugins: Arc<Mutex<Vec<Box<dyn Plugin<T> + Send>>>>,
@@ -2779,7 +2846,7 @@ impl<T: UserEvent> Wry<T> {
     };
     #[cfg(target_os = "windows")]
     #[allow(clippy::arc_with_non_send_sync)]
-    let main_thread = Arc::new(main_thread);
+    let main_thread = Arc::new(MainThreadOwned::new(main_thread));
 
     let context = Context {
       window_id_map,
@@ -3138,8 +3205,8 @@ fn make_event_handler<T: UserEvent, F: FnMut(RunEvent<T>) + 'static>(
   let window_id_map = context.window_id_map;
   let plugins = context.plugins;
 
-  #[cfg(all(feature = "tracing", target_os = "windows"))]
-  let active_tracing_spans = main_thread.active_tracing_spans.clone();
+  // On Windows the tracing store (an `Rc`) is reached through the owner inside the closure
+  // instead of being cloned, so its count is only ever touched by the guarded payload.
   #[cfg(all(feature = "tracing", not(target_os = "windows")))]
   let active_tracing_spans = main_thread.active_tracing_spans;
   #[cfg(target_os = "windows")]
@@ -3147,8 +3214,11 @@ fn make_event_handler<T: UserEvent, F: FnMut(RunEvent<T>) + 'static>(
   let proxy = context.proxy;
 
   move |event, event_loop, control_flow| {
+    // Forces the closure to capture the whole owner (not just a field), keeping it alive.
     #[cfg(target_os = "windows")]
     let _ = &main_thread_owner;
+    #[cfg(all(feature = "tracing", target_os = "windows"))]
+    let active_tracing_spans = &main_thread_owner.active_tracing_spans;
     for p in plugins.lock().unwrap().iter_mut() {
       let prevent_default = p.on_event(
         &event,
@@ -5479,6 +5549,80 @@ mod rightkit_windows_context_tests {
 
     assert_eq!(Arc::strong_count(&runtime.context.main_thread), 1);
     assert!(runtime.context.run_threaded(|main| main.is_some()));
-    // The last owner is dropped here, on the event-loop thread.
+    // `runtime` (the last owner) is dropped at the end of this test, on the thread that
+    // created the loop, so the guard runs the inner drop. This test does not run the loop;
+    // the guard behaviour is covered by the two tests below.
+  }
+
+  struct CountsDrop(Arc<std::sync::atomic::AtomicUsize>);
+
+  impl Drop for CountsDrop {
+    fn drop(&mut self) {
+      self.0.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  #[test]
+  fn guard_drops_on_creating_thread_and_leaks_elsewhere() {
+    let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    // Creating thread: the inner drop runs.
+    drop(MainThreadOwned::new(CountsDrop(drops.clone())));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+    // Another thread: the inner drop must not run (deliberate leak).
+    let before = LEAKED_MAIN_THREAD_PAYLOADS.load(Ordering::SeqCst);
+    let guard = MainThreadOwned::new(CountsDrop(drops.clone()));
+    std::thread::spawn(move || drop(guard)).join().unwrap();
+    assert_eq!(drops.load(Ordering::SeqCst), 1, "off-thread drop must leak");
+    assert!(LEAKED_MAIN_THREAD_PAYLOADS.load(Ordering::SeqCst) > before);
+
+    // A guard created for a different owner thread also leaks on this thread.
+    let other = std::thread::spawn(|| current_thread().id()).join().unwrap();
+    drop(MainThreadOwned::new_for_thread(other, CountsDrop(drops.clone())));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  // Needs a native Windows event loop (hidden message window); run with `--ignored`.
+  #[test]
+  #[ignore = "creates a native Windows event loop; needs an interactive/desktop session"]
+  fn run_iteration_with_worker_handles_leaks_off_thread_last_drop() {
+    use tauri_runtime::Runtime;
+
+    let mut builder = EventLoopBuilder::<Message<()>>::with_user_event();
+    builder.with_any_thread(true);
+    let mut runtime = Wry::init(builder.build()).expect("native Windows event loop");
+    // Observes the payload without owning it: stays upgradable only if it was leaked.
+    let probe = Arc::downgrade(&runtime.context.main_thread.windows);
+
+    std::thread::scope(|scope| {
+      let workers: Vec<_> = (0..4)
+        .map(|_| {
+          let handle = runtime.handle();
+          scope.spawn(move || {
+            for _ in 0..50_000 {
+              drop(handle.clone());
+            }
+          })
+        })
+        .collect();
+      for _ in 0..5 {
+        runtime.run_iteration(|_| {});
+      }
+      for worker in workers {
+        worker.join().expect("worker must not panic");
+      }
+    });
+
+    // Last owner is a handle on a worker; the loop thread drops the runtime first.
+    let handle = runtime.handle();
+    drop(runtime);
+    let before = LEAKED_MAIN_THREAD_PAYLOADS.load(Ordering::SeqCst);
+    std::thread::spawn(move || drop(handle))
+      .join()
+      .expect("off-thread last drop must not panic");
+
+    assert!(LEAKED_MAIN_THREAD_PAYLOADS.load(Ordering::SeqCst) > before);
+    assert!(probe.upgrade().is_some(), "payload must be leaked, not dropped");
   }
 }
