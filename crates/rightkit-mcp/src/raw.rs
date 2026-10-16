@@ -14,8 +14,17 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
 /// A validated, pre-serialised JSON value whose bytes are emitted unchanged.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct RawJson(Box<RawValue>);
+
+/// Equal when the JSON text is byte-for-byte equal (`RawValue` has no `PartialEq`).
+impl PartialEq for RawJson {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.get() == other.0.get()
+    }
+}
+
+impl Eq for RawJson {}
 
 impl RawJson {
     /// Validates `json` (one complete JSON value, nothing after it) and keeps the text as is.
