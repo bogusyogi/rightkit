@@ -94,7 +94,22 @@ describe.skipIf(!chrome)("stylesheet cascade in real headless Chrome", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("the problem in 0.5.x: unlayered shell.css beats a Tailwind utility on the same element, and its button reset beats a font utility", async () => {
+  it("0.6.5: after a data-theme switch every text element follows the ink directly, not only the root (WKWebView stale inherited colour)", async () => {
+    // Real Chrome cannot reproduce the WebKit invalidation bug; this pins the outcome (computed ink, light then dark then light)
+    // and, through the css.test.ts rule, that each element declares `color: var(--rk-ink)` itself.
+    await go("unlayered.html");
+    const els = [".rk-top__title", ".rk-top", ".rk-side", ".rk-plane", ".rk-item__label", ".rk-modal__title", ".rk-toast__msg"];
+    const inks = () => Promise.all(els.map((s) => css(s, "color")));
+    const LIGHT = "rgb(35, 31, 26)";
+    const DARK = "rgb(242, 240, 236)";
+    expect(await inks()).toEqual(els.map(() => LIGHT));
+    await browserPage.eval(`document.documentElement.setAttribute("data-theme", "dark")`);
+    expect(await inks()).toEqual(els.map(() => DARK));
+    await browserPage.eval(`document.documentElement.setAttribute("data-theme", "light")`);
+    expect(await inks()).toEqual(els.map(() => LIGHT));
+  });
+
+  it("the problem in 0.5.x:unlayered shell.css beats a Tailwind utility on the same element, and its button reset beats a font utility", async () => {
     await go("unlayered-host.html");
     expect(await css("#primary", "backgroundColor")).toBe("rgb(112, 64, 196)"); // --rk-brand wins over .bg-hot
     expect(await css("#inmodal", "fontSize")).toBe("13px"); // `font: inherit` beats .font-big

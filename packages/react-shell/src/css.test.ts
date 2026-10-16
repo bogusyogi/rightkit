@@ -46,6 +46,10 @@ function declarations(css: string, context = ""): string[] {
 
 const sorted = (list: string[]) => [...list].sort();
 
+/** 0.6.5: the selector of the explicit-ink rule (shell.visual.css), whitespace as `declarations()` normalises it. */
+const INK_ELEMENTS =
+  ":where(.rk-top, .rk-top__title, .rk-side, .rk-plane, .rk-nav, .rk-item__label, .rk-brand-foot, .rk-page__band, .rk-page__scroll, .rk-page__head h1, .rk-field label, .rk-modal__title, .rk-modal__label, .rk-palette__label, .rk-toast__msg)";
+
 describe("shell.css split", () => {
   it("shell.css is generated from shell.structure.css + shell.visual.css and is not stale", () => {
     expect(read("shell.css")).toBe(combined());
@@ -57,7 +61,7 @@ describe("shell.css split", () => {
     expect(css).not.toMatch(/@import/);
   });
 
-  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring, the menu exit rules, the reduced-motion opt-out selectors and (0.6.4) the toggle and segmented size variables, each defaulting to the 0.5.1 value", () => {
+  it("keeps every 0.5.1 declaration; the only changes are the toast width variable, the toast centring, the menu exit rules, the reduced-motion opt-out selectors and (0.6.4) the toggle and segmented size variables and (0.6.5) one zero-specificity explicit `color: var(--rk-ink)` rule on shell text elements, each defaulting to the 0.5.1 value", () => {
     const motionSelectors = ["modal", "palette", "menu", "toast", "overlay"].map((c) => `.rk-${c}:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *))`).join(", ");
     const before = declarations(read("test-fixtures/shell-0.5.1.css"));
     const after = declarations(read("shell.css"));
@@ -87,14 +91,24 @@ describe("shell.css split", () => {
         "| .rk-toggle__knob | height: var(--rk-toggle-knob, 18px)",
         "| .rk-toggle[aria-checked=\"true\"] .rk-toggle__knob | transform: translateX(var(--rk-toggle-travel, 14px))",
         "| .rk-seg | gap: var(--rk-seg-gap, 2px)",
+        `| ${INK_ELEMENTS} | color: var(--rk-ink)`,
         "| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none",
         "| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards",
         `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | animation: none !important`,
         `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | transition: none !important`,
       ]),
     );
-    // Same count of declarations apart from those: nothing duplicated or dropped (the motion rule is swapped, not added).
-    expect(after.length - before.length).toBe(2);
+    // Same count of declarations apart from those: nothing duplicated or dropped. The net +3 is the two menu exit
+    // declarations plus the one (0.6.5) explicit-ink declaration; every other added line replaces a removed one.
+    expect(after.length - before.length).toBe(3);
+  });
+
+  it("0.6.5: shell text elements carry an explicit zero-specificity `color: var(--rk-ink)`, so a data-theme switch restyles them directly instead of through inheritance (WKWebView stale-colour bug)", () => {
+    const rule = `| ${INK_ELEMENTS} | color: var(--rk-ink)`;
+    expect(declarations(read("shell.visual.css"))).toContain(rule);
+    expect(declarations(read("shell.structure.css"))).not.toContain(rule);
+    // :where() so the rule never outranks a host or shell rule, and none of the listed elements has its own colour rule at higher specificity to conflict.
+    expect(INK_ELEMENTS.startsWith(":where(")).toBe(true);
   });
 
   it("no (selector, property) pair appears in both halves, so cascade order inside a selector is unchanged", () => {
