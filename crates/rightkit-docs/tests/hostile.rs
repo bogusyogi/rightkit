@@ -592,8 +592,17 @@ fn a_failed_publish_leaves_the_original_and_no_temp_file() {
     let dir = scratch("failed-publish");
     let path = write_file(&dir, "a.docx", &rich_docx());
     let before = std::fs::read(&path).unwrap();
-    let _guard = rightkit_fs::atomic::testing::on_replace(|_| Some(std::io::Error::other("injected")));
-    let e = write(&path, &[Op::ReplaceText { find: "Region".into(), replace: "Area".into() }], &WriteOptions::default()).unwrap_err();
+    let _guard =
+        rightkit_fs::atomic::testing::on_replace(|_| Some(std::io::Error::other("injected")));
+    let e = write(
+        &path,
+        &[Op::ReplaceText {
+            find: "Region".into(),
+            replace: "Area".into(),
+        }],
+        &WriteOptions::default(),
+    )
+    .unwrap_err();
     assert_eq!(e.code(), "io", "{e}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(files_in(&dir), vec!["a.docx".to_string()]);

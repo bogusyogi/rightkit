@@ -458,7 +458,8 @@ mod tests {
     }
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rightkit-docs-unit-{tag}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("rightkit-docs-unit-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -471,23 +472,39 @@ mod tests {
     fn a_file_changed_between_read_and_publish_is_never_overwritten() {
         let dir = scratch("race");
         let path = dir.join("a.docx");
-        let make = |t: &str| Op::CreateDocx { blocks: vec![Block::Paragraph { text: t.into() }] };
+        let make = |t: &str| Op::CreateDocx {
+            blocks: vec![Block::Paragraph { text: t.into() }],
+        };
         write(&path, &[make("original")], &WriteOptions::default()).unwrap();
 
-        let theirs = docx::create(&[Block::Paragraph { text: "someone else".into() }]).unwrap();
+        let theirs = docx::create(&[Block::Paragraph {
+            text: "someone else".into(),
+        }])
+        .unwrap();
         let (p, t) = (path.clone(), theirs.clone());
-        BEFORE_PUBLISH.with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
+        BEFORE_PUBLISH
+            .with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
         let e = write(
             &path,
-            &[Op::ReplaceText { find: "original".into(), replace: "mine".into() }],
+            &[Op::ReplaceText {
+                find: "original".into(),
+                replace: "mine".into(),
+            }],
             &WriteOptions::default(),
         )
         .unwrap_err();
         BEFORE_PUBLISH.with(|h| *h.borrow_mut() = None);
 
         assert_eq!(e.code(), "source_changed");
-        assert_eq!(fs::read(&path).unwrap(), theirs, "the concurrent writer's file is intact");
-        let names: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            theirs,
+            "the concurrent writer's file is intact"
+        );
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(names.len(), 1, "no temp file left behind: {names:?}");
     }
 
@@ -498,10 +515,13 @@ mod tests {
         let dir = scratch("create-race");
         let path = dir.join("new.docx");
         let (p, t) = (path.clone(), b"theirs".to_vec());
-        BEFORE_PUBLISH.with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
+        BEFORE_PUBLISH
+            .with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
         let e = write(
             &path,
-            &[Op::CreateDocx { blocks: vec![Block::Paragraph { text: "x".into() }] }],
+            &[Op::CreateDocx {
+                blocks: vec![Block::Paragraph { text: "x".into() }],
+            }],
             &WriteOptions::default(),
         )
         .unwrap_err();
