@@ -29,6 +29,13 @@
 //! re-parented away. Take the list ([`AdoptedIdentity::descendants`]) while the root is
 //! alive, and sweep it ([`sweep`]) later; the identities keep the sweep safe.
 
+mod scan;
+
+pub use scan::{
+    find_processes, sweep_matching, MatchSweepOptions, MatchSweepReport, MatchedProcess,
+    ProcessQuery,
+};
+
 use std::{
     io,
     num::NonZeroU32,

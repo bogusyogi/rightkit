@@ -27,7 +27,22 @@ Issue #171. Written without compiling or running Cargo here; CI builds and runs 
 - **Tests.** `tests/owned_tree_control.rs` (list, shared grace, detached untouched, drop leaves the list, deep
   termination of detached and ordinary trees, repeat call); `tests/parent_death.rs` now runs on macOS too, plus a
   SIGTERM-ignoring child (macOS) and 20 tied children that exit at once (arming race).
-- **Not done:** scoped sweep by command line or executable path (item 4 of #171).
+- **New: sweep by executable path and command line (item 4 of #171).** `ProcessQuery` (`exe(path)`, `arg(token)`,
+  `arg_containing(needle)`; all set criteria must hold, at least one is required, empty values are `InvalidInput`),
+  `find_processes(&query) -> Vec<MatchedProcess>` (no signal; newest first) and
+  `sweep_matching(&query, &MatchSweepOptions { grace, dry_run }) -> MatchSweepReport { matched, dry_run, sweep }`, which
+  stops the matches through the existing identity-checked `sweep`. `MatchedProcess` carries the `AdoptedIdentity`, the
+  executable and, when the query had an argument criterion, the command line. Sources: Linux `/proc/<pid>/exe` and
+  `cmdline`; macOS `proc_pidpath` and the `KERN_PROCARGS2` sysctl; Windows `QueryFullProcessImageNameW` and
+  `NtQueryInformationProcess(ProcessCommandLineInformation)` (Windows 8.1+; the raw line is split with the C runtime's
+  rules). Safety: only processes of the current user (uid, or token user SID); never this process or its ancestors;
+  each candidate is described before and after its command line is read and kept only if the start time agrees; an
+  unreadable executable or command line never matches; a pid that changed hands before the signal is refused
+  by the sweep. Limits: a process that `exec`s another program between the scan and the signal keeps its identity; a
+  program that rewrites its argument area is matched on the rewritten text; Linux `... (deleted)` executables do not
+  match. Tests: `tests/sweep_matching.rs` (marked child found, dry run, exe AND marker, exact token, sweep stops only the
+  marked child, no match, refused empty query, self never matched) and unit tests in `src/foreign/scan.rs` (argument
+  matching, ancestor walk, Windows command-line splitting, `KERN_PROCARGS2` parsing).
 
 ## 0.4.1
 

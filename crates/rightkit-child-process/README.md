@@ -196,7 +196,15 @@ in which that could happen. The rule that replaces it:
   descendants' identities, signals the leader's whole group (a detached child leads its own session), reaps the
   leader, then sweeps the recorded descendants by identity (a recycled pid is refused). Descendants whose parent
   already exited before the call are not findable.
-- Not done: a sweep by command line or executable path (item 4 of the issue).
+- `find_processes(&ProcessQuery)` and `sweep_matching(&ProcessQuery, &MatchSweepOptions)` find, and optionally stop,
+  processes by exact executable path (`exe`), exact argument token (`arg`) and/or a substring of one argument
+  (`arg_containing`); all set criteria must hold and at least one is required. Only the current user's processes are
+  considered, never this process or its ancestors, and a process whose path or command line cannot be read never
+  matches. `MatchSweepOptions::dry_run(true)` returns the matches and sends nothing. The stop is the identity-checked
+  `sweep` (pid plus start time), so a recycled pid is refused. Linux reads `/proc`, macOS `proc_pidpath` and
+  `KERN_PROCARGS2`, Windows `QueryFullProcessImageNameW` and `NtQueryInformationProcess`. A process that `exec`s a
+  different program between the scan and the signal keeps its identity and is not re-checked. Tests:
+  `tests/sweep_matching.rs`.
 
 ## Known limits
 

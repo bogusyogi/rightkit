@@ -33,8 +33,9 @@ pub mod windows_job;
 
 pub use capture::{read_bounded, CapturedOutput, OutputCapture};
 pub use foreign::{
-    sweep, sweep_descendants, AdoptedIdentity, AdoptedSignal, IdentityCheck, SignalResult,
-    StartToken, SweepReport,
+    find_processes, sweep, sweep_descendants, sweep_matching, AdoptedIdentity, AdoptedSignal,
+    IdentityCheck, MatchSweepOptions, MatchSweepReport, MatchedProcess, ProcessQuery,
+    SignalResult, StartToken, SweepReport,
 };
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use no_window::{NoWindow, CREATE_NO_WINDOW};
