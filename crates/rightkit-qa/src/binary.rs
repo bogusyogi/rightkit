@@ -300,7 +300,7 @@ fn from_broker(
         let Some(root) = id.get("canonicalRoot").and_then(|v| v.as_str()) else {
             continue;
         };
-        if !wanted.contains(&norm(root)) {
+        if !wanted.contains(&norm_path(Path::new(root))) {
             continue;
         }
         for file in broker_candidates(&ws, bin) {
@@ -313,7 +313,7 @@ fn from_broker(
             all.push((t, file, ws.clone()));
         }
     }
-    all.sort_by(|a, b| b.0.cmp(&a.0));
+    all.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut skipped = Vec::new();
     for (_, file, ws) in all {
         if has_qa_marker(&file).unwrap_or(false) {

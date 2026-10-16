@@ -346,7 +346,7 @@ mode = "background"
         let exe = if cfg!(windows) { "myapp.exe" } else { "myapp" };
         let built = base.join("target/debug").join(exe);
         std::fs::create_dir_all(built.parent().unwrap()).unwrap();
-        std::fs::write(&built, b"x").unwrap();
+        std::fs::write(&built, crate::binary::QA_CONTROL_MARKER.as_bytes()).unwrap();
         let toml = format!(
             "app = \"myapp\"
 [ui]
