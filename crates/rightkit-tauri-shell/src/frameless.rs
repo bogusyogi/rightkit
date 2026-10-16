@@ -5,7 +5,10 @@
 //! Donor: ViewRight `traffic_lights` (capture the macOS-default button origins once, apply a
 //! horizontal/vertical offset, re-assert after resize/focus because AppKit resets them).
 
+use serde::Serialize;
 use tauri::{WebviewWindow, WebviewWindowBuilder, Wry};
+
+use crate::error::ShellError;
 
 /// Style a builder for the frameless look. No-op when `frameless` is false.
 pub fn style<'a>(
@@ -95,6 +98,78 @@ impl TrafficLights {
     }
 }
 
+/// One standard window button's frame in its superview's coordinates (AppKit points, origin at the
+/// bottom-left) and whether it is hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ButtonFrame {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub hidden: bool,
+}
+
+impl ButtonFrame {
+    /// Map an AppKit frame (`origin`, `size`) and hidden flag to the typed struct. Pure.
+    pub fn new(origin: (f64, f64), size: (f64, f64), hidden: bool) -> Self {
+        Self {
+            x: origin.0,
+            y: origin.1,
+            width: size.0,
+            height: size.1,
+            hidden,
+        }
+    }
+}
+
+/// The three standard window buttons, read without changing anything. See [`button_frames`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ButtonFrames {
+    pub close: ButtonFrame,
+    pub miniaturize: ButtonFrame,
+    pub zoom: ButtonFrame,
+    /// `NSWindow.isVisible` at the time of the read.
+    pub window_visible: bool,
+}
+
+impl ButtonFrames {
+    /// `[close, miniaturize, zoom]`.
+    pub fn buttons(&self) -> [ButtonFrame; 3] {
+        [self.close, self.miniaturize, self.zoom]
+    }
+
+    /// The QA control-command shape ViewRight shipped:
+    /// `{"buttons": [{"x","y","width","height","hidden"} x3 in close, miniaturize, zoom order], "windowVisible": bool}`.
+    pub fn to_json(&self) -> String {
+        serde_json::json!({ "buttons": self.buttons(), "windowVisible": self.window_visible })
+            .to_string()
+    }
+}
+
+/// Read-only probe of the macOS close / minimise / zoom buttons: each frame, hidden state, and
+/// whether the window is visible. It never moves a button, orders the window in or activates the
+/// app, so a QA scenario can assert where AppKit left the traffic lights (for example that an
+/// overlay title bar kept them at the macOS default spot).
+///
+/// AppKit views are read on the main thread only: with the shell plugin installed the read runs
+/// through the shell's main-thread dispatch (refused during shutdown); without it, inline when
+/// already on the main thread and otherwise queued to it with a 5 s wait. Errors: `Other` when the
+/// window has no NSWindow or a button, `Timeout` when the main thread does not answer. On every
+/// platform other than macOS it returns [`ShellError::Unsupported`].
+pub fn button_frames(window: &WebviewWindow<Wry>) -> Result<ButtonFrames, ShellError> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::frames(window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Err(ShellError::Unsupported(
+            "window button frames exist only on macOS".into(),
+        ))
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::sync::Mutex;
@@ -102,6 +177,8 @@ mod macos {
     use objc2_app_kit::{NSWindow, NSWindowButton};
     use objc2_foundation::NSPoint;
     use tauri::{WebviewWindow, Wry};
+
+    use crate::error::ShellError;
 
     const KINDS: [NSWindowButton; 3] = [
         NSWindowButton::CloseButton,
@@ -153,6 +230,57 @@ mod macos {
         Some(unsafe { &*(ptr as *const NSWindow) })
     }
 
+    /// Read the three buttons on the main thread (see [`super::button_frames`]).
+    pub fn frames(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, ShellError> {
+        use tauri::Manager;
+        if window
+            .app_handle()
+            .try_state::<crate::ShellState>()
+            .is_some()
+        {
+            return crate::windows::dispatch_native(window, read).map_err(ShellError::Other);
+        }
+        if unsafe { pthread_main_np() } == 1 {
+            return read(window).map_err(ShellError::Other);
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let target = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let _ = tx.send(read(&target));
+            })
+            .map_err(|e| ShellError::Other(format!("main thread unavailable: {e}")))?;
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| ShellError::Timeout("main thread did not answer within 5 s".into()))?
+            .map_err(ShellError::Other)
+    }
+
+    fn read(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, String> {
+        let win = ns_window(window).ok_or("no NSWindow for this window")?;
+        let mut out = [super::ButtonFrame::new((0.0, 0.0), (0.0, 0.0), false); 3];
+        for (slot, (name, kind)) in out.iter_mut().zip([
+            ("close", KINDS[0]),
+            ("miniaturize", KINDS[1]),
+            ("zoom", KINDS[2]),
+        ]) {
+            let button = win
+                .standardWindowButton(kind)
+                .ok_or_else(|| format!("window has no {name} button"))?;
+            let frame = button.frame();
+            *slot = super::ButtonFrame::new(
+                (frame.origin.x, frame.origin.y),
+                (frame.size.width, frame.size.height),
+                button.isHidden(),
+            );
+        }
+        Ok(super::ButtonFrames {
+            close: out[0],
+            miniaturize: out[1],
+            zoom: out[2],
+            window_visible: win.isVisible(),
+        })
+    }
+
     pub fn apply(window: &WebviewWindow<Wry>, dx: f64, dy: f64, inner: &Inner) {
         let Some(win) = ns_window(window) else { return };
         let mut buttons = Vec::with_capacity(3);
@@ -192,5 +320,50 @@ mod macos {
             let (dx, dy) = *inner.offset.lock().unwrap_or_else(|e| e.into_inner());
             apply(window, dx, dy, inner);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn button_frame_maps_an_appkit_frame() {
+        let f = ButtonFrame::new((7.0, 6.5), (14.0, 16.0), true);
+        assert_eq!(
+            f,
+            ButtonFrame {
+                x: 7.0,
+                y: 6.5,
+                width: 14.0,
+                height: 16.0,
+                hidden: true,
+            }
+        );
+    }
+
+    #[test]
+    fn button_frames_json_keeps_the_viewright_shape_and_order() {
+        let frames = ButtonFrames {
+            close: ButtonFrame::new((7.0, 6.0), (14.0, 16.0), false),
+            miniaturize: ButtonFrame::new((27.0, 6.0), (14.0, 16.0), false),
+            zoom: ButtonFrame::new((47.0, 6.0), (14.0, 16.0), true),
+            window_visible: true,
+        };
+        let v: serde_json::Value = serde_json::from_str(&frames.to_json()).unwrap();
+        assert_eq!(v["windowVisible"], true);
+        let b = v["buttons"].as_array().unwrap();
+        assert_eq!(b.len(), 3);
+        assert_eq!(b[0]["x"], 7.0);
+        assert_eq!(b[1]["x"], 27.0);
+        assert_eq!(b[2]["x"], 47.0);
+        assert_eq!(b[0]["hidden"], false);
+        assert_eq!(b[2]["hidden"], true);
+        for button in b {
+            for key in ["x", "y", "width", "height", "hidden"] {
+                assert!(button.get(key).is_some(), "{key}");
+            }
+        }
+        assert_eq!(frames.buttons()[1], frames.miniaturize);
     }
 }

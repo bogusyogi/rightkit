@@ -1,0 +1,62 @@
+# rightkit_tauri_shell::clipboard::qa on a private named pasteboard (macOS only): stage a PNG, read it
+# back through the typed paste path, and prove the system `Apple CFPasteboard ...` names are refused.
+# Never reads or writes the user's general pasteboard.
+name = "shell clipboard named board"
+tier = "fast"
+target = "ui"
+requires = ["platform:darwin"]
+optional = true
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_command"
+label = "stage a PNG on a private board"
+name = "stage_board"
+args = '{"board":"rk-shell-example-qa-scenario","image":true}'
+  [[step.expect]]
+  path = "staged"
+  eq = "rk-shell-example-qa-scenario"
+
+[[step]]
+kind = "ui_command"
+label = "typed read of that board"
+name = "paste_from_board"
+args = "rk-shell-example-qa-scenario"
+  [[step.expect]]
+  path = "kind"
+  eq = "image"
+  [[step.expect]]
+  path = "path"
+  not_empty = true
+
+[[step]]
+kind = "ui_command"
+label = "a board nobody staged reads as none, never the general clipboard"
+name = "paste_from_board"
+args = "rk-shell-example-qa-never-staged"
+  [[step.expect]]
+  path = "kind"
+  eq = "none"
+
+[[step]]
+kind = "ui_command"
+label = "system pasteboard names are refused"
+name = "refuse_system_boards"
+  [[step.expect]]
+  path = "refused"
+  eq = true
+  [[step.expect]]
+  path = "count"
+  eq = 4
+
+[[step]]
+kind = "ui_stop"
+  [[step.expect]]
+  path = "process_gone"
+  eq = true

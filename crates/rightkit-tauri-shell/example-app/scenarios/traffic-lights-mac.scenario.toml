@@ -1,0 +1,55 @@
+# rightkit_tauri_shell::frameless::button_frames on the real window (macOS only): three buttons with a
+# frame and a hidden flag, read on the main thread without moving anything.
+name = "shell traffic-light probe"
+tier = "fast"
+target = "ui"
+requires = ["platform:darwin"]
+optional = true
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_command"
+label = "frames of close, miniaturize and zoom"
+name = "traffic_lights"
+save = "tl"
+  [[step.expect]]
+  path = "buttons"
+  len_eq = 3
+  [[step.expect]]
+  path = "buttons[0].width"
+  gte = 1
+  [[step.expect]]
+  path = "buttons[0].height"
+  gte = 1
+  [[step.expect]]
+  path = "buttons[0].hidden"
+  eq = false
+  [[step.expect]]
+  path = "buttons[2].x"
+  gte = 1
+  [[step.expect]]
+  path = "windowVisible"
+  exists = true
+
+[[step]]
+kind = "ui_command"
+label = "reading twice moves nothing"
+name = "traffic_lights"
+  [[step.expect]]
+  path = "buttons[0].x"
+  eq = "${tl.buttons[0].x}"
+  [[step.expect]]
+  path = "buttons[1].x"
+  eq = "${tl.buttons[1].x}"
+
+[[step]]
+kind = "ui_stop"
+  [[step.expect]]
+  path = "process_gone"
+  eq = true

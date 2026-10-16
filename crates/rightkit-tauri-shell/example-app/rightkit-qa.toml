@@ -1,0 +1,10 @@
+# Config for the shell example app's QA scenarios (clipboard named boards, traffic-light probe).
+app = "shell-example-app"
+app_root = "."
+scenarios = ["scenarios"]
+
+[ui]
+binaries = { darwin = "target/debug/shell-example-app", windows = "target/debug/shell-example-app.exe" }
+window_label = "main"
+mode = "hidden"
+package = "shell-example-app"

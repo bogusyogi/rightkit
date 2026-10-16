@@ -15,6 +15,9 @@ use rightkit_tauri_shell::{
 };
 use serde_json::json;
 
+/// Every QA staging pasteboard of this app starts with this; `clipboard::qa::stage_board` refuses the rest.
+const QA_BOARD_PREFIX: &str = "rk-shell-example-qa-";
+
 /// Records the link instead of launching a browser (tests must not open real applications).
 struct LogOpener(PathBuf);
 impl ExternalOpener for LogOpener {
@@ -167,6 +170,34 @@ fn main() {
             let scale = w.scale_factor().map_err(|e| e.to_string())?;
             let (p, s) = (w.outer_position().map_err(|e| e.to_string())?, w.inner_size().map_err(|e| e.to_string())?);
             Ok(json!({"x": f64::from(p.x) / scale, "y": f64::from(p.y) / scale, "w": f64::from(s.width) / scale, "h": f64::from(s.height) / scale}).to_string())
+        })
+        // Read-only macOS traffic-light probe (`frameless::button_frames`); an Unsupported error elsewhere.
+        .command("traffic_lights", |app, _| {
+            use tauri::Manager;
+            let w = app.get_webview_window("main").ok_or("no main window")?;
+            rightkit_tauri_shell::frameless::button_frames(&w)
+                .map(|f| f.to_json())
+                .map_err(|e| e.to_string())
+        })
+        // QA-only private-pasteboard staging and typed read (`clipboard::qa`); never the general board.
+        .command("stage_board", |_app, args| {
+            rightkit_tauri_shell::clipboard::qa::stage_board(args, QA_BOARD_PREFIX)
+        })
+        .command("paste_from_board", |app, args| {
+            use tauri::Manager;
+            let state = app.state::<rightkit_tauri_shell::ShellState>();
+            rightkit_tauri_shell::clipboard::qa::paste_from_board(&state.broker, "shell-example", args)
+        })
+        // Asks the QA paste for each system pasteboard name; reports whether every one was refused.
+        .command("refuse_system_boards", |app, _| {
+            use tauri::Manager;
+            let state = app.state::<rightkit_tauri_shell::ShellState>();
+            let names = ["Apple CFPasteboard general", "apple cfpasteboard find", "  Apple CFPasteboard drag", ""];
+            let refused: Vec<bool> = names
+                .iter()
+                .map(|n| rightkit_tauri_shell::clipboard::qa::paste_from_board(&state.broker, "shell-example", n).is_err())
+                .collect();
+            Ok(json!({"refused": refused.iter().all(|r| *r), "count": refused.len()}).to_string())
         })
         .command("set_geometry", |app, args| {
             use tauri::{LogicalPosition, LogicalSize, Manager};

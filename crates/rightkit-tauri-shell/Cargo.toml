@@ -37,6 +37,11 @@ dev-inspect = ["tauri/devtools", "tauri/unstable"]
 # navigation as internal, for dev servers and QA drivers. Off by default: a dev profile (debug_assertions on)
 # no longer implies it. An app selects it from an optional QA/dev feature of its own. Never a default feature.
 dev-overrides = []
+# DEVELOPMENT/QA BUILDS ONLY. Compiles the QA control-command helpers an app registers on its `rightkit-qa`
+# control server: `clipboard::qa` (named-pasteboard paste and staging, which can only address a private
+# board and refuse the `Apple CFPasteboard ...` system names). Off by default and never a default
+# feature; an app selects it from its own QA/dev feature.
+qa-probes = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }

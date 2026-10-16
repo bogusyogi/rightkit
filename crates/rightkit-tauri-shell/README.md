@@ -182,6 +182,13 @@ subresources beneath a site root. The app grants it for a document it already ho
   are refused by `read`, `write`, `formats` and `take_item_from_with`, as is an empty name. Windows has one clipboard
   and no private one: a named board is rejected there (`read`, `write`, `formats` and `take_item_from_with` return
   an error), so a test that needs a private board is macOS-only. Other platforms reject it too.
+- QA controls (non-default feature `qa-probes`, development/QA builds only): `clipboard::qa::paste_from_board(&broker, app_id, raw)`
+  reads a private named pasteboard as typed JSON, and `clipboard::qa::stage_board(raw, prefix)` stages a file URL and/or a
+  generated PNG on a board whose name starts with the app's QA prefix; both refuse `Apple CFPasteboard ...` names
+  (`clipboard::named_board_refusal`) before touching a pasteboard. Register them as `rightkit-qa` control commands; see
+  `example-app/src/main.rs` and `example-app/scenarios/`.
+- `frameless::button_frames(&window)` is a read-only macOS probe of the close, minimise and zoom buttons (frame, hidden
+  flag, window visibility), read on the main thread; it returns `ShellError::Unsupported` on other platforms.
 - Clipboard reads: `clipboard::read` no longer copies bytes of unrecognised pasteboard types. Opt in with
   `ClipboardOptions { custom_max_bytes: Some(n), .. }` through `clipboard::read_with` or
   `ShellBuilder::clipboard_options`. On macOS text also falls back to the other plain-text types

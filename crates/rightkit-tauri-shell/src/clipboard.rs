@@ -207,9 +207,9 @@ fn needs_png_fallback(board: &Board, types: &[String]) -> bool {
 
 /// Why a private pasteboard name is refused, or `None` when it is usable. The `Apple CFPasteboard`
 /// family names the system boards (`general`, `find`, `font`, `ruler`, `drag`); asking AppKit for
-/// one by name would hand back the user's own pasteboard.
-#[cfg(any(target_os = "macos", test))]
-fn named_board_refusal(name: &str) -> Option<&'static str> {
+/// one by name would hand back the user's own pasteboard. Pure and available on every platform, so a
+/// caller (and the QA probes in [`qa`]) can refuse a name before any pasteboard is touched.
+pub fn named_board_refusal(name: &str) -> Option<&'static str> {
     if name.trim().is_empty() {
         Some("a named board needs a non-empty name")
     } else if name
@@ -222,6 +222,10 @@ fn named_board_refusal(name: &str) -> Option<&'static str> {
         None
     }
 }
+
+/// QA-only control-command helpers for private pasteboards (feature `qa-probes`).
+#[cfg(feature = "qa-probes")]
+pub mod qa;
 
 /// Apply the priority policy to a snapshot: grant the files that exist, write a bitmap to a granted
 /// temp file, otherwise return non-empty text. Old temp files are purged first.

@@ -13,7 +13,7 @@ tauri-build = "2"
 [dependencies]
 tauri = "2"
 serde_json = "1.0.150"
-rightkit-tauri-shell = { path = "..", features = ["engine"] }
+rightkit-tauri-shell = { path = "..", features = ["engine", "qa-probes"] }
 rightkit-qa = { path = "../../rightkit-qa", features = ["control", "wv2-0_38"] }
 rightkit-child-process = { path = "../../rightkit-child-process", version = "0.4.0" }
 rightkit-sidecar = { path = "../../rightkit-sidecar" }
