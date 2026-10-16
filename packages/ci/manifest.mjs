@@ -1207,6 +1207,7 @@ function devQualificationJob(manifest, pm, artifactPrefix, cacheKeyLine) {
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
+      RIGHTKIT_DEV_SIGNING: "ci-adhoc"
     strategy:
       fail-fast: false
       matrix:

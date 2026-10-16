@@ -111,6 +111,67 @@ test("ad hoc configuration and overrides are rejected without signing", (t) => {
   assert.equal(f.calls.length, 0);
 });
 
+const ciEnv = { GITHUB_ACTIONS: "true", CI: "true", RUNNER_ENVIRONMENT: "github-hosted" };
+function adhocRun(f) {
+  return (command, args, options) => command === "codesign" && args.includes("--verbose=4")
+    ? (f.run(command, args, options), { status: 0, stderr: "Signature=adhoc\nTeamIdentifier=not set\n" })
+    : f.run(command, args, options);
+}
+
+test("ci-adhoc opt-in is refused off a GitHub-hosted runner, by config and by env, without signing", (t) => {
+  const f = fixture(t);
+  const hosts = [{}, { GITHUB_ACTIONS: "true" }, { CI: "true" }, { GITHUB_ACTIONS: "true", CI: "true" }, { ...ciEnv, RUNNER_ENVIRONMENT: "self-hosted" }, { ...ciEnv, GITHUB_ACTIONS: "false" }];
+  for (const host of hosts) {
+    assert.throws(() => signMacosDevelopmentBundle({ ...f, descriptor: { ...f.descriptor, signing: "ci-adhoc" }, env: host }), (error) => error.code === "DEV_MAC_SIGNING_CI_ADHOC_REFUSED");
+    assert.throws(() => signMacosDevelopmentBundle({ ...f, env: { ...host, RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }), (error) => error.code === "DEV_MAC_SIGNING_CI_ADHOC_REFUSED");
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test("unknown signing mode values are refused, never treated as the default", (t) => {
+  const f = fixture(t);
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, descriptor: { ...f.descriptor, signing: "adhoc" }, env: ciEnv }), (error) => error.code === "DEV_MAC_SIGNING_MODE_INVALID");
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, env: { ...ciEnv, RIGHTKIT_DEV_SIGNING: "yes" } }), (error) => error.code === "DEV_MAC_SIGNING_MODE_INVALID");
+});
+
+test("a CI runner without the opt-in still requires a Keychain identity and never falls back to ad hoc", (t) => {
+  const f = fixture(t, { listing: "0 valid identities found" });
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, env: ciEnv }), (error) => error.code === "DEV_MAC_SIGNING_IDENTITY_MISSING");
+  assert.equal(f.calls.filter((call) => call.command === "codesign").length, 0);
+});
+
+test("ci-adhoc on a CI runner signs ad hoc without Keychain, verifies, skips Team/requirement checks and marks the receipt", (t) => {
+  for (const via of ["config", "env"]) {
+    const f = fixture(t, { listing: "0 valid identities found", profile: profile(), mac: { provisioningProfile: "profile.provisionprofile" } });
+    const options = via === "config" ? { ...f, descriptor: { ...f.descriptor, signing: "ci-adhoc" }, env: ciEnv } : { ...f, env: { ...ciEnv, RIGHTKIT_DEV_SIGNING: "ci-adhoc" } };
+    const result = signMacosDevelopmentBundle({ ...options, run: adhocRun(f) });
+    assert.ok(!f.calls.some((call) => call.command === "security"), "no Keychain lookup");
+    const signs = f.calls.filter((call) => call.command === "codesign" && call.args.includes("--sign"));
+    assert.ok(signs.length >= 1 && signs.every((call) => call.args[call.args.indexOf("--sign") + 1] === "-"));
+    assert.ok(f.calls.some((call) => call.command === "codesign" && call.args.join(" ").startsWith("--verify --strict --deep")));
+    assert.ok(!f.calls.some((call) => call.command === "codesign" && call.args.includes("-r-")), "no designated-requirement check");
+    assert.equal(existsSync(path.join(f.bundle, "Contents/embedded.provisionprofile")), false);
+    assert.equal(result.adhoc, true);
+    assert.equal(result.identity, "-");
+    assert.equal(result.mode, "ci-adhoc");
+    assert.equal(result.releaseArtifact, false);
+    assert.equal(result.teamIdentifier, null);
+    assert.deepEqual({ ...result.receipt, note: undefined }, { signing: "ci-adhoc", signature: "adhoc", releaseArtifact: false, note: undefined });
+  }
+});
+
+test("ci-adhoc applies only ad hoc safe entitlements and refuses a non-adhoc result", (t) => {
+  const f = fixture(t);
+  const parentEntitlements = [];
+  const run = (command, args, options) => {
+    if (command === "codesign" && args.includes("--sign") && args.at(-1) === f.bundle) parentEntitlements.push(JSON.parse(readFileSync(args[args.indexOf("--entitlements") + 1], "utf8")));
+    return adhocRun(f)(command, args, options);
+  };
+  signMacosDevelopmentBundle({ ...f, env: { ...ciEnv, RIGHTKIT_DEV_SIGNING: "ci-adhoc" }, run });
+  assert.deepEqual(parentEntitlements, [{ "com.apple.security.cs.allow-jit": true }]);
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, env: { ...ciEnv, RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }), (error) => error.code === "DEV_MAC_SIGNATURE_INVALID");
+});
+
 test("profile embedding precedes inside-out nested code and parent sealing; no deep signing or ad hoc", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t, { profile: profile(releaseCertificate, "6KLGD3LLKF"), mac: { provisioningProfile: "profile.provisionprofile" } });
   const helper = path.join(f.bundle, "Contents/Library/LoginItems/Helper.app");

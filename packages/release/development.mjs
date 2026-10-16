@@ -9,7 +9,7 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
-import { readBundleExecutable, signMacosDevelopmentBundle } from "./development-signing.mjs";
+import { readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
 // One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
@@ -78,6 +78,8 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   assertPrimaryReleaseCheckout(repoRoot, env);
   if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
+  // Refuse an invalid or off-CI ad hoc opt-in before the (long) build, not after it.
+  if (!buildOnly && platform === "mac" && target.install?.kind === "tauri") requestedCiAdhocSigning({ descriptor: target.install, env });
   const childEnv = codesignEnvironment(developmentEnvironment(env));
   // One lease spans every managed request this run makes, so a broker cutover cannot land between them.
   const lease = acquireManagedRunLease({ command: `right-release dev --platform ${platform}`, env });
@@ -129,7 +131,8 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null 
   } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
   swapInstalledMacosBundle({ staging, destination, backup, executableName });
   if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
-  console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}; designated=${signing.designatedRequirement}`);
+  if (signing.adhoc) console.log(`right-release dev: installed ${destination}; signing=ci-adhoc (ad hoc signed on a CI runner; NOT a release artifact); signature=adhoc; TeamIdentifier=none`);
+  else console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}; designated=${signing.designatedRequirement}`);
   return signing;
 }
 
