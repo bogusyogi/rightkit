@@ -374,7 +374,7 @@
     "rightkit-daemon": "0.2.3",
     "rightkit-db": "0.4.0",
     "rightkit-device": "0.1.3",
-    "rightkit-embed": "0.4.0",
+    "rightkit-embed": "0.5.0",
     "rightkit-ffmpeg": "0.2.6",
     "rightkit-file-watch": "0.4.0",
     "rightkit-fs": "0.4.0",
@@ -445,7 +445,7 @@
       "rightkit-daemon": "0.2.3",
       "rightkit-db": "0.4.0",
       "rightkit-device": "0.1.3",
-      "rightkit-embed": "0.4.0",
+      "rightkit-embed": "0.5.0",
       "rightkit-ffmpeg": "0.2.6",
       "rightkit-file-watch": "0.4.0",
       "rightkit-framed-sidecar": "0.2.0",
@@ -564,7 +564,8 @@
       "0.2.2",
       "0.3.0",
       "0.3.1",
-      "0.3.2"
+      "0.3.2",
+      "0.4.0"
     ],
     "rightkit-jobs": [
       "0.2.1",

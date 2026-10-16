@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-embed",
-  "version": "0.4.0",
-  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
-  "artifactSha256": "5054795d802e5fce4078ce50d3dc412bcdd3397ec629d1aeeafa5f5c8c93a404",
+  "version": "0.5.0",
+  "commit": "64beb174fef9fb0c1574f28a2dfe85fabcbebe36",
+  "artifactSha256": "397f3b3467791d3c11cb1bd0aa2c9575216a062060c716b0a1fad908c2842684",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,32 +13,37 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+      "commit": "64beb174fef9fb0c1574f28a2dfe85fabcbebe36",
       "features": [
         "default"
       ],
-      "artifactSha256": "5054795d802e5fce4078ce50d3dc412bcdd3397ec629d1aeeafa5f5c8c93a404",
-      "command": "cargo test -p rightkit-embed --no-fail-fast -- --show-output && cargo clippy -p rightkit-embed --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-embed && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "397f3b3467791d3c11cb1bd0aa2c9575216a062060c716b0a1fad908c2842684",
+      "command": "cargo test -p rightkit-embed --no-fail-fast -- --show-output && cargo clippy -p rightkit-embed --no-deps --all-targets -- -D warnings && cargo check -p rightkit-embed --all-targets --all-features && cargo package --locked -p rightkit-embed && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:04:35.914Z",
-      "passed": 28,
+      "timestamp": "2026-10-16T01:23:51.929Z",
+      "passed": 65,
       "failed": 0,
       "skipped": 0,
-      "ignored": 0,
+      "ignored": 3,
+      "allowIgnored": true,
       "requireAssets": "1",
       "assetGated": false,
       "steps": [
         {
           "command": "cargo test -p rightkit-embed --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 28,
+          "executed": 65,
           "failed": 0,
-          "ignored": 0,
+          "ignored": 3,
           "skipped": 0,
-          "binaries": 7
+          "binaries": 12
         },
         {
           "command": "cargo clippy -p rightkit-embed --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-embed --all-targets --all-features",
           "ok": true
         }
       ]
