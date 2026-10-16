@@ -12,7 +12,7 @@
 // Child processes inherit the guard through NODE_OPTIONS, which installation appends to.
 // Not shipped: lives under test-support/, outside package.json "files".
 import childProcess from "node:child_process";
-import { appendFileSync, mkdtempSync, realpathSync } from "node:fs";
+import { appendFileSync, mkdtempSync, realpathSync, statSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import os from "node:os";
@@ -33,7 +33,7 @@ const CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index";
 // release contracts read (packages[].dependencies, manifest_path, workspace_root, target_directory).
 const METADATA_SCRIPT = String.raw`
 import json, pathlib, sys, tomllib
-manifest = pathlib.Path(sys.argv[1]).resolve()
+manifest = pathlib.Path(sys.argv[1]).absolute()  # keep the caller's spelling (no symlink resolution), as cargo does
 try:
     data = tomllib.loads(manifest.read_text(encoding="utf-8"))
 except (OSError, tomllib.TOMLDecodeError) as error:
@@ -134,10 +134,25 @@ function insideTemp(file) {
 }
 
 // True when a launch would reach the live broker, the managed shim or a plain cargo binary.
+// A bare `cargo` reaches the broker only when PATH resolves it to the managed shim (dev hosts);
+// on CI runners plain cargo is real cargo and runs normally.
+function resolveOnPath(name) {
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    for (const candidate of process.platform === "win32" ? [`${name}.exe`, `${name}.cmd`, name] : [name]) {
+      const full = path.join(dir, candidate);
+      try { if (statSync(full).isFile()) return full; } catch { /* keep looking */ }
+    }
+  }
+  return null;
+}
+
 export function brokerLaunch(file) {
   const text = String(file ?? "");
   const base = (text.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
-  const reaches = BROKER_BINARIES.has(base) || MANAGED_SEGMENT.test(text);
+  const bare = !/[\\/]/.test(text);
+  const resolved = base === "cargo" && bare ? resolveOnPath("cargo") ?? "" : text;
+  const reaches = base === "cargo" ? MANAGED_SEGMENT.test(resolved) : BROKER_BINARIES.has(base) || MANAGED_SEGMENT.test(text);
   return reaches && !insideTemp(text);
 }
 

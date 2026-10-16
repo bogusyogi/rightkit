@@ -132,7 +132,7 @@ test("cargoProfileExempt in right-release.config.mjs exempts a declared workspac
     "engine/Cargo.toml": `${WORKSPACE}[profile.release]\npanic = "abort"\n`,
   }, (root) => {
     const files = [...new Set(scanCargoProfileContract(root).map(({ file }) => file))].sort();
-    assert.deepEqual(files, ["engine/Cargo.toml", "research/bench/Cargo.toml"]);
+    assert.deepEqual(files, ["engine/Cargo.toml"]);
   });
 });
 
