@@ -3,8 +3,11 @@
 //!
 //! This replaces the hand-rolled `app_paths.rs` / `*_DATA_DIR` copies in each app. The rules:
 //!
-//! * **Per-OS bases.** Windows: `%APPDATA%` (data) and `%LOCALAPPDATA%` (local, cache), home from
-//!   `%USERPROFILE%`. macOS: `~/Library/Application Support` (data and local) and
+//! * **Per-OS bases.** Windows: the Roaming AppData known folder (data) and the Local AppData known
+//!   folder (local, cache), home from the Profile known folder, each asked of `SHGetKnownFolderPath`
+//!   by [`AppDirs::resolve`] (environment redirection of `%APPDATA%`, `%LOCALAPPDATA%` and
+//!   `%USERPROFILE%` is ignored, as the `dirs` crate does), with the variable as fallback only when
+//!   the call fails. [`AppDirs::resolve_with`] stays a pure function of the environment it is given. macOS: `~/Library/Application Support` (data and local) and
 //!   `~/Library/Caches` (cache). Linux: `$XDG_DATA_HOME` (else `~/.local/share`) for data and
 //!   local, `$XDG_CACHE_HOME` (else `~/.cache`) for cache. Every base must be absolute; an unset or
 //!   relative base is an error, never the working directory.
@@ -247,7 +250,7 @@ pub struct AppDirs {
 impl AppDirs {
     /// Resolve for this build and this process's environment.
     pub fn resolve(app: AppId) -> Result<AppDirs> {
-        AppDirs::resolve_with(&app, &Options::current(), &|k| std::env::var_os(k))
+        AppDirs::resolve_with(&app, &Options::current(), &process_env)
     }
 
     /// Per-process temp folders in any build (consumer tests): never asks the OS.
@@ -369,6 +372,109 @@ struct Bases {
     local: Option<PathBuf>,
     cache: Option<PathBuf>,
     home: Option<PathBuf>,
+}
+
+/// The environment [`AppDirs::resolve`] reads. On Windows the three base variables come from the
+/// known-folder API first, so a redirected `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` does not
+/// move the real folders; the variable answers only when the API fails. Elsewhere it is the process
+/// environment.
+fn process_env(key: &str) -> Option<OsString> {
+    #[cfg(windows)]
+    {
+        let id = match key {
+            "APPDATA" => Some(&known::ROAMING_APP_DATA),
+            "LOCALAPPDATA" => Some(&known::LOCAL_APP_DATA),
+            "USERPROFILE" => Some(&known::PROFILE),
+            _ => None,
+        };
+        if let Some(path) = id.and_then(known::known_folder) {
+            return Some(path.into_os_string());
+        }
+    }
+    std::env::var_os(key)
+}
+
+#[cfg(windows)]
+mod known {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::PathBuf;
+
+    #[repr(C)]
+    pub(super) struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    /// `FOLDERID_RoamingAppData`.
+    pub(super) static ROAMING_APP_DATA: Guid = Guid {
+        data1: 0x3EB6_85DB,
+        data2: 0x65F9,
+        data3: 0x4CF6,
+        data4: [0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D],
+    };
+    /// `FOLDERID_LocalAppData`.
+    pub(super) static LOCAL_APP_DATA: Guid = Guid {
+        data1: 0xF1B3_2785,
+        data2: 0x6FBA,
+        data3: 0x4FCF,
+        data4: [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+    };
+    /// `FOLDERID_Profile`.
+    pub(super) static PROFILE: Guid = Guid {
+        data1: 0x5E6C_858F,
+        data2: 0x0E22,
+        data3: 0x4760,
+        data4: [0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73],
+    };
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHGetKnownFolderPath(
+            rfid: *const Guid,
+            flags: u32,
+            token: *mut c_void,
+            path: *mut *mut u16,
+        ) -> i32;
+    }
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoTaskMemFree(pv: *mut c_void);
+    }
+
+    /// `KF_FLAG_DEFAULT`: no creation, no verification, no redirection override.
+    const KF_FLAG_DEFAULT: u32 = 0;
+
+    /// The known folder `id` of the current user, or `None` when the call fails or returns an
+    /// empty string. The returned buffer is always freed with `CoTaskMemFree`, also on failure
+    /// (the API may set it even then).
+    pub(super) fn known_folder(id: &Guid) -> Option<PathBuf> {
+        let mut raw: *mut u16 = std::ptr::null_mut();
+        // SAFETY: `id` is a valid GUID, a null token means the current user, and `raw` is a valid
+        // out pointer. On return `raw` is null or a NUL-terminated UTF-16 string we own.
+        let hr = unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, std::ptr::null_mut(), &mut raw) };
+        if raw.is_null() {
+            return None;
+        }
+        let path = if hr >= 0 {
+            let mut len = 0usize;
+            // SAFETY: `raw` is NUL-terminated, so every offset up to the terminator is readable.
+            while unsafe { *raw.add(len) } != 0 {
+                len += 1;
+            }
+            // SAFETY: `len` elements were just read from `raw`.
+            let wide = unsafe { std::slice::from_raw_parts(raw, len) };
+            Some(PathBuf::from(std::ffi::OsString::from_wide(wide)))
+        } else {
+            None
+        };
+        // SAFETY: `raw` came from SHGetKnownFolderPath and is freed exactly once.
+        unsafe { CoTaskMemFree(raw.cast()) };
+        path.filter(|p| !p.as_os_str().is_empty())
+    }
 }
 
 fn nonempty(env: &dyn Fn(&str) -> Option<OsString>, key: &str) -> Option<PathBuf> {
@@ -1005,5 +1111,21 @@ mod tests {
                 AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env).unwrap();
             assert_eq!(d.data, p(r"C:\qa\data"));
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_bases_come_from_known_folders() {
+        let roaming = known::known_folder(&known::ROAMING_APP_DATA).expect("RoamingAppData");
+        let local = known::known_folder(&known::LOCAL_APP_DATA).expect("LocalAppData");
+        let profile = known::known_folder(&known::PROFILE).expect("Profile");
+        assert!(roaming.is_absolute() && local.is_absolute() && profile.is_absolute());
+        // The environment `AppDirs::resolve` reads yields the same folders, whatever the
+        // variables say.
+        let b = Bases::read(Os::Windows, &process_env);
+        assert_eq!(b.data.as_ref(), Some(&roaming));
+        assert_eq!(b.local.as_ref(), Some(&local));
+        assert_eq!(b.cache.as_ref(), Some(&local));
+        assert_eq!(b.home.as_ref(), Some(&profile));
     }
 }
