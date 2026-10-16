@@ -362,7 +362,7 @@
     "rightkit-app-settings": "0.2.0",
     "rightkit-asr": "0.2.1",
     "rightkit-audio": "0.2.3",
-    "rightkit-automation": "0.3.0",
+    "rightkit-automation": "0.4.0",
     "rightkit-browser": "0.3.1",
     "rightkit-cache": "0.2.0",
     "rightkit-channel-memory": "0.1.0",
@@ -432,7 +432,7 @@
       "rightkit-app-settings": "0.2.0",
       "rightkit-asr": "0.2.1",
       "rightkit-audio": "0.2.3",
-      "rightkit-automation": "0.3.0",
+      "rightkit-automation": "0.4.0",
       "rightkit-browser": "0.3.1",
       "rightkit-cache": "0.2.0",
       "rightkit-channel-memory": "0.1.0",
@@ -765,6 +765,9 @@
     ],
     "rightkit-agent-tools": [
       "0.1.2"
+    ],
+    "rightkit-automation": [
+      "0.3.0"
     ]
   }
 }
