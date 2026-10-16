@@ -20,12 +20,14 @@ The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit
 | `engine` | off | `client`, `qts` (`rightkit-tts-qwen`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |
+| `dev-overrides` | off | `rightkit-onnx/dev-overrides` (when `client` is on) | Development and QA builds only: honors an inherited `ORT_DYLIB_PATH` as a developer ONNX Runtime override. Never implied by a build profile and never a default feature; an app enables it only from its QA/test configuration. |
 
 Environment variables used by the crate:
 
 - `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`): QTS model directory. The default is `<data>/models/qts`.
 - `RIGHTKIT_TTS_WORKER` (legacy `GENRIGHT_QTS_WORKER`): worker binary path.
-- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder. Debug builds only: release builds never read it, and
+- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder. Read only with the `dev-overrides` feature: every other build
+  (release and the installed dev profile) never reads it, and
   the client strips it from the worker's environment. Release callers pass the runtime with
   `QtsClient::with_ort_runtime(path)`, or the installed runtime is found by search.
 

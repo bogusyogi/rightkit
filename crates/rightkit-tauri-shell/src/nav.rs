@@ -50,7 +50,7 @@ pub enum WindowOpenDecision {
 pub struct NavPolicy {
     /// Extra hosts served in place, e.g. an app's own `https://app.example` surface.
     pub internal_hosts: Vec<String>,
-    /// Allow `localhost` / loopback (Vite dev server). Defaults to debug builds only.
+    /// Allow `localhost` / loopback (Vite dev server). Defaults on only with the `dev-overrides` feature.
     pub allow_loopback: bool,
     /// ViewRight-style broker host. `https://<host>/?target=<url>` navigates nothing and asks the
     /// shell to open `target` externally (only when `target` has an external scheme).
@@ -96,7 +96,7 @@ impl Default for NavPolicy {
     fn default() -> Self {
         Self {
             internal_hosts: Vec::new(),
-            allow_loopback: cfg!(debug_assertions),
+            allow_loopback: cfg!(feature = "dev-overrides"),
             broker_host: None,
             popup_origins: OAUTH_POPUP_ORIGINS.iter().map(|s| s.to_string()).collect(),
             internal_schemes: Vec::new(),

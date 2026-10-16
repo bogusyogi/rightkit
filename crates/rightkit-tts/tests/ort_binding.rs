@@ -45,12 +45,12 @@ fn an_explicit_runtime_binds_and_its_directory_leads_path_in_every_case() {
 }
 
 #[test]
-fn without_an_explicit_runtime_only_debug_builds_keep_the_inherited_variable() {
+fn without_an_explicit_runtime_only_dev_overrides_keeps_the_inherited_variable() {
     let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let (dir, file) = runtime("dev-override");
     std::env::set_var("ORT_DYLIB_PATH", &file);
     bind_ort_runtime(None);
-    if cfg!(debug_assertions) {
+    if cfg!(feature = "dev-overrides") {
         assert_eq!(
             std::env::var_os("ORT_DYLIB_PATH"),
             Some(file.into_os_string())

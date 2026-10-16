@@ -31,7 +31,8 @@ use crate::{
 };
 
 /// Whether non-catalog binaries may run. There is deliberately no `Default`: the app
-/// states its mode (for example from `cfg!(debug_assertions)` or its own dev flag).
+/// states its mode (for example from the `dev-overrides` feature via
+/// [`BuildMode::from_build_features`] or its own dev flag).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildMode {
     Development,
@@ -39,13 +40,22 @@ pub enum BuildMode {
 }
 
 impl BuildMode {
-    /// `Development` in builds with debug assertions, otherwise `Release`.
-    pub fn from_debug_assertions() -> Self {
-        if cfg!(debug_assertions) {
+    /// `Development` only when this crate is built with the explicit `dev-overrides` feature,
+    /// otherwise `Release`. A build profile never selects it: a dev profile (debug assertions on)
+    /// is `Release` here.
+    pub fn from_build_features() -> Self {
+        if cfg!(feature = "dev-overrides") {
             Self::Development
         } else {
             Self::Release
         }
+    }
+
+    /// Deprecated name of [`BuildMode::from_build_features`]. It no longer reads
+    /// `cfg!(debug_assertions)`: it now follows the `dev-overrides` feature.
+    #[deprecated(note = "use BuildMode::from_build_features; it follows the dev-overrides feature, not debug_assertions")]
+    pub fn from_debug_assertions() -> Self {
+        Self::from_build_features()
     }
 }
 

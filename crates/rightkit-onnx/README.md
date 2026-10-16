@@ -17,6 +17,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 | `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
 | `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
 | `cuda`, `tensorrt`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `acl`, `armnn`, `azure`, `cann`, `nvrtx`, `onednn`, `qnn`, `rknpu`, `tvm`, `vitis`, `xnnpack` | off | `session`, `ort/<same>` | Pass-through execution-provider features (asr, qts). |
+| `dev-overrides` | off | none | Development and QA builds only. Honors `ORT_DYLIB_PATH` as a developer runtime override and stops `clear_inherited_runtime_for_release` clearing it. Never implied by a build profile (installed dev builds with debug assertions behave like release) and never a default feature; an app enables it only from its QA/test configuration. |
 | `provision` | off | `rightkit-ffmpeg`, `rightkit-models` (HTTP, tar, zip) | Build-time `rightkit_onnx::provision` and the `rightkit-onnx-provision` binary. Use it as a build-dependency, never in the shipped app. |
 | `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_onnx::half::f16`. |
 | `ndarray` | off | `session`, `ort/ndarray`, `ndarray` | Re-exports `ndarray` for `Tensor::from_array` and `try_extract_array`. |

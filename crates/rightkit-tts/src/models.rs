@@ -469,12 +469,12 @@ pub fn verify_mode(dir: &Path, mode: Mode, full: bool) -> Result<(), String> {
     verify_files(dir, &expects, full)
 }
 
-/// Bind the ONNX Runtime a worker process loads. Release builds never inherit `ORT_DYLIB_PATH`;
-/// debug builds keep it as a developer override. An explicit runtime sets `ORT_DYLIB_PATH` and its
+/// Bind the ONNX Runtime a worker process loads. Builds without the `dev-overrides` feature never inherit
+/// `ORT_DYLIB_PATH`; with it the variable stays a developer override. An explicit runtime sets `ORT_DYLIB_PATH` and its
 /// directory goes first on `PATH`, so the DLLs beside it load on Windows; that holds in every build
 /// and whatever the environment held. Call single-threaded, before the engine loads.
 pub fn bind_ort_runtime(explicit: Option<&Path>) {
-    if !cfg!(debug_assertions) {
+    if !cfg!(feature = "dev-overrides") {
         std::env::remove_var("ORT_DYLIB_PATH");
     }
     if let Some(path) = explicit {
@@ -487,10 +487,10 @@ pub fn runtime_lib_name() -> &'static str {
     rightkit_onnx::runtime_filename()
 }
 
-/// Developer override for ONNX Runtime: `ORT_DYLIB_PATH` is read only in debug builds, the same
-/// gate `rightkit-onnx` applies to its developer override. Release builds never consult it.
+/// Developer override for ONNX Runtime: `ORT_DYLIB_PATH` is read only with the `dev-overrides` feature, the same
+/// gate `rightkit-onnx` applies to its developer override. Other builds never consult it.
 fn developer_env_runtime() -> Option<PathBuf> {
-    if cfg!(debug_assertions) {
+    if cfg!(feature = "dev-overrides") {
         env_nonempty("ORT_DYLIB_PATH")
     } else {
         None
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn inherited_ort_dylib_path_is_honoured_only_in_debug_builds() {
+    fn inherited_ort_dylib_path_is_honoured_only_with_dev_overrides() {
         let dir = std::env::temp_dir().join(format!("gqts-ort-env-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -653,7 +653,7 @@ mod tests {
         // Only the default-data-root search runs here; the injected file is in no searched dir.
         let found = find_onnxruntime_in(None, None);
         std::env::remove_var("ORT_DYLIB_PATH");
-        if cfg!(debug_assertions) {
+        if cfg!(feature = "dev-overrides") {
             assert_eq!(found.as_deref(), Some(injected.as_path()));
         } else {
             assert_ne!(found.as_deref(), Some(injected.as_path()));

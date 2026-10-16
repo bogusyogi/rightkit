@@ -64,8 +64,8 @@ use std::sync::Mutex;
 
 static CONFIGURED_RUNTIME: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// Clear inherited `ORT_DYLIB_PATH` in release builds; no-op in debug builds.
-/// This keeps shell-exported development paths from steering shipped apps,
+/// Clear inherited `ORT_DYLIB_PATH` unless the `dev-overrides` feature is on (then a no-op).
+/// This keeps shell-exported development paths from steering shipped and installed dev apps,
 /// consistent with the policy that inherited `ORT_DYLIB_PATH` fails closed.
 ///
 /// Call at process startup, before any thread spawns, runtime binding or ORT
@@ -77,16 +77,16 @@ pub fn clear_inherited_runtime_for_release() {
 
 // Injected removal keeps release/debug tests free of process env mutation.
 fn clear_inherited_runtime_with(remove_path: impl FnOnce()) {
-    if cfg!(not(debug_assertions)) {
+    if cfg!(not(feature = "dev-overrides")) {
         remove_path();
     }
 }
 
 /// Read a caller-named development override as an explicit runtime candidate.
-/// Unset or empty values return `None`; release builds always return `None`
-/// without reading the variable. Path validation remains in runtime resolution.
+/// Unset or empty values return `None`; builds without the `dev-overrides` feature
+/// always return `None` without reading the variable. Path validation remains in runtime resolution.
 pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> {
-    if cfg!(debug_assertions) {
+    if cfg!(feature = "dev-overrides") {
         nonempty_env_path(env_name)
             .map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
     } else {
@@ -729,15 +729,15 @@ mod binding_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "dev-overrides")]
     #[test]
-    fn clearing_inherited_runtime_is_noop_in_debug() {
+    fn clearing_inherited_runtime_is_noop_with_dev_overrides() {
         clear_inherited_runtime_with(|| panic!("debug must preserve inherited runtime"));
     }
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(feature = "dev-overrides"))]
     #[test]
-    fn clearing_inherited_runtime_removes_it_in_release() {
+    fn clearing_inherited_runtime_removes_it_by_default() {
         let mut inherited = Some(PathBuf::from("shell-exported-dev-runtime"));
         clear_inherited_runtime_with(|| inherited = None);
         assert_eq!(inherited, None);

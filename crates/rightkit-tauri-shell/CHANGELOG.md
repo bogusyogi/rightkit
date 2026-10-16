@@ -3,6 +3,10 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.2
+
+- Security (behaviour change; Orthic-Labs/rightkit#109): dev-control no longer follows `cfg(debug_assertions)`, which is on in the dev profile used by installed dev builds. `NavPolicy::default().allow_loopback` is now `false` unless the new non-default `dev-overrides` feature is on. The `devtoolsOpen` readback in the QA state command (`commands.rs`) is compiled only with `content-devtools` or `dev-inspect`; otherwise it reports `false`. The inspector-closing call in `devtools::apply_native` keeps `debug_assertions` in its cfg because it only closes an inspector on a denied webview. App migration: an app that relied on loopback navigation in dev builds enables `rightkit-tauri-shell/dev-overrides` from its QA/dev feature (apps may also set `allow_loopback: true` explicitly in `NavPolicy`); an app that relied on the devtools readback in dev builds enables `dev-inspect`. Not built or run locally.
+
 ## 0.3.1
 
 - **`dev-inspect` now enables `tauri/unstable`** (Orthic-Labs/rightkit#103). `devtools.rs` calls `AppHandle::get_webview`,

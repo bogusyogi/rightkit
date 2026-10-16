@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -33,6 +33,10 @@ content-devtools = ["tauri/devtools", "tauri/unstable"]
 # of a release: `right-release` refuses the feature in a release or update build command or Cargo manifest, scans
 # every binary for the marker, and the rightkit-qa guard rejects it in default features. Never a default feature.
 dev-inspect = ["tauri/devtools", "tauri/unstable"]
+# DEVELOPMENT/QA BUILDS ONLY. `NavPolicy::default()` allows loopback (localhost, 127.0.0.1, [::1]) http(s)
+# navigation as internal, for dev servers and QA drivers. Off by default: a dev profile (debug_assertions on)
+# no longer implies it. An app selects it from an optional QA/dev feature of its own. Never a default feature.
+dev-overrides = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }

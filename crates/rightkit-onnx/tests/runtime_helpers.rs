@@ -76,7 +76,7 @@ impl Drop for Fixture {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "dev-overrides")]
 #[test]
 fn developer_override_uses_only_nonempty_named_variable_as_explicit_candidate() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -95,9 +95,9 @@ fn developer_override_uses_only_nonempty_named_variable_as_explicit_candidate() 
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "dev-overrides"))]
 #[test]
-fn developer_override_is_ignored_in_release() {
+fn developer_override_is_ignored_by_default() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let env = EnvRestore::new(OVERRIDE);
     for value in ["", "shell-exported-dev-runtime"] {
@@ -109,7 +109,7 @@ fn developer_override_is_ignored_in_release() {
     assert_eq!(developer_override_candidate(OVERRIDE), None);
 }
 
-#[cfg(all(unix, debug_assertions))]
+#[cfg(all(unix, feature = "dev-overrides"))]
 #[test]
 fn developer_override_preserves_non_unicode_paths() {
     use std::os::unix::ffi::OsStringExt;

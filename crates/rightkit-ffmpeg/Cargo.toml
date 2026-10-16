@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ffmpeg"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -16,6 +16,10 @@ default = ["native"]
 # `native` module: the suite-wide native-library catalog (`catalog/native-libraries.json`).
 # Consumed by asr/ort/vad tests; FFmpeg-only consumers can opt out.
 native = []
+# DEVELOPMENT/QA BUILDS ONLY. `BuildMode::from_build_features()` and `DevFfmpeg::try_unverified` allow
+# UNVERIFIED (non-catalog) binaries. Never implied by a build profile (a dev profile has debug_assertions on
+# and still refuses) and never a default feature. An app enables it only from its QA/test configuration.
+dev-overrides = []
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }

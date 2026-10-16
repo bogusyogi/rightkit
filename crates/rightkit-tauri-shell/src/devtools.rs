@@ -1239,7 +1239,10 @@ pub fn apply_native<R: Runtime>(
     webview: &Webview<R>,
     decision: WebviewDecision,
 ) -> Result<(), DevToolsError> {
-    // Close an inspector that already exists, where the build has one.
+    // Close an inspector that already exists, where the build has one. Tauri itself compiles the
+    // inspector API into dev-profile builds (debug_assertions), so `debug_assertions` stays in this
+    // list on purpose: it only ever CLOSES an inspector on a denied webview (hardening, not dev
+    // control), and dropping it would leave a dev-profile inspector open.
     #[cfg(any(
         debug_assertions,
         feature = "content-devtools",

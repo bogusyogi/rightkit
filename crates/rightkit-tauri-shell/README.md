@@ -14,6 +14,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
 | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
+| `dev-overrides` | off | none | Development and QA builds only: `NavPolicy::default()` treats loopback (localhost, 127.0.0.1, [::1]) http(s) URLs as internal. Not implied by a build profile (installed dev builds with debug assertions get the release default, `allow_loopback: false`); an app sets it from an optional QA/dev feature. Never a default feature. |
 | `dev-inspect` | off | `tauri/devtools` | Development builds only: every webview is inspectable and the DevTools guards stand down; see "DevTools policy / Development builds". A build with it can never be released. Never a default feature, and not needed by ContentOnly. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.

@@ -3,6 +3,10 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.2
+
+- Security (behaviour change): the `ORT_DYLIB_PATH` developer override no longer follows `cfg(debug_assertions)` (`client.rs` worker spawn, `models.rs` `bind_ort_runtime`, `developer_env_runtime`). It is now behind the explicit, non-default `dev-overrides` feature, which forwards to `rightkit-onnx/dev-overrides` (Orthic-Labs/rightkit#109). Installed dev builds use the dev profile with debug assertions on; without the feature they now behave like release: the client strips `ORT_DYLIB_PATH` from the worker, `bind_ort_runtime` clears it, and `find_onnxruntime` ignores it. App migration: enable `rightkit-tts/dev-overrides` only from a QA/test feature to keep the old debug-build behaviour. Requires `rightkit-onnx` 0.2.5. Tests: the two env-override tests assert the feature instead of `debug_assertions`. Not built or run locally.
+
 ## 0.2.1
 
 - Republished on the renamed dependencies: `rightkit-onnx` (was `rightkit-ort`), `rightkit-child-process` (was `rightkit-process`), `rightkit-tts-qwen` (was `rightkit-qts`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.

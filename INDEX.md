@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 10.
+Flagged mismatches: 12.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -36,7 +36,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-device` | crates.io | 0.1.3 | 0.1.3 | 0.1.3 | ok | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
 | `rightkit-docs` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | document, document-io, docx, spreadsheet, xlsx | Product-neutral DOCX, XLSX and PDF read and write: format detection from content, typed reads with caps, typed write ops through an atomic writer, honest loss receipts, hardened against hostile files |
 | `rightkit-embed` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
-| `rightkit-ffmpeg` | crates.io | 0.2.6 | 0.2.6 | 0.2.6 | ok | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
+| `rightkit-ffmpeg` | crates.io | 0.2.7 | 0.2.6 | 0.2.6 | **MISMATCH staged 0.2.6 != source 0.2.7** | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-file-watch` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
 | `rightkit-fs` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
 | `rightkit-fsindex` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
@@ -51,7 +51,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-models` | crates.io | 0.4.0 | 0.3.2 | 0.3.2 | **MISMATCH staged 0.3.2 != source 0.4.0** | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.2 | 0.2.2 | 0.2.2 | ok | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
-| `rightkit-onnx` | crates.io | 0.2.4 | 0.2.3 | 0.2.3 | **MISMATCH staged 0.2.3 != source 0.2.4** | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
+| `rightkit-onnx` | crates.io | 0.2.5 | 0.2.3 | 0.2.3 | **MISMATCH staged 0.2.3 != source 0.2.5** | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
 | `rightkit-overlay` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
 | `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
 | `rightkit-pdf` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | pdf, pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
@@ -66,9 +66,9 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-sidecar` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-speech-client` | crates.io | 0.3.5 | 0.3.5 | 0.3.5 | ok | shared-speech-service | Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host. |
 | `rightkit-sync` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | cloud-sync | Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff. |
-| `rightkit-tauri-shell` | crates.io | 0.3.1 | 0.3.0 | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.1** | desktop-shell | Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring. |
+| `rightkit-tauri-shell` | crates.io | 0.3.2 | 0.3.0 | 0.3.0 | **MISMATCH staged 0.3.0 != source 0.3.2** | desktop-shell | Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring. |
 | `rightkit-transcript` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | timed-transcripts | Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications |
-| `rightkit-tts` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | text-to-speech | Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client |
+| `rightkit-tts` | crates.io | 0.2.2 | 0.2.1 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.2** | text-to-speech | Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client |
 | `rightkit-tts-qwen` | crates.io | 0.2.6 | 0.2.6 | 0.2.6 | ok | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-tts-qwen, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-vad` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
@@ -97,7 +97,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/qa` | npm | 0.4.8 | 0.4.8 | 0.4.8 | ok |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.6.6 | 0.6.6 | 0.6.6 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
-| `@rightkit/release` | npm | 0.2.166 | 0.2.165 | 0.2.165 | **MISMATCH staged 0.2.165 != source 0.2.166** | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
+| `@rightkit/release` | npm | 0.2.167 | 0.2.165 | 0.2.165 | **MISMATCH staged 0.2.165 != source 0.2.167** | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/settings-ui` | npm | 0.4.4 | 0.4.4 | 0.4.4 | ok |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/tauri` | npm | 0.2.1 | 0.2.1 | 0.2.1 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.1 | 0.1.1 | 0.1.1 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |

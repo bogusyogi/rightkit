@@ -428,8 +428,8 @@ fn spawn(spec: &SpawnSpec, backend: &str, mode: Mode) -> Result<Worker, QtsError
     let ort = ort_runtime_for(spec)?;
     let mut cmd = Command::new(exe);
     cmd.args(spec.worker_args(backend, mode, ort).to_command_line());
-    if !cfg!(debug_assertions) {
-        // Release: an inherited ORT_DYLIB_PATH never reaches the worker.
+    if !cfg!(feature = "dev-overrides") {
+        // Without `dev-overrides`: an inherited ORT_DYLIB_PATH never reaches the worker.
         cmd.env_remove("ORT_DYLIB_PATH");
     }
     cmd.stdin(Stdio::piped())

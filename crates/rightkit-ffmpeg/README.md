@@ -56,6 +56,8 @@ let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
 
 `native` (default on, empty feature list): the `native` module, the suite-wide native-library catalog (`Cargo.toml:15-18`, `src/lib.rs:26-27`). FFmpeg-only consumers opt out with `default-features = false`.
 
+`dev-overrides` (off by default, no dependencies): development and QA builds only. `BuildMode::from_build_features()` returns `Development` and `DevFfmpeg::try_unverified` accepts UNVERIFIED (non-catalog) binaries only with it. Never implied by a build profile (installed dev builds with debug assertions behave like release) and never a default feature; an app enables it only from its QA/test configuration. `BuildMode::from_debug_assertions()` is a deprecated alias of `from_build_features()`.
+
 ## Platform support
 
 - macOS aarch64: `decode` (ffmpeg, ffprobe), `decode-av1` (ffmpeg), `decode-apple` (ffprobe), `export-ass` (ffmpeg) and `export-ass-zimg` (ffmpeg) approved.

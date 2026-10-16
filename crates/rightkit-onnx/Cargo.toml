@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-onnx"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -10,6 +10,11 @@ repository = "https://github.com/Orthic-Labs/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
+# DEVELOPMENT/QA BUILDS ONLY. Honors `ORT_DYLIB_PATH` as a developer runtime override
+# (`developer_override_candidate`) and stops `clear_inherited_runtime_for_release` from clearing it.
+# Never implied by a build profile (a dev profile has debug_assertions on and still gets release behavior)
+# and never a default feature. An app enables it only from its QA/test configuration.
+dev-overrides = []
 # Build-time runtime provisioning (`rightkit_onnx::provision`, the `rightkit-onnx-provision` bin):
 # catalog row lookup, HTTPS download, archive extraction. Off by default so app runtime builds
 # pull no HTTP, tar or zip code. Use it from a build.rs or xtask, as a build-dependency.

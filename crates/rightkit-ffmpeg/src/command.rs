@@ -166,9 +166,9 @@ impl DevFfmpeg {
     }
 
     /// [`DevFfmpeg::unverified`], refused with [`MediaError::UnverifiedRefusedInRelease`]
-    /// in a release build (`!cfg!(debug_assertions)`).
+    /// in any build without the `dev-overrides` feature.
     pub fn try_unverified(path: impl Into<PathBuf>) -> Result<Self, MediaError> {
-        Self::try_unverified_in(path, BuildMode::from_debug_assertions())
+        Self::try_unverified_in(path, BuildMode::from_build_features())
     }
 
     fn try_unverified_in(path: impl Into<PathBuf>, mode: BuildMode) -> Result<Self, MediaError> {
