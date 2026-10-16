@@ -233,14 +233,68 @@ mod platform {
 mod platform {
     use super::PlatformIdentity;
 
+    /// Every field is "unknown" (or 0) except where a portable source exists. On Android the
+    /// device model, OS version and build live in system properties (bionic's
+    /// `__system_property_get`) or in Kotlin's `Build` fields; neither is wired here, so they
+    /// stay "unknown" and an app that wants them adds them to its own report.
     pub(super) fn current() -> PlatformIdentity {
         PlatformIdentity {
             hw_model: "unknown".into(),
             chip: "unknown".into(),
             os_version: "unknown".into(),
             os_build: "unknown".into(),
-            memory_total_mb: 0,
+            memory_total_mb: memory_total_mb(),
             webview_version: "not_applicable".into(),
         }
+    }
+
+    /// Android: `MemTotal` of `/proc/meminfo`, which an app may read. Elsewhere on this
+    /// fallback path (Linux and other unix targets) the value stays 0, as before.
+    #[cfg(target_os = "android")]
+    fn memory_total_mb() -> u64 {
+        std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|text| super::parse_meminfo_total_mb(&text))
+            .unwrap_or(0)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn memory_total_mb() -> u64 {
+        0
+    }
+}
+
+/// `MemTotal` of a `/proc/meminfo` text, in whole MiB. `None` when the line is missing, has no
+/// number, or does not say `kB`.
+#[cfg_attr(not(any(test, target_os = "android")), allow(dead_code))]
+fn parse_meminfo_total_mb(text: &str) -> Option<u64> {
+    let rest = text
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))?;
+    let mut parts = rest.split_whitespace();
+    let kib: u64 = parts.next()?.parse().ok()?;
+    if !parts.next()?.eq_ignore_ascii_case("kb") {
+        return None;
+    }
+    Some(kib / 1024)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_meminfo_total_mb;
+
+    #[test]
+    fn meminfo_total_is_read_in_mib() {
+        let text = "MemTotal:        7889408 kB\nMemFree:          123456 kB\n";
+        assert_eq!(parse_meminfo_total_mb(text), Some(7704));
+    }
+
+    #[test]
+    fn meminfo_without_a_usable_total_is_none() {
+        assert_eq!(parse_meminfo_total_mb(""), None);
+        assert_eq!(parse_meminfo_total_mb("MemFree: 12 kB\n"), None);
+        assert_eq!(parse_meminfo_total_mb("MemTotal: lots kB\n"), None);
+        assert_eq!(parse_meminfo_total_mb("MemTotal: 2048\n"), None);
+        assert_eq!(parse_meminfo_total_mb("MemTotal: 2048 MB\n"), None);
     }
 }

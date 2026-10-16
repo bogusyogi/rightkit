@@ -6,6 +6,8 @@
 //! * Test/dev guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) swap in memory or deny.
 //! * [`Store::get_or_create_key`] provisions DB keys; [`migrate_between`] and friends move
 //!   legacy items. [`Secret`] never prints.
+//! * Android: an AES-GCM key in `AndroidKeyStore` encrypts each secret and only the ciphertext is
+//!   kept in app-private storage ([`android`]); the JNI access is an injected `KeystoreBridge`.
 //! * `apple_helper` drives the synced-credentials Swift helper (RightKitAppleCredentials).
 
 mod backend;
@@ -20,6 +22,7 @@ mod rotation;
 mod secret;
 mod store;
 
+pub mod android;
 pub mod apple_helper;
 #[cfg(target_os = "linux")]
 mod linux;

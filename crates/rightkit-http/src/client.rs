@@ -106,7 +106,11 @@ pub enum ProxyMode {
     /// and `AsyncClient::proxy_mode_used` ([`ProxyModeUsed::SystemFallbackEnvironment`],
     /// [`ProxyModeUsed::SystemFallbackDirect`]). With a static proxy the detection flag is
     /// ignored. When nothing is configured, and on other systems, this is
-    /// [`ProxyMode::Environment`].
+    /// [`ProxyMode::Environment`]. Android is one of those other systems: the proxy set in
+    /// Android's Wi-Fi settings (`ConnectivityManager`) is not read, and a process on Android
+    /// normally has no proxy environment variables, so this is a direct connection unless the
+    /// app sets them. An app that must honour the device proxy passes it as
+    /// [`ProxyMode::Explicit`].
     System,
 }
 
@@ -128,6 +132,15 @@ impl fmt::Debug for ProxyMode {
 /// system roots on Linux) through `rustls-platform-verifier` in both clients, so roots an
 /// enterprise or an inspection proxy installed on the machine are honoured, as curl and
 /// browsers honour them.
+///
+/// **Android.** `Platform` goes through `rustls-platform-verifier`, which on Android calls the
+/// system `TrustManager` over JNI and needs the verifier's Android component and a one-time
+/// initialisation with the app's `JavaVM` and `Context` (the `rightkit-android` bridge's job).
+/// This crate does not do that initialisation. Until it has run, `Platform` fails closed as
+/// described below; it never falls back to another root set. An Android caller that has not
+/// wired the verifier selects `Bundled`, which needs no JNI. Both clients are built with rustls
+/// and `ring` only: there is no OpenSSL or `native-tls` to cross-build. Neither path has been
+/// run on a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TrustRoots {
     /// The operating system's trust store. This is the default. When the store cannot be

@@ -15,6 +15,10 @@ Behavior:
 - **Change events**: `subscribe` callbacks receive the changed top-level keys after a successful save. Failed saves leave the in-memory value unchanged. The one exception is `Error::Replaced`: the new file is already in place, so do not retry the write; `get()` reads it and no event fires for that write.
 - **Secrets by reference only**: `SecretRef` (service + account) may live in settings; `SecretProbe` reports presence. Values are never stored here.
 
+## Android
+
+The crate never looks a directory up (no `HOME`, no `XDG_*`, no user database), so it needs no Android branch: pass the root or file path in. Use `Store::open(&files_dir, schema)` or `Store::open_path(files_dir.join("settings.json"), ..)` with `files_dir` from `Context.getFilesDir()` (the `rightkit-android` bridge hands it over at start-up). Pass an absolute path: a relative one resolves against the process working directory, which on Android is `/`. The file stamp uses `std::os::unix::fs::MetadataExt`, which Android's std provides. Compiles for the Android targets in principle; not built or run for them.
+
 ## Opening a store
 
 ```rust,ignore

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- **Android compile pass (rightkit#152).** No source path selects a macOS-only or Linux-only API for `target_os = "android"`: the macOS (`libc` `sysctl`, mach) and Windows (`windows-sys`) code is gated by `target_os` and Android takes the portable fallback in `system/identity.rs` and `system/metrics.rs`; there is no syslog, `os_log`, xattr, keychain or `getpwuid` use. Log directories are always passed in by the caller (the crate has no path discovery), so an Android app passes `Context.getFilesDir()`-based paths. `ureq` is built with `rustls` and no platform verifier, so uploads use the bundled web PKI roots and need no JNI.
+- Added: on Android `platform_identity().memory_total_mb` is now read from `/proc/meminfo` (`MemTotal`) instead of 0; other fields stay `"unknown"` there. New private `parse_meminfo_total_mb`, tested on the host (`system::identity::tests`). Linux and other unix targets keep 0.
+- Not done, by design: a logcat sink (needs `liblog`; it belongs to the `rightkit-android` bridge, rightkit#149). `system_load_1m` still reads `/proc/loadavg`, which Android may refuse an app; a refusal reads as an absent value. Not built or run for an Android target.
+
 
 ## 0.3.0
 
