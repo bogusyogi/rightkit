@@ -55,7 +55,7 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSContro
 
 [target.'cfg(windows)'.dependencies]
 # Same toast backend as tauri-plugin-notification (via notify-rust): WinRT ToastNotificationManager.
-tauri-winrt-notification = "0.7"
+tauri-winrt-notification = "0.8"
 windows_061 = { package = "windows", version = "0.61", optional = true, features = [
   "Win32_Foundation",
   "Win32_System_Com",
