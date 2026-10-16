@@ -56,6 +56,15 @@
         "save.rs repair gates first adoption.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
+    },
+    {
+      "capability": "pdf",
+      "summary": "Discovery alias of pdf-engine: PDF inspect, edit, merge and text extraction are rightkit-pdf; one-shot PDF text read and replace beside DOCX and XLSX is rightkit-docs (document-io)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Discovery alias so `rightkit owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
+      ]
     }
   ]
 }

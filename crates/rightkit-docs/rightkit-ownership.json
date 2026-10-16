@@ -1,0 +1,218 @@
+{
+  "package": "rightkit-docs",
+  "capabilities": [
+    {
+      "capability": "document-io",
+      "summary": "Product-neutral DOCX, XLSX and PDF read and write: format detection from content, typed reads with caps, typed write ops through an atomic writer with a source-hash recheck, honest loss receipts, hardened against zip bombs, XML entities, macros, encryption and formula injection",
+      "fingerprints": [
+        {
+          "id": "docs.cargo.docx-rs",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "docx-rs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.docx-rust",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "docx-rust",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.calamine",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "calamine",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.rust-xlsxwriter",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rust_xlsxwriter",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.umya-spreadsheet",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "umya-spreadsheet",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.office-oxide",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "office_oxide",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.cargo.edit-xlsx",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "edit-xlsx",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.npm.docx",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "docx",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.npm.exceljs",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "exceljs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.npm.xlsx",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "xlsx",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "docs.npm.mammoth",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "mammoth",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded.",
+        "Reads and edits PDF through rightkit-pdf (capability pdf-engine); use pdf-engine directly for page graphs, font work and the staged-save pipeline."
+      ]
+    },
+    {
+      "capability": "docx",
+      "summary": "Alias of document-io: read, create and edit Word (.docx) documents; owner is rightkit-docs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Discovery alias so `rightkit owns docx` resolves to the document-io owner; carries no fingerprints of its own."
+      ]
+    },
+    {
+      "capability": "xlsx",
+      "summary": "Alias of document-io: read, create and edit Excel (.xlsx) workbooks; owner is rightkit-docs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Discovery alias so `rightkit owns xlsx` resolves to the document-io owner; carries no fingerprints of its own."
+      ]
+    },
+    {
+      "capability": "document",
+      "summary": "Alias of document-io: read and write DOCX, XLSX and PDF documents; owner is rightkit-docs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Discovery alias so `rightkit owns document` resolves to the document-io owner; carries no fingerprints of its own."
+      ]
+    },
+    {
+      "capability": "spreadsheet",
+      "summary": "Alias of document-io: read, create and edit spreadsheets (.xlsx); owner is rightkit-docs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Discovery alias so `rightkit owns spreadsheet` resolves to the document-io owner; carries no fingerprints of its own."
+      ]
+    }
+  ]
+}
