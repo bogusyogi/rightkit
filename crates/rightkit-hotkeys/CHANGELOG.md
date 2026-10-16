@@ -4,6 +4,7 @@
 
 Additive; nothing in this section was compiled or run when written.
 
+- Fixed (Windows): a `GlobalHotkeys` call made right after `new` or `with_state` could wait for ever. The loop thread handed out its id before Windows had created its message queue (that happens on the first message call), so a wake posted in that gap was lost while the command sat unread. The `GlobalHotkeys` loop and the `LowLevelKeyboardHook` thread now create their queue before handing out the id, so a wake or `WM_QUIT` posted at once is queued. The test `windows_loop_start` sends a command at once after start, 300 times.
 - `hook_chord::HookChords`: a pure chord matcher over raw key events (exact modifier match, one `Pressed` and one `Released` per hold, matched key swallowed, injected events ignored), with tests that drive it without real input. Windows `HookHotkeys` binds chords through the `WH_KEYBOARD_LL` hook with it: the opt-in fallback for a chord `RegisterHotKey` refuses with `Conflict` (Alt+Space held by another program).
 - Windows `GlobalHotkeys::register_repeating`: a registration without `MOD_NOREPEAT`, for step actions that repeat while held. `register` is unchanged (no repeat).
 - Windows `GlobalHotkeys::with_state` delivers `Pressed` and `Released` for hold-to-talk. Release is detected by a short thread timer polling `GetAsyncKeyState`, running only while a chord is held (no global hook). Exactly one `Released` per `Pressed`, including on unregister and drop. `GlobalHotkeys::new` stays press-only.
