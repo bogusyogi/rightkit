@@ -84,6 +84,15 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 - The kill switch (`kill()`) fails every act, snapshot and batch step closed. It also denies every effect admitted through a `control::admission::EffectGate`, makes `offscreen::launch_offscreen` return `OffscreenError::KillSwitch`, and turns `macos::background::unsafe_ungated` into a no-op.
 - `macos::background::Gated` has no `Default`: building one is an explicit choice of gate. `Gated::allow_all()` opts out of the allowlist by name; a host should pass a gate built on `PolicyAdmission`. `unsafe_ungated` bypasses the gate and the allowlist (not the kill switch) and is named so it can be grepped for.
 
+## Capture-safety probe
+
+`probe_capture_safety(&Target)` reports `Safe`, `Unsafe(reasons)` or `Unknown(gaps)` for a target app or window, with the evidence behind it. It reads OS state only and never sends input. `Safe` means every check ran and found nothing, never "nothing sensitive is on screen"; treat `Unknown` like `Unsafe` when capture must be refused.
+
+- macOS: secure event input (system-wide), the app's focused AX element (`AXSecureTextField`; needs Accessibility), window sharing state `none`.
+- Windows: window display affinity `WDA_MONITOR` or `WDA_EXCLUDEFROMCAPTURE`, focused password control (`ES_PASSWORD`, UIA `IsPassword`).
+- Other OS: always `Unknown`.
+- The focus checks describe the app's focus, not a single window's. Web content that does not expose its inner focus gives `Unknown`.
+
 ## Tests and examples
 
 - `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. Without them it prints `SKIP e2e_mac` and returns; `RIGHTKIT_REQUIRE_ASSETS=1` makes it fail instead (`tests/e2e_mac.rs:4-5`, `:177-183`). A managed-broker run lacks both, so run the built binary from a granted shell.

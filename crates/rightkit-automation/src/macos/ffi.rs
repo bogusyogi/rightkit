@@ -145,6 +145,12 @@ extern "C" {
     pub fn CGImageGetHeight(img: CFTypeRef) -> usize;
 }
 
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    /// HIToolbox: true while any process has secure event input on (system-wide).
+    pub fn IsSecureEventInputEnabled() -> u8;
+}
+
 #[link(name = "ImageIO", kind = "framework")]
 extern "C" {
     pub fn CGImageDestinationCreateWithURL(

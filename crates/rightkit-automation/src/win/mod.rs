@@ -3,6 +3,7 @@
 //! PrintWindow for per-window capture. No Python, no Node.
 
 pub mod input;
+pub(crate) mod capture_safety;
 mod sys;
 mod uia;
 

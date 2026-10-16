@@ -68,7 +68,7 @@ unsafe extern "system" fn collect(h: HWND, lp: LPARAM) -> BOOL {
     BOOL(1)
 }
 
-fn all_top_level() -> Vec<HWND> {
+pub(crate) fn all_top_level() -> Vec<HWND> {
     let mut v: Vec<HWND> = vec![];
     let _ = unsafe { EnumWindows(Some(collect), LPARAM(&mut v as *mut Vec<HWND> as isize)) };
     v

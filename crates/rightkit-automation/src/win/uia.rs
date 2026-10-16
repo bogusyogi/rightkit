@@ -167,6 +167,10 @@ impl El {
     fn pattern<T: Interface>(&self, id: UIA_PATTERN_ID) -> Option<T> {
         unsafe { self.0.GetCurrentPatternAs::<T>(id) }.ok()
     }
+    /// `IsPassword`, or `None` when UIA cannot read it (unlike `is_password`, which hides that).
+    pub fn password_state(&self) -> Option<bool> {
+        b(unsafe { self.0.CurrentIsPassword() })
+    }
     pub fn is_password(&self) -> bool {
         b(unsafe { self.0.CurrentIsPassword() }).unwrap_or(false)
     }

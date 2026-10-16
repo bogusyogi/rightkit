@@ -36,6 +36,7 @@
 //! are waited children (a strict zero-child profile should not call `launch`).
 
 pub mod admission;
+pub mod capture_safety;
 pub mod control;
 pub mod delivery;
 pub mod engine;
@@ -62,6 +63,7 @@ pub mod macos;
 #[cfg(windows)]
 pub mod win;
 
+pub use capture_safety::{probe_capture_safety, CaptureSafety, CaptureSafetyReport};
 pub use admission::{Admission, Admit, AllowAll, EffectKind, EffectRequest, Settled};
 pub use delivery::{DeliveryOptions, DeliveryOutcome, DeliveryRecord, FocusPin, Why};
 pub use engine::{ActOptions, ActOutcome, Automation, Guard};

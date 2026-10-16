@@ -5,6 +5,7 @@ mod appkit;
 pub mod ax;
 pub mod background;
 mod capture;
+pub(crate) mod capture_safety;
 mod events;
 mod ffi;
 

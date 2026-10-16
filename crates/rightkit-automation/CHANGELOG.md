@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.3
+
+Additive; no existing API changed. Code-only: nothing in this section was compiled or run when written, so the CI run is the verification. Requested in Orthic-Labs/rightkit#177 (CutRight, bogusyogi/CutRight#5).
+
+- **New: capture-safety probe.** `probe_capture_safety(&Target) -> CaptureSafetyReport` (module `capture_safety`) says whether a target app or window is showing a secure or sensitive surface, so a recorder can refuse or mask. The verdict is tri-state: `CaptureSafety::Safe`, `Unsafe(Vec<SafetyReason>)` or `Unknown(Vec<SafetyGap>)`. `Safe` is returned only when every check this OS defines ran and found nothing; a missing permission, a window that is gone, an unreadable or opaque focus, or an OS without a probe gives `Unknown`, never `Safe`. A finding gives `Unsafe` even when other checks failed. `report.evidence` lists each check and its result. Treat `Unknown` like `Unsafe` when you must not capture. `Safe` is not a guarantee: secrets rendered in ordinary views are invisible to these checks.
+  - macOS evidence: `IsSecureEventInputEnabled` (system-wide, so it counts against every target); the target app's AX focused element, descended to the deepest focused element, with role or subrole `AXSecureTextField` (needs Accessibility; a web area or group whose inner focus is not exposed is `FocusOpaque`, a gap); `kCGWindowSharingState == 0` from `CGWindowListCopyWindowInfo` (a named window is checked wherever it is, an app target checks its on-screen windows).
+  - Windows evidence: `GetWindowDisplayAffinity` of the named window, or of the app's visible top-level windows, `WDA_MONITOR` (0x1) or `WDA_EXCLUDEFROMCAPTURE` (0x11); the focused control is a password field by `ES_PASSWORD` on a focused `Edit`/`RichEdit` control, or by UI Automation `IsPassword`.
+  - Other OS: always `Unknown(UnsupportedPlatform)`.
+  - The classification (`classify`) and the per-OS value rules are pure and unit-tested on every OS (`src/capture_safety.rs`). The OS reads are not exercised by any test yet.
+- Internal: `win::sys::all_top_level` is `pub(crate)`; `win::uia::El::password_state` returns `Option<bool>`; `IsSecureEventInputEnabled` is declared in `macos::ffi` (links Carbon).
+
 ## 0.4.2
 
 Code-only change; nothing in this section was compiled or run when written.
