@@ -334,8 +334,8 @@ mod tests {
     fn pass() -> ParityVerdict {
         ParityVerdict {
             passed: true,
-            // Exactly representable in f32, so the JSON round trip is exact.
-            lowest_cosine: Some(0.999_023_437_5),
+            // 1 - 2^-10 (0.9990234375) is exactly representable in f32, so the JSON round trip is exact.
+            lowest_cosine: Some(1.0 - 1.0 / 1024.0),
             at_tokens: 190,
             pairs: 10,
             detail: String::new(),
