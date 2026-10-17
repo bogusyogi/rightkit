@@ -12,7 +12,8 @@ const casesDir = path.join(fixtures, "cases");
 const read = (name, file) => JSON.parse(readFileSync(path.join(casesDir, name, file), "utf8"));
 const cases = readdirSync(casesDir).sort().map((name) => ({ name, input: read(name, "input.json"), expected: read(name, "expected.json") }));
 
-const VERDICT_CODES = ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY", "RK_OWNERSHIP_MALFORMED_REPORT", "RK_OWNERSHIP_PENDING_ENROLLMENT", "RK_OWNERSHIP_INVALID_REGISTRATION",
+// RK_OWNERSHIP_PENDING_ENROLLMENT is a reported warning, never a verdict (#262).
+const VERDICT_CODES = ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY", "RK_OWNERSHIP_MALFORMED_REPORT", "RK_OWNERSHIP_INVALID_REGISTRATION",
   "RK_OWNERSHIP_POLICY_DOWNGRADE", "RK_OWNERSHIP_INCOMPLETE_COVERAGE", "RK_OWNERSHIP_VIOLATION", "RK_OWNERSHIP_UNVERIFIED", "RK_OWNERSHIP_REPORT_FAILED"];
 
 test("ownership fixtures match the current implementation (generate.mjs --check)", () => {
@@ -24,7 +25,7 @@ test("every verdict code is exercised by a verdict case and by a scan or admissi
   const byVerdict = new Set(cases.filter((c) => c.input.kind === "verdict").map((c) => c.expected.verdict.code));
   for (const code of VERDICT_CODES) assert.ok(byVerdict.has(code), `no verdict case for ${code}`);
   const byScan = new Set(cases.filter((c) => c.input.kind === "scan" && c.expected.scan.verdict).map((c) => c.expected.scan.verdict.code));
-  for (const code of ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY", "RK_OWNERSHIP_PENDING_ENROLLMENT", "RK_OWNERSHIP_INVALID_REGISTRATION", "RK_OWNERSHIP_POLICY_DOWNGRADE", "RK_OWNERSHIP_INCOMPLETE_COVERAGE", "RK_OWNERSHIP_VIOLATION"]) assert.ok(byScan.has(code), `no real-scan case for ${code}`);
+  for (const code of ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY", "RK_OWNERSHIP_INVALID_REGISTRATION", "RK_OWNERSHIP_POLICY_DOWNGRADE", "RK_OWNERSHIP_INCOMPLETE_COVERAGE", "RK_OWNERSHIP_VIOLATION"]) assert.ok(byScan.has(code), `no real-scan case for ${code}`);
   const errors = new Set(cases.filter((c) => c.input.kind === "scan" && c.expected.scan.error).map((c) => c.expected.scan.code));
   for (const code of ["RK_OWNERSHIP_INVALID_INPUTS", "RK_OWNERSHIP_INPUTS_CHANGED", "RK_OWNERSHIP_UNVERIFIED"]) assert.ok(errors.has(code), `no scan error case for ${code}`);
 });

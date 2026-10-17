@@ -1046,7 +1046,8 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 // reviewed, manual-dispatch Windows FFmpeg build (ffmpeg-windows.yml), named here as an exception and held to its safety
 // properties, and the manual-dispatch registry publication workflow (publish.yml), the only workflow that may read
 // secrets, held to its own properties below. Any other workflow file fails. Product repositories host none.
-const RIGHTKIT_VERIFICATION_WORKFLOWS = ["ci.yml"];
+// android.yml (#203) and chrome-pins.yml (#267) only verify; neither publishes nor reads secrets.
+const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
 const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish.yml"];
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
@@ -1073,7 +1074,7 @@ function assertPublishWorkflow(text, name) {
   const survivors = proveMutations(parseYaml(text));
   assert.deepEqual(survivors, [], `${name}: the contract accepts these violations`);
 }
-test("Right Suite hosts no hosted workflow except rightkit's three reviewed workflows", () => {
+test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
     const workflowDir = path.join(workspace, root, ".github", "workflows");
     const workflows = existsSync(workflowDir) ? readdirSync(workflowDir) : [];

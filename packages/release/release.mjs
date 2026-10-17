@@ -165,6 +165,16 @@ const config = (await import(pathToFileURL(configPath))).default;
 if (!config) usage(2, `config did not export default: ${configPath}`);
 if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<missing>"} (expected 1)`);
 
+// Hosted-workflow policy patterns: defined before the top-level await below uses them.
+const SIGN_EXISTING_SECRETS = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+const SIGN_EXISTING_ACTIONS = new Set(["actions/checkout", "actions/setup-node", "pnpm/action-setup", "actions/download-artifact", "actions/upload-artifact"]);
+const SIGN_EXISTING_RIGHT_RELEASE_COMMANDS = new Set(["ownership", "sign-dev-artifact"]);
+const SIGN_EXISTING_BUILD_RE = /\b(?:cargo|rustc|xcodebuild|tauri|cmake|msbuild|gradle|notarytool|stapler)\b|swift build|right-release build|--release\b|\b(?:npm|pnpm|yarn) (?:run|build)\b/;
+const SIGN_EXISTING_GUARD = "  private-repo-guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Refuse private repository\n        if: ${{ github.event.repository.private }}\n        run: exit 1\n";
+const SIGN_EXISTING_JOB_HEAD = /^(?:    #[^\n]*\n)*    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: [A-Za-z0-9][A-Za-z0-9._-]*\n    runs-on: (?:macos|xcode)-[A-Za-z0-9._-]+\n(?:    timeout-minutes: \d+\n)?    permissions:\n      contents: read\n      actions: read\n    steps:\n/;
+// Head of the managed `supersede` job (the span starts at the preceding newline, before the job key line).
+const SUPERSEDE_JOB_HEAD = /^\n  supersede:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: ubuntu-[0-9.]+\n    timeout-minutes: \d+\n    permissions:\n      contents: read\n      actions: write\n    steps:\n/;
+
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
 const nativeLayout = resolveNativeCargoLayout({ appRoot: root, config });
@@ -1065,12 +1075,6 @@ function swiftPrivateSecretRefusal({ source, workflow, manifest, lanes, name, in
 // the default-branch gate behind the private-repo guard; the protected environment; contents: read and actions: read
 // (workflow and job); exactly the three Apple Developer ID secrets, referenced inside the sign-existing job only; pinned
 // allowlisted actions; and no build, notarization or release step. Returns null when the shape matches, else the reason.
-const SIGN_EXISTING_SECRETS = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
-const SIGN_EXISTING_ACTIONS = new Set(["actions/checkout", "actions/setup-node", "pnpm/action-setup", "actions/download-artifact", "actions/upload-artifact"]);
-const SIGN_EXISTING_RIGHT_RELEASE_COMMANDS = new Set(["ownership", "sign-dev-artifact"]);
-const SIGN_EXISTING_BUILD_RE = /\b(?:cargo|rustc|xcodebuild|tauri|cmake|msbuild|gradle|notarytool|stapler)\b|swift build|right-release build|--release\b|\b(?:npm|pnpm|yarn) (?:run|build)\b/;
-const SIGN_EXISTING_GUARD = "  private-repo-guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Refuse private repository\n        if: ${{ github.event.repository.private }}\n        run: exit 1\n";
-const SIGN_EXISTING_JOB_HEAD = /^(?:    #[^\n]*\n)*    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: [A-Za-z0-9][A-Za-z0-9._-]*\n    runs-on: (?:macos|xcode)-[A-Za-z0-9._-]+\n(?:    timeout-minutes: \d+\n)?    permissions:\n      contents: read\n      actions: read\n    steps:\n/;
 
 function signExistingRefusal(source) {
   const jobsAt = source.indexOf("\njobs:\n");
@@ -1142,8 +1146,6 @@ async function signExistingRenderRefusal(root, manifest, source) {
   return null;
 }
 
-// Head of the managed `supersede` job (the span starts at the preceding newline, before the job key line).
-const SUPERSEDE_JOB_HEAD = /^\n  supersede:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: ubuntu-[0-9.]+\n    timeout-minutes: \d+\n    permissions:\n      contents: read\n      actions: write\n    steps:\n/;
 
 async function validateHostedWorkflows(root, appName, workflows, policy) {
   if (policy !== "right-git-ci-only") {

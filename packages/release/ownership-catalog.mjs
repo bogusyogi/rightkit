@@ -56,13 +56,15 @@ export function generateOwnershipCatalog(root) {
           if (f.type === "dependency") {
             if (!["cargo", "npm", "swiftpm"].includes(f.ecosystem) || !f.name || /^(@rightkit\/|rightkit-)/.test(f.name)) throw new Error(`ownership: imprecise dependency: ${f.id}`);
           } else if (f.type === "source") {
-            if (!f.codeOnly || !f.extensions?.length) throw new Error(`ownership: source fingerprint must be code & extension scoped: ${f.id}`);
+            // codeOnly: false is explicit opt-in for rules that must see string literals (auth URLs, #279).
+            if (typeof f.codeOnly !== "boolean" || !f.extensions?.length) throw new Error(`ownership: source fingerprint must be code & extension scoped: ${f.id}`);
             new RegExp(f.pattern);
           } else throw new Error(`ownership: unknown fingerprint type: ${f.id}`);
           // A banned dependency blocks regardless of owner qualification: the ban stands even
           // when no replacement is used. It names the authority that imposed it.
           if (f.tier === "block" && f.policy === "banned") {
-            if (f.type !== "dependency" || !f.policyAuthority) throw new Error(`ownership: banned fingerprint needs a dependency & policyAuthority: ${f.id}`);
+            // A banned source rule (e.g. in-app webview sign-in, #279) is allowed: the verdict blocks on policy "banned" for any type.
+            if (!["dependency", "source"].includes(f.type) || !f.policyAuthority) throw new Error(`ownership: banned fingerprint needs a dependency or source rule & policyAuthority: ${f.id}`);
           } else if (f.tier === "block") {
             const published = ownershipAvailability(owner, versions).find((row) => row.state !== "staged-unverified");
             const q = f.qualification;

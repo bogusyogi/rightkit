@@ -248,7 +248,7 @@ test("payload metadata inside a signed bundle is refused: refreshing it after si
   const p = prepare({ metadataInsideWrapper: true });
   try {
     const f = fakes(p);
-    assert.throws(() => run(p, f), (error) => error.code === "SIGN_DEV_ARTIFACT_METADATA_IN_SIGNED_ENTRY");
+    assert.throws(() => run(p, f, { metadataPath: p.metadata }), (error) => error.code === "SIGN_DEV_ARTIFACT_METADATA_IN_SIGNED_ENTRY");
     assert.equal(f.state.signed.length, 0);
   } finally { cleanup(p); }
 });
@@ -323,7 +323,8 @@ test("refresh refuses malformed operations, missing pointers and JSON it would h
     const file = q.at(`${PAYLOAD}/plugin/release-binding.json`);
     writeFileSync(file, JSON.stringify(JSON.parse(readFileSync(file, "utf8"))));
     const record = JSON.parse(readFileSync(q.metadata, "utf8"));
-    record.files.find((item) => item.path.endsWith("release-binding.json")).sha256 = sha(readFileSync(file));
+    // The wrapper tree hash covers the rewritten file too: re-record every entry so only the format check can refuse.
+    for (const item of record.files) item.sha256 = fileEvidence(q.at(item.path)).sha256;
     writeFileSync(q.metadata, JSON.stringify(record));
     assert.throws(() => run(q), (error) => error.code === "SIGN_DEV_ARTIFACT_REFRESH_JSON_FORMAT");
   } finally { cleanup(q); }

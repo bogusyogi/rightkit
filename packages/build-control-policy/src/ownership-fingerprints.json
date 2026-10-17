@@ -2009,7 +2009,10 @@
         },
         {
           "id": "oauth.webview.auth-url-load",
-          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
+          "excludePaths": [
+            "crates/rightkit-ownership/tests/ownership_fixtures.rs",
+            "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"
+          ],
           "type": "source",
           "pattern": "\\b(?:WebviewWindowBuilder|WebviewUrl::External|WebviewBuilder|WebView2|WKWebView|loadRequest|loadUrl|load_url|\\.navigate|\\.eval)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
           "codeOnly": false,
@@ -2041,7 +2044,10 @@
         },
         {
           "id": "oauth.webview.on-navigation-intercept",
-          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
+          "excludePaths": [
+            "crates/rightkit-ownership/tests/ownership_fixtures.rs",
+            "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"
+          ],
           "type": "source",
           "pattern": "\\bon_navigation\\b[^\\n]{0,400}(?:[?&]code=|redirect_uri|\\boauth|access_token|id_token)",
           "codeOnly": false,
@@ -2073,7 +2079,10 @@
         },
         {
           "id": "oauth.webview.bundled-chromium-login",
-          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
+          "excludePaths": [
+            "crates/rightkit-ownership/tests/ownership_fixtures.rs",
+            "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"
+          ],
           "type": "source",
           "pattern": "\\b(?:chromiumoxide|headless_chrome|CefBrowser(?:Host)?|CefLifeSpanHandler)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
           "codeOnly": false,
@@ -2382,6 +2391,17 @@
       "detection": "declaration-only",
       "policyNotes": [
         "Discovery alias so `rightkit owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
+      ]
+    },
+    {
+      "package": "rightkit-platform-rules",
+      "capability": "platform-rules",
+      "summary": "Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the bundled rules catalog and revision hash are not an ownership fingerprint.",
+        "Unsourced, stale or missing rules block use; apps bind work to a rule revision instead of hard-coding platform limits."
       ]
     },
     {
@@ -2924,6 +2944,17 @@
       ]
     },
     {
+      "package": "rightkit-spend",
+      "capability": "spend-ledger",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
+        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
+      ]
+    },
+    {
       "package": "rightkit-sync",
       "capability": "cloud-sync",
       "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
@@ -3278,28 +3309,6 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-platform-rules",
-      "capability": "platform-rules",
-      "summary": "Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Declaration-only: the bundled rules catalog and revision hash are not an ownership fingerprint.",
-        "Unsourced, stale or missing rules block use; apps bind work to a rule revision instead of hard-coding platform limits."
-      ]
-    },
-    {
-      "package": "rightkit-spend",
-      "capability": "spend-ledger",
-      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
-        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
       ]
     },
     {

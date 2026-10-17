@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { catalogDigest, checkAppForTest, scanApp, SCANNER_VERSION } from "./ownership.mjs";
 import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
-import { sha256 } from "./ownership-approval.mjs";
+import { canonicalJson, sha256 } from "./ownership-approval.mjs";
 import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 import { computePolicyBundle, runningPolicyBundle } from "./ownership-policy-bundle.mjs";
