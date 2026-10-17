@@ -385,7 +385,7 @@
     "rightkit-automation": "0.4.1",
     "rightkit-browser": "0.3.1",
     "rightkit-cache": "0.2.0",
-    "rightkit-channel-memory": "0.1.0",
+    "rightkit-channel-memory": "0.2.1",
     "rightkit-child-process": "0.4.3",
     "rightkit-compose": "0.1.0",
     "rightkit-contracts": "0.1.5",
@@ -457,7 +457,7 @@
       "rightkit-automation": "0.4.1",
       "rightkit-browser": "0.3.1",
       "rightkit-cache": "0.2.0",
-      "rightkit-channel-memory": "0.1.0",
+      "rightkit-channel-memory": "0.2.1",
       "rightkit-child-process": "0.4.1",
       "rightkit-compose": "0.1.0",
       "rightkit-contracts": "0.1.5",
@@ -812,6 +812,9 @@
       "0.4.1"
     ],
     "rightkit-hotkeys": [
+      "0.1.0"
+    ],
+    "rightkit-channel-memory": [
       "0.1.0"
     ]
   }

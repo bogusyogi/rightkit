@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/legal",
+  "version": "0.5.0",
+  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+  "artifactSha256": "d8020d7eba9e90ef9b87dddbb88e0a0ade9c3d041204ad5e5f4bf4844087c5d8",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "d8020d7eba9e90ef9b87dddbb88e0a0ade9c3d041204ad5e5f4bf4844087c5d8",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/legal run test && pnpm --dir packages/legal pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-auP0n7",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T10:10:08.912Z",
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/legal run test",
+          "ok": true,
+          "executed": 30,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
+    }
+  ]
+}

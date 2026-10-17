@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-channel-memory",
+  "version": "0.2.1",
+  "commit": "2c2303f8cae68898b447604958289cf9dd57b660",
+  "artifactSha256": "aad0a0ba937c5036ca5fb6b6ad147d26fa3e34bae07214d00d96cf6bb49f8702",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "2c2303f8cae68898b447604958289cf9dd57b660",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "aad0a0ba937c5036ca5fb6b6ad147d26fa3e34bae07214d00d96cf6bb49f8702",
+      "command": "cargo test -p rightkit-channel-memory --no-fail-fast -- --show-output && cargo clippy -p rightkit-channel-memory --no-deps --all-targets -- -D warnings && cargo check -p rightkit-channel-memory --all-targets --all-features && cargo package --locked -p rightkit-channel-memory && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T13:30:54.302Z",
+      "passed": 122,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-channel-memory --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 122,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 13
+        },
+        {
+          "command": "cargo clippy -p rightkit-channel-memory --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-channel-memory --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
