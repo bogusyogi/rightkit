@@ -5,7 +5,12 @@ mod backend;
 mod document;
 mod options;
 mod secret;
+#[cfg(feature = "sql")]
+mod sql;
 mod store;
+
+#[cfg(feature = "sql")]
+pub use sql::{SqlError, SqlSettings};
 
 pub use atomic::{atomic_write, atomic_write_with};
 pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};

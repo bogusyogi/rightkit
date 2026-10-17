@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3
+
+Additive, behind the new cargo feature `sql` (off by default). With it off the crate builds and behaves exactly as 0.2.2. Request: Orthic-Labs/rightkit#251 (MailRight, bogusyogi/mailright#69). Not compiled when written; verification is the CI run (`Cargo.lock` is regenerated there).
+
+- **`SqlSettings` and `SqlError` (feature `sql`).** A connection-scoped settings backend for a SQL `settings(key, value)` table: `get`, `set`, `remove`, `patch` (several edits, all or none), `list(prefix)` for dynamic keys such as `signature:<acct>`, `ensure_table`, `refusal`, `writable`, `migrate`. Every call takes the caller's `&rusqlite::Connection`; a `&Transaction` derefs to it, so calls run inside the app's own migrations and transactions and join them. It owns no connection or pool and never commits or rolls back the caller's transaction (`patch` and `migrate` use a savepoint, which nests). It does not open or key a database, so SQLCipher works when the app builds `rightkit-db` with a `sqlcipher*` feature.
+- **No reset on missing or newer data.** A missing table reads as defaults. With `version_key` set, a stored version above the schema's makes `get` return only the configured defaults and every write and `migrate` fail with `Error::NewerSchema`, writing nothing (the `OnRefused::ReadOnlyDefaults` behaviour). Table and column names are configurable, so MailRight's table and key strings stay unchanged; no version row is written unless `version_key` is named.
+- **Reuses `Schema` and its migrations.** `migrate` runs pending migrations over the table's string values and writes back only the difference plus the version stamp, in one savepoint. `Schema::validate` is now `pub(crate)`.
+- New optional dependency `rightkit-db` 0.4 (for its `rusqlite` re-export; dev-dependency with `bundled` for the tests). Tests: `tests/sql.rs`. The value column is read as text; a NULL value reads as absent.
+
 ## 0.2.2
 
 Additive; defaults unchanged. Nothing compiled locally; verification is the CI run. Request: rightkit#191 (Pulse).

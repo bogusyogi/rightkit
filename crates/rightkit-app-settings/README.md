@@ -165,4 +165,23 @@ Published version: see `INDEX.md` at the repository root. See `CHANGELOG.md`.
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde`, `serde_json` (with `raw_value`), `thiserror`, and `rightkit-fs` (`fs` feature only).
+- `sql` (off by default): `SqlSettings`, settings in a SQL `settings(key, value)` table through a borrowed `rusqlite::Connection` or `Transaction` (SQLCipher works when the app enables a `rightkit-db` `sqlcipher*` feature). Adds the optional `rightkit-db` dependency, whose `rusqlite` re-export supplies the connection type.
+
+### SQL backend (`sql`)
+
+`SqlSettings` owns no connection and no pool, and starts no transaction of its own except a savepoint for `patch` and `migrate`, which joins the caller's. Pass `&conn` or `&tx`:
+
+```rust
+let settings = SqlSettings::new(Schema::new("mail", 1))
+    .version_key("schema_version") // optional: enables migrate and the newer-data refusal
+    .default_value("theme", "system");
+let tx = conn.transaction()?;
+settings.set(&tx, "signature:acct1", "Best,")?;
+settings.patch(&tx, &[("theme", Some("dark")), ("old_key", None)])?;
+tx.commit()?;
+let sigs = settings.list(&conn, "signature:")?;
+```
+
+Table and column names are configurable (`.table`, `.columns`), so an existing table and its key strings stay as they are. Keys are free-form (dynamic keys need no registration). The key column must be a primary key or unique. Newer data than the code is never reset: reads return the defaults and every write fails with `Error::NewerSchema` (the `OnRefused::ReadOnlyDefaults` promise). Migrations are the same `Schema` migrations, run over string values.
+
+Without `sql` the crate has no Cargo features. Other dependencies: `serde`, `serde_json` (with `raw_value`), `thiserror`, and `rightkit-fs` (`fs` feature only).

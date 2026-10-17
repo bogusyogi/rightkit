@@ -157,7 +157,7 @@ impl Schema {
         self.migrations.push(Migration { to, apply });
         self
     }
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         let ok_ns = !self.namespace.is_empty()
             && self
                 .namespace
