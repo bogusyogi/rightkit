@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.173",
-  "commit": "6435a6ecd8f34c4473797e4e03f80fda8398f6c7",
-  "artifactSha256": "b0e80aff55e14875d9fbee5f0d4dc369c5a4ccdee632caf47369cdf32bef3287",
+  "version": "0.2.174",
+  "commit": "df309c4b3fdf07104ac1e4dc6e979d024d6f5bc2",
+  "artifactSha256": "a8dd933ecfb3f82a798d64a78f44a9bf77c4054ec816870101ef759a22672246",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "6435a6ecd8f34c4473797e4e03f80fda8398f6c7",
+      "commit": "df309c4b3fdf07104ac1e4dc6e979d024d6f5bc2",
       "features": [
         "default"
       ],
-      "artifactSha256": "b0e80aff55e14875d9fbee5f0d4dc369c5a4ccdee632caf47369cdf32bef3287",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && rightkit cargo build --release -p rightkit-fs --features fs --bin rightkit-swap && codesign --verify --strict bin/darwin/rightkit-swap && pnpm --dir packages/release pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-abUQ7a",
+      "artifactSha256": "a8dd933ecfb3f82a798d64a78f44a9bf77c4054ec816870101ef759a22672246",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/release run test && rightkit cargo build --release -p rightkit-fs --features fs --bin rightkit-swap && codesign --verify --strict bin/darwin/rightkit-swap && pnpm --dir packages/release pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-UYOTNf",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T12:31:51.046Z",
-      "passed": 1962,
+      "timestamp": "2026-10-17T13:51:08.696Z",
+      "passed": 2065,
       "failed": 0,
       "skipped": 54,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/release run test",
           "ok": true,
-          "executed": 1962,
+          "executed": 2065,
           "failed": 0,
           "ignored": 0,
           "skipped": 54,
