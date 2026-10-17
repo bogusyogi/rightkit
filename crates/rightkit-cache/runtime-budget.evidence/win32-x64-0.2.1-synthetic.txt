@@ -1,0 +1,24 @@
+rightkit: request 56aeb445-7277-4a97-bba5-4cf0f9729e2e
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+   Compiling rightkit-cache v0.2.1 (D:\Claude\rightkit\crates\rightkit-cache)
+    Finished `release-iterate` profile [optimized] target(s) in 4.01s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-e4f662c3af79d53e.exe)
+rightkit: job 56aeb445-7277-4a97-bba5-4cf0f9729e2e no output for 15.2 min and no CPU (process resources unavailable)
+rightkit: job 56aeb445-7277-4a97-bba5-4cf0f9729e2e stall cleared: output resumed
+warm-up: 100000 puts in 736.6 s, 100000 gets in 235.1 s (65536 hits), resident entries 65536, bytes 33554432, evictions 34464, resident 28.5 MiB (before open 5.1 MiB)
+RESULT cache_entries=65536 entries
+RESULT cache_evictions=34464 entries
+RESULT warm_resident_bytes=29839360 bytes
+RESULT idle_resident_bytes=29650944 bytes
+RESULT resident_memory_bytes=29839360 bytes
+RESULT footprint_bytes=33550336 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.104 percent
+RESULT wakeups_per_second=0.133 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 512-byte entries put and read through a 32 MiB cap, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-cache version=0.2.1 resident_bytes=29839360 idle_cpu_percent=0.104 wakeups_per_s=0.133 disk_ops_per_s=0.000 scale_unit=entries scale_count=100000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 2/677

@@ -29,6 +29,34 @@
     ],
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.2.1",
+      "commit": "4dfad124c7c1da3165e267084970442cbd3116ce",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-cache/benches/budget.rs)",
+        "unit": "entries",
+        "count": 100000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-cache --bench budget",
+      "observed": {
+        "residentMemoryBytes": 29839360,
+        "idleCpuPercent": 0.104,
+        "wakeupsPerSecond": 0.133,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.2.1-synthetic.txt",
+        "sha256": "0746b235b0f2e917ddf59af910a038ca1443a5c07bfc693fcec71a04b4f7811a"
+      }
+    }
+  ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below."
 }
