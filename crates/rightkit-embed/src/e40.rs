@@ -604,6 +604,7 @@ impl TokenTable {
 
 /// `inputs_embeds` (`bucket * HIDDEN` values) and the int64 mask for `ids` padded to `bucket`
 /// with `pad_id` rows and a zero mask.
+#[cfg(test)]
 pub(crate) fn build_inputs(
     table: &TokenTable,
     ids: &[i64],
@@ -1284,9 +1285,9 @@ mod tests {
         scales: &[f32],
     ) -> (Vec<u8>, Vec<u8>) {
         let mut table = npy("|i1", "False", &format!("{rows}, {columns}"), 0);
-        for row in 0..rows {
+        for head in &heads[..rows] {
             let mut line = vec![0u8; columns];
-            for (slot, value) in line.iter_mut().zip(heads[row]) {
+            for (slot, value) in line.iter_mut().zip(*head) {
                 *slot = value as u8;
             }
             table.extend(line);
