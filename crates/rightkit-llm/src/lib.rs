@@ -6,7 +6,9 @@
 //! - Streaming with cancellation, tool use, forced-tool structured output.
 //! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
 //!   with [`failover::FailoverOn`]), first-token timeout, circuit breaker.
-//! - [`pricing::PriceTable`] and [`cache`] (prompt-cache breakpoints + ledger).
+//! - [`pricing::PriceTable`] (exact match; prefix match and overrides are explicit),
+//!   [`catalogue::PriceCatalogue`] (versioned, dated, qualified rows for every paid kind),
+//!   and [`cache`] (prompt-cache breakpoints + ledger).
 //! - Raw response capture for an on-device payload ledger: [`raw`], `with_raw_capture` on the
 //!   HTTP providers, [`RawExchange`] on the observer's [`CallRecord`] and on `Truncated` and
 //!   `Malformed` errors. Off by default; non-streaming calls only.
@@ -18,6 +20,7 @@
 
 pub mod anthropic;
 pub mod cache;
+pub mod catalogue;
 pub mod credentials;
 pub mod error;
 pub mod failover;
@@ -28,6 +31,10 @@ pub mod provider;
 pub mod raw;
 pub mod types;
 
+pub use catalogue::{
+    CatalogueError, CatalogueRow, PriceCatalogue, PriceComponent, PriceKind, PriceUnit,
+    Qualification,
+};
 pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredentials};
 pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};

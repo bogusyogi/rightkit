@@ -114,7 +114,7 @@ pub struct PriceTable {
 }
 
 /// Lower-case, drop a `vendor/` prefix, and treat `.` and `_` like `-`.
-fn normalize(slug: &str) -> String {
+pub(crate) fn normalize(slug: &str) -> String {
     let s = slug.rsplit('/').next().unwrap_or(slug).to_lowercase();
     s.replace(['.', '_'], "-")
 }
@@ -162,6 +162,13 @@ impl PriceTable {
     pub fn from_json(json: &str) -> Result<Self, PriceError> {
         let rows = serde_json::from_str::<Vec<ModelPrice>>(json)
             .map_err(|e| PriceError::Parse(e.to_string()))?;
+        validate_rows(&rows)?;
+        Ok(Self { rows })
+    }
+
+    /// A table from rows already in memory, with the same checks as
+    /// [`PriceTable::from_json`].
+    pub fn from_rows(rows: Vec<ModelPrice>) -> Result<Self, PriceError> {
         validate_rows(&rows)?;
         Ok(Self { rows })
     }
