@@ -64,9 +64,17 @@ impl JobHandler for H {
                 }
             },
             "steady" => {
+                // Alive for 3 s under a 0.7 s stall timeout. Beat every 40 ms, not once per
+                // 200 ms tick, and again after each progress write: a slow runner (Windows CI)
+                // that oversleeps a tick or stalls inside the store write must not read as a
+                // silent job, because a falsely stalled run stays "running" for good.
                 for i in 0..15 {
-                    std::thread::sleep(Duration::from_millis(200));
+                    for _ in 0..5 {
+                        std::thread::sleep(Duration::from_millis(40));
+                        ctl.heartbeat();
+                    }
                     ctl.progress("tick", Some(i as f64 / 15.0), None);
+                    ctl.heartbeat();
                 }
                 Ok(json!({"host": self.role}))
             }
