@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/app-update",
+  "version": "0.3.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "4c2cabe34d43f6b3824a12c19294015e45e7831b47c62a9d1e06b9709b233ded",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "4c2cabe34d43f6b3824a12c19294015e45e7831b47c62a9d1e06b9709b233ded",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/app-update run test && pnpm --dir packages/app-update pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-08vcq6",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T22:33:46.577Z",
+      "passed": 83,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/app-update run test",
+          "ok": true,
+          "executed": 83,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
+    }
+  ]
+}

@@ -244,7 +244,7 @@ mod capable {
             (
                 w.fake()
                     .set(ACTIVATION, "1")
-                    .set(ROOT, &parent_dir_case(&w.qa)),
+                    .set(ROOT, parent_dir_case(&w.qa)),
                 Refusal::RootNotAbsolute,
             ),
             (
@@ -427,6 +427,7 @@ mod capable {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)] // the marker is a const by design; the test documents it
     fn the_capability_marker_is_present() {
         assert!(rightkit_daemon::mode::TEST_CAPABILITY);
         assert_eq!(

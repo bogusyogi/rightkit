@@ -269,13 +269,13 @@ fn pump(
         if stop.load(Ordering::Acquire) || finished() {
             return Ok(());
         }
-        if let Some(d) = deadline {
-            if Instant::now() >= d {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "DNS-SD reply timed out",
-                ));
-            }
+        if let Some(d) = deadline
+            && Instant::now() >= d
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "DNS-SD reply timed out",
+            ));
         }
         let mut pfd = libc::pollfd {
             fd,
@@ -895,7 +895,7 @@ mod tests {
         let mut i = 0;
         while i < txt.len() {
             let len = usize::from(txt[i]);
-            assert_eq!(len <= 255 && i + 1 + len <= txt.len(), true);
+            assert!(len <= 255 && i + 1 + len <= txt.len());
             i += 1 + len;
         }
         assert_eq!(i, txt.len());
@@ -926,7 +926,7 @@ mod tests {
         assert_eq!(t.len(), 63);
         let long = format!("a{}", "\u{65E5}".repeat(30));
         let t = truncate_label(&long);
-        assert_eq!(t.len() <= 63 && long.is_char_boundary(t.len()), true);
+        assert!(t.len() <= 63 && long.is_char_boundary(t.len()));
         assert_eq!(truncate_label("short"), "short");
     }
 

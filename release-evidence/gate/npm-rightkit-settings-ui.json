@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/settings-ui",
-  "version": "0.5.0",
-  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
-  "artifactSha256": "e1df43cdedb39eeec3a2d154455bc5497a16558e2b9eb284e514593c874c4d2f",
+  "version": "0.6.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "3a326ee02f855f1cb3d9777488ddf5f1b015cd14a0af8b2cf5c9c514bfa57883",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "artifactSha256": "e1df43cdedb39eeec3a2d154455bc5497a16558e2b9eb284e514593c874c4d2f",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/settings-ui run test && pnpm --dir packages/settings-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-GrvcvD",
+      "artifactSha256": "3a326ee02f855f1cb3d9777488ddf5f1b015cd14a0af8b2cf5c9c514bfa57883",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/settings-ui run test && pnpm --dir packages/settings-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-1GASDL",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T10:22:03.801Z",
+      "timestamp": "2026-10-17T22:40:59.754Z",
       "passed": 254,
       "failed": 0,
       "skipped": 0,

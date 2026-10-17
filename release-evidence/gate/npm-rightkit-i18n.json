@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/i18n",
-  "version": "0.1.1",
-  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
-  "artifactSha256": "cdccba19cc2411f01c45b1759643835e1ff3ccdaad869dcc9c5dcc9d7e0d3417",
+  "version": "0.2.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "a06bb7a923e9c356144f957d3d37edae3c09f1d94ed39966192bf07695a03772",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "artifactSha256": "cdccba19cc2411f01c45b1759643835e1ff3ccdaad869dcc9c5dcc9d7e0d3417",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/i18n run test && pnpm --dir packages/i18n pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-QgZF6W",
+      "artifactSha256": "a06bb7a923e9c356144f957d3d37edae3c09f1d94ed39966192bf07695a03772",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/i18n run test && pnpm --dir packages/i18n pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-QLZ9aP",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T10:09:13.600Z",
-      "passed": 3,
+      "timestamp": "2026-10-17T22:34:59.269Z",
+      "passed": 10,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/i18n run test",
           "ok": true,
-          "executed": 3,
+          "executed": 10,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

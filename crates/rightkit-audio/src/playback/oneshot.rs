@@ -104,7 +104,7 @@ fn resample_linear(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
 fn expand_channels(mono: &[f32], channels: usize) -> Vec<f32> {
     let mut out = Vec::with_capacity(mono.len() * channels);
     for &s in mono {
-        out.extend(std::iter::repeat(s).take(channels));
+        out.extend(std::iter::repeat_n(s, channels));
     }
     out
 }

@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn flush_resets_the_clock_immediately_and_drops_the_queue() {
         let shared = Shared::new(48_000, 2, 1_000);
-        assert_eq!(shared.push(&vec![0.1; 40]), 40);
+        assert_eq!(shared.push(&[0.1; 40]), 40);
 
         // Simulated callback consumes 20 samples.
         let mut out = [0.0f32; 20];
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(shared.played_samples(), 0);
 
         // Post-flush data counts from zero.
-        assert_eq!(shared.push(&vec![0.2; 10]), 10);
+        assert_eq!(shared.push(&[0.2; 10]), 10);
         let mut out = [0.0f32; 10];
         assert_eq!(shared.ring.pop_into(&mut out), 10);
         assert_eq!(shared.played_samples(), 10);

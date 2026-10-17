@@ -2,26 +2,47 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/tauri",
-  "version": "0.2.0",
-  "commit": "d4bdf8bd528a43c1498c86fba7d2ce238538dc26",
-  "artifactSha256": "6b1cebef42711e996c84cebfb8ac0acad2c5dde5cb2544b06c22b8347ba359c7",
+  "version": "0.2.2",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "ea28c9193a1562170339ab4a916876ee07b884b3e4f39bdc4d6bb787e7402f0d",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "d4bdf8bd528a43c1498c86fba7d2ce238538dc26",
-      "command": "pnpm --dir packages/$D test",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T22:04:05Z",
+      "artifactSha256": "ea28c9193a1562170339ab4a916876ee07b884b3e4f39bdc4d6bb787e7402f0d",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/tauri run test && pnpm --dir packages/tauri pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-c2hE6B",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T22:39:15.555Z",
       "passed": 14,
-      "failed": 0
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/tauri run test",
+          "ok": true,
+          "executed": 14,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }

@@ -1021,7 +1021,7 @@ impl AddressPolicy {
             Some(addr)
                 if classify_ip(addr) == AddressClass::Private
                     && self.approvable(addr)
-                    && addrs.iter().all(|ip| ok(ip)) =>
+                    && addrs.iter().all(ok) =>
             {
                 ResolveError::Private { addr }
             }

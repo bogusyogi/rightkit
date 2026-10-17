@@ -553,6 +553,7 @@ mod dev_worker_override {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)] // the marker is a const by design; the test documents it
     fn the_feature_is_reported_on() {
         assert!(DEV_WORKER_OVERRIDE_ENABLED);
     }

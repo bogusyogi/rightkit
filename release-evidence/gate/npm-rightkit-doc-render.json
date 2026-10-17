@@ -2,26 +2,47 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.6",
-  "commit": "049e67f99782fc0f8ce134f526508b9018c39073",
-  "artifactSha256": "1e538c347245860160588c4f8381d65a89b6a1f0562823090d8eb43b0c3cddc2",
+  "version": "0.2.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "584137a4495ce0748c1b701138d37113c4a532c7a21c812361d75d0d9f0c8013",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "049e67f99782fc0f8ce134f526508b9018c39073",
-      "command": "pnpm --dir packages/$D test",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T18:50:08Z",
-      "passed": 7,
-      "failed": 0
+      "artifactSha256": "584137a4495ce0748c1b701138d37113c4a532c7a21c812361d75d0d9f0c8013",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/doc-render run test && pnpm --dir packages/doc-render pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-WSmWjl",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T22:30:55.917Z",
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/doc-render run test",
+          "ok": true,
+          "executed": 28,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }

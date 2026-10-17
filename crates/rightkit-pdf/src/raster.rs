@@ -759,8 +759,8 @@ fn decode_raw(
                     }
                 }
                 _ => {
-                    for c in 0..ncomp {
-                        comps[c] = dec(c, sample_at(row, x * ncomp + c, bpc));
+                    for (c, comp) in comps.iter_mut().enumerate().take(ncomp) {
+                        *comp = dec(c, sample_at(row, x * ncomp + c, bpc));
                     }
                     cs.to_rgb(&comps)
                 }

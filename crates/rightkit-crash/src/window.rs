@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert!(got[0]["native_artifacts"]
             .as_array()
-            .map_or(true, |a| a.is_empty()));
+            .is_none_or(|a| a.is_empty()));
         assert!(got[0]["native_capture_note"].is_null());
     }
 

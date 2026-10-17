@@ -236,15 +236,19 @@ const MAX_FIELDS: usize = 200_000;
 fn text_string(bytes: &[u8]) -> String {
     if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
         let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|p| u16::from_be_bytes([p[0], p[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| u16::from_be_bytes(*p))
             .collect();
         return String::from_utf16_lossy(&units);
     }
     if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|p| u16::from_le_bytes([p[0], p[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| u16::from_le_bytes(*p))
             .collect();
         return String::from_utf16_lossy(&units);
     }
@@ -1224,10 +1228,9 @@ pub fn set_values(
                 if target == "Off"
                     && terminal.ff & FF_NO_TOGGLE_TO_OFF != 0
                     && field.kind == FieldKind::Radio
+                    && !matches!(requested, FieldValue::Reset)
                 {
-                    if !matches!(requested, FieldValue::Reset) {
-                        return Err(unsupported("this radio group cannot be switched off"));
-                    }
+                    return Err(unsupported("this radio group cannot be switched off"));
                 }
                 field_dict_mut(&mut doc, terminal.id)?
                     .set("V", Object::Name(target.as_bytes().to_vec()));

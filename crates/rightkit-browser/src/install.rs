@@ -569,7 +569,7 @@ fn ensure_no_link_ancestors(staging: &Path, relative: &Path) -> Result<(), Insta
 fn extract_zip(archive: &Path, staging: &Path, top: &str) -> Result<(), InstallError> {
     let file = fs::File::open(archive).map_err(io_err(archive))?;
     let mut zip = zip::ZipArchive::new(file).map_err(archive_err)?;
-    if zip.len() == 0 || zip.len() > MAX_MEMBERS {
+    if zip.is_empty() || zip.len() > MAX_MEMBERS {
         return Err(archive_err(format!("{} members", zip.len())));
     }
     let mut budget = MAX_EXPANDED_BYTES;

@@ -122,6 +122,7 @@ pub struct DeferredFlush {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)] // Admit carries the full NewJob; the queue is short-lived and private
 enum Op {
     Admit {
         job_id: String,

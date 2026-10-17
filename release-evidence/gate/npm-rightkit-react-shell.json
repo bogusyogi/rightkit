@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/react-shell",
-  "version": "0.6.8",
-  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
-  "artifactSha256": "51b22732ca3408c664f1dbe3d0bff74d950b8eaa68d8cb57263fa52391b92c97",
+  "version": "0.7.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "96edddc0a2411abf494973ab8dc79885db6d60a26fef053f0f73a933b6e080e4",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "artifactSha256": "51b22732ca3408c664f1dbe3d0bff74d950b8eaa68d8cb57263fa52391b92c97",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/react-shell run test && pnpm --dir packages/react-shell pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-NRywKv",
+      "artifactSha256": "96edddc0a2411abf494973ab8dc79885db6d60a26fef053f0f73a933b6e080e4",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/react-shell run test && pnpm --dir packages/react-shell pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-1apx4G",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T10:20:28.873Z",
-      "passed": 218,
+      "timestamp": "2026-10-17T22:29:29.586Z",
+      "passed": 237,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/react-shell run test",
           "ok": true,
-          "executed": 218,
+          "executed": 237,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

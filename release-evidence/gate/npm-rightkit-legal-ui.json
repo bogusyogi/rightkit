@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/legal-ui",
-  "version": "0.3.0",
-  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
-  "artifactSha256": "873d7a3b77f1331bfa1384e73930991d40c7787b8f9b94f640d634a9a3751ecb",
+  "version": "0.4.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "92b05e8de8cde4ea33d16d5950c985bd0ce06e4e3083efc5a1e887a1c349763a",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "artifactSha256": "873d7a3b77f1331bfa1384e73930991d40c7787b8f9b94f640d634a9a3751ecb",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/legal-ui run test && pnpm --dir packages/legal-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-xciSul",
+      "artifactSha256": "92b05e8de8cde4ea33d16d5950c985bd0ce06e4e3083efc5a1e887a1c349763a",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/legal-ui run test && pnpm --dir packages/legal-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-fVozpn",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T10:11:36.664Z",
-      "passed": 60,
+      "timestamp": "2026-10-17T22:25:27.942Z",
+      "passed": 72,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/legal-ui run test",
           "ok": true,
-          "executed": 60,
+          "executed": 72,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

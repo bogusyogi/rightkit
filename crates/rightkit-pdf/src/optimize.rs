@@ -410,7 +410,7 @@ fn census_object_top(doc: &Document, id: ObjectId, object: &Object, census: &mut
         Object::Stream(s) => &s.dict,
         _ => return,
     };
-    if let Some(resources) = dict.get(b"Resources").ok() {
+    if let Ok(resources) = dict.get(b"Resources") {
         let container = xobject_dict_of(doc, resources).map(pointer);
         let page_type = dict
             .get(b"Type")
@@ -449,7 +449,7 @@ fn mark_nested_owners(doc: &Document, dict: &Dictionary, census: &mut Census, de
             _ => None,
         };
         if let Some(nested) = nested {
-            if let Some(resources) = nested.get(b"Resources").ok() {
+            if let Ok(resources) = nested.get(b"Resources") {
                 if let Some(x) = xobject_dict_of(doc, resources) {
                     census.foreign.insert(pointer(x));
                 }

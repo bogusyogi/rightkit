@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/pdf-ui",
-  "version": "0.1.8",
-  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
-  "artifactSha256": "1782fe9e401d0e832945e8ff936beaccbfce490036573bc93688a4b103ec003c",
+  "version": "0.2.0",
+  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+  "artifactSha256": "cab869c22a738c653c42dd9153b41ad8b21cd7e14af1705ccf360878e8540f57",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
       "features": [
         "default"
       ],
-      "artifactSha256": "1782fe9e401d0e832945e8ff936beaccbfce490036573bc93688a4b103ec003c",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/pdf-ui run test && pnpm --dir packages/pdf-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-6ZOX0C",
+      "artifactSha256": "cab869c22a738c653c42dd9153b41ad8b21cd7e14af1705ccf360878e8540f57",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/pdf-ui run test && pnpm --dir packages/pdf-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-Gt8JCS",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T10:16:26.075Z",
-      "passed": 47,
+      "timestamp": "2026-10-17T22:32:36.312Z",
+      "passed": 65,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/pdf-ui run test",
           "ok": true,
-          "executed": 47,
+          "executed": 65,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
