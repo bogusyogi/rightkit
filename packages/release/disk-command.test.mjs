@@ -470,7 +470,7 @@ test("holding on a mounted volume: floor-volume items go to its holding dir; wit
   assert.deepEqual(holdingBases(item, { policy, platform: "darwin" })[0], { path: path.join(root, "dmount", ".rightkit-swept"), mount: path.join(root, "dmount") });
   const onMount = pickHolding(item, { policy, platform: "darwin", date, isMounted: () => true });
   assert.equal(onMount, path.join(root, "dmount", ".rightkit-swept", "2026-10-15"));
-  assert.equal(existsSync(path.join(onMount, HOLDING_MARKER)), true);
+  assert.equal(existsSync(path.join(path.dirname(onMount), HOLDING_MARKER)), true, "the marker sits in the holding base, beside the date-named dirs");
   const offMount = pickHolding(item, { policy, platform: "darwin", date, isMounted: () => false });
   assert.equal(offMount, path.join(root, "hold", "2026-10-15"));
   // without an injected check, a mount path that is absent (or on the item's own volume) is not mounted

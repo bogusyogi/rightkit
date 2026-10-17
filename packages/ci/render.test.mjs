@@ -1532,7 +1532,8 @@ const SW_BASELINE = {
   "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
   "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
   "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
-  "rust-hybrid-chain/release-candidate": "56faea1858944a9bf92f93370ec4a26d3c3360b2adc17588f6c6a93f1875546e",
+  // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
+  "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
 };
 
 // Each lane that builds Swift renders the shared configure and cleanup steps into exactly these jobs.

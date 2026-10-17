@@ -329,8 +329,10 @@ test("the managed branch hands the Rust target directory to the broker while the
 // Execute the production android pre-seal block (receipt present, bytes re-hashed, signer pinned) without the CLI flow.
 function androidPreSeal({ sources, aabSource, signingIdentity }) {
   const start = source.indexOf("  let androidReceipt = null;");
-  const end = source.indexOf("  const temp = `${sealedDir}.tmp-", start);
-  assert.ok(start >= 0 && end > start, "android pre-seal receipt block must exist before the temp seal directory");
+  // The block ends where the media-sidecar block begins (that one needs the target, state root and sidecar validators, none of which android uses).
+  const end = source.indexOf("  // rightkit-ffmpeg decode sidecar", start);
+  assert.ok(start >= 0 && end > start, "android pre-seal receipt block must exist before the media-sidecar block");
+  assert.ok(source.indexOf("  const temp = `${sealedDir}.tmp-", end) > end, "the temp seal directory follows the pre-seal blocks");
   return runInNewContext(`${source.slice(start, end)}\nandroidReceipt;`, {
     platform: "android",
     sources,

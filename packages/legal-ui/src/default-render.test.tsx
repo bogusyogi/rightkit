@@ -24,17 +24,29 @@ const props = (overrides: Partial<LegalGateProps> = {}): LegalGateProps => ({
   ...overrides,
 });
 
+// React's useId hands out ids from a process-wide counter (_r_0_, _r_1_, ...), so the ids a test sees
+// depend on which tests rendered before it. They are not authored markup: renumber them by first
+// appearance on both sides, and compare every other byte exactly.
+const renumberIds = (html: string): string => {
+  const seen = new Map<string, string>();
+  return html.replace(/_r_[0-9a-z]+_/g, (id) => {
+    if (!seen.has(id)) seen.set(id, `_r_${seen.size}_`);
+    return seen.get(id) as string;
+  });
+};
+const fixture = (name: string): string => readFileSync(join(process.cwd(), "src/fixtures", name), "utf8");
+
 // Byte-for-byte guard: the default render must match the markup 0.2.1 produced. The fixtures in
 // src/fixtures/ were captured from 0.2.1 before the 0.2.2 props were added. Do not regenerate them.
 describe("default render (0.2.1 markup)", () => {
   it("first-run markup", () => {
     const { container } = render(<LegalGate {...props()} />);
-    expect(container.innerHTML).toBe(readFileSync(join(process.cwd(), "src/fixtures/first-run.html"), "utf8"));
+    expect(renumberIds(container.innerHTML)).toBe(renumberIds(fixture("first-run.html")));
   });
 
   it("re-acceptance markup", () => {
     const { container } = render(<LegalGate {...props({ variant: "re-acceptance", version: "v2", manifestSha256: "a".repeat(64) })} />);
-    expect(container.innerHTML).toBe(readFileSync(join(process.cwd(), "src/fixtures/re-acceptance.html"), "utf8"));
+    expect(renumberIds(container.innerHTML)).toBe(renumberIds(fixture("re-acceptance.html")));
   });
 
   it("error markup after a rejected save", async () => {
@@ -48,6 +60,6 @@ describe("default render (0.2.1 markup)", () => {
     // authored `border: none` into `border: medium`; the 0.2.1 fixture predates that. The authored
     // markup is unchanged, so drop only that serialisation artefact before the byte comparison.
     const html = container.innerHTML.replaceAll("border: medium; ", "");
-    expect(html).toBe(readFileSync(join(process.cwd(), "src/fixtures/error.html"), "utf8"));
+    expect(renumberIds(html)).toBe(renumberIds(fixture("error.html")));
   });
 });
