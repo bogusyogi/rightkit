@@ -53,7 +53,7 @@ release = "Drop"
 api = "E40Engine::open"
 file = "src/e40.rs"
 holds = ["memory", "thread"]
-scale = "an E40 bundle on an accelerator keeps at most five fixed-length batch-1 graph sessions (32, 64, 128, 256, 512 tokens, each with its ORT arenas and intra-op threads) plus, when the bundle ships ingest-b4 or ingest-b8, at most three static batch-N ingest sessions (32, 128, 512 tokens) plus one host token table (fp16 268 MB, or int8 134 MB with scales), built at load by the pre-warm and fixed per Embedder; the session log is a Vec of at most one entry per graph build during load and stops recording when the load returns; none of it grows with the number of texts embedded"
+scale = "an E40 bundle on an accelerator keeps at most ten fixed-length batch-1 graph sessions (16 to 512 tokens in a schema-2 manifest, five in a legacy bundle, each with its ORT arenas and intra-op threads) plus, when the manifest lists ingest graphs, at most six static batch-4 and batch-8 sessions (32, 128, 512 tokens each; all graphs share one weights file) plus one host token table (fp16 268 MB, or int8 134 MB with scales), built at load by the pre-warm and fixed per Embedder; the session log is a Vec of at most one entry per graph build during load and stops recording when the load returns; none of it grows with the number of texts embedded"
 release = "Drop"
 static_note = "e40.rs has no process-wide static: the session log, pre-warm state and graph map are fields of E40Engine, owned by the Embedder and freed with it"
 

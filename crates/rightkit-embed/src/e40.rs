@@ -1,28 +1,31 @@
-//! EmbeddingGemma 2 E40 bundle: five fixed-length fp16 graphs (32, 64, 128, 256, 512 tokens,
-//! batch 1) sharing one weights file, plus the token-embedding table that is looked up on the
-//! host (fp16, or int8 with a per-row fp16 scale for newer bundles). Export and contract:
-//! `scripts/embed-export/eg2-directml/README.md`.
+//! EmbeddingGemma 2 E40 bundle: static fp16 graphs sharing ONE weights file (`model.onnx_data`,
+//! never copied), plus the token-embedding table that is looked up on the host. Export and
+//! contract: `scripts/embed-export/eg2-directml/README.md`.
+//!
+//! A bundle with a top-level `manifest.json` (schema 2) names everything: `graphs.query` (batch 1,
+//! ascending lengths, a `file` template with `{L}`), `graphs.ingest` (entries of batch 4 and 8,
+//! each with its own lengths and template, e.g. `ingest-b8_{L}.onnx`), `weights` and `token_table`
+//! (`int8-rowwise` with `table` and `scales`, or `fp16`; a missing `token_table` is fp16). It is
+//! parsed strictly: an unknown schema, a malformed entry, an unknown table format, a missing file
+//! or an ingest batch other than 4 or 8 (16 is the typed refusal) fails the load. A bundle with no
+//! manifest is the legacy layout: `model_<L>.onnx` for 32, 64, 128, 256, 512, the fp16 table, no
+//! ingest graphs.
 //!
 //! Contract of every graph:
 //!
 //! - input `inputs_embeds` float16 `[B, L, 512]` = the table row of each token id, unscaled
-//!   (`B` is 1, or the static ingest batch of an ingest graph);
+//!   (int8 rows are dequantised at lookup, `fp16 = i8 * scale`);
 //! - input `attention_mask` int64 `[B, L]`, 1 on real tokens and 0 on padding;
 //! - output `sentence_embedding` float32 `[B, 768]`: mean pooling over the mask, projection and
 //!   L2 normalisation all in graph, with an fp32 tail so an all-zero input gives zeros, not NaN.
 //!
-//! A text runs through the smallest batch-1 graph whose length is at least its token count.
-//! Documents ingested with `Embedder::embed_batch` on DirectML run through the static batch-N
-//! ingest graphs of `ingest-b<N>/` when the bundle ships them: the length bucket (32, 128 or 512,
-//! read from that directory's `manifest.json`) is chosen per batch from its longest document, a
-//! short final batch is filled with rows of attention mask 0, and those rows are dropped from
-//! the output. Queries always use the batch-1 graphs. Graphs are built on first use and kept;
+//! A query runs through the smallest batch-1 graph whose length is at least its token count.
+//! `Embedder::embed_batch` on DirectML sorts documents by length and takes chunks of the
+//! remaining ones: batch 8 for five or more, batch 4 for two to four, the batch-1 graph for one
+//! (only batches the bundle ships and the configured cap allows). A chunk runs on the smallest
+//! length that holds its longest text, is filled up to the batch with rows of attention mask 0,
+//! and those rows are dropped; input order is kept. Graphs are built on first use and kept;
 //! [`E40Engine::release`] drops them.
-//!
-//! Token table: `embed_tokens.f16.npy` (fp16 `[VOCAB, 512]`), or, when the bundle's
-//! `manifest.json` lists `embed_tokens.i8.npy` under `token_table.shipped_files`,
-//! `embed_tokens.i8.npy` (int8 `[VOCAB, 512]`) with `embed_scales.f16.npy` (fp16 `[VOCAB]`),
-//! dequantised per looked-up row as `fp16 = i8 * scale`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -51,23 +54,12 @@ pub(crate) const VOCAB: usize = 262_144;
 pub(crate) const TABLE_FILE: &str = "embed_tokens.f16.npy";
 /// Host-side int8 token table, NumPy `.npy`, int8, shape `[VOCAB, HIDDEN]`.
 pub(crate) const TABLE_I8_FILE: &str = "embed_tokens.i8.npy";
-/// Per-row scale of the int8 table, NumPy `.npy`, little-endian float16, shape `[VOCAB]`.
-pub(crate) const SCALES_FILE: &str = "embed_scales.f16.npy";
-/// Shared fp16 weights of all five graphs (ONNX external data; the graphs reference it by name).
+/// Default name of the shared fp16 weights (ONNX external data) of a legacy bundle; a manifest names it.
 pub(crate) const DATA_FILE: &str = "model.onnx_data";
-/// Bundle manifest; read only to choose the token table.
+/// Bundle manifest (schema 2): graph files, shared weights and token table.
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 /// Default ingest batch: 176 docs/s against 166 (batch 4) and 100 (batch 1), measured.
 pub(crate) const DEFAULT_INGEST_BATCH: usize = 8;
-
-/// Which token table a bundle ships.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TableKind {
-    /// `embed_tokens.f16.npy`.
-    F16,
-    /// `embed_tokens.i8.npy` plus `embed_scales.f16.npy`.
-    Int8,
-}
 
 /// Refuses an ingest batch other than 4 or 8, with a typed error. 16 is named: it measured 64
 /// docs/s on an 8 GB card, below batch 1.
@@ -85,47 +77,292 @@ pub(crate) fn check_ingest_batch(batch: usize) -> Result<usize, EmbedError> {
     }
 }
 
-/// The token table a manifest selects: int8 when `token_table.shipped_files` lists
-/// [`TABLE_I8_FILE`], otherwise fp16 (also when there is no `token_table` entry).
-pub(crate) fn table_kind_from_manifest(json: &str) -> Result<TableKind, String> {
-    let value: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("unreadable manifest: {e}"))?;
-    let shipped = value
-        .get("token_table")
-        .and_then(|table| table.get("shipped_files"))
-        .and_then(|files| files.as_array());
-    let int8 = shipped.is_some_and(|files| files.iter().any(|f| f.as_str() == Some(TABLE_I8_FILE)));
-    Ok(if int8 { TableKind::Int8 } else { TableKind::F16 })
+/// The only manifest schema version this crate reads.
+pub(crate) const MANIFEST_SCHEMA: u64 = 2;
+
+/// Which token table a bundle ships, with its file names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TableSpec {
+    /// fp16 `[VOCAB, HIDDEN]`.
+    F16 { table: String },
+    /// int8 `[VOCAB, HIDDEN]` with fp16 per-row scales `[VOCAB, 1]`.
+    Int8 { table: String, scales: String },
 }
 
-/// The token table of the bundle in `dir`, from its `manifest.json` (fp16 without one).
-pub(crate) fn table_kind(dir: &Path) -> Result<TableKind, EmbedError> {
-    let path = dir.join(MANIFEST_FILE);
-    if !path.is_file() {
-        return Ok(TableKind::F16);
+/// One family of static graphs of one batch size: file names are `file` with `{L}` replaced by
+/// each length.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GraphSet {
+    pub(crate) batch: usize,
+    /// Ascending graph lengths.
+    pub(crate) lengths: Vec<usize>,
+    /// File name template containing `{L}`.
+    pub(crate) file: String,
+}
+
+impl GraphSet {
+    /// File name of the graph of length `length`.
+    pub(crate) fn file_name(&self, length: usize) -> String {
+        self.file.replace("{L}", &length.to_string())
     }
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))?;
-    table_kind_from_manifest(&json)
-        .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))
+
+    /// Every file of the set, in length order.
+    pub(crate) fn file_names(&self) -> Vec<String> {
+        self.lengths.iter().map(|l| self.file_name(*l)).collect()
+    }
+}
+
+/// What a bundle directory holds: the batch-1 query graphs, the optional ingest graphs, the
+/// shared weights file and the token table. Read from the bundle's `manifest.json` (schema 2),
+/// or the legacy fixed layout when there is none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Layout {
+    /// True when read from a manifest; the manifest then belongs to the pipeline fingerprint.
+    pub(crate) from_manifest: bool,
+    pub(crate) weights: String,
+    pub(crate) query: GraphSet,
+    pub(crate) ingest: Vec<GraphSet>,
+    pub(crate) table: TableSpec,
+}
+
+fn bad(manifest: &str) -> EmbedError {
+    EmbedError::InvalidConfig(format!("{MANIFEST_FILE}: {manifest}"))
+}
+
+/// A file name from a manifest: one path component, no separators, nothing hidden or empty.
+fn file_name_of(value: &serde_json::Value, what: &str) -> Result<String, EmbedError> {
+    let name = value
+        .as_str()
+        .ok_or_else(|| bad(&format!("{what} must be a string")))?;
+    if name.is_empty()
+        || name.starts_with('.')
+        || name.contains(['/', '\\', ':'])
+        || name.contains("..")
+    {
+        return Err(bad(&format!("{what} is not a plain file name: {name:?}")));
+    }
+    Ok(name.to_owned())
+}
+
+fn parse_graph_set(
+    value: &serde_json::Value,
+    what: &str,
+    batches: &[usize],
+) -> Result<GraphSet, EmbedError> {
+    let batch = value
+        .get("batch")
+        .and_then(|b| b.as_u64())
+        .ok_or_else(|| bad(&format!("{what} has no batch")))? as usize;
+    if !batches.contains(&batch) {
+        if batches != [1] {
+            check_ingest_batch(batch)?;
+        }
+        return Err(bad(&format!("{what} has batch {batch}, expected {batches:?}")));
+    }
+    let lengths: Vec<usize> = value
+        .get("lengths")
+        .and_then(|l| l.as_array())
+        .ok_or_else(|| bad(&format!("{what} has no lengths")))?
+        .iter()
+        .map(|l| {
+            l.as_u64()
+                .map(|l| l as usize)
+                .ok_or_else(|| bad(&format!("{what} has a non-numeric length")))
+        })
+        .collect::<Result<_, _>>()?;
+    if lengths.is_empty() || lengths.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(bad(&format!(
+            "{what} lengths must be ascending and non-empty: {lengths:?}"
+        )));
+    }
+    if lengths.iter().any(|l| *l == 0 || *l > MAX_TOKENS) {
+        return Err(bad(&format!(
+            "{what} lengths must be 1..={MAX_TOKENS}: {lengths:?}"
+        )));
+    }
+    let file = file_name_of(
+        value
+            .get("file")
+            .ok_or_else(|| bad(&format!("{what} has no file template")))?,
+        &format!("{what} file"),
+    )?;
+    if file.matches("{L}").count() != 1 {
+        return Err(bad(&format!(
+            "{what} file template must contain {{L}} once: {file:?}"
+        )));
+    }
+    Ok(GraphSet {
+        batch,
+        lengths,
+        file,
+    })
+}
+
+impl Layout {
+    /// The layout of a bundle without a manifest: `model_<L>.onnx` for the five fixed lengths,
+    /// the fp16 table, no ingest graphs.
+    pub(crate) fn legacy() -> Self {
+        Self {
+            from_manifest: false,
+            weights: DATA_FILE.to_owned(),
+            query: GraphSet {
+                batch: 1,
+                lengths: BUCKETS.to_vec(),
+                file: "model_{L}.onnx".to_owned(),
+            },
+            ingest: Vec::new(),
+            table: TableSpec::F16 {
+                table: TABLE_FILE.to_owned(),
+            },
+        }
+    }
+
+    /// Parses a schema-2 manifest strictly: an unknown or missing `schema`, a missing or
+    /// malformed `graphs.query` (batch 1, ascending lengths ending at 512, a `{L}` template),
+    /// an ingest entry that is not batch 4 or 8 (16 is the typed refusal), a duplicate batch, an
+    /// unknown token-table format or a `dtype_out` other than float16 is an error. A missing
+    /// `token_table`, or `{"format": "fp16"}`, is the fp16 table.
+    pub(crate) fn parse(json: &str) -> Result<Self, EmbedError> {
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| bad(&format!("unreadable manifest: {e}")))?;
+        match value.get("schema").and_then(|s| s.as_u64()) {
+            Some(MANIFEST_SCHEMA) => {}
+            Some(other) => return Err(bad(&format!("unsupported schema version {other}"))),
+            None => return Err(bad("missing or non-numeric schema version")),
+        }
+        let weights = file_name_of(
+            value
+                .get("weights")
+                .ok_or_else(|| bad("missing weights file"))?,
+            "weights",
+        )?;
+        let graphs = value.get("graphs").ok_or_else(|| bad("missing graphs"))?;
+        let query = parse_graph_set(
+            graphs
+                .get("query")
+                .ok_or_else(|| bad("missing graphs.query"))?,
+            "graphs.query",
+            &[1],
+        )?;
+        if query.lengths.last() != Some(&MAX_TOKENS) {
+            return Err(bad(&format!(
+                "graphs.query must reach {MAX_TOKENS} tokens: {:?}",
+                query.lengths
+            )));
+        }
+        let mut ingest: Vec<GraphSet> = Vec::new();
+        if let Some(entries) = graphs.get("ingest") {
+            let entries = entries
+                .as_array()
+                .ok_or_else(|| bad("graphs.ingest must be an array"))?;
+            for entry in entries {
+                let set = parse_graph_set(entry, "graphs.ingest entry", &[4, 8, 16])?;
+                check_ingest_batch(set.batch)?;
+                if ingest.iter().any(|other| other.batch == set.batch) {
+                    return Err(bad(&format!("duplicate ingest batch {}", set.batch)));
+                }
+                ingest.push(set);
+            }
+            ingest.sort_by_key(|set| set.batch);
+        }
+        let table = match value.get("token_table") {
+            None => TableSpec::F16 {
+                table: TABLE_FILE.to_owned(),
+            },
+            Some(spec) => {
+                if let Some(out) = spec.get("dtype_out") {
+                    if out.as_str() != Some("float16") {
+                        return Err(bad(&format!("token_table.dtype_out must be float16: {out}")));
+                    }
+                }
+                let name = |key: &str, default: Option<&str>| match spec.get(key) {
+                    Some(v) => file_name_of(v, &format!("token_table.{key}")),
+                    None => default
+                        .map(str::to_owned)
+                        .ok_or_else(|| bad(&format!("token_table has no {key}"))),
+                };
+                match spec.get("format").and_then(|f| f.as_str()) {
+                    Some("fp16") => TableSpec::F16 {
+                        table: name("table", Some(TABLE_FILE))?,
+                    },
+                    Some("int8-rowwise") => TableSpec::Int8 {
+                        table: name("table", None)?,
+                        scales: name("scales", None)?,
+                    },
+                    other => {
+                        return Err(bad(&format!("unknown token_table.format {other:?}")));
+                    }
+                }
+            }
+        };
+        Ok(Self {
+            from_manifest: true,
+            weights,
+            query,
+            ingest,
+            table,
+        })
+    }
+
+    /// The layout of the bundle in `dir`: its `manifest.json`, or the legacy layout when there
+    /// is none. Every file the layout names must exist.
+    pub(crate) fn load(dir: &Path) -> Result<Self, EmbedError> {
+        let path = dir.join(MANIFEST_FILE);
+        let layout = if path.is_file() {
+            let json = std::fs::read_to_string(&path)
+                .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))?;
+            Self::parse(&json)?
+        } else {
+            Self::legacy()
+        };
+        for name in layout.files() {
+            let file = dir.join(&name);
+            if !file.is_file() {
+                return Err(EmbedError::MissingArtifact(file));
+            }
+        }
+        Ok(layout)
+    }
+
+    /// The ingest graphs with batch at most `cap`, ascending by batch.
+    pub(crate) fn ingest_up_to(&self, cap: usize) -> Vec<&GraphSet> {
+        self.ingest.iter().filter(|set| set.batch <= cap).collect()
+    }
+
+    /// The graph set of `batch` (1 is the query set).
+    pub(crate) fn graphs(&self, batch: usize) -> Option<&GraphSet> {
+        if batch == 1 {
+            Some(&self.query)
+        } else {
+            self.ingest.iter().find(|set| set.batch == batch)
+        }
+    }
+
+    /// Every file of the bundle that the layout names and the pipeline id covers: the manifest
+    /// (when there is one), the shared weights, every query and ingest graph, the token table
+    /// files and the tokenizer.
+    pub(crate) fn files(&self) -> Vec<String> {
+        let mut files = Vec::new();
+        if self.from_manifest {
+            files.push(MANIFEST_FILE.to_owned());
+        }
+        files.extend(self.query.file_names());
+        for set in &self.ingest {
+            files.extend(set.file_names());
+        }
+        files.push(self.weights.clone());
+        match &self.table {
+            TableSpec::F16 { table } => files.push(table.clone()),
+            TableSpec::Int8 { table, scales } => files.extend([table.clone(), scales.clone()]),
+        }
+        files.push("tokenizer.json".to_owned());
+        files
+    }
 }
 
 /// Files that must exist for a directory to be an E40 bundle and that the pipeline id covers.
-pub(crate) fn artifacts(dir: &Path) -> Result<Vec<&'static str>, EmbedError> {
-    let mut files = vec![
-        "model_32.onnx",
-        "model_64.onnx",
-        "model_128.onnx",
-        "model_256.onnx",
-        "model_512.onnx",
-        DATA_FILE,
-    ];
-    match table_kind(dir)? {
-        TableKind::F16 => files.push(TABLE_FILE),
-        TableKind::Int8 => files.extend([TABLE_I8_FILE, SCALES_FILE]),
-    }
-    files.push("tokenizer.json");
-    Ok(files)
+pub(crate) fn artifacts(dir: &Path) -> Result<Vec<String>, EmbedError> {
+    Ok(Layout::load(dir)?.files())
 }
 
 /// True when `dir` holds the E40 layout: a token table (fp16 or int8) beside the fixed-length
@@ -136,6 +373,7 @@ pub(crate) fn is_bundle(dir: &Path) -> bool {
 }
 
 /// The smallest graph length that holds `tokens`, or `None` when it exceeds [`MAX_TOKENS`].
+#[cfg_attr(not(any(target_os = "macos", feature = "bench-internals")), allow(dead_code))]
 pub(crate) fn bucket_for(tokens: usize) -> Option<usize> {
     BUCKETS.iter().copied().find(|bucket| *bucket >= tokens)
 }
@@ -208,11 +446,13 @@ pub(crate) struct TokenTable {
 }
 
 impl TokenTable {
-    /// Loads the table the bundle in `dir` ships (see [`table_kind`]).
-    pub(crate) fn load_bundle(dir: &Path) -> Result<Self, EmbedError> {
-        match table_kind(dir)? {
-            TableKind::F16 => Self::load(&dir.join(TABLE_FILE)),
-            TableKind::Int8 => Self::load_int8(&dir.join(TABLE_I8_FILE), &dir.join(SCALES_FILE)),
+    /// Loads the token table the layout names, from the bundle in `dir`.
+    pub(crate) fn load_bundle(dir: &Path, layout: &Layout) -> Result<Self, EmbedError> {
+        match &layout.table {
+            TableSpec::F16 { table } => Self::load(&dir.join(table)),
+            TableSpec::Int8 { table, scales } => {
+                Self::load_int8(&dir.join(table), &dir.join(scales))
+            }
         }
     }
 
@@ -290,10 +530,14 @@ impl TokenTable {
         }
         let (scale_offset, scale_dims) =
             parse_npy_header(&scales, "<f2").map_err(|e| format!("scales: {e}"))?;
-        let [scale_rows] = scale_dims[..] else {
-            return Err(format!(
-                "scales: expected a 1-D array, shape is {scale_dims:?}"
-            ));
+        // One scale per row: shape `[rows, 1]` (or a flat `[rows]`).
+        let scale_rows = match scale_dims[..] {
+            [rows] | [rows, 1] => rows,
+            _ => {
+                return Err(format!(
+                    "scales: expected shape [{rows}, 1], found {scale_dims:?}"
+                ))
+            }
         };
         if scale_rows != rows {
             return Err(format!(
@@ -423,20 +667,38 @@ pub(crate) fn split_batch_output(
         .collect())
 }
 
-/// Runs `rows` through `run` in groups of at most `batch`, shortest first so a group's longest
-/// document is as short as it can be, and returns one vector per row in input order. `run`
-/// receives one group and must return exactly one vector per row it was given.
+/// The graph batch for a chunk of `remaining` documents: 8 for five or more, 4 for two to four,
+/// 1 (the query graph) for one, each only when `available` (the ingest batches the bundle ships
+/// within the configured cap) has it. Without batch 8, five or more use batch 4; without
+/// batch 4, two to four use batch 1.
+pub(crate) fn select_batch(remaining: usize, available: &[usize]) -> usize {
+    if remaining >= 5 && available.contains(&8) {
+        8
+    } else if remaining >= 2 && available.contains(&4) {
+        4
+    } else {
+        1
+    }
+}
+
+/// Runs `rows` through `run` in groups, shortest first so a group's longest document is as short
+/// as it can be, and returns one vector per row in input order. Each group takes the next
+/// `select(remaining)` rows (at most that many, fewer for the last); `run` receives the graph
+/// batch and the group and must return exactly one vector per row of the group.
 pub(crate) fn run_ingest_groups(
     rows: &[&[i64]],
-    batch: usize,
-    mut run: impl FnMut(&[&[i64]]) -> Result<Vec<Vec<f32>>, EmbedError>,
+    select: impl Fn(usize) -> usize,
+    mut run: impl FnMut(usize, &[&[i64]]) -> Result<Vec<Vec<f32>>, EmbedError>,
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
     let mut order: Vec<usize> = (0..rows.len()).collect();
     order.sort_by_key(|&i| rows[i].len());
     let mut out: Vec<Option<Vec<f32>>> = vec![None; rows.len()];
-    for group in order.chunks(batch.max(1)) {
+    let mut start = 0;
+    while start < order.len() {
+        let batch = select(order.len() - start).max(1);
+        let group = &order[start..(start + batch).min(order.len())];
         let members: Vec<&[i64]> = group.iter().map(|&i| rows[i]).collect();
-        let vectors = run(&members)?;
+        let vectors = run(batch, &members)?;
         if vectors.len() != members.len() {
             return Err(EmbedError::Output(format!(
                 "a batch of {} rows returned {} vectors",
@@ -447,81 +709,11 @@ pub(crate) fn run_ingest_groups(
         for (&index, vector) in group.iter().zip(vectors) {
             out[index] = Some(vector);
         }
+        start += group.len();
     }
     out.into_iter()
         .map(|row| row.ok_or_else(|| EmbedError::Output("missing embedding row".into())))
         .collect()
-}
-
-/// The static batch-N ingest graphs of a bundle: `ingest-b<N>/model_<length>.onnx` for every
-/// length in that directory's `manifest.json`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct IngestPlan {
-    pub(crate) batch: usize,
-    /// Ascending graph lengths (32, 128, 512 for the shipped export).
-    pub(crate) lengths: Vec<usize>,
-    pub(crate) dir: PathBuf,
-}
-
-/// Directory of the batch-`batch` ingest graphs inside a bundle.
-pub(crate) fn ingest_dir(bundle: &Path, batch: usize) -> PathBuf {
-    bundle.join(format!("ingest-b{batch}"))
-}
-
-/// Batch and ascending lengths of an ingest manifest (`"batch"`, `"lengths"`).
-pub(crate) fn parse_ingest_manifest(json: &str) -> Result<(usize, Vec<usize>), String> {
-    let value: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("unreadable manifest: {e}"))?;
-    let batch = value
-        .get("batch")
-        .and_then(|b| b.as_u64())
-        .ok_or("manifest has no batch")? as usize;
-    let lengths: Vec<usize> = value
-        .get("lengths")
-        .and_then(|l| l.as_array())
-        .ok_or("manifest has no lengths")?
-        .iter()
-        .map(|l| l.as_u64().map(|l| l as usize).ok_or("non-numeric length"))
-        .collect::<Result<_, _>>()?;
-    if lengths.is_empty() || lengths.windows(2).any(|w| w[0] >= w[1]) {
-        return Err(format!(
-            "lengths must be ascending and non-empty: {lengths:?}"
-        ));
-    }
-    if lengths.iter().any(|l| *l == 0 || *l > MAX_TOKENS) {
-        return Err(format!("lengths must be 1..={MAX_TOKENS}: {lengths:?}"));
-    }
-    Ok((batch, lengths))
-}
-
-impl IngestPlan {
-    /// The plan for `batch` in the bundle at `dir`: `None` when the bundle has no
-    /// `ingest-b<batch>/` directory (an older bundle, ingested on the batch-1 graphs); an error
-    /// when the directory is there but its manifest, batch or graph files do not fit.
-    pub(crate) fn open(dir: &Path, batch: usize) -> Result<Option<Self>, EmbedError> {
-        let ingest = ingest_dir(dir, batch);
-        if !ingest.is_dir() {
-            return Ok(None);
-        }
-        let manifest = ingest.join(MANIFEST_FILE);
-        let invalid = |e: String| EmbedError::InvalidConfig(format!("{}: {e}", manifest.display()));
-        let json = std::fs::read_to_string(&manifest).map_err(|e| invalid(e.to_string()))?;
-        let (found, lengths) = parse_ingest_manifest(&json).map_err(invalid)?;
-        if found != batch {
-            return Err(invalid(format!("batch is {found}, expected {batch}")));
-        }
-        for length in &lengths {
-            let graph = ingest.join(format!("model_{length}.onnx"));
-            if !graph.is_file() {
-                return Err(EmbedError::MissingArtifact(graph));
-            }
-        }
-        Ok(Some(Self {
-            batch,
-            lengths,
-            dir: ingest,
-        }))
-    }
 }
 
 /// Graph builds during `Embedder::load`, shared by an engine and its provider twins. Recording
@@ -666,34 +858,39 @@ pub(crate) struct E40Engine {
     token_table_read: Duration,
     provider: ExecutionProvider,
     profile: E40SessionProfile,
-    ingest: Option<IngestPlan>,
+    layout: Arc<Layout>,
+    /// Largest ingest batch used (the configured cap, 4 or 8).
+    ingest_cap: usize,
     /// Built sessions by `(batch, length)`.
     sessions: Mutex<BTreeMap<(usize, usize), Session>>,
     log: Arc<SessionLog>,
 }
 
 impl E40Engine {
-    /// Reads the token table (fp16, or int8 with its scales, as the bundle's manifest says) and
-    /// prepares an engine; no graph is built yet. `ingest_batch` (4 or 8) selects the ingest
-    /// graphs of `ingest-b<N>/` when the bundle has them; a bundle without them ingests on the
-    /// batch-1 graphs.
+    /// Reads the bundle's layout (its schema-2 `manifest.json`, or the legacy fixed layout when
+    /// there is none), checks that every file it names exists, reads the token table it names
+    /// (fp16, or int8 with its scales) and prepares an engine; no graph is built yet.
+    /// `ingest_batch` (4 or 8; anything else is refused) caps the ingest graphs used; a bundle
+    /// without ingest graphs ingests on the batch-1 graphs. All graphs share the one weights
+    /// file the layout names.
     pub(crate) fn open(
         dir: &Path,
         provider: ExecutionProvider,
         profile: E40SessionProfile,
         ingest_batch: usize,
     ) -> Result<Self, EmbedError> {
-        let ingest_batch = check_ingest_batch(ingest_batch)?;
+        let ingest_cap = check_ingest_batch(ingest_batch)?;
         let started = Instant::now();
-        let table = Arc::new(TokenTable::load_bundle(dir)?);
-        let ingest = IngestPlan::open(dir, ingest_batch)?;
+        let layout = Layout::load(dir)?;
+        let table = Arc::new(TokenTable::load_bundle(dir, &layout)?);
         Ok(Self {
             dir: dir.to_path_buf(),
             table,
             token_table_read: started.elapsed(),
             provider,
             profile,
-            ingest,
+            layout: Arc::new(layout),
+            ingest_cap,
             sessions: Mutex::new(BTreeMap::new()),
             log: Arc::new(SessionLog::new()),
         })
@@ -708,7 +905,8 @@ impl E40Engine {
             token_table_read: self.token_table_read,
             provider,
             profile: self.profile,
-            ingest: self.ingest.clone(),
+            layout: Arc::clone(&self.layout),
+            ingest_cap: self.ingest_cap,
             sessions: Mutex::new(BTreeMap::new()),
             log: Arc::clone(&self.log),
         }
@@ -729,12 +927,20 @@ impl E40Engine {
         self.provider
     }
 
-    /// The ingest batch graphs this engine runs documents through: `Some` only on DirectML with
-    /// a bundle that ships `ingest-b<N>/`.
-    pub(crate) fn ingest_plan(&self) -> Option<&IngestPlan> {
-        self.ingest
-            .as_ref()
-            .filter(|_| self.provider == ExecutionProvider::DirectMl)
+    /// The ingest graph sets this engine runs documents through: those of the bundle with batch
+    /// at most the cap, on DirectML only (CPU stays on the batch-1 graphs). Empty when the
+    /// bundle ships none.
+    fn ingest_sets(&self) -> Vec<&GraphSet> {
+        if self.provider == ExecutionProvider::DirectMl {
+            self.layout.ingest_up_to(self.ingest_cap)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Smallest batch-1 graph length that holds `tokens`; `None` above the longest.
+    pub(crate) fn query_bucket(&self, tokens: usize) -> Option<usize> {
+        bucket_in(&self.layout.query.lengths, tokens)
     }
 
     /// Drops every built graph; the next text rebuilds the one it needs.
@@ -757,7 +963,7 @@ impl E40Engine {
         ids: &[i64],
         pad_id: i64,
     ) -> Result<(Vec<f32>, RunSplit), EmbedError> {
-        let bucket = bucket_for(ids.len()).ok_or_else(|| {
+        let bucket = self.query_bucket(ids.len()).ok_or_else(|| {
             EmbedError::Output(format!(
                 "{} tokens exceed the longest E40 graph ({MAX_TOKENS})",
                 ids.len()
@@ -768,26 +974,37 @@ impl E40Engine {
 
     /// Documents through the static batch-N ingest graphs: `Some(vectors)`, one per row in input
     /// order, or `None` when this engine has no ingest graphs (the caller runs the rows one by
-    /// one). Rows are grouped shortest first, at most N per call; each group runs on the length
-    /// bucket of its longest row, is filled up to N with rows of attention mask 0, and those
-    /// rows' outputs are dropped. A group longer than the longest ingest graph runs row by row
-    /// on the batch-1 graphs.
+    /// one). Rows are taken shortest first; each chunk of the remaining documents uses batch 8
+    /// for five or more, batch 4 for two to four and the batch-1 query graph for one (limited to
+    /// the batches the bundle ships within the configured cap). A chunk runs on the smallest
+    /// length that holds its longest row, is filled up to the batch with rows of attention mask
+    /// 0, and those rows' outputs are dropped. A chunk longer than the longest ingest graph runs
+    /// row by row on the query graphs.
     pub(crate) fn run_ingest(
         &self,
         rows: &[&[i64]],
         pad_id: i64,
     ) -> Result<Option<Vec<Vec<f32>>>, EmbedError> {
-        let Some(plan) = self.ingest_plan() else {
+        let sets = self.ingest_sets();
+        if sets.is_empty() {
             return Ok(None);
-        };
-        let vectors = run_ingest_groups(rows, plan.batch, |group| {
-            let longest = group.iter().map(|row| row.len()).max().unwrap_or(0);
-            let Some(bucket) = bucket_in(&plan.lengths, longest) else {
-                return group.iter().map(|ids| self.run(ids, pad_id)).collect();
-            };
-            let (values, _) = self.run_graph(plan.batch, group, pad_id, bucket)?;
-            split_batch_output(&values, plan.batch, group.len(), OUTPUT_DIM)
-        })?;
+        }
+        let available: Vec<usize> = sets.iter().map(|set| set.batch).collect();
+        let vectors = run_ingest_groups(
+            rows,
+            |remaining| select_batch(remaining, &available),
+            |batch, group| {
+                let set = sets.iter().find(|set| set.batch == batch);
+                let longest = group.iter().map(|row| row.len()).max().unwrap_or(0);
+                let Some((set, bucket)) =
+                    set.and_then(|set| bucket_in(&set.lengths, longest).map(|b| (*set, b)))
+                else {
+                    return group.iter().map(|ids| self.run(ids, pad_id)).collect();
+                };
+                let (values, _) = self.run_graph(set.batch, group, pad_id, bucket)?;
+                split_batch_output(&values, set.batch, group.len(), OUTPUT_DIM)
+            },
+        )?;
         Ok(Some(vectors))
     }
 
@@ -798,12 +1015,12 @@ impl E40Engine {
     /// this engine uses them, are warmed the same way.
     pub(crate) fn prewarm(&self, pad_id: i64) -> Result<Duration, EmbedError> {
         let started = Instant::now();
-        for bucket in BUCKETS {
-            self.run_graph(1, &[&[pad_id]], pad_id, bucket)?;
+        for bucket in &self.layout.query.lengths {
+            self.run_graph(1, &[&[pad_id]], pad_id, *bucket)?;
         }
-        if let Some(plan) = self.ingest_plan() {
-            for length in &plan.lengths {
-                self.run_graph(plan.batch, &[&[pad_id]], pad_id, *length)?;
+        for set in self.ingest_sets() {
+            for length in &set.lengths {
+                self.run_graph(set.batch, &[&[pad_id]], pad_id, *length)?;
             }
         }
         Ok(started.elapsed())
@@ -892,22 +1109,21 @@ impl E40Engine {
     /// `Embedder::load_timings`.
     fn build_session(&self, batch: usize, bucket: usize) -> Result<Session, EmbedError> {
         let started = Instant::now();
-        let dir = match (&self.ingest, batch) {
-            (_, 1) => &self.dir,
-            (Some(plan), batch) if plan.batch == batch => &plan.dir,
-            _ => {
-                return Err(EmbedError::Runtime(format!(
-                    "no batch-{batch} graphs in this bundle"
-                )))
-            }
-        };
+        let set = self.layout.graphs(batch).ok_or_else(|| {
+            EmbedError::Runtime(format!("no batch-{batch} graphs in this bundle"))
+        })?;
+        if !set.lengths.contains(&bucket) {
+            return Err(EmbedError::Runtime(format!(
+                "no batch-{batch} graph of length {bucket} in this bundle"
+            )));
+        }
         let session = SessionOptions::new(self.provider)
             .with_threads(self.profile.intra_threads)
             .with_cpu_fallback(false)
             // Default: the measured configuration of the DirectML runs in the export README.
             .with_directml_sequential(self.profile.sequential)
             .with_directml_memory_pattern(self.profile.disable_memory_pattern)
-            .build_from_file(&dir.join(format!("model_{bucket}.onnx")))
+            .build_from_file(&self.dir.join(set.file_name(bucket)))
             .map_err(|e| EmbedError::Runtime(e.to_string()))?;
         self.log.push(SessionCreate {
             provider: provider_name(self.provider),
@@ -1043,22 +1259,17 @@ mod tests {
     }
 
     #[test]
-    fn a_bundle_may_ship_the_int8_table_instead() {
+    fn a_flat_int8_bundle_is_recognised_by_its_files() {
         let dir = std::env::temp_dir().join(format!("rk-e40-i8-bundle-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(TABLE_I8_FILE), b"x").unwrap();
         std::fs::write(dir.join("model_32.onnx"), b"x").unwrap();
         assert!(is_bundle(&dir));
-        assert_eq!(
-            table_kind(&dir).unwrap(),
-            TableKind::F16,
-            "no manifest means fp16"
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An int8 table image of `rows` rows (`columns` wide): row `r` starts with `heads[r]`, the
-    /// rest zero. The scales image holds `scales`.
+    /// rest zero. The scales image is fp16 `[scales.len(), 1]`.
     fn int8_images(
         rows: usize,
         columns: usize,
@@ -1073,7 +1284,7 @@ mod tests {
             }
             table.extend(line);
         }
-        let mut scale_image = npy("<f2", "False", &format!("{},", scales.len()), 0);
+        let mut scale_image = npy("<f2", "False", &format!("{}, 1", scales.len()), 0);
         for scale in scales {
             scale_image.extend(f16::from_f32(*scale).to_bits().to_le_bytes());
         }
@@ -1110,6 +1321,8 @@ mod tests {
         let ok = |t: Vec<u8>, s: Vec<u8>| TokenTable::from_int8_checked(t, s, 3);
         let (table, scales) = int8_images(3, HIDDEN, &heads, &[1.0; 3]);
         assert!(ok(table.clone(), scales.clone()).is_ok());
+        // A flat [rows] scales file is accepted too.
+        assert!(ok(table.clone(), npy("<f2", "False", "3,", 6)).is_ok());
         // The real vocabulary is required by the public constructor.
         assert!(TokenTable::from_int8_bytes(table.clone(), scales.clone()).is_err());
         // Wrong column count, wrong row count.
@@ -1117,13 +1330,13 @@ mod tests {
         assert!(ok(narrow, narrow_scales).is_err());
         let (tall, tall_scales) = int8_images(3, HIDDEN, &heads, &[1.0; 3]);
         assert!(TokenTable::from_int8_checked(tall, tall_scales, 4).is_err());
-        // Scales: one value too few or too many, wrong dtype, 2-D.
+        // Scales: one value too few or too many, wrong dtype, wrong second dimension.
         let (_, few) = int8_images(3, HIDDEN, &heads, &[1.0; 2]);
         assert!(ok(table.clone(), few).is_err());
         let (_, many) = int8_images(3, HIDDEN, &heads, &[1.0; 4]);
         assert!(ok(table.clone(), many).is_err());
-        assert!(ok(table.clone(), npy("<f4", "False", "3,", 12)).is_err());
-        assert!(ok(table.clone(), npy("<f2", "False", "3, 1", 6)).is_err());
+        assert!(ok(table.clone(), npy("<f4", "False", "3, 1", 12)).is_err());
+        assert!(ok(table.clone(), npy("<f2", "False", "3, 2", 12)).is_err());
         // Scales payload one byte short.
         let mut short = scales.clone();
         short.pop();
@@ -1136,16 +1349,137 @@ mod tests {
         assert!(ok(truncated, scales).is_err());
     }
 
+    /// The schema-2 manifest of the flat Windows bundle.
+    const MANIFEST: &str = r#"{"schema":2,"recipe":"E43","weights":"model.onnx_data",
+        "graphs":{"query":{"batch":1,"lengths":[16,32,48,64,96,128,192,256,384,512],
+        "file":"model_{L}.onnx"},"ingest":[
+        {"batch":4,"lengths":[32,128,512],"file":"ingest-b4_{L}.onnx"},
+        {"batch":8,"lengths":[32,128,512],"file":"ingest-b8_{L}.onnx"}]},
+        "token_table":{"format":"int8-rowwise","table":"embed_tokens.i8.npy",
+        "scales":"embed_scales.f16.npy","dtype_out":"float16"},
+        "inputs":{"inputs_embeds":"[B, L, 512] float16","attention_mask":"[B, L] int64"},
+        "output":"sentence_embedding [B, 768] float32"}"#;
+
     #[test]
-    fn the_manifest_selects_the_token_table() {
-        let int8 = r#"{"variant": "H01", "token_table": {"shipped_files":
-            ["embed_tokens.i8.npy", "embed_scales.f16.npy"]}}"#;
-        assert_eq!(table_kind_from_manifest(int8).unwrap(), TableKind::Int8);
-        let fp16 = r#"{"id": "G08", "lengths": [32, 128, 512], "batch": 8}"#;
-        assert_eq!(table_kind_from_manifest(fp16).unwrap(), TableKind::F16);
-        let other = r#"{"token_table": {"shipped_files": ["embed_tokens.f16.npy"]}}"#;
-        assert_eq!(table_kind_from_manifest(other).unwrap(), TableKind::F16);
-        assert!(table_kind_from_manifest("not json").is_err());
+    fn the_flat_manifest_gives_graphs_weights_and_table() {
+        let layout = Layout::parse(MANIFEST).unwrap();
+        assert_eq!(layout.weights, "model.onnx_data");
+        assert_eq!(layout.query.batch, 1);
+        assert_eq!(
+            layout.query.lengths,
+            vec![16, 32, 48, 64, 96, 128, 192, 256, 384, 512]
+        );
+        assert_eq!(layout.query.file_name(48), "model_48.onnx");
+        let batches: Vec<usize> = layout.ingest.iter().map(|set| set.batch).collect();
+        assert_eq!(batches, vec![4, 8]);
+        assert_eq!(layout.ingest[1].lengths, vec![32, 128, 512]);
+        assert_eq!(layout.ingest[1].file_name(128), "ingest-b8_128.onnx");
+        assert_eq!(
+            layout.table,
+            TableSpec::Int8 {
+                table: "embed_tokens.i8.npy".into(),
+                scales: "embed_scales.f16.npy".into()
+            }
+        );
+        let files = layout.files();
+        assert!(files.contains(&"manifest.json".to_owned()));
+        assert!(files.contains(&"ingest-b4_512.onnx".to_owned()));
+        assert!(files.contains(&"model_16.onnx".to_owned()));
+        assert_eq!(
+            files.iter().filter(|f| *f == "model.onnx_data").count(),
+            1,
+            "one shared weights file"
+        );
+        // The cap picks the ingest sets: batch 4 only, or both.
+        let up_to = |cap| layout.ingest_up_to(cap).iter().map(|s| s.batch).collect::<Vec<_>>();
+        assert_eq!(up_to(4), vec![4]);
+        assert_eq!(up_to(8), vec![4, 8]);
+    }
+
+    #[test]
+    fn a_missing_token_table_or_the_fp16_format_is_the_fp16_path() {
+        let none = r#"{"schema":2,"weights":"model.onnx_data","graphs":{"query":
+            {"batch":1,"lengths":[32,512],"file":"model_{L}.onnx"}}}"#;
+        let layout = Layout::parse(none).unwrap();
+        assert_eq!(
+            layout.table,
+            TableSpec::F16 {
+                table: TABLE_FILE.into()
+            }
+        );
+        assert!(layout.ingest.is_empty());
+        let fp16 = r#"{"schema":2,"weights":"model.onnx_data","graphs":{"query":
+            {"batch":1,"lengths":[32,512],"file":"model_{L}.onnx"}},
+            "token_table":{"format":"fp16","table":"embed_tokens.f16.npy"}}"#;
+        assert_eq!(
+            Layout::parse(fp16).unwrap().table,
+            TableSpec::F16 {
+                table: "embed_tokens.f16.npy".into()
+            }
+        );
+        assert_eq!(Layout::legacy().table, layout.table);
+    }
+
+    #[test]
+    fn the_manifest_is_parsed_strictly() {
+        let refuse = |json: String| assert!(Layout::parse(&json).is_err(), "{json}");
+        // Unknown or missing schema version, not JSON.
+        refuse(MANIFEST.replace(r#""schema":2"#, r#""schema":3"#));
+        refuse(MANIFEST.replace(r#""schema":2,"#, ""));
+        refuse("not json".to_owned());
+        // Query graphs: not batch 1, short of 512, not ascending, template without {L}.
+        refuse(MANIFEST.replace(
+            r#""query":{"batch":1"#,
+            r#""query":{"batch":4"#,
+        ));
+        refuse(MANIFEST.replace("384,512]", "384,500]"));
+        refuse(MANIFEST.replace("[16,32,48", "[32,16,48"));
+        refuse(MANIFEST.replace("model_{L}.onnx", "model.onnx"));
+        // File names are plain: no path parts.
+        refuse(MANIFEST.replace("model_{L}.onnx", "../model_{L}.onnx"));
+        refuse(MANIFEST.replace(r#""weights":"model.onnx_data""#, r#""weights":"a/b""#));
+        // Token table: unknown format, wrong output dtype, int8 without scales.
+        refuse(MANIFEST.replace("int8-rowwise", "int4"));
+        refuse(MANIFEST.replace(r#""dtype_out":"float16""#, r#""dtype_out":"float32""#));
+        refuse(MANIFEST.replace(r#""scales":"embed_scales.f16.npy","#, ""));
+        // A duplicate ingest batch.
+        refuse(MANIFEST.replace(r#""batch":8"#, r#""batch":4"#));
+    }
+
+    #[test]
+    fn a_manifest_with_ingest_batch_16_is_the_typed_refusal() {
+        let json = MANIFEST.replace(r#""batch":8"#, r#""batch":16"#);
+        assert!(matches!(
+            Layout::parse(&json),
+            Err(EmbedError::UnsupportedIngestBatch { requested: 16, .. })
+        ));
+        let json = MANIFEST.replace(r#""batch":8"#, r#""batch":2"#);
+        assert!(matches!(
+            Layout::parse(&json),
+            Err(EmbedError::UnsupportedIngestBatch { requested: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn loading_a_layout_refuses_missing_files() {
+        let dir = std::env::temp_dir().join(format!("rk-e40-layout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(MANIFEST_FILE), MANIFEST).unwrap();
+        assert!(matches!(
+            Layout::load(&dir),
+            Err(EmbedError::MissingArtifact(_))
+        ));
+        let layout = Layout::parse(MANIFEST).unwrap();
+        for name in layout.files() {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        assert_eq!(Layout::load(&dir).unwrap(), layout);
+        std::fs::remove_file(dir.join("ingest-b8_128.onnx")).unwrap();
+        assert!(matches!(
+            Layout::load(&dir),
+            Err(EmbedError::MissingArtifact(_))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1169,26 +1503,30 @@ mod tests {
     }
 
     #[test]
-    fn ingest_manifest_gives_the_batch_and_coarse_lengths() {
-        let json = r#"{"id": "G08", "batch": 8, "lengths": [32, 128, 512]}"#;
-        assert_eq!(
-            parse_ingest_manifest(json).unwrap(),
-            (8, vec![32, 128, 512])
-        );
-        assert!(parse_ingest_manifest(r#"{"batch": 8, "lengths": [128, 32]}"#).is_err());
-        assert!(parse_ingest_manifest(r#"{"batch": 8, "lengths": []}"#).is_err());
-        assert!(parse_ingest_manifest(r#"{"batch": 8, "lengths": [1024]}"#).is_err());
-        assert!(parse_ingest_manifest(r#"{"lengths": [32]}"#).is_err());
+    fn batch_selection_follows_the_remaining_count() {
+        let both = [4, 8];
+        let picks: Vec<usize> = (1..=9).map(|n| select_batch(n, &both)).collect();
+        assert_eq!(picks, vec![1, 4, 4, 4, 8, 8, 8, 8, 8]);
+        // Capped at 4: five or more still use batch 4.
+        assert_eq!(select_batch(8, &[4]), 4);
+        assert_eq!(select_batch(1, &[4]), 1);
+        // Without batch 4, two to four fall back to the query graph.
+        assert_eq!(select_batch(3, &[8]), 1);
+        assert_eq!(select_batch(6, &[8]), 8);
+        assert_eq!(select_batch(6, &[]), 1);
     }
 
     #[test]
-    fn the_length_bucket_is_chosen_by_the_longest_document() {
+    fn the_length_bucket_is_the_smallest_that_holds_the_longest_text() {
         let lengths = [32, 128, 512];
         assert_eq!(bucket_in(&lengths, 1), Some(32));
         assert_eq!(bucket_in(&lengths, 32), Some(32));
         assert_eq!(bucket_in(&lengths, 33), Some(128));
         assert_eq!(bucket_in(&lengths, 200), Some(512));
         assert_eq!(bucket_in(&lengths, 513), None);
+        let query = Layout::parse(MANIFEST).unwrap().query.lengths;
+        assert_eq!(bucket_in(&query, 17), Some(32));
+        assert_eq!(bucket_in(&query, 100), Some(128));
     }
 
     #[test]
@@ -1234,33 +1572,65 @@ mod tests {
             .map(|(row, len)| vec![row as i64 + 2; *len])
             .collect();
         let rows: Vec<&[i64]> = owned.iter().map(Vec::as_slice).collect();
-        let mut group_sizes = Vec::new();
-        // A stand-in graph of batch 4 and length 8: per-row output is [mask sum, first id].
-        let out = run_ingest_groups(&rows, 4, |group| {
-            group_sizes.push(group.len());
-            let (embeds, mask) = build_batch_inputs(&table, group, 4, 8, 0).unwrap();
-            let mut values = Vec::new();
-            for row in 0..4 {
-                let sum: i64 = mask[row * 8..(row + 1) * 8].iter().sum();
-                values.extend([sum as f32, embeds[row * 8 * HIDDEN].to_f32()]);
-            }
-            split_batch_output(&values, 4, group.len(), 2)
-        })
+        let mut calls = Vec::new();
+        // A stand-in graph of the chosen batch and length 8: per-row output is
+        // [mask sum, first id] for every row of the graph, padding rows included.
+        let out = run_ingest_groups(
+            &rows,
+            |remaining| select_batch(remaining, &[4, 8]),
+            |batch, group| {
+                calls.push((batch, group.len()));
+                let (embeds, mask) = build_batch_inputs(&table, group, batch, 8, 0).unwrap();
+                let mut values = Vec::new();
+                for row in 0..batch {
+                    let sum: i64 = mask[row * 8..(row + 1) * 8].iter().sum();
+                    values.extend([sum as f32, embeds[row * 8 * HIDDEN].to_f32()]);
+                }
+                split_batch_output(&values, batch, group.len(), 2)
+            },
+        )
         .unwrap();
-        assert_eq!(
-            group_sizes,
-            vec![4, 3],
-            "one full batch and a partial final one"
-        );
+        // Seven documents: one batch-8 call with a padding row.
+        assert_eq!(calls, vec![(8, 7)]);
         assert_eq!(out.len(), rows.len(), "no embedding comes back for padding");
         for (row, vector) in out.iter().enumerate() {
             assert_eq!(vector[0], owned[row].len() as f32, "token count of row {row}");
             assert_eq!(vector[1], row as f32 + 2.0, "row {row} came back in its slot");
         }
-        assert!(run_ingest_groups(&[], 4, |_| unreachable!())
+        // Eleven documents: 8, then 3 on batch 4 (one padding row); then 1 alone.
+        let eleven: Vec<Vec<i64>> = (0..11).map(|i| vec![i as i64 + 1; (i % 5) + 1]).collect();
+        let rows: Vec<&[i64]> = eleven.iter().map(Vec::as_slice).collect();
+        let mut calls = Vec::new();
+        let out = run_ingest_groups(
+            &rows,
+            |remaining| select_batch(remaining, &[4, 8]),
+            |batch, group| {
+                calls.push((batch, group.len()));
+                Ok(group.iter().map(|ids| vec![ids[0] as f32]).collect())
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, vec![(8, 8), (4, 3)]);
+        assert_eq!(out.len(), 11);
+        for (row, vector) in out.iter().enumerate() {
+            assert_eq!(vector[0], row as f32 + 1.0, "row {row}");
+        }
+        let twelve = [&[1i64][..]; 9];
+        let mut calls = Vec::new();
+        run_ingest_groups(
+            &twelve,
+            |remaining| select_batch(remaining, &[4, 8]),
+            |batch, group| {
+                calls.push((batch, group.len()));
+                Ok(vec![vec![0.0]; group.len()])
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, vec![(8, 8), (1, 1)], "a lone last document uses the query graph");
+        assert!(run_ingest_groups(&[], |_| 8, |_, _| unreachable!())
             .unwrap()
             .is_empty());
         // A runner that returns the wrong number of vectors is refused.
-        assert!(run_ingest_groups(&rows, 4, |_| Ok(vec![vec![0.0]])).is_err());
+        assert!(run_ingest_groups(&rows, |_| 4, |_, _| Ok(vec![vec![0.0]])).is_err());
     }
 }

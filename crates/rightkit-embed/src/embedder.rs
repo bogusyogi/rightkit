@@ -1066,6 +1066,7 @@ impl Embedder {
             return None;
         }
         let artifacts = e40::artifacts(&config.model_dir).ok()?;
+        let artifacts: Vec<&str> = artifacts.iter().map(String::as_str).collect();
         let key = parity_cache::ParityKey::build(
             &config.model_dir,
             &artifacts,
@@ -1244,7 +1245,10 @@ impl Embedder {
             .remove(0)
             .ids;
         Ok(BenchTokens {
-            graph_tokens: e40::bucket_for(ids.len()),
+            graph_tokens: match &self.backend {
+                Backend::E40(engine) => engine.query_bucket(ids.len()),
+                _ => e40::bucket_for(ids.len()),
+            },
             pad_id: self.pad_id,
             prompt,
             ids,
@@ -1306,8 +1310,9 @@ impl Embedder {
                 Backend::E40(_) => e40::artifacts(&self.model_dir).map_err(|e| e.to_string())?,
                 _ => Vec::new(),
             };
+            let e40_refs: Vec<&str> = e40_names.iter().map(String::as_str).collect();
             let names: &[&str] = match self.backend {
-                Backend::E40(_) => &e40_names,
+                Backend::E40(_) => &e40_refs,
                 #[cfg(target_os = "macos")]
                 Backend::CoreMl(_) => &coreml::ARTIFACTS,
                 Backend::Onnx(_) => &[
@@ -1986,11 +1991,13 @@ fn validate_config(config: &EmbedderConfig) -> Result<(), EmbedError> {
     let coreml_files = coreml_bundle_files(&config.model_dir)?;
     let coreml_bundle = coreml_files.is_some();
     let e40_files;
+    let e40_refs: Vec<&str>;
     let required: &[&str] = if let Some(files) = coreml_files {
         files
     } else if e40::is_bundle(&config.model_dir) {
         e40_files = e40::artifacts(&config.model_dir)?;
-        &e40_files
+        e40_refs = e40_files.iter().map(String::as_str).collect();
+        &e40_refs
     } else {
         &["model_q4.onnx", "model_q4.onnx_data", "tokenizer.json"]
     };
