@@ -329,7 +329,7 @@ function verifyRemoteAsset(tag, repo, asset, run, evidence) {
   if (inspectRemoteAsset(tag, repo, asset, run, evidence) !== "match") throw new Error(`GitHub release asset missing; inspect remote asset ${repo}/${tag}/${path.basename(asset)}`);
 }
 
-function inspectRemoteAsset(tag, repo, asset, run, evidence) {
+export function inspectRemoteAsset(tag, repo, asset, run, evidence) {
   const verifyDir = `${path.dirname(asset)}/verify-${path.basename(asset)}`;
   rmSync(verifyDir, { recursive: true, force: true });
   mkdirSync(verifyDir, { recursive: true });
@@ -350,7 +350,7 @@ function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-function runCommand(command, args, { allowFailure = false, cwd } = {}) {
+export function runCommand(command, args, { allowFailure = false, cwd } = {}) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", windowsHide: true });
   const output = result.stdout?.trim() ?? "";
   if (result.status !== 0) {

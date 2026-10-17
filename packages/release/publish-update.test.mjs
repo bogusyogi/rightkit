@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -180,18 +180,73 @@ test("accepts portable --tier argument", () => {
   assert.match(result.stdout, /UPLOAD public\/fixture\/installers\/windows\/current\/Fixture-Setup\.exe/);
 });
 
-test("refuses GitHub distribution before R2 publication", () => {
+test("refuses an unknown distribution provider", () => {
   const config = fixture();
   writeFileSync(config, `export default ${JSON.stringify({
     schema: 1,
     app: "fixture",
     version: "1.2.3",
-    distribution: { provider: "github-releases", repository: "Orthic-Labs/Fixture" },
+    distribution: { provider: "s3" },
     targets: { win: { installer: { artifacts: [] }, updater: { artifacts: [] } } },
-  })};\n`);
+  })};
+`);
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--tier", "patch", "--dry-run"], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /distribution\.provider must be r2-rightapps/);
+  assert.match(result.stderr, /distribution\.provider must be r2-rightapps or github-releases/);
+});
+
+function githubFixture(repository = "Orthic-Labs/Fixture") {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "right-publish-github-"));
+  const config = path.join(dir, "right-release.config.mjs");
+  writeFileSync(config, `export default ${JSON.stringify({
+    schema: 1,
+    app: "fixture",
+    version: "1.2.3",
+    distribution: { provider: "github-releases", repository },
+    targets: {
+      win: {
+        updater: {
+          artifacts: [
+            { file: "Fixture_1.2.3_x64-setup.exe", signature: "Fixture_1.2.3_x64-setup.exe.sig", platform: "windows-x86_64" },
+          ],
+        },
+      },
+      mac: {
+        updater: {
+          artifacts: [
+            { file: "Fixture.app.tar.gz", signature: "Fixture.app.tar.gz.sig", platform: "darwin-aarch64" },
+          ],
+        },
+      },
+    },
+  })};
+`);
+  return config;
+}
+
+test("github-releases dry run plans bundle, signature and latest.json uploads with no network or key", () => {
+  const result = spawnSync(process.execPath, [publisher, "--config", githubFixture(), "--platform", "win", "--tier", "update", "--dry-run"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe/);
+  assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe\.sig/);
+  assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/latest\.json/);
+  assert.match(result.stdout, /"url":"https:\/\/github\.com\/Orthic-Labs\/Fixture\/releases\/download\/v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe"/);
+  assert.match(result.stdout, /github-releases would-publish v1\.2\.3/);
+  assert.doesNotMatch(result.stdout, /api\.spoares\.com/);
+});
+
+test("github-releases refuses a missing or malformed repository", () => {
+  const result = spawnSync(process.execPath, [publisher, "--config", githubFixture("not a repo"), "--platform", "win", "--tier", "update", "--dry-run"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /distribution\.repository must be owner\/repo/);
+});
+
+test("github-releases refuses a platform that is not a Tauri updater target", () => {
+  const config = githubFixture();
+  writeFileSync(config, readFileSync(config, "utf8").replace("windows-x86_64", "windows-x64"));
+  const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--tier", "update", "--dry-run"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /PUBLICATION_UPDATER_PLATFORM_INVALID/);
 });
 
 test("refuses versioned R2 object keys that would accumulate old releases", () => {

@@ -22,6 +22,11 @@ describe('update channels', () => {
     expect(() => validateChannels({ a: { endpoints: ['http://example.com/x'] } })).toThrow(/https/);
     expect(() => validateChannels({ a: { endpoints: ['not a url'] } })).toThrow(/invalid endpoint/);
   });
+  it('accepts a GitHub Releases latest.json endpoint', () => {
+    const github = { stable: { endpoints: ['https://github.com/Orthic-Labs/ember/releases/latest/download/latest.json'] } };
+    expect(() => validateChannels(github)).not.toThrow();
+    expect(resolveChannel(github, null, { defaultChannel: 'stable' }).endpoints[0]).toMatch(/releases\/latest\/download\/latest\.json$/);
+  });
   it('allows loopback http for local testing', () => {
     expect(() => validateChannels({ a: { endpoints: ['http://localhost:8080/x'] } })).not.toThrow();
   });

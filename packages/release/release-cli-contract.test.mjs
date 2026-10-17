@@ -191,9 +191,10 @@ test("github --addon refuses --tier and --config instead of ignoring them", () =
   assert.match(result.stderr, /--tier and --config apply to --release only/);
 });
 
-test("R2 publisher accepts only explicit private RightApps distribution", () => {
+test("publish-update accepts only explicit r2-rightapps or github-releases distribution", () => {
   const source = readFileSync(publishUpdate, "utf8");
-  assert.match(source, /distribution\?\.provider !== "r2-rightapps"/);
-  assert.match(source, /distribution\.provider must be r2-rightapps/);
-  assert.doesNotMatch(source, /github-releases/);
+  assert.match(source, /provider !== "r2-rightapps" && provider !== "github-releases"/);
+  assert.match(source, /distribution\.provider must be r2-rightapps or github-releases/);
+  // One signing path: the github lane reuses the sealed signatures and builds no signer or key of its own.
+  assert.doesNotMatch(source, /tauri signer|TAURI_SIGNING_PRIVATE_KEY/);
 });

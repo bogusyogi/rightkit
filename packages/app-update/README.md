@@ -47,6 +47,18 @@ Status flow: `checking`, then `available`, then `downloading`, then `ready`. `re
 - `createCheckGate`: check cache and debounce. `resolveChannel` / `validateChannels`: channel endpoint selection. `compareVersions` / `isNewerVersion`: semver compare. `assertSingleUpdatesVersion`: duplicate-copy guard.
 - `@rightkit/app-update/contract-vectors`: test fixtures subpath (the main entry still re-exports them).
 
+## GitHub Releases endpoint and the suite updater public key
+
+A channel endpoint may be a GitHub Releases static manifest: `validateChannels` and `resolveChannel` accept any https URL, so a public GitHub app configures
+
+```ts
+const channels = { stable: { endpoints: ["https://github.com/<owner>/<repo>/releases/latest/download/latest.json"] } };
+```
+
+`right-release publish-update` with `distribution.provider: "github-releases"` uploads that `latest.json` (Tauri v2 static format) with the signed bundles; see the `@rightkit/release` README, "GitHub Releases updater lane". The URL resolves to the newest non-draft, non-prerelease release, so a prerelease channel needs its own endpoint.
+
+There is one updater trust root for every RightKit app: the Right Suite updater key (key id `29395F9FF466261D`), the same key `sign-updater.mjs` signs with for the R2 lane. An app does not provision its own. The app's `tauri.conf.json` carries the key's public half in `plugins.updater.pubkey` (the base64 text of the key's `.pub` file); copy the value from any shipped suite app, or from the `.pub` file beside the updater private key on the release host. Tauri's updater verifies each downloaded artifact against that value; this package does no signature verification itself. Set `distribution.updaterKeyId: "29395F9FF466261D"` in the release config and `publish-update` also refuses to publish a signature made by any other key.
+
 ## Known issues
 
 - Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.

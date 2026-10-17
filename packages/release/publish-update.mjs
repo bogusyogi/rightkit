@@ -14,6 +14,7 @@ import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, di
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
+import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease } from "./github-updater-release.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
@@ -44,9 +45,18 @@ if (!["win", "mac"].includes(platform)) throw new PublicationError("PUBLICATION_
 const configPath = path.resolve(configName);
 const root = path.dirname(configPath);
 const config = (await import(pathToFileURL(configPath))).default;
-if (config?.distribution?.provider !== "r2-rightapps") {
-  fail("release config distribution.provider must be r2-rightapps");
+const provider = config?.distribution?.provider;
+if (provider !== "r2-rightapps" && provider !== "github-releases") {
+  fail("release config distribution.provider must be r2-rightapps or github-releases");
 }
+// github-releases: the same sealed, suite-key-signed updater artifacts, published as release assets plus a Tauri v2
+// static latest.json (github-updater-release.mjs). Nothing below forks the r2 signing or platforms code.
+const githubLane = provider === "github-releases";
+let githubRepo = "";
+if (githubLane) {
+  try { githubRepo = assertGitHubRepository(config.distribution.repository); } catch (error) { fail(error.message); }
+}
+const githubKey = (item) => item.key ?? path.basename(item.file);
 const target = config?.targets?.[platform];
 const artifacts = target?.updater?.artifacts ?? [];
 const installers = target?.installer?.artifacts ?? [];
@@ -59,19 +69,24 @@ if (!dryRun || releaseId) {
   const commit = git(["rev-parse", "HEAD"]);
   assertCleanSource({ status: git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release publish-update" });
   sealed = verifyPublicationRelease({ sealedDir: path.join(repoRoot, ".right-release", "sealed", releaseId, platform === "win" ? "windows" : "mac"), repoRoot, appRoot: root, commit, app: config.app, version: versionForStorage, platform, configPath, releaseId });
-  const routes = sealed.manifest.routes?.[tier] ?? [];
-  const configured = [...(tier === "patch" ? installers.map((item) => ({ ...item, role: "installer" })) : []), ...artifacts.map((item) => ({ ...item, key: tier === "patch" ? patchInstallerKey(item) : item.key, role: "updater" }))];
+  const routes = sealed.manifest.routes?.[githubLane ? "update" : tier] ?? [];
+  const configured = githubLane
+    ? artifacts.map((item) => ({ ...item, key: githubKey(item), role: "updater" }))
+    : [...(tier === "patch" ? installers.map((item) => ({ ...item, role: "installer" })) : []), ...artifacts.map((item) => ({ ...item, key: tier === "patch" ? patchInstallerKey(item) : item.key, role: "updater" }))];
   for (const item of configured) {
-    if (!routes.some((route) => route.key === item.key && route.role === item.role && route.bucket === (tier === "patch" ? "public" : "private") && route.name === path.basename(item.file) && (!item.signature || route.signature === path.basename(item.signature)))) throw new PublicationError("PUBLICATION_ROUTE_INVALID", `config route is not sealed: ${item.key}`);
+    if (!routes.some((route) => route.key === item.key && route.role === item.role && route.bucket === (tier === "patch" && !githubLane ? "public" : "private") && route.name === path.basename(item.file) && (!item.signature || route.signature === path.basename(item.signature)))) throw new PublicationError("PUBLICATION_ROUTE_INVALID", `config route is not sealed: ${item.key}`);
   }
   if (!configured.length) throw new PublicationError("PUBLICATION_ROUTE_INVALID", "seal has no configured upload route");
   const installer = sealed.manifest.files.find((item) => item.role.split("+").includes("installer"));
-  if (!installer) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed installer required for platform trust verification");
-  verifyPlatformTrust({ sealed, installer: path.join(sealed.sealedDir, installer.name) });
+  if (!installer && !githubLane) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed installer required for platform trust verification");
+  // A github-releases app may ship only updater bundles and portable zips; their trust is the sealed signing
+  // receipts plus the updater signature, so platform trust runs only when a sealed installer exists.
+  if (installer) verifyPlatformTrust({ sealed, installer: path.join(sealed.sealedDir, installer.name) });
+  else console.log("no sealed installer; skipping installer platform trust check (github-releases updater-only seal)");
   for (const artifact of sealed.artifacts.values()) assertArtifactUnchanged(artifact);
   // Hardening step 4: installed QA is recorded, not enforced (R2 patch + update tiers); a missing receipt warns and is written to state.
   if (!dryRun) {
-    admitInstalledQa({ repoRoot, manifest: sealed.manifest, platform, configName: path.relative(process.cwd(), configPath) || configName, releaseConfigSha256: digestBytes(readFileSync(configPath)) }, { provider: "r2" });
+    admitInstalledQa({ repoRoot, manifest: sealed.manifest, platform, configName: path.relative(process.cwd(), configPath) || configName, releaseConfigSha256: digestBytes(readFileSync(configPath)) }, { provider: githubLane ? "github-releases" : "r2" });
   }
 }
 const artifactFile = (declared) => {
@@ -98,17 +113,63 @@ function git(args) {
   return result.stdout.trim();
 }
 
-if (tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
-if (tier === "update" && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
+if (!githubLane && tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
+if ((githubLane || tier === "update") && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
 
 if (sealed) for (const artifact of artifacts) signatureFor(artifact);
 let releaseToken = null;
-if (!dryRun && (tier === "update" || artifacts.length > 0)) {
+if (!githubLane && !dryRun && (tier === "update" || artifacts.length > 0)) {
   try {
     releaseToken = await loadReleaseToken();
   } catch (error) {
     fail(error.message);
   }
+}
+
+if (githubLane) {
+  const version = config.version || target.updater.version;
+  if (!version) fail(`${config.app} config must expose version or targets.${platform}.updater.version`);
+  try {
+    const tag = githubTag(version);
+    const notes = process.env.RIGHT_RELEASE_NOTES || `${config.app} ${version}`;
+    const platforms = {};
+    const assets = new Map();
+    for (const artifact of artifacts) {
+      assertUpdaterPlatform(artifact.platform);
+      const file = artifactFile(artifact.file);
+      const name = assertAssetName(path.basename(file));
+      // Same signature source and process as the r2 lane: the sealed minisign .sig written by sign-updater.
+      const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);
+      if (!dryRun && !appInstallerKind) assertUpdaterKeyId(signature, config.distribution.updaterKeyId, `signature of ${name}`);
+      platforms[artifact.platform] = { signature, url: githubAssetUrl(githubRepo, tag, name) };
+      assets.set(file, { file, evidence: dryRun ? undefined : verifiedArtifact(file) });
+      if (!appInstallerKind) {
+        const sigFile = artifactFile(artifact.signature);
+        assets.set(sigFile, { file: sigFile, evidence: dryRun ? undefined : verifiedArtifact(artifact.signature) });
+      }
+    }
+    for (const asset of assets.values()) if (asset.evidence) assertArtifactUnchanged(asset.evidence);
+    const latest = buildLatestJson({ version, notes, pubDate: new Date().toISOString(), platforms });
+    for (const asset of assets.values()) console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD ${githubRepo}@${tag}/${path.basename(asset.file)}`);
+    console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD ${githubRepo}@${tag}/latest.json`);
+    console.log(JSON.stringify(latest));
+    const stateDir = path.join(root, ".right-release", "state", releaseId || "dry-run", platform === "win" ? "windows" : "mac", "github-updater");
+    const result = publishGitHubUpdaterRelease({
+      repo: githubRepo,
+      tag,
+      title: `${config.app} ${version}`,
+      notes,
+      assets: [...assets.values()].map((asset) => ({ file: asset.file, evidence: asset.evidence })),
+      latest,
+      stateDir,
+      dryRun,
+    });
+    console.log(`publish-update: github-releases ${result.status} ${tag}${result.latestJsonUrl ? ` ${result.latestJsonUrl}` : ""}`);
+  } catch (error) {
+    fail(error.message);
+  }
+  if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
+  process.exit(0);
 }
 
 if (tier === "patch") {

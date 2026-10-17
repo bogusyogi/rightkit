@@ -568,9 +568,12 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
   for (const artifact of target.updater?.artifacts ?? []) {
     const source = resolveArtifactPath(artifact.file);
     const signatureSource = target.updater?.kind === "appinstaller" ? null : resolveArtifactPath(artifact.signature);
-    const patchKey = artifact.patchKey ?? artifact.key.replace("/updates/", "/installers/");
+    // github-releases updater artifacts declare no R2 key: the asset name is the route key and nothing is replaced in place.
+    const githubUpdater = config.distribution?.provider === "github-releases";
+    const routeKey = artifact.key ?? (githubUpdater ? path.basename(artifact.file) : undefined);
+    const patchKey = artifact.patchKey ?? routeKey.replace("/updates/", "/installers/");
     routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "public", key: patchKey, platform: artifact.platform });
-    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "private", key: artifact.key, platform: artifact.platform });
+    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "private", key: routeKey, platform: artifact.platform });
   }
   writeJson(path.join(temp, "hardening.json"), { schema: 1, passed: true, checkedAt: new Date().toISOString(), files: files.map((file) => file.sha256) });
   const manifest = {

@@ -214,6 +214,34 @@ Supported: `title`, `icon` (`.icns` volume icon), `background` (PNG or TIFF), `i
 
 `right-release upload` and `right-release github --release` share one gate (`github-upload-gate.mjs`): both require `--tier patch|update`, the primary checkout with a clean tree, a sealed release built from the current HEAD with matching ownership evidence, and a release config that declares `distribution.provider: "github-releases"` and `distribution.repository` (`--repo` may only repeat it; the `origin` remote is never consulted). The gate makes no network call and also runs on `--dry-run`. Private products publish with `publish-update` and `distribution.provider: "r2-rightapps"`. `github --addon` publishes headless add-ons and takes no tier. Not gated the same way: `github --addon` (no tier), `addon upload` (no provider requirement), and the direct R2 uploaders `upload-large.mjs` and `pub-upload.mjs` (no tier, provider or clean-tree check).
 
+## GitHub Releases updater lane (`publish-update`, `github-releases`)
+
+A public app with an in-app Tauri updater publishes with `right-release publish-update --release <sealed-id> --platform win|mac --tier update` and `distribution: { provider: "github-releases", repository: "<owner>/<repo>", updaterKeyId?: "29395F9FF466261D" }`. It is the r2-rightapps lane with a different destination, not a second signer: the updater bundles are signed by `sign-updater.mjs` with the Right Suite updater key (the one every app uses; no per-app key or trust root), sealed with their `.sig` files, and re-verified by `verifyPublicationRelease` before anything is uploaded. The lane then:
+
+- builds the same `platforms` map the R2 lane builds (`{ <target>: { signature, url } }`), with each `url` the GitHub asset URL `https://github.com/<owner>/<repo>/releases/download/v<version>/<asset>`;
+- uploads each sealed bundle and `.sig` to release `v<version>` (created when missing, never a draft), byte-verifying every asset by download, and refusing, not overwriting, a remote asset whose bytes differ;
+- writes a Tauri v2 static `latest.json` (`version`, `notes`, `pub_date`, `platforms`) and uploads it last, merged with the other platform's entries already on that release (the win and mac runs share one `latest.json`; a different version on the release is refused), so `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` resolves.
+
+`updaterKeyId` is optional; when set, a sealed signature made by any other key refuses the publish (`PUBLICATION_SIGNATURE_KEY_MISMATCH`). Notes come from `RIGHT_RELEASE_NOTES`. `--dry-run` prints the upload plan and the manifest with no network call. Uploads use `gh` (already authenticated); no RightApps token is read.
+
+Updater artifacts are declared as for R2 but need no `key`; `platform` must be a Tauri updater target (`windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, optionally with an installer suffix such as `-nsis`, `-msi`, `-app`, `-appimage`) and file names must match `[A-Za-z0-9._+-]` so GitHub does not rename them:
+
+```js
+targets: {
+  win: {
+    updater: { keyFile: "%APPDATA%/RightKit/updater.key", artifacts: [
+      { file: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe", signature: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe.sig", platform: "windows-x86_64" },
+    ] },
+    artifacts: ["dist/Ember-1.2.3-portable-win.zip"], // portable zips seal alongside; they are not in latest.json
+  },
+  mac: { updater: { artifacts: [
+    { file: "src-tauri/target/release/bundle/macos/Ember.app.tar.gz", signature: "src-tauri/target/release/bundle/macos/Ember.app.tar.gz.sig", platform: "darwin-aarch64" },
+  ] } },
+}
+```
+
+NSIS, MSI, `.app.tar.gz` and AppImage bundles all work the same way (any file signed by `sign-updater`). With no sealed installer the installer platform-trust check is skipped (reported in the output); installer-bearing seals still run it. The app side: `plugins.updater.endpoints` is the `latest.json` URL above and `plugins.updater.pubkey` is the suite updater public key (see `@rightkit/app-update` README).
+
 ## Android (AAB build, Play internal track, dev install)
 
 The Android lane is native Kotlin with Gradle plus Rust `.so` libraries per ABI (`docs/design/android-minimum.md` section 4). It follows the same split as the desktop lanes: `build` never uploads, `upload` never builds.
