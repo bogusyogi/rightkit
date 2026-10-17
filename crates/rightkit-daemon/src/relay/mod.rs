@@ -167,9 +167,13 @@ pub enum ClientFrame {
         body: String,
     },
     /// Ask for up to `limit` queued messages that were not yet delivered on this connection.
-    Fetch { limit: u32 },
+    Fetch {
+        limit: u32,
+    },
     /// The device has processed these ids; the relay may delete them.
-    Ack { ids: Vec<String> },
+    Ack {
+        ids: Vec<String>,
+    },
     Ping,
 }
 

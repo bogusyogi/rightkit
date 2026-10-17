@@ -80,7 +80,9 @@ fn a_connected_recipient_gets_the_message_live_and_ack_clears_the_queue() {
         .put(&b.session.mailbox(), Class::Small, b"hello b")
         .unwrap();
     let out = core.handle(a.conn, NOW, put);
-    assert!(matches!(&frames_for(&out, 1)[0], ServerFrame::Stored { id: stored, .. } if *stored == id));
+    assert!(
+        matches!(&frames_for(&out, 1)[0], ServerFrame::Stored { id: stored, .. } if *stored == id)
+    );
     let live = frames_for(&out, 2);
     assert_eq!(live.len(), 1);
     // Blind: the body on the wire is not the plaintext.
@@ -108,7 +110,10 @@ fn a_sleeping_recipient_collects_stored_messages_later_once() {
     let (mut a, mut b) = (device(&owner, 1, NOW + 3600), device(&owner, 2, NOW + 3600));
     login(&mut core, &mut a);
     for text in [&b"one"[..], b"two"] {
-        let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, text).unwrap();
+        let (_, put) = a
+            .session
+            .put(&b.session.mailbox(), Class::Small, text)
+            .unwrap();
         core.handle(a.conn, NOW, put);
     }
     // b was offline; it connects an hour later.
@@ -141,10 +146,16 @@ fn a_redelivered_message_is_shown_once() {
     let (mut a, mut b) = (device(&owner, 1, NOW + 3600), device(&owner, 2, NOW + 3600));
     login(&mut core, &mut a);
     login(&mut core, &mut b);
-    let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, b"x").unwrap();
+    let (_, put) = a
+        .session
+        .put(&b.session.mailbox(), Class::Small, b"x")
+        .unwrap();
     let out = core.handle(a.conn, NOW, put);
     let deliver = frames_for(&out, 2).remove(0);
-    assert!(matches!(b.session.handle(deliver.clone()).unwrap(), Event::Message(_)));
+    assert!(matches!(
+        b.session.handle(deliver.clone()).unwrap(),
+        Event::Message(_)
+    ));
     assert_eq!(b.session.handle(deliver).unwrap(), Event::Duplicate);
 }
 
@@ -154,7 +165,10 @@ fn a_retried_put_is_stored_once() {
     let mut core = RelayCore::new(RelayLimits::default());
     let (mut a, b) = (device(&owner, 1, NOW + 3600), device(&owner, 2, NOW + 3600));
     login(&mut core, &mut a);
-    let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, b"once").unwrap();
+    let (_, put) = a
+        .session
+        .put(&b.session.mailbox(), Class::Small, b"once")
+        .unwrap();
     let first = core.handle(a.conn, NOW, put.clone());
     let queued = core.queued_bytes();
     let second = core.handle(a.conn, NOW, put);
@@ -179,11 +193,18 @@ fn another_circle_cannot_read_or_block_a_mailbox() {
     core.handle(intruder.conn, NOW, junk);
     // b never sees it, and a's own queue to b is unaffected.
     assert!(frames_for(&core.handle(b.conn, NOW, b.session.fetch(10)), 2).is_empty());
-    let (_, real) = a.session.put(&b.session.mailbox(), Class::Small, b"real").unwrap();
+    let (_, real) = a
+        .session
+        .put(&b.session.mailbox(), Class::Small, b"real")
+        .unwrap();
     let out = core.handle(a.conn, NOW, real);
     assert_eq!(frames_for(&out, 2).len(), 1);
     // The intruder cannot read b's queue either.
-    assert!(frames_for(&core.handle(intruder.conn, NOW, intruder.session.fetch(10)), 3).is_empty());
+    assert!(frames_for(
+        &core.handle(intruder.conn, NOW, intruder.session.fetch(10)),
+        3
+    )
+    .is_empty());
 }
 
 #[test]
@@ -203,7 +224,9 @@ fn screen_is_direct_only_on_both_sides() {
         body: "AAAA".into(),
     };
     let out = core.handle(a.conn, NOW, forced);
-    assert!(matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "direct_only"));
+    assert!(
+        matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "direct_only")
+    );
 }
 
 #[test]
@@ -225,15 +248,25 @@ fn class_caps_and_the_monthly_quota_are_enforced() {
     login(&mut core, &mut a);
     // Over the class cap: refused before sealing leaves the device.
     assert!(matches!(
-        a.session.put(&b.session.mailbox(), Class::Small, &[0u8; 11]),
+        a.session
+            .put(&b.session.mailbox(), Class::Small, &[0u8; 11]),
         Err(ClientError::TooLarge { .. })
     ));
     for _ in 0..2 {
-        let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, &[0u8; 10]).unwrap();
+        let (_, put) = a
+            .session
+            .put(&b.session.mailbox(), Class::Small, &[0u8; 10])
+            .unwrap();
         let out = core.handle(a.conn, NOW, put);
-        assert!(matches!(&frames_for(&out, 1)[0], ServerFrame::Stored { .. }));
+        assert!(matches!(
+            &frames_for(&out, 1)[0],
+            ServerFrame::Stored { .. }
+        ));
     }
-    let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, &[0u8; 10]).unwrap();
+    let (_, put) = a
+        .session
+        .put(&b.session.mailbox(), Class::Small, &[0u8; 10])
+        .unwrap();
     let out = core.handle(a.conn, NOW, put);
     assert!(matches!(
         &frames_for(&out, 1)[0],
@@ -259,7 +292,9 @@ fn bad_tickets_and_expired_tickets_are_refused() {
         panic!()
     };
     let out = core.handle(1, NOW, auth);
-    assert!(matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "auth_failed"));
+    assert!(
+        matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "auth_failed")
+    );
     assert!(out.contains(&Outgoing::Close(1)));
 
     // An expired ticket, and one whose expiry is too far ahead.
@@ -270,13 +305,17 @@ fn bad_tickets_and_expired_tickets_are_refused() {
             panic!()
         };
         let out = core.handle(conn, NOW, auth);
-        assert!(matches!(&frames_for(&out, conn)[0], ServerFrame::Error { code, .. } if code == "expired"));
+        assert!(
+            matches!(&frames_for(&out, conn)[0], ServerFrame::Error { code, .. } if code == "expired")
+        );
     }
 
     // A frame before authentication.
     core.connect(4, NOW).unwrap();
     let out = core.handle(4, NOW, ClientFrame::Fetch { limit: 1 });
-    assert!(matches!(&frames_for(&out, 4)[0], ServerFrame::Error { code, .. } if code == "unauthenticated"));
+    assert!(
+        matches!(&frames_for(&out, 4)[0], ServerFrame::Error { code, .. } if code == "unauthenticated")
+    );
 }
 
 #[test]
@@ -291,10 +330,14 @@ fn a_challenge_cannot_be_answered_late_or_replayed_on_another_connection() {
     // Replayed on a second connection (a different nonce): the proof does not verify.
     core.connect(2, NOW).unwrap();
     let out = core.handle(2, NOW, auth.clone());
-    assert!(matches!(&frames_for(&out, 2)[0], ServerFrame::Error { code, .. } if code == "auth_failed"));
+    assert!(
+        matches!(&frames_for(&out, 2)[0], ServerFrame::Error { code, .. } if code == "auth_failed")
+    );
     // Answered after the challenge window.
     let out = core.handle(1, NOW + 11, auth);
-    assert!(matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "expired"));
+    assert!(
+        matches!(&frames_for(&out, 1)[0], ServerFrame::Error { code, .. } if code == "expired")
+    );
 }
 
 #[test]
@@ -303,7 +346,10 @@ fn stored_messages_expire() {
     let mut core = RelayCore::new(RelayLimits::default());
     let (mut a, b) = (device(&owner, 1, NOW + 3600), device(&owner, 2, NOW + 3600));
     login(&mut core, &mut a);
-    let (_, put) = a.session.put(&b.session.mailbox(), Class::Small, b"old").unwrap();
+    let (_, put) = a
+        .session
+        .put(&b.session.mailbox(), Class::Small, b"old")
+        .unwrap();
     core.handle(a.conn, NOW, put);
     assert!(core.queued_bytes() > 0);
     core.expire(NOW + 7 * 24 * 3600 + 1);

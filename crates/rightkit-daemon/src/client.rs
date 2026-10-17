@@ -1,6 +1,6 @@
 use crate::error::*;
-use crate::private::PrivateSecret;
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
+use crate::private::PrivateSecret;
 use crate::record::{try_read_record, ServiceRecord, PROTOCOL_MAJOR};
 use crate::suite::{Suite, SuiteError};
 use crate::transport::{connect, connect_expecting, Conn};
@@ -321,7 +321,14 @@ impl Client {
         let (tx, rx) = mpsc::channel();
         let (s, sv, ap) = (suite.clone(), service.to_string(), app.to_string());
         std::thread::spawn(move || {
-            let _ = tx.send(Self::handshake(&s, &sv, &ap, Some(d), expect.as_ref(), secret));
+            let _ = tx.send(Self::handshake(
+                &s,
+                &sv,
+                &ap,
+                Some(d),
+                expect.as_ref(),
+                secret,
+            ));
         });
         match rx.recv_timeout(d + Duration::from_millis(250)) {
             Ok(r) => r,
@@ -632,8 +639,11 @@ impl Client {
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
         use crate::chunk::{boundaries, CHUNK_TEXT_BYTES, METHOD_FETCH, METHOD_UPLOAD};
-        let advertised =
-            |key: &str| self.hello[key].as_u64().and_then(|n| usize::try_from(n).ok());
+        let advertised = |key: &str| {
+            self.hello[key]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+        };
         let max_message = advertised("max_message").unwrap_or(0);
         let frame_limit = advertised("frame_limit").unwrap_or(LIMIT).min(LIMIT);
         let chunk = advertised("chunk_bytes")

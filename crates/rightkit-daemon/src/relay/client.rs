@@ -3,9 +3,7 @@
 //! and the rules a device must follow so the relay stays blind.
 
 use super::hub::RelayLimits;
-use super::{
-    auth_message, ticket_message, CircleId, ClientFrame, Class, MailboxId, ServerFrame,
-};
+use super::{auth_message, ticket_message, CircleId, Class, ClientFrame, MailboxId, ServerFrame};
 use crate::remote::util::hex;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
@@ -45,7 +43,10 @@ pub enum ClientError {
     /// The class is direct only ([`Class::Screen`]); nothing was sealed or sent.
     DirectOnly,
     /// The sealed message is larger than the class allows through the relay.
-    TooLarge { len: usize, cap: usize },
+    TooLarge {
+        len: usize,
+        cap: usize,
+    },
     Seal(SealError),
     /// The OS random source failed.
     Random,
@@ -58,7 +59,9 @@ pub enum ClientError {
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientError::DirectOnly => f.write_str("this class is direct only; the relay refuses it"),
+            ClientError::DirectOnly => {
+                f.write_str("this class is direct only; the relay refuses it")
+            }
             ClientError::TooLarge { len, cap } => {
                 write!(f, "sealed message is {len} bytes, the relay cap is {cap}")
             }
@@ -125,8 +128,13 @@ pub enum Event {
     /// A message already delivered earlier; it is re-acknowledged and not shown again.
     Duplicate,
     /// A message that would not open; it is acknowledged so it does not block the queue.
-    Undecryptable { id: [u8; 16] },
-    Stored { id: [u8; 16], seq: u64 },
+    Undecryptable {
+        id: [u8; 16],
+    },
+    Stored {
+        id: [u8; 16],
+        seq: u64,
+    },
     Acked(u32),
     /// The relay refused something. `code` is one of [`crate::relay::code`].
     Failed {
@@ -188,10 +196,7 @@ impl<S: Sealer> RelaySession<S> {
         plaintext: &[u8],
     ) -> Result<(String, ClientFrame), ClientError> {
         let cap = self.limits.cap(class).ok_or(ClientError::DirectOnly)?;
-        let sealed = self
-            .sealer
-            .seal(to, plaintext)
-            .map_err(ClientError::Seal)?;
+        let sealed = self.sealer.seal(to, plaintext).map_err(ClientError::Seal)?;
         if sealed.len() > cap {
             return Err(ClientError::TooLarge {
                 len: sealed.len(),
@@ -265,8 +270,8 @@ impl<S: Sealer> RelaySession<S> {
                 Ok(Event::Authed)
             }
             ServerFrame::Stored { id, seq } => {
-                let id = super::unhex_array::<16>(&id)
-                    .ok_or(ClientError::Protocol("malformed id"))?;
+                let id =
+                    super::unhex_array::<16>(&id).ok_or(ClientError::Protocol("malformed id"))?;
                 Ok(Event::Stored { id, seq })
             }
             ServerFrame::Deliver {
@@ -276,10 +281,10 @@ impl<S: Sealer> RelaySession<S> {
                 body,
                 ..
             } => {
-                let id_bytes = super::unhex_array::<16>(&id)
-                    .ok_or(ClientError::Protocol("malformed id"))?;
-                let from = MailboxId::from_hex(&from)
-                    .ok_or(ClientError::Protocol("malformed sender"))?;
+                let id_bytes =
+                    super::unhex_array::<16>(&id).ok_or(ClientError::Protocol("malformed id"))?;
+                let from =
+                    MailboxId::from_hex(&from).ok_or(ClientError::Protocol("malformed sender"))?;
                 if self.seen.contains(&id_bytes) {
                     self.to_ack.push(id);
                     return Ok(Event::Duplicate);

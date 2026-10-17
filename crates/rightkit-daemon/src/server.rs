@@ -1003,8 +1003,10 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
                     app: app.clone(),
                     reason: "missing or wrong secret".into(),
                 });
-                send(&json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
-                    "error": ServiceError::new(crate::error::ERROR_UNAUTHENTICATED, "missing or wrong secret").to_value()}));
+                send(
+                    &json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
+                    "error": ServiceError::new(crate::error::ERROR_UNAUTHENTICATED, "missing or wrong secret").to_value()}),
+                );
                 break;
             }
         }
@@ -1053,13 +1055,15 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             // The caller's allowlist runs on the first piece, before a byte is buffered; the
             // final dispatch below checks again.
             let authorize = |m: &str| {
-                crate::contract::authorize_allowlist(&s.cfg.allowlist, &caller, m).inspect_err(|_| {
-                    s.event(ServiceEvent::Denied {
-                        conn: id,
-                        app: app.clone(),
-                        method: m.to_string(),
-                    });
-                })
+                crate::contract::authorize_allowlist(&s.cfg.allowlist, &caller, m).inspect_err(
+                    |_| {
+                        s.event(ServiceEvent::Denied {
+                            conn: id,
+                            app: app.clone(),
+                            method: m.to_string(),
+                        });
+                    },
+                )
             };
             match uploads.accept_with(
                 req.get("params").unwrap_or(&Value::Null),
@@ -1096,8 +1100,8 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             );
             continue;
         }
-        let params = assembled
-            .unwrap_or_else(|| req.get("params").cloned().unwrap_or_else(|| json!({})));
+        let params =
+            assembled.unwrap_or_else(|| req.get("params").cloned().unwrap_or_else(|| json!({})));
         let cx = new_context(
             id,
             caller.clone(),

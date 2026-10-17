@@ -119,9 +119,14 @@ pub struct SupervisorStatus {
 /// What happened, content-free. `launch` is the 1-based count of children started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SupervisorEvent {
-    Started { launch: u64, pid: u32 },
+    Started {
+        launch: u64,
+        pid: u32,
+    },
     /// The child answered its first probe.
-    Ready { launch: u64 },
+    Ready {
+        launch: u64,
+    },
     /// The child exited by itself.
     Exited {
         launch: u64,
@@ -134,10 +139,16 @@ pub enum SupervisorEvent {
         consecutive_failures: u32,
     },
     /// The child never answered a probe within the policy's startup timeout; it is stopped.
-    StartupTimedOut { launch: u64 },
+    StartupTimedOut {
+        launch: u64,
+    },
     /// The launch closure failed (never started a child).
-    LaunchFailed { error: String },
-    RestartScheduled { delay: Duration },
+    LaunchFailed {
+        error: String,
+    },
+    RestartScheduled {
+        delay: Duration,
+    },
     AwaitingDemand,
     /// The restart budget is spent.
     Exhausted,

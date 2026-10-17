@@ -21,7 +21,9 @@ fn the_device_listing_reports_every_device_without_its_key() {
     assert_eq!(list.len(), 3);
     // Oldest enrolment first.
     assert_eq!(
-        list.iter().map(|d| d.device_id.as_str()).collect::<Vec<_>>(),
+        list.iter()
+            .map(|d| d.device_id.as_str())
+            .collect::<Vec<_>>(),
         vec![first.id.as_str(), second.id.as_str(), third.id.as_str()]
     );
     assert_eq!(list[0].role.as_deref(), Some("operator"));
@@ -66,7 +68,11 @@ fn a_cursor_reads_lifecycle_events_in_order() {
         .collect();
     assert!(names.contains(&"ENROLLED"), "{names:?}");
     assert!(names.contains(&"DEVICE_REVOKED"), "{names:?}");
-    let seqs: Vec<u64> = page.events.iter().filter_map(|e| e["seq"].as_u64()).collect();
+    let seqs: Vec<u64> = page
+        .events
+        .iter()
+        .filter_map(|e| e["seq"].as_u64())
+        .collect();
     assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
 
     // Nothing newer: an empty page that keeps the cursor.

@@ -45,9 +45,15 @@ fn a_client_with_the_secret_is_served() {
         .suite(suite)
         .secret(secret);
     let client = Client::connect_config(&config).expect("connects");
-    assert_eq!(client.call("echo", json!({"n": 1})).unwrap(), json!({"n": 1}));
+    assert_eq!(
+        client.call("echo", json!({"n": 1})).unwrap(),
+        json!({"n": 1})
+    );
     // Every later request carries the secret too.
-    assert_eq!(client.call("echo", json!({"n": 2})).unwrap(), json!({"n": 2}));
+    assert_eq!(
+        client.call("echo", json!({"n": 2})).unwrap(),
+        json!({"n": 2})
+    );
 }
 
 #[test]

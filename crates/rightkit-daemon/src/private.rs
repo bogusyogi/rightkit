@@ -50,7 +50,10 @@ impl std::fmt::Display for SecretError {
         match self {
             SecretError::Random => f.write_str("the OS random source failed"),
             SecretError::Malformed => {
-                write!(f, "the secret must be {SECRET_HEX_LEN} lowercase hex digits")
+                write!(
+                    f,
+                    "the secret must be {SECRET_HEX_LEN} lowercase hex digits"
+                )
             }
             SecretError::Missing => f.write_str("stdin closed before a secret arrived"),
             SecretError::Io(e) => write!(f, "reading the secret: {e}"),

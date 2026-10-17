@@ -4,7 +4,7 @@
 //! [`RelayCore::expire`] now and then, and writes out what comes back.
 
 use super::{
-    auth_message, code, ticket_message, CircleId, ClientFrame, Class, MailboxId, ServerFrame,
+    auth_message, code, ticket_message, CircleId, Class, ClientFrame, MailboxId, ServerFrame,
 };
 use crate::remote::util::{hex, unhex};
 use base64::engine::general_purpose::STANDARD;
@@ -88,7 +88,9 @@ pub enum RelayError {
 impl std::fmt::Display for RelayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RelayError::TooManyUnauthenticated => f.write_str("too many unauthenticated connections"),
+            RelayError::TooManyUnauthenticated => {
+                f.write_str("too many unauthenticated connections")
+            }
             RelayError::Random => f.write_str("the OS random source failed"),
         }
     }
@@ -213,7 +215,15 @@ impl RelayCore {
                 if state.session.is_some() {
                     return fail(conn, code::BAD_FRAME, "already authenticated");
                 }
-                self.authenticate(conn, now, &owner_pub, &device_pub, exp, &ticket_sig, &challenge_sig)
+                self.authenticate(
+                    conn,
+                    now,
+                    &owner_pub,
+                    &device_pub,
+                    exp,
+                    &ticket_sig,
+                    &challenge_sig,
+                )
             }
             other => {
                 let Some(session) = &state.session else {
@@ -224,9 +234,12 @@ impl RelayCore {
                 }
                 let (mailbox, circle) = (session.mailbox, session.circle);
                 match other {
-                    ClientFrame::Put { id, to, class, body } => {
-                        self.put(conn, now, mailbox, circle, &id, &to, class, &body)
-                    }
+                    ClientFrame::Put {
+                        id,
+                        to,
+                        class,
+                        body,
+                    } => self.put(conn, now, mailbox, circle, &id, &to, class, &body),
                     ClientFrame::Fetch { limit } => self.fetch(conn, now, mailbox, circle, limit),
                     ClientFrame::Ack { ids } => self.ack(conn, mailbox, circle, &ids),
                     ClientFrame::Ping | ClientFrame::Auth { .. } => Vec::new(),

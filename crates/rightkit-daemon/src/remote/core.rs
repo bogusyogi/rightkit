@@ -20,9 +20,9 @@ mod pairing;
 mod tasks;
 
 pub use self::link::{Accepted, FrameOutcome, LinkSession, Out};
-pub use crate::remote::events::EventsPage;
 pub use self::pairing::{PairedDevice, PairingError, PairingInfo, PairingOptions, PairingStage};
 pub use self::tasks::{TaskInfo, TaskSpec};
+pub use crate::remote::events::EventsPage;
 
 use crate::record::write_atomic;
 use crate::remote::call::DeviceCalls;

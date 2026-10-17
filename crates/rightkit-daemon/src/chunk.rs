@@ -164,6 +164,7 @@ pub(crate) struct Uploads {
 
 impl Uploads {
     /// Bytes currently buffered for the assembly in progress.
+    #[cfg(test)]
     pub(crate) fn buffered_bytes(&self) -> usize {
         self.current.as_ref().map_or(0, |u| u.text.len())
     }
@@ -181,7 +182,11 @@ impl Uploads {
 
     /// [`accept_with`](Self::accept_with) with every method authorised (unit tests).
     #[cfg(test)]
-    pub(crate) fn accept(&mut self, params: &Value, max: usize) -> Result<UploadStep, ServiceError> {
+    pub(crate) fn accept(
+        &mut self,
+        params: &Value,
+        max: usize,
+    ) -> Result<UploadStep, ServiceError> {
         self.accept_with(params, max, &|_| Ok(()))
     }
 
@@ -245,7 +250,11 @@ impl Uploads {
         }
         let up = match self.current.as_mut() {
             Some(up) if up.id == id && up.next == seq => up,
-            _ => return Err(bad("upload piece out of order, repeated, or for another upload")),
+            _ => {
+                return Err(bad(
+                    "upload piece out of order, repeated, or for another upload",
+                ))
+            }
         };
         if up.text.len().saturating_add(text.len()) > max {
             return Err(ServiceError::new(
@@ -294,7 +303,9 @@ impl Download {
     /// Answer one `rk.fetch` frame.
     pub(crate) fn fetch(&self, params: &Value) -> Result<Value, ServiceError> {
         if params["id"].as_str() != Some(self.id.as_str()) {
-            return Err(bad("no such result on this connection (it was replaced or released)"));
+            return Err(bad(
+                "no such result on this connection (it was replaced or released)",
+            ));
         }
         let seq = params["seq"]
             .as_u64()
@@ -343,7 +354,13 @@ mod tests {
         let mut start = 0;
         for (i, end) in ends.iter().enumerate() {
             let last = i + 1 == ends.len();
-            let p = piece("u1", i as u64, last, &text[start..*end], (i == 0).then_some("m.big"));
+            let p = piece(
+                "u1",
+                i as u64,
+                last,
+                &text[start..*end],
+                (i == 0).then_some("m.big"),
+            );
             start = *end;
             match up.accept(&p, 1 << 20).unwrap() {
                 UploadStep::More { received } => {
@@ -362,24 +379,34 @@ mod tests {
     #[test]
     fn a_gap_a_repeat_or_a_foreign_id_drops_the_upload() {
         let mut up = Uploads::default();
-        up.accept(&piece("u1", 0, false, "{", Some("m")), 1000).unwrap();
+        up.accept(&piece("u1", 0, false, "{", Some("m")), 1000)
+            .unwrap();
         assert!(up.accept(&piece("u1", 2, false, "x", None), 1000).is_err());
         // Dropped: even the right next piece now fails.
         assert!(up.accept(&piece("u1", 1, false, "x", None), 1000).is_err());
 
-        up.accept(&piece("u2", 0, false, "{", Some("m")), 1000).unwrap();
+        up.accept(&piece("u2", 0, false, "{", Some("m")), 1000)
+            .unwrap();
         assert!(up.accept(&piece("u2", 0, false, "{", None), 1000).is_err());
-        up.accept(&piece("u3", 0, false, "{", Some("m")), 1000).unwrap();
-        assert!(up.accept(&piece("other", 1, false, "x", None), 1000).is_err());
+        up.accept(&piece("u3", 0, false, "{", Some("m")), 1000)
+            .unwrap();
+        assert!(up
+            .accept(&piece("other", 1, false, "x", None), 1000)
+            .is_err());
     }
 
     #[test]
     fn the_message_bound_and_the_reserved_prefix_are_enforced() {
         let mut up = Uploads::default();
-        up.accept(&piece("u", 0, false, "12345", Some("m")), 8).unwrap();
-        let err = up.accept(&piece("u", 1, false, "6789", None), 8).unwrap_err();
+        up.accept(&piece("u", 0, false, "12345", Some("m")), 8)
+            .unwrap();
+        let err = up
+            .accept(&piece("u", 1, false, "6789", None), 8)
+            .unwrap_err();
         assert_eq!(err.code, ERROR_REQUEST_TOO_LARGE);
-        assert!(up.accept(&piece("v", 0, false, "{", Some("rk.fetch")), 8).is_err());
+        assert!(up
+            .accept(&piece("v", 0, false, "{", Some("rk.fetch")), 8)
+            .is_err());
         assert!(up.accept(&piece("v", 0, false, "{", None), 8).is_err());
     }
 
@@ -407,7 +434,8 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code, ERROR_BAD_CHUNK);
         // A refused replacement also frees the assembly it replaced.
-        up.accept(&piece("v", 0, false, "{", Some("m")), 1000).unwrap();
+        up.accept(&piece("v", 0, false, "{", Some("m")), 1000)
+            .unwrap();
         assert_eq!(up.buffered_bytes(), 1);
         assert!(up
             .accept_with(&piece("w", 0, false, "{", Some("m")), 1000, &deny)
@@ -417,12 +445,23 @@ mod tests {
 
     #[test]
     fn deep_or_dense_bodies_are_refused_before_the_parse() {
-        let deep = format!("{}{}", "[".repeat(MAX_JSON_DEPTH + 1), "]".repeat(MAX_JSON_DEPTH + 1));
+        let deep = format!(
+            "{}{}",
+            "[".repeat(MAX_JSON_DEPTH + 1),
+            "]".repeat(MAX_JSON_DEPTH + 1)
+        );
         assert_eq!(check_shape(&deep).unwrap_err().code, ERROR_BAD_CHUNK);
-        let ok = format!("{}{}", "[".repeat(MAX_JSON_DEPTH), "]".repeat(MAX_JSON_DEPTH));
+        let ok = format!(
+            "{}{}",
+            "[".repeat(MAX_JSON_DEPTH),
+            "]".repeat(MAX_JSON_DEPTH)
+        );
         assert!(check_shape(&ok).is_ok());
         let dense = format!("[{}0]", "0,".repeat(MAX_JSON_NODES));
-        assert_eq!(check_shape(&dense).unwrap_err().code, ERROR_REQUEST_TOO_LARGE);
+        assert_eq!(
+            check_shape(&dense).unwrap_err().code,
+            ERROR_REQUEST_TOO_LARGE
+        );
         // Brackets and commas inside strings do not count.
         let text = serde_json::to_string(&json!({"s": "[[[[,,,,\"]]".repeat(50_000)})).unwrap();
         assert!(check_shape(&text).is_ok());
@@ -438,12 +477,18 @@ mod tests {
     #[test]
     fn an_idle_assembly_expires_and_a_failure_frees_it() {
         let mut up = Uploads::default();
-        up.accept(&piece("u", 0, false, "{", Some("m")), 1000).unwrap();
+        up.accept(&piece("u", 0, false, "{", Some("m")), 1000)
+            .unwrap();
         assert_eq!(up.buffered_bytes(), 1);
-        up.current.as_mut().unwrap().touched = Instant::now() - UPLOAD_IDLE_TIMEOUT - Duration::from_secs(1);
+        let Some(stale) = Instant::now().checked_sub(UPLOAD_IDLE_TIMEOUT + Duration::from_secs(1))
+        else {
+            return; // host uptime shorter than the idle timeout: nothing to backdate
+        };
+        up.current.as_mut().unwrap().touched = stale;
         up.expire();
         assert_eq!(up.buffered_bytes(), 0);
-        up.accept(&piece("u", 0, false, "{", Some("m")), 1000).unwrap();
+        up.accept(&piece("u", 0, false, "{", Some("m")), 1000)
+            .unwrap();
         assert!(up.accept(&piece("u", 5, false, "x", None), 1000).is_err());
         assert_eq!(up.buffered_bytes(), 0);
     }

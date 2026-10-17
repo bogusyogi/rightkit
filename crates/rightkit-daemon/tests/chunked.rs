@@ -21,7 +21,9 @@ impl Handler for Svc {
         match method {
             "echo" => Ok(params.clone()),
             // `{"n": 5000}` answers a string of n characters.
-            "make" => Ok(json!({"text": "é\"\\x".repeat(params["n"].as_u64().unwrap_or(0) as usize)})),
+            "make" => {
+                Ok(json!({"text": "é\"\\x".repeat(params["n"].as_u64().unwrap_or(0) as usize)}))
+            }
             "len" => Ok(json!({"len": params["text"].as_str().map(str::len)})),
             _ => Err(ServiceError::new("unknown_method", method)),
         }
@@ -39,8 +41,7 @@ fn start(options: HostOptions) -> (tempfile::TempDir, Suite, Hosted) {
         Allowlist::new().allow("app", ["echo", "make", "len"]),
     );
     config.frame_limit = FRAME;
-    let hosted =
-        host_with_options(&suite, config, Arc::new(Svc), options).expect("host starts");
+    let hosted = host_with_options(&suite, config, Arc::new(Svc), options).expect("host starts");
     (dir, suite, hosted)
 }
 
@@ -70,7 +71,10 @@ fn a_large_request_and_result_round_trip_in_pieces() {
     let echoed = client.call_large("echo", big.clone(), &mut |_| {}).unwrap();
     assert_eq!(echoed, big);
     // The same connection is still on a frame boundary and serves ordinary calls.
-    assert_eq!(client.call("echo", json!({"a": 1})).unwrap(), json!({"a": 1}));
+    assert_eq!(
+        client.call("echo", json!({"a": 1})).unwrap(),
+        json!({"a": 1})
+    );
 }
 
 #[test]
@@ -88,7 +92,9 @@ fn a_large_request_with_a_small_result_and_the_reverse() {
     assert_eq!(made["text"].as_str().unwrap().chars().count(), 40_000);
     // A small call through call_large is one ordinary request.
     assert_eq!(
-        client.call_large("echo", json!({"a": 1}), &mut |_| {}).unwrap(),
+        client
+            .call_large("echo", json!({"a": 1}), &mut |_| {})
+            .unwrap(),
         json!({"a": 1})
     );
 }
@@ -141,7 +147,11 @@ fn a_chunked_call_is_authorised_on_its_own_method() {
     let (_dir, suite, _host) = start(on());
     let client = connect(&suite);
     let error = client
-        .call_large("not_allowed", json!({"text": "x".repeat(40_000)}), &mut |_| {})
+        .call_large(
+            "not_allowed",
+            json!({"text": "x".repeat(40_000)}),
+            &mut |_| {},
+        )
         .unwrap_err();
     assert_eq!(error.code, ERROR_NOT_ALLOWED);
     // The reserved prefix cannot be smuggled in as the carried method.
@@ -173,7 +183,10 @@ fn the_default_host_refuses_rk_upload_and_advertises_no_chunking() {
         .call_large("len", json!({"text": "x".repeat(40_000)}), &mut |_| {})
         .unwrap_err();
     assert_eq!(error.code, ERROR_REQUEST_TOO_LARGE);
-    assert_eq!(client.call("echo", json!({"a": 1})).unwrap(), json!({"a": 1}));
+    assert_eq!(
+        client.call("echo", json!({"a": 1})).unwrap(),
+        json!({"a": 1})
+    );
 }
 
 #[test]
@@ -181,7 +194,10 @@ fn an_unauthorised_first_chunk_is_refused_and_nothing_is_kept() {
     let (_dir, suite, _host) = start(on());
     let client = connect(&suite);
     let error = client
-        .call("rk.upload", piece("u", 0, false, "{\"a\":", Some("not_allowed")))
+        .call(
+            "rk.upload",
+            piece("u", 0, false, "{\"a\":", Some("not_allowed")),
+        )
         .unwrap_err();
     assert_eq!(error.code, ERROR_NOT_ALLOWED);
     // Had the first piece been kept, this continuation would be accepted; there is nothing to
@@ -202,7 +218,10 @@ fn an_unauthorised_first_chunk_is_refused_and_nothing_is_kept() {
         .call("rk.upload", piece("v", 1, true, "1}", None))
         .unwrap_err();
     assert_eq!(error.code, ERROR_BAD_CHUNK);
-    assert_eq!(client.call("echo", json!({"a": 1})).unwrap(), json!({"a": 1}));
+    assert_eq!(
+        client.call("echo", json!({"a": 1})).unwrap(),
+        json!({"a": 1})
+    );
 }
 
 #[test]
@@ -222,7 +241,9 @@ fn a_deeply_nested_or_dense_body_is_refused_before_it_is_parsed() {
     assert_eq!(error.code, ERROR_REQUEST_TOO_LARGE);
     // The connection is clean afterwards.
     assert_eq!(
-        client.call_large("echo", json!({"a": 1}), &mut |_| {}).unwrap(),
+        client
+            .call_large("echo", json!({"a": 1}), &mut |_| {})
+            .unwrap(),
         json!({"a": 1})
     );
 }
@@ -235,7 +256,9 @@ fn assembly_state_is_freed_on_failure_and_on_disconnect() {
         .call("rk.upload", piece("u", 0, false, "{\"a\":", Some("echo")))
         .unwrap();
     // A gap drops the assembly: the right next piece no longer continues it.
-    assert!(client.call("rk.upload", piece("u", 5, false, "1", None)).is_err());
+    assert!(client
+        .call("rk.upload", piece("u", 5, false, "1", None))
+        .is_err());
     let error = client
         .call("rk.upload", piece("u", 1, true, "1}", None))
         .unwrap_err();
@@ -268,7 +291,10 @@ fn the_unix_listener_caps_concurrent_connections() {
         if Client::connect(&suite, "chunk-svc", "app").is_ok() {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "the slot was never released");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the slot was never released"
+        );
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
 }

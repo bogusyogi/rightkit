@@ -56,9 +56,9 @@ pub mod link;
 pub mod mode;
 mod peer;
 pub mod private;
+mod record;
 #[cfg(feature = "relay")]
 pub mod relay;
-mod record;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]
 pub mod remote;
@@ -69,10 +69,6 @@ pub mod supervisor;
 mod takeover_watch;
 mod transport;
 
-pub use private::{
-    exit_when_stdin_closes, watch_reader_eof, watch_stdin_eof, PrivateChild, PrivateSecret,
-    SecretError, SECRET_BYTES, SECRET_HEX_LEN,
-};
 pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
@@ -81,6 +77,10 @@ pub use discovery::{
     should_request_takeover, spawn_detached, takeover_obliges_yield, try_adopt_or_spawn,
     try_plan_host, wait_for_claim_winner, AdoptOrSpawn, Completeness, DiscoverOptions, HostPlan,
     InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry,
+};
+pub use private::{
+    exit_when_stdin_closes, watch_reader_eof, watch_stdin_eof, PrivateChild, PrivateSecret,
+    SecretError, SECRET_BYTES, SECRET_HEX_LEN,
 };
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.
@@ -91,10 +91,10 @@ pub use app_root::{
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
-    ConnectError, ERROR_BAD_CHUNK, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN, ERROR_HOST_HANDOFF,
-    ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_REQUEST_TOO_LARGE, ERROR_RESPONSE_TOO_LARGE,
-    ERROR_REVISION_CONFLICT,
-    ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT, ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
+    ConnectError, ServiceError, ERROR_BAD_CHUNK, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN,
+    ERROR_HOST_HANDOFF, ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_REQUEST_TOO_LARGE,
+    ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT, ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT,
+    ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
 };
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
 #[cfg(unix)]
