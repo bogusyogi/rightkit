@@ -236,6 +236,9 @@ fn cancelled_response_send_still_replies() {
 fn cancelling_an_unknown_or_finished_request_is_ignored() {
     let s = Session::start(|h| h);
     s.send(call(1, None, "finish"));
+    // The request must really be finished before it is cancelled; otherwise the cancel races the
+    // handler and (by default) suppresses the reply.
+    s.out.wait_for("reply to 1", |f| f["id"] == 1 && f.get("result").is_some());
     s.send(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}));
     s.send(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":99}}));
     let (frames, _) = s.finish();
