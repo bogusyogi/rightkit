@@ -12,7 +12,7 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 |---|---|---|---|
 | `fonts` | on | `fontdb`, `ttf-parser`, `subsetter`, `wuff` | Font catalog, parsing and subsetting (`src/font.rs`). |
 | `edit` | on | `getrandom`, `rightkit-fs` (its `fs` feature only), implies `fonts` | Compose, staged save and atomic commit (`src/compose.rs`, `src/save.rs`, `src/commit.rs`). |
-| `merge` | on | none (built on `lopdf`, which is always a dependency) | Page merge and selection (`src/merge.rs`). |
+| `merge` | on | none (built on `lopdf`, which is always a dependency) | Page merge and selection (`src/merge.rs`), page delete, reorder, rotate and insert with outline and page labels kept (`src/organize.rs`). |
 | `extract` | off | `pdf-extract` | Whole-document and per-page text extraction (`src/extract.rs`). |
 | `raster` | off | `image` (`png`, `jpeg` codecs only) | Render scanned pages to gray/RGBA/PNG for OCR (`src/raster.rs`). Detection (`src/scan.rs`) is always compiled. |
 | `redact` | off | none | Remove text, images, vector paths and annotations under marked areas, fail closed, whole-file rewrite (`src/redact.rs`). |

@@ -31,7 +31,7 @@ pub enum MergeError {
 
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
-fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
+pub(crate) fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
     // The same bounded loader as inspection: no stream (an object stream included) may decode past
     // `MAX_DECOMPRESSED_BYTES`.
     let doc = crate::inspect::load_pdf(bytes).map_err(|e| MergeError::Parse {
@@ -46,13 +46,13 @@ fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
 
 /// The indirect object made for an inherited value, by the ancestor that holds it and which of
 /// [`INHERITED`] it is. A page that inherits the same value gets this and nothing else.
-type SharedValues = BTreeMap<(ObjectId, usize), Object>;
+pub(crate) type SharedValues = BTreeMap<(ObjectId, usize), Object>;
 
 /// Sets on `page_id` the attributes it inherits. A direct value on an ancestor is cloned **once**
 /// into an indirect object kept in `shared` (the clone is of a value the document already holds, so
 /// the total is bounded by the document); every page below that ancestor then gets the same
 /// reference.
-fn materialize_inherited(doc: &mut Document, page_id: ObjectId, shared: &mut SharedValues) {
+pub(crate) fn materialize_inherited(doc: &mut Document, page_id: ObjectId, shared: &mut SharedValues) {
     // Only asked about, never copied: which attributes the page has itself and where its parent is.
     let (parent, has) = match doc.get_object(page_id).and_then(|o| o.as_dict()) {
         Ok(page) => (
