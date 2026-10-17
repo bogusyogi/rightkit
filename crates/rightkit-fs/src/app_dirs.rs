@@ -1046,10 +1046,18 @@ mod tests {
         // A relative XDG_CONFIG_HOME is ignored, like the other XDG bases.
         let d = linux(&[("HOME", "/home/a"), ("XDG_CONFIG_HOME", "rel")]);
         same(&d.config, "/home/a/.config/Orthic Labs/Ember");
-        // No HOME and no XDG_CONFIG_HOME: config sits next to data instead of failing.
-        let d = linux(&[("XDG_DATA_HOME", "/x/data")]);
-        same(&d.config, "/x/data/Orthic Labs/Ember");
-        assert_eq!(d.config, d.data);
+        // No HOME and no XDG_CONFIG_HOME: the config base falls back to the data base instead
+        // of being a new failure. A whole resolution still needs HOME (for `home` and, without
+        // XDG_CACHE_HOME, `cache`), so this is checked on the bases, and the resolution itself
+        // fails on HOME exactly as before.
+        let only_data = env_of(&[("XDG_DATA_HOME", "/x/data")]);
+        let bases = Bases::read(Os::Linux, &only_data);
+        assert_eq!(bases.config, bases.data);
+        same(bases.config.as_deref().unwrap(), "/x/data");
+        assert!(AppDirs::resolve_with(&app, &Options::new(Os::Linux), &only_data).is_err());
+        // With HOME restored the same environment resolves, and config sits next to data.
+        let d = linux(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/x/data")]);
+        same(&d.config, "/home/a/.config/Orthic Labs/Ember");
 
         let d = AppDirs::resolve_with(&app, &Options::new(Os::Windows), &env_of(WIN)).unwrap();
         assert_eq!(d.config, d.data);

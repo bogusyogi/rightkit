@@ -772,8 +772,8 @@ mod os {
         }
         // The text must lie inside the buffer, after the header, and be properly aligned.
         if text < base + std::mem::size_of::<UnicodeString>()
-            || text % 2 != 0
-            || bytes % 2 != 0
+            || !text.is_multiple_of(2)
+            || !bytes.is_multiple_of(2)
             || text + bytes > end
         {
             return None;

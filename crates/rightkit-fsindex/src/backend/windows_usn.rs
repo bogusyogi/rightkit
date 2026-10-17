@@ -220,12 +220,14 @@ pub fn parse_usn_records(buf: &[u8]) -> std::result::Result<UsnRecords, UsnError
             let r = &buf[at..at + len];
             let name_len = rd16(r, 56) as usize;
             let name_off = rd16(r, 58) as usize;
-            if name_len % 2 != 0 || name_off < USN_RECORD_V2_HEADER || name_off + name_len > len {
+            if !name_len.is_multiple_of(2) || name_off < USN_RECORD_V2_HEADER || name_off + name_len > len {
                 return Err(UsnError::Parse("file name outside the record"));
             }
             let units: Vec<u16> = r[name_off..name_off + name_len]
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             records.push(UsnRecord {
                 frn: rd64(r, 8),

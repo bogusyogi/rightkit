@@ -901,7 +901,7 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             .unwrap_or(0),
         stopped: false,
     };
-    let mut last_error = String::new();
+    let mut last_error: String;
     loop {
         // Each attempt is bounded by the startup deadline: a hung host must not defeat it.
         let left = deadline.saturating_duration_since(Instant::now());

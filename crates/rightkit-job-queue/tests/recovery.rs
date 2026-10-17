@@ -44,6 +44,16 @@ impl JobHandler for Counter {
     }
 }
 
+/// Records the kind of every job handed to it.
+struct KindLog(std::sync::Mutex<Vec<String>>);
+
+impl JobHandler for KindLog {
+    fn run(&self, job: &Job, _ctl: &JobControl) -> JobResult<Value> {
+        self.0.lock().unwrap().push(job.kind.clone());
+        Ok(json!({"ran": true}))
+    }
+}
+
 struct Retrying(AtomicUsize);
 
 impl JobHandler for Retrying {
@@ -344,20 +354,22 @@ fn a_kind_class_applies_to_jobs_of_that_kind_only() {
     assert_eq!(store.recovery(&named).unwrap(), Recovery::Never);
     assert_eq!(store.recovery(&other).unwrap(), Recovery::Resume);
 
-    // The class does the work: a started job of the named kind is failed, not re-run.
+    // The class does the work: a started job of the named kind is failed, not re-run. The
+    // queued job of the other kind is recoverable and does run, so the handler must see that
+    // kind and only that kind.
     start_and_lose(&store, &named);
     let store = Arc::new(store);
-    let counter = Counter::new();
+    let log = Arc::new(KindLog(std::sync::Mutex::new(Vec::new())));
     let runner = Runner::new(
         store.clone(),
         JobLocks::new(dir.path().join("locks")),
-        counter.clone(),
+        log.clone(),
     );
     runner.resume_recoverable().unwrap();
     assert_eq!(
-        counter.calls(),
-        0,
-        "the named kind is never handed to a handler"
+        *log.0.lock().unwrap(),
+        vec!["sync".to_string()],
+        "the named kind is never handed to a handler; the other kind is"
     );
     let job = store.get(&named).unwrap();
     assert_eq!(job.status, FAILED);

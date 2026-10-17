@@ -11,7 +11,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicU32, Ordering},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -106,7 +106,16 @@ fn the_executable_path_and_the_marker_must_both_hold() {
     assert_eq!(found[0].pid(), child.id());
 
     // The right executable alone is a broad query: only ever a dry run. It finds the child.
-    let by_exe = find_processes(&ProcessQuery::new().exe(&exe)).unwrap();
+    // The scan walks a live process table, so a single pass can miss a process caught mid-change
+    // on a busy host; the child is long-lived, so it must appear within a bounded wait.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let by_exe = loop {
+        let by_exe = find_processes(&ProcessQuery::new().exe(&exe)).unwrap();
+        if by_exe.iter().any(|found| found.pid() == child.id()) || Instant::now() >= deadline {
+            break by_exe;
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
     assert!(by_exe.iter().any(|found| found.pid() == child.id()));
     assert!(by_exe.iter().all(|found| found.pid() != std::process::id()));
 
@@ -142,6 +151,9 @@ fn a_sweep_stops_the_marked_child_and_leaves_an_unmarked_one() {
     let mut target = spawn_marked(&marker_a);
     let bystander = spawn_marked(&marker_b);
     let target_pid = target.id();
+    // `Child::wait` closes a piped stdin first, which would make the shell read EOF and exit
+    // before the sweep signals it. Keep the pipe open until the sweep is done.
+    let _target_stdin = target.stdin.take();
     // The target is our own child: reap it as soon as it dies, as its parent would.
     let reaper = thread::spawn(move || target.wait());
 

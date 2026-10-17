@@ -156,25 +156,24 @@ fn read_u32(buf: &[u8], at: usize) -> Option<u32> {
 pub(crate) fn parse_notify_buffer(buf: &[u8]) -> Vec<RawChange> {
     let mut out = Vec::new();
     let mut offset = 0usize;
-    loop {
-        let (Some(next), Some(action), Some(len)) = (
-            read_u32(buf, offset),
-            offset.checked_add(4).and_then(|o| read_u32(buf, o)),
-            offset.checked_add(8).and_then(|o| read_u32(buf, o)),
-        ) else {
-            break;
-        };
+    while let (Some(next), Some(action), Some(len)) = (
+        read_u32(buf, offset),
+        offset.checked_add(4).and_then(|o| read_u32(buf, o)),
+        offset.checked_add(8).and_then(|o| read_u32(buf, o)),
+    ) {
         let (next, len) = (next as usize, len as usize);
         let name_start = offset + RECORD_HEADER;
         let Some(name_end) = name_start.checked_add(len).filter(|end| *end <= buf.len()) else {
             break;
         };
-        if len % 2 != 0 {
+        if !len.is_multiple_of(2) {
             break;
         }
         let units: Vec<u16> = buf[name_start..name_end]
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
             .collect();
         out.push(RawChange {
             action,
@@ -612,7 +611,7 @@ fn open_watcher(
 pub(crate) fn start(
     root: &Path,
     options: &TypedOptions,
-    mut sink: BackendSink,
+    sink: BackendSink,
 ) -> Result<Handle, WatchError> {
     let backend_error = |message: String| WatchError::Backend {
         message,
@@ -926,7 +925,7 @@ mod tests {
         assert_eq!(clamp_buffer(65_539), 65_536);
         assert_eq!(clamp_buffer(262_144), 65_536);
         assert_eq!(clamp_buffer(u32::MAX), 65_536);
-        assert!((0..70_000u32).step_by(997).all(|n| clamp_buffer(n) % 4 == 0));
+        assert!((0..70_000u32).step_by(997).all(|n| clamp_buffer(n).is_multiple_of(4)));
     }
 
     #[test]
