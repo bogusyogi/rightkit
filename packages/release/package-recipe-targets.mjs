@@ -15,11 +15,16 @@ const fail = (message) => { throw new PackageRecipeTargetError(message); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const rel = (appRoot, file) => path.relative(appRoot, file).split(path.sep).join("/");
 // Tauri never signs or creates updater artifacts here: release.mjs signs, and sign-updater signs the signed bytes.
+const withoutRecipe = (target) => {
+  if (!isObject(target) || !("recipe" in target)) return target;
+  const { recipe: _ignored, ...rest } = target;
+  return rest;
+};
 const QUIET_TAURI_ENV = { TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
 
 /** `targets.win.winPackage` → prePackage (`tauri build --no-bundle`) and package (`tauri bundle --bundles nsis`). */
 export function expandWinPackageTarget(target, { appRoot, config = {} }) {
-  if (!target?.winPackage) return target;
+  if (!target?.winPackage) return withoutRecipe(target);
   if (target.prePackage !== undefined) fail("targets.win.winPackage replaces prePackage; remove the prePackage script");
   if (target.winPackage.sidecars !== undefined) fail("targets.win.winPackage.sidecars is not supported in a right-release target: declare sidecars through externalBin or mediaSidecar, which release.mjs signs with the raw EXE");
   let plan;
@@ -30,7 +35,8 @@ export function expandWinPackageTarget(target, { appRoot, config = {} }) {
   if (target.signingContract !== undefined && target.signingContract !== "windows-raw-exe-authenticode-before-nsis-v1") fail(`targets.win.winPackage builds an NSIS installer; signingContract must be windows-raw-exe-authenticode-before-nsis-v1, got ${target.signingContract}`);
   const cwd = rel(plan.appRoot, plan.tauriCwd) || ".";
   const override = { bundle: { createUpdaterArtifacts: false, windows: { nsis: { installMode: plan.perMachine ? "perMachine" : "currentUser" } } } };
-  const { winPackage, ...rest } = target;
+  // `recipe` is set only here: a hand-written one is dropped so it can never select a recipe path.
+  const { winPackage, recipe: _ignoredWin, ...rest } = target;
   return {
     ...rest,
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
@@ -49,7 +55,7 @@ const MAC_KEYS = new Set(["universal", "tauriCwd", "features"]);
  * The app path and DMG path are `notarize.app` and `notarize.file`; DMG branding is `targets.mac.dmg`.
  */
 export function expandMacPackageTarget(target, { appRoot }) {
-  if (!target?.macPackage) return target;
+  if (!target?.macPackage) return withoutRecipe(target);
   const spec = target.macPackage;
   if (!isObject(spec)) fail("targets.mac.macPackage must be an object");
   const unknown = Object.keys(spec).filter((key) => !MAC_KEYS.has(key));
@@ -69,7 +75,7 @@ export function expandMacPackageTarget(target, { appRoot }) {
   if (spec.features?.length) args.push("--features", spec.features.join(","));
   const prePackageFiles = target.sign?.prePackageFiles ?? [target.notarize.app];
   if (!prePackageFiles.some((entry) => (typeof entry === "string" ? entry : entry?.file) === target.notarize.app)) fail("targets.mac.macPackage: sign.prePackageFiles must include notarize.app");
-  const { macPackage, ...rest } = target;
+  const { macPackage, recipe: _ignoredMac, ...rest } = target;
   return {
     ...rest,
     prePackage: { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },

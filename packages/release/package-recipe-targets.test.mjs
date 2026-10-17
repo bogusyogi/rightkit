@@ -71,6 +71,7 @@ test("targets without a recipe pass through, and recipes are refused off their p
   assert.equal(expandPackageRecipeTarget(plain, { platform: "win", appRoot, config: {} }), plain);
   assert.equal(expandPackageRecipeTarget(undefined, { platform: "mac", appRoot, config: {} }), undefined);
   assert.throws(() => expandPackageRecipeTarget({ macPackage: {} }, { platform: "android", appRoot, config: {} }), PackageRecipeTargetError);
+  assert.equal(expandPackageRecipeTarget({ signed: true, recipe: { kind: "macPackage" } }, { platform: "mac", appRoot, config: {} }).recipe, undefined);
   assert.equal(packageCommandOptional({ winPackage: {} }, "tauri"), true);
   assert.equal(packageCommandOptional({}, "tauri"), false);
 });

@@ -112,8 +112,8 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
     if (target.install.kind === TAURI_DEVID_KIND) {
       // installTauriDevId is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
-      releaseLease = false;
       const built = resolveTauriArtifact(target.install, { root, platform, env: childEnv });
+      releaseLease = false;
       return installTauriDevId({ appRoot: root, config: target.install, built, env: childEnv })
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
         .finally(() => lease.release());
