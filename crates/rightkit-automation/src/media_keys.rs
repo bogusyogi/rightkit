@@ -83,6 +83,7 @@ impl MediaKey {
 }
 
 /// `data1` of an `NSSystemDefined` subtype-8 event: key type in bits 16+, state in 8..16.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn aux_data1(key_type: i64, down: bool) -> i64 {
     let state: i64 = if down { 0xA } else { 0xB };
     (key_type << 16) | (state << 8)

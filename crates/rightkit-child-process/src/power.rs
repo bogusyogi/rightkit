@@ -25,6 +25,8 @@ pub enum PowerKind {
 /// A live keep-awake request. Released on drop.
 #[derive(Debug)]
 pub struct PowerAssertion {
+    // Held only for its Drop, which releases the request.
+    #[allow(dead_code)]
     inner: imp::Inner,
 }
 

@@ -245,6 +245,7 @@ pub const MANAGED_CURRENT_DIR: &str = "current";
 /// Folder name of the single rollback copy kept beside [`MANAGED_CURRENT_DIR`].
 pub const MANAGED_PREVIOUS_DIR: &str = "current.previous";
 /// Folder name the installer extracts into before swapping it into `current`.
+#[cfg_attr(not(feature = "install"), allow(dead_code))]
 pub const MANAGED_STAGING_DIR: &str = "current.staging";
 
 /// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`].
@@ -263,6 +264,7 @@ pub struct ManagedRoot {
     root: PathBuf,
 }
 
+#[cfg_attr(not(feature = "install"), allow(dead_code))]
 impl ManagedRoot {
     /// The suite-wide root (`<app data>/Orthic Labs/shared/chrome-for-testing`), or
     /// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when set.

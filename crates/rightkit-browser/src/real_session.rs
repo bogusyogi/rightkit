@@ -380,7 +380,7 @@ impl UserConsentReceipt {
     }
 
     pub fn is_active_at(&self, now_ms: u64) -> bool {
-        self.revoked_at_ms.is_none() && self.expires_at_ms.map_or(true, |e| now_ms < e)
+        self.revoked_at_ms.is_none() && self.expires_at_ms.is_none_or(|e| now_ms < e)
     }
 
     pub fn check_active(&self) -> Result<()> {
@@ -403,7 +403,7 @@ impl UserConsentReceipt {
     pub fn permits_url(&self, url: &str) -> bool {
         match url::Url::parse(url) {
             Ok(u) if matches!(u.scheme(), "http" | "https") => {
-                u.host_str().map_or(false, |h| self.permits_host(h))
+                u.host_str().is_some_and(|h| self.permits_host(h))
             }
             _ => false,
         }
