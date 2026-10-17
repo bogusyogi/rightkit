@@ -292,6 +292,29 @@ Linux has catalog and planner support only: the planner maps `linux` to the `*-u
 
 Any app that ships more than the ffmpeg sidecar (MailRight: `mailright-engine`, `mailright-core`) sets `targets.mac.externalBin` / `targets.win.externalBin`: `{ names: [...], arch?, stageDir? ("src-tauri/binaries"), bundleDir? (mac: "Contents/MacOS" | "Contents/Resources"), stage?: { cmd, args? } }`. It is the generic form of the ffmpeg staging above and reuses its target-triple naming (`<name>-<triple>[.exe]`), staged-file checks and signing evidence checks (`external-bin.mjs` over `media-sidecar.mjs`); it has no catalog, notices or manifest seal. `stage` is the app's own build of the files. Windows signs the staged files in the raw-EXE step; macOS signs `<bundleDir>/<name>` as nested code (hardened runtime) and checks the nested receipt. `external-bin.json` (state root) records pre-sign and signed digests. Names that `mediaSidecar` stages (`ffmpeg`, `ffprobe`) are refused here. Tests: `external-bin.test.mjs`.
 
+## Keeping agent writes off the internal drive (`disk agent-env`, `disk probe`)
+
+No agent may write to the internal drive (C: on Windows, the internal disk on macOS); only installed apps go there.
+
+`right-release disk agent-env [--root <dir>] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]` prints the environment that sends agent and child-tool writes to the external root (default `D:\` on Windows, `/Volumes/D` on macOS; default format `ps1` on Windows, `sh` on macOS). It fails closed: if the root is missing, not writable, on the system drive, or (macOS) not under `/Volumes`, it prints nothing on stdout and exits 1. It never falls back to the internal drive. It creates the target folders under the root. `CARGO_TARGET_DIR` is deliberately not set because RustRight owns cargo targets. `CODEX_HOME` and `CLAUDE_CONFIG_DIR` appear only with `--include-agent-homes`, because moving them requires restarting every chat. `--check` compares the current process environment with the map and lists each variable that is on the internal drive or unset; exit 1 when any is. The paths are the ones RustRight applied to the user environment, in one exported table (`AGENT_ENV_TABLE`, imported by the RustRight broker), relative to the root and the same on both platforms:
+
+| Variables | Path under the root |
+| --- | --- |
+| `TEMP`, `TMP`, `TMPDIR`, `CLAUDE_CODE_TMPDIR` | `agent-cache/tmp` |
+| `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME` | `agent-cache/xdg`, `xdg-data`, `xdg-state`, `xdg-config` |
+| `PNPM_STORE_DIR`, `NUGET_PACKAGES` | `agent-cache/pnpm-store`, `agent-cache/nuget` |
+| `npm_config_cache`, `PIP_CACHE_DIR`, `UV_CACHE_DIR`, `HF_HOME` | `.dev-cache/npm-cache`, `pip`, `uv`, `huggingface` |
+| `YARN_CACHE_FOLDER`, `TORCH_HOME`, `TRANSFORMERS_CACHE`, `PLAYWRIGHT_BROWSERS_PATH`, `PUPPETEER_CACHE_DIR`, `GOCACHE`, `GOMODCACHE`, `DOTNET_CLI_HOME`, `ELECTRON_CACHE`, `DENO_DIR` | `agent-cache/yarn`, `torch`, `transformers`, `playwright`, `puppeteer`, `go-build`, `go-mod`, `dotnet`, `electron`, `deno` |
+| `CODEX_HOME`, `CLAUDE_CONFIG_DIR` (`--include-agent-homes`) | `agent-home/codex`, `agent-home/claude` |
+
+`right-release disk probe [--json]` makes a real attempt to create, then immediately remove, one uniquely named 0-byte file (`.rk-disk-probe-<pid>-<nonce>`) in the user profile root, the local temp (`AppData\Local\Temp`, or `TMPDIR` on macOS), the OS temp and the external root. It writes nothing else. Run it from Claude, Codex and a child process as proof. It exits 1 when `internalWritable` is true (or a probe file could not be removed). `--json` prints exactly:
+
+```json
+{"schema":"rightkit.disk.probe.v1","host":"<hostname>","root":"<external root>","results":[{"location":"profile|local-temp|os-temp|external-root","path":"<directory probed>","outcome":"blocked|allowed|error","code":"<error code or null>"}],"internalWritable":false}
+```
+
+`outcome` is `allowed` (file created and removed), `blocked` (`EACCES`, `EPERM` or `EROFS`) or `error` (directory missing or another failure; `code` says which). `code` is `null` when allowed, except `UNLINK_<code>` when the probe file could not be removed. `internalWritable` is true when profile, local-temp or os-temp is `allowed`.
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that depends on a different `smol-toml` version gets a second copy.
