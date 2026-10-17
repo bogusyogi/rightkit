@@ -6,6 +6,10 @@ Per-app OS credential storage for Right Suite applications. It provides macOS Ke
 
 **Do not use it** for secrets that must be shared between apps (use the per-app namespace) or for non-secret settings (use `rightkit-app-settings`, which holds only `SecretRef`s).
 
+## Cleared versions
+
+On macOS, use `rightkit-credentials` 0.2.0 or newer. `rightkit-secrets` 0.1.3 and earlier (the former name of this crate) used the keychain search list and are not cleared for storing secrets; see the 0.2.0 entry in the changelog. Apps still on `rightkit-secrets` rename the dependency and import path.
+
 ## Features
 
 | Feature | Default | Pulls in | Effect |

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Cleared version for macOS (Orthic-Labs/rightkit#308, ledger 103). `rightkit-secrets` 0.1.3 and earlier read, modified and deleted through the whole user keychain search list on macOS (the default-keychain defect fixed in 0.2.0 below), so they are not cleared. The cleared line is `rightkit-credentials` 0.2.0 or newer (the crate renamed from `rightkit-secrets`; this release, 0.2.1, is the first that also carries the Linux and Android backends). Migrate with `rightkit-credentials = "0.2.1"` and the new crate name. No code change; documentation only.
+
 ## 0.2.1
 
 - Added (rightkit#153): Android Keystore store (`android` module: `AndroidKeystoreBackend`, `KeystoreBridge`, `BridgeError`, `install`; `system_backend()` on `target_os = "android"`). An AES-256-GCM key per namespace service stays inside `AndroidKeyStore`; secrets are encrypted through an injected `KeystoreBridge` (the JNI side belongs to the `rightkit-android` bridge crate, rightkit#149; this crate links no JNI and adds no dependency) and only ciphertext is written to `<files_dir>/rightkit-credentials/credentials-v1.json`, bound to its `(service, account)` through the GCM AAD. Mutations take a per-directory `flock` and replace the file by rename. Before `install` (or with a bridge that reports no context) every call is `Error::Unavailable`; a store file that is unreadable or of an unknown version fails closed and is never overwritten; a credential whose Keystore key is gone is an error (code -4), never `Ok(None)`. Additive, so it stays inside 0.2.1. The module compiles on every platform and is unit-tested on the host with a fake bridge; the real Keystore and multi-process behaviour are unverified on a device.
