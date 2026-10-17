@@ -512,7 +512,7 @@ impl OAuthClient {
             let remaining = timeout
                 .saturating_sub(started.elapsed())
                 .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
-            match read_callback(stream, remaining, &self.config.redirect.path) {
+            match read_callback(stream, remaining) {
                 Ok(cb) if cb.path == self.config.redirect.path => break cb,
                 Ok(_) if started.elapsed() < timeout => continue,
                 Ok(_) => {
@@ -849,7 +849,6 @@ fn read_request_line(
 fn read_callback(
     mut stream: TcpStream,
     read_budget: Duration,
-    expected_path: &str,
 ) -> Result<Callback, OAuthError> {
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     stream.set_nonblocking(false).ok();
