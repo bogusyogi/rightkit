@@ -1357,7 +1357,35 @@ impl Client {
 
     /// Buffered request; non-2xx becomes [`HttpError::Status`].
     pub fn send(&self, req: &Request) -> Result<Response, HttpError> {
-        let resp = self.send_any(req)?;
+        self.send_checked(req, None)
+    }
+
+    /// [`Client::send`] cancelled through a borrowed flag, for callers that own an
+    /// `AtomicBool` and cannot hand out an `Arc` ([`CancelToken::from_flag`]). The flag is
+    /// checked at the same points as a token: between attempts, during retry sleeps and
+    /// before every body read (it still cannot interrupt a socket call already waiting for
+    /// headers; `response_timeout` bounds that). It replaces any [`Request::cancel`] token
+    /// on this call. Buffered calls only: a stream outlives the borrow, so `stream` and
+    /// `stream_any` keep taking a [`CancelToken`].
+    pub fn send_with_flag(&self, req: &Request, flag: &AtomicBool) -> Result<Response, HttpError> {
+        self.send_checked(req, Some(flag))
+    }
+
+    /// [`Client::send_any`] with a borrowed cancel flag; see [`Client::send_with_flag`].
+    pub fn send_any_with_flag(
+        &self,
+        req: &Request,
+        flag: &AtomicBool,
+    ) -> Result<Response, HttpError> {
+        self.send_any_checked(req, Some(flag))
+    }
+
+    fn send_checked(
+        &self,
+        req: &Request,
+        flag: Option<&AtomicBool>,
+    ) -> Result<Response, HttpError> {
+        let resp = self.send_any_checked(req, flag)?;
         if (200..300).contains(&resp.status) {
             Ok(resp)
         } else {
@@ -1371,8 +1399,16 @@ impl Client {
 
     /// Buffered request returning any final status (retryable statuses are still retried).
     pub fn send_any(&self, req: &Request) -> Result<Response, HttpError> {
+        self.send_any_checked(req, None)
+    }
+
+    fn send_any_checked(
+        &self,
+        req: &Request,
+        flag: Option<&AtomicBool>,
+    ) -> Result<Response, HttpError> {
         let timeout = req.timeout.unwrap_or(self.config.request_timeout);
-        let cancel = request_cancel(req);
+        let cancel = flag.or_else(|| request_cancel(req));
         let mut raw = self.execute(req, Some(timeout), cancel)?;
         let values = self.redaction_values(req);
         if req.headers_only {
