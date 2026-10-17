@@ -126,7 +126,7 @@ jobs:
           tool: cargo-deny@0.20.2
       - name: Check rightkit-typeset dependency licences
         if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
-        run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check licenses
+        run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses
 
   sign-swap:
     needs: [guard, plan]
