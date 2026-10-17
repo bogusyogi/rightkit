@@ -325,7 +325,7 @@ pub(crate) fn download_resumable_recorded(
     download_resumable_recorded_capped(client, request, identity, None, progress, slot)
 }
 
-fn download_resumable_recorded_capped(
+pub(crate) fn download_resumable_recorded_capped(
     client: &ModelHttp,
     request: DownloadRequest<'_>,
     identity: Option<&str>,

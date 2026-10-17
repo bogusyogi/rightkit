@@ -327,8 +327,8 @@ pub(crate) fn ensure_ready_recorded(
         SpecSource::Archive {
             url,
             sha256,
+            size,
             requires_auth,
-            ..
         } => {
             let url = url.ok_or("no download endpoint configured for this platform")?;
             if *requires_auth && opts.authorization.is_none() {
@@ -343,6 +343,7 @@ pub(crate) fn ensure_ready_recorded(
                 spec,
                 url,
                 *sha256,
+                *size,
                 opts.authorization,
                 cancelled,
                 &mut progress,
@@ -398,6 +399,7 @@ fn download_archive(
     spec: &ModelSpec,
     url: &str,
     sha256: Option<&'static str>,
+    size: Option<u64>,
     authorization: Option<&str>,
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(Progress),
@@ -407,7 +409,9 @@ fn download_archive(
     let dest = incoming.join(format!("{}.tar.gz", spec.id));
     let part = download::part_path_for(&dest);
     let file = spec.id.to_string();
-    download::download_resumable_recorded(
+    // A pinned archive size bounds the download (nothing past it is written) and is checked
+    // exactly below, next to the whole-archive SHA-256.
+    download::download_resumable_recorded_capped(
         client,
         DownloadRequest {
             url,
@@ -418,6 +422,7 @@ fn download_archive(
             cancelled,
         },
         None,
+        size,
         |received, total| {
             progress(Progress::Download {
                 file: file.clone(),
@@ -428,6 +433,16 @@ fn download_archive(
         slot,
     )
     .map_err(|error| error.message)?;
+    if let Some(pinned) = size {
+        let got = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+        if got != pinned {
+            let _ = fs::remove_file(&dest);
+            return Err(format!(
+                "{} archive is {got} bytes, the pinned size is {pinned}",
+                spec.label
+            ));
+        }
+    }
     progress(Progress::Install);
     archive::install_tar_gz(&dest, models_root, spec.id)?;
     let _ = fs::remove_file(&dest);
