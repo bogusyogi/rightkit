@@ -8,6 +8,10 @@ contract's change history is visible. If the owner wants a published contract
 to start from this state, bump the major (`2.0.0`, file `channel-memory.v2`)
 at that point.
 
+## Unreleased: review epoch and brief re-entry (#314)
+
+- Additive, no schema change. `ChannelMemory::review_epoch(proof_ids)` returns the epoch of the facts a brief cites (`id@revision:status`, sorted by id, `;`-joined, `id@missing` for an absent proof). `ChannelMemory::brief_reentry(proof_ids, reviewed_epoch)` returns `BriefReentry::Current` or `BriefReentry::NeedsReview { changed, epoch }`, so a brief re-enters review when a cited fact is revised, withdrawn, superseded or removed. A brief stores the epoch when it passes review.
+
 ## 0.1.0: proof semantics revision (contract p3-proof-semantics §2, §3, §5.3, §6, §9, §10)
 
 ### Breaking changes to the schema and typed model

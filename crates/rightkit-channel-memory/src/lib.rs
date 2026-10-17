@@ -33,6 +33,7 @@
 #![forbid(unsafe_code)]
 
 mod decimal;
+mod epoch;
 mod error;
 mod model;
 mod proof;
@@ -41,6 +42,7 @@ mod unit;
 mod validate;
 
 pub use decimal::Decimal;
+pub use epoch::BriefReentry;
 pub use error::{MemoryError, ReasonCode};
 pub use model::*;
 pub use proof::{
