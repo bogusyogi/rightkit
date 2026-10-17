@@ -316,7 +316,14 @@ impl Guard {
         }
         let c = comps(resolved);
         let has_prefix = matches!(resolved.components().next(), Some(Component::Prefix(_)));
-        if !has_prefix && c.first().map(String::as_str) == Some("volumes") {
+        // A temp root or user home may itself sit on a /Volumes disk (the Mac build home is /Volumes/D);
+        // paths under them are judged by the home, temp and QA-root rules instead (as in @rightkit/qa).
+        let on_known_root = self
+            .temp_roots
+            .iter()
+            .chain(self.user_homes.iter())
+            .any(|root| resolved.starts_with(root));
+        if !has_prefix && !on_known_root && c.first().map(String::as_str) == Some("volumes") {
             return Some((
                 Rule::ExternalVolume,
                 "an external or network volume under /Volumes".into(),
@@ -857,6 +864,25 @@ mod tests {
         let v = g.check_dir(&h.join("Elsewhere")).unwrap_err();
         assert_eq!(v.rule, Rule::OutsideQaRoot);
         done(f);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_temp_root_on_a_volumes_disk_is_not_an_external_volume() {
+        // The Mac build home is /Volumes/D: its temp root must not trip the external-volume rule.
+        let g = Guard {
+            app: None,
+            user_homes: vec![],
+            temp_roots: vec![PathBuf::from("/Volumes/D/.rightkit-managed/tmp")],
+            qa_root: None,
+        };
+        assert!(g
+            .forbidden(Path::new(
+                "/Volumes/D/.rightkit-managed/tmp/jobs/rightkit-qa-budget-1"
+            ))
+            .is_none_or(|(rule, _)| rule != Rule::ExternalVolume));
+        let (rule, _) = g.forbidden(Path::new("/Volumes/Backup/qa-home")).unwrap();
+        assert_eq!(rule, Rule::ExternalVolume);
     }
 
     #[cfg(unix)]
