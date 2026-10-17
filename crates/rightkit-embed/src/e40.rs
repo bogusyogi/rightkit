@@ -1480,7 +1480,8 @@ mod tests {
             Err(EmbedError::MissingArtifact(_))
         ));
         let layout = Layout::parse(MANIFEST).unwrap();
-        for name in layout.files() {
+        // `files()` lists the manifest too; it is already on disk and must not be overwritten.
+        for name in layout.files().into_iter().filter(|n| n != MANIFEST_FILE) {
             std::fs::write(dir.join(name), b"x").unwrap();
         }
         assert_eq!(Layout::load(&dir).unwrap(), layout);
