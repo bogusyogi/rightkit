@@ -108,13 +108,13 @@ For a public repository whose signing must run on protected CI, but whose artifa
   "lanes": ["ci", "sign-existing"],
   "signExisting": {
     "macSignManifest": "build/dev-sign.json",
-    "macPayloadMetadata": "Legion.app/Contents/Resources/payload.json",
+    "macPayloadMetadata": "payload.json",
     "environment": "release"
   }
 }
 ```
 
-- `macSignManifest` (repository-relative) and `macPayloadMetadata` (relative to the extracted artifact) are the same as for `devArtifact.macSignManifest`; `environment` is optional and defaults to the signing environment (`release`). `matrix.os` needs a macOS runner; the first one is used.
+- `macSignManifest` (repository-relative) and `macPayloadMetadata` (relative to the extracted artifact, and outside every signed bundle: `right-release sign-dev-artifact` refuses metadata inside a signed `.app`, because refreshing it after signing would break that signature) are the same as for `devArtifact.macSignManifest`; `environment` is optional and defaults to the signing environment (`release`). `matrix.os` needs a macOS runner; the first one is used.
 - Invoke it from the default branch: `gh workflow run sign-existing.yml -f run_id=39001031529 -f artifact=12089612527 -f source_sha=59f451ae`. `artifact` is a numeric artifact id or an artifact name (all digits means id). `source_sha` is 7 to 40 lowercase hex characters and must be a prefix of the run's full head sha.
 - The job refuses, before it downloads the artifact or reads a secret, unless the GitHub API shows that the run belongs to this repository, was built from it (not a fork), completed successfully and has a head sha starting with `source_sha`; that exactly one unexpired artifact of that run matches and records the same run, head sha and repository; and that the source commit is an ancestor of the signing revision (the default-branch commit that runs the job, which also supplies the signing code and sign manifest).
 - The artifact must hold one zip (extracted with `ditto`) or a plain file tree. The job signs it with `right-release sign-dev-artifact`, then uploads `signed-<artifact name>-<sha>` containing the signed zip (same layout), `sign-evidence.json` and `source-verification.json`. It uses the same three Developer ID secrets and temporary keychain as `dev-mac-sign`, with `contents: read` and `actions: read` only. Needs `@rightkit/release` 0.2.172 or later as a dependency. Unset, nothing changes.

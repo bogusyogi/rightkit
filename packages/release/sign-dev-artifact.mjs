@@ -2,7 +2,9 @@
 // right-release sign-dev-artifact: Developer ID sign an EXISTING, already-qualified CI dev artifact in place (Orthic-Labs/rightkit#257).
 // It never builds, notarizes, publishes or installs. Steps: verify the artifact's recorded hashes, sign each manifest file with its fixed
 // codesign identifier (mac-sign-core signMacosEntries, the provisioned Developer ID only), verify strictly, read back Identifier and
-// TeamIdentifier, refresh the payload metadata, and write evidence JSON.
+// TeamIdentifier, refresh the payload metadata, and write evidence JSON. An optional declarative `refresh` in the sign manifest
+// (dev-artifact-refresh.mjs) recomputes digests recorded in JSON files after the code they describe is signed and before the bundle
+// that contains those files is signed, so that bundle seals their final bytes; the payload metadata refresh then records everything.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,29 +14,14 @@ import { SIGN_MANIFEST_SCHEMA, parseSignManifest, signMacosEntries } from "./mac
 import { fileEvidence } from "./macos-file-evidence.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
+import { SignDevArtifactError, contained, fail, toPosix } from "./dev-artifact-support.mjs";
+import { applyRefresh, planRefresh, readRefreshPlan } from "./dev-artifact-refresh.mjs";
 
 export const DEV_ARTIFACT_PAYLOAD_SCHEMA = 1;
 export const DEV_ARTIFACT_EVIDENCE_SCHEMA = 1;
 export const DEFAULT_PAYLOAD_METADATA = "payload.json";
 
-export class SignDevArtifactError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = "SignDevArtifactError";
-    this.code = code;
-  }
-}
-
-const fail = (code, message) => { throw new SignDevArtifactError(code, message); };
-const toPosix = (value) => value.split(path.sep).join("/");
-
-/** A path relative to `base` that stays inside it: no absolute path, no `..`, not empty. Returns the absolute path. */
-function contained(base, relative, label) {
-  if (typeof relative !== "string" || !relative || path.isAbsolute(relative) || path.win32.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) {
-    fail("SIGN_DEV_ARTIFACT_PATH_INVALID", `${label} must be a relative path inside the artifact directory: ${JSON.stringify(relative)}`);
-  }
-  return path.resolve(base, relative);
-}
+export { SignDevArtifactError };
 
 /**
  * Sign manifest for this command: `{ schema: 1, entries: [{ file, identifier, entitlements?, options?, hardenedRuntime? }] }`.
@@ -66,6 +53,13 @@ export function readDevArtifactSignManifest(file, artifact) {
     }
   });
   return entries;
+}
+
+/** The optional declarative `refresh` of the sign manifest (see dev-artifact-refresh.mjs): `{ root, operations }`, absolute paths, validated. */
+export function readDevArtifactRefreshPlan(file, artifact) {
+  let raw;
+  try { raw = JSON.parse(readFileSync(file, "utf8")); } catch { fail("SIGN_DEV_ARTIFACT_MANIFEST_INVALID", `sign manifest is not readable JSON: ${file}`); }
+  return readRefreshPlan(raw, artifact);
 }
 
 /** Read the artifact's payload metadata `{ schema: 1, files: [{ path, sha256, ... }] }` and verify every recorded hash against disk. */
@@ -110,6 +104,8 @@ export function signDevArtifact({
   if (!existsSync(root)) fail("SIGN_DEV_ARTIFACT_MISSING", `artifact directory does not exist: ${root}`);
   const metadataFile = path.resolve(metadataPath ?? path.join(root, DEFAULT_PAYLOAD_METADATA));
   const entries = readDevArtifactSignManifest(path.resolve(manifestPath), root);
+  const refreshPlan = readDevArtifactRefreshPlan(path.resolve(manifestPath), root);
+  const plan = planRefresh(entries, refreshPlan.operations, metadataFile);
   const before = verifyDevArtifactPayload(root, metadataFile);
   for (const entry of entries) {
     if (!existsSync(entry.file)) fail("SIGN_DEV_ARTIFACT_MISSING", `sign manifest file is missing: ${path.relative(root, entry.file)}`);
@@ -128,7 +124,12 @@ export function signDevArtifact({
   const { identity, teamIdentifier } = signing;
 
   const sha256Before = new Map(entries.map((entry) => [entry.file, evidenceOf(entry.file).sha256]));
-  const signed = signMacosEntries(entries, { identity, signOne, inspect, evidence: evidenceOf, bundle: root });
+  // Entries before the refresh sign first, then the declared metadata is recomputed from their final bytes, then the entries that
+  // contain the refreshed files (the wrapper bundle) sign over them. Without a refresh this is one signing pass, as before.
+  const signingOptions = { identity, signOne, inspect, evidence: evidenceOf, bundle: root };
+  const signed = plan.before.length ? signMacosEntries(plan.before, signingOptions) : [];
+  const refreshed = refreshPlan.operations.length ? applyRefresh(refreshPlan.operations, refreshPlan.root) : [];
+  if (plan.after.length) signed.push(...signMacosEntries(plan.after, signingOptions));
   const files = signed.map((record) => {
     const rel = toPosix(path.relative(root, record.file));
     const details = inspect("codesign", ["-dvv", record.file]);
@@ -157,6 +158,7 @@ export function signDevArtifact({
   const result = {
     schema: DEV_ARTIFACT_EVIDENCE_SCHEMA, signingContract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, teamIdentifier, notarized: false, built: false, published: false,
     artifact: root, metadata: { path: toPosix(path.relative(root, metadataFile)), sha256Before: metadataBefore, sha256After: evidenceOf(metadataFile).sha256 }, files,
+    ...(refreshed.length ? { refresh: refreshed } : {}),
   };
   const absoluteEvidence = path.resolve(evidencePath);
   mkdirSync(path.dirname(absoluteEvidence), { recursive: true });
