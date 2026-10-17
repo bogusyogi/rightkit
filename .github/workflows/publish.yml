@@ -117,6 +117,16 @@ jobs:
           PUBLISH_ALLOW_IGNORED: ${{ inputs.allow_ignored }}
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ inputs.allow_missing_assets }}
         run: node scripts/ci/publish.mjs plan
+      # Licence gate (rightkit#264): a crates run that includes rightkit-typeset stops here, before pack,
+      # verify and upload can exist, if any dependency licence violates deny.toml.
+      - name: Install the pinned licence checker
+        if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2
+      - name: Check rightkit-typeset dependency licences
+        if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
+        run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check licenses
 
   sign-swap:
     needs: [guard, plan]
