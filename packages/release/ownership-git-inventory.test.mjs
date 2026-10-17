@@ -191,7 +191,8 @@ test("reuse never serves a deleted or replaced input and clean blobs keep their 
   const f = fixture();
   try {
     const file = path.join(f.root, "gone.txt");
-    writeFileSync(file, "aaaa\n"); stamp(file, ago(3600));
+    // Tracked, so its deletion is visible to git (an untracked file that vanishes is simply not listed).
+    writeFileSync(file, "aaaa\n"); f.git("add", "gone.txt"); f.git("commit", "-qm", "gone"); stamp(file, ago(3600));
     assert.ok(digestOf(f.root, "gone.txt"));
     unlinkSync(file);
     const result = gitListedInventory(f.root, { relevant: () => true });
