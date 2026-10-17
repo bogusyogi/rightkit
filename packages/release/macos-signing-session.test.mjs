@@ -130,3 +130,35 @@ test("transport source contains no Terminal launch, command scripts, unlocking, 
     assert.doesNotMatch(source, /\.command|\/usr\/bin\/open|Terminal|osascript|unlock-keychain|set-key-partition-list/);
   }
 });
+test("codesign adapter carries a typed identifier on schema 2 only, and refuses unsafe identifiers", () => {
+  const withId = ["--force", "--options", "runtime", "--timestamp", "--identifier", "com.example.helper", "--sign", "CERT", "/Volumes/D/claude/Fixture.app"];
+  assert.equal(codesignAgentItems([withId])[0].identifier, "com.example.helper");
+  const f = fixture();
+  runMacCodesignCommands([withId], f);
+  assert.equal(f.requests[0].schema, 2);
+  assert.equal(f.requests[0].items[0].identifier, "com.example.helper");
+  const g = fixture();
+  runMacCodesignCommands([codesign], g);
+  assert.equal(g.requests[0].schema, 1);
+  assert.equal("identifier" in g.requests[0].items[0], false);
+  for (const id of ["-x", "a b", "a_b", "x".repeat(256), "--sign"]) assert.throws(() => codesignAgentItems([["--identifier", id, "--sign", "CERT", "/app"]]), TypeError);
+  assert.throws(() => codesignAgentItems([["--identifier", "a.b", "--identifier", "c.d", "--sign", "CERT", "/app"]]), TypeError);
+});
+test("an agent that predates typed identifiers is upgraded once, then retried once", { skip: WINDOWS_SKIP }, () => {
+  const withId = ["--timestamp", "--identifier", "com.example.helper", "--sign", "CERT", "/Volumes/D/claude/Fixture.app"];
+  const f = fixture(); let attempts = 0, installs = 0;
+  f.request = (plan) => {
+    if (plan.type === "health") return { schema: 1, ok: true, capabilities: ["codesign"] };
+    if (++attempts === 1) throw new SigningAgentError("MAC_SIGNING_AGENT_PROTOCOL", "old agent");
+    return { schema: 1, ok: true, results: [{ ...result }] };
+  };
+  f.install = () => { installs++; };
+  f.uid = 501;
+  assert.deepEqual(runMacCodesignCommands([withId], f), [result]);
+  assert.equal(installs, 1);
+  const g = fixture(); installs = 0;
+  g.request = (plan) => { if (plan.type === "health") return { schema: 1, ok: true, capabilities: ["codesign", "codesign-identifier"] }; throw new SigningAgentError("MAC_SIGNING_AGENT_PROTOCOL", "rejected"); };
+  g.install = () => { installs++; };
+  assert.throws(() => runMacCodesignCommands([withId], g), { code: "MAC_SIGNING_AGENT_PROTOCOL" });
+  assert.equal(installs, 0);
+});

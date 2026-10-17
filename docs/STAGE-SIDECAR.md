@@ -95,6 +95,37 @@ from `beforeBuildCommand` instead of their own scripts.
 
 ## Not covered
 
-`universal-apple-darwin` (stage both arches, then lipo in the app), directory resources, signing, and running
+Directory resources, signing, and running
 `tauri build`. The apps' dev-mode QA flags (such as mailright's `--test-mode`) map to `profile: "dev"` plus `features`
 in a dev-specific manifest; selecting between manifests is the caller's job.
+
+## Build profile, external catalogs, source builds and universal macOS (bogusyogi/rightkit#345)
+
+**Profile switch.** A `cargo-bin` entry's `profile` is a Cargo profile name or `{ dev: "release-iterate", release: "release" }`
+(exactly those two keys, both required). `RIGHTKIT_BUILD_MODE` (`dev` | `release`, default `release`, anything else refused)
+selects. The wrapper form accepts a default for entries without their own: `{ sidecars: [...], profiles: { dev, release } }`.
+
+**Catalog sources.** `ffmpeg` and `onnxruntime` `catalog` accepts a path relative to the app, an absolute path,
+`{ crate: "rightkit-ffmpeg", file? }` (the crate directory comes from `rightkit cargo metadata`, so a path or registry
+dependency both work; `file` defaults to `catalog/artifacts.json` for ffmpeg and `catalog/native-libraries.json` for
+onnxruntime) or `{ npm: "<pkg>/<file>" }` (found by walking up `node_modules` from the app, scoped packages allowed). A bad
+spec is reported against its own entry (`sidecars[2] (onnxruntime): catalog.crate must be ...`) alongside every other
+problem; an unresolvable one fails at staging with `STAGE_SIDECAR_CATALOG_UNREADABLE` naming the crate or package.
+
+**`command` kind** for source builds (whisper.cpp with cmake):
+
+```js
+{ kind: "command", name: "whisper-cli", cmd: "cmake", args: ["--build", "build", "--config", "Release"],
+  cwd: "vendor/whisper.cpp", output: "vendor/whisper.cpp/build/bin/whisper-cli", externalBin: true }
+```
+
+`cmd` is one executable (no spaces, no shell); `args` is an argv list. `cwd` and `output` are relative to the app root;
+`externalBin` must be `true`. After the command exits 0 the output is staged as `<name>-<triple>[.exe]` and its sha256 is
+recorded in the receipt (`kind: "command"`). A missing output or a non-zero exit stops staging.
+
+**`universal-apple-darwin`.** `cargo-bin` builds `aarch64-apple-darwin` and `x86_64-apple-darwin`, runs
+`lipo -create` (through `background-process.mjs`), checks `lipo -archs` shows both, and stages
+`<name>-universal-apple-darwin`; the receipt lists both `slices`. A `command` output must already be universal
+(`lipo -archs` showing `arm64` and `x86_64`), and a `resource` with `machO: true` is checked the same way. `ffmpeg` and
+`onnxruntime` have no universal catalog row and are refused for this target: stage a lipo-merged file with `command`
+or `resource`.

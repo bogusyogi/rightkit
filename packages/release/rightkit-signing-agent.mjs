@@ -11,6 +11,11 @@ import { parseCodesignArgv } from "./codesign-argv.mjs";
 
 export const AGENT_LABEL = "dev.rightkit.signing-agent";
 export const MAX_FRAME = 1024 * 1024;
+// A typed codesign `--identifier` (reverse-DNS characters only; never starts with "-", so it cannot read as an option).
+export const AGENT_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/;
+// Request schema 2 is codesign-only and is the sole schema that may carry per-item `identifier`. Schema 1 stays valid and
+// byte-compatible for everything else; an agent that predates schema 2 refuses it (and any unknown item field) outright.
+export const CODESIGN_IDENTIFIER_SCHEMA = 2;
 export const NOTARIZATION_TIMEOUT_MS = 1800000;
 export const MAX_NOTARIZATION_TIMEOUT_MS = 7200000;
 export class SigningAgentError extends Error {
@@ -72,7 +77,7 @@ export function validateSigningRequest(request, { roots, stagingRoot, io = fs } 
   const notary = ["notarize", "staple"].includes(request?.type);
   if (!["codesign", "codesign-argv", "updater", "notarize", "staple"].includes(request?.type)) fail("MAC_SIGNING_AGENT_PROTOCOL", "Unsupported signing request type");
   shape(request, [...common, ...(notary ? ["path", "profile", "staple", "app", "validateOnly"] : request.type === "codesign-argv" ? ["argv", "targets"] : [request.type === "codesign" ? "items" : "files"])]);
-  if (request.schema !== 1 || !Number.isInteger(request.timeoutMs) || request.timeoutMs < 1 || request.timeoutMs > (notary ? MAX_NOTARIZATION_TIMEOUT_MS : 180000)) {
+  if (!(request.schema === 1 || (request.type === "codesign" && request.schema === CODESIGN_IDENTIFIER_SCHEMA)) || !Number.isInteger(request.timeoutMs) || request.timeoutMs < 1 || request.timeoutMs > (notary ? MAX_NOTARIZATION_TIMEOUT_MS : 180000)) {
     fail("MAC_SIGNING_AGENT_PROTOCOL", "Invalid schema or signing deadline");
   }
   if (!Array.isArray(request.allowedRoots) || !request.allowedRoots.length || request.allowedRoots.length > 32) fail("MAC_SIGNING_AGENT_PATH_DENIED", "Allowed roots required");
@@ -142,7 +147,8 @@ export function validateSigningRequest(request, { roots, stagingRoot, io = fs } 
   }
   if (!Array.isArray(request.items) || !request.items.length || request.items.length > 4096) fail("MAC_SIGNING_AGENT_PROTOCOL", "Codesign items required");
   const items = request.items.map((item) => {
-    shape(item, ["path", "identity", "entitlements", "runtime", "timestamp", "force", "preserveEntitlements"]);
+    shape(item, ["path", "identity", "entitlements", "runtime", "timestamp", "force", "preserveEntitlements", ...(request.schema === CODESIGN_IDENTIFIER_SCHEMA ? ["identifier"] : [])]);
+    if (item.identifier !== undefined && (typeof item.identifier !== "string" || !AGENT_IDENTIFIER_PATTERN.test(item.identifier))) fail("MAC_SIGNING_AGENT_PROTOCOL", "Invalid codesign identifier");
     if (typeof item.identity !== "string" || !item.identity.trim() || item.identity === "-" || item.identity.includes("\0") || item.identity.length > 512) fail("MAC_SIGNING_AGENT_PROTOCOL", "Real signing identity required");
     for (const field of ["runtime", "timestamp", "force", "preserveEntitlements"]) if (item[field] !== undefined && typeof item[field] !== "boolean") fail("MAC_SIGNING_AGENT_PROTOCOL", "Signing options must be boolean");
     return { ...item, path: checked(item.path), ...(item.entitlements !== undefined ? { entitlements: checked(item.entitlements, { entitlements: true }) } : {}) };
@@ -156,7 +162,7 @@ export function authenticateSigningToken(candidate, token) {
 }
 export function executeSigningRequest(request, { run = spawnSync, home = os.userInfo().homedir,
   username = os.userInfo().username, pnpm, environmentPath, now = Date.now } = {}) {
-  if (request.type === "health") return { schema: 1, ok: true, service: AGENT_LABEL, pid: process.pid, capabilities: ["codesign", "codesign-argv", "updater", "notarize", "staple"] };
+  if (request.type === "health") return { schema: 1, ok: true, service: AGENT_LABEL, pid: process.pid, capabilities: ["codesign", "codesign-argv", "updater", "notarize", "staple", "codesign-identifier"] };
   const deadline = now() + request.timeoutMs;
   const env = { HOME: home, PATH: environmentPath, TMPDIR: path.join(signingAgentPaths(home).directory, "tmp") };
   if (request.type === "codesign-argv") {
@@ -191,7 +197,7 @@ export function executeSigningRequest(request, { run = spawnSync, home = os.user
       // Preserve caller's inside-out ordering. No arbitrary argv reaches spawn.
       for (const item of request.items) {
         const args = [...(item.force ? ["--force"] : []), ...(item.runtime ? ["--options", "runtime"] : []),
-          ...(item.timestamp ? ["--timestamp"] : []), "--sign", item.identity,
+          ...(item.timestamp ? ["--timestamp"] : []), ...(item.identifier !== undefined ? ["--identifier", item.identifier] : []), "--sign", item.identity,
           ...(item.entitlements ? ["--entitlements", item.entitlements] : []),
           ...(item.preserveEntitlements ? ["--preserve-metadata=entitlements"] : []), item.path];
         results.push(invoke("/usr/bin/codesign", args).result);

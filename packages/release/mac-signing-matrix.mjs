@@ -11,7 +11,7 @@
 // inside-out plan. It never runs codesign: sign-macos.mjs (via mac-sign-core.mjs) executes the plan.
 import { existsSync, lstatSync, openSync, closeSync, readSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { expandMacSigningEntries, mainExecutableName } from "./mac-bundle-signing.mjs";
+import { expandMacSigningEntries, mainExecutableName, resolveNestedSigningSettings } from "./mac-bundle-signing.mjs";
 
 const invalid = (message) => Object.assign(new Error(message), { code: "MAC_SIGN_CONFIG_INVALID" });
 
@@ -85,11 +85,57 @@ function validateNestedKey(key) {
   return null;
 }
 
+// Per-path nested signing maps: `sign.identifiers`, `sign.identifierTemplate` and an object-valued `sign.entitlements`.
+// Same strictness as the per-item settings above: reverse-DNS identifiers, contained relative plist paths that exist.
+function validateNestedSigningMaps(sign, { root, errors, isFile }) {
+  const declared = {};
+  const check = (map, label, value) => {
+    if (!isPlainObject(map)) { errors.push(`${label} must be an object mapping bundle-relative paths or globs to values`); return; }
+    for (const [key, raw] of Object.entries(map)) {
+      const entry = `${label}[${JSON.stringify(key)}]`;
+      if (!key.trim() || key !== key.trim() || key.includes("\0") || key.includes("\\") || path.posix.isAbsolute(key) || /^[A-Za-z]:/.test(key) || key.split("/").includes("..")) {
+        errors.push(`${entry}: key must be a bundle-relative path (no "..", no absolute path, "/" separators)`);
+      }
+      value(raw, entry);
+    }
+  };
+  if (sign.identifiers !== undefined) {
+    check(sign.identifiers, "sign.identifiers", (raw, entry) => {
+      if (typeof raw !== "string" || !IDENTIFIER_PATTERN.test(raw)) errors.push(`${entry} must be 1-255 characters of letters, digits, '.' and '-', starting with a letter or digit`);
+    });
+    declared.identifiers = sign.identifiers;
+  }
+  if (sign.identifierTemplate !== undefined) {
+    const template = sign.identifierTemplate;
+    if (typeof template !== "string" || !template) errors.push("sign.identifierTemplate must be a non-empty string such as \"<bundleId>.runtime.<relpath>\"");
+    else if (!/^[A-Za-z0-9.-]*$/.test(template.replace(/<[^<>]*>/g, ""))) errors.push("sign.identifierTemplate literal text may only contain letters, digits, '.' and '-' around <bundleId>, <relpath> and <basename>");
+    else declared.identifierTemplate = template;
+  }
+  if (isPlainObject(sign.entitlements)) {
+    check(sign.entitlements, "sign.entitlements", (raw, entry) => {
+      if (typeof raw !== "string" || !raw.trim()) { errors.push(`${entry} must be a non-empty path string`); return; }
+      if (path.isAbsolute(raw) || /^[A-Za-z]:/.test(raw) || raw.includes("\0")) { errors.push(`${entry} must be relative to the release config directory: ${raw}`); return; }
+      const resolved = path.resolve(root, raw);
+      const relative = path.relative(root, resolved);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) errors.push(`${entry} must stay inside the release config directory: ${raw}`);
+      else if (!isFile(resolved)) errors.push(`${entry} entitlements file not found: ${raw}`);
+      else if (!looksLikePlist(resolved)) errors.push(`${entry} is not a property list (expected an XML or binary plist): ${raw}`);
+    });
+    declared.entitlements = sign.entitlements;
+  }
+  if (errors.length || !Object.keys(declared).length) return undefined;
+  // Delegate key globs and template tokens to the shared resolver so release and development read them identically.
+  try { resolveNestedSigningSettings([], { app: "x.app", sign: declared, bundleId: "a.b", root, exists: () => true }); }
+  catch (error) { errors.push(error.message); return undefined; }
+  return declared;
+}
+
 /**
  * Validate and normalize `sign` for a macOS target. Collects every problem, then throws one
- * MAC_SIGN_CONFIG_INVALID error. Returns { entries, nestedCode } where
- *   entries:    [{ file, identifier?, entitlements?: absolute, options: [] }]   (file stays as declared)
- *   nestedCode: [{ key, identifier?, entitlements?: absolute, options: [] }]
+ * MAC_SIGN_CONFIG_INVALID error. Returns { entries, nestedCode, nestedSigning? } where
+ *   entries:       [{ file, identifier?, entitlements?: absolute, options: [] }]   (file stays as declared)
+ *   nestedCode:    [{ key, identifier?, entitlements?: absolute, options: [] }]
+ *   nestedSigning: { identifiers?, identifierTemplate?, entitlements? } as declared; present only when one is declared
  * Injectable: isFile.
  */
 export function validateMacSigningConfig(sign, { root, isFile = (file) => existsSync(file) && statSync(file).isFile() } = {}) {
@@ -136,8 +182,10 @@ export function validateMacSigningConfig(sign, { root, isFile = (file) => exists
       }
     }
   }
+  const nestedSigning = validateNestedSigningMaps(sign, context);
+  if (nestedSigning && !entries.some((entry) => /\.app\/?$/.test(entry.file))) errors.push("sign.identifiers, sign.identifierTemplate and per-path sign.entitlements need a .app entry in sign.prePackageFiles to resolve their paths against");
   if (errors.length) throw invalid(`invalid macOS signing configuration:\n${errors.map((line) => `- ${line}`).join("\n")}`);
-  return { entries, nestedCode };
+  return { entries, nestedCode, ...(nestedSigning ? { nestedSigning } : {}) };
 }
 
 /** True when an entry or nested item carries anything beyond the default (hardened runtime, no entitlements). */
@@ -154,7 +202,7 @@ const depth = (file) => file.split(path.sep).length;
  * a nestedCode path is missing, is a symlink, escapes the bundle, or names the bundle's main executable.
  * Injectable: expand, lstat, realpath, mainName.
  */
-export function planMacSigning({ entries, nestedCode = [], expand = expandMacSigningEntries, lstat = lstatSync, realpath = realpathSync, mainName = mainExecutableName }) {
+export function planMacSigning({ entries, nestedCode = [], nestedSigning, root, resolveSettings = resolveNestedSigningSettings, expand = expandMacSigningEntries, lstat = lstatSync, realpath = realpathSync, mainName = mainExecutableName }) {
   const { nested: discovered } = expand(entries.map((entry) => entry.file));
   const byPath = new Map(discovered.map((file) => [file, { file, options: [] }]));
   if (nestedCode.length) {
@@ -172,6 +220,25 @@ export function planMacSigning({ entries, nestedCode = [], expand = expandMacSig
       if (real !== appReal && !real.startsWith(appReal + path.sep)) throw invalid(`${label}: resolves outside the bundle`);
       if (real === mainReal) throw invalid(`${label}: the main executable is signed with the bundle; set entitlements on its sign.prePackageFiles entry`);
       byPath.set(file, { file, ...(item.identifier ? { identifier: item.identifier } : {}), ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options });
+    }
+  }
+  // Per-path maps (sign.identifiers / identifierTemplate / per-path sign.entitlements) fill in only what a nestedCode item left
+  // unset. Nothing declared: this block is skipped and the items stay exactly as discovered.
+  if (nestedSigning && Object.keys(nestedSigning).length) {
+    const apps = entries.map((entry) => entry.file).filter((file) => /\.app\/?$/.test(file)).map((file) => file.replace(/\/+$/, ""));
+    for (const app of apps) {
+      const own = [...byPath.values()].filter((item) => item.file.startsWith(app + path.sep) || item.file.startsWith(`${app}/`));
+      let settings;
+      try { settings = resolveSettings(own.map((item) => item.file), { app, sign: nestedSigning, root: root ?? process.cwd() }); }
+      catch (error) { throw invalid(error.message); }
+      for (const item of own) {
+        const found = settings.get(item.file);
+        if (!found) continue;
+        const identifier = item.identifier ?? found.identifier;
+        if (identifier !== undefined && !IDENTIFIER_PATTERN.test(identifier)) throw invalid(`signing identifier for ${path.relative(app, item.file)} must be letters, digits, '.' and '-': ${JSON.stringify(identifier)}`);
+        const entitlements = item.entitlements ?? found.entitlements;
+        byPath.set(item.file, { ...item, ...(identifier !== undefined ? { identifier } : {}), ...(entitlements ? { entitlements } : {}) });
+      }
     }
   }
   const nested = [...byPath.values()].sort((a, b) => depth(b.file) - depth(a.file) || a.file.localeCompare(b.file));

@@ -206,3 +206,32 @@ test("installed agent policy includes system temp & configured cargo targets wit
   const request = { ...f.request(["--verify", path.join(target, "app")]), allowedRoots: [target], cwd: target };
   assert.doesNotThrow(() => validateSigningRequest(request, { roots: config.roots }));
 });
+
+// Typed codesign `identifier` (request schema 2): strict charset, never free-form argv, old schema refuses it.
+const codesignRequest = (f, items, schema = 1) => ({ schema, type: "codesign", allowedRoots: [f.cwd, f.managed], cwd: f.cwd, timeoutMs: 5000, items });
+const signItem = (f, extra = {}) => ({ path: path.join(f.cwd, "app"), identity: "Developer ID Application: Fixture (TEAM)", runtime: true, timestamp: true, force: true, ...extra });
+const runCodesign = (f, request) => {
+  const calls = [];
+  executeSigningRequest(validateSigningRequest(request, f.policy), { home: f.home, environmentPath: "/usr/bin", run(command, args) { calls.push({ command, args }); return { status: 0, stdout: "", stderr: "" }; } });
+  return calls;
+};
+test("agent codesign without identifier keeps schema 1 and the historical argv", (t) => {
+  const f = fixture(t);
+  const [call] = runCodesign(f, codesignRequest(f, [signItem(f)]));
+  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--sign", "Developer ID Application: Fixture (TEAM)", path.join(f.cwd, "app")]);
+  assert.doesNotThrow(() => validateSigningRequest(codesignRequest(f, [signItem(f)], 2), f.policy)); // schema 2 without identifier is harmless
+});
+test("agent codesign identifier travels as typed --identifier before --sign, with per-item entitlements", (t) => {
+  const f = fixture(t);
+  const [call] = runCodesign(f, codesignRequest(f, [signItem(f, { identifier: "com.example.helper-1", entitlements: path.join(f.cwd, "entitlements.plist") })], 2));
+  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--identifier", "com.example.helper-1", "--sign", "Developer ID Application: Fixture (TEAM)", "--entitlements", path.join(f.cwd, "entitlements.plist"), path.join(f.cwd, "app")]);
+});
+test("agent refuses identifier under schema 1, bad identifiers, unknown fields and schema 3", (t) => {
+  const f = fixture(t);
+  const rejected = (request) => assert.throws(() => validateSigningRequest(request, f.policy), { code: "MAC_SIGNING_AGENT_PROTOCOL" });
+  rejected(codesignRequest(f, [signItem(f, { identifier: "com.example.ok" })], 1));
+  for (const identifier of ["-bad", "has space", "a_b", "", ".x", "x".repeat(256), 5, null, "a\nb", "--sign"]) rejected(codesignRequest(f, [signItem(f, { identifier })], 2));
+  rejected(codesignRequest(f, [signItem(f, { identifier: "com.example.ok", argv: ["--deep"] })], 2));
+  rejected(codesignRequest(f, [signItem(f, { identifier: "com.example.ok" })], 3));
+  rejected({ ...codesignRequest(f, [signItem(f)], 2), type: "updater", files: [path.join(f.cwd, "app")], items: undefined });
+});

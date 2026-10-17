@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
+import { bundleRelativePath, compileBundlePathMap, globToRegExp, isGlobPattern, lookupBundlePath, resolveBundleIdentifier, validateBundleRelativeKey, validateIdentifierTemplate, validateSigningIdentifier } from "./mac-bundle-signing.mjs";
 
 export class MacosDevelopmentSigningError extends Error {
   constructor(code, message, details = {}) {
@@ -100,7 +101,8 @@ export function resolveMacosDevelopmentSigning({ root, bundle, descriptor = {}, 
     if (existsSync(file)) mac = { ...mac, ...JSON.parse(readFileSync(file, "utf8")).bundle?.macOS };
   }
   const sign = config.targets?.mac?.sign ?? {};
-  const entitlements = sign.entitlements ? path.resolve(root, sign.entitlements) : mac.entitlements ? path.resolve(tauriRoot, mac.entitlements) : null;
+  // `sign.entitlements` is the app-level file when a string; an object is the per-path map (readDevSigningSettings).
+  const entitlements = typeof sign.entitlements === "string" && sign.entitlements ? path.resolve(root, sign.entitlements) : mac.entitlements ? path.resolve(tauriRoot, mac.entitlements) : null;
   if (entitlements && !existsSync(entitlements)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", `Configured entitlements file is missing: ${entitlements}`);
   // CI-only ad hoc: no Keychain, no provisioning profile (a profile authorizes restricted entitlements that an ad hoc signature cannot carry).
   if (ciAdhoc) return { identity: "-", certificateSha1: "-", teamIdentifier: null, entitlements, provisioningProfile: null, mode: CI_ADHOC_SIGNING, adhoc: true };
@@ -158,9 +160,128 @@ function macho(file) {
   } finally { closeSync(fd); }
 }
 
+const invalidConfig = (message) => { throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", message); };
+const ASSERT_KEYS = new Set(["path", "identifier", "teamIdentifier", "authority"]);
+
+/**
+ * Declarative per-binary signing settings of a dev install. Everything is optional; with none declared the result is
+ * empty and signing is exactly what it was before these keys existed.
+ *   install.identifiers / sign.identifiers          { path-or-glob: "--identifier value" }   ("." is the bundle)
+ *   install.identifierTemplate / sign.identifierTemplate   default identifier for remaining plain Mach-O files
+ *   install.entitlements / sign.entitlements (object)      { path-or-glob: plist path } (a string sign.entitlements is the app file)
+ *   install.timestamp                               true adds --timestamp (a secure timestamp contacts Apple's server)
+ *   install.assert                                  [{ path-or-glob, identifier?, teamIdentifier?, authority? }]
+ *   install.assertTeamSignedNested                  true: every Mach-O in the bundle carries the app's TeamIdentifier
+ * install.* entries win over sign.* entries (so one declaration in `sign` keeps dev and release identifiers identical).
+ * `root` resolves entitlement plist paths and checks they exist; without it only the shape is validated.
+ */
+export function readDevSigningSettings(descriptor = {}, config = {}, { root, exists = existsSync } = {}) {
+  const sign = config?.targets?.mac?.sign ?? {};
+  const identifier = (raw, label) => validateSigningIdentifier(raw, label, invalidConfig);
+  const identifiers = [...compileBundlePathMap(descriptor.identifiers, "install.identifiers", { reject: invalidConfig, value: identifier }),
+    ...compileBundlePathMap(sign.identifiers, "sign.identifiers", { reject: invalidConfig, value: identifier })];
+  const templateSource = descriptor.identifierTemplate !== undefined ? ["install.identifierTemplate", descriptor.identifierTemplate] : sign.identifierTemplate !== undefined ? ["sign.identifierTemplate", sign.identifierTemplate] : null;
+  const identifierTemplate = templateSource ? validateIdentifierTemplate(templateSource[1], templateSource[0], invalidConfig) : undefined;
+  const plistPath = (raw, label) => {
+    if (typeof raw !== "string" || !raw.trim()) invalidConfig(`${label} must be an entitlements plist path`);
+    if (!root) return raw;
+    const file = path.resolve(root, raw);
+    if (!exists(file)) invalidConfig(`${label} entitlements file not found: ${file}`);
+    return file;
+  };
+  const signMap = typeof sign.entitlements === "object" && sign.entitlements !== null && !Array.isArray(sign.entitlements) ? sign.entitlements : undefined;
+  const entitlements = [...compileBundlePathMap(descriptor.entitlements, "install.entitlements", { reject: invalidConfig, value: plistPath }),
+    ...compileBundlePathMap(signMap, "sign.entitlements", { reject: invalidConfig, value: plistPath })];
+  if (descriptor.timestamp !== undefined && typeof descriptor.timestamp !== "boolean") invalidConfig("install.timestamp must be true or false");
+  if (descriptor.assertTeamSignedNested !== undefined && typeof descriptor.assertTeamSignedNested !== "boolean") invalidConfig("install.assertTeamSignedNested must be true or false");
+  const rawAssertions = descriptor.assert ?? [];
+  if (!Array.isArray(rawAssertions)) invalidConfig("install.assert must be an array of { path, identifier?, teamIdentifier?, authority? }");
+  const assertions = rawAssertions.map((item, index) => {
+    const label = `install.assert[${index}]`;
+    if (!item || typeof item !== "object" || Array.isArray(item)) invalidConfig(`${label} must be an object`);
+    for (const key of Object.keys(item)) if (!ASSERT_KEYS.has(key)) invalidConfig(`${label}.${key} is not a known key (path, identifier, teamIdentifier, authority)`);
+    validateBundleRelativeKey(item.path, `${label}.path`, invalidConfig);
+    const checks = ["identifier", "teamIdentifier", "authority"].filter((key) => item[key] !== undefined);
+    if (!checks.length) invalidConfig(`${label} needs at least one of identifier, teamIdentifier, authority`);
+    for (const key of checks) if (typeof item[key] !== "string" || !item[key].trim()) invalidConfig(`${label}.${key} must be a non-empty string`);
+    return { path: item.path, ...Object.fromEntries(checks.map((key) => [key, item[key]])) };
+  });
+  return { identifiers, identifierTemplate, entitlements, timestamp: descriptor.timestamp === true, assertions, assertTeamSignedNested: descriptor.assertTeamSignedNested === true };
+}
+
+function listBundleFiles(bundle) {
+  const out = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) walk(file);
+      else if (entry.isFile()) out.push(bundleRelativePath(bundle, file));
+    }
+  };
+  walk(bundle);
+  return out;
+}
+
+/**
+ * Post-sign identity assertions, read from `codesign -dvv` (stdout and stderr: codesign reports on stderr). Fails closed with
+ * DEV_MAC_SIGNING_ASSERT_FAILED listing every mismatch. A glob that matches no file is a failure, so a typo cannot pass.
+ * `assertTeamSignedNested` additionally requires every Mach-O in the bundle (dylibs included) to be signed by
+ * `teamIdentifier`, not ad hoc. Used on the signed staging copy and again on the installed copy (a failure there rolls back).
+ * Injectable: run, listFiles(bundle) -> bundle-relative file paths, isMachO(file), join.
+ */
+export function assertSignedIdentities({ root, bundle, settings, teamIdentifier, identity, env = process.env, run = spawnSync, listFiles = listBundleFiles, isMachO = macho, join = path.join, label = "signed bundle" }) {
+  const { assertions = [], assertTeamSignedNested = false } = settings ?? {};
+  if (!assertions.length && !assertTeamSignedNested) return { checked: 0 };
+  const reports = new Map();
+  const report = (file) => {
+    if (!reports.has(file)) {
+      const result = run("codesign", ["-dvv", file], captureOptions(root, env));
+      if (result.error || result.status !== 0) {
+        throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_ASSERT_FAILED", `${label}: cannot inspect the signing identity of ${file}: ${result.error?.message || output(result) || `exit ${result.status ?? "unavailable"}`}`, { identity });
+      }
+      const text = output(result);
+      reports.set(file, { identifier: /^Identifier=(.+)$/m.exec(text)?.[1]?.trim(), team: /^TeamIdentifier=(.+)$/m.exec(text)?.[1]?.trim(), authorities: [...text.matchAll(/^Authority=(.+)$/gm)].map((match) => match[1].trim()), adhoc: /^Signature=adhoc$/m.test(text) });
+    }
+    return reports.get(file);
+  };
+  const absolute = (relative) => (relative === "." ? bundle : join(bundle, ...relative.split("/")));
+  let files;
+  const listed = () => (files ??= listFiles(bundle));
+  const problems = [];
+  let checked = 0;
+  for (const item of assertions) {
+    const targets = isGlobPattern(item.path) ? listed().filter((relative) => globToRegExp(item.path).test(relative)) : [item.path];
+    if (!targets.length) { problems.push(`${item.path}: matches no file in the bundle`); continue; }
+    for (const relative of targets) {
+      const actual = report(absolute(relative));
+      checked += 1;
+      if (item.identifier !== undefined && actual.identifier !== item.identifier) problems.push(`${relative}: Identifier=${actual.identifier ?? "missing"}, expected ${item.identifier}`);
+      if (item.teamIdentifier !== undefined && actual.team !== item.teamIdentifier) problems.push(`${relative}: TeamIdentifier=${actual.team ?? "missing"}, expected ${item.teamIdentifier}`);
+      if (item.authority !== undefined && !actual.authorities.includes(item.authority)) problems.push(`${relative}: Authority does not include ${JSON.stringify(item.authority)} (found ${actual.authorities.map((name) => JSON.stringify(name)).join(", ") || "none"})`);
+    }
+  }
+  if (assertTeamSignedNested) {
+    if (!teamIdentifier) problems.push("assertTeamSignedNested: the expected TeamIdentifier is unknown (ad hoc signing has none)");
+    else {
+      for (const relative of [".", ...listed().filter((entry) => isMachO(absolute(entry)))]) {
+        const actual = report(absolute(relative));
+        checked += 1;
+        if (actual.adhoc || actual.team !== teamIdentifier) problems.push(`${relative}: ${actual.adhoc ? "ad hoc signed" : `TeamIdentifier=${actual.team ?? "missing"}`}, expected TeamIdentifier=${teamIdentifier}`);
+      }
+    }
+  }
+  if (problems.length) {
+    throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_ASSERT_FAILED", `${label}: signing identity assertions failed (${problems.length}): ${problems.slice(0, 20).join("; ")}${problems.length > 20 ? "; ..." : ""}. Refusing dev installation.`, { identity, problems });
+  }
+  return { checked };
+}
+
 export function signMacosDevelopmentBundle(options) {
   const { root, bundle, env = process.env, run = spawnSync } = options;
   const context = { root, env, run };
+  // Declared per-binary settings are validated before any Keychain or codesign call.
+  const settings = readDevSigningSettings(options.descriptor, options.config, { root });
   const signing = resolveMacosDevelopmentSigning({ ...options, env, run });
   const { identity, certificateSha1, teamIdentifier, entitlements, provisioningProfile } = signing;
   const embedded = path.join(bundle, "Contents", "embedded.provisionprofile");
@@ -218,12 +339,20 @@ export function signMacosDevelopmentBundle(options) {
     const commands = [];
     for (const target of ordered) {
       // Bind the exact profile-authorized certificate even when names collide in Keychain.
-      const args = ["--force", "--options", "runtime", "--sign", certificateSha1];
+      const relative = bundleRelativePath(bundle, target.file);
+      let identifier;
+      try {
+        identifier = resolveBundleIdentifier({ relative, identifiers: settings.identifiers, template: settings.identifierTemplate, bundleId: options.descriptor?.bundleId ?? appInfo.CFBundleIdentifier, plain: !target.info });
+      } catch (cause) { throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", cause.message, { cause }); }
+      // --timestamp only when declared (install.timestamp): it needs Apple's timestamp server, and dev builds otherwise sign offline.
+      const args = ["--force", "--options", "runtime", ...(settings.timestamp ? ["--timestamp"] : []), ...(identifier ? ["--identifier", identifier] : []), "--sign", certificateSha1];
       const parent = target.file === bundle;
+      const mappedEntitlements = lookupBundlePath(settings.entitlements, relative || ".");
       const profiledHelper = target.info && existsSync(path.join(target.file, "Contents/embedded.provisionprofile")) && target.info.CFBundleIdentifier === appInfo.CFBundleIdentifier;
       if (profiledHelper && !parent && provisioningProfile) copyFileSync(embedded, path.join(target.file, "Contents/embedded.provisionprofile"));
       const variant = !parent && entitlementVariants.find((item) => path.basename(target.file).replace(/\.(app|xpc|appex|bundle)$/, "").toLowerCase().endsWith(item.suffix));
-      if (variant) args.push("--entitlements", entitlementFile(variant.file));
+      if (mappedEntitlements) args.push("--entitlements", entitlementFile(mappedEntitlements));
+      else if (variant) args.push("--entitlements", entitlementFile(variant.file));
       else if (entitlements && (parent || profiledHelper)) args.push("--entitlements", entitlementFile(entitlements));
       else {
         const existing = run("codesign", ["--display", "--entitlements", ":-", target.file], captureOptions(root, env));
@@ -248,7 +377,9 @@ export function signMacosDevelopmentBundle(options) {
     const requirement = output(checked("codesign", ["--display", "-r-", bundle], context, "DEV_MAC_SIGNATURE_INVALID", identity));
     const designated = /^designated => (.+)$/m.exec(requirement)?.[1]?.trim();
     if (!designated || /\bcdhash\b/.test(designated)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_UNSTABLE_REQUIREMENT", `Signing identity ${JSON.stringify(identity)}: designated requirement ${designated ? JSON.stringify(designated) : "is missing"} is not stable across rebuilds (cdhash-bound). Refusing dev installation.`, { identity, designatedRequirement: designated });
-    return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", designatedRequirement: designated, signedTargets: ordered.length };
+    // Declared identity assertions (install.assert, install.assertTeamSignedNested) on the signed staging copy, before any install.
+    const asserted = assertSignedIdentities({ root, bundle, settings, teamIdentifier, identity, env, run, label: "signed staging copy", ...(options.listFiles ? { listFiles: options.listFiles } : {}), ...(options.isMachO ? { isMachO: options.isMachO } : {}) });
+    return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", designatedRequirement: designated, signedTargets: ordered.length, ...(asserted.checked ? { assertedIdentities: asserted.checked } : {}) };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 

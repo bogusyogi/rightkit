@@ -5,7 +5,7 @@ import { spawnSync } from "./background-process.mjs";
 
 import { requestSigningAgentSync, validateNotaryAgentReport } from "./signing-agent-client.mjs";
 import { installSigningAgent, requireMacGuiSession } from "./signing-agent-install.mjs";
-import { signingAgentPaths, defaultSigningRoots, ensurePrivateDirectory, privatePath, within, NOTARIZATION_TIMEOUT_MS, MAX_NOTARIZATION_TIMEOUT_MS } from "./rightkit-signing-agent.mjs";
+import { signingAgentPaths, defaultSigningRoots, ensurePrivateDirectory, privatePath, within, NOTARIZATION_TIMEOUT_MS, MAX_NOTARIZATION_TIMEOUT_MS, AGENT_IDENTIFIER_PATTERN, CODESIGN_IDENTIFIER_SCHEMA } from "./rightkit-signing-agent.mjs";
 import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 
 export class MacSigningSessionError extends Error {
@@ -48,11 +48,13 @@ export function codesignAgentItems(commands) {
       else if (option === "--timestamp" && item.timestamp === undefined) item.timestamp = true;
       else if (option === "--options" && args[i + 1] === "runtime" && item.runtime === undefined) { item.runtime = true; i++; }
       else if (option === "--sign" && item.identity === undefined) item.identity = args[++i];
+      else if (option === "--identifier" && item.identifier === undefined) item.identifier = args[++i];
       else if (option === "--entitlements" && item.entitlements === undefined) item.entitlements = args[++i];
       else if (option === "--preserve-metadata=entitlements" && item.preserveEntitlements === undefined) item.preserveEntitlements = true;
       else throw new TypeError(`Unsupported agent codesign option: ${option}`);
     }
     item.path = args.at(-1);
+    if (item.identifier !== undefined && !AGENT_IDENTIFIER_PATTERN.test(item.identifier)) throw new TypeError("Agent signing requires a reverse-DNS codesign identifier");
     if (!item.identity || item.identity === "-" || !path.isAbsolute(item.path ?? "")
       || (item.entitlements !== undefined && !path.isAbsolute(item.entitlements))) throw new TypeError("Agent signing requires real identity & absolute paths");
     return item;
@@ -76,6 +78,8 @@ export function runMacGuiSigning({ kind, commands, files, cwd = process.cwd(), e
   try {
     if (kind === "codesign") {
       plan.items = codesignAgentItems(commands);
+      // Only a request that carries a typed identifier uses schema 2; every other codesign request stays schema 1.
+      if (plan.items.some((item) => item.identifier !== undefined)) plan.schema = CODESIGN_IDENTIFIER_SCHEMA;
       // Development signing generates entitlements in TMPDIR. Copy only those
       // plist bytes into managed private staging, never broaden signing roots.
       for (const item of plan.items) {
@@ -99,7 +103,13 @@ export function runMacGuiSigning({ kind, commands, files, cwd = process.cwd(), e
     let report;
     try { report = request(plan, clientOptions); }
     catch (error) {
-      if (error.code !== "MAC_SIGNING_AGENT_UNAVAILABLE") throw error;
+      let missing = error.code === "MAC_SIGNING_AGENT_UNAVAILABLE";
+      // An installed agent that predates typed identifiers refuses schema 2: upgrade it once, never loop on a rejected request.
+      if (!missing && plan.schema === CODESIGN_IDENTIFIER_SCHEMA && error.code === "MAC_SIGNING_AGENT_PROTOCOL") {
+        const health = request({ schema: 1, type: "health" }, { home, timeoutMs: 1500 });
+        missing = !health.capabilities?.includes("codesign-identifier");
+      }
+      if (!missing) throw error;
       requireMacGuiSession({ run, uid });
       install({ home, username, uid, run, io, managedRoot: env.RIGHTKIT_MANAGED_ROOT });
       report = request(plan, clientOptions); // One install attempt, one retry.

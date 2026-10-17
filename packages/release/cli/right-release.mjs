@@ -22,6 +22,7 @@ const commands = new Map([
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
+  ["recipe-build", "recipe-build.mjs"],
   ["signing-agent", "signing-agent-command.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
@@ -183,6 +184,7 @@ function printHelp() {
 
 Commands:
   stage-sidecar [--config <file>] [--target <triple>] [--json]  Stage declarative sidecars into src-tauri/binaries (Tauri externalBin naming)
+  recipe-build --plan <json> | --plan-file <path> [--app-root <dir>]  Run a package recipe: prepare steps, the Tauri build, postBuild steps (argv, no shell, fail closed)
   dmg build --app <.app> --out <dmg> --volname <name> [--background <png>] [--spec <appdmg.json>]
             [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h] [--window-position x,y]
                                                       Build branded UDZO image without Finder

@@ -5,6 +5,7 @@
 // signing of the .app and its nested code, app notarization before packing, the signed DMG and its notarization.
 // The standalone recipes (win-package-recipe.mjs, mac-package-recipe.mjs) hold the same steps for direct callers.
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
 
 export class PackageRecipeTargetError extends Error {
@@ -21,14 +22,74 @@ const withoutRecipe = (target) => {
   return rest;
 };
 const QUIET_TAURI_ENV = { TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
+const RECIPE_BUILD = fileURLToPath(new URL("./recipe-build.mjs", import.meta.url));
+const PROFILE = /^[a-z][a-z0-9_-]*$/;
+
+function relativeInside(value, label) {
+  if (typeof value !== "string" || !value.trim()) fail(`${label} must be a non-empty relative path`);
+  const normalized = value.replaceAll("\\", "/");
+  if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.split("/").includes("..")) fail(`${label} must be relative and stay inside the app: ${value}`);
+  return normalized;
+}
+
+/** `prepare` / `postBuild`: a list of { cmd, args?, cwd? } argv commands (no shell). */
+function commandList(value, label) {
+  if (!Array.isArray(value)) fail(`${label} must be an array of { cmd, args?, cwd? }`);
+  return value.map((item, index) => {
+    const where = `${label}[${index}]`;
+    if (!isObject(item)) fail(`${where} must be an object`);
+    const unknown = Object.keys(item).filter((key) => !["cmd", "args", "cwd"].includes(key));
+    if (unknown.length) fail(`${where} has unknown key(s): ${unknown.join(", ")} (allowed: cmd, args, cwd)`);
+    if (typeof item.cmd !== "string" || !item.cmd.trim()) fail(`${where}.cmd must be a non-empty string`);
+    if (item.args !== undefined && (!Array.isArray(item.args) || item.args.some((arg) => typeof arg !== "string"))) fail(`${where}.args must be a list of strings`);
+    return { cmd: item.cmd, args: [...(item.args ?? [])], ...(item.cwd === undefined ? {} : { cwd: relativeInside(item.cwd, `${where}.cwd`) }) };
+  });
+}
+
+/** The keys shared by winPackage and macPackage: profile, tauriConfig, prepare (and postBuild where allowed). */
+function buildExtras(spec, label, { postBuild }) {
+  if (spec.profile !== undefined && (typeof spec.profile !== "string" || !PROFILE.test(spec.profile))) fail(`${label}.profile must be a Cargo profile name`);
+  const tauriConfig = spec.tauriConfig === undefined ? undefined : relativeInside(spec.tauriConfig, `${label}.tauriConfig`);
+  if (tauriConfig && !/\.json$/i.test(tauriConfig)) fail(`${label}.tauriConfig must be a .json file`);
+  return {
+    profile: spec.profile,
+    tauriConfig,
+    prepare: spec.prepare === undefined ? [] : commandList(spec.prepare, `${label}.prepare`),
+    postBuild: !postBuild || spec.postBuild === undefined ? [] : commandList(spec.postBuild, `${label}.postBuild`),
+  };
+}
+
+/** Tauri v2 passes Cargo flags after `--`; the profile also decides where Tauri looks for the built binary. */
+const profileArgs = (extras) => (extras.profile ? ["--", "--profile", extras.profile] : []);
+const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", path.relative(path.resolve(appRoot, cwd), path.resolve(appRoot, extras.tauriConfig)).split(path.sep).join("/")] : []);
+
+/** release.mjs runs ONE prePackage command: node recipe-build.mjs runs prepare, the Tauri build and postBuild in order. */
+function recipeBuildCommand({ extras, build, env }) {
+  const steps = [
+    ...extras.prepare.map((step) => ({ phase: "prepare", ...step })),
+    { phase: "build", cmd: build.cmd, args: build.args, cwd: build.cwd },
+    ...extras.postBuild.map((step) => ({ phase: "postBuild", ...step })),
+  ];
+  return { cmd: process.execPath, args: [RECIPE_BUILD, "--plan", JSON.stringify({ version: 1, steps })], env };
+}
+
+function winPrePackage({ extras, cwd, appRoot, triple }) {
+  const args = ["exec", "tauri", "build", "--no-bundle", "--target", triple, ...configArgs(extras, appRoot, cwd), ...profileArgs(extras)];
+  if (!extras.prepare.length) return { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV };
+  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV });
+}
 
 /** `targets.win.winPackage` → prePackage (`tauri build --no-bundle`) and package (`tauri bundle --bundles nsis`). */
 export function expandWinPackageTarget(target, { appRoot, config = {} }) {
   if (!target?.winPackage) return withoutRecipe(target);
   if (target.prePackage !== undefined) fail("targets.win.winPackage replaces prePackage; remove the prePackage script");
   if (target.winPackage.sidecars !== undefined) fail("targets.win.winPackage.sidecars is not supported in a right-release target: declare sidecars through externalBin or mediaSidecar, which release.mjs signs with the raw EXE");
+  if (!isObject(target.winPackage)) fail("targets.win.winPackage must be an object");
+  const { profile: _p, tauriConfig: _t, prepare: _pr, postBuild, ...coreSpec } = target.winPackage;
+  if (postBuild !== undefined) fail("targets.win.winPackage.postBuild is not supported: release.mjs signs the raw EXE between the build and the bundle; use prepare");
+  const extras = buildExtras(target.winPackage, "targets.win.winPackage", { postBuild: false });
   let plan;
-  try { plan = validateWinPackage({ appRoot, config, target }); } catch (error) {
+  try { plan = validateWinPackage({ appRoot, config, target: { ...target, winPackage: coreSpec } }); } catch (error) {
     if (error instanceof WinPackageConfigError) fail(`targets.win.winPackage: ${(error.issues ?? [error.message]).join("; ")}`);
     throw error;
   }
@@ -40,14 +101,14 @@ export function expandWinPackageTarget(target, { appRoot, config = {} }) {
   return {
     ...rest,
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
-    prePackage: { cmd: "pnpm", args: ["exec", "tauri", "build", "--no-bundle", "--target", plan.triple], cwd, env: QUIET_TAURI_ENV },
-    package: { cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, "--config", JSON.stringify(override)], cwd, env: QUIET_TAURI_ENV },
+    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple }),
+    package: { cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override), ...profileArgs(extras)], cwd, env: QUIET_TAURI_ENV },
     sign: { ...(target.sign ?? {}), prePackageFiles: [rel(plan.appRoot, plan.rawExe)], files: [rel(plan.appRoot, plan.installerFile)] },
     recipe: { kind: "winPackage", productName: plan.productName, updater: plan.updater },
   };
 }
 
-const MAC_KEYS = new Set(["universal", "tauriCwd", "features"]);
+const MAC_KEYS = new Set(["universal", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild"]);
 
 /**
  * `targets.mac.macPackage` → prePackage (`tauri build --bundles app`, universal by default), the .app as the
@@ -71,14 +132,16 @@ export function expandMacPackageTarget(target, { appRoot }) {
   // Tauri's universal-apple-darwin target builds both slices and lipos them itself.
   const triple = spec.universal === false ? (process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin") : "universal-apple-darwin";
   const override = { bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: null } } };
-  const args = ["exec", "tauri", "build", "--target", triple, "--bundles", "app", "--no-sign", "--config", JSON.stringify(override)];
+  const extras = buildExtras(spec, "targets.mac.macPackage", { postBuild: true });
+  const args = ["exec", "tauri", "build", "--target", triple, "--bundles", "app", "--no-sign", ...configArgs(extras, appRoot, cwd), "--config", JSON.stringify(override)];
   if (spec.features?.length) args.push("--features", spec.features.join(","));
+  args.push(...profileArgs(extras));
   const prePackageFiles = target.sign?.prePackageFiles ?? [target.notarize.app];
   if (!prePackageFiles.some((entry) => (typeof entry === "string" ? entry : entry?.file) === target.notarize.app)) fail("targets.mac.macPackage: sign.prePackageFiles must include notarize.app");
   const { macPackage, recipe: _ignoredMac, ...rest } = target;
   return {
     ...rest,
-    prePackage: { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+    prePackage: extras.prepare.length || extras.postBuild.length ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     sign: { ...(target.sign ?? {}), prePackageFiles },
     notarize: { ...target.notarize, appBeforePackage: true },
     dmg: isObject(target.dmg) ? target.dmg : {},

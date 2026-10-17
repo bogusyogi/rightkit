@@ -329,3 +329,159 @@ test("dev install records verified Team identity and preserves relative framewor
   assert.equal(targets.length, 2); // framework bundle then parent; never their primary executables.
   assert.equal(readFileSync(path.join(destination, "Contents/Frameworks/Fixture.framework/Fixture")).toString("hex"), "cffaedfe00000000");
 });
+
+// ---- per-binary identifiers, timestamp, per-path entitlements, identity assertions (bogusyogi/rightkit#345) ----
+const MACHO = Buffer.from("cffaedfe00000000", "hex");
+function engineFixture(t) {
+  const f = fixture(t);
+  f.write(path.join(f.bundle, "Contents/MacOS/fixture-engine"), MACHO);
+  f.write(path.join(f.bundle, "Contents/MacOS/fixture-engine-helper"), MACHO);
+  f.write(path.join(f.bundle, "Contents/Resources/runtime/yt-dlp"), MACHO);
+  f.write(path.join(f.bundle, "Contents/Resources/runtime/libx.dylib"), MACHO);
+  f.write(path.join(f.root, "src-tauri/entitlements.engine.plist"), JSON.stringify({ "com.apple.security.cs.allow-jit": true }));
+  return f;
+}
+const signCalls = (f) => f.calls.filter((call) => call.command === "codesign" && call.args.includes("--sign"));
+const signArgs = (f, file) => signCalls(f).find((call) => call.args.at(-1) === file).args;
+const valueAfter = (args, flag) => args[args.indexOf(flag) + 1];
+const withDescriptor = (f, extra, extraConfig = {}) => ({ ...f, descriptor: { ...f.descriptor, ...extra }, config: extraConfig });
+const NL = String.fromCharCode(10);
+const codesignReport = ({ identifier, team = "6KLGD3LLKF", authority = releaseIdentity }) => [`Identifier=${identifier}`, `Authority=${authority}`, "Authority=Developer ID Certification Authority", "Authority=Apple Root CA", `TeamIdentifier=${team}`, ""].join(NL);
+// codesign prints its identity report on stderr, never stdout.
+const dvvRun = (f, reports, fallback) => (command, args, options) => {
+  if (command === "codesign" && args[0] === "-dvv") {
+    f.calls.push({ command, args, options });
+    const key = path.relative(f.bundle, args[1]).split(path.sep).join("/") || ".";
+    return { status: 0, stdout: "", stderr: reports[key] ?? fallback ?? "" };
+  }
+  return f.run(command, args, options);
+};
+
+test("nothing declared: no --identifier, no --timestamp and no extra calls (existing apps are unchanged)", (t) => {
+  const f = engineFixture(t);
+  const result = signMacosDevelopmentBundle(f);
+  for (const call of signCalls(f)) assert.ok(!call.args.includes("--identifier") && !call.args.includes("--timestamp") && !call.args.includes("--timestamp=none"));
+  assert.ok(!f.calls.some((call) => call.args.includes("-dvv")));
+  assert.equal(result.assertedIdentities, undefined);
+});
+
+test("identifiers map an exact path or glob to --identifier; an exact key beats a glob; the parent keeps its Info.plist identifier", (t) => {
+  const f = engineFixture(t);
+  signMacosDevelopmentBundle(withDescriptor(f, { identifiers: { "Contents/MacOS/fixture-engine*": "app.fixture.engine", "Contents/MacOS/fixture-engine": "app.fixture.engine.exact" } }));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/MacOS/fixture-engine")), "--identifier"), "app.fixture.engine.exact");
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/MacOS/fixture-engine-helper")), "--identifier"), "app.fixture.engine");
+  assert.ok(!signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/yt-dlp")).includes("--identifier"), "no template, no identifier");
+  assert.ok(!signArgs(f, f.bundle).includes("--identifier"));
+  signMacosDevelopmentBundle(withDescriptor(f, { identifiers: { ".": "app.fixture" } }));
+  assert.equal(valueAfter(signCalls(f).at(-1).args, "--identifier"), "app.fixture");
+});
+
+test("identifierTemplate names the remaining plain Mach-O files like ScrapeRight (<bundleId>.runtime.<relpath>) and GenRight (<basename>)", (t) => {
+  const f = engineFixture(t);
+  signMacosDevelopmentBundle(withDescriptor(f, { identifiers: { "Contents/MacOS/fixture-engine*": "app.fixture.engine" }, identifierTemplate: "<bundleId>.runtime.<relpath>" }));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/MacOS/fixture-engine")), "--identifier"), "app.fixture.engine");
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/yt-dlp")), "--identifier"), "app.fixture.runtime.Contents.Resources.runtime.yt-dlp");
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/libx.dylib")), "--identifier"), "app.fixture.runtime.Contents.Resources.runtime.libx.dylib");
+  assert.ok(!signArgs(f, f.bundle).includes("--identifier"), "the template never names the bundle");
+  f.calls.length = 0;
+  signMacosDevelopmentBundle(withDescriptor(f, { identifierTemplate: "<bundleId>.runtime.<basename>" }));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/libx.dylib")), "--identifier"), "app.fixture.runtime.libx.dylib");
+  // sign.identifiers/identifierTemplate apply to dev too, so one declaration keeps dev and release identifiers identical.
+  f.calls.length = 0;
+  signMacosDevelopmentBundle(withDescriptor(f, {}, { targets: { mac: { sign: { identifiers: { "Contents/MacOS/fixture-engine": "app.fixture.engine" }, identifierTemplate: "<bundleId>.rt.<basename>" } } } }));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/MacOS/fixture-engine")), "--identifier"), "app.fixture.engine");
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/yt-dlp")), "--identifier"), "app.fixture.rt.yt-dlp");
+});
+
+test("install.timestamp adds --timestamp to every dev signing call and is otherwise absent", (t) => {
+  const f = engineFixture(t);
+  signMacosDevelopmentBundle(withDescriptor(f, { timestamp: true }));
+  const calls = signCalls(f);
+  assert.ok(calls.length >= 5 && calls.every((call) => call.args.includes("--timestamp") && call.args.indexOf("--timestamp") < call.args.indexOf("--sign")));
+});
+
+test("per-path entitlements apply to the declared paths, beat a <main>-<suffix>.plist variant, and leave other files alone", (t) => {
+  const f = engineFixture(t);
+  f.write(path.join(f.root, "src-tauri/entitlements-engine.plist"), JSON.stringify({ "com.apple.security.cs.allow-jit": true }));
+  f.write(path.join(f.root, "src-tauri/custom.plist"), JSON.stringify({ "com.apple.security.cs.allow-unsigned-executable-memory": true }));
+  const engine = path.join(f.bundle, "Contents/MacOS/fixture-engine");
+  // Without a map the existing variant applies.
+  signMacosDevelopmentBundle(f);
+  assert.equal(valueAfter(signArgs(f, engine), "--entitlements"), path.join(f.root, "src-tauri/entitlements-engine.plist"));
+  f.calls.length = 0;
+  const map = { "Contents/MacOS/fixture-engine": "src-tauri/custom.plist", "Contents/Resources/runtime/yt-dlp": "src-tauri/entitlements.engine.plist" };
+  signMacosDevelopmentBundle(withDescriptor(f, { entitlements: map }));
+  assert.equal(valueAfter(signArgs(f, engine), "--entitlements"), path.join(f.root, "src-tauri/custom.plist"));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/yt-dlp")), "--entitlements"), path.join(f.root, "src-tauri/entitlements.engine.plist"));
+  assert.ok(!signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/libx.dylib")).includes("--entitlements"));
+  assert.equal(valueAfter(signArgs(f, f.bundle), "--entitlements"), path.join(f.root, "src-tauri/entitlements.plist"), "the app keeps its own entitlements");
+  // A string sign.entitlements is still the app file; an object is the per-path map.
+  f.calls.length = 0;
+  signMacosDevelopmentBundle(withDescriptor(f, {}, { targets: { mac: { sign: { entitlements: { "Contents/Resources/**": "src-tauri/entitlements.engine.plist" } } } } }));
+  assert.equal(valueAfter(signArgs(f, path.join(f.bundle, "Contents/Resources/runtime/libx.dylib")), "--entitlements"), path.join(f.root, "src-tauri/entitlements.engine.plist"));
+  assert.equal(valueAfter(signArgs(f, f.bundle), "--entitlements"), path.join(f.root, "src-tauri/entitlements.plist"));
+  f.calls.length = 0;
+  signMacosDevelopmentBundle(withDescriptor(f, {}, { targets: { mac: { sign: { entitlements: "src-tauri/custom.plist" } } } }));
+  assert.equal(valueAfter(signArgs(f, f.bundle), "--entitlements"), path.join(f.root, "src-tauri/custom.plist"));
+});
+
+test("install.assert reads codesign -dvv (stderr), checks identifier, Team and authority, and accepts globs", (t) => {
+  const f = engineFixture(t);
+  const reports = {
+    ".": codesignReport({ identifier: "app.fixture" }),
+    "Contents/MacOS/fixture-engine": codesignReport({ identifier: "app.fixture.engine" }),
+    "Contents/Resources/runtime/libx.dylib": codesignReport({ identifier: "app.fixture.runtime.libx.dylib" }),
+  };
+  const assertions = [
+    { path: ".", identifier: "app.fixture", teamIdentifier: "6KLGD3LLKF", authority: releaseIdentity },
+    { path: "Contents/MacOS/fixture-engine", identifier: "app.fixture.engine" },
+    { path: "Contents/Resources/runtime/*.dylib", teamIdentifier: "6KLGD3LLKF" },
+  ];
+  const result = signMacosDevelopmentBundle({ ...withDescriptor(f, { assert: assertions }), run: dvvRun(f, reports) });
+  assert.equal(result.assertedIdentities, 3);
+  assert.ok(f.calls.filter((call) => call.args[0] === "-dvv").every((call) => call.command === "codesign"));
+});
+
+test("install.assert fails closed on a wrong identifier, Team or authority, and on a glob that matches nothing", (t) => {
+  const f = engineFixture(t);
+  const good = { ".": codesignReport({ identifier: "app.fixture" }), "Contents/MacOS/fixture-engine": codesignReport({ identifier: "app.fixture.engine" }) };
+  const failing = (assertions, reports = good) => assert.throws(() => signMacosDevelopmentBundle({ ...withDescriptor(f, { assert: assertions }), run: dvvRun(f, reports) }), (error) => error.code === "DEV_MAC_SIGNING_ASSERT_FAILED" && /Refusing dev installation/.test(error.message));
+  failing([{ path: "Contents/MacOS/fixture-engine", identifier: "app.fixture.wrong" }]);
+  failing([{ path: ".", teamIdentifier: "OTHERTEAM" }]);
+  failing([{ path: ".", authority: "Developer ID Application: Someone Else (AAAAAAAAAA)" }]);
+  failing([{ path: "Contents/Frameworks/libonnxruntime*.dylib", teamIdentifier: "6KLGD3LLKF" }]);
+  failing([{ path: "Contents/MacOS/fixture-engine", identifier: "app.fixture.engine" }], { ...good, "Contents/MacOS/fixture-engine": "" });
+});
+
+test("assertTeamSignedNested requires every Mach-O, bundled dylibs included, to carry the app's TeamIdentifier", (t) => {
+  const f = engineFixture(t);
+  f.write(path.join(f.bundle, "Contents/Frameworks/libonnxruntime.1.2.dylib"), MACHO);
+  f.write(path.join(f.bundle, "Contents/Resources/model.bin"), "not code");
+  const fallback = codesignReport({ identifier: "x" });
+  const ok = signMacosDevelopmentBundle({ ...withDescriptor(f, { assertTeamSignedNested: true }), run: dvvRun(f, {}, fallback) });
+  assert.equal(ok.assertedIdentities, 7, "the bundle plus its six Mach-O files; model.bin is not code");
+  const foreign = { "Contents/Frameworks/libonnxruntime.1.2.dylib": codesignReport({ identifier: "libonnxruntime", team: "UBF8T346G9" }) };
+  assert.throws(() => signMacosDevelopmentBundle({ ...withDescriptor(f, { assertTeamSignedNested: true }), run: dvvRun(f, foreign, fallback) }), (error) => error.code === "DEV_MAC_SIGNING_ASSERT_FAILED" && /libonnxruntime\.1\.2\.dylib: TeamIdentifier=UBF8T346G9/.test(error.message));
+  const adhoc = { "Contents/Resources/runtime/yt-dlp": ["Identifier=yt-dlp", "Signature=adhoc", "TeamIdentifier=not set", ""].join(NL) };
+  assert.throws(() => signMacosDevelopmentBundle({ ...withDescriptor(f, { assertTeamSignedNested: true }), run: dvvRun(f, adhoc, fallback) }), (error) => error.code === "DEV_MAC_SIGNING_ASSERT_FAILED" && /yt-dlp: ad hoc signed/.test(error.message));
+});
+
+test("malformed per-binary signing settings are refused before any signing call", (t) => {
+  const f = engineFixture(t);
+  const bad = [
+    { identifiers: { "Contents/MacOS/x": "-evil" } },
+    { identifiers: { "../x": "app.x" } },
+    { identifiers: { "/abs": "app.x" } },
+    { identifiers: [] },
+    { identifierTemplate: "<bundleId>.<nope>" },
+    { identifierTemplate: "<bundleId>.static" },
+    { entitlements: { "Contents/MacOS/x": "src-tauri/missing.plist" } },
+    { timestamp: "yes" },
+    { assert: [{ path: "." }] },
+    { assert: [{ path: ".", identifier: "a", extra: 1 }] },
+    { assert: "no" },
+    { assertTeamSignedNested: 1 },
+  ];
+  for (const extra of bad) assert.throws(() => signMacosDevelopmentBundle(withDescriptor(f, extra)), (error) => error.code === "DEV_MAC_SIGNING_CONFIG_INVALID", JSON.stringify(extra));
+  assert.equal(f.calls.length, 0);
+});

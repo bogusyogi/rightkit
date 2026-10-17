@@ -14,7 +14,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync } fro
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { assertStableDesignatedRequirement, signMacosDevelopmentBundle } from "./development-signing.mjs";
+import { assertSignedIdentities, assertStableDesignatedRequirement, readDevSigningSettings, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { installApp } from "./install-app.mjs";
 import { previousPathOf } from "./in-place-install.mjs";
 
@@ -39,6 +39,7 @@ export function defaultDeps() {
     run: spawnSync,
     sign: signMacosDevelopmentBundle,
     assertRequirement: assertStableDesignatedRequirement,
+    assertIdentities: assertSignedIdentities,
     installApp,
     exists: existsSync,
     makeTemp: () => mkdtempSync(P.join(os.tmpdir(), "rightkit-tauri-devid-")),
@@ -63,6 +64,9 @@ export function resolveTauriDevIdDescriptor(config, { appRoot = "" } = {}) {
   if (!Array.isArray(binaries) || binaries.some((item) => typeof item !== "string" || !item || P.isAbsolute(item) || item.split("/").includes(".."))) {
     throw new TauriDevIdError("TAURI_DEVID_CONFIG_INVALID", "install.verifyBinaries must be relative paths inside the app, for example Contents/MacOS/<name>");
   }
+  // Shape of the per-binary signing keys (identifiers, identifierTemplate, entitlements, timestamp, assert, assertTeamSignedNested).
+  try { readDevSigningSettings(descriptor, config?.development ? config : {}); }
+  catch (error) { throw new TauriDevIdError("TAURI_DEVID_CONFIG_INVALID", error.message); }
   return { ...descriptor, destination: P.normalize(descriptor.destination), verifyBinaries: binaries, appRoot };
 }
 
@@ -88,13 +92,21 @@ function restorePrevious(destination, deps) {
   return { destination, restoredFrom: previous };
 }
 
-function verifyInstalled({ appRoot, destination, staged, expectedRequirement, binaries, env, deps }) {
+function verifyInstalled({ appRoot, destination, staged, expectedRequirement, binaries, env, deps, descriptor, config, signing }) {
   const strict = deps.run("codesign", ["--verify", "--strict", "--deep", destination], { cwd: appRoot, env, encoding: "utf8", windowsHide: true, shell: false });
   if (strict.error || strict.status !== 0) throw new TauriDevIdError("TAURI_DEVID_VERIFY_FAILED", `installed ${destination} failed codesign --verify --strict --deep: ${strict.error?.message ?? text(strict)}`);
   const display = deps.run("codesign", ["--display", "-r-", destination], { cwd: appRoot, env, encoding: "utf8", windowsHide: true, shell: false });
   const actual = /^designated => (.+)$/m.exec(text(display))?.[1]?.trim();
   if (display.status !== 0 || actual !== expectedRequirement) {
     throw new TauriDevIdError("TAURI_DEVID_VERIFY_FAILED", `installed ${destination} designated requirement ${JSON.stringify(actual)} is not the signed ${JSON.stringify(expectedRequirement)}`, { installedRequirement: actual, designatedRequirement: expectedRequirement });
+  }
+  // Declared identity assertions (install.assert, install.assertTeamSignedNested) against the installed copy; a failure rolls back.
+  const settings = readDevSigningSettings(descriptor, config?.development ? config : {});
+  if (settings.assertions.length || settings.assertTeamSignedNested) {
+    try {
+      deps.assertIdentities({ root: appRoot, bundle: destination, settings, teamIdentifier: signing.teamIdentifier, identity: signing.identity, env, run: deps.run, join: P.join, label: "installed copy",
+        ...(deps.listFiles ? { listFiles: deps.listFiles } : {}), ...(deps.isMachO ? { isMachO: deps.isMachO } : {}) });
+    } catch (error) { throw new TauriDevIdError("TAURI_DEVID_VERIFY_FAILED", `installed ${destination} failed its identity assertions: ${error.message}`, { problems: error.problems }); }
   }
   for (const binary of binaries) {
     let want; let got;
@@ -122,7 +134,7 @@ export async function installTauriDevId({ appRoot, config, built, deps = {}, env
   try {
     d.copyApp(source, staged);
     // 1. Sign: nested code first, then the app, with the stable Developer ID (development-signing orders it deepest first).
-    const signing = await d.sign({ root: appRoot, bundle: staged, descriptor, config, env });
+    const signing = await d.sign({ root: appRoot, bundle: staged, descriptor, config, env, ...(d.listFiles ? { listFiles: d.listFiles } : {}), ...(d.isMachO ? { isMachO: d.isMachO } : {}) });
     if (signing.adhoc || !signing.designatedRequirement) throw new TauriDevIdError("TAURI_DEVID_SIGNING_UNSTABLE", `signing produced no stable Developer ID designated requirement for ${staged}; refusing to install`);
     // 2. Same identity as the installed copy, or fail: a changed designated requirement resets every privacy grant.
     if (d.exists(destination)) await d.assertRequirement({ root: appRoot, installed: destination, expected: signing.designatedRequirement, env, run: d.run });
@@ -130,7 +142,7 @@ export async function installTauriDevId({ appRoot, config, built, deps = {}, env
     const outcome = await d.installApp({ app: staged, dev: true, dest: P.dirname(destination), appName: name, bundleId: descriptor.bundleId ?? null, relaunch: null }, { env });
     // 4. Verify the installed copy; a failure puts .previous back (or removes a first install) so the path is never left broken.
     try {
-      verifyInstalled({ appRoot, destination, staged, expectedRequirement: signing.designatedRequirement, binaries: descriptor.verifyBinaries, env, deps: d });
+      verifyInstalled({ appRoot, destination, staged, expectedRequirement: signing.designatedRequirement, binaries: descriptor.verifyBinaries, env, deps: d, descriptor, config, signing });
     } catch (error) {
       let rolledBack = "none";
       if (outcome?.previous && d.exists(previousPathOf(destination))) { restorePrevious(destination, d); rolledBack = "restored-previous"; }

@@ -133,3 +133,70 @@ test("reset only removes when mode is remove, and resets privacy only on request
   await resetTauriDevId({ appRoot: "/work", config: config(), mode: "remove", resetPrivacy: true, deps: h.deps });
   assert.ok(h.calls.includes("run tccutil reset All com.example.demo"));
 });
+
+// ---- identity assertions on the installed copy (bogusyogi/rightkit#345) ----
+const NL = String.fromCharCode(10);
+const TEAM = "6KLGD3LLKF";
+const dvvReport = (team, identifier = "x") => `Identifier=${identifier}${NL}Authority=Developer ID Application: Orthic Labs (${TEAM})${NL}TeamIdentifier=${team}${NL}`;
+// codesign -dvv reports on stderr. `teams` maps an installed path to its TeamIdentifier (default: the app's team).
+function withDvv(h, teams = {}) {
+  const original = h.deps.run;
+  h.deps.run = (command, args, ...rest) => {
+    if (args[0] === "-dvv") { h.calls.push(`run codesign -dvv ${args[1]}`); return { status: 0, stdout: "", stderr: dvvReport(teams[args[1]] ?? TEAM) }; }
+    return original(command, args, ...rest);
+  };
+  h.deps.listFiles = () => ["Contents/MacOS/demo", "Contents/Frameworks/libonnxruntime.1.2.dylib", "Contents/Resources/readme.txt"];
+  h.deps.isMachO = (file) => !file.endsWith(".txt");
+  return h;
+}
+const assertCfg = () => config({ assertTeamSignedNested: true, assert: [{ path: "Contents/Frameworks/libonnxruntime*.dylib", teamIdentifier: TEAM }, { path: ".", identifier: "x", authority: `Developer ID Application: Orthic Labs (${TEAM})` }] });
+
+test("declared identity assertions pass on the installed copy, read with codesign -dvv", async () => {
+  const h = withDvv(harness({ files: { [DEST]: "old" } }));
+  const result = await installTauriDevId(opts(h, { config: assertCfg() }));
+  assert.equal(result.installed, DEST);
+  assert.ok(h.calls.includes(`run codesign -dvv ${DEST}`));
+  assert.ok(h.calls.includes(`run codesign -dvv ${DEST}/Contents/Frameworks/libonnxruntime.1.2.dylib`));
+  assert.equal(h.calls.some((line) => line.includes("readme.txt")), false, "non-Mach-O files are not inspected");
+  assert.equal(h.fs.get(`${DEST}.previous`), "old");
+});
+
+test("a nested Mach-O signed by another team fails the install and restores .previous", async () => {
+  const h = withDvv(harness({ files: { [DEST]: "old" } }), { [`${DEST}/Contents/Frameworks/libonnxruntime.1.2.dylib`]: "UBF8T346G9" });
+  await assert.rejects(installTauriDevId(opts(h, { config: assertCfg() })), (error) => error.code === "TAURI_DEVID_VERIFY_FAILED" && error.rolledBack === "restored-previous" && /libonnxruntime\.1\.2\.dylib/.test(error.message));
+  assert.equal(h.fs.get(DEST), "old");
+  assert.equal(h.fs.has(`${DEST}.previous`), false);
+});
+
+test("a failed assertion on a first install removes it", async () => {
+  const h = withDvv(harness(), { [DEST]: "OTHERTEAM" });
+  await assert.rejects(installTauriDevId(opts(h, { config: config({ assert: [{ path: ".", teamIdentifier: TEAM }] }) })), (error) => error.code === "TAURI_DEVID_VERIFY_FAILED" && error.rolledBack === "removed-first-install");
+  assert.equal(h.fs.has(DEST), false);
+});
+
+test("without declared assertions the assertion step is never called", async () => {
+  const h = harness({ files: { [DEST]: "old" } });
+  let called = 0;
+  h.deps.assertIdentities = () => { called += 1; };
+  await installTauriDevId(opts(h));
+  assert.equal(called, 0);
+  assert.equal(h.calls.some((line) => line.includes("-dvv")), false);
+});
+
+test("the descriptor accepts and validates the per-binary signing keys", () => {
+  const ok = config({ identifiers: { "Contents/MacOS/demo-engine": "app.demo.engine" }, identifierTemplate: "<bundleId>.runtime.<relpath>", entitlements: { "Contents/MacOS/demo-engine": "src-tauri/entitlements.engine.plist" }, timestamp: true, assert: [{ path: "Contents/MacOS/demo-engine", identifier: "app.demo.engine" }], assertTeamSignedNested: true });
+  assert.equal(resolveTauriDevIdDescriptor(ok).identifiers["Contents/MacOS/demo-engine"], "app.demo.engine");
+  for (const extra of [{ identifiers: { "../x": "a" } }, { identifiers: { x: "-a" } }, { identifierTemplate: "<bundleId>" }, { timestamp: 1 }, { assert: [{ path: "." }] }, { assertTeamSignedNested: "yes" }]) {
+    assert.throws(() => resolveTauriDevIdDescriptor(config(extra)), (error) => error.code === "TAURI_DEVID_CONFIG_INVALID", JSON.stringify(extra));
+  }
+});
+
+test("the sign step receives the file listing hooks and the full config", async () => {
+  const h = harness();
+  let seen;
+  h.deps.sign = async (options) => { seen = options; return { identity: "i", teamIdentifier: TEAM, designatedRequirement: REQ }; };
+  h.deps.listFiles = () => [];
+  await installTauriDevId(opts(h, { config: config({ timestamp: true }) }));
+  assert.equal(seen.descriptor.timestamp, true);
+  assert.equal(typeof seen.listFiles, "function");
+});

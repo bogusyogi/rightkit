@@ -494,7 +494,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     assertNoQaControlBinaries("macOS app staged for the DMG", [stagedApp], { requireBinary: true, prePack: true });
   }
   if (runMacPhase("sign")) {
-    await signMacos(signingEntries, root, "signing", macSigning.nestedCode);
+    await signMacos(signingEntries, root, "signing", macSigning.nestedCode, macSigning.nestedSigning);
     if (sidecarPlan && !opts.dryRun) {
       const app = signingEntries.find((entry) => /\.app\/?$/.test(entry.file));
       if (!app) fail("mediaSidecar on macOS needs an .app entry in sign.prePackageFiles");
@@ -1462,12 +1462,12 @@ function macSignInvocation(items, receiptPath, extra = []) {
   return [SIGN_MACOS, ...extra, "--receipt", receiptPath, "--manifest", manifest];
 }
 
-async function signMacos(entries, root, phase = "signing", nestedCode = []) {
+async function signMacos(entries, root, phase = "signing", nestedCode = [], nestedSigning) {
   const files = entries.map((entry) => entry.file);
   const receipt = phase === "signing" ? macosReceiptPath(root, "signing") : path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `macos-${phase}.json`);
   // Directory entries (.app bundles): nested code first (default settings unless sign.nestedCode names it), then the bundle itself.
   let nested = [];
-  try { ({ nested } = opts.dryRun ? { nested: [] } : planMacSigning({ entries, nestedCode })); } catch (error) { fail(error.message); }
+  try { ({ nested } = opts.dryRun ? { nested: [] } : planMacSigning({ entries, nestedCode, nestedSigning, root })); } catch (error) { fail(error.message); }
   if (opts.dryRun && (nestedCode.length || entries.some(hasNonDefaultSettings))) {
     console.log(`right-release: dry-run: per-file signing matrix (${nestedCode.length} nestedCode rule(s), ${entries.filter(hasNonDefaultSettings).length} entry setting(s)); nested code is resolved against the built bundle at sign time`);
   }

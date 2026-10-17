@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
 import {
-  StageSidecarError, builtBinaryCandidates, parseTargetTriple, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, parseTargetTriple, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
@@ -47,9 +47,9 @@ function fakeRun({ onBuild, targetDir = path.resolve("/rk-fake-target") } = {}) 
 
 const deps = (extra) => ({ now: () => "2026-10-17T00:00:00.000Z", pid: 7, log: () => {}, ...extra });
 
-test("parseTargetTriple maps triples and refuses universal and unknown", () => {
+test("parseTargetTriple maps triples, accepts universal and refuses unknown", () => {
   assert.deepEqual(parseTargetTriple(WIN), { triple: WIN, platform: "win", os: "windows", arch: "x86_64" });
-  assert.throws(() => parseTargetTriple("universal-apple-darwin"), { code: "STAGE_SIDECAR_TARGET_UNSUPPORTED" });
+  assert.deepEqual(parseTargetTriple("universal-apple-darwin"), { triple: "universal-apple-darwin", platform: "mac", os: "macos", arch: "universal" });
   assert.throws(() => parseTargetTriple("riscv64-unknown-none"), { code: "STAGE_SIDECAR_TARGET_UNSUPPORTED" });
 });
 
@@ -272,4 +272,201 @@ test("ffmpeg wraps media-sidecar failures (a pending catalog row) in a typed err
 test("validateStageSidecarReceipt rejects malformed receipts", () => {
   assert.throws(() => validateStageSidecarReceipt({ schema: 1 }), { code: "STAGE_SIDECAR_RECEIPT_INVALID" });
   assert.throws(() => validateStageSidecarReceipt({ schema: 1, contract: "rightkit-stage-sidecar-v1", files: [{ name: "a", path: "a", sha256: "x", sizeBytes: 1 }] }), { code: "STAGE_SIDECAR_RECEIPT_INVALID" });
+});
+
+// ---- profile switch, external catalogs, command kind, universal-apple-darwin (bogusyogi/rightkit#345) ----
+
+const profileOf = (manifest, env) => validateSidecarManifest(manifest, { target: MAC, mode: resolveBuildMode(env) }).entries[0].profile;
+
+test("cargo-bin profile pair is chosen by RIGHTKIT_BUILD_MODE, with a top-level profiles default", () => {
+  const pair = { dev: "release-iterate", release: "release" };
+  const entry = [{ kind: "cargo-bin", package: "eng", profile: pair }];
+  assert.equal(profileOf(entry, {}), "release");
+  assert.equal(profileOf(entry, { RIGHTKIT_BUILD_MODE: "release" }), "release");
+  assert.equal(profileOf(entry, { RIGHTKIT_BUILD_MODE: "dev" }), "release-iterate");
+  const wrapped = { sidecars: [{ kind: "cargo-bin", package: "eng" }, { kind: "cargo-bin", package: "own", profile: "release-lto" }], profiles: pair };
+  assert.equal(profileOf(wrapped, { RIGHTKIT_BUILD_MODE: "dev" }), "release-iterate");
+  assert.equal(validateSidecarManifest(wrapped, { target: MAC, mode: "dev" }).entries[1].profile, "release-lto");
+  assert.equal(validateSidecarManifest([{ kind: "cargo-bin", package: "eng" }], { target: MAC, mode: "dev" }).entries[0].profile, "release");
+  assert.throws(() => resolveBuildMode({ RIGHTKIT_BUILD_MODE: "debug" }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+  for (const bad of [{ dev: "x" }, { dev: "A", release: "release" }, { dev: "a", release: "b", beta: "c" }, 7]) {
+    assert.throws(() => validateSidecarManifest([{ kind: "cargo-bin", package: "eng", profile: bad }], { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+  }
+  assert.throws(() => validateSidecarManifest({ sidecars: entry, profiles: "release" }, { target: MAC }), /profiles/);
+});
+
+test("the dev mode builds with the dev profile through rightkit cargo", async () => {
+  const { fs, files } = fakeFs();
+  const exe = path.resolve("/rk-fake-target", MAC, "release-iterate", "eng");
+  const { run, calls } = fakeRun({ onBuild: () => { files.set(exe, Buffer.from("dev-bytes")); return { stdout: stream("eng", exe) }; } });
+  const manifest = [{ kind: "cargo-bin", package: "eng", profile: { dev: "release-iterate", release: "release" } }];
+  await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run, env: { RIGHTKIT_BUILD_MODE: "dev" } }) });
+  assert.equal(calls[0].args[calls[0].args.indexOf("--profile") + 1], "release-iterate");
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run, env: { RIGHTKIT_BUILD_MODE: "nope" } }) }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+});
+
+test("catalog accepts a path, an absolute path, { crate } and { npm }; a bad catalog is reported against its entry", () => {
+  const abs = path.resolve("/somewhere/artifacts.json");
+  const ok = validateSidecarManifest([
+    { kind: "onnxruntime", version: "1.24.4", catalog: "cat/n.json" },
+    { kind: "onnxruntime", version: "1.24.4", catalog: abs, as: "a.dylib" },
+    { kind: "onnxruntime", version: "1.24.4", catalog: { crate: "rightkit-ffmpeg" }, as: "b.dylib" },
+    { kind: "onnxruntime", version: "1.24.4", catalog: { npm: "@orthic/catalogs/native-libraries.json" }, as: "c.dylib" },
+  ], { target: MAC }).entries;
+  assert.deepEqual(ok.map((entry) => entry.catalogSpec.via), ["path", "absolute", "crate", "npm"]);
+  assert.equal(ok[2].catalogSpec.file, "catalog/native-libraries.json");
+  assert.equal(ok[3].catalogSpec.pkg, "@orthic/catalogs");
+  let error;
+  try {
+    validateSidecarManifest([
+      { kind: "onnxruntime", version: "1.24.4", catalog: { crate: "bad name" } },
+      { kind: "ffmpeg", notices: { dir: "n", sourceOfferContact: "a@b.co" }, catalog: { npm: "nofile" } },
+      { kind: "onnxruntime", version: "1.24.4", catalog: { crate: "ok", extra: 1 }, as: "z.dylib" },
+      { kind: "onnxruntime", version: "1.24.4", catalog: ["x"], as: "y.dylib" },
+    ], { target: MAC });
+  } catch (caught) { error = caught; }
+  for (const needle of ["sidecars[0] (onnxruntime): catalog.crate must be a Cargo package name", "sidecars[1] (ffmpeg): catalog.npm must be", "sidecars[2] (onnxruntime): catalog: unknown key \"extra\"", "sidecars[3] (onnxruntime): catalog must be a path"]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+});
+
+const nativeCatalog = (bytes) => ({
+  libraries: [{ id: "ort", library: "onnxruntime", version: "1.24.4", os: "macos", arch: "aarch64", status: "approved", sha256: sha(bytes), artifactFileName: "libonnxruntime.dylib", archive: { url: "https://example.test/ort.tgz", sha256: sha("archive") }, noticeFiles: ["NOTICE.txt"] }],
+});
+
+test("onnxruntime resolves a { crate } catalog through the metadata listing and an { npm } catalog through node_modules", async () => {
+  const crateDir = path.resolve("/rk-fake-crates/rightkit-ffmpeg");
+  for (const catalog of [{ crate: "rightkit-ffmpeg" }, { npm: "@orthic/catalogs/native-libraries.json" }]) {
+    const { fs, files } = fakeFs({
+      [path.join(crateDir, "catalog", "native-libraries.json")]: JSON.stringify(nativeCatalog("lib")),
+      [path.join(crateDir, "NOTICE.txt")]: "notice",
+      [path.resolve("/node_modules/@orthic/catalogs/native-libraries.json")]: JSON.stringify(nativeCatalog("lib")),
+      [path.resolve("/node_modules/@orthic/NOTICE.txt")]: "notice",
+    });
+    const calls = [];
+    const run = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[1] === "metadata") return { status: 0, stderr: "", stdout: JSON.stringify({ packages: [{ name: "other", manifest_path: path.resolve("/x/Cargo.toml") }, { name: "rightkit-ffmpeg", manifest_path: path.join(crateDir, "Cargo.toml") }] }) };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const result = await stageSidecars({
+      appRoot: path.resolve("/node_modules/.rk-app"), target: MAC, manifest: [{ kind: "onnxruntime", version: "1.24.4", catalog, as: "libonnxruntime.dylib" }],
+      deps: deps({
+        fs, run, fetchBytes: async () => Buffer.from("archive"), makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {},
+        extractMember: ({ destDir }) => { const file = path.join(destDir, "libonnxruntime.dylib"); files.set(file, Buffer.from("lib")); return file; },
+      }),
+    });
+    assert.equal(result.files[0].sha256, sha("lib"));
+    assert.equal(calls.some((call) => call.command === "rightkit" && call.args[1] === "metadata"), "crate" in catalog);
+  }
+});
+
+test("an unresolvable catalog fails that entry with a typed error", async () => {
+  const { fs } = fakeFs();
+  const run = () => ({ status: 0, stderr: "", stdout: JSON.stringify({ packages: [] }) });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "onnxruntime", version: "1.24.4", catalog: { crate: "missing-crate" } }], deps: deps({ fs, run }) }), { code: "STAGE_SIDECAR_CATALOG_UNREADABLE", message: /missing-crate/ });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "onnxruntime", version: "1.24.4", catalog: { npm: "nope/x.json" } }], deps: deps({ fs, run }) }), { code: "STAGE_SIDECAR_CATALOG_UNREADABLE", message: /nope\/x\.json/ });
+});
+
+test("command kind runs argv without a shell, stages <name>-<triple>, and records its sha256", async () => {
+  const { fs, files, log } = fakeFs();
+  const calls = [];
+  const run = (command, args, options) => {
+    calls.push({ command, args, options });
+    files.set(at("vendor", "whisper", "build", "bin", "whisper-cli"), Buffer.from("whisper-bytes"));
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const manifest = [{ kind: "command", name: "whisper-cli", cmd: "cmake", args: ["--build", "build", "--config", "Release"], cwd: "vendor/whisper", output: "vendor/whisper/build/bin/whisper-cli", externalBin: true }];
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run }) });
+  assert.deepEqual(calls.map((call) => [call.command, call.args, call.options.cwd]), [["cmake", ["--build", "build", "--config", "Release"], at("vendor", "whisper")]]);
+  assert.equal(calls[0].options.shell, undefined);
+  assert.equal(fs.readFileSync(at("src-tauri", "binaries", `whisper-cli-${MAC}`)).toString(), "whisper-bytes");
+  assert.deepEqual(result.externalBinNames, ["whisper-cli"]);
+  assert.equal(result.files[0].sha256, sha("whisper-bytes"));
+  assert.equal(result.files[0].kind, "command");
+  assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
+  const failing = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run: () => ({ status: 3, stderr: "boom" }) }) }).catch((error) => error);
+  assert.equal(failing.code, "STAGE_SIDECAR_BUILD_FAILED");
+  const { fs: empty } = fakeFs();
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs: empty, run: () => ({ status: 0 }) }) }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+});
+
+test("command kind validates strictly", () => {
+  let error;
+  try {
+    validateSidecarManifest([
+      { kind: "command", name: "a.exe", cmd: "cmake --build", args: "x", output: "../out", externalBin: false, shell: true },
+      { kind: "command", name: "b", cmd: "make", output: "/abs", externalBin: true },
+    ], { target: MAC });
+  } catch (caught) { error = caught; }
+  for (const needle of ["name must be a bare sidecar name", "cmd must be one executable", "args must be a list of strings", "output must be relative", "externalBin must be true", "unknown key \"shell\""]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+});
+
+const UNIVERSAL = "universal-apple-darwin";
+
+test("universal-apple-darwin builds both slices and lipo-creates <name>-universal-apple-darwin", async () => {
+  const { fs, files, log } = fakeFs();
+  const exeFor = (triple) => path.resolve("/rk-fake-target", triple, "release", "eng");
+  const seen = [];
+  const run = (command, args, options) => {
+    seen.push({ command, args, options });
+    if (command === "rightkit" && args[1] === "build") {
+      const triple = args[args.indexOf("--target") + 1];
+      files.set(exeFor(triple), Buffer.from(`slice-${triple}`));
+      return { status: 0, stderr: "", stdout: stream("eng", exeFor(triple)) };
+    }
+    if (command === "lipo" && args[0] === "-create") {
+      files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-bytes"));
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const result = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs, run }) });
+  const targets = seen.filter((call) => call.command === "rightkit").map((call) => call.args[call.args.indexOf("--target") + 1]);
+  assert.deepEqual(targets, ["aarch64-apple-darwin", "x86_64-apple-darwin"]);
+  const create = seen.find((call) => call.command === "lipo" && call.args[0] === "-create");
+  assert.deepEqual(create.args.filter((arg) => arg.startsWith(path.resolve("/rk-fake-target"))), [exeFor("aarch64-apple-darwin"), exeFor("x86_64-apple-darwin")]);
+  assert.equal(fs.readFileSync(at("src-tauri", "binaries", `eng-${UNIVERSAL}`)).toString(), "fat-bytes");
+  assert.equal(result.files[0].sha256, sha("fat-bytes"));
+  assert.deepEqual(result.files[0].slices.map((slice) => slice.triple), ["aarch64-apple-darwin", "x86_64-apple-darwin"]);
+  assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
+  assert.equal(result.receipt.target, UNIVERSAL);
+  validateStageSidecarReceipt(result.receipt, { target: UNIVERSAL, names: ["eng"] });
+});
+
+test("universal: a thin lipo result and a failing lipo are refused", async () => {
+  const build = (files, command, args) => {
+    if (command !== "rightkit") return undefined;
+    const exe = path.resolve("/rk-fake-target", args[args.indexOf("--target") + 1], "eng");
+    files.set(exe, Buffer.from("s"));
+    return { status: 0, stderr: "", stdout: stream("eng", exe) };
+  };
+  const thin = fakeFs();
+  const thinRun = (command, args) => build(thin.files, command, args)
+    ?? (args[0] === "-create" ? (thin.files.set(args[args.indexOf("-output") + 1], Buffer.from("x")), { status: 0 }) : { status: 0, stdout: "arm64\n" });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs: thin.fs, run: thinRun }) }), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+  const bad = fakeFs();
+  const badRun = (command, args) => build(bad.files, command, args) ?? { status: 1, stdout: "", stderr: "no" };
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs: bad.fs, run: badRun }) }), { code: "STAGE_SIDECAR_BUILD_FAILED" });
+});
+
+test("universal: command output and machO resources must already carry both archs; ffmpeg and onnxruntime are refused", async () => {
+  for (const [archs, ok] of [["x86_64 arm64", true], ["arm64", false]]) {
+    const { fs, files } = fakeFs({ [at("out", "tool")]: "fat", [at("res", "lib.dylib")]: "fat" });
+    const run = (command) => (command === "lipo" ? { status: 0, stdout: `${archs}\n` } : { status: 0, stdout: "", stderr: "" });
+    const manifest = [
+      { kind: "command", name: "tool", cmd: "make", output: "out/tool", externalBin: true },
+      { kind: "resource", from: "res/lib.dylib", to: "src-tauri/resources/lib.dylib", machO: true },
+    ];
+    const attempt = stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs, run }) });
+    if (ok) {
+      await attempt;
+      assert.ok(files.has(at("src-tauri", "binaries", `tool-${UNIVERSAL}`)));
+    } else await assert.rejects(attempt, { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+  }
+  assert.throws(() => validateSidecarManifest([{ kind: "onnxruntime", version: "1.24.4" }], { target: UNIVERSAL }), /no universal row/);
+  assert.throws(() => validateSidecarManifest([{ kind: "ffmpeg", notices: { dir: "n", sourceOfferContact: "a@b.co" } }], { target: UNIVERSAL }), /no universal row/);
 });

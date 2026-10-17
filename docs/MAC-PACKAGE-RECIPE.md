@@ -103,3 +103,35 @@ GUI signing agent and the keychain profile as before. The notarization receipt i
    copies once nothing else imports them. Anything the hook did besides packaging (legal-fact checks, embedding helpers,
    provisioning profiles) belongs in the app's build step that produces the `.app`, not in the recipe.
 7. Run the release on the Mac and compare the signing records and receipt with the last hook-built release.
+
+## Profile, extra Tauri config, prepare and postBuild (`right-release release`, bogusyogi/rightkit#345)
+
+`macPackage` also takes `profile`, `tauriConfig` and `prepare` (same meaning as in WIN-PACKAGE-RECIPE.md; the profile is the
+trailing `-- --profile <p>` form) and `postBuild`: `[{ cmd, args?, cwd? }]` argv commands run after `tauri build` and before
+release.mjs signs, for example embedding a dylib with a symlink-preserving copy (`ditto`, or `cp -a`).
+
+```js
+macPackage: {
+  universal: true, profile: "release",
+  tauriConfig: "src-tauri/tauri.release.json",
+  prepare: [{ cmd: "node", args: ["scripts/stage-pdfium.mjs"] }, { cmd: "right-release", args: ["stage-sidecar", "--target", "universal-apple-darwin"] }],
+  postBuild: [{ cmd: "ditto", args: ["libpdfium.dylib", "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app/Contents/Frameworks/libpdfium.dylib"] }],
+}
+```
+
+With `prepare` or `postBuild`, `prePackage` is `node recipe-build.mjs --plan <json>`: prepare, the Tauri build, postBuild, in
+order, failing closed on the first non-zero exit. release.mjs then signs the (now complete) app.
+
+### Remaining ScrapeRight asks map to existing release.mjs keys (verified in release.mjs)
+
+- Release-switch scan between build and sign: automatic on the macOS signing set and the staged app before signing; extra
+  paths go in `target.qaControlScan`. Source/feature-closure scans use `config.releaseSwitches`.
+- Post-sign smoke: `targets.mac.postSign` (`{ cmd, args }`), run after signing and before notarization of the DMG
+  (for example `verify-macos-release-artifacts.mjs`).
+- DMG layout: `targets.mac.dmg: { spec: "assets/dmg.json" }`, an appdmg-style JSON read by `dmg-spec.mjs`: `title`, `icon`,
+  `background`, `icon-size`, `window.size {width,height}`, `window.position {x,y}`, and `contents` with the `.app` position and
+  one `/Applications` link. Extra files, licences and other formats are refused by that parser.
+- notarytool variants: `notarize.profile` selects a Keychain profile (`--keychain-profile`); without it `notary-auth.mjs`
+  uses `APPLE_API_KEY_PATH` + `APPLE_API_KEY` + `APPLE_API_ISSUER` together (`--key --key-id --issuer`), else the default
+  `apple-dev-notary` profile. `notarize.staple: false` and `notarize.appBeforePackage` exist. There is no key to
+  pass arbitrary notarytool flags.

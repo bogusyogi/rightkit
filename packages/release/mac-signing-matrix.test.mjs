@@ -265,3 +265,63 @@ test("a per-file identifier is validated, carried through the plan and checked a
   assert.match(matrixReceiptProblems([{ ...receipt[0], identifier: "legion-hook-5f3c" }, receipt[1]], abs, () => "h").join("\n"), /signed with identifier legion-hook-5f3c, expected com\.orthic\.legion-hook/);
   bad(t, { prePackageFiles: [{ file: "dist/tool", identifier: "has space" }] }, /identifier must be 1-255 characters/);
 });
+
+// Per-path nested signing maps (sign.identifiers / identifierTemplate / per-path sign.entitlements) on the release path.
+const absEntries = (f, entries) => entries.map((entry) => ({ ...entry, file: path.join(f.root, entry.file) }));
+
+test("nothing declared: no nestedSigning, the resolver is never called, and the plan equals today's plan", { skip: WINDOWS_SKIP }, (t) => {
+  const f = pulseFixture(t);
+  for (const sign of [pulseSign(), { ...pulseSign(), entitlements: "release/entitlements.plist" }]) {
+    const validated = validateMacSigningConfig(sign, { root: f.root });
+    assert.equal("nestedSigning" in validated, false);
+    const base = { entries: absEntries(f, validated.entries), nestedCode: validated.nestedCode };
+    const before = planMacSigning(base);
+    const after = planMacSigning({ ...base, nestedSigning: validated.nestedSigning, root: f.root, resolveSettings: () => assert.fail("resolver must not run") });
+    assert.deepEqual(after, before);
+    assert.equal(JSON.stringify(after), JSON.stringify(before));
+  }
+  const legacy = planMacSigning({ entries: [{ file: f.app, options: [] }] });
+  assert.equal(legacy.nested.some(hasNonDefaultSettings), false);
+});
+
+test("declared maps give nested code an identifier and entitlements; explicit nestedCode wins per field", { skip: WINDOWS_SKIP }, (t) => {
+  const f = pulseFixture(t);
+  f.put("release/helper.entitlements", PLIST);
+  f.put("dist/Pulse.app/Contents/Info.plist", "<plist><dict><key>CFBundleExecutable</key><string>Pulse</string><key>CFBundleIdentifier</key><string>com.example.pulse</string></dict></plist>");
+  const sign = { ...pulseSign(), identifiers: { "Contents/Helpers/smartctl": "com.example.pulse.smartctl", "Contents/Helpers/*": "com.example.pulse.helper" },
+    entitlements: { "Contents/Helpers/**": "release/helper.entitlements" }, identifierTemplate: "<bundleId>.runtime.<relpath>" };
+  sign.nestedCode["Contents/Helpers/PulseHelper"] = { identifier: "com.example.explicit", entitlements: "release/entitlements.plist" };
+  const validated = validateMacSigningConfig(sign, { root: f.root });
+  assert.deepEqual(Object.keys(validated.nestedSigning).sort(), ["entitlements", "identifierTemplate", "identifiers"]);
+  const plan = planMacSigning({ entries: absEntries(f, validated.entries), nestedCode: validated.nestedCode, nestedSigning: validated.nestedSigning, root: f.root });
+  const byRel = (rel) => plan.nested.find((item) => path.relative(f.app, item.file) === rel);
+  assert.equal(byRel("Contents/Helpers/smartctl").identifier, "com.example.pulse.smartctl");
+  assert.equal(byRel("Contents/Helpers/smartctl").entitlements, path.join(f.root, "release/helper.entitlements"));
+  assert.equal(byRel("Contents/Helpers/pulse-elevate").identifier, "com.example.pulse.helper");
+  assert.equal(byRel("Contents/Helpers/PulseHelper").identifier, "com.example.explicit");
+  assert.equal(byRel("Contents/Helpers/PulseHelper").entitlements, path.join(f.root, "release/entitlements.plist"));
+  assert.equal(byRel("Contents/PlugIns/PulseFinder.appex").entitlements, path.join(f.root, "mac/FinderExtension/PulseFinder.entitlements"));
+  assert.equal(plan.nested.filter((item) => item.identifier || item.entitlements).length >= 4, true);
+  assert.equal(plan.top[0].identifier, undefined);
+});
+
+test("nested signing maps validate strictly", (t) => {
+  const base = { prePackageFiles: ["dist/Pulse.app"] };
+  bad(t, { ...base, identifiers: { "Contents/Helpers/x": "has space" } }, /sign\.identifiers\["Contents\/Helpers\/x"\] must be 1-255 characters/);
+  bad(t, { ...base, identifiers: { "Contents/Helpers/x": "-flag" } }, /sign\.identifiers/);
+  bad(t, { ...base, identifiers: { "Contents/Helpers/x": "a_b" } }, /sign\.identifiers/);
+  bad(t, { ...base, identifiers: { "../x": "com.example.x" } }, /sign\.identifiers.*key must be a bundle-relative path/);
+  bad(t, { ...base, identifiers: { "/abs/x": "com.example.x" } }, /key must be a bundle-relative path/);
+  bad(t, { ...base, identifiers: [] }, /sign\.identifiers must be an object/);
+  bad(t, { ...base, identifierTemplate: "<bundleId>.<nope>" }, /sign\.identifierTemplate/);
+  bad(t, { ...base, identifierTemplate: "<bundleId>.runtime" }, /sign\.identifierTemplate/);
+  bad(t, { ...base, identifierTemplate: "a b.<relpath>" }, /literal text/);
+  bad(t, { ...base, entitlements: { "Contents/Helpers/x": "release/missing.plist" } }, /sign\.entitlements\["Contents\/Helpers\/x"\] entitlements file not found/);
+  bad(t, { ...base, entitlements: { "Contents/Helpers/x": "../outside.plist" } }, /must stay inside the release config directory/);
+  bad(t, { ...base, entitlements: { "Contents/Helpers/x": "/etc/x.plist" } }, /relative to the release config directory/);
+  bad(t, { ...base, entitlements: { "Contents/Helpers/x": 5 } }, /non-empty path string/);
+  bad(t, { prePackageFiles: ["tool"], identifiers: { "Contents/Helpers/x": "com.example.x" } }, /need a \.app entry/);
+  const f = pulseFixture(t);
+  f.put("release/not-a-plist.json", "{}");
+  assert.throws(() => validateMacSigningConfig({ ...base, entitlements: { "Contents/Helpers/x": "release/not-a-plist.json" } }, { root: f.root }), /not a property list/);
+});

@@ -81,3 +81,68 @@ test("stage-sidecar CLI arguments", () => {
   assert.throws(() => parseStageSidecarArgs(["--target"]), /needs a value/);
   assert.throws(() => parseStageSidecarArgs(["--bogus"]), /unknown/);
 });
+
+// ---- profile, tauriConfig, prepare and postBuild (bogusyogi/rightkit#345) ----
+
+const planOf = (command) => {
+  assert.equal(command.cmd, process.execPath);
+  assert.ok(path.isAbsolute(command.args[0]) && command.args[0].endsWith("recipe-build.mjs"));
+  assert.equal(command.args[1], "--plan");
+  return JSON.parse(command.args[2]);
+};
+
+test("winPackage profile and tauriConfig reach both Tauri phases; prepare wraps prePackage in recipe-build", () => {
+  const direct = expandWinPackageTarget(winTarget({ winPackage: { installer: "nsis", productName: "Demo", updater: true, profile: "release-iterate", tauriConfig: "src-tauri/tauri.bundle.json" } }), { appRoot, config: {} });
+  assert.equal(direct.prePackage.cmd, "pnpm");
+  assert.deepEqual(direct.prePackage.args.slice(-5), ["--config", "src-tauri/tauri.bundle.json", "--", "--profile", "release-iterate"]);
+  assert.deepEqual(direct.package.args.slice(-2), ["--profile", "release-iterate"]);
+  assert.ok(direct.package.args.includes("src-tauri/tauri.bundle.json"));
+  assert.equal(JSON.parse(direct.package.args[direct.package.args.indexOf("--profile") - 2]).bundle.createUpdaterArtifacts, false);
+  assert.equal(direct.winPackage, undefined);
+
+  const prepare = [{ cmd: "node", args: ["scripts/stage-ffmpeg.mjs"] }, { cmd: "right-release", args: ["stage-sidecar"], cwd: "." }];
+  const wrapped = expandWinPackageTarget(winTarget({ winPackage: { installer: "nsis", productName: "Demo", updater: true, prepare } }), { appRoot, config: {} });
+  const steps = planOf(wrapped.prePackage).steps;
+  assert.deepEqual(steps.map((step) => step.phase), ["prepare", "prepare", "build"]);
+  assert.deepEqual(steps[0], { phase: "prepare", cmd: "node", args: ["scripts/stage-ffmpeg.mjs"] });
+  assert.deepEqual(steps[2].args.slice(0, 4), ["exec", "tauri", "build", "--no-bundle"]);
+  assert.equal(wrapped.prePackage.env.TAURI_SIGNING_PRIVATE_KEY, "");
+  assert.equal(wrapped.package.cmd, "pnpm");
+});
+
+test("winPackage refuses postBuild, absolute or escaping paths, bad profiles and malformed commands", () => {
+  const cfg = { appRoot, config: {} };
+  const withSpec = (extra) => winTarget({ winPackage: { installer: "nsis", productName: "Demo", updater: true, ...extra } });
+  assert.throws(() => expandWinPackageTarget(withSpec({ postBuild: [{ cmd: "x" }] }), cfg), /postBuild is not supported/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ tauriConfig: "../x.json" }), cfg), /stay inside the app/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ tauriConfig: "cfg.toml" }), cfg), /\.json/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ profile: "Release Fast" }), cfg), /Cargo profile/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ prepare: "node x" }), cfg), /array/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ prepare: [{ cmd: "node", shell: true }] }), cfg), /unknown key/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ prepare: [{ cmd: "node", args: [1] }] }), cfg), /list of strings/);
+  assert.throws(() => expandWinPackageTarget(withSpec({ prepare: [{ cmd: "node", cwd: "/abs" }] }), cfg), /stay inside the app/);
+});
+
+test("macPackage profile, tauriConfig, prepare and postBuild run in order through one prePackage command", () => {
+  const out = expandMacPackageTarget(macTarget({ macPackage: {
+    profile: "release-iterate", tauriConfig: "src-tauri/tauri.mac.json", features: ["qa"],
+    prepare: [{ cmd: "node", args: ["scripts/stage-pdfium.mjs"] }],
+    postBuild: [{ cmd: "ditto", args: ["--noqtn", "libpdfium.dylib", "Demo.app/Contents/Frameworks/libpdfium.dylib"] }],
+  } }), { appRoot });
+  const steps = planOf(out.prePackage).steps;
+  assert.deepEqual(steps.map((step) => step.phase), ["prepare", "build", "postBuild"]);
+  const build = steps[1].args;
+  assert.deepEqual(build.slice(-3), ["--", "--profile", "release-iterate"]);
+  assert.ok(build.includes("--no-sign") && build.includes("universal-apple-darwin"));
+  assert.equal(build[build.indexOf("--config") + 1], "src-tauri/tauri.mac.json");
+  assert.ok(build.indexOf("--features") < build.indexOf("--"), "Cargo flags go after --, Tauri flags before");
+  assert.deepEqual(steps[2], { phase: "postBuild", cmd: "ditto", args: ["--noqtn", "libpdfium.dylib", "Demo.app/Contents/Frameworks/libpdfium.dylib"] });
+  assert.deepEqual(out.sign.prePackageFiles, [out.notarize.app]);
+  assert.equal(out.notarize.appBeforePackage, true);
+  // Without prepare/postBuild the direct Tauri command is kept, now with the profile.
+  const plain = expandMacPackageTarget(macTarget({ macPackage: { profile: "release-iterate" } }), { appRoot });
+  assert.equal(plain.prePackage.cmd, "pnpm");
+  assert.deepEqual(plain.prePackage.args.slice(-3), ["--", "--profile", "release-iterate"]);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { postBuild: [{ args: [] }] } }), { appRoot }), /cmd must be/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { profile: "X" } }), { appRoot }), /Cargo profile/);
+});

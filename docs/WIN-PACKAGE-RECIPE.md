@@ -96,3 +96,26 @@ receipt records the phases run, the signed digests, the marker result and the up
 - MSIX, portable and the PowerShell beta installer (`mailright`) which use other signing contracts.
 - Hung-Tauri-process recovery (artifact stability polling and process-tree kill) that heardright and
   viewright carry; the recipe relies on `spawn` returning.
+
+## Profile, extra Tauri config and prepare steps (`right-release release`, bogusyogi/rightkit#345)
+
+`winPackage` also takes (all optional, validated strictly; `postBuild` is refused because release.mjs signs the raw EXE
+between the build and the bundle):
+
+| Key | Effect |
+| --- | --- |
+| `profile` | A Cargo profile name, passed as `tauri build ... -- --profile <p>` and the same trailing form on `tauri bundle`. The raw EXE path moves with the profile, so keep `sign.prePackageFiles` pointing at it. |
+| `tauriConfig` | App-relative `.json`, passed as `--config <file>` (relative to the Tauri cwd) before RightKit's own override, for resource mappings and `signCommand: null`. |
+| `prepare` | `[{ cmd, args?, cwd? }]` argv commands (no shell, `cwd` inside the app) run before the Tauri build. |
+
+With `prepare`, `prePackage` becomes `node recipe-build.mjs --plan <json>`, which runs prepare, then the build, in order
+and stops at the first non-zero exit (`right-release recipe-build`). Without it, `prePackage` is the plain `pnpm exec tauri
+build` as before.
+
+### Remaining ScrapeRight asks map to existing release.mjs keys (verified in release.mjs)
+
+- Release-switch scan between build and sign: automatic. The QA-control scan plus the D4 release-switch binary layer run on the
+  raw EXE and sidecars before they are signed; add extra paths with `target.qaControlScan`. Source and feature-closure scans
+  read `config.releaseSwitches` (`inventory`, `manifest`, `rust`, `features`, `forbid`) and the plan inside prePackage.
+- Post-sign smoke: `targets.win.postSign` (`{ cmd, args }`), run after the installer is signed.
+- Installer signing and embedding verification: `sign.prePackageFiles` / `sign.files`, unchanged.
