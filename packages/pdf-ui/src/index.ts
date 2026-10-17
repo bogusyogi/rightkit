@@ -7,6 +7,7 @@ export { PdfPasswordCancelledError, MAX_PASSWORD_ATTEMPTS, attachPasswordHandler
 export { pdfDocumentInit } from "./loader.js";
 export { pdfTextContentSource, renderPdfTextLayer } from "./textLayer.js";
 export { findLiteralMatches } from "./searchUtils.js";
+export type { LiteralMatchOptions, TextMatch } from "./searchUtils.js";
 export { thumbnailWindow } from "./thumbnailWindow.js";
 export type { PdfLinkActions } from "./linkService.js";
 export type { LoadTimer, PasswordFlow, PasswordTask, PdfPasswordHandler, PdfPasswordReason } from "./password.js";
