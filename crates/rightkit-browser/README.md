@@ -18,7 +18,7 @@ Catalog capability: `browser-automation`.
 - Use it to drive a real Chromium page from Rust with trusted input, for QA, scraping or product automation.
 - Use it when pages must be reached through an SSRF-safe network policy.
 
-Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automation` and `rightkit-qa-driver`).
+Do not use it to drive Safari or Firefox, or desktop apps (see `rightkit-automation` and `rightkit-qa-driver`).
 
 ## Cargo features
 
@@ -78,6 +78,17 @@ The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoo
 - `profile_dir(path)` selects `ProfileSpec::Directory`. Launch checks that the path is absolute, exists and is a directory, without creating it. Any existing directory is accepted, including real Chrome user-data directories, paths with spaces, and Unicode names. Named-profile validation stays exclusive to `named_profile(root, name)`.
 - The caller owns that directory. This mode creates no RightKit profile lock, and shutdown, cancellation, failed launch or drop never removes it.
 - Downloads go to `<profile>/rightkit-downloads` for named and caller-owned profiles, and to `<profile>/downloads` for a temporary profile (`src/session.rs:61`, `:81`, `:89`), or to `LaunchOptions::download_dir` when it is set. The directory is created at launch.
+
+## Real session (the user's own sign-ins, with consent)
+
+`BrowserSession::attach_user_browser(consent, root, opts)` opens a visible Chrome or Edge window on a private copy of the user's consented profile, so the agent starts signed in. It never drives the live browser in place (a running profile is locked, and Chrome 136+ ignores a debugging port on the default user-data directory).
+
+- `default_browser()` detects the default browser; `list_profiles(kind)` feeds the consent screen.
+- `UserConsentReceipt` (browser, profile, domains, grant/expiry/revoke times) is what the app persists and shows. `ConsentRevocation` stops a running session at its next action; `purge_imported_profile` deletes the copy.
+- `ProfileSpec::ImportedFrom` (`LaunchOptions::imported_profile`) does the copy without attaching: cookie database, local storage and `Local State` only; never `Login Data`, `Web Data` or history. `ImportSpec::reimport()` copies again.
+- Actions are confined to the consented domains and refuse password fields: passwords stay in the browser's own password manager.
+- Chrome and Edge only. Safari and Firefox return `BrowserError::Unsupported` (drive Safari through `rightkit-automation`).
+- Not verified live: whether a copied profile's cookies decrypt (Windows app-bound encryption, macOS keychain key). Per-domain import counts are not available.
 
 ## Shutdown
 
