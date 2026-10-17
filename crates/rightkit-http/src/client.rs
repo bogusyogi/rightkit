@@ -57,6 +57,21 @@ pub struct RetryEvent {
 
 type RetryObserver = Arc<dyn Fn(&RetryEvent) + Send + Sync>;
 
+/// One attempt about to start, passed to [`ClientConfig::on_attempt`]. `url` has configured
+/// and per-request secret values replaced by `[redacted]` and any query or userinfo removed.
+#[derive(Debug, Clone)]
+pub struct AttemptEvent {
+    pub url: String,
+    pub method: Method,
+    /// Attempt number about to run (1 = the first try, 2 = the first retry).
+    pub attempt: u32,
+    /// Most attempts the policy allows for this call.
+    pub max_attempts: u32,
+}
+
+/// Gate run before every attempt. `Err(reason)` ends the call without sending that attempt.
+type AttemptHook = Arc<dyn Fn(&AttemptEvent) -> Result<(), String> + Send + Sync>;
+
 /// How requests reach the network.
 ///
 /// **Threat model.** A direct connection is the strongest case: this crate resolves the
@@ -690,6 +705,12 @@ pub struct ClientConfig {
     pub max_response_bytes: usize,
     pub retry: RetryPolicy,
     pub on_retry: Option<RetryObserver>,
+    /// Hook that runs before every attempt, including the first, beneath the retry loop,
+    /// so budget and spend gates re-enter on each try (a retry is a new spend). `Err(reason)`
+    /// stops the call with `HttpError::InvalidRequest("attempt N refused: reason")`, which is
+    /// never retried; nothing is sent for that attempt. It runs on the calling thread (async:
+    /// on the polling task), so it should not block. `None` by default.
+    pub on_attempt: Option<AttemptHook>,
     /// Secret strings scrubbed from every error message and retry event. Add
     /// values with [`ClientConfig::redact_values`].
     pub redact_values: Vec<String>,
@@ -729,6 +750,7 @@ impl Default for ClientConfig {
             max_response_bytes: 32 * 1024 * 1024,
             retry: RetryPolicy::default(),
             on_retry: None,
+            on_attempt: None,
             redact_values: Vec::new(),
             address_policy: AddressPolicy::default(),
             proxy: ProxyMode::None,
@@ -761,6 +783,15 @@ impl ClientConfig {
             retry: RetryPolicy::none(),
             ..Self::default()
         }
+    }
+
+    /// Set the per-attempt hook; see [`ClientConfig::on_attempt`].
+    pub fn on_attempt(
+        mut self,
+        hook: impl Fn(&AttemptEvent) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.on_attempt = Some(Arc::new(hook));
+        self
     }
 
     /// Replace the outbound address policy.
@@ -1516,6 +1547,17 @@ impl Client {
                 }
             };
             attempt += 1;
+            if let Some(hook) = &self.config.on_attempt {
+                hook(&AttemptEvent {
+                    url: redact_str(&redact_url(&req.url), values),
+                    method: req.method,
+                    attempt,
+                    max_attempts: max,
+                })
+                .map_err(|reason| {
+                    HttpError::InvalidRequest(format!("attempt {attempt} refused: {reason}"))
+                })?;
+            }
             let (reason, delay) = match self.once(req, attempt_total, values) {
                 Ok(raw) => {
                     let retryable = policy.is_retryable_status(raw.status)
@@ -2148,6 +2190,7 @@ mod tests {
         assert_eq!(cfg.max_redirects_will_error, base.max_redirects_will_error);
         assert_eq!(cfg.max_response_bytes, base.max_response_bytes);
         assert!(cfg.on_retry.is_none());
+        assert!(cfg.on_attempt.is_none());
         assert!(cfg.redact_values.is_empty());
         assert_eq!(cfg.proxy_bypass_first_party, base.proxy_bypass_first_party);
         assert_eq!(cfg.https_only, base.https_only);

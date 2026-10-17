@@ -23,7 +23,7 @@ use tokio::time::{sleep, timeout, Sleep};
 
 use crate::cancel::CancelToken;
 use crate::client::{
-    header_of, redact_str, redaction_values_for, scrub_error, status_error, ClientConfig, Method,
+    header_of, AttemptEvent, redact_str, redaction_values_for, scrub_error, status_error, ClientConfig, Method,
     Request, Response, RetryEvent,
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
@@ -387,6 +387,17 @@ impl AsyncClient {
                 }
             };
             attempt += 1;
+            if let Some(hook) = &self.config.on_attempt {
+                hook(&AttemptEvent {
+                    url: redact_str(&redact_url(&req.url), values),
+                    method: req.method,
+                    attempt,
+                    max_attempts: max,
+                })
+                .map_err(|reason| {
+                    HttpError::InvalidRequest(format!("attempt {attempt} refused: {reason}"))
+                })?;
+            }
             let outcome = race_cancel(cancel, self.once(req, attempt_total, values)).await?;
             let (reason, retry_after) = match outcome {
                 Ok(raw) => {
