@@ -240,3 +240,55 @@ test("version.workspace = true resolves through the workspace root instead of a 
   const result = await runCargoPublish(fx.options, fx.execute, fx.deps);
   assert.equal(result.version, "1.0.0");
 });
+
+test("proven steps are removed from the plan, never the runtime budget, package contents, archive hash or readback", () => {
+  const all = { tests: true, clippy: true, fmt: true, secretScan: true };
+  const plan = buildCargoPublishPlan({ crate: "rightkit-license", crateDir: "C:/rightkit/crates/rightkit-license", dryRun: false, proven: all, verifyOnPublish: true });
+  assert.deepEqual(plan.map((step) => step.label), [
+    "runtime budget", "package contents", "package archive", "package location", "archive hash check", "registry publish", "registry readback",
+  ]);
+  assert.deepEqual(plan.find((step) => step.label === "registry publish").args, ["publish", "--locked", "-p", "rightkit-license"]);
+  // Partial proof removes only what is proven; an unproven step still runs.
+  const partial = buildCargoPublishPlan({ crate: "rightkit-license", crateDir: "x", dryRun: false, proven: { tests: true, clippy: true } });
+  assert.deepEqual(partial.map((step) => step.label).slice(0, 4), ["secret scan", "runtime budget", "format", "package contents"]);
+  // No proof (the plain publisher) keeps every step; a dry-run keeps its dry-run even with verifyOnPublish.
+  assert.equal(buildCargoPublishPlan({ crate: "c", crateDir: "x", dryRun: false, proven: { tests: false } }).length, 12);
+  const dry = buildCargoPublishPlan({ crate: "c", crateDir: "x", dryRun: true, proven: all, verifyOnPublish: true });
+  assert.equal(dry.at(-1).label, "registry dry-run");
+  assert.equal(buildCargoPublishPlan({ crate: "c", crateDir: "x", dryRun: false, verifyOnPublish: true }).some((step) => step.label === "registry dry-run"), false);
+});
+
+test("trustEvidenceSteps skips only what the evidence proves; verifyOnPublish publishes with Cargo's verify build", async (t) => {
+  const fx = fixture(t);
+  const commit = "a".repeat(40);
+  const stepsRun = [];
+  const execute = (command, args) => {
+    stepsRun.push(args.join(" "));
+    return { status: 0, stdout: args[0] === "metadata" ? JSON.stringify({ target_directory: path.join(fx.root, "generated-target") }) : args.includes("--list") ? "Cargo.toml\nsrc/lib.rs\n" : "" };
+  };
+  const evidence = {
+    commit, name: fx.name, artifactSha256: fx.evidence.artifactSha256,
+    runs: [{ host: { os: "darwin" }, commit, steps: [{ command: `cargo test -p ${fx.name} --no-fail-fast -- --show-output`, ok: true, executed: 3, failed: 0 }, { command: `cargo clippy -p ${fx.name} --no-deps --all-targets -- -D warnings`, ok: true }] }],
+  };
+  const deps = { ...fx.deps, enforceGate: () => ({ ok: true, evidence }) };
+  const lines = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+  try { await runCargoPublish({ ...fx.options, trustEvidenceSteps: true, verifyOnPublish: true }, execute, deps); } finally { process.stdout.write = write; }
+  // fmt has no batch receipt, so it still runs; tests and clippy are proven; the dry-run is gone.
+  assert.deepEqual(stepsRun, [`fmt -p ${fx.name} --check`, `package --list -p ${fx.name}`, `package --no-verify -p ${fx.name}`, "metadata --format-version 1 --no-deps", `publish --locked -p ${fx.name}`]);
+  assert.match(lines.join(""), /cargo tests: proven by the gate evidence/);
+  // Without trustEvidenceSteps the same evidence skips nothing (a plain publish proved nothing in advance).
+  stepsRun.length = 0;
+  await runCargoPublish({ ...fx.options }, (command, args) => { const result = execute(command, args); stepsRun.splice(stepsRun.length - 1, 1, args[0]); return result; }, deps).catch(() => {});
+  assert.ok(stepsRun.includes("test") && stepsRun.includes("clippy") && stepsRun.includes("fmt"));
+});
+
+test("an async execute is awaited", async (t) => {
+  const fx = fixture(t);
+  const seen = [];
+  const execute = async (command, args, settings) => { await new Promise((resolve) => setTimeout(resolve, 1)); seen.push(args[0]); return fx.execute(command, args, settings); };
+  await runCargoPublish(fx.options, execute, fx.deps);
+  assert.ok(seen.includes("publish"));
+  assert.deepEqual(fx.events, ["package", "hash check", "publish", "readback"]);
+});

@@ -5,18 +5,25 @@
 // scripts/ci/gate.mjs semantics), packs the artifact, writes a schema-1 evidence file with one darwin receipt
 // (hostPolicy "darwin-only"), then calls the EXISTING enforcePublicationGate and the EXISTING publisher
 // (publishGatedTarball for npm, runCargoPublish for cargo). There is no way to skip a test or the evidence.
+//
+// Batch mode (`cargo --crates a,b,c | --crates-file f --local`): fmt, the secret scan and clippy run ONCE for
+// the batch at one commit and tree and are recorded in every crate's evidence as a `batch` receipt that the
+// publication gate validates (publication-gate.mjs batchReceiptProblems); each crate still runs its own tests,
+// all-features check, packaging, gate, publish and registry readback, and writes its own evidence file. Crates
+// of one dependency layer publish concurrently (bounded); layer N+1 starts only after every layer-N crate is
+// visible in the registry index with the verified checksum.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { runCargoSync } from "./managed-cargo.mjs";
+import { runCargoAsync, runCargoSync, spawnCollect } from "./managed-cargo.mjs";
 import { localBuildGranted, LOCAL_BUILD_FILE } from "./execution-policy.mjs";
 import { GATE_SCHEMA, defaultEvidencePath, enforcePublicationGate, publishGatedTarball } from "./publication-gate.mjs";
-import { runCargoPublish } from "./publish-cargo.mjs";
+import { runCargoPublish, scanCrateForSecrets } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
-import { readCargoPackage } from "./crate-graph.mjs";
+import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished, stageSourceVersions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 
@@ -29,9 +36,74 @@ export class LocalPublishError extends Error {
 }
 const refuse = (message) => { throw new LocalPublishError(message); };
 
+export const DEFAULT_CONCURRENCY = 4;
+const MAX_CONCURRENCY = 8;
+const CRATE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const crateList = (text, what) => {
+  const names = String(text ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  for (const name of names) if (!CRATE_NAME.test(name)) refuse(`${what}: invalid crate name ${JSON.stringify(name)}`);
+  return names;
+};
+
+/**
+ * A crates file: one crate per line, blank lines separate dependency layers (earlier layers publish first),
+ * `#` starts a comment. Returns the layers; refuses a bad name, a repeated crate or an empty file.
+ */
+export function parseCrateLayers(text) {
+  const layers = []; let current = [];
+  const flush = () => { if (current.length) layers.push(current); current = []; };
+  for (const raw of String(text ?? "").split(/\r?\n/)) {
+    if (raw.trim().startsWith("#")) continue;
+    const line = raw.replace(/\s+#.*$/, "").trim();
+    if (!line) { flush(); continue; }
+    if (!CRATE_NAME.test(line)) refuse(`crates file: invalid crate name ${JSON.stringify(line)}`);
+    current.push(line);
+  }
+  flush();
+  const all = layers.flat();
+  const repeated = all.find((name, index) => all.indexOf(name) !== index);
+  if (repeated) refuse(`crates file names ${repeated} more than once`);
+  if (!all.length) refuse("crates file names no crate");
+  return layers;
+}
+
+/** An explicit layering must put every in-batch dependency of a crate in a STRICTLY earlier layer. */
+export function checkCrateLayers(layers, dependsOn) {
+  const layerOf = new Map();
+  layers.forEach((layer, index) => layer.forEach((name) => layerOf.set(name, index)));
+  for (const [name, index] of layerOf) {
+    for (const dependency of dependsOn(name)) {
+      if (!layerOf.has(dependency)) continue;
+      if (layerOf.get(dependency) >= index) refuse(`${name} (layer ${index + 1}) depends on ${dependency} (layer ${layerOf.get(dependency) + 1}); a dependency must be in an earlier layer`);
+    }
+  }
+  return layers;
+}
+
+/** Layers derived from the in-batch dependency edges: layer = 1 + the deepest in-batch dependency. */
+export function deriveCrateLayers(crates, dependsOn) {
+  const member = new Set(crates);
+  const level = new Map(); const visiting = new Set();
+  const visit = (name) => {
+    if (level.has(name)) return level.get(name);
+    if (visiting.has(name)) refuse(`dependency cycle among the batch crates at ${name}`);
+    visiting.add(name);
+    const depth = Math.max(-1, ...dependsOn(name).filter((dependency) => member.has(dependency) && dependency !== name).map(visit)) + 1;
+    visiting.delete(name); level.set(name, depth);
+    return depth;
+  };
+  crates.forEach(visit);
+  const layers = [];
+  for (const name of crates) (layers[level.get(name)] ??= []).push(name);
+  return layers;
+}
+
 export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   const flag = kind === "npm" ? "--package" : "--crate";
+  const batchFlags = kind === "cargo" ? ", --crates <a,b,c>, --crates-file <file>, --concurrency <n>, --allow-ignored-units <a,b>" : "";
   let unit; let workspace; let local = false; let allowIgnored = false;
+  let crates; let cratesFile; let concurrency = DEFAULT_CONCURRENCY; let allowIgnoredUnits = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--local") local = true;
@@ -39,12 +111,27 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
     else if (arg === "--workspace") workspace = argv[++i];
     // Same meaning as publish.yml's allow_ignored: this unit may have ignored tests; the count is recorded.
     else if (arg === "--allow-ignored") allowIgnored = true;
-    else refuse(`unknown publish ${kind} --local option: ${arg} (accepted: ${flag} <name>, --workspace <dir>, --allow-ignored, --local)`);
+    else if (kind === "cargo" && arg === "--crates") crates = crateList(argv[++i], "--crates");
+    else if (kind === "cargo" && arg === "--crates-file") cratesFile = argv[++i];
+    else if (kind === "cargo" && arg === "--concurrency") concurrency = Number(argv[++i]);
+    else if (kind === "cargo" && arg === "--allow-ignored-units") allowIgnoredUnits = crateList(argv[++i], "--allow-ignored-units");
+    else refuse(`unknown publish ${kind} --local option: ${arg} (accepted: ${flag} <name>${batchFlags}, --workspace <dir>, --allow-ignored, --local)`);
   }
   if (!local) refuse("--local is required");
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > MAX_CONCURRENCY) refuse(`--concurrency must be an integer from 1 to ${MAX_CONCURRENCY}`);
+  const workspaceRoot = path.resolve(workspace ?? cwd);
+  if (kind === "cargo" && (crates !== undefined || cratesFile !== undefined)) {
+    if (unit !== undefined) refuse("--crate cannot be combined with --crates or --crates-file");
+    if (crates !== undefined && cratesFile !== undefined) refuse("use --crates or --crates-file, not both");
+    if (crates !== undefined && !crates.length) refuse("--crates names no crate");
+    if (cratesFile !== undefined && !String(cratesFile ?? "").trim()) refuse("--crates-file needs a file");
+    const repeated = crates?.find((name, index) => crates.indexOf(name) !== index);
+    if (repeated) refuse(`--crates names ${repeated} more than once`);
+    return { kind, unit: undefined, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: { crates, file: cratesFile === undefined ? undefined : path.resolve(cwd, cratesFile) } };
+  }
   if (kind === "npm" && !/^@rightkit\/[a-z0-9-]+$/.test(unit ?? "")) refuse("publish npm --local requires --package @rightkit/<name>");
-  if (kind === "cargo" && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(unit ?? "")) refuse("publish cargo --local requires --crate <name>");
-  return { kind, unit, allowIgnored, workspaceRoot: path.resolve(workspace ?? cwd) };
+  if (kind === "cargo" && !CRATE_NAME.test(unit ?? "")) refuse("publish cargo --local requires --crate <name> (or --crates / --crates-file)");
+  return { kind, unit, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: undefined };
 }
 
 function defaultGit(args, cwd) {
@@ -74,6 +161,40 @@ function defaultRun(command, args, options) {
   return command === "cargo" ? runCargoSync(args, settings) : spawnSync(command, args, settings);
 }
 
+// Async twin used by batch mode so crates of one layer can overlap their uploads and index waits. The broker
+// still runs builds one at a time; `await` on a synchronous fake works the same.
+function defaultRunAsync(command, args, options) {
+  const settings = { encoding: "utf8", maxBuffer: 512 * 1024 * 1024, timeout: STEP_TIMEOUT_MS, windowsHide: true, ...options };
+  return command === "cargo" ? runCargoAsync(args, settings) : spawnCollect(command, args, settings);
+}
+
+/**
+ * `execute` for runCargoPublish in batch mode: the async Cargo runner, with the output of a step that would
+ * inherit stdio echoed line by line under the crate name (concurrent crates would otherwise interleave raw).
+ */
+export function batchCargoExecute(label, { run = runCargoAsync, out = process.stdout, err = process.stderr } = {}) {
+  return async (_command, args, settings) => {
+    const { stdio, ...rest } = settings;
+    const result = await run(args, { ...rest, timeout: STEP_TIMEOUT_MS, maxBuffer: 512 * 1024 * 1024 });
+    if (stdio === "inherit") {
+      for (const [stream, text] of [[out, result.stdout], [err, result.stderr]]) {
+        for (const line of String(text ?? "").split(/\r?\n/)) if (line) stream.write(`[${label}] ${line}\n`);
+      }
+    }
+    return result;
+  };
+}
+
+// Registry versions-file writers (recordPublished, stageSourceVersions) read-modify-write one shared JSON file
+// and its consumer copies. They are synchronous, but the lock keeps the whole write one unit even if a writer
+// becomes async, so concurrent crates of a layer can never interleave two updates.
+let versionsTail = Promise.resolve();
+const withVersionsLock = (task) => {
+  const result = versionsTail.then(task);
+  versionsTail = result.catch(() => {});
+  return result;
+};
+
 async function defaultLoadWorkspaceModules(workspaceRoot) {
   const load = (file) => import(pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href);
   const [results, upload] = await Promise.all([load("test-results.mjs"), load("upload.mjs")]);
@@ -92,7 +213,7 @@ export function allFeatureCheckSets(entry = {}) {
 }
 
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
-export function localTestPlan({ kind, unit, dir, config, manifest }) {
+export function localTestPlan({ kind, unit, dir, config, manifest, batch = false }) {
   if (kind === "npm") {
     if (!manifest?.scripts?.test) refuse(`${unit} has no test script; --local never publishes an untested package`);
     return {
@@ -111,26 +232,75 @@ export function localTestPlan({ kind, unit, dir, config, manifest }) {
     steps.push({ command: "cargo", args: ["test", "-p", unit, ...features, "--no-fail-fast", "--", "--show-output"], test: true });
     if (entry.alsoSerial) steps.push({ command: "cargo", args: ["test", "-p", unit, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], test: true });
   }
-  steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
+  // Batch mode lints the whole batch once (batchClippyInvocations) and records it as a batch receipt.
+  if (!batch) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
   for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--all-targets", ...features], test: false });
   return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), steps };
+}
+
+/**
+ * The clippy invocations that replace each crate's own `cargo clippy -p <crate> --no-deps --all-targets
+ * <featureSets[0]> -- -D warnings`: same flags and lint level, so the same lints on the same code. Crates
+ * whose first feature set is empty or `--all-features` share one `-p a -p b` invocation (the flags mean the
+ * same for every crate); any other feature set runs per crate, because `--features x` must not reach a crate
+ * that lacks x. The caller passes ONE dependency layer: no selected crate depends on another, so `-p` does not
+ * unify extra features into a selected crate and each is linted with exactly the features it was before.
+ * Crates with a different RIGHTKIT_REQUIRE_ASSETS (asset-gated) stay apart so the environment is unchanged.
+ */
+export function batchClippyInvocations(layer, { featuresOf = () => [], assetGatedOf = () => false } = {}) {
+  const groups = new Map();
+  for (const unit of layer) {
+    const features = featuresOf(unit) ?? [];
+    const shared = features.length === 0 || (features.length === 1 && features[0] === "--all-features");
+    const key = shared ? JSON.stringify([features, assetGatedOf(unit)]) : `unit:${unit}`;
+    if (!groups.has(key)) groups.set(key, { crates: [], features, assetGated: assetGatedOf(unit) });
+    groups.get(key).crates.push(unit);
+  }
+  return [...groups.values()].map(({ crates, features, assetGated }) => ({
+    crates, assetGated,
+    args: ["clippy", ...crates.flatMap((unit) => ["-p", unit]), "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
+  }));
 }
 
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const tarballName = (name, version) => `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`;
 const tail = (text, lines = 40) => String(text ?? "").split(/\r?\n/).slice(-lines).join("\n");
 
-export async function runLocalPublish(kind, argv, deps = {}) {
-  const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
-  const { unit, allowIgnored, workspaceRoot } = parseLocalPublishArgs(kind, argv, deps.cwd);
-  const platform = deps.platform ?? process.platform;
-  const git = deps.git ?? defaultGit;
-  const readJson = deps.readJson ?? defaultReadJson;
-  const run = deps.run ?? defaultRun;
+// Tests run under hosted-CI conditions: no inherited credentials (a managed host refuses a token from the
+// environment) and no sibling product checkouts (CI holds rightkit alone).
+function testEnv(deps, isAssetGated) {
+  const inherited = Object.fromEntries(Object.entries(deps.env ?? process.env).filter(([key]) => !/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(key)));
+  return { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
+}
 
-  // 1. Preconditions, fail closed.
+function assertLocalHost(deps, workspaceRoot) {
+  const platform = deps.platform ?? process.platform;
   if (!(deps.localBuildGranted ?? localBuildGranted)(workspaceRoot)) refuse(`--local needs the local-build grant: a committed ${LOCAL_BUILD_FILE} (allow "build-test-publish") naming this repository at ${workspaceRoot}`);
   if (platform !== "darwin") refuse(`--local publishes from the Mac only (host policy: darwin-only); this host is ${platform}`);
+  return platform;
+}
+
+export async function runLocalPublish(kind, argv, deps = {}) {
+  const parsed = parseLocalPublishArgs(kind, argv, deps.cwd);
+  if (parsed.batch) return runLocalPublishBatch(parsed, deps);
+  return publishUnit(parsed, deps, null);
+}
+
+/**
+ * Qualify and publish ONE unit. `batch` (cargo batch mode only) is `{ head, tree, receipt, commands }`: the
+ * batch-level fmt, secret scan and clippy already ran at `head`/`tree`, so this unit skips its own clippy and
+ * copies the receipt into its evidence; everything else (tests, all-features check, packaging, the gate, the
+ * publish and the registry readback) runs for this unit exactly as in single mode.
+ */
+async function publishUnit(parsed, deps, batch) {
+  const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
+  const { kind, unit, allowIgnored, workspaceRoot } = parsed;
+  const git = deps.git ?? defaultGit;
+  const readJson = deps.readJson ?? defaultReadJson;
+  const run = deps.run ?? (batch ? defaultRunAsync : defaultRun);
+
+  // 1. Preconditions, fail closed.
+  const platform = assertLocalHost(deps, workspaceRoot);
   const dir = kind === "npm" ? `packages/${unit.slice("@rightkit/".length)}` : `crates/${unit}`;
   const unitPath = path.join(workspaceRoot, dir);
   if (!fs.existsSync(unitPath)) refuse(`unit directory not found: ${unitPath}`);
@@ -148,6 +318,12 @@ export async function runLocalPublish(kind, argv, deps = {}) {
   if (typeof version !== "string" || !version.trim()) refuse(`${unit} has no literal version`);
   const head = git(["rev-parse", "HEAD"], workspaceRoot);
   if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
+  if (batch) {
+    // The batch receipt is valid for one commit and tree only; a moved HEAD would make it describe other code.
+    if (head !== batch.head) refuse(`${unit}: HEAD moved to ${head} during the batch (batch commit ${batch.head})`);
+    const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
+    if (tree !== batch.tree) refuse(`${unit}: HEAD tree ${tree} differs from the batch tree ${batch.tree}`);
+  }
   const dirty = git(["status", "--porcelain", "--", dir], workspaceRoot);
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
   if (dirty !== "") refuse(`tree is not clean for ${dir}; commit first:\n${dirty}`);
@@ -159,18 +335,19 @@ export async function runLocalPublish(kind, argv, deps = {}) {
   const assetGated = readJson(path.join(workspaceRoot, "ci", "asset-gated.json")) ?? {};
   const gatedSection = assetGated[kind === "npm" ? "npm" : "crates"] ?? {};
   const isAssetGated = Object.hasOwn(gatedSection, unit);
-  const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest });
+  const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch) });
   const modules = await (deps.loadWorkspaceModules ?? defaultLoadWorkspaceModules)(workspaceRoot);
   const { ResultScanner, TEST_COMMAND, judgeUnit } = modules.results;
-  // Run the unit's tests under hosted-CI conditions: no inherited credentials (a managed host refuses a
-  // token from the environment) and no sibling product checkouts (CI holds rightkit alone).
-  const inherited = Object.fromEntries(Object.entries(deps.env ?? process.env).filter(([key]) => !/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(key)));
-  const env = { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
+  const env = testEnv(deps, isAssetGated);
+  // Ignored tests are refused unless the unit is named: --allow-ignored / --allow-ignored-units, or a
+  // written reason in ci/gate.config.json (rust.<crate>.allowIgnored). The count stays in the evidence.
+  const configReason = kind === "cargo" && typeof gateConfig?.rust?.[unit]?.allowIgnored === "string" ? gateConfig.rust[unit].allowIgnored.trim() : "";
+  const ignoredAllowed = Boolean(allowIgnored || parsed.allowIgnoredUnits?.includes(unit) || configReason);
   const steps = [];
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
     log(`[right-release] ${plan.id}: ${commandText}`);
-    const result = run(step.command, step.args, { cwd: workspaceRoot, env });
+    const result = await run(step.command, step.args, { cwd: workspaceRoot, env });
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
@@ -185,7 +362,7 @@ export async function runLocalPublish(kind, argv, deps = {}) {
     }
     steps.push(row);
   }
-  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowIgnored: allowIgnored ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
+  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
   if (!(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
@@ -204,21 +381,23 @@ export async function runLocalPublish(kind, argv, deps = {}) {
     if (kind === "npm") {
       // The feed a tarball ships must list the version it ships with (#319): stage it before packing.
       const feedFile = path.join(workspaceRoot, "packages", "release", "rightkit-versions.json");
-      if (fs.existsSync(feedFile)) (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log });
+      if (fs.existsSync(feedFile)) await withVersionsLock(() => (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log }));
       const args = ["--dir", dir, "pack", "--pack-destination", scratch];
       packCommands.push(`pnpm ${args.join(" ")}`);
-      const packed = run("pnpm", args, { cwd: workspaceRoot, env });
+      const packed = await run("pnpm", args, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`pnpm pack failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
       artifactFile = path.join(scratch, tarballName(unit, version));
       if (!fs.existsSync(artifactFile)) refuse(`pnpm pack did not produce ${path.basename(artifactFile)}`);
       const checked = modules.checkNpmTarball({ file: artifactFile, name: unit, version, dir, spawn: deps.spawnSync ?? spawnSync });
       if (checked.problems.length) refuse(`${unit}: packed tarball refused:\n  - ${checked.problems.join("\n  - ")}`);
     } else {
-      packCommands.push(`cargo package --locked -p ${unit}`);
-      const packed = run("cargo", ["package", "--locked", "-p", unit], { cwd: workspaceRoot, env });
+      // The archive is hashed here; Cargo's verify build runs once, in the real `cargo publish` (before any
+      // upload), instead of here and again in a registry dry-run (see runCargoPublish verifyOnPublish).
+      packCommands.push(`cargo package --locked --no-verify -p ${unit}`);
+      const packed = await run("cargo", ["package", "--locked", "--no-verify", "-p", unit], { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
       packCommands.push("cargo metadata --format-version 1 --no-deps");
-      const meta = run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
+      const meta = await run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
       let targetDir;
       try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
       if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) refuse("cannot read the Cargo target directory");
@@ -228,7 +407,7 @@ export async function runLocalPublish(kind, argv, deps = {}) {
     const artifactSha256 = sha256(fs.readFileSync(artifactFile));
 
     // 4. Evidence in the normal schema, then the EXISTING gate.
-    const commands = [...plan.steps.map((s) => `${s.command} ${s.args.join(" ")}`), ...packCommands];
+    const commands = [...plan.steps.map((s) => `${s.command} ${s.args.join(" ")}`), ...packCommands, ...(batch ? batch.commands : [])];
     const timestamp = (deps.now ?? (() => new Date().toISOString()))();
     const evidence = {
       schema: GATE_SCHEMA, kind, name: unit, version, commit: head, artifactSha256,
@@ -236,8 +415,10 @@ export async function runLocalPublish(kind, argv, deps = {}) {
       runs: [{
         host: { os: "darwin", arch: deps.arch ?? process.arch }, commit: head, features: plan.featureLabels, artifactSha256,
         command: commands.join(" && "), operator: LOCAL_OPERATOR, timestamp,
-        passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored, allowIgnored,
+        passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored, allowIgnored: ignoredAllowed,
+        ...(configReason ? { allowIgnoredReason: configReason } : {}),
         requireAssets: env.RIGHTKIT_REQUIRE_ASSETS, assetGated: isAssetGated,
+        ...(batch ? { batch: structuredClone(batch.receipt) } : {}),
         steps: steps.map(({ command, ok, executed, failed, ignored, skipped, binaries }) => ({ command, ok, ...(executed === undefined ? {} : { executed, failed, ignored, skipped, binaries }) })),
       }],
     };
@@ -252,14 +433,121 @@ export async function runLocalPublish(kind, argv, deps = {}) {
     if (kind === "npm") {
       (deps.publishGatedTarball ?? publishGatedTarball)({ name: unit, version, tarball: artifactFile, evidencePath }, deps.publishDeps ?? {});
     } else {
-      const published = await (deps.runCargoPublish ?? runCargoPublish)({ crate: unit, dryRun: false, allowDirty: false, workspaceRoot, evidence: evidencePath }, undefined, deps.cargoDeps ?? {});
-      (deps.recordPublished ?? recordPublished)({ registry: "cargo", name: published.name, version: published.version });
+      // trustEvidenceSteps: the evidence just written (and validated by the gate above) proves this commit's tests
+      // and clippy, so the publisher does not repeat them; verifyOnPublish: Cargo's verify build runs in the
+      // publish itself. Package contents, the runtime budget, the archive hash and the readback always run.
+      const execute = deps.cargoExecute ?? (batch ? batchCargoExecute(unit) : undefined);
+      const published = await (deps.runCargoPublish ?? runCargoPublish)({ crate: unit, dryRun: false, allowDirty: false, workspaceRoot, evidence: evidencePath, trustEvidenceSteps: true, verifyOnPublish: true }, execute, deps.cargoDeps ?? {});
+      await withVersionsLock(() => (deps.recordPublished ?? recordPublished)({ registry: "cargo", name: published.name, version: published.version }));
     }
     log(`[right-release] published ${unit}@${version}`);
     return { kind, name: unit, version, commit: head, artifactSha256, evidencePath };
   } finally {
     cleanup();
   }
+}
+
+/**
+ * Batch publish (cargo only): validate the whole batch and run fmt, the secret scan and clippy once at one
+ * commit and tree, failing the batch closed before anything is uploaded; then publish layer by layer, the
+ * crates of a layer concurrently (bounded by --concurrency). A failure stops new work: no crate of a later
+ * layer starts, crates of the failing layer that were already running finish, and the refusal lists what
+ * published. Re-run with the published crates removed from the list.
+ */
+async function runLocalPublishBatch(parsed, deps) {
+  const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
+  const { workspaceRoot, concurrency } = parsed;
+  const git = deps.git ?? defaultGit;
+  const readJson = deps.readJson ?? defaultReadJson;
+  const run = deps.run ?? defaultRunAsync;
+  assertLocalHost(deps, workspaceRoot);
+
+  // 1. The crate list and its dependency layers.
+  const requested = parsed.batch.file ? parseCrateLayers((deps.readText ?? ((file) => fs.readFileSync(file, "utf8")))(parsed.batch.file)) : [parsed.batch.crates];
+  const crates = requested.flat();
+  const dependenciesOf = deps.batchDependencies ?? ((unit) => {
+    const members = new Set(crates);
+    return pathDependencyDirs(path.join(workspaceRoot, "crates", unit)).map((dir) => path.basename(dir)).filter((name) => members.has(name) && name !== unit);
+  });
+  const layers = parsed.batch.file ? checkCrateLayers(requested, dependenciesOf) : deriveCrateLayers(crates, dependenciesOf);
+
+  // 2. Preconditions for every crate before anything runs, fail closed.
+  const gateConfig = readJson(path.join(workspaceRoot, "ci", "gate.config.json")) ?? {};
+  const assetGated = readJson(path.join(workspaceRoot, "ci", "asset-gated.json")) ?? {};
+  const isAssetGated = (unit) => Object.hasOwn(assetGated.crates ?? {}, unit);
+  const versions = new Map();
+  for (const unit of crates) {
+    const dir = `crates/${unit}`;
+    if (!fs.existsSync(path.join(workspaceRoot, dir))) refuse(`unit directory not found: ${path.join(workspaceRoot, dir)}`);
+    const pkg = (deps.readCargoPackage ?? readCargoPackage)(path.join(workspaceRoot, dir));
+    if (pkg.name !== unit) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${unit}`);
+    if (typeof pkg.version !== "string" || !pkg.version.trim()) refuse(`${unit} has no literal version`);
+    versions.set(unit, pkg.version);
+    localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true }); // refuses an OS-restricted crate now, not mid-batch
+  }
+  const head = git(["rev-parse", "HEAD"], workspaceRoot);
+  if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
+  const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
+  if (!tree || !/^[0-9a-f]{40}$/.test(tree)) refuse("cannot resolve the HEAD tree");
+  // Every batch crate and the workspace manifest and lock must match the commit the batch checks are bound to.
+  const dirty = git(["status", "--porcelain", "--", ...crates.map((unit) => `crates/${unit}`), "Cargo.toml", "Cargo.lock"], workspaceRoot);
+  if (dirty === null) refuse("cannot read git status for the batch");
+  if (dirty !== "") refuse(`tree is not clean for the batch crates or the workspace manifest; commit first:\n${dirty}`);
+  const registryHas = deps.registryHas ?? defaultRegistryHas;
+  const published = (await Promise.all(crates.map(async (unit) => ((await registryHas({ kind: "cargo", name: unit, version: versions.get(unit) })) ? `${unit}@${versions.get(unit)}` : null)))).filter(Boolean);
+  if (published.length) refuse(`already on the crates.io registry: ${published.join(", ")}; bump the version or remove them from the batch`);
+  log(`[right-release] local publish cargo batch: ${crates.length} crate(s) in ${layers.length} layer(s) at ${head.slice(0, 12)}, concurrency ${concurrency} (local-build grant, darwin-only policy)`);
+
+  // 3. Batch-level checks, once, at the batch commit. Each is recorded in every crate's evidence.
+  const env = testEnv(deps, false);
+  const stamp = { commit: head, tree };
+  const checks = []; const commands = [];
+  const batchCheck = async (name, command, args, crateNames, runEnv = env) => {
+    const text = `${command} ${args.join(" ")}`;
+    log(`[right-release] batch ${name}: ${text}`);
+    const result = await run(command, args, { cwd: workspaceRoot, env: runEnv });
+    if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+    checks.push({ name, command: text, ok: true, ...stamp, ...(crateNames ? { crates: crateNames } : {}) });
+    commands.push(text);
+  };
+  await batchCheck("fmt", "cargo", ["fmt", "--all", "--check"]);
+  log("[right-release] batch secret-scan: crate directories of the batch");
+  const scan = deps.scanSecrets ?? scanCrateForSecrets;
+  const violations = crates.flatMap((unit) => scan(path.join(workspaceRoot, "crates", unit)).map((file) => `${unit}: ${file}`));
+  if (violations.length) refuse(`batch secret scan rejected: ${violations.join(", ")}`);
+  const scanText = `scanCrateForSecrets ${crates.map((unit) => `crates/${unit}`).join(" ")}`;
+  checks.push({ name: "secret-scan", command: scanText, ok: true, ...stamp, crates });
+  commands.push(scanText);
+  const featuresOf = (unit) => (gateConfig?.rust?.[unit]?.featureSets ?? [[]])[0];
+  for (const layer of layers) {
+    for (const invocation of batchClippyInvocations(layer, { featuresOf, assetGatedOf: isAssetGated })) {
+      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, testEnv(deps, invocation.assetGated));
+    }
+  }
+  const receipt = { id: `batch-${head.slice(0, 12)}-${sha256(JSON.stringify(layers)).slice(0, 8)}`, ...stamp, crates, checks };
+
+  // 4. Publish layer by layer. A crate's publish returns only after its registry readback proved the exact
+  // checksum visible in the index, so layer N+1 starts only once every layer-N dependency is visible.
+  const batch = { head, tree, receipt, commands };
+  const results = [];
+  for (const [index, layer] of layers.entries()) {
+    log(`[right-release] batch layer ${index + 1}/${layers.length}: ${layer.join(", ")}`);
+    const queue = [...layer]; const failures = [];
+    const worker = async () => {
+      while (!failures.length && queue.length) {
+        const unit = queue.shift();
+        try { results.push(await publishUnit({ ...parsed, kind: "cargo", unit, batch: undefined }, deps, batch)); }
+        catch (error) { failures.push({ unit, message: error.message }); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, layer.length) }, worker));
+    if (failures.length) {
+      const done = results.map((r) => `${r.name}@${r.version}`);
+      refuse(`batch stopped in layer ${index + 1}/${layers.length}; published so far: ${done.join(", ") || "none"}\n${failures.map((f) => `- ${f.unit}: ${f.message}`).join("\n")}`);
+    }
+  }
+  log(`[right-release] batch published ${results.length} crate(s): ${results.map((r) => `${r.name}@${r.version}`).join(", ")}`);
+  return { kind: "cargo", batch: true, commit: head, tree, results };
 }
 
 const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };

@@ -48,11 +48,73 @@ function describeCommitMismatch(evidenceCommit, head, packagePath, git) {
   return parts.join("; ");
 }
 
+const text = (value) => typeof value === "string" && value.trim() !== "";
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// A batch publication (local-publish.mjs --crates) runs fmt, the secret scan and clippy ONCE for the whole
+// batch at one commit and tree, then copies that receipt into every crate's evidence run as `run.batch`.
+// The receipt proves, for THIS crate, the same three checks a per-crate run proves; it is bound to the evidence
+// commit and to the HEAD tree (the git tree of that commit), so it cannot be carried to another commit.
+export const BATCH_CHECKS = Object.freeze(["fmt", "secret-scan", "clippy"]);
+const BATCH_COMMAND = Object.freeze({
+  fmt: /\bfmt\b.*--check\b/,
+  "secret-scan": /\S/,
+  clippy: /\bclippy\b.*--all-targets\b.*-D warnings\s*$/,
+});
+
+/** Problems with a batch receipt for the crate `evidence.name` (empty when it proves fmt, secret scan and clippy).
+ * `tree` is the current HEAD tree when known; `undefined` skips only that comparison. */
+export function batchReceiptProblems(batch, evidence, tree) {
+  if (!batch || typeof batch !== "object" || Array.isArray(batch)) return ["batch receipt must be an object"];
+  const problems = [];
+  if (!text(batch.id)) problems.push("batch.id");
+  if (batch.commit !== evidence.commit) problems.push(`batch.commit (must equal ${evidence.commit})`);
+  if (!SHA.test(String(batch.tree ?? ""))) problems.push("batch.tree (must be a 40-hex git tree)");
+  else if (tree !== undefined && batch.tree !== tree) problems.push(`batch.tree (must equal the HEAD tree ${tree})`);
+  if (!(Array.isArray(batch.crates) && batch.crates.includes(evidence.name))) problems.push("batch.crates (must name this crate)");
+  const checks = Array.isArray(batch.checks) ? batch.checks : [];
+  for (const name of BATCH_CHECKS) {
+    const rows = checks.filter((row) => row?.name === name);
+    if (!rows.length) { problems.push(`batch check ${name} missing`); continue; }
+    for (const row of rows) {
+      if (row.ok !== true) problems.push(`batch check ${name} not ok`);
+      if (row.commit !== evidence.commit || row.tree !== batch.tree) problems.push(`batch check ${name} not bound to the batch commit and tree`);
+      if (!(text(row.command) && BATCH_COMMAND[name].test(row.command))) problems.push(`batch check ${name} command`);
+    }
+    // fmt is workspace-wide; clippy and the secret scan name the crates they covered.
+    if (name !== "fmt" && !rows.some((row) => Array.isArray(row.crates) && row.crates.includes(evidence.name))) problems.push(`batch check ${name} does not cover this crate`);
+  }
+  return problems;
+}
+
+/**
+ * Which per-crate publication steps the evidence ALREADY proves for this exact commit, so the publisher may
+ * skip repeating them: `tests` (a passing `cargo test -p <name>` step that executed tests), `clippy` (a passing
+ * `cargo clippy -p <name> ... -D warnings` step, or a valid batch receipt covering the crate), and `fmt` and
+ * `secretScan` (a valid batch receipt covering the crate). Every darwin run at the evidence commit must prove a
+ * step for it to count. Call after the gate accepted the evidence (the gate binds commit, tree and artifact).
+ */
+export function provenGateSteps(evidence) {
+  const none = { tests: false, clippy: false, fmt: false, secretScan: false };
+  if (!evidence || !SHA.test(String(evidence.commit ?? "")) || !text(evidence.name)) return none;
+  const runs = (Array.isArray(evidence.runs) ? evidence.runs : []).filter((run) => run?.host?.os === "darwin");
+  if (!runs.length || runs.some((run) => run.commit !== evidence.commit)) return none;
+  const name = escapeRegExp(evidence.name);
+  const stepProves = (run, pattern, needTests) => (Array.isArray(run.steps) ? run.steps : []).some((step) => step?.ok === true
+    && pattern.test(String(step.command ?? "")) && (!needTests || (step.executed > 0 && step.failed === 0)));
+  const batchOk = (run) => run.batch !== undefined && batchReceiptProblems(run.batch, evidence, undefined).length === 0;
+  return {
+    tests: runs.every((run) => stepProves(run, new RegExp(`^cargo test -p ${name}( |$)`), true)),
+    clippy: runs.every((run) => batchOk(run) || stepProves(run, new RegExp(`^cargo clippy -p ${name} .*-- -D warnings$`), false)),
+    fmt: runs.every(batchOk),
+    secretScan: runs.every(batchOk),
+  };
+}
+
 // Names of the fields of one host run that do not qualify (empty when the run qualifies). Every run binds to
 // the same unit, commit and artifact: commit, host arch, feature set and artifactSha256 equal to the evidence.
-function invalidRunFields(run, evidence) {
+function invalidRunFields(run, evidence, tree) {
   const bad = [];
-  const text = (value) => typeof value === "string" && value.trim() !== "";
   if (run.commit !== evidence.commit) bad.push(`commit (must equal ${evidence.commit})`);
   if (!text(run.host?.arch)) bad.push("host.arch");
   if (!(Array.isArray(run.features) && run.features.length > 0 && run.features.every(text))) bad.push("features");
@@ -62,6 +124,7 @@ function invalidRunFields(run, evidence) {
   if (!text(run.timestamp)) bad.push("timestamp");
   if (!(Number.isInteger(run.passed) && run.passed > 0)) bad.push("passed (must be > 0)");
   if (run.failed !== 0) bad.push("failed (must be 0)");
+  if (run.batch !== undefined) bad.push(...batchReceiptProblems(run.batch, evidence, tree ?? null).map((problem) => `batch: ${problem}`));
   return bad;
 }
 
@@ -88,6 +151,10 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
       missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
     }
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
+    // A batch receipt is bound to the HEAD tree as well as the commit; read it only when a run carries one.
+    // `tree ?? null` below makes an unreadable tree fail the comparison (null never equals a 40-hex tree).
+    const tree = runs.some((run) => run?.batch !== undefined) ? git(["rev-parse", "HEAD^{tree}"], packagePath) : undefined;
+    if (tree === null) missing.push(`cannot read the HEAD tree for ${packagePath}`);
     // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
     // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
     // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
@@ -98,7 +165,7 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }
       // Every run on the host must qualify: a failing run is not masked by a passing run beside it.
       matching.forEach((run, index) => {
-        const fields = invalidRunFields(run, evidence);
+        const fields = invalidRunFields(run, evidence, tree);
         if (fields.length) missing.push(`${label} run receipt ${index} invalid: ${fields.join(", ")}`);
       });
     }

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
@@ -53,11 +53,22 @@ export function runtimeBudgetDeferral(crateDir, crate) {
   return `${data.reason} (${data.approvedBy}, ${data.approved}; ci/runtime-budget-deferred.json)`;
 }
 
-export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false }) {
+// Plan step label -> the `provenGateSteps` key whose proof lets that step be skipped.
+const PROVEN_STEP = Object.freeze({ "secret scan": "secretScan", format: "fmt", tests: "tests", clippy: "clippy" });
+
+/**
+ * `proven` (from `provenGateSteps(evidence)`) removes a secret scan, format, tests or clippy step the evidence
+ * already proves for this exact commit; the runtime budget, package contents, archive hash and registry steps
+ * are never skippable. `verifyOnPublish` (real publish only) drops the separate registry dry-run and lets the
+ * real `cargo publish` run Cargo's own verify build (no `--no-verify`), so the package compiles once, before
+ * the upload, instead of in a dry-run and not at all in the publish.
+ */
+export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false, proven = {}, verifyOnPublish = false }) {
   const dryRunArgs = ["publish", "--dry-run", "-p", crate];
   const packageArgs = ["package", "--list", "-p", crate];
   if (allowDirty) dryRunArgs.push("--allow-dirty");
   if (allowDirty) packageArgs.push("--allow-dirty");
+  const verifyHere = verifyOnPublish && !dryRun;
   const plan = [
     { label: "secret scan", internal: "secret-scan", crateDir },
     // Runtime-budget crates (runtime-budgets.mjs) must carry a measured runtime-budget.json for this
@@ -67,15 +78,15 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
     { label: "tests", command: "cargo", args: ["test", "-p", crate, "--", "--test-threads=1"] },
     { label: "clippy", command: "cargo", args: ["clippy", "-p", crate, "--all-targets", "--", "-D", "warnings"] },
     { label: "package contents", command: "cargo", args: packageArgs, capture: true },
-    { label: "registry dry-run", command: "cargo", args: dryRunArgs },
-  ];
+    ...(verifyHere ? [] : [{ label: "registry dry-run", command: "cargo", args: dryRunArgs }]),
+  ].filter((step) => !(PROVEN_STEP[step.label] && proven[PROVEN_STEP[step.label]] === true));
   if (!dryRun) plan.push(
     // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
     // explicitly to bind target/package/<name>-<version>.crate to evidence before Cargo uploads.
     { label: "package archive", command: "cargo", args: ["package", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
     { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
     { label: "archive hash check", internal: "verify-archive" },
-    { label: "registry publish", command: "cargo", args: ["publish", "--no-verify", "-p", crate] },
+    { label: "registry publish", command: "cargo", args: verifyHere ? ["publish", "--locked", "-p", crate] : ["publish", "--no-verify", "-p", crate] },
     { label: "registry readback", internal: "registry-readback" },
   );
   return plan;
@@ -119,7 +130,14 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   };
   const gate = (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { dryRun: options.dryRun });
   const expectedSha256 = gate.evidence?.artifactSha256;
-  const plan = buildCargoPublishPlan({ ...options, crateDir });
+  // Only the local publisher (local-publish.mjs) sets `trustEvidenceSteps`: it ran the tests and clippy for this
+  // exact commit itself and wrote them into the evidence the gate above just validated. A plain publish proves
+  // nothing in advance, so `proven` stays empty and every step runs.
+  const proven = options.trustEvidenceSteps === true && !options.dryRun ? provenGateSteps(gate.evidence) : {};
+  const plan = buildCargoPublishPlan({ ...options, crateDir, proven, verifyOnPublish: options.verifyOnPublish === true });
+  for (const [label, key] of Object.entries(PROVEN_STEP)) {
+    if (proven[key] === true) process.stdout.write(`[right-release] cargo ${label}: proven by the gate evidence for this commit, not repeated\n`);
+  }
 
   let targetDir;
   let artifact;
@@ -159,7 +177,8 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       continue;
     }
     if (step.label === "registry publish") assertArtifactUnchanged(artifact);
-    const result = execute(step.command, step.args, {
+    // `execute` may be synchronous (the default) or async (the batch publisher overlaps uploads).
+    const result = await execute(step.command, step.args, {
       cwd: options.workspaceRoot,
       encoding: "utf8",
       windowsHide: true,

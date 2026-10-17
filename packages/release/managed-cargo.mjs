@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
+import { spawn as spawnProcess, spawnSync } from "./background-process.mjs";
 
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
   const roots = managedControlCandidates({ env, platform });
@@ -71,4 +71,52 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
 
 function unavailable(message) {
   return { status: null, stdout: "", stderr: message, error: Object.assign(new Error(message), { code: 'RK_BROKER_UNAVAILABLE' }) };
+}
+
+/**
+ * Async `spawnSync` look-alike for the batch publisher: runs the command through the release spawn boundary
+ * (background-process.mjs), collects stdout and stderr, and resolves `{ status, signal, stdout, stderr, error }`.
+ * It never rejects: a spawn failure, a timeout or an exceeded `maxBuffer` resolves with `error` set, which is
+ * exactly how callers already read a failed `spawnSync`.
+ */
+export function spawnCollect(command, args, options = {}, { spawnAsync = spawnProcess } = {}) {
+  const { timeout, maxBuffer = 512 * 1024 * 1024, encoding: _encoding, stdio: _stdio, ...rest } = options;
+  return new Promise((resolve) => {
+    let child;
+    try { child = spawnAsync(command, args, { ...rest, stdio: ["ignore", "pipe", "pipe"] }); } catch (error) { resolve({ status: null, signal: null, stdout: "", stderr: "", error }); return; }
+    const out = []; const err = [];
+    let size = 0; let settled = false; let timer; let failure;
+    const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); resolve(result); };
+    const take = (chunks) => (chunk) => {
+      size += chunk.length;
+      if (size > maxBuffer) { failure ??= new Error(`output exceeded maxBuffer (${maxBuffer} bytes)`); child.kill("SIGKILL"); return; }
+      chunks.push(chunk);
+    };
+    child.stdout.on("data", take(out));
+    child.stderr.on("data", take(err));
+    child.on("error", (error) => finish({ status: null, signal: null, stdout: "", stderr: "", error }));
+    child.on("close", (status, signal) => finish({
+      status, signal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8"), error: failure,
+    }));
+    if (timeout) timer = setTimeout(() => { failure ??= new Error(`timed out after ${timeout}ms`); child.kill("SIGKILL"); }, timeout);
+  });
+}
+
+/**
+ * Async twin of `runCargoSync`: the same client, broker-socket and darwin-never-direct selection (it asks
+ * `runCargoSync` to choose, with a spawn that only records the invocation), then runs the chosen invocation
+ * without blocking the event loop so independent crates can publish concurrently. The broker still
+ * serializes the builds themselves.
+ */
+export async function runCargoAsync(args, options = {}, deps = {}) {
+  const { spawnAsync = spawnCollect, ...syncDeps } = deps;
+  let chosen;
+  const probe = runCargoSync(args, options, { ...syncDeps, spawn: (command, commandArgs, commandOptions) => { chosen = { command, args: commandArgs, options: commandOptions }; return { status: 0, stdout: "", stderr: "" }; } });
+  if (!chosen) return probe;
+  const result = await spawnAsync(chosen.command, chosen.args, chosen.options);
+  const platform = syncDeps.platform ?? process.platform;
+  if (platform === 'darwin' && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {
+    return { ...result, error: unavailable(String(result.stderr).trim()).error };
+  }
+  return result;
 }

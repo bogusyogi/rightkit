@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { checkPublicationGate, enforcePublicationGate } from './publication-gate.mjs';
+import { checkPublicationGate, enforcePublicationGate, provenGateSteps } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
 const run = (os, over = {}) => ({ host: { os, arch: 'arm64' }, commit: SHA, artifactSha256: 'b'.repeat(64), command: 'rightkit cargo test -p x --all-targets', passed: 12, failed: 0, features: ['default'], operator: 'adrdsouza', timestamp: '2026-10-06T00:00:00Z', ...over });
@@ -132,4 +132,54 @@ test('a failing run on a host is not masked by a passing run on the same host', 
   const stale = checkPublicationGate(base(evidence({ runs: [run('darwin'), run('win32'), run('win32', { commit: 'c'.repeat(40) })] })));
   assert.match(stale.missing.join('\n'), /Windows run receipt \d invalid: commit/);
   assert.equal(checkPublicationGate(base(evidence({ runs: [run('darwin'), run('win32'), run('win32', { features: ['x'] })] }))).ok, true);
+});
+
+// ---- batch receipts (local-publish.mjs --crates): fmt, secret scan and clippy proven once per batch ----
+const TREE = 'e'.repeat(40);
+const batchRows = (over = {}) => [
+  { name: 'fmt', command: 'cargo fmt --all --check', ok: true, commit: SHA, tree: TREE },
+  { name: 'secret-scan', command: 'scanCrateForSecrets crates/rightkit-sync', ok: true, commit: SHA, tree: TREE, crates: ['rightkit-sync'] },
+  { name: 'clippy', command: 'cargo clippy -p rightkit-sync --no-deps --all-targets -- -D warnings', ok: true, commit: SHA, tree: TREE, crates: ['rightkit-sync'] },
+].map((row) => ({ ...row, ...(over[row.name] ?? {}) }));
+const batch = (over = {}) => ({ id: 'batch-1', commit: SHA, tree: TREE, crates: ['rightkit-sync', 'rightkit-other'], checks: batchRows(over.rows), ...over.batch });
+const testStep = { command: 'cargo test -p rightkit-sync --no-fail-fast -- --show-output', ok: true, executed: 12, failed: 0, ignored: 0, skipped: 0, binaries: 3 };
+const darwinBatchEvidence = (over = {}) => evidence({ hostPolicy: 'darwin-only', hostPolicyReason: 'r', runs: [run('darwin', { steps: [testStep], batch: batch(over) })] });
+const batchGate = (ev, { tree = TREE } = {}) => ({ ...base(ev), git: (args) => (args[0] === 'rev-parse' ? (args[1] === 'HEAD' ? SHA : tree) : '') });
+
+test('a batch receipt bound to the commit and the HEAD tree is accepted', () => {
+  assert.deepEqual(checkPublicationGate(batchGate(darwinBatchEvidence())).missing, []);
+});
+
+test('a batch receipt is refused for another tree, another commit, a missing or failing check, or an uncovered crate', () => {
+  const missing = (ev, opts) => checkPublicationGate(batchGate(ev, opts)).missing.join('\n');
+  assert.match(missing(darwinBatchEvidence(), { tree: 'f'.repeat(40) }), /batch: batch\.tree \(must equal the HEAD tree/);
+  assert.match(missing(darwinBatchEvidence({ batch: { commit: 'c'.repeat(40) } })), /batch: batch\.commit/);
+  assert.match(missing(darwinBatchEvidence({ rows: { fmt: { commit: 'c'.repeat(40) } } })), /batch check fmt not bound to the batch commit and tree/);
+  assert.match(missing(darwinBatchEvidence({ rows: { clippy: { ok: false } } })), /batch check clippy not ok/);
+  assert.match(missing(darwinBatchEvidence({ rows: { clippy: { crates: ['rightkit-other'] } } })), /batch check clippy does not cover this crate/);
+  assert.match(missing(darwinBatchEvidence({ rows: { 'secret-scan': { crates: [] } } })), /batch check secret-scan does not cover this crate/);
+  assert.match(missing(darwinBatchEvidence({ rows: { fmt: { command: 'cargo fmt --all' } } })), /batch check fmt command/);
+  assert.match(missing(darwinBatchEvidence({ rows: { clippy: { command: 'cargo clippy -p rightkit-sync' } } })), /batch check clippy command/);
+  assert.match(missing(darwinBatchEvidence({ batch: { crates: ['rightkit-other'] } })), /batch\.crates \(must name this crate\)/);
+  const noFmt = darwinBatchEvidence(); noFmt.runs[0].batch.checks = noFmt.runs[0].batch.checks.filter((row) => row.name !== 'fmt');
+  assert.match(missing(noFmt), /batch check fmt missing/);
+  const unreadable = { ...batchGate(darwinBatchEvidence()), git: (args) => (args[1] === 'HEAD' ? SHA : args[0] === 'rev-parse' ? null : '') };
+  assert.match(checkPublicationGate(unreadable).missing.join('\n'), /cannot read the HEAD tree/);
+});
+
+test('provenGateSteps counts only what the evidence for this commit proves', () => {
+  const all = provenGateSteps(darwinBatchEvidence());
+  assert.deepEqual(all, { tests: true, clippy: true, fmt: true, secretScan: true });
+  // No batch receipt: tests and a per-crate clippy step are proven, fmt and the secret scan are not.
+  const clippyStep = { command: 'cargo clippy -p rightkit-sync --no-deps --all-targets -- -D warnings', ok: true };
+  const single = evidence({ runs: [run('darwin', { steps: [testStep, clippyStep] })] });
+  assert.deepEqual(provenGateSteps(single), { tests: true, clippy: true, fmt: false, secretScan: false });
+  // A test step that ran nothing, failed, belongs to another crate or another commit proves nothing.
+  assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { steps: [{ ...testStep, executed: 0 }] })] })).tests, false);
+  assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { steps: [{ ...testStep, ok: false }] })] })).tests, false);
+  assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { steps: [{ ...testStep, command: 'cargo test -p rightkit-sync-extra --no-fail-fast' }] })] })).tests, false);
+  assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { commit: 'c'.repeat(40), steps: [testStep] })] })).tests, false);
+  assert.equal(provenGateSteps(darwinBatchEvidence({ rows: { fmt: { ok: false } } })).fmt, false);
+  assert.deepEqual(provenGateSteps(null), { tests: false, clippy: false, fmt: false, secretScan: false });
+  assert.deepEqual(provenGateSteps(evidence({ runs: [] })), { tests: false, clippy: false, fmt: false, secretScan: false });
 });
