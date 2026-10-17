@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 

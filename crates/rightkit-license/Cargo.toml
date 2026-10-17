@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["license", "ed25519", "offline", "entitlement"]
 categories = ["authentication", "cryptography"]
 include = ["src/**", "tests/**", "test-vectors/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
@@ -16,7 +16,7 @@ default = []
 # Entitlement source keyed to the Google subject, backed by the shared entitlement service
 # (bogusyogi/rightsites#81). Adds `rightkit-http`; the default build is unchanged.
 subject-entitlement = ["dep:rightkit-http"]
-# Engine-side gate for app engines run outside their shell (Orthic-Labs/rightkit#182): maps a
+# Engine-side gate for app engines run outside their shell (bogusyogi/rightkit#182): maps a
 # Google-subject entitlement decision (local cache or service, with offline grace) to an
 # Allowed / Grace / Denied verdict, an exit code and a message. Implies `subject-entitlement`.
 engine-gate = ["subject-entitlement"]

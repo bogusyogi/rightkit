@@ -1,8 +1,8 @@
 # RightKit CI
 
-RightKit is a public repository. Every compile and every test runs in GitHub Actions; a developer
-host only edits, reads and runs checks that cannot compile or execute project code. `.rightgit.json`
-declares `"compile": "github-actions-only"`.
+RightKit is a private repository (`bogusyogi/rightkit`) and has no CI. Builds, tests and publishing run
+locally through RustRight on the Mac and the Dell (second priority after RustRight). The npm and crates.io
+packages stay public. The workflow files and lane descriptions below are retired and pending removal.
 
 ## Layout
 
@@ -95,7 +95,7 @@ protects a publication" below).
 `@rightkit/*` package or one crate from the Mac, without `publish.yml`:
 `right-release publish npm --package @rightkit/<name> --local` or
 `right-release publish cargo --crate <name> --local`. `--local` refuses unless the committed
-`.rightkit-local-build.json` (repository `Orthic-Labs/rightkit`, `allow: "build-test-publish"`) is present, the host is
+`.rightkit-local-build.json` (repository `bogusyogi/rightkit`, `allow: "build-test-publish"`) is present, the host is
 macOS, the unit's directory is clean at a resolvable HEAD, and the version is not yet on the registry. It then runs the
 unit's own CI commands from `ci/gate.config.json` (a unit in `ci/asset-gated.json` runs with
 `RIGHTKIT_REQUIRE_ASSETS=0` and its skipped count is recorded; any other unit runs strict), packs the artifact
@@ -136,7 +136,7 @@ A unit that a host would skip, a package with nothing to run, or an asset-gated 
 - **npm.** `npm publish <sealed .tgz> --ignore-scripts --access public --provenance --registry
   https://registry.npmjs.org/`. Afterwards the registry's `dist.shasum` and `dist.integrity` must equal
   the sealed tarball's. Provenance needs each package's `repository` to name
-  `https://github.com/Orthic-Labs/rightkit` with its own `directory`; the pack, verify and upload steps
+  `https://github.com/bogusyogi/rightkit` with its own `directory`; the pack, verify and upload steps
   check that in the packed manifest, in dry and real runs alike.
 - **Crates.** `cargo publish` cannot take a prebuilt `.crate`, and it would compile with the token in the
   environment, so `upload.mjs` PUTs the sealed `.crate` to `https://crates.io/api/v1/crates/new` with the

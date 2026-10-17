@@ -13,7 +13,7 @@ First-run onboarding framework for Right Suite apps. The legal agreement gate co
 
 | Import | Contents |
 |---|---|
-| `@rightkit/onboarding` | `Onboarding`, `isLegalAccepted`, `onboardingStateKey`, `licenseStep`, `modelsStep`, `permissionsStep`, `signInStep` (Google/Apple/OAuth buttons that call the shared `rightkit-oauth` owner; copy says "Opens your browser"; never an in-app webview, Orthic-Labs/rightkit#279); types from `types.ts`, `ModelsStepOptions` |
+| `@rightkit/onboarding` | `Onboarding`, `isLegalAccepted`, `onboardingStateKey`, `licenseStep`, `modelsStep`, `permissionsStep`, `signInStep` (Google/Apple/OAuth buttons that call the shared `rightkit-oauth` owner; copy says "Opens your browser"; never an in-app webview, bogusyogi/rightkit#279); types from `types.ts`, `ModelsStepOptions` |
 | `@rightkit/onboarding/onboarding.css` | Stylesheet |
 
 ## Peer dependencies

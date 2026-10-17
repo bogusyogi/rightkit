@@ -1,7 +1,7 @@
 # rightkit-vault
 
 Split-key sync for a small map of secrets (for example the user's own API keys per provider).
-Drafted for Orthic-Labs/rightkit#163; depends on the entitlement endpoints
+Drafted for bogusyogi/rightkit#163; depends on the entitlement endpoints
 `GET /v1/vault/wrapping-key` and `POST /v1/vault/rotate` (bogusyogi/rightsites#81).
 
 Status: written without a build or test run (standing order). The first CI run is the first

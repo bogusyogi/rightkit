@@ -2,12 +2,11 @@
 
 **Settled on 11 October 2026 by Adrian. Do not reopen, do not ask him for these tokens again.**
 
-RightKit (`Orthic-Labs/rightkit`, public) publishes npm packages and crates from GitHub Actions.
-No machine publishes locally, and no chat needs a registry token in its shell.
+RightKit (`bogusyogi/rightkit`, private, no CI) publishes its npm packages and crates, which stay public, locally through RustRight on the Mac and the Dell. The credential table below describes the retired GitHub Actions route and needs rework.
 
 ## Where the credentials are
 
-| Registry | GitHub secret on `Orthic-Labs/rightkit` | Scope | Set | Source |
+| Registry | GitHub secret on `bogusyogi/rightkit` | Scope | Set | Source |
 |---|---|---|---|---|
 | npm (`@rightkit/*`) | `NPM_TOKEN` | `release` environment (main only) | 11 Oct 2026, 14:53 UTC, **wrong token: must be replaced** | First copy came from `~/.npmrc`, which is not a publish token: the first real publish (run 38157017970) was refused by npm with 404 on PUT. The publish token is the macOS keychain item `npm-rightkit-publish` that the old local publish path used. |
 | crates.io | `CARGO_REGISTRY_TOKEN` | repository | 11 Oct 2026, 14:45 UTC | Token `rightkit-github-actions`, created by Adrian on crates.io with scopes `publish-new` and `publish-update`, no crate restriction |
@@ -15,11 +14,11 @@ No machine publishes locally, and no chat needs a registry token in its shell.
 Check that they exist (names and dates only; GitHub never returns a value):
 
 ```bash
-gh secret list --repo Orthic-Labs/rightkit
+gh secret list --repo bogusyogi/rightkit
 ```
 
 ```bash
-gh secret list --env release --repo Orthic-Labs/rightkit
+gh secret list --env release --repo bogusyogi/rightkit
 ```
 
 The crates.io token is repository-scoped, so any workflow in the repository can read it, not
@@ -43,10 +42,10 @@ copied out of GitHub); do that at the next rotation, with `--env release` added 
 Only Adrian replaces a token. The whole job is:
 
 1. **npm:** on npmjs.com create a granular access token with publish rights for the `@rightkit`
-   scope, then run `gh secret set NPM_TOKEN --repo Orthic-Labs/rightkit` and paste it at the
+   scope, then run `gh secret set NPM_TOKEN --repo bogusyogi/rightkit` and paste it at the
    hidden prompt.
 2. **crates.io:** Account Settings → API Tokens → New Token, scopes `publish-new` and
-   `publish-update`, then run `gh secret set CARGO_REGISTRY_TOKEN --repo Orthic-Labs/rightkit`
+   `publish-update`, then run `gh secret set CARGO_REGISTRY_TOKEN --repo bogusyogi/rightkit`
    and paste it at the hidden prompt.
 3. Update the "Set" column above in the same change.
 

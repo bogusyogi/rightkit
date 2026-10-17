@@ -16,7 +16,7 @@ packages:
     # The URL is the public repository itself; its root Package.swift exposes RightKitSwift at a plain
     # semver tag. The pin is deliberately exact: raise it only after the tag exists on origin
     # (`right-release publish swift`) and the template builds against it.
-    url: https://github.com/Orthic-Labs/rightkit
+    url: https://github.com/bogusyogi/rightkit
     exactVersion: 0.7.0
 targets:
   RightAppTemplate:

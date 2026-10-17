@@ -1,6 +1,6 @@
 VERDICT: DO NOT PUBLISH — resumed inodes can expose newly downloaded bytes through existing readers, & pathname substitution can publish unverified bytes.
 
-Candidate citations refer to `1f153b53`. **B0:** published `14b7c74f` has [no downloader (`lib.rs:13`)](https://github.com/Orthic-Labs/rightkit/blob/14b7c74f/crates/rightkit-http/src/lib.rs#L13); requested anchor [`fdad2f20`, `client.rs:305`](https://github.com/Orthic-Labs/rightkit/blob/fdad2f20/crates/rightkit-http/src/client.rs#L305) returns buffered bytes without filesystem mutation. Both blockers are **N versus B0**, retained from earlier candidates; incomplete hardening is **I**, not independently N.
+Candidate citations refer to `1f153b53`. **B0:** published `14b7c74f` has [no downloader (`lib.rs:13`)](https://github.com/bogusyogi/rightkit/blob/14b7c74f/crates/rightkit-http/src/lib.rs#L13); requested anchor [`fdad2f20`, `client.rs:305`](https://github.com/bogusyogi/rightkit/blob/fdad2f20/crates/rightkit-http/src/client.rs#L305) returns buffered bytes without filesystem mutation. Both blockers are **N versus B0**, retained from earlier candidates; incomplete hardening is **I**, not independently N.
 
 | Earlier finding | Status & classification |
 |---|---|
@@ -36,13 +36,13 @@ Candidate citations refer to `1f153b53`. **B0:** published `14b7c74f` has [no do
 
    **Adversary:** requires write access inside `.rk-download`; destination-directory write access is unnecessary if separately restricted. An actor already able to replace destination directly is weaker evidence.
 
-   **Invariant:** only verified, owned inode may be published/deleted. **Smallest release-safe clearance:** defer downloader until publication/cleanup bind to owned inode. This survives first candidate’s [check/rename:400](https://github.com/Orthic-Labs/rightkit/blob/0f0395ee/crates/rightkit-http/src/download.rs#L400), rather than arising from latest identity guard.
+   **Invariant:** only verified, owned inode may be published/deleted. **Smallest release-safe clearance:** defer downloader until publication/cleanup bind to owned inode. This survives first candidate’s [check/rename:400](https://github.com/bogusyogi/rightkit/blob/0f0395ee/crates/rightkit-http/src/download.rs#L400), rather than arising from latest identity guard.
 
 **Notes**
 
 - New path-based hardening can narrow substituted file after handle/link checks: [download.rs:790](/Volumes/D/claude/rightkit/crates/rightkit-http/src/download.rs:790), [private.rs:28](/Volumes/D/claude/rightkit/crates/rightkit-fs/src/private.rs:28). Subsequent appends retain original handle; pathname substitution alone does **not** redirect writes. This adds foreign-file permission mutation versus first candidate; irreversible harm from narrowing alone is not established.
 - `same_open_file` correctly compares Unix device/inode & ordinary Windows volume/file identity ([1377](/Volumes/D/claude/rightkit/crates/rightkit-http/src/download.rs:1377)); hard links identify same inode, then [link-count check:790](/Volumes/D/claude/rightkit/crates/rightkit-http/src/download.rs:790) rejects multiple names. Write-only handle is not prohibited by [API contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle). ReFS’s [64-bit identity is not guaranteed unique](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information): I, incomplete identity protection; concrete collision harm not established.
-- **N routing note:** baseline [configuration:52](https://github.com/Orthic-Labs/rightkit/blob/fdad2f20/crates/rightkit-http/src/client.rs#L52) lacks System mode. `Client::try_new(System)` still [discards construction failure:327](/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs:327), violating exact-or-refuse routing; irreversible harm not established.
+- **N routing note:** baseline [configuration:52](https://github.com/bogusyogi/rightkit/blob/fdad2f20/crates/rightkit-http/src/client.rs#L52) lacks System mode. `Client::try_new(System)` still [discards construction failure:327](/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs:327), violating exact-or-refuse routing; irreversible harm not established.
 
 **API & tests**
 

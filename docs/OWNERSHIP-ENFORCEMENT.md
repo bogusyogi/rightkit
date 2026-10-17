@@ -53,7 +53,7 @@ lists stale exception entries (entries that match no current finding).
 ## Exceptions
 
 Exceptions are plain entries in `.rightkit/ownership-exceptions.json`, reviewed
-through git like any other change (Orthic-Labs/rightkit#262; signed exceptions
+through git like any other change (bogusyogi/rightkit#262; signed exceptions
 are retired under the proportional-trust rule, as trust-sync was). No signature,
 Touch ID prompt, native helper, protected trust or enrolled key is involved, and
 agents may edit the file directly.

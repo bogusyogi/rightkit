@@ -1,6 +1,6 @@
 # Minimum RightKit for Android
 
-Issue: Orthic-Labs/rightkit#117. First consumer: HeardRight (plan: heardright `docs/plans/2026-10-16-android.md`, heardright#13). Date: 2026-10-17.
+Issue: bogusyogi/rightkit#117. First consumer: HeardRight (plan: heardright `docs/plans/2026-10-16-android.md`, heardright#13). Date: 2026-10-17.
 
 Status: design. Everything below is read from source. Nothing has been compiled for an Android target and nothing has run on an emulator or device; "code-ready" means "the source has the Android path and no known blocker", not "built".
 

@@ -267,7 +267,7 @@ under development; it is published when `right-release publish swift` pushes its
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/Orthic-Labs/rightkit", exact: "0.7.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.7.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -281,11 +281,11 @@ In an XcodeGen `project.yml`:
 ```yaml
 packages:
   RightKitSwift:
-    url: https://github.com/Orthic-Labs/rightkit
+    url: https://github.com/bogusyogi/rightkit
     exactVersion: "0.7.0"
 ```
 
-The URL is the public repository `Orthic-Labs/rightkit`; its root `Package.swift` exposes the same products as
+The URL is the public repository `bogusyogi/rightkit`; its root `Package.swift` exposes the same products as
 `swift/RightKitSwift/Package.swift`, with each target pointing into `swift/RightKitSwift`. The tag is a plain semver tag
 (`0.7.0`, no `v`) on that repository, cut from the commit whose `swift/RightKitSwift/VERSION` matches. SwiftPM
 derives the package identity from the URL, so it is `rightkit` (not `RightKitSwift`): write
@@ -338,12 +338,12 @@ No host app, test plan or scheme-level StoreKit configuration is needed. What wa
 
 ## Source of truth
 
-`swift/RightKitSwift` in `Orthic-Labs/rightkit` is both the source and the distribution: apps resolve the repository
+`swift/RightKitSwift` in `bogusyogi/rightkit` is both the source and the distribution: apps resolve the repository
 root `Package.swift` at a tag. The nested `swift/RightKitSwift/Package.swift` is what CI builds and tests; change both
 manifests together (`scripts/swift-root-manifest.test.mjs` fails on drift).
 
 ## Releasing a new version
 
 Bump `swift/RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then run
-`right-release publish swift`, which tags that commit `X.Y.Z` (plain semver) and pushes the tag to `Orthic-Labs/rightkit`. Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
+`right-release publish swift`, which tags that commit `X.Y.Z` (plain semver) and pushes the tag to `bogusyogi/rightkit`. Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
 published) so apps can bump their pin.

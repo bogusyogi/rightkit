@@ -1,6 +1,6 @@
 # tauri-runtime-wry Windows Rc/Arc crash: shared patch source
 
-Issue: Orthic-Labs/rightkit#229 (first seen in HeardRight, bogusyogi/heardright#177; all Orthic Tauri apps on
+Issue: bogusyogi/rightkit#229 (first seen in HeardRight, bogusyogi/heardright#177; all Orthic Tauri apps on
 Windows are exposed). Date: 2026-10-17.
 
 ## 1. Did upstream fix it? No
@@ -61,7 +61,7 @@ In the app's workspace root `Cargo.toml` (the one that owns `Cargo.lock`):
 
 ```toml
 [patch.crates-io]
-tauri-runtime-wry = { git = "https://github.com/Orthic-Labs/rightkit", tag = "trw-2.12.2-rk1" }
+tauri-runtime-wry = { git = "https://github.com/bogusyogi/rightkit", tag = "trw-2.12.2-rk1" }
 ```
 
 Local development against a RightKit checkout (do not commit):

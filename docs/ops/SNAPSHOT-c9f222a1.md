@@ -2,7 +2,7 @@
 
 Named 2026-10-12 04:15 IST by the RightKit lead. Supersedes snapshot 626d27e3.
 
-Commit: Orthic-Labs/rightkit main `c9f222a1`.
+Commit: bogusyogi/rightkit main `c9f222a1`.
 Mac path: `/Volumes/D/rightkit-publish/snapshots/consumer-c9f222a1/claude/rightkit` (plain `git archive`, the whole repository, 57 crates).
 Dell: `git archive c9f222a1` from the Dell clone.
 

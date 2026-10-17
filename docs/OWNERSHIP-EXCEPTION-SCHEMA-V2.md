@@ -1,6 +1,6 @@
 # Ownership exception schema v2
 
-> **Retired (Orthic-Labs/rightkit#262).** Signed schema v2 exception records are no longer read or verified. Exceptions are plain entries `{capability, package, reason, owner, date}` in `.rightkit/ownership-exceptions.json`; see `OWNERSHIP-ENFORCEMENT.md`. This document is kept as history.
+> **Retired (bogusyogi/rightkit#262).** Signed schema v2 exception records are no longer read or verified. Exceptions are plain entries `{capability, package, reason, owner, date}` in `.rightkit/ownership-exceptions.json`; see `OWNERSHIP-ENFORCEMENT.md`. This document is kept as history.
 
 Status: contract for P1 of `tasks/reviews/2026-10-08-rightkit-converged-plan.md`. Node, the Windows helper (`OwnershipApproval.cs`) and the macOS helper (`ownership-approval.swift`) must all implement exactly this. Records with schema 1 are rejected once v2 lands. No v1 record has ever been signed, so nothing needs migrating; drafts are regenerated from a fresh scan.
 

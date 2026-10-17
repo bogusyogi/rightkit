@@ -44,7 +44,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Orthic-Labs/rightkit.git",
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/qa"
   }
 }

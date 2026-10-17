@@ -26,7 +26,7 @@ Current versions and the full crate and package inventory are in [INDEX.md](INDE
 | [`@rightkit/app-update`](packages/app-update) | TypeScript | Runtime update policy helper |
 | [`RightKitSwift`](swift/RightKitSwift) | Swift package | Apple-platform license, diagnostics, artifacts, purchases, sync, store, speech, and UI primitives (15 library products) |
 
-This repository (`Orthic-Labs/rightkit`) is the only source home for shared RightKit crates, npm packages, and the Swift package. Apps consume the published crates and npm packages, and the Swift package by exact tag. Consumers must not depend on this checkout, a sibling path, or a Git URL for crates or npm packages; `right-release` checks refuse such dependencies.
+This repository (`bogusyogi/rightkit`) is the only source home for shared RightKit crates, npm packages, and the Swift package. Apps consume the published crates and npm packages, and the Swift package by exact tag. Consumers must not depend on this checkout, a sibling path, or a Git URL for crates or npm packages; `right-release` checks refuse such dependencies.
 
 ## Versions and lifecycle
 
@@ -65,14 +65,14 @@ development exception, declared in `.rightkit-local-development.json` & enforced
 by managed client, broker & command policy. See `docs/rules/rightkit.md` in workspace root.
 The default public policy below still owns signing, publication & qualification.
 
-Public `Orthic-Labs` repositories set `"compile": "github-actions-only"` in `.rightgit.json`. Each task receives one binding:
+Public repositories set `"compile": "github-actions-only"` in `.rightgit.json`. Each task receives one binding:
 
 - `local-static-only`: edit or inspect source/docs/config; run only formatting, lint, schema, manifest, workflow-drift, syntax, or doctor checks guaranteed not to compile, test, package, sign, qualify, install, or release.
 - `github-build`: compile, link, test, execute built code, package, sign, notarize, staple, qualify, installed-smoke, finalize, or publish. Push source & run generated `right-git` workflow on target-native GitHub runner.
 
 Wrong or missing public manifest policy fails validation. `right-release` also exits `125` outside GitHub Actions in such a repository for build/release/package entrypoints, signing or updater creation, Cargo target resolution, add-on and DMG builds, & Cargo/Swift publication. A local broker, cross-host shell, package-manager wrapper, direct binary, or dry run cannot change task binding.
 
-RightKit is itself such a repository: `.rightgit.json` declares `"compile": "github-actions-only"`, so its crate, package, and Swift builds and tests run in GitHub Actions. See [docs/CI.md](docs/CI.md).
+RightKit is not such a repository. It is private (`bogusyogi/rightkit`) and has no CI. Its crate, package, and Swift builds, tests, and publishing run locally through RustRight on the Mac and the Dell (second priority after RustRight). The npm and crates.io packages stay public. See [docs/CI.md](docs/CI.md).
 
 Fast Rust templates cancel superseded jobs (pull-request runs always; a push to the default branch cancels an older run that only just started or is failing, and waits for one that is nearly done, unless `.rightgit.json` sets `concurrency.mainPushes` to `"queue"` with a recorded `concurrency.reason`, as RightKit's does), check out full history for change-aware gates, share Cargo caches, run `sccache`, & set `cache-on-failure: true`. Keep LTO & `codegen-units=1` out of fast-build policy. Current coverage is RightKit, Legion, Membrane, Citadel, ScreenRight, & static `orthic-labs.github.io`; static repositories add no compile workflow until dynamic work exists. Policy automatically covers future public `Orthic-Labs` repos.
 
@@ -109,7 +109,7 @@ Consumed as a public package from npm:
 pnpm add --save-exact "@rightkit/license@<version>"  # current version: see INDEX.md
 ```
 
-Do not install this SDK from `git+https://github.com/Orthic-Labs/rightkit.git` or a Git tag. App repos depend on an exact registry package version in `package.json`; release checks reject ranges for the `@rightkit/*` packages recorded in `packages/release/rightkit-versions.json`. Lockfiles pin the resolved package integrity.
+Do not install this SDK from `git+https://github.com/bogusyogi/rightkit.git` or a Git tag. App repos depend on an exact registry package version in `package.json`; release checks reject ranges for the `@rightkit/*` packages recorded in `packages/release/rightkit-versions.json`. Lockfiles pin the resolved package integrity.
 
 Native enforcement is supplied only by the separately published
 `rightkit-license` crate on crates.io. Tauri apps pin an exact `=x.y.z`

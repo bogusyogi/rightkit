@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "End-to-end sync key management for Right Suite apps: account data key, versioned rotation, per-zone key derivation, OS credential storage, and device-approval key transfer (X25519 + short code + AEAD)."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sync", "e2ee", "key-management", "x25519", "xchacha20poly1305"]
 categories = ["cryptography"]
 # Parked 2026-10-16 (Adrian: own-cloud sync, CloudKit + Google Drive; no service of ours). Kept, not published.

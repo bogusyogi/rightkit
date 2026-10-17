@@ -1,7 +1,7 @@
 # RightKit consumer snapshot 626d27e3 (11 Oct 2026, 23:45 IST)
 
 Path on the Mac: /Volumes/D/rightkit-publish/snapshots/consumer-626d27e3/claude/rightkit
-Commit: Orthic-Labs/rightkit main 626d27e3 (Dell chats: `git archive 626d27e3` from the Dell clone).
+Commit: bogusyogi/rightkit main 626d27e3 (Dell chats: `git archive 626d27e3` from the Dell clone).
 
 Evidence: full main CI run 38158083629. Mac: every library compiles, 88 of 93 units pass; the 5 reds are test-target lints (daemon, fs, qa), one shell test race and a ledger copy check, none in library code. Windows: 75 of 90; reds are rightkit-browser (Chrome sandbox permission on the runner, fix in a pull request), test lints, and npm test suites being swept.
 

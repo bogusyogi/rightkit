@@ -2,7 +2,7 @@
 import PackageDescription
 
 // ROOT MANIFEST for URL consumption: SwiftPM resolves a remote package only from a Package.swift at the
-// repository root, so apps pin `https://github.com/Orthic-Labs/rightkit` by exact tag and get this file.
+// repository root, so apps pin `https://github.com/bogusyogi/rightkit` by exact tag and get this file.
 // It mirrors swift/RightKitSwift/Package.swift (the manifest CI builds and tests in place) with every
 // target given an explicit `path:` under swift/RightKitSwift. Keep the two in step: change both in one commit;
 // scripts/swift-root-manifest.test.mjs fails on products, targets, dependencies or paths that drift.

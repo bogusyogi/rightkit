@@ -13,7 +13,7 @@
 > **Current qualification path:** `swift test` and `swift build -c release` in `RightKitSwift/`, the iOS Simulator
 > build (`xcodebuild -scheme RightKitSwift-Package -destination 'generic/platform=iOS Simulator' build`), then
 > `right-release publish swift` (main, clean tree, HEAD on origin/main, root-manifest drift check, free tag, gate evidence,
-> then `git tag <VERSION>` and push of that tag to `Orthic-Labs/rightkit`; use `--dry-run` for everything but the tag).
+> then `git tag <VERSION>` and push of that tag to `bogusyogi/rightkit`; use `--dry-run` for everything but the tag).
 > Each adopting app is qualified separately.
 
 The sections below are the original gate text.

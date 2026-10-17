@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission."
 keywords = ["screen-capture", "recording", "screencapturekit", "graphics-capture"]
 readme = "README.md"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "rightkit-ownership.json", "helpers/macos/Package.swift", "helpers/macos/build.sh", "helpers/macos/Sources/**", "helpers/macos/Tests/**"]
 
 [lib]

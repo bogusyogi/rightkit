@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]

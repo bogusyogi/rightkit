@@ -2,7 +2,7 @@
 
 Status (2026-10-08): **extracted and built on macOS.** `RightKitSwift/` is the
 canonical package source. Its version is the `RightKitSwift/VERSION` file (0.7.0).
-`Package.swift` declares 15 library products and 15 test targets (`RightKitSwift/Package.swift:11-25`). It is consumed straight from the public repository: `.package(url: "https://github.com/Orthic-Labs/rightkit", exact: "<version>")`,
+`Package.swift` declares 15 library products and 15 test targets (`RightKitSwift/Package.swift:11-25`). It is consumed straight from the public repository: `.package(url: "https://github.com/bogusyogi/rightkit", exact: "<version>")`,
 resolved through the root `Package.swift` (same products, targets pointing into `RightKitSwift/`) at a plain semver tag
 (`0.7.0`). The version consumers
 may pin is recorded in the `swift` and `stagedSwift` sections of

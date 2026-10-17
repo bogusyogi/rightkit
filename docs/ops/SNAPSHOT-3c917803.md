@@ -2,7 +2,7 @@
 
 Named 2026-10-12 08:05 IST by the RightKit lead. Supersedes snapshot c9f222a1. A further snapshot follows within hours (see "Known defects").
 
-Commit: Orthic-Labs/rightkit main `3c917803`.
+Commit: bogusyogi/rightkit main `3c917803`.
 Mac path: `/Volumes/D/rightkit-publish/snapshots/consumer-3c917803/claude/rightkit` (plain `git archive`, the whole repository).
 Dell: `git archive 3c917803` from the Dell clone.
 

@@ -18,7 +18,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 `rightkit-http` is always a dependency. It is used for every token request.
 
-## Sign-in opens the default browser (Orthic-Labs/rightkit#279)
+## Sign-in opens the default browser (bogusyogi/rightkit#279)
 
 Every Google, Apple or OAuth sign-in in every app opens the user's default browser, never an in-app webview, so users keep their existing browser sessions.
 

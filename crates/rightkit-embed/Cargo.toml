@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 description = "Product-neutral local text embeddings and persistent cosine vector store."
 readme = "README.md"
-repository = "https://github.com/Orthic-Labs/rightkit"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # `inference` = ONNX text embedder (ort, tokenizers, model digest checks).
