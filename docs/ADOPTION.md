@@ -28,13 +28,13 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-tools` | crates.io | 0.1.5 | 0.1.4 | 0 | none | - |
 | `rightkit-agents` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-android` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-android` | crates.io | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-app-settings` | crates.io | 0.2.2 | 0.2.0 | 0 | none | - |
 | `rightkit-asr` | crates.io | 0.2.4 | 0.2.1 | 0 | none | - |
-| `rightkit-audio` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
+| `rightkit-audio` | crates.io | 0.3.0 | 0.2.3 | 0 | none | - |
 | `rightkit-automation` | crates.io | 0.4.3 | 0.4.1 | 0 | none | - |
 | `rightkit-browser` | crates.io | 0.3.2 | 0.3.1 | 0 | none | - |
-| `rightkit-cache` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `rightkit-cache` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
 | `rightkit-channel-memory` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-child-process` | crates.io | 0.4.2 | 0.4.1 | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
@@ -62,7 +62,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-oauth` | crates.io | 0.7.0 | 0.5.0 | 0 | none | - |
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.2 | 0 | none | - |
 | `rightkit-onnx` | crates.io | 0.2.6 | 0.2.3 | 0 | none | - |
-| `rightkit-overlay` | crates.io | 0.1.1 | 0.1.1 | 0 | none | - |
+| `rightkit-overlay` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
 | `rightkit-ownership` | crates.io | 0.2.2 | 0.2.1 | 0 | none | - |
 | `rightkit-pdf` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
 | `rightkit-playback` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
@@ -88,10 +88,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/app-update` | npm | 0.2.5 | 0.2.5 | 0 | none | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
-| `@rightkit/ci` | npm | 0.2.46 | 0.2.45 | 0 | none | - |
+| `@rightkit/ci` | npm | 0.2.47 | 0.2.45 | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 0 | none | - |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | - |
-| `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0 | none | - |
+| `@rightkit/i18n` | npm | 0.1.1 | 0.1.0 | 0 | none | - |
 | `@rightkit/legal` | npm | 0.3.1 | 0.3.1 | 0 | none | - |
 | `@rightkit/legal-ui` | npm | 0.2.3 | 0.2.2 | 0 | none | - |
 | `@rightkit/license` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
