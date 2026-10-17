@@ -1600,7 +1600,7 @@ test("portable Windows targets gate NSIS validation by signing contract", () => 
 
 test("native finalization is ordered after raw signing and before packaging", () => {
   const source = readFileSync(release, "utf8");
-  const signing = source.indexOf('await signWindows(rawFiles, "raw-exe", root);');
+  const signing = source.indexOf('await signWindows([...rawFiles, ...sidecarFiles], "raw-exe", root);');
   const finalization = source.indexOf("nativeFinalization = await runNativeFinalizer", signing);
   const packaging = source.indexOf("await runCommand(command, root);", finalization);
   assert.ok(signing >= 0, source);

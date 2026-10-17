@@ -1528,7 +1528,8 @@ const SW_BASELINE = {
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
   "rust-hybrid/ci": "9652939dae20655f893694e6ef59b521c1c8805817a9048f1347e128ffa5cefb",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
-  "rust-hybrid/release-candidate": "2a8b8acb5844c244e220f996aac22d35cdd7df1dc9a83e88a9ca71cb80c6e208",
+  // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
+  "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
   "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
   "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
   "rust-hybrid-chain/release-candidate": "56faea1858944a9bf92f93370ec4a26d3c3360b2adc17588f6c6a93f1875546e",

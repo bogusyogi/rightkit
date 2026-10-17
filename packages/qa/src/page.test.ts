@@ -39,8 +39,9 @@ describe('raw CDP', () => {
   });
   it('times out commands, ignores late replies & rejects pending calls on disconnect', async () => {
     const server = await mockCdp(() => {}); cleanup.push(server.close);
-    const client = await CdpClient.connect(server.endpoint, { timeout: 30 }); cleanup.push(async () => client.close());
-    await expect(client.send('never')).rejects.toBeInstanceOf(TimeoutError);
+    // Only the command may be short: a 30ms connect budget flakes on slow CI runners.
+    const client = await CdpClient.connect(server.endpoint); cleanup.push(async () => client.close());
+    await expect(client.send('never', {}, undefined, 30)).rejects.toBeInstanceOf(TimeoutError);
     server.emit({ id: server.messages[0].id, result: { late: true } });
     const pending = client.send('pending'); const rejected = expect(pending).rejects.toThrow(/CDP socket (closed|error)/);
     server.disconnect(); await rejected;

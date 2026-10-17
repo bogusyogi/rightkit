@@ -354,7 +354,7 @@ describe("licence labels, ids and one-click deactivate", () => {
     const root = view.container.querySelector("#settings-pro")!;
     expect(root).toContainElement(screen.getByText("plan"));
     expect(root.querySelector("#settings-license-key")).toBe(await screen.findByLabelText("Licence key"));
-    expect(root.querySelector('#settings-pro button[type="submit"]')).toBe(root.querySelector("#a"));
+    expect(view.container.querySelector('#settings-pro button[type="submit"]')).toBe(root.querySelector("#a"));
     expect(root.querySelector("form#f")).not.toBeNull();
     expect(root.querySelector("#s")).toHaveAttribute("role", "status");
     cleanup();
