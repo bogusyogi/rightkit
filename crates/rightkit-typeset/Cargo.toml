@@ -30,6 +30,7 @@ embedded-fonts = ["dep:typst-assets"]
 thiserror = "2"
 typst = "0.15.1"
 typst-svg = "0.15.1"
+typst-layout = "0.15.1"
 typst-render = { version = "0.15.1", optional = true }
 mitex = { version = "0.2.4", optional = true }
 # Version tracks typst's minor; verify against the typst 0.15.1 lock when it is refreshed.

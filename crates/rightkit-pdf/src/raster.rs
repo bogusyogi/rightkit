@@ -611,7 +611,16 @@ fn decode_image(
         let raw = stream
             .decompressed_content_with_limit(MAX_IMAGE_BYTES)
             .map_err(|e| RasterError::Decode(e.to_string()))?;
-        decode_raw(doc, dict, resources, &raw, w, h, is_mask, decode_array.as_deref())?
+        decode_raw(
+            doc,
+            dict,
+            resources,
+            &raw,
+            w,
+            h,
+            is_mask,
+            decode_array.as_deref(),
+        )?
     };
 
     let mut alpha = None;
@@ -691,12 +700,16 @@ fn decode_raw(
     let (w, h) = (w as usize, h as usize);
     let row_bytes = (w * ncomp * usize::from(bpc)).div_ceil(8);
     if raw.len() < row_bytes * h {
-        return Err(RasterError::Decode("image data is shorter than its size".into()));
+        return Err(RasterError::Decode(
+            "image data is shorter than its size".into(),
+        ));
     }
     let max_v = f64::from((1u32 << bpc) - 1);
     let dec = |c: usize, s: u32| -> f64 {
         match decode {
-            Some(d) if d.len() >= 2 * ncomp => d[2 * c] + f64::from(s) * (d[2 * c + 1] - d[2 * c]) / max_v,
+            Some(d) if d.len() >= 2 * ncomp => {
+                d[2 * c] + f64::from(s) * (d[2 * c + 1] - d[2 * c]) / max_v
+            }
             _ => f64::from(s) / max_v,
         }
     };

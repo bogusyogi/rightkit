@@ -2,12 +2,12 @@
 
 use crate::{FontSource, TypesetError};
 use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime};
-use typst::layout::PagedDocument;
+use typst::foundations::{Bytes, Datetime, Duration};
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
-use typst::{Library, World};
+use typst::{Library, LibraryExt, World};
+use typst_layout::PagedDocument;
 
 /// The font set shared by every compile.
 pub(crate) struct FontSet {
@@ -49,15 +49,20 @@ impl FontSet {
     }
 
     pub(crate) fn compile(&self, text: String) -> Result<PagedDocument, TypesetError> {
-        let world = Detached { set: self, main: Source::detached(text) };
-        typst::compile::<PagedDocument>(&world).output.map_err(|errs| {
-            TypesetError::Compile(
-                errs.iter()
-                    .map(|d| d.message.to_string())
-                    .collect::<Vec<_>>()
-                    .join("; "),
-            )
-        })
+        let world = Detached {
+            set: self,
+            main: Source::detached(text),
+        };
+        typst::compile::<PagedDocument>(&world)
+            .output
+            .map_err(|errs| {
+                TypesetError::Compile(
+                    errs.iter()
+                        .map(|d| d.message.to_string())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                )
+            })
     }
 }
 
@@ -95,7 +100,7 @@ impl World for Detached<'_> {
         self.set.fonts.get(index).cloned()
     }
 
-    fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
+    fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
         None
     }
 }

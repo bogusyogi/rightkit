@@ -52,7 +52,11 @@ pub(crate) type SharedValues = BTreeMap<(ObjectId, usize), Object>;
 /// into an indirect object kept in `shared` (the clone is of a value the document already holds, so
 /// the total is bounded by the document); every page below that ancestor then gets the same
 /// reference.
-pub(crate) fn materialize_inherited(doc: &mut Document, page_id: ObjectId, shared: &mut SharedValues) {
+pub(crate) fn materialize_inherited(
+    doc: &mut Document,
+    page_id: ObjectId,
+    shared: &mut SharedValues,
+) {
     // Only asked about, never copied: which attributes the page has itself and where its parent is.
     let (parent, has) = match doc.get_object(page_id).and_then(|o| o.as_dict()) {
         Ok(page) => (

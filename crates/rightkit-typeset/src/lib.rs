@@ -144,8 +144,15 @@ impl Typesetter {
     /// `ppi` sets PNG resolution (pixels per inch; Typst points are 1/72 inch). SVG ignores it.
     /// A non-finite or non-positive value falls back to 144.
     pub fn new(fonts: FontSource, ppi: f32) -> Result<Self, TypesetError> {
-        let ppi = if ppi.is_finite() && ppi > 0.0 { ppi } else { 144.0 };
-        Ok(Self { world: world::FontSet::load(fonts)?, ppi })
+        let ppi = if ppi.is_finite() && ppi > 0.0 {
+            ppi
+        } else {
+            144.0
+        };
+        Ok(Self {
+            world: world::FontSet::load(fonts)?,
+            ppi,
+        })
     }
 
     /// Compile and render one request.
@@ -155,16 +162,23 @@ impl Typesetter {
         }
         let text = request.to_typst()?;
         let doc = self.world.compile(text)?;
-        let page = doc.pages.first().ok_or(TypesetError::NoPages)?;
+        let page = doc.pages().first().ok_or(TypesetError::NoPages)?;
         match request.output {
-            Output::Svg => Ok(Rendered::Svg(typst_svg::svg(page))),
+            Output::Svg => Ok(Rendered::Svg(typst_svg::svg(
+                page,
+                &typst_svg::SvgOptions::default(),
+            ))),
             #[cfg(feature = "png")]
             Output::Png => {
                 let pixmap = typst_render::render(page, self.ppi / 72.0);
                 let bytes = pixmap
                     .encode_png()
                     .map_err(|e| TypesetError::Encode(e.to_string()))?;
-                Ok(Rendered::Png { bytes, width: pixmap.width(), height: pixmap.height() })
+                Ok(Rendered::Png {
+                    bytes,
+                    width: pixmap.width(),
+                    height: pixmap.height(),
+                })
             }
         }
     }
@@ -181,14 +195,18 @@ mod tests {
 
     #[test]
     fn math_request_wraps_display_equation() {
-        let doc = Request::new(Source::Math("a^2 + b^2".into())).to_typst().unwrap();
+        let doc = Request::new(Source::Math("a^2 + b^2".into()))
+            .to_typst()
+            .unwrap();
         assert!(doc.contains("#set page(width: auto, height: auto"));
         assert!(doc.ends_with("$ a^2 + b^2 $"));
     }
 
     #[test]
     fn typst_request_is_passed_through_after_preamble() {
-        let doc = Request::new(Source::Typst("= Title".into())).to_typst().unwrap();
+        let doc = Request::new(Source::Typst("= Title".into()))
+            .to_typst()
+            .unwrap();
         assert!(doc.ends_with("= Title"));
         assert!(doc.contains("size: 24pt"));
     }
@@ -228,7 +246,9 @@ mod tests {
     fn latex_converts_to_typst_math() {
         let out = latex_to_typst("\\frac{a}{b}").unwrap();
         assert!(!out.trim().is_empty());
-        let r = Request::new(Source::Latex("x^2".into())).to_typst().unwrap();
+        let r = Request::new(Source::Latex("x^2".into()))
+            .to_typst()
+            .unwrap();
         assert!(r.trim_end().ends_with('$'));
     }
 

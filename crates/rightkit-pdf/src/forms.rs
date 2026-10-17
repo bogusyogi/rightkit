@@ -51,7 +51,9 @@ pub enum FormError {
     Parse(String),
     #[error("encrypted PDF cannot be filled")]
     Encrypted,
-    #[error("the form is an XFA form; filling its AcroForm fields would not change what a viewer shows")]
+    #[error(
+        "the form is an XFA form; filling its AcroForm fields would not change what a viewer shows"
+    )]
     Xfa,
     #[error("the document is signed; rewriting it invalidates the signature")]
     SignaturesPresent,
@@ -307,10 +309,7 @@ fn is_widget(dict: &Dictionary) -> bool {
 
 fn kids_of(doc: &Document, dict: &Dictionary) -> Vec<ObjectId> {
     match dict.get(b"Kids").ok().and_then(|o| deref_obj(doc, o)) {
-        Some(Object::Array(items)) => items
-            .iter()
-            .filter_map(|o| o.as_reference().ok())
-            .collect(),
+        Some(Object::Array(items)) => items.iter().filter_map(|o| o.as_reference().ok()).collect(),
         _ => Vec::new(),
     }
 }
@@ -319,15 +318,15 @@ fn collect_fields(doc: &Document, acro: &Dictionary) -> Result<Vec<Terminal>, Fo
     let mut out: Vec<Terminal> = Vec::new();
     let mut seen: HashSet<ObjectId> = HashSet::new();
     let roots: Vec<ObjectId> = match acro.get(b"Fields").ok().and_then(|o| deref_obj(doc, o)) {
-        Some(Object::Array(items)) => items
-            .iter()
-            .filter_map(|o| o.as_reference().ok())
-            .collect(),
+        Some(Object::Array(items)) => items.iter().filter_map(|o| o.as_reference().ok()).collect(),
         _ => Vec::new(),
     };
     // (field id, qualified name of its parent, depth)
-    let mut stack: Vec<(ObjectId, String, usize)> =
-        roots.into_iter().rev().map(|id| (id, String::new(), 0)).collect();
+    let mut stack: Vec<(ObjectId, String, usize)> = roots
+        .into_iter()
+        .rev()
+        .map(|id| (id, String::new(), 0))
+        .collect();
     while let Some((id, parent_name, depth)) = stack.pop() {
         if depth > MAX_DEPTH || !seen.insert(id) {
             continue;
@@ -437,7 +436,8 @@ fn widget_states(doc: &Document, widget: ObjectId) -> Vec<String> {
 }
 
 fn options_of(doc: &Document, dict: &Dictionary) -> Vec<FieldOption> {
-    let Some(Object::Array(items)) = resolve_inherited(doc, dict, b"Opt").and_then(|o| deref_obj(doc, o))
+    let Some(Object::Array(items)) =
+        resolve_inherited(doc, dict, b"Opt").and_then(|o| deref_obj(doc, o))
     else {
         return Vec::new();
     };
@@ -591,7 +591,10 @@ fn encode_text(text: &str, encoding: Encoding) -> Result<Vec<u8>, Vec<char>> {
             if ('\u{A0}'..='\u{FF}').contains(&c) {
                 Some(c as u32 as u8)
             } else {
-                WIN_ANSI_EXTRAS.iter().find(|(ch, _)| *ch == c).map(|(_, code)| *code)
+                WIN_ANSI_EXTRAS
+                    .iter()
+                    .find(|(ch, _)| *ch == c)
+                    .map(|(_, code)| *code)
             }
         } else {
             None
@@ -930,7 +933,10 @@ fn generate_text_appearance(
         let line_width = if quadding == 0 {
             0.0
         } else {
-            font.text_width(&line_codes).ok_or(AppearanceFailure::Soft)? * size / 1000.0
+            font.text_width(&line_codes)
+                .ok_or(AppearanceFailure::Soft)?
+                * size
+                / 1000.0
         };
         let x = match quadding {
             1 => (inner_width - line_width) / 2.0 + pad,
@@ -955,9 +961,7 @@ fn generate_text_appearance(
     ops.push(Operation::new("ET", vec![]));
     ops.push(Operation::new("Q", vec![]));
     ops.push(Operation::new("EMC", vec![]));
-    let content = Content { operations: ops }
-        .encode()
-        .map_err(|_| soft(()))?;
+    let content = Content { operations: ops }.encode().map_err(|_| soft(()))?;
 
     let mut form = Dictionary::new();
     form.set("Type", Object::Name(b"XObject".to_vec()));
@@ -1065,7 +1069,9 @@ pub fn set_values(
             FieldKind::Unknown => return Err(unsupported("unknown field type")),
             _ => {}
         }
-        if terminal.ff & (FF_PASSWORD | FF_FILE_SELECT | FF_COMB) != 0 && field.kind == FieldKind::Text {
+        if terminal.ff & (FF_PASSWORD | FF_FILE_SELECT | FF_COMB) != 0
+            && field.kind == FieldKind::Text
+        {
             return Err(unsupported("password, file-select and comb fields"));
         }
 
@@ -1116,7 +1122,8 @@ pub fn set_values(
                 ));
             }
             (FieldKind::Text, _) => return Err(wrong("text value")),
-            (FieldKind::Combo, FieldValue::Choice(choice)) | (FieldKind::Combo, FieldValue::Text(choice)) => {
+            (FieldKind::Combo, FieldValue::Choice(choice))
+            | (FieldKind::Combo, FieldValue::Text(choice)) => {
                 let option = field.options.iter().find(|o| &o.export == choice);
                 if option.is_none() && !field.editable_combo {
                     return Err(FormError::NotAnOption {
@@ -1124,7 +1131,9 @@ pub fn set_values(
                         value: choice.clone(),
                     });
                 }
-                let shown = option.map(|o| o.label.clone()).unwrap_or_else(|| choice.clone());
+                let shown = option
+                    .map(|o| o.label.clone())
+                    .unwrap_or_else(|| choice.clone());
                 let dict = field_dict_mut(&mut doc, terminal.id)?;
                 dict.set("V", text_object(choice));
                 dict.remove(b"I");
@@ -1212,7 +1221,10 @@ pub fn set_values(
                 if target != "Off" && !field.on_states.contains(&target) {
                     return Err(FormError::NoOnState(name.clone()));
                 }
-                if target == "Off" && terminal.ff & FF_NO_TOGGLE_TO_OFF != 0 && field.kind == FieldKind::Radio {
+                if target == "Off"
+                    && terminal.ff & FF_NO_TOGGLE_TO_OFF != 0
+                    && field.kind == FieldKind::Radio
+                {
                     if !matches!(requested, FieldValue::Reset) {
                         return Err(unsupported("this radio group cannot be switched off"));
                     }
@@ -1347,7 +1359,9 @@ fn verify_written(bytes: &[u8], expectations: &[(String, Expect)]) -> Result<(),
                     &field.selected == chosen
                 }
             }
-            Expect::Empty => field.value.as_deref().is_none_or(str::is_empty) && field.selected.is_empty(),
+            Expect::Empty => {
+                field.value.as_deref().is_none_or(str::is_empty) && field.selected.is_empty()
+            }
         };
         if !ok {
             return Err(FormError::Verification(format!(
@@ -1482,7 +1496,8 @@ mod tests {
     #[test]
     fn lists_the_fields_with_kinds_and_states() {
         let fields = list_fields(&form_pdf(None)).unwrap();
-        let kinds: Vec<(&str, FieldKind)> = fields.iter().map(|f| (f.name.as_str(), f.kind)).collect();
+        let kinds: Vec<(&str, FieldKind)> =
+            fields.iter().map(|f| (f.name.as_str(), f.kind)).collect();
         assert_eq!(
             kinds,
             [
@@ -1527,7 +1542,11 @@ mod tests {
             Err(FormError::ReadOnly(_))
         ));
         assert!(matches!(
-            set(&source, "name", FieldValue::Text("far too long a value".into())),
+            set(
+                &source,
+                "name",
+                FieldValue::Text("far too long a value".into())
+            ),
             Err(FormError::TooLong { max: 10, .. })
         ));
         assert!(matches!(
@@ -1552,7 +1571,10 @@ mod tests {
         assert_eq!(field(&checked.bytes, "agree").value.as_deref(), Some("Yes"));
         assert_eq!(field(&checked.bytes, "agree").checked, Some(true));
         let radio = set(&source, "colour", FieldValue::Choice("Green".into())).unwrap();
-        assert_eq!(field(&radio.bytes, "colour").value.as_deref(), Some("Green"));
+        assert_eq!(
+            field(&radio.bytes, "colour").value.as_deref(),
+            Some("Green")
+        );
         assert!(matches!(
             set(&source, "colour", FieldValue::Choice("Blue".into())),
             Err(FormError::NoOnState(_))
@@ -1591,7 +1613,12 @@ mod tests {
             drop_xfa: true,
             ..FormOptions::default()
         };
-        assert!(set_values(&xfa, &[("name".into(), FieldValue::Text("x".into()))], &allowed).is_ok());
+        assert!(set_values(
+            &xfa,
+            &[("name".into(), FieldValue::Text("x".into()))],
+            &allowed
+        )
+        .is_ok());
         let signed = form_pdf(Some(("SigFlags", Object::Integer(3))));
         assert!(matches!(
             set(&signed, "name", FieldValue::Text("x".into())),

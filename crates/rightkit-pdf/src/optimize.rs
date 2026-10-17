@@ -174,7 +174,10 @@ pub struct Progress {
 }
 
 /// [`optimize_with_progress`] without a callback.
-pub fn optimize(source: &[u8], options: &OptimizeOptions) -> Result<OptimizeOutcome, OptimizeError> {
+pub fn optimize(
+    source: &[u8],
+    options: &OptimizeOptions,
+) -> Result<OptimizeOutcome, OptimizeError> {
     optimize_with_progress(source, options, &mut |_| true)
 }
 
@@ -186,10 +189,14 @@ pub fn optimize_with_progress(
     progress: &mut dyn FnMut(&Progress) -> bool,
 ) -> Result<OptimizeOutcome, OptimizeError> {
     if !(36.0..=600.0).contains(&options.target_ppi) || !options.target_ppi.is_finite() {
-        return Err(OptimizeError::InvalidOptions("target_ppi must be within 36..=600"));
+        return Err(OptimizeError::InvalidOptions(
+            "target_ppi must be within 36..=600",
+        ));
     }
     if options.resample_threshold.is_nan() || options.resample_threshold < 1.0 {
-        return Err(OptimizeError::InvalidOptions("resample_threshold must be at least 1"));
+        return Err(OptimizeError::InvalidOptions(
+            "resample_threshold must be at least 1",
+        ));
     }
     let mut step = |stage: Stage, done: usize, total: usize| -> Result<(), OptimizeError> {
         if progress(&Progress { stage, done, total }) {
@@ -674,7 +681,10 @@ impl<'a> Walker<'a> {
     }
 }
 
-fn xobject_dict_of_dict<'a>(doc: &'a Document, resources: &'a Dictionary) -> Option<&'a Dictionary> {
+fn xobject_dict_of_dict<'a>(
+    doc: &'a Document,
+    resources: &'a Dictionary,
+) -> Option<&'a Dictionary> {
     resources
         .get(b"XObject")
         .ok()
@@ -801,7 +811,10 @@ fn image_format(doc: &Document, dict: &Dictionary) -> Option<usize> {
     if dict_u32(doc, dict, b"BitsPerComponent")? != 8 {
         return None;
     }
-    let components = match deref_obj(doc, dict.get(b"ColorSpace").ok()?)?.as_name().ok()? {
+    let components = match deref_obj(doc, dict.get(b"ColorSpace").ok()?)?
+        .as_name()
+        .ok()?
+    {
         b"DeviceGray" => 1,
         b"DeviceRGB" => 3,
         _ => return None,
@@ -954,7 +967,9 @@ fn resample(
             stream.dict.remove(b"DP");
             stream.dict.remove(b"F");
             stream.dict.set("Width", Object::Integer(new_width as i64));
-            stream.dict.set("Height", Object::Integer(new_height as i64));
+            stream
+                .dict
+                .set("Height", Object::Integer(new_height as i64));
             match replacement.dict.get(b"Filter") {
                 Ok(filter) => stream.dict.set("Filter", filter.clone()),
                 Err(_) => {
@@ -985,7 +1000,11 @@ mod tests {
     }
 
     /// A page drawing `/Im0` at `points` x `points`, plus extras the caller wires in.
-    fn page_with_image(side: usize, points: f64, extra: impl FnOnce(&mut Document, ObjectId)) -> Vec<u8> {
+    fn page_with_image(
+        side: usize,
+        points: f64,
+        extra: impl FnOnce(&mut Document, ObjectId),
+    ) -> Vec<u8> {
         let mut doc = Document::with_version("1.7");
         let pages_id = doc.new_object_id();
         let image = gray_image(&mut doc, side);
@@ -1047,7 +1066,10 @@ mod tests {
         let source = page_with_image(200, 100.0, |_, _| {});
         let outcome = optimize(&source, &OptimizeOptions::standard()).unwrap();
         assert_eq!(outcome.report.images_resampled, 0);
-        assert_eq!(outcome.report.images[0].skipped, Some(SkipReason::BelowTarget));
+        assert_eq!(
+            outcome.report.images[0].skipped,
+            Some(SkipReason::BelowTarget)
+        );
         assert_eq!(image_dims(&outcome.bytes), (200, 200));
     }
 
@@ -1105,7 +1127,10 @@ mod tests {
         });
         let outcome = optimize(&source, &OptimizeOptions::standard()).unwrap();
         assert_eq!(outcome.report.images_resampled, 0);
-        assert_eq!(outcome.report.images[0].skipped, Some(SkipReason::NotMeasurable));
+        assert_eq!(
+            outcome.report.images[0].skipped,
+            Some(SkipReason::NotMeasurable)
+        );
     }
 
     #[test]
@@ -1125,7 +1150,14 @@ mod tests {
                 b"q 100 0 0 100 0 0 cm /Im0 Do Q".to_vec(),
             ));
             let page = doc.get_pages()[&1];
-            let contents = match doc.get_object(page).unwrap().as_dict().unwrap().get(b"Contents").unwrap() {
+            let contents = match doc
+                .get_object(page)
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"Contents")
+                .unwrap()
+            {
                 Object::Reference(id) => *id,
                 _ => unreachable!(),
             };
@@ -1143,7 +1175,10 @@ mod tests {
         // 400 px over 200 pt is 144 ppi, within the threshold of 150: measured, and left alone.
         let ppi = outcome.report.images[0].effective_ppi.unwrap();
         assert!((ppi - 144.0).abs() < 0.01, "{ppi}");
-        assert_eq!(outcome.report.images[0].skipped, Some(SkipReason::BelowTarget));
+        assert_eq!(
+            outcome.report.images[0].skipped,
+            Some(SkipReason::BelowTarget)
+        );
     }
 
     #[test]
@@ -1153,7 +1188,10 @@ mod tests {
             target_ppi: 10.0,
             ..OptimizeOptions::standard()
         };
-        assert!(matches!(optimize(&source, &bad), Err(OptimizeError::InvalidOptions(_))));
+        assert!(matches!(
+            optimize(&source, &bad),
+            Err(OptimizeError::InvalidOptions(_))
+        ));
         let cancelled = optimize_with_progress(&source, &OptimizeOptions::standard(), &mut |p| {
             p.stage != Stage::Resampling
         });

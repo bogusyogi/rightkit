@@ -130,7 +130,10 @@ mod scoring_tests {
         // Two columns. The oracle reads each column down; the extractor reads straight across.
         let oracle = w("l1 l2 l3 l4 r1 r2 r3 r4");
         let across = w("l1 r1 l2 r2 l3 r3 l4 r4");
-        assert_eq!(f1(overlap(&across, &oracle), across.len(), oracle.len()), 1.0);
+        assert_eq!(
+            f1(overlap(&across, &oracle), across.len(), oracle.len()),
+            1.0
+        );
         let (order, shared) = order_score(&across, &oracle).unwrap();
         assert_eq!(shared, 8);
         assert!(order < 0.75, "order {order}");
@@ -179,8 +182,12 @@ fn load_corpus() -> Corpus {
         Some(dir) => PathBuf::from(dir).join("manifest.json"),
         None => harness_dir().join("manifest.json"),
     };
-    let text = std::fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("corpus manifest {} unreadable: {e}", manifest_path.display()));
+    let text = std::fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
+        panic!(
+            "corpus manifest {} unreadable: {e}",
+            manifest_path.display()
+        )
+    });
     let manifest: Value = serde_json::from_str(&text).expect("manifest is JSON");
     let base = manifest_path.parent().expect("manifest has a directory");
     let root = base.join(manifest["root"].as_str().unwrap_or("."));
@@ -360,7 +367,9 @@ fn extract_quality_vs_pdftotext() {
         Ok(version) => version,
         Err(error) => {
             if std::env::var("RIGHTKIT_PDF_QUALITY_ALLOW_SKIP").as_deref() == Ok("1") {
-                eprintln!("SKIPPED extract quality: oracle missing ({error}); nothing was measured");
+                eprintln!(
+                    "SKIPPED extract quality: oracle missing ({error}); nothing was measured"
+                );
                 return;
             }
             panic!("oracle missing: {error}. This is a failure, not a pass. Install poppler or set RIGHTKIT_PDFTOTEXT.");
@@ -380,7 +389,10 @@ fn extract_quality_vs_pdftotext() {
         scores.push(score_file(&entry.name, &bytes_by_name[&entry.name], oracle));
     }
 
-    println!("{:<40} {:>5} {:>8} {:>8} {:>6}  note", "file", "pages", "F1", "order", "mode");
+    println!(
+        "{:<40} {:>5} {:>8} {:>8} {:>6}  note",
+        "file", "pages", "F1", "order", "mode"
+    );
     for score in &scores {
         println!(
             "{:<40} {:>5} {:>8.4} {:>8} {:>6}  {}",
@@ -395,9 +407,13 @@ fn extract_quality_vs_pdftotext() {
 
     let tolerance = 0.02;
     if let Some(path) = std::env::var_os("RIGHTKIT_PDF_QUALITY_RECORD") {
-        let text = serde_json::to_string_pretty(&scores_json(&scores, &version, tolerance)).unwrap();
+        let text =
+            serde_json::to_string_pretty(&scores_json(&scores, &version, tolerance)).unwrap();
         std::fs::write(&path, text + "\n").expect("write the recorded baseline");
-        println!("baseline written to {}; review it and copy it over baseline.json", PathBuf::from(path).display());
+        println!(
+            "baseline written to {}; review it and copy it over baseline.json",
+            PathBuf::from(path).display()
+        );
     }
 
     // Against the recorded baseline.
@@ -415,12 +431,18 @@ fn extract_quality_vs_pdftotext() {
             };
             if let Some(base_f1) = base["f1"].as_f64() {
                 if score.f1 < base_f1 - tolerance {
-                    regressions.push(format!("{}: F1 {:.4} under baseline {base_f1:.4}", score.name, score.f1));
+                    regressions.push(format!(
+                        "{}: F1 {:.4} under baseline {base_f1:.4}",
+                        score.name, score.f1
+                    ));
                 }
             }
             if let (Some(base_order), Some(order)) = (base["order"].as_f64(), score.order) {
                 if order < base_order - tolerance {
-                    regressions.push(format!("{}: order {order:.4} under baseline {base_order:.4}", score.name));
+                    regressions.push(format!(
+                        "{}: order {order:.4} under baseline {base_order:.4}",
+                        score.name
+                    ));
                 }
             }
         }
@@ -430,19 +452,32 @@ fn extract_quality_vs_pdftotext() {
 
     // The decision the issue asks for.
     let orders: Vec<f64> = scores.iter().filter_map(|s| s.order).collect();
-    let mean = if orders.is_empty() { 1.0 } else { orders.iter().sum::<f64>() / orders.len() as f64 };
+    let mean = if orders.is_empty() {
+        1.0
+    } else {
+        orders.iter().sum::<f64>() / orders.len() as f64
+    };
     let worst = orders.iter().cloned().fold(1.0f64, f64::min);
     if mean < 0.95 || worst < 0.90 {
-        println!("VERDICT: COLUMN-AWARE ORDERING RECOMMENDED (mean order {mean:.4}, worst {worst:.4})");
+        println!(
+            "VERDICT: COLUMN-AWARE ORDERING RECOMMENDED (mean order {mean:.4}, worst {worst:.4})"
+        );
     } else {
         println!("VERDICT: column-aware ordering not indicated on this corpus (mean order {mean:.4}, worst {worst:.4})");
     }
 
     assert!(
-        scores.iter().all(|s| s.note.as_deref().is_none_or(|n| !n.starts_with("extract failed"))),
+        scores.iter().all(|s| s
+            .note
+            .as_deref()
+            .is_none_or(|n| !n.starts_with("extract failed"))),
         "extraction failed on at least one file (see the table)"
     );
-    assert!(regressions.is_empty(), "extraction quality regressed:\n  {}", regressions.join("\n  "));
+    assert!(
+        regressions.is_empty(),
+        "extraction quality regressed:\n  {}",
+        regressions.join("\n  ")
+    );
 }
 
 /// Writes `manifest.json` for the PDFs under `RIGHTKIT_PDF_QUALITY_PIN_DIR`, offline.
@@ -452,8 +487,9 @@ fn pin_corpus_manifest() {
     let dir = PathBuf::from(
         std::env::var_os("RIGHTKIT_PDF_QUALITY_PIN_DIR").expect("set RIGHTKIT_PDF_QUALITY_PIN_DIR"),
     );
-    let source = std::env::var("RIGHTKIT_PDF_QUALITY_SOURCE")
-        .expect("set RIGHTKIT_PDF_QUALITY_SOURCE, for example \"mozilla/pdf.js@<commit> test/pdfs\"");
+    let source = std::env::var("RIGHTKIT_PDF_QUALITY_SOURCE").expect(
+        "set RIGHTKIT_PDF_QUALITY_SOURCE, for example \"mozilla/pdf.js@<commit> test/pdfs\"",
+    );
     let mut found: Vec<PathBuf> = Vec::new();
     let mut stack = vec![dir.clone()];
     while let Some(current) = stack.pop() {
@@ -461,7 +497,10 @@ fn pin_corpus_manifest() {
             let path = entry.expect("directory entry").path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+            } else if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+            {
                 found.push(path);
             }
         }
@@ -486,5 +525,9 @@ fn pin_corpus_manifest() {
         serde_json::to_string_pretty(&manifest).unwrap() + "\n",
     )
     .expect("write manifest.json");
-    println!("pinned {} files in {}", files.len(), dir.join("manifest.json").display());
+    println!(
+        "pinned {} files in {}",
+        files.len(),
+        dir.join("manifest.json").display()
+    );
 }

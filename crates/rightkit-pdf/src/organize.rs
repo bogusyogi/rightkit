@@ -218,7 +218,9 @@ fn build_labels(
         };
         let (range_start, dict) = range_for(ranges, old_index);
         let continues = match (previous, origin) {
-            (Some((Origin::Dest(p), start)), Origin::Dest(i)) => p + 1 == *i && start == range_start,
+            (Some((Origin::Dest(p), start)), Origin::Dest(i)) => {
+                p + 1 == *i && start == range_start
+            }
             (Some((Origin::Source(p), start)), Origin::Source(i)) => {
                 p + 1 == *i && start == range_start
             }
@@ -460,7 +462,9 @@ pub fn verify_structure(bytes: &[u8], expected_pages: usize) -> Result<(), Organ
     }
     let labels = read_labels(&doc);
     if labels.iter().any(|range| range.start >= expected_pages) {
-        return Err(fail("a page-label range starts past the last page".to_string()));
+        return Err(fail(
+            "a page-label range starts past the last page".to_string(),
+        ));
     }
     Ok(())
 }
@@ -536,7 +540,10 @@ pub fn rotate_pages(source: &[u8], pages: &[u32], degrees: i32) -> Result<Vec<u8
     if degrees % 90 != 0 {
         return Err(OrganizeError::InvalidRotation(degrees));
     }
-    let Open { mut doc, pages: all } = open(0, source)?;
+    let Open {
+        mut doc,
+        pages: all,
+    } = open(0, source)?;
     if pages.is_empty() {
         return Err(OrganizeError::NoPagesSelected);
     }
@@ -779,14 +786,8 @@ mod tests {
         assert_eq!(texts(&out), ["P3", "P4", "P1", "P2"]);
         let labels = read_labels(&load_pdf(&out).unwrap());
         assert_eq!(labels.iter().map(|r| r.start).collect::<Vec<_>>(), [0, 2]);
-        assert_eq!(
-            labels[0].dict.get(b"S").unwrap().as_name().unwrap(),
-            b"D"
-        );
-        assert_eq!(
-            labels[1].dict.get(b"S").unwrap().as_name().unwrap(),
-            b"r"
-        );
+        assert_eq!(labels[0].dict.get(b"S").unwrap().as_name().unwrap(), b"D");
+        assert_eq!(labels[1].dict.get(b"S").unwrap().as_name().unwrap(), b"r");
     }
 
     #[test]

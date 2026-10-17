@@ -250,7 +250,11 @@ impl Document {
     }
 
     /// Register an ICC profile (`components` 1 or 3) to colour-tag JPEGs. Needs PDF 1.3+.
-    pub fn add_icc_profile(&mut self, profile: Vec<u8>, components: u8) -> Result<IccId, WriteError> {
+    pub fn add_icc_profile(
+        &mut self,
+        profile: Vec<u8>,
+        components: u8,
+    ) -> Result<IccId, WriteError> {
         if self.minor < 3 {
             return Err(WriteError::IccNeedsNewerVersion(self.version.clone()));
         }
@@ -305,7 +309,10 @@ impl Document {
                 });
             }
         }
-        let slot = self.pages.get_mut(page.0).ok_or(WriteError::UnknownHandle)?;
+        let slot = self
+            .pages
+            .get_mut(page.0)
+            .ok_or(WriteError::UnknownHandle)?;
         if slot.image.is_some() {
             return Err(WriteError::PageHasImage(page.0));
         }
@@ -379,7 +386,11 @@ impl Document {
             .join(" ");
         objects.push((
             2,
-            format!("<< /Type /Pages /Kids [{kids}] /Count {} >>", self.pages.len()).into_bytes(),
+            format!(
+                "<< /Type /Pages /Kids [{kids}] /Count {} >>",
+                self.pages.len()
+            )
+            .into_bytes(),
         ));
         for (k, profile) in self.icc.iter().enumerate() {
             let alt = if profile.components == 1 {
@@ -610,7 +621,10 @@ impl Document {
             }
         }
         drop(face);
-        let slot = self.pages.get_mut(page.0).ok_or(WriteError::UnknownHandle)?;
+        let slot = self
+            .pages
+            .get_mut(page.0)
+            .ok_or(WriteError::UnknownHandle)?;
         slot.runs.push(TextRun {
             font: font.0,
             size: size_pt,
@@ -659,10 +673,7 @@ impl Document {
             for (key, text) in &run_keys {
                 let mut hex_codes = String::with_capacity(text.chars().count() * 4);
                 for c in text.chars() {
-                    let old = face
-                        .glyph_index(c)
-                        .ok_or(WriteError::MissingGlyph(c))?
-                        .0;
+                    let old = face.glyph_index(c).ok_or(WriteError::MissingGlyph(c))?.0;
                     let cid = match seen.iter().position(|g| *g == old) {
                         Some(pos) => pos + 1,
                         None => {
@@ -698,7 +709,11 @@ impl Document {
                 .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
                 .take(40)
                 .collect();
-            let clean = if clean.is_empty() { "Font".to_string() } else { clean };
+            let clean = if clean.is_empty() {
+                "Font".to_string()
+            } else {
+                clean
+            };
             // Subset tag: six capitals from the hash of the subset program (ISO 32000-1 9.6.4).
             let digest = Sha256::digest(&subset.font_program);
             let tag: String = digest[..6]
@@ -908,7 +923,8 @@ mod tests {
             .unwrap();
         doc.add_jpeg_page(300.5, 200.0, jpeg(30, 20, 3), Some(srgb))
             .unwrap();
-        doc.add_jpeg_page(100.0, 100.0, jpeg(5, 5, 1), None).unwrap();
+        doc.add_jpeg_page(100.0, 100.0, jpeg(5, 5, 1), None)
+            .unwrap();
         let bytes = doc.finish();
         assert!(bytes.starts_with(b"%PDF-1.4\n"));
         assert!(bytes.ends_with(b"%%EOF\n"));
@@ -926,7 +942,7 @@ mod tests {
         let page = loaded.get_dictionary(first).unwrap();
         let media = page.get(b"MediaBox").unwrap().as_array().unwrap();
         assert_eq!(media[2].as_i64().unwrap(), 595);
-        let content = loaded.get_page_content(first).unwrap();
+        let content = loaded.get_page_content(first);
         assert_eq!(content, b"q 595 0 0 842 0 0 cm /Im0 Do Q\n");
         assert!(text.contains("/XObject << /Im0 "));
     }
@@ -953,7 +969,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("out.pdf");
         let mut doc = Document::new("1.4").unwrap();
-        doc.add_jpeg_page(100.0, 100.0, jpeg(4, 4, 3), None).unwrap();
+        doc.add_jpeg_page(100.0, 100.0, jpeg(4, 4, 3), None)
+            .unwrap();
         doc.write_to(&path).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), doc.finish());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1051,12 +1068,16 @@ mod tests {
             assert!(text.contains("/W [1 [600] 2 [600] 3 [600]]"));
             assert!(text.contains("beginbfchar"));
             assert!(text.contains("/Text]"));
-            assert_eq!(text.matches("/Subtype /Type0").count(), 1, "one font, shared");
+            assert_eq!(
+                text.matches("/Subtype /Type0").count(),
+                1,
+                "one font, shared"
+            );
 
             let loaded = lopdf::Document::load_mem(&bytes).expect("lopdf reads text output");
             assert_eq!(loaded.get_pages().len(), 2);
             let first = *loaded.get_pages().get(&1).unwrap();
-            let content = loaded.get_page_content(first).unwrap();
+            let content = loaded.get_page_content(first);
             assert!(String::from_utf8_lossy(&content).contains("<000100020001> Tj"));
         }
 

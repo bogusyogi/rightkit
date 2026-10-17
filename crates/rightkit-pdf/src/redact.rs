@@ -95,7 +95,9 @@ pub enum RedactError {
     SharedContentStream { page: u32 },
     #[error("page {page}: text that cannot be positioned (font or matrix unresolved)")]
     UnlocatableText { page: u32 },
-    #[error("page {page}: a glyph under a mark cannot be removed without moving the text after it")]
+    #[error(
+        "page {page}: a glyph under a mark cannot be removed without moving the text after it"
+    )]
     CannotKeepPosition { page: u32 },
     #[error("page {page}: {kind} overlaps a mark and cannot be cut")]
     UnsupportedContent { page: u32, kind: &'static str },
@@ -333,7 +335,9 @@ fn matrix_of(numbers: &[f64]) -> Option<Matrix> {
 }
 
 fn bounds_of(points: &[(f64, f64)]) -> Option<PdfRect> {
-    let mut iter = points.iter().filter(|(x, y)| x.is_finite() && y.is_finite());
+    let mut iter = points
+        .iter()
+        .filter(|(x, y)| x.is_finite() && y.is_finite());
     let first = iter.next()?;
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (first.0, first.1, first.0, first.1);
     for (x, y) in iter {
@@ -385,7 +389,12 @@ fn xobject_kinds(doc: &Document, page: &Dictionary) -> HashMap<Vec<u8>, XKind> {
         let Some(stream) = deref_obj(doc, value).and_then(|o| o.as_stream().ok()) else {
             continue;
         };
-        let kind = match stream.dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) {
+        let kind = match stream
+            .dict
+            .get(b"Subtype")
+            .ok()
+            .and_then(|o| o.as_name().ok())
+        {
             Some(b"Image") => XKind::Image,
             Some(b"Form") => {
                 let bbox = stream
@@ -545,7 +554,10 @@ fn plan_page(
     let mut plan = PagePlan::default();
 
     // Annotations first: they do not depend on the content.
-    if let Some(Object::Array(annots)) = page_dict.get(b"Annots").ok().and_then(|o| deref_obj(doc, o))
+    if let Some(Object::Array(annots)) = page_dict
+        .get(b"Annots")
+        .ok()
+        .and_then(|o| deref_obj(doc, o))
     {
         for (index, annot) in annots.iter().enumerate() {
             if annotation_rect(doc, annot).is_some_and(|rect| hits_inclusive(rects, &rect)) {
@@ -575,7 +587,11 @@ fn plan_page(
         if island.quads.is_empty() {
             return Err(RedactError::UnlocatableText { page });
         }
-        let items: Vec<_> = island.run.iter().filter(|item| item.glyph.is_some()).collect();
+        let items: Vec<_> = island
+            .run
+            .iter()
+            .filter(|item| item.glyph.is_some())
+            .collect();
         if items.len() != island.quads.len() {
             return Err(RedactError::UnlocatableText { page });
         }
@@ -590,11 +606,7 @@ fn plan_page(
                 .pen_adjust
                 .ok_or(RedactError::CannotKeepPosition { page })?;
             let stream_index = address.contents_index as usize;
-            if stream_ids
-                .get(stream_index)
-                .map(|id| (id.0, id.1))
-                != Some(address.stream_ref)
-            {
+            if stream_ids.get(stream_index).map(|id| (id.0, id.1)) != Some(address.stream_ref) {
                 return Err(malformed());
             }
             targets
@@ -686,7 +698,8 @@ fn plan_page(
                     path_clip = false;
                 }
                 "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" => {
-                    let stroked = matches!(op.operator.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
+                    let stroked =
+                        matches!(op.operator.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
                     let bounds = bounds_of(&path_points).map(|b| {
                         if !stroked {
                             return b;
@@ -704,8 +717,10 @@ fn plan_page(
                         plan.paths += 1;
                         if path_clip {
                             // Keep the clip, paint nothing.
-                            all_actions[stream_index]
-                                .insert(op_index, Action::Replace(vec![Operation::new("n", vec![])]));
+                            all_actions[stream_index].insert(
+                                op_index,
+                                Action::Replace(vec![Operation::new("n", vec![])]),
+                            );
                         } else {
                             for (s, o) in path_ops.drain(..) {
                                 all_actions[s].insert(o, Action::Delete);
@@ -729,7 +744,8 @@ fn plan_page(
                     )?;
                 }
                 "BI" => {
-                    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|p| ctm.transform(p));
+                    let corners =
+                        [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|p| ctm.transform(p));
                     if bounds_of(&corners).is_some_and(|b| hits_inclusive(rects, &b)) {
                         // The operator, its data and `EI` are separate operations: no clean cut.
                         return Err(RedactError::UnsupportedContent {
@@ -746,8 +762,8 @@ fn plan_page(
                         .and_then(|name| xobjects.get(name));
                     match kind {
                         Some(XKind::Image) => {
-                            let corners =
-                                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|p| ctm.transform(p));
+                            let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+                                .map(|p| ctm.transform(p));
                             if bounds_of(&corners).is_some_and(|b| hits_inclusive(rects, &b)) {
                                 plan.images += 1;
                                 all_actions[stream_index].insert(op_index, Action::Delete);
@@ -759,9 +775,8 @@ fn plan_page(
                                 None => true,
                                 Some([x0, y0, x1, y1]) => {
                                     let to_page = matrix.then(ctm);
-                                    let corners =
-                                        [(*x0, *y0), (*x1, *y0), (*x1, *y1), (*x0, *y1)]
-                                            .map(|p| to_page.transform(p));
+                                    let corners = [(*x0, *y0), (*x1, *y0), (*x1, *y1), (*x0, *y1)]
+                                        .map(|p| to_page.transform(p));
                                     bounds_of(&corners).is_none_or(|b| hits_inclusive(rects, &b))
                                 }
                             };
@@ -792,8 +807,10 @@ fn plan_page(
                             plan.hidden_text += removed;
                             let mut operands = op.operands.clone();
                             operands[1] = Object::Dictionary(cleaned);
-                            all_actions[stream_index]
-                                .insert(op_index, Action::Replace(vec![Operation::new("BDC", operands)]));
+                            all_actions[stream_index].insert(
+                                op_index,
+                                Action::Replace(vec![Operation::new("BDC", operands)]),
+                            );
                         }
                     }
                 }
@@ -939,7 +956,13 @@ fn sanitize_document(doc: &mut Document, redacted_pages: &[ObjectId]) -> Vec<Str
     let mut names_ref: Option<ObjectId> = None;
     if let Some(root) = root {
         if let Ok(Object::Dictionary(catalog)) = doc.get_object_mut(root) {
-            let keys: [&[u8]; 5] = [b"Metadata", b"PieceInfo", b"StructTreeRoot", b"MarkInfo", b"AF"];
+            let keys: [&[u8]; 5] = [
+                b"Metadata",
+                b"PieceInfo",
+                b"StructTreeRoot",
+                b"MarkInfo",
+                b"AF",
+            ];
             for key in keys {
                 if catalog.remove(key).is_some() {
                     removed.push(String::from_utf8_lossy(key).into_owned());
@@ -1236,7 +1259,10 @@ mod tests {
         )
         .unwrap();
         let text = page_text(&outcome.bytes);
-        assert!(text.contains("Line one") && !text.contains("Secret"), "{text}");
+        assert!(
+            text.contains("Line one") && !text.contains("Secret"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -1271,10 +1297,10 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.report.images_removed, 1);
         let out = load_pdf(&outcome.bytes).unwrap();
-        assert!(!out
-            .objects
-            .values()
-            .any(|o| o.as_stream().is_ok_and(|s| s.dict.get(b"Subtype").is_ok_and(|v| v.as_name().is_ok_and(|n| n == b"Image")))));
+        assert!(!out.objects.values().any(|o| o.as_stream().is_ok_and(|s| s
+            .dict
+            .get(b"Subtype")
+            .is_ok_and(|v| v.as_name().is_ok_and(|n| n == b"Image")))));
     }
 
     #[test]
@@ -1299,7 +1325,10 @@ mod tests {
             &RedactOptions::default(),
         )
         .unwrap_err();
-        assert!(matches!(error, RedactError::UnlocatableText { page: 1 }), "{error}");
+        assert!(
+            matches!(error, RedactError::UnlocatableText { page: 1 }),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1328,7 +1357,13 @@ mod tests {
         let source = save(doc);
         let marks = [mark(1, 10.0, 10.0, 10.0, 10.0)];
         let error = apply_marks(&source, &marks, &RedactOptions::default()).unwrap_err();
-        assert!(matches!(error, RedactError::UnsupportedContent { kind: "form XObject", .. }));
+        assert!(matches!(
+            error,
+            RedactError::UnsupportedContent {
+                kind: "form XObject",
+                ..
+            }
+        ));
         let allowed = RedactOptions {
             remove_unsupported: true,
             ..RedactOptions::default()
@@ -1345,7 +1380,11 @@ mod tests {
             Err(RedactError::NoMarks)
         ));
         assert!(matches!(
-            apply_marks(&source, &[mark(9, 0.0, 0.0, 1.0, 1.0)], &RedactOptions::default()),
+            apply_marks(
+                &source,
+                &[mark(9, 0.0, 0.0, 1.0, 1.0)],
+                &RedactOptions::default()
+            ),
             Err(RedactError::PageOutOfRange(9))
         ));
     }
