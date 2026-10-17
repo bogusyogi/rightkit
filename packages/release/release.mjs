@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { expandPackageRecipeTarget } from "./package-recipe-targets.mjs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -189,7 +190,9 @@ validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.b
 assertCargoProfileContract(root, config.app ?? path.basename(root));
 // RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
 assertQaAdoption({ appRoot: root, app: config.app });
-const target = config.targets?.[opts.platform];
+let target = config.targets?.[opts.platform];
+// Declarative winPackage / macPackage (#345) expand to the same hook shape every gate below already checks.
+try { target = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
 const legalContract = config.legal
   ? assertLegalReleaseContract(root, config.legal, config.app ?? path.basename(root), opts.platform)

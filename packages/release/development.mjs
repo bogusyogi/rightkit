@@ -13,6 +13,7 @@ import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.m
 import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.mjs";
 import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
+import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from "./install-tauri-devid.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
@@ -70,6 +71,10 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
     for (const key of ["sourceDirectory", "entrypoint"]) {
       if (typeof descriptor[key] !== "string" || !descriptor[key] || path.isAbsolute(descriptor[key]) || path.win32.isAbsolute(descriptor[key]) || descriptor[key].split(/[\\/]/).includes("..")) throw new Error(`portable development ${key} must be a contained relative path`);
     }
+  } else if (target.install?.kind === TAURI_DEVID_KIND) {
+    if (platform !== "mac") throw new Error(`the ${TAURI_DEVID_KIND} development installer is for --platform mac`);
+    resolveTauriDevIdDescriptor(target.install, { appRoot: root });
+    if (!target.install.targetTriple && !target.install.bundleDirectory) throw new Error(`development.targets.${platform}.install requires targetTriple (or bundleDirectory) to find the built .app`);
   } else if (target.install?.kind === "adb") {
     if (platform !== "android") throw new Error("the adb development installer is for --platform android");
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
@@ -94,6 +99,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   const childEnv = codesignEnvironment(developmentEnvironment(env));
   // One lease spans every managed request this run makes, so a broker cutover cannot land between them.
   const lease = acquireManagedRunLease({ command: `right-release dev --platform ${platform}`, env });
+  let releaseLease = true;
   try {
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
@@ -104,9 +110,17 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
     if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
+    if (target.install.kind === TAURI_DEVID_KIND) {
+      // installTauriDevId is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
+      releaseLease = false;
+      const built = resolveTauriArtifact(target.install, { root, platform, env: childEnv });
+      return installTauriDevId({ appRoot: root, config: target.install, built, env: childEnv })
+        .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
+        .finally(() => lease.release());
+    }
     const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs, serial });
     return { built: true, installed: true, ...(staged.length ? { staged } : {}), ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
-  } finally { lease.release(); }
+  } finally { if (releaseLease) lease.release(); }
 }
 
 export function assertNativeDevelopmentHost(platform, host = process.platform) {
@@ -341,7 +355,7 @@ export async function main(args = process.argv.slice(2)) {
   if (pathKey) process.env[pathKey] = safeEnv[pathKey] ?? process.env[pathKey];
   const loaded = await import(pathToFileURL(absoluteConfig));
   const config = loaded.default ?? loaded.config ?? loaded;
-  const result = runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
+  const result = await runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
   if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
   return result;
 }

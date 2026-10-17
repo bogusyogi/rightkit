@@ -40,4 +40,4 @@ export function targetUsesMsix(target) {
 }
 
 /** SwiftPM targets build and package inside prePackage (mac DMG) or the MSIX step; no separate `package` command is required. */
-export const packageCommandOptional = (target, projectType) => targetUsesMsix(target) || (projectType === "swiftpm" && Boolean(target?.prePackage?.cmd));
+export const packageCommandOptional = (target, projectType) => targetUsesMsix(target) || Boolean(target?.winPackage || target?.macPackage) || (projectType === "swiftpm" && Boolean(target?.prePackage?.cmd));

@@ -26,7 +26,8 @@ export function swiftMacDmgConfigError({ target, projectType, appName = "app" })
 
 /** Plan for the automatic DMG, or null when the app config builds its own (package step, dmg: false, or no appBeforePackage). */
 export function swiftMacDmgPlan({ target, projectType, appName = "app", resolve = (p) => path.resolve(p) }) {
-  if (projectType !== "swiftpm" || !target?.notarize?.appBeforePackage || target.dmg === false || target.package?.cmd) return null;
+  // SwiftPM apps, and Tauri apps whose targets.mac.macPackage expanded (package-recipe-targets.mjs, #345).
+  if ((projectType !== "swiftpm" && target?.recipe?.kind !== "macPackage") || !target?.notarize?.appBeforePackage || target.dmg === false || target.package?.cmd) return null;
   const d = target.dmg ?? {};
   return {
     app: resolve(target.notarize.app),
