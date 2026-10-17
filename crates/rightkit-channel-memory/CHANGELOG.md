@@ -8,6 +8,13 @@ contract's change history is visible. If the owner wants a published contract
 to start from this state, bump the major (`2.0.0`, file `channel-memory.v2`)
 at that point.
 
+## Unreleased: conflict record API (#327)
+
+- The conflict record type (`ConflictRecord`, `ConflictBody`, `ConflictStatus`, schema `conflicts`) has been in the schema and typed model since 0.1.0; PostRight's contract still listed it as a gap. This change adds the accessors a consumer needs. Additive, no schema change.
+- `ConflictStatus::as_str()`, `ConflictRecord::is_open()`, `ConflictRecord::chosen_body()` (the body of the chosen device of a resolved conflict) and `ConflictRecord::body_for(device)`.
+- `ChannelMemory::open_conflicts(proof_id)` and `ChannelMemory::has_open_conflict(proof_id)`. `cite_proof` uses the same check, so behaviour is unchanged (`E_PROOF_CONFLICT`).
+- Tests: `tests/conflict_record.rs` covers the open and resolved states, both bodies by device, the chosen-device rules, the two-body and two-device rules, and a serde round trip.
+
 ## Unreleased: fact statuses as one list (#333)
 
 - The four fact statuses `collected`, `approved`, `withdrawn` and `superseded` have been in the schema and `ProofStatus` since 0.1.0 (`pending` was renamed `collected`). This change makes them a checkable surface for PostRight's pin. Additive, no schema change.

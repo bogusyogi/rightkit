@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Author, ChannelMemory, ConflictStatus, DateWindow, Proof, ProofStatus, Scope};
+use crate::model::{Author, ChannelMemory, ConflictRecord, DateWindow, Proof, ProofStatus, Scope};
 use crate::schema;
 use crate::validate::{check_proof_record, parse};
 use crate::{Decimal, MemoryError, ReasonCode};
@@ -58,6 +58,22 @@ impl ChannelMemory {
                 ),
             )
         }
+    }
+
+    /// The unresolved conflicts recorded against `proof_id`.
+    pub fn open_conflicts<'a>(
+        &'a self,
+        proof_id: &'a str,
+    ) -> impl Iterator<Item = &'a ConflictRecord> + 'a {
+        self.conflicts
+            .iter()
+            .filter(move |item| item.is_open() && item.proof_id == proof_id)
+    }
+
+    /// True when an unresolved conflict names `proof_id`. Citations of that
+    /// proof fail with `E_PROOF_CONFLICT`.
+    pub fn has_open_conflict(&self, proof_id: &str) -> bool {
+        self.open_conflicts(proof_id).next().is_some()
     }
 
     /// Proofs that may be cited as facts: approved ones only.
@@ -193,11 +209,7 @@ impl ChannelMemory {
                 ),
             );
         }
-        if self
-            .conflicts
-            .iter()
-            .any(|item| item.status == ConflictStatus::Open && item.proof_id == proof.id)
-        {
+        if self.has_open_conflict(&proof.id) {
             return refuse(
                 ReasonCode::ProofConflict,
                 format!("`{id}` is in an open conflict"),

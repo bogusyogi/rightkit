@@ -330,6 +330,36 @@ pub struct ConflictRecord {
     pub chosen_device: Option<String>,
 }
 
+impl ConflictStatus {
+    /// The wire name, the same text the schema enum and serde use.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConflictStatus::Open => "open",
+            ConflictStatus::Resolved => "resolved",
+        }
+    }
+}
+
+impl ConflictRecord {
+    /// True while the conflict is unresolved. An open conflict makes every
+    /// claim on its proof fail with `E_PROOF_CONFLICT`.
+    pub fn is_open(&self) -> bool {
+        self.status == ConflictStatus::Open
+    }
+
+    /// The body from the device a resolved conflict chose. `None` while the
+    /// conflict is open or when no body carries that device.
+    pub fn chosen_body(&self) -> Option<&ConflictBody> {
+        let chosen = self.chosen_device.as_deref()?;
+        self.bodies.iter().find(|body| body.device == chosen)
+    }
+
+    /// The body from `device`, if the conflict holds one.
+    pub fn body_for(&self, device: &str) -> Option<&ConflictBody> {
+        self.bodies.iter().find(|body| body.device == device)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservationOrigin {
