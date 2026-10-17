@@ -67,11 +67,10 @@ test("unconfigured app uses release-style Developer ID discovery", (t) => {
   assert.equal(resolveMacosDevelopmentSigning(f).identity, releaseIdentity);
 });
 
-test("development profile selects its Apple Development certificate over release identity", (t) => {
+test("an Apple Development profile is refused: dev signs with Developer ID only", (t) => {
   const f = fixture(t, { profile: profile(), mac: { provisioningProfile: "profile.provisionprofile" } });
-  const selected = resolveMacosDevelopmentSigning(f);
-  assert.equal(selected.identity, developmentIdentity);
-  assert.equal(selected.teamIdentifier, "8757KL989R");
+  assert.throws(() => resolveMacosDevelopmentSigning(f), (error) => error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED" && /Developer ID provisioning profile/.test(error.message));
+  assert.equal(f.calls.filter((call) => call.command === "codesign").length, 0);
 });
 
 test("Developer ID profile selects its authorized release certificate", (t) => {
@@ -80,21 +79,20 @@ test("Developer ID profile selects its authorized release certificate", (t) => {
 });
 
 test("embedded app profile also governs dev signing", (t) => {
-  const f = fixture(t, { profile: profile() });
+  const f = fixture(t, { profile: profile(releaseCertificate, "6KLGD3LLKF") });
   f.write(path.join(f.bundle, "Contents/embedded.provisionprofile"), "prepared profile");
-  assert.equal(resolveMacosDevelopmentSigning(f).identity, developmentIdentity);
+  assert.equal(resolveMacosDevelopmentSigning(f).identity, releaseIdentity);
 });
 
-test("profile TeamIdentifier governs even when development identity suffix differs", (t) => {
+test("profile TeamIdentifier governs and a development certificate is still refused", (t) => {
   const f = fixture(t, { profile: profile(developmentCertificate, "6KLGD3LLKF"), mac: { provisioningProfile: "profile.provisionprofile" } });
-  assert.equal(resolveMacosDevelopmentSigning(f).teamIdentifier, "6KLGD3LLKF");
+  assert.throws(() => resolveMacosDevelopmentSigning(f), (error) => error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED");
 });
 
-test("existing Apple identity env overrides survive and must match profile certificate", (t) => {
-  const f = fixture(t, { profile: profile(), mac: { provisioningProfile: "profile.provisionprofile" } });
-  assert.equal(resolveMacosDevelopmentSigning({ ...f, env: { APPLE_SIGNING_IDENTITY: developmentIdentity } }).identity, developmentIdentity);
-  assert.equal(resolveMacosDevelopmentSigning({ ...f, env: { APPLE_DEVELOPER_ID: sha1(developmentCertificate) } }).identity, developmentIdentity);
-  assert.throws(() => resolveMacosDevelopmentSigning({ ...f, env: { APPLE_DEVELOPER_ID: releaseIdentity } }), (error) => error.code === "DEV_MAC_SIGNING_IDENTITY_MISSING" && error.identity === releaseIdentity);
+test("identity env overrides cannot select an Apple Development certificate", (t) => {
+  const f = fixture(t, { profile: profile(releaseCertificate, "6KLGD3LLKF"), mac: { provisioningProfile: "profile.provisionprofile" } });
+  assert.equal(resolveMacosDevelopmentSigning({ ...f, env: { APPLE_SIGNING_IDENTITY: releaseIdentity } }).identity, releaseIdentity);
+  assert.throws(() => resolveMacosDevelopmentSigning({ ...f, env: { APPLE_DEVELOPER_ID: developmentIdentity } }), (error) => error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED");
 });
 
 test("missing identity fails with typed error naming configured identity", (t) => {

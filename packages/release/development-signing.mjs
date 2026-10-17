@@ -120,7 +120,7 @@ export function resolveMacosDevelopmentSigning({ root, bundle, descriptor = {}, 
   const found = checked("security", ["find-identity", "-v", "-p", "codesigning"], context, "DEV_MAC_SIGNING_IDENTITY_MISSING", expected);
   const identities = [...String(found.stdout ?? "").matchAll(/([A-Fa-f0-9]{40})\s+"([^"\n]+)"/g)].map((match) => ({ sha1: match[1].toUpperCase(), name: match[2] }));
   const matchesRequest = (item, requested) => item.name === requested || item.sha1 === requested?.toUpperCase();
-  const profiled = (info) => identities.filter((item) => info.certificates.some((cert) => cert.sha1 === item.sha1) && /^(Apple Development|Mac Developer|Developer ID Application):/.test(item.name));
+  const profiled = (info) => identities.filter((item) => info.certificates.some((cert) => cert.sha1 === item.sha1) && /^Developer ID Application:/.test(item.name));
   // A configured profile can go stale when its certificate is renewed: prefer a sibling profile for the
   // same app identifier that authorizes a certificate whose private key is in this Keychain.
   if (profileInfo && !profiled(profileInfo).length && configuredProfile) {
@@ -135,6 +135,9 @@ export function resolveMacosDevelopmentSigning({ root, bundle, descriptor = {}, 
     : identities.filter((item) => item.name.startsWith("Developer ID Application:") && item.name.endsWith(`(${releaseTeam})`));
   if (requestedIdentity) candidates = candidates.filter((item) => matchesRequest(item, requestedIdentity));
   else if (profileInfo && configuredIdentity && candidates.some((item) => matchesRequest(item, configuredIdentity))) candidates = candidates.filter((item) => matchesRequest(item, configuredIdentity));
+  // One identity for dev and release (no new id): Developer ID Application only. An Apple Development or Mac Developer certificate gives a different
+  // designated requirement, so macOS would drop the app's privacy grants when dev and release alternate. Never a fallback.
+  if (!candidates.length) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED", `Signing identity ${JSON.stringify(expected)}: no Developer ID Application identity with its private key is in Keychain${profileInfo ? ` (and authorized by ${provisioningProfile})` : ""}. Dev builds sign with the same Developer ID Application identity as release. Install that identity${profileInfo ? ", and use a Developer ID provisioning profile (not Apple Development) if the app's entitlements need one" : ""}; there is no fallback to Apple Development or ad hoc signing.`, { identity: expected });
   if (candidates.length !== 1) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_IDENTITY_MISSING", `Signing identity ${JSON.stringify(expected)}: ${candidates.length ? "multiple matching identities" : "no valid matching identity/private key"} in Keychain${provisioningProfile ? ` for ${provisioningProfile}` : ""}. ${candidates.length ? "Set APPLE_SIGNING_IDENTITY or APPLE_DEVELOPER_ID to one matching identity." : "Confirm the profile-authorized certificate and its private key are available in Keychain Access in a logged-in GUI session."}`, { identity: expected });
   return { identity: candidates[0].name, certificateSha1: candidates[0].sha1, teamIdentifier: profileInfo?.team ?? releaseTeam, entitlements, provisioningProfile };
 }
