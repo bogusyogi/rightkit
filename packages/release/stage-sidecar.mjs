@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
 import {
   planMediaSidecar, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
