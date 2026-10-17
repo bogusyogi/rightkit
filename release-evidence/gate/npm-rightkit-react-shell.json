@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/react-shell",
-  "version": "0.6.6",
-  "commit": "eb6ae59b05c364450ecf61d4753da3eb02ba1982",
-  "artifactSha256": "fa29bcab8bb99ead2cb79eb9880c6e653c2988e38a021ca4e32c2af9b0abf57a",
+  "version": "0.6.8",
+  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+  "artifactSha256": "51b22732ca3408c664f1dbe3d0bff74d950b8eaa68d8cb57263fa52391b92c97",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "eb6ae59b05c364450ecf61d4753da3eb02ba1982",
+      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
       "features": [
         "default"
       ],
-      "artifactSha256": "fa29bcab8bb99ead2cb79eb9880c6e653c2988e38a021ca4e32c2af9b0abf57a",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/react-shell run test && pnpm --dir packages/react-shell pack --pack-destination /var/folders/xp/8dtgvyms3bb1yndrvmxhdg0h0000gn/T/rk-local-publish-lpjI7f",
+      "artifactSha256": "51b22732ca3408c664f1dbe3d0bff74d950b8eaa68d8cb57263fa52391b92c97",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/react-shell run test && pnpm --dir packages/react-shell pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-NRywKv",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-16T03:57:19.448Z",
-      "passed": 210,
+      "timestamp": "2026-10-17T10:20:28.873Z",
+      "passed": 218,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/react-shell run test",
           "ok": true,
-          "executed": 210,
+          "executed": 218,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

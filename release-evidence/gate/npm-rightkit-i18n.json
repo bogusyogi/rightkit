@@ -2,31 +2,47 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/i18n",
-  "version": "0.1.0",
-  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-  "artifactSha256": "d15d3187d7aa361f1667c57c122647313ba4d930d9f4bb88e0895cff4e1590b4",
+  "version": "0.1.1",
+  "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+  "artifactSha256": "cdccba19cc2411f01c45b1759643835e1ff3ccdaad869dcc9c5dcc9d7e0d3417",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "darwin"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/i18n)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:14.932Z",
-      "passed": 2,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "win32"
-      },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/i18n, D:\\rk-gate\\3107b240 export)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:24.779Z",
-      "passed": 2,
-      "failed": 0
+      "commit": "1ba2a4fb7372e2f9b1a8740db599a8be2f5782e1",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "cdccba19cc2411f01c45b1759643835e1ff3ccdaad869dcc9c5dcc9d7e0d3417",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/i18n run test && pnpm --dir packages/i18n pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-QgZF6W",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T10:09:13.600Z",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/i18n run test",
+          "ok": true,
+          "executed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }

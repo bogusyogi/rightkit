@@ -2,26 +2,47 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/qa-chrome",
-  "version": "0.1.5",
-  "commit": "a87daeeba8e9f50700446800b943c1d3dd748e28",
-  "artifactSha256": "69fbb5a80dc0036add330c5bb4bf280401210886b555bb26c6149b31ff10176b",
+  "version": "0.1.8",
+  "commit": "68fc109bcf49d18e4fd25a0234b181a60aa8a791",
+  "artifactSha256": "6aecfa1d4e0232442566c5b0ca3205bcfa33e695451453a370f504490f6e6fe7",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "a87daeeba8e9f50700446800b943c1d3dd748e28",
-      "command": "pnpm --dir packages/$D test",
+      "commit": "68fc109bcf49d18e4fd25a0234b181a60aa8a791",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-11T07:29:31Z",
-      "passed": 12,
-      "failed": 0
+      "artifactSha256": "6aecfa1d4e0232442566c5b0ca3205bcfa33e695451453a370f504490f6e6fe7",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/qa-chrome run test && pnpm --dir packages/qa-chrome pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-FTaRn9",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T10:33:48.275Z",
+      "passed": 43,
+      "failed": 0,
+      "skipped": 2,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/qa-chrome run test",
+          "ok": true,
+          "executed": 43,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 2,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }
