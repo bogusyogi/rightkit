@@ -56,6 +56,33 @@
         "file": "runtime-budget.evidence/win32-x64-0.4.1-synthetic.txt",
         "sha256": "35c33bd9f05564ac0de83318addfa51c9d7de3999ea160b4a4506d89b799b966"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.4.1",
+      "commit": "eda0e95308182776d52056b3c3c785c60c06072d",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs)",
+        "unit": "files",
+        "count": 50400
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-file-watch --bench budget",
+      "observed": {
+        "residentMemoryBytes": 6897664,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.4.1-synthetic.txt",
+        "sha256": "c0361c30f44297dfd2e3d6fd06916a5f61539a6b751fd2687b6013bf924da78b"
+      }
     }
   ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. diskOpsPerSecond is a design bound, not yet measured on Windows; macOS exposes no per-process disk-operation counter."
