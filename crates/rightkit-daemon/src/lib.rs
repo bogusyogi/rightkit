@@ -64,6 +64,7 @@ pub mod remote;
 mod server;
 mod service;
 mod suite;
+pub mod supervisor;
 mod takeover_watch;
 mod transport;
 
