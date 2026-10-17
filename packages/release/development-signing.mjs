@@ -262,7 +262,7 @@ export function assertStableDesignatedRequirement({ root, installed, expected, e
   const result = run("codesign", ["--display", "-r-", installed], captureOptions(root, env));
   if (result.error || result.status !== 0) return null;
   const current = /^designated => (.+)$/m.exec(output(result))?.[1]?.trim();
-  if (!current || /cdhash/.test(current)) return null;
+  if (!current || /\bcdhash\b/.test(current)) return null;
   if (current !== expected) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_REQUIREMENT_CHANGED", `Installed ${installed} has designated requirement ${JSON.stringify(current)} but this dev build is signed with ${JSON.stringify(expected)}. Installing it would reset the app's macOS privacy grants. Sign with the same identity as the installed copy (the one stable Developer ID) or remove the installed app deliberately.`, { designatedRequirement: expected, installedRequirement: current });
   return current;
 }

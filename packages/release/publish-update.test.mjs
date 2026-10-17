@@ -227,7 +227,7 @@ function githubFixture(repository = "Orthic-Labs/Fixture") {
 test("github-releases dry run plans bundle, signature and latest.json uploads with no network or key", () => {
   const result = spawnSync(process.execPath, [publisher, "--config", githubFixture(), "--platform", "win", "--tier", "update", "--dry-run"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe/);
+  assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe\b/);
   assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe\.sig/);
   assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/latest\.json/);
   assert.match(result.stdout, /"url":"https:\/\/github\.com\/Orthic-Labs\/Fixture\/releases\/download\/v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe"/);
