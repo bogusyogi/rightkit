@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import nodeFs from "node:fs";
 import path from "node:path";
-import { execFileSync as nodeExecFileSync } from "./background-process.mjs";
+import { execFileSync as nodeExecFileSync, spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { signMacosEntries } from "./mac-sign-core.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
@@ -42,7 +42,13 @@ export function prepareSwapHelper({
   workspaceRoot, packageDir = path.join(workspaceRoot, "packages", "release"), platform = process.platform, run, env = process.env, fs = nodeFs,
   resolveIdentity = resolveMacosDeveloperIdIdentity,
   signOne = (codesignArgs) => runMacCodesignCommands([codesignArgs])[0],
-  inspect = (cmd, args) => { const out = nodeExecFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); return String(out); },
+  // codesign --verify / -dvv write to stderr: return both streams (as sign-dev-artifact defaultInspect does).
+  inspect = (cmd, args) => {
+    const result = nodeSpawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    if (result.error || result.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${output.trim() || result.error?.message}`);
+    return output;
+  },
   log = () => {},
 }) {
   const dest = helperPath(packageDir);
