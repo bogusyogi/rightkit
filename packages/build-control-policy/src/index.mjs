@@ -118,6 +118,30 @@ const assignment = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const shellNames = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
 const toolName = (word = '') => tools.has(basename(word)) || /^cargo-.+/.test(basename(word)) ? basename(word) : null;
 const rustupTool = (argv) => argv[1] === 'run' ? toolName(skipOptions(argv.slice(2), new Set())[1]) : null;
+// Commands that run their trailing arguments on another host. RustRight only manages the Mac and
+// Dell, so a remote cargo or rustup is not a local invocation.
+const remoteShellNames = new Set(['ssh', 'plink']);
+const remoteOptions = {
+  ssh: new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w']),
+  plink: new Set(['-P', '-l', '-i', '-pw', '-m', '-hostkey', '-load', '-L', '-R', '-D', '-proxycmd', '-sshlog', '-sshrawlog']),
+};
+const localCommandOption = /^(?:proxycommand|localcommand)\s*[=\s]\s*/i;
+function remoteSplit(argv, name) {
+  const valued = remoteOptions[name]; const local = [];
+  let index = 1;
+  while (index < argv.length && argv[index].startsWith('-') && argv[index] !== '-') {
+    const option = argv[index++];
+    if (option === '--') break;
+    let value = null;
+    if (valued.has(option)) value = argv[index++] ?? '';
+    else if (name === 'ssh' && /^-o./.test(option)) value = option.slice(2);
+    if (value === null) continue;
+    if ((option === '-o' || /^-o./.test(option)) && localCommandOption.test(value)) local.push(value.replace(localCommandOption, ''));
+    else if (option === '-proxycmd') local.push(value);
+  }
+  return { local, host: argv[index], remote: argv.slice(index + 1) };
+}
+
 const packageOptions = new Set(['--dir', '-C', '--prefix', '--filter', '-F', '--workspace', '-w', '--userconfig', '--cache', '--registry', '--package', '-p']);
 const launcherOptions = {
   command: [], builtin: [], exec: ['-a'], nohup: [], time: ['-o', '--output', '-f', '--format'],
@@ -178,6 +202,15 @@ function* resolvedInvocations(commands, inheritedPathRedirect) {
       }
       if (name === 'rustup' && argv[1] === 'run' && !rustupTool(argv)) {
         argv = skipOptions(argv.slice(2), new Set()).slice(1); continue;
+      }
+      if (remoteShellNames.has(name)) {
+        // Everything after the host is a command line for the REMOTE machine, so it is never
+        // an invocation here. Local-only parts (an ssh ProxyCommand or LocalCommand option)
+        // are still inspected; local substitutions were already split out by the lexer.
+        const { local } = remoteSplit(argv, name);
+        for (const script of local) yield* executableInvocations(script, pathRedirect);
+        yield { argv: [argv[0]], pathRedirect };
+        break;
       }
       if (shellNames.has(name)) {
         let flag = -1;
@@ -374,11 +407,18 @@ export function managedBuildViolation(command) {
   return null;
 }
 
+// RustRight manages cargo and rustup on Adrian's Mac and Dell only. Every other host (Linux
+// servers, cloud sessions, CI) runs plain cargo. Same platform test as managedControlCandidates
+// in packages/release/managed-roots.mjs, which treats win32 and darwin as the managed hosts.
+export function rustRightManagedHost({ platform = process.platform } = {}) {
+  return platform === 'win32' || platform === 'darwin';
+}
+
 function denialMessage(blocked) {
   if (blocked.startsWith('github-actions-only:')) {
     return `[HOOK:rightkit-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions.`;
   }
-  return `[HOOK:rightkit-managed-build:block]\nWhy: Direct managed build tool forbidden: ${blocked}\nRequired: Use exact rightkit entrypoint.`;
+  return `[HOOK:rightkit-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight (the exact rightkit entrypoint). Cargo or rustup on another host over ssh is allowed.`;
 }
 
 export function claudeHookDecision(input) {
@@ -396,7 +436,7 @@ export function claudeHookDecision(input) {
   const blocked = githubActionsOnlyViolation(inspectedCommand ?? '', {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
-  }) ?? managedBuildViolation(inspectedCommand ?? '');
+  }) ?? (rustRightManagedHost({ platform: input?.platform }) ? managedBuildViolation(inspectedCommand ?? '') : null);
   return blocked ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: denialMessage(blocked) } } : { decision: 'allow' };
 }
 
@@ -405,7 +445,7 @@ export function clineHookDecision(input) {
   const blocked = githubActionsOnlyViolation(command ?? '', {
     cwd: input?.cwd ?? input?.preToolUse?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
-  }) ?? managedBuildViolation(command ?? '');
+  }) ?? (rustRightManagedHost({ platform: input?.platform }) ? managedBuildViolation(command ?? '') : null);
   return blocked
     ? { cancel: true, errorMessage: denialMessage(blocked) }
     : { cancel: false };

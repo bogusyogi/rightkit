@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeHookDecision, clineHookDecision, githubActionsOnlyViolation, managedBuildViolation } from './index.mjs';
+import { claudeHookDecision, clineHookDecision, githubActionsOnlyViolation, managedBuildViolation, rustRightManagedHost } from './index.mjs';
 
 async function setOrigin(root, url = 'https://github.com/Orthic-Labs/example.git') {
   await mkdir(join(root, '.git'), { recursive: true });
@@ -87,9 +87,9 @@ test('executable classification regression table (public hook)', async (t) => {
     await setOrigin(root);
     await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}');
     for (const [command, blocked, managed = blocked] of commandCases) await t.test(command, () => {
-      const decision = claudeHookDecision({ cwd: root, environment: {}, tool_input: { command } });
+      const decision = claudeHookDecision({ platform: 'darwin', cwd: root, environment: {}, tool_input: { command } });
       assert.equal(decision.hookSpecificOutput?.permissionDecision === 'deny', blocked);
-      assert.equal(clineHookDecision({ cwd: root, environment: {}, command }).cancel, blocked);
+      assert.equal(clineHookDecision({ platform: 'darwin', cwd: root, environment: {}, command }).cancel, blocked);
       assert.equal(Boolean(managedBuildViolation(command)), managed);
     });
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -101,17 +101,17 @@ for (const command of ['pnpm --version', 'npm --version', 'pnpm exec cargo --ver
 for (const command of ['env PATH=/real pnpm exec cargo --version', 'env PATH=C:\\Users\\adrds\\.cargo\\bin npm exec cargo --version']) test(`rejects untrusted PATH package manager Cargo ${command}`, () => assert.ok(managedBuildViolation(command)));
 for (const command of ['pnpm exec cargo --version && cargo test', 'npm run cargo-version; rustc x.rs']) test(`rejects composed package manager bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 for (const command of ['rightkit cargo -- test && cargo test', 'rightkit cargo -- test; rustc x.rs', 'rightkit cargo -- $(cargo test)', 'rightkit cargo test | rustdoc x.rs', '/tmp/rightkit cargo test', 'env PATH=/tmp rightkit cargo test', 'alias c=cargo; c test', 'env PATH=/x /opt/rust/bin/cargo test']) test(`rejects rightkit bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
-test('hook denial is independent of default permission mode', () => { for (const mode of ['auto', 'bypassPermissions']) assert.equal(claudeHookDecision({ permission_mode: mode, tool_input: { command: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny'); });
+test('hook denial is independent of default permission mode', () => { for (const mode of ['auto', 'bypassPermissions']) assert.equal(claudeHookDecision({ platform: 'darwin', permission_mode: mode, tool_input: { command: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny'); });
 
 test('Codex cmd field and composed functions.exec payload retain managed build policy', () => {
-  assert.equal(claudeHookDecision({ tool_name: 'exec_command', tool_input: { cmd: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { command: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "echo cargo"})' } }).decision, 'allow');
-  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "grep \\"Failed to list rustc sysroot\\" log"})' } }).decision, 'allow');
+  assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'exec_command', tool_input: { cmd: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'functions.exec', tool_input: { code: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'functions.exec', tool_input: { command: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "echo cargo"})' } }).decision, 'allow');
+  assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "grep \\"Failed to list rustc sysroot\\" log"})' } }).decision, 'allow');
 });
-test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
-test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
+test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ platform: 'darwin', preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
+test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ platform: 'darwin', environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
 
 test('a redirect of the shim search path cannot shadow the managed tools', () => {
   const evil = 'PA' + 'TH=/tmp/evil';
@@ -295,3 +295,55 @@ for (const command of ['rightkit remote windows cargo test && cargo test', 'righ
 
 for (const command of ['node packages/release/cli/right-release.mjs publish cargo --crate rightkit-onnx', 'right-release publish cargo --crate rightkit-onnx --dry-run']) test(`allows right-release cargo publication ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['right-release publish cargo --crate x && cargo publish', 'right-release publish cargo; cargo test']) test(`rejects right-release publication bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
+
+// Issue #293: the cargo and rustup guard fires only for LOCAL execution on the Mac or Dell.
+const remoteCases = [
+  // [command, blocked locally]
+  ['ssh host cargo build', false],
+  ['ssh host cargo test --workspace', false],
+  ["ssh host 'cd x && cargo test'", false],
+  ['ssh -i k user@h "cd x && cargo test; rustup show"', false],
+  ['ssh -p 2222 -o StrictHostKeyChecking=no user@h cargo check', false],
+  ["ssh h bash -lc 'cargo build | tail'", false],
+  ["ssh h 'rustup run stable cargo test'", false],
+  ['ssh h rustup update', false],
+  ['env X=1 ssh h cargo build', false],
+  ['plink -i k user@h "cargo build"', false],
+  ['ssh h true; cargo build', true],
+  ['ssh h cargo test && cargo build', true],
+  ['ssh h cargo test || cargo build', true],
+  ['ssh h cargo test | cargo run', true],
+  ['ssh h true\ncargo build', true],
+  ['ssh h true; rustup run stable cargo test', true],
+  ['ssh h "$(cargo build)"', true],
+  ['ssh h `cargo build`', true],
+  ['ssh h true; env X=1 cargo build', true],
+  ['env X=1 cargo build', true],
+  ['ssh -o ProxyCommand="cargo run" h true', true],
+  ['cargo build', true],
+  ['rustup run stable cargo test', true],
+];
+
+test('cargo and rustup guard fires only for local execution (table)', async (t) => {
+  for (const [command, blocked] of remoteCases) await t.test(command, () => {
+    assert.equal(Boolean(managedBuildViolation(command)), blocked);
+    for (const platform of ['darwin', 'win32']) assert.equal(claudeHookDecision({ platform, environment: {}, tool_input: { command } }).hookSpecificOutput?.permissionDecision === 'deny', blocked);
+    assert.equal(clineHookDecision({ platform: 'darwin', environment: {}, command }).cancel, blocked);
+  });
+});
+
+test('sessions that are not on the Mac or Dell pass every command (table)', async (t) => {
+  assert.equal(rustRightManagedHost({ platform: 'darwin' }), true);
+  assert.equal(rustRightManagedHost({ platform: 'win32' }), true);
+  assert.equal(rustRightManagedHost({ platform: 'linux' }), false);
+  for (const [command] of remoteCases) await t.test(`linux: ${command}`, () => {
+    assert.equal(claudeHookDecision({ platform: 'linux', environment: {}, tool_input: { command } }).decision, 'allow');
+    assert.equal(clineHookDecision({ platform: 'linux', environment: {}, command }).cancel, false);
+  });
+});
+
+test("denial message names RustRight and never RightKit's build tool", () => {
+  const reason = claudeHookDecision({ platform: 'darwin', tool_input: { command: 'cargo build' } }).hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /RustRight/);
+  assert.doesNotMatch(reason, /RightKit's build tool/i);
+});
