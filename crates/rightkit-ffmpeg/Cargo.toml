@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ffmpeg"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
