@@ -177,7 +177,8 @@ export async function main(argv) {
     for (const [rel, content] of files) {
       const file = path.join(casesDir, rel);
       if (!existsSync(file)) drift.push(`missing ${rel}`);
-      else if (readFileSync(file, "utf8") !== content) drift.push(`changed ${rel}`);
+      // Compared with line endings normalised: a checkout may hold CRLF (core.autocrlf) for the same LF blob.
+      else if (readFileSync(file, "utf8").replace(/\r\n/g, "\n") !== content.replace(/\r\n/g, "\n")) drift.push(`changed ${rel}`);
     }
     for (const rel of listDisk(casesDir)) if (!files.has(rel)) drift.push(`stale ${rel}`);
     if (drift.length) { console.error(`ownership fixtures drifted (${drift.length}); run \`node fixtures/ownership/generate.mjs\` after confirming the behaviour change is intended:\n` + drift.slice(0, 40).join("\n")); return 1; }

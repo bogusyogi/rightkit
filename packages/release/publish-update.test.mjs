@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { unmanagedEnv } from "./test-support/unmanaged-env.mjs";
 
 const publisher = fileURLToPath(new URL("./publish-update.mjs", import.meta.url));
 
@@ -80,7 +81,7 @@ function run(tier) {
   const config = fixture();
   return spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_TIER: tier },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: tier }),
   });
 }
 
@@ -154,7 +155,7 @@ test("allows an installer-only patch without registering an updater manifest", (
   const config = installerOnlyFixture();
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_TIER: "patch" },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: "patch" }),
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /UPLOAD public\/fixture\/installers\/windows\/current\/Fixture-Setup\.exe/);
@@ -174,7 +175,7 @@ test("accepts portable --tier argument", () => {
   const config = installerOnlyFixture();
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--tier", "patch", "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_TIER: "" },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: "" }),
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /UPLOAD public\/fixture\/installers\/windows\/current\/Fixture-Setup\.exe/);
@@ -253,7 +254,7 @@ test("refuses versioned R2 object keys that would accumulate old releases", () =
   const config = versionedFixture();
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_TIER: "patch" },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: "patch" }),
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /current R2 object/);
@@ -263,7 +264,7 @@ test("refuses versioned updater object keys for gated feature updates", () => {
   const config = versionedFixture();
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_TIER: "update" },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: "update" }),
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /current R2 object/);
@@ -271,13 +272,12 @@ test("refuses versioned updater object keys for gated feature updates", () => {
 
 test("requires a seal before credentials or the first patch upload", () => {
   const config = fixture({ materialize: true });
-  const env = {
-    ...process.env,
+  const env = unmanagedEnv(process.env, {
     APPDATA: path.join(path.dirname(config), "empty-appdata"),
     RIGHT_RELEASE_TIER: "patch",
     RIGHTAPPS_RELEASE_TOKEN_FILE: path.join(path.dirname(config), "missing-release-token"),
     RIGHTAPPS_ADMIN_TOKEN: "expired-admin-session",
-  };
+  });
   delete env.RIGHTAPPS_RELEASE_TOKEN;
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win"], {
     encoding: "utf8",
@@ -296,7 +296,7 @@ test("patch uploads the versioned MSIX install source and refuses a malformed ve
       schema: 1, app: "fixture", version: "1.2.3", distribution: { provider: "r2-rightapps" },
       targets: { win: { installer: { artifacts: [{ file: "Fixture.msix", key: "fixture/installers/windows/current/Fixture.msix", versionedKey }] }, updater: { artifacts: [] } } },
     })};\n`);
-    return spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], { encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_TIER: "patch" } });
+    return spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--dry-run"], { encoding: "utf8", env: unmanagedEnv(process.env, { RIGHT_RELEASE_TIER: "patch" }) });
   };
   const ok = mk("fixture/installers/windows/versions/1.2.3.0/Fixture_1.2.3.0.msix");
   assert.equal(ok.status, 0, ok.stderr);

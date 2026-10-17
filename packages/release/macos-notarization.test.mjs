@@ -35,7 +35,7 @@ function mockXcrun({ accepted = true, alreadyStapled = false, failStaple = false
 test("Accepted DMG is stapled & validated before receipt hashes final bytes", (t) => {
   const files = fixture(t);
   const mock = mockXcrun({ mutate: true });
-  const receipt = notarizeMacosArtifact({ ...files, run: mock.run });
+  const receipt = notarizeMacosArtifact({ ...files, env: {}, run: mock.run });
   assert.deepEqual(mock.calls.map((call) => call.slice(1, 3)), [["notarytool", "submit"], ["stapler", "validate"], ["stapler", "staple"], ["stapler", "validate"]]);
   assert.equal(receipt.archive.sha256, createHash("sha256").update(readFileSync(files.archive)).digest("hex"));
   assert.equal(receipt.stapling[0].validated, true);
@@ -46,7 +46,7 @@ test("Accepted DMG is stapled & validated before receipt hashes final bytes", (t
 test("already stapled artifact skips staple & asserts validation", (t) => {
   const files = fixture(t);
   const mock = mockXcrun({ alreadyStapled: true });
-  const result = stapleMacosArtifact(files.archive, { run: mock.run });
+  const result = stapleMacosArtifact(files.archive, { env: {}, run: mock.run });
   assert.equal(result.alreadyStapled, true);
   assert.deepEqual(mock.calls.map((call) => call[2]), ["validate", "validate"]);
 });
@@ -55,7 +55,7 @@ for (const options of [{ accepted: false }, { failStaple: true }, { failValidati
   test(`notarization failure ${JSON.stringify(options)} never writes sealable receipt`, (t) => {
     const files = fixture(t);
     const mock = mockXcrun(options);
-    assert.throws(() => notarizeMacosArtifact({ ...files, run: mock.run }), /not accepted|staple.*failed|validate.*failed/);
+    assert.throws(() => notarizeMacosArtifact({ ...files, env: {}, run: mock.run }), /not accepted|staple.*failed|validate.*failed/);
     assert.equal(existsSync(files.receiptPath), false);
     if (options.accepted === false) assert.equal(mock.calls.length, 1);
   });
@@ -66,7 +66,7 @@ test("separately notarized app ZIP staples app bundle, never ZIP", (t) => {
   const app = path.join(path.dirname(files.archive), "MailRight.app");
   mkdirSync(app);
   const mock = mockXcrun();
-  const receipt = notarizeMacosArtifact({ ...files, app, run: mock.run });
+  const receipt = notarizeMacosArtifact({ ...files, app, env: {}, run: mock.run });
   assert.deepEqual(receipt.stapling.map((item) => item.file), [app]);
   assert.ok(mock.calls.filter((call) => call[1] === "stapler").every((call) => call[3] === app));
   assert.doesNotThrow(() => validateNotarizationReceipt({ ...files, run: mock.run }));
@@ -82,7 +82,7 @@ test("ZIP without app path fails before submission", (t) => {
 test("pre-seal validation rejects missing staple, altered archive & invalid final ticket", (t) => {
   const files = fixture(t);
   const mock = mockXcrun();
-  const receipt = notarizeMacosArtifact({ ...files, run: mock.run });
+  const receipt = notarizeMacosArtifact({ ...files, env: {}, run: mock.run });
   assert.throws(() => validateNotarizationReceipt({ ...files, run: mockXcrun().run }), /validate failed/);
   writeFileSync(files.receiptPath, JSON.stringify({ ...receipt, stapling: [] }));
   assert.throws(() => validateNotarizationReceipt({ ...files, run: mock.run }), /missing macOS stapling evidence/);
@@ -103,14 +103,14 @@ test("app is notarized and stapled as its own ticket before DMG packaging; DMG s
     if (cmd === "/usr/bin/ditto") { order.push("ditto"); writeFileSync(args.at(-1), "zip"); return { status: 0 }; }
     return mock.run(cmd, args, options);
   };
-  const appReceipt = notarizeAppBundle({ app, receiptPath: path.join(root, "app.json"), authArgs: [], run });
+  const appReceipt = notarizeAppBundle({ app, receiptPath: path.join(root, "app.json"), authArgs: [], env: {}, run });
   assert.equal(appReceipt.archive.file, `${app}.zip`);
   assert.deepEqual(appReceipt.stapling.map((item) => item.file), [app]);
   assert.ok(appReceipt.stapling.every((item) => item.validated));
   assert.deepEqual(mock.calls.map((call) => call.slice(1, 3)), [["notarytool", "submit"], ["stapler", "validate"], ["stapler", "staple"], ["stapler", "validate"]]);
   assert.doesNotThrow(() => validateNotarizationReceipt({ receiptPath: path.join(root, "app.json"), archive: `${app}.zip`, run }));
   // The DMG is then notarized without --app (the packaged app already carries its ticket).
-  const dmgReceipt = notarizeMacosArtifact({ archive: dmg, receiptPath: path.join(root, "dmg.json"), authArgs: [], run });
+  const dmgReceipt = notarizeMacosArtifact({ archive: dmg, receiptPath: path.join(root, "dmg.json"), authArgs: [], env: {}, run });
   assert.deepEqual(dmgReceipt.stapling.map((item) => item.file), [dmg]);
   assert.equal(order[0], "ditto");
 });
@@ -123,7 +123,7 @@ test("app notarization refuses a non-.app path and surfaces ditto failure", () =
 test("staple: false notarizes an archive of bare executables without stapling and the receipt validates", (t) => {
   const files = fixture(t, ".zip");
   const mock = mockXcrun();
-  const receipt = notarizeMacosArtifact({ ...files, staple: false, run: mock.run });
+  const receipt = notarizeMacosArtifact({ ...files, staple: false, env: {}, run: mock.run });
   assert.deepEqual(mock.calls.map((call) => call.slice(1, 3)), [["notarytool", "submit"]]);
   assert.deepEqual(receipt.stapling, []);
   assert.equal(receipt.staplingSkipped, STAPLING_SKIPPED_PORTABLE);

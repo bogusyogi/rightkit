@@ -467,9 +467,11 @@ test("normal path leaves no journal or staging, and keeps the old bundle as Puls
   assert.equal(r.previous, path.join(h.dest, "Pulse.app.previous"));
   assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
   // A second install replaces the single .previous in place.
+  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
   await installApp(h.opts, h.deps);
   assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
-  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+  // The single .previous now holds the bundle the second install replaced (the first install's new bundle).
+  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "new");
 });
 
 test("parseArgs --recover", () => {
@@ -539,7 +541,7 @@ for (const code of ["ENOTSUP", "EINVAL", "ENOHELPER"]) {
     assert.equal(h.events.find((e) => e.event === "swap-fallback").reason, code);
     assert.equal(h.marker(), "new");
     assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
-    assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+    assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
   });
 }
 

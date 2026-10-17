@@ -95,9 +95,9 @@ test("identity env overrides cannot select an Apple Development certificate", (t
   assert.throws(() => resolveMacosDevelopmentSigning({ ...f, env: { APPLE_DEVELOPER_ID: developmentIdentity } }), (error) => error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED");
 });
 
-test("missing identity fails with typed error naming configured identity", (t) => {
+test("missing Developer ID identity fails with typed error naming configured identity", (t) => {
   const f = fixture(t, { listing: "0 valid identities found" });
-  assert.throws(() => signMacosDevelopmentBundle(f), (error) => error instanceof MacosDevelopmentSigningError && error.code === "DEV_MAC_SIGNING_IDENTITY_MISSING" && error.message.includes(releaseIdentity));
+  assert.throws(() => signMacosDevelopmentBundle(f), (error) => error instanceof MacosDevelopmentSigningError && error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED" && error.message.includes(releaseIdentity));
   assert.equal(f.calls.filter((call) => call.command === "codesign").length, 0);
 });
 
@@ -134,7 +134,7 @@ test("unknown signing mode values are refused, never treated as the default", (t
 
 test("a CI runner without the opt-in still requires a Keychain identity and never falls back to ad hoc", (t) => {
   const f = fixture(t, { listing: "0 valid identities found" });
-  assert.throws(() => signMacosDevelopmentBundle({ ...f, env: ciEnv }), (error) => error.code === "DEV_MAC_SIGNING_IDENTITY_MISSING");
+  assert.throws(() => signMacosDevelopmentBundle({ ...f, env: ciEnv }), (error) => error.code === "DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED");
   assert.equal(f.calls.filter((call) => call.command === "codesign").length, 0);
 });
 

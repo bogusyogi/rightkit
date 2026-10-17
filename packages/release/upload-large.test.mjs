@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { unmanagedEnv } from "./test-support/unmanaged-env.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { runLargeUpload } from "./upload-large.mjs";
 import { createCredentialStore } from "./protected-credentials.mjs";
@@ -28,7 +29,7 @@ function run(bucket) {
   const file = fixtureFile();
   return spawnSync(process.execPath, [uploader, file, "fixture/updates/windows/current/Artifact.exe", bucket, "--evidence", evidenceFor(file)], {
     encoding: "utf8",
-    env: { ...process.env, RIGHT_RELEASE_UPLOAD_DRY_RUN: "1" },
+    env: unmanagedEnv(process.env, { RIGHT_RELEASE_UPLOAD_DRY_RUN: "1" }),
   });
 }
 
@@ -53,7 +54,12 @@ test("refuses unknown bucket aliases", () => {
   assert.match(result.stderr, /expected public\|private/);
 });
 
-test("resolves a real package runner for wrangler on this machine", () => {
+const hostHasPnpm = (() => {
+  const probe = spawnSync("pnpm", ["--version"], { env: unmanagedEnv(process.env), stdio: "ignore", shell: process.platform === "win32", windowsHide: true });
+  return !probe.error && probe.status === 0;
+})();
+
+test("resolves a real package runner for wrangler on this machine", { skip: hostHasPnpm ? false : "pnpm is not installed on this host" }, () => {
   const result = run("public");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /^runner: pnpm dlx$/m);
@@ -67,7 +73,7 @@ test("fails loudly when no package runner exists instead of skipping the upload"
     {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...unmanagedEnv(process.env),
         RIGHT_RELEASE_UPLOAD_DRY_RUN: "1",
         RIGHT_RELEASE_WRANGLER_RUNNER: "",
         PATH: path.join(os.tmpdir(), "right-upload-empty-path"),

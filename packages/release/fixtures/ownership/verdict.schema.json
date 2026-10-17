@@ -6,12 +6,12 @@
   "oneOf": [
     {
       "type": "object", "additionalProperties": false, "required": ["admit", "code", "problems"],
-      "properties": { "admit": { "const": true }, "code": { "enum": ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY"] }, "problems": { "type": "array", "items": { "type": "string" } } },
+      "properties": { "admit": { "const": true }, "code": { "enum": ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY"] }, "problems": { "type": "array", "items": { "type": "string" } }, "warnings": { "type": "array", "items": { "type": "string" }, "description": "Advisory notes that never change admit (pending approval enrollment, #262)." } },
       "description": "CLEAN has problems:[]; ADVISORY lists `<capability> (<fingerprint> in <file>) is owned by <package> [advise]`."
     },
     {
       "type": "object", "additionalProperties": false, "required": ["admit", "code", "problems"],
-      "properties": { "admit": { "const": false }, "code": { "$ref": "#/$defs/refusalCode" }, "problems": { "type": "array", "items": { "type": "string" } } }
+      "properties": { "admit": { "const": false }, "code": { "$ref": "#/$defs/refusalCode" }, "problems": { "type": "array", "items": { "type": "string" } }, "warnings": { "type": "array", "items": { "type": "string" }, "description": "Advisory notes that never change admit (pending approval enrollment, #262)." } }
     }
   ],
   "$defs": {

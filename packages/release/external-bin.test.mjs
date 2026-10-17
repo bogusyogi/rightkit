@@ -32,7 +32,9 @@ test("config: two sidecars stage as <name>-<triple> and bundle without the tripl
 });
 
 test("config: bad names, paths, keys and ffmpeg name clashes are refused together", () => {
-  assert.throws(() => validateExternalBinConfig({ names: ["a/b"], stageDir: "../x", extra: 1 }, { platform: "mac", hostArch: "aarch64" }), /names must be[\s\S]*stageDir must be relative[\s\S]*unknown key/);
+  for (const part of [/names must be/, /stageDir must be relative/, /unknown key/]) {
+    assert.throws(() => validateExternalBinConfig({ names: ["a/b"], stageDir: "../x", extra: 1 }, { platform: "mac", hostArch: "aarch64" }), part);
+  }
   assert.throws(() => validateExternalBinConfig({ names: ["ffmpeg"] }, { platform: "win", hostArch: "x86_64", reservedNames: ["ffmpeg", "ffprobe"] }), /already staged by mediaSidecar/);
   assert.throws(() => validateExternalBinConfig({ names: NAMES, bundleDir: "Contents/MacOS" }, { platform: "win", hostArch: "x86_64" }), /bundleDir applies to macOS only/);
   assert.throws(() => validateExternalBinConfig({ names: NAMES }, { platform: "ios" }), /not supported/);
