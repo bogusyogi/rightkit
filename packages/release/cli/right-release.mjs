@@ -20,6 +20,7 @@ const commands = new Map([
   ["sign-updater", "sign-updater.mjs"],
   ["sign-dev-artifact", "sign-dev-artifact.mjs"],
   ["sign-candidate", "sign-candidate.mjs"],
+  ["engine-locate", "engine-locator.mjs"],
   ["signing-agent", "signing-agent-command.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
@@ -201,6 +202,8 @@ Commands:
                                                       Developer ID sign an existing CI dev artifact per file with fixed identifiers; never builds, notarizes or publishes (macOS)
   sign-candidate --platform win|mac --artifact <dir> --candidate-receipt <receipt.json> --out <binding.json> [--manifest <sign.json>] [--publisher <subject>] [--dry-run]
                                                       Sign the exact unsigned candidate bytes (sha256 checked against the candidate receipt) instead of rebuilding; writes a candidate-sha -> signed-sha binding receipt
+  engine-locate --engine cutright|genright [--sha256 <hex>] [--json]
+                                                      Print the verified path of the installed CutRight/GenRight engine (fixed route, signature and identity checked, no override)
   identity-scan --target <path> [--identifier <id>] [--team <OU>] [--cdhash <hex>] [--arch <arch>]...
                                                       Assert codesign Identifier/Team/cdhash/lipo archs; reject ad-hoc
   upload --release <id> --platform mac|win --tier patch|update
