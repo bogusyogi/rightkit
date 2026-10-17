@@ -1,0 +1,36 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: profiles/rust-hybrid/sign-existing.yml | Template version: ${TEMPLATE_VERSION}
+# Manual only. Signs an already-qualified artifact of another run of this repository
+# with right-release sign-dev-artifact (fixed per-file identifiers, Developer ID) inside
+# the protected signing environment. It verifies the run, artifact and source commit
+# through the GitHub API first, never rebuilds and never builds a release.
+name: ${ARTIFACT_PREFIX}-sign-existing
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Workflow run id that produced the qualified artifact
+        required: true
+        type: string
+      artifact:
+        description: Artifact id or artifact name inside that run
+        required: true
+        type: string
+      source_sha:
+        description: Source commit the artifact was built from (7 to 40 lowercase hex characters, a prefix of the run head sha)
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${ARTIFACT_PREFIX}-sign-existing
+  cancel-in-progress: false
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: exit 1
+${SIGN_EXISTING_JOB}

@@ -25,7 +25,8 @@
           "release-candidate",
           "publish-npm",
           "publish-package-managers",
-          "regenerate"
+          "regenerate",
+          "sign-existing"
         ]
       }
     },
@@ -241,6 +242,17 @@
       "additionalProperties": false,
       "properties": {
         "script": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" }
+      }
+    },
+    "signExisting": {
+      "type": "object",
+      "description": "rust-hybrid only. Manual-only lane 'sign-existing': verifies an already-qualified artifact of another run of this repository (run id, artifact id or name, source sha) through the GitHub API and signs it per file with right-release sign-dev-artifact in the protected signing environment. Never builds. Requires lane 'sign-existing' and a macOS runner in matrix.os.",
+      "required": ["macSignManifest", "macPayloadMetadata"],
+      "additionalProperties": false,
+      "properties": {
+        "macSignManifest": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Repository-relative sign manifest JSON (per-file fixed codesign identifiers, paths relative to the extracted artifact)." },
+        "macPayloadMetadata": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*$", "description": "Payload metadata JSON inside the artifact, relative to the extracted artifact root." },
+        "environment": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", "description": "Protected GitHub environment holding the Developer ID secrets. Defaults to the candidate.releaseChain signing environment, else 'release'." }
       }
     },
     "concurrency": {

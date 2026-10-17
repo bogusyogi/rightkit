@@ -99,6 +99,26 @@ Both keys are opt-in; unset, the rendered `ci.yml` is byte-identical.
 - `devArtifact.parallel: true` moves each platform's build into its own job, `dev-artifact-mac` or `dev-artifact-windows`. Each runs beside the QA gate job instead of after it, needs only the private-repo guard, and compiles the dev app with `devArtifact.buildScript` (a package script name; required with `parallel`, rejected without it) before staging it. Parallel jobs run on their own platform runners, so they do not need `ciAllOs`. `mac: "sign"` still waits for the gate: `dev-mac-sign` needs `ci` and `dev-artifact-mac`. The trade-off: unsigned uploads no longer wait for the gate, so a failing gate can still leave `dev-windows-<sha>` or `dev-mac-unsigned-<sha>` behind. Unset or `false` keeps the staging inside the gate job.
 - The `~/Library/Developer/Xcode/DerivedData` cache helps only builds that use Xcode's default derived data location. A gate that passes its own `-derivedDataPath` writes outside that directory and gets nothing from the cache; use the default location, or cache the custom path in the gate.
 
+## Sign an existing artifact (rust-hybrid, `sign-existing` lane)
+
+For a public repository whose signing must run on protected CI, but whose artifact was already built and qualified by an earlier run. The lane never rebuilds, never uses `--release` and never notarizes.
+
+```json
+{
+  "lanes": ["ci", "sign-existing"],
+  "signExisting": {
+    "macSignManifest": "build/dev-sign.json",
+    "macPayloadMetadata": "Legion.app/Contents/Resources/payload.json",
+    "environment": "release"
+  }
+}
+```
+
+- `macSignManifest` (repository-relative) and `macPayloadMetadata` (relative to the extracted artifact) are the same as for `devArtifact.macSignManifest`; `environment` is optional and defaults to the signing environment (`release`). `matrix.os` needs a macOS runner; the first one is used.
+- Invoke it from the default branch: `gh workflow run sign-existing.yml -f run_id=39001031529 -f artifact=12089612527 -f source_sha=59f451ae`. `artifact` is a numeric artifact id or an artifact name (all digits means id). `source_sha` is 7 to 40 lowercase hex characters and must be a prefix of the run's full head sha.
+- The job refuses, before it downloads the artifact or reads a secret, unless the GitHub API shows that the run belongs to this repository, was built from it (not a fork), completed successfully and has a head sha starting with `source_sha`; that exactly one unexpired artifact of that run matches and records the same run, head sha and repository; and that the source commit is an ancestor of the signing revision (the default-branch commit that runs the job, which also supplies the signing code and sign manifest).
+- The artifact must hold one zip (extracted with `ditto`) or a plain file tree. The job signs it with `right-release sign-dev-artifact`, then uploads `signed-<artifact name>-<sha>` containing the signed zip (same layout), `sign-evidence.json` and `source-verification.json`. It uses the same three Developer ID secrets and temporary keychain as `dev-mac-sign`, with `contents: read` and `actions: read` only. Needs `@rightkit/release` 0.2.172 or later as a dependency. Unset, nothing changes.
+
 ## Cache keys and concurrency (rust-hybrid)
 
 Both keys are opt-in; unset, the rendered workflows are byte-identical.

@@ -19,8 +19,13 @@ export const KNOWN_LANES = Object.freeze([
   "regenerate",
 ]);
 
+// Lanes only the rust-hybrid profile has a template for. They are kept out of KNOWN_LANES so the node
+// profile's per-lane template checks do not look for a template it does not have.
+export const RUST_HYBRID_ONLY_LANES = Object.freeze(["sign-existing"]);
+
 // Rendered filename for each lane, installed under <repo>/.github/workflows/.
 export const LANE_FILENAMES = Object.freeze({
+  "sign-existing": "sign-existing.yml",
   ci: "ci.yml",
   "swift-check": "swift-check.yml",
   qualification: "qualification.yml",
@@ -76,6 +81,7 @@ const TOP_LEVEL_KEYS = new Set([
   "swift",
   "checkout",
   "defaultBranch",
+  "signExisting",
 ]);
 // Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
 // relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
@@ -138,7 +144,7 @@ export function validateManifest(manifest) {
     lanes = manifest.lanes;
     const seen = new Set();
     for (const lane of lanes) {
-      if (typeof lane !== "string" || !KNOWN_LANES.includes(lane)) {
+      if (typeof lane !== "string" || !(KNOWN_LANES.includes(lane) || RUST_HYBRID_ONLY_LANES.includes(lane))) {
         errors.push(`unknown lane: ${JSON.stringify(lane)}`);
       } else if (seen.has(lane)) {
         errors.push(`duplicate lane: ${lane}`);
@@ -175,14 +181,15 @@ export function validateManifest(manifest) {
   const profile = manifest.profile === undefined ? "node" : manifest.profile;
   if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
   if (profile === "rust-hybrid") {
-    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate") || !lanes.includes("ci")) {
-      errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate' and 'regenerate'");
+    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing") || !lanes.includes("ci")) {
+      errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate', 'regenerate' and 'sign-existing'");
     }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => key !== "path") || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
       errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path");
     }
-  } else if (manifest.gate !== undefined) {
-    errors.push("gate is only valid for profile 'rust-hybrid'");
+  } else {
+    if (manifest.gate !== undefined) errors.push("gate is only valid for profile 'rust-hybrid'");
+    if (lanes.some((lane) => RUST_HYBRID_ONLY_LANES.includes(lane))) errors.push("lane 'sign-existing' is only valid for profile 'rust-hybrid'");
   }
 
   validateCheckout(manifest.checkout, errors);
@@ -229,6 +236,7 @@ export function validateManifest(manifest) {
   if (manifest.concurrency !== undefined) validateConcurrency(manifest, lanes, errors);
   validateDevArtifact(manifest, profile, errors);
   validateRegenerate(manifest, lanes, errors);
+  validateSignExisting(manifest, lanes, errors);
 
   const rustCache = manifest.rustCache;
   if (rustCache !== undefined) {
@@ -636,6 +644,31 @@ function validateRegenerate(manifest, lanes, errors) {
   if (typeof regenerate.script !== "string" || !PACKAGE_SCRIPT_RE.test(regenerate.script)) {
     errors.push("regenerate.script must be a package.json script name (letters, digits, ':', '_', '-')");
   }
+}
+
+// The sign-existing lane (rust-hybrid, Orthic-Labs/rightkit#257) is manual-only: it verifies an already-qualified
+// artifact of another run of this repository and signs it per file with right-release sign-dev-artifact. It never builds.
+const SIGN_EXISTING_ENVIRONMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+function validateSignExisting(manifest, lanes, errors) {
+  const sign = manifest.signExisting;
+  const hasLane = Array.isArray(lanes) && lanes.includes("sign-existing");
+  if (sign === undefined) {
+    if (hasLane) errors.push("lane 'sign-existing' requires signExisting { macSignManifest, macPayloadMetadata }");
+    return;
+  }
+  if (sign === null || typeof sign !== "object" || Array.isArray(sign)) {
+    errors.push("signExisting must be an object");
+    return;
+  }
+  if (!hasLane) errors.push("signExisting requires lane 'sign-existing'");
+  for (const key of Object.keys(sign)) {
+    if (!["macSignManifest", "macPayloadMetadata", "environment"].includes(key)) errors.push(`unknown signExisting field: ${key}`);
+  }
+  if (typeof sign.macSignManifest !== "string" || !GATE_PATH_RE.test(sign.macSignManifest)) errors.push("signExisting.macSignManifest must be a safe repository-relative path to a sign manifest JSON");
+  if (typeof sign.macPayloadMetadata !== "string" || !DEV_MAC_PATH_RE.test(sign.macPayloadMetadata)) errors.push("signExisting.macPayloadMetadata must be a safe path inside the artifact archive");
+  if (sign.environment !== undefined && (typeof sign.environment !== "string" || !SIGN_EXISTING_ENVIRONMENT_RE.test(sign.environment))) errors.push("signExisting.environment must be one safe environment name (letters, digits, '.', '_', '-')");
+  if (!Array.isArray(manifest.matrix?.os) || !manifest.matrix.os.some((runner) => typeof runner === "string" && MACOS_RUNNER_RE.test(runner))) errors.push("signExisting needs a macOS runner (macos-* or xcode-*) in matrix.os");
 }
 
 // swift.privatePackages (ci, qualification, release-candidate and regenerate lanes;
@@ -1195,6 +1228,161 @@ ${notarizeStep}      - name: ${uploadLabel}
         run: |
           security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/apple-signing.p12"${notarize ? ' "$RUNNER_TEMP/AuthKey.p8"' : ""}
+`;
+}
+
+// sign-existing lane job (Orthic-Labs/rightkit#257). Signs an already-qualified artifact of ANOTHER run; it never builds,
+// never passes --release, never notarizes. Run id, artifact and source sha arrive as workflow_dispatch inputs and reach the
+// shell only through env vars, after a format check. The keychain install and removal steps mirror devMacSigningJob exactly
+// (same secrets, same temporary keychain); keep the two in step. Bash here avoids a braced upper-case variable, which the
+// template engine would read as a placeholder.
+function signExistingJob(manifest) {
+  const sign = manifest.signExisting;
+  const runner = manifest.matrix.os.find((os) => MACOS_RUNNER_RE.test(os));
+  const pm = parsePackageManager(manifest.packageManager);
+  const exec = { pnpm: "pnpm exec", npm: "npm exec --", yarn: "yarn exec" }[pm.name];
+  const environment = sign.environment ?? releaseEnvironment(manifest, "signing");
+  return `
+  sign-existing:
+    # Default branch only: the signing code and sign manifest come from this revision, and the protected
+    # environment's rules (required reviewers, branch policy) apply. Nothing here compiles the app.
+    needs: [private-repo-guard]
+    if: \${{ github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch }}
+    environment: ${environment}
+    runs-on: ${runner}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: \${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${String(manifest.matrix.node[0])}
+          package-manager-cache: false
+${pm.setup ? `${pm.setup}\n` : ""}      - run: ${pm.installCommand}${ownershipStep(manifest, "sign-existing")}
+      - name: Verify the existing artifact belongs to this repository, run and source commit
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+          INPUT_RUN_ID: \${{ inputs.run_id }}
+          INPUT_ARTIFACT: \${{ inputs.artifact }}
+          INPUT_SOURCE_SHA: \${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "sign-existing refused: $*" >&2; exit 1; }
+          command -v jq >/dev/null || fail "jq is not available on this runner"
+          [[ "$INPUT_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || fail "run_id must be a numeric workflow run id"
+          [[ "$INPUT_ARTIFACT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "artifact must be a numeric artifact id or a plain artifact name"
+          [[ "$INPUT_SOURCE_SHA" =~ ^[0-9a-f]{7,40}$ ]] || fail "source_sha must be 7 to 40 lowercase hexadecimal characters"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INPUT_RUN_ID")"
+          run_id="$(jq -r '.id' <<<"$run_json")"
+          run_repo="$(jq -r '.repository.full_name' <<<"$run_json")"
+          run_repo_id="$(jq -r '.repository.id' <<<"$run_json")"
+          head_repo="$(jq -r '.head_repository.full_name // empty' <<<"$run_json")"
+          head_repo_id="$(jq -r '.head_repository.id // empty' <<<"$run_json")"
+          head_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          status="$(jq -r '.status' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
+          [ "$run_id" = "$INPUT_RUN_ID" ] || fail "run id mismatch"
+          [ "$run_repo" = "$GITHUB_REPOSITORY" ] || fail "run $INPUT_RUN_ID belongs to $run_repo, not $GITHUB_REPOSITORY"
+          [ "$head_repo" = "$GITHUB_REPOSITORY" ] && [ "$head_repo_id" = "$run_repo_id" ] || fail "run $INPUT_RUN_ID was built from another repository or a fork"
+          [ "$status" = completed ] && [ "$conclusion" = success ] || fail "run $INPUT_RUN_ID is $status/$conclusion, not a successful completed run"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || fail "run head sha is not a full commit sha"
+          case "$head_sha" in "$INPUT_SOURCE_SHA"*) ;; *) fail "run $INPUT_RUN_ID head sha $head_sha does not start with source_sha $INPUT_SOURCE_SHA" ;; esac
+          artifacts_json="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$INPUT_RUN_ID/artifacts?per_page=100" | jq -s '[.[].artifacts[]]')"
+          if [[ "$INPUT_ARTIFACT" =~ ^[0-9]+$ ]]; then
+            picked="$(jq -c --argjson id "$INPUT_ARTIFACT" '[.[] | select(.id == $id)]' <<<"$artifacts_json")"
+          else
+            picked="$(jq -c --arg name "$INPUT_ARTIFACT" '[.[] | select(.name == $name)]' <<<"$artifacts_json")"
+          fi
+          [ "$(jq 'length' <<<"$picked")" = 1 ] || fail "artifact $INPUT_ARTIFACT is not exactly one artifact of run $INPUT_RUN_ID"
+          artifact_id="$(jq -r '.[0].id' <<<"$picked")"
+          artifact_name="$(jq -r '.[0].name' <<<"$picked")"
+          [ "$(jq -r '.[0].expired' <<<"$picked")" = false ] || fail "artifact $artifact_name has expired"
+          [ "$(jq -r '.[0].workflow_run.id' <<<"$picked")" = "$INPUT_RUN_ID" ] || fail "artifact $artifact_name belongs to another run"
+          [ "$(jq -r '.[0].workflow_run.head_sha' <<<"$picked")" = "$head_sha" ] || fail "artifact $artifact_name was built from another commit"
+          [ "$(jq -r '.[0].workflow_run.head_repository_id' <<<"$picked")" = "$run_repo_id" ] || fail "artifact $artifact_name was built from another repository"
+          [[ "$artifact_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "artifact name is not a plain name"
+          git cat-file -e "$head_sha^{commit}" 2>/dev/null || fail "source commit $head_sha is not in this repository's history"
+          git merge-base --is-ancestor "$head_sha" "$GITHUB_SHA" || fail "source commit $head_sha is not an ancestor of the signing revision $GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/dev-signed"
+          jq -n --arg repo "$GITHUB_REPOSITORY" --arg run "$run_id" --argjson artifactId "$artifact_id" --arg artifactName "$artifact_name" --arg sourceSha "$head_sha" --arg requested "$INPUT_SOURCE_SHA" --arg signingRevision "$GITHUB_SHA" '{schema: 1, repository: $repo, runId: $run, artifactId: $artifactId, artifactName: $artifactName, sourceSha: $sourceSha, requestedSourceSha: $requested, signingRevision: $signingRevision}' > "$RUNNER_TEMP/dev-signed/source-verification.json"
+          {
+            printf 'run_id=%s\\n' "$run_id"
+            printf 'artifact_id=%s\\n' "$artifact_id"
+            printf 'artifact_name=%s\\n' "$artifact_name"
+            printf 'head_sha=%s\\n' "$head_sha"
+          } >> "$GITHUB_OUTPUT"
+      - name: Download the verified artifact
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: \${{ steps.verify.outputs.artifact_name }}
+          run-id: \${{ steps.verify.outputs.run_id }}
+          repository: \${{ github.repository }}
+          github-token: \${{ github.token }}
+          path: \${{ runner.temp }}/existing-artifact
+      - name: Install Apple signing identity in temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: \${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: \${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-signing.p12"
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+      - name: Developer ID sign existing artifact (no rebuild, no notarization)
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
+        run: |
+          set -euo pipefail
+          downloaded="$RUNNER_TEMP/existing-artifact"
+          work="$RUNNER_TEMP/dev-sign"
+          rm -rf "$work" && mkdir -p "$work" "$RUNNER_TEMP/dev-signed"
+          zips=()
+          while IFS= read -r -d '' file; do zips+=("$file"); done < <(find "$downloaded" -type f -name '*.zip' -print0)
+          if [ "\${#zips[@]}" -eq 1 ]; then
+            ditto -x -k "\${zips[0]}" "$work"
+            out="$(basename "\${zips[0]}")"
+          elif [ "\${#zips[@]}" -eq 0 ]; then
+            ditto "$downloaded" "$work"
+            out="signed-artifact.zip"
+          else
+            echo "sign-existing refused: the artifact holds more than one zip" >&2
+            exit 1
+          fi
+          ${exec} right-release sign-dev-artifact --artifact "$work" --manifest "$GITHUB_WORKSPACE/${sign.macSignManifest}" --metadata "$work/${sign.macPayloadMetadata}" --evidence "$RUNNER_TEMP/dev-signed/sign-evidence.json"
+          ditto -c -k "$work" "$RUNNER_TEMP/dev-signed/$out"
+      - name: Upload signed existing artifact
+        uses: ${UPLOAD_ARTIFACT_PIN}
+        with:
+          name: signed-\${{ steps.verify.outputs.artifact_name }}-\${{ steps.verify.outputs.head_sha }}
+          path: |
+            \${{ runner.temp }}/dev-signed/*.zip
+            \${{ runner.temp }}/dev-signed/sign-evidence.json
+            \${{ runner.temp }}/dev-signed/source-verification.json
+          retention-days: ${DEV_ARTIFACT_DEFAULT_RETENTION_DAYS}
+          if-no-files-found: error
+      - name: Remove Apple signing material
+        if: \${{ always() }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/apple-signing.p12"
 `;
 }
 
@@ -2027,6 +2215,9 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
   }
   if (manifest.regenerate) {
     context.REGENERATE_SCRIPT = manifest.regenerate.script;
+  }
+  if (manifest.signExisting && lane === "sign-existing") {
+    context.SIGN_EXISTING_JOB = signExistingJob(manifest);
   }
   if (manifest.candidate) {
     context.CANDIDATE_BUILD_SCRIPT = manifest.candidate.buildScript;

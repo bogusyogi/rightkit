@@ -1138,6 +1138,84 @@ test("devArtifact macSignManifest validation", () => {
   assert.equal(check({ ...DEV_MANIFEST.devArtifact, macPayloadMetadata: "a/payload.json" }).valid, false, "metadata alone");
 });
 
+// Orthic-Labs/rightkit#257: the sign-existing lane signs an already-qualified artifact of another run; it never builds.
+const SIGN_EXISTING_MANIFEST = {
+  ...INCREMENTAL_BASE,
+  lanes: ["ci", "sign-existing"],
+  signExisting: { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "Legion.app/Contents/Resources/payload.json" },
+};
+const renderSignExisting = (manifest) => renderTemplate(
+  fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid", LANE_FILENAMES["sign-existing"]), "utf8"),
+  buildRenderContext(structuredClone(manifest), "/repos/legion", "sign-existing"),
+);
+
+test("sign-existing renders a dispatch-only, minimal-permission, protected signing job that never builds", () => {
+  const out = renderSignExisting(SIGN_EXISTING_MANIFEST);
+  assert.match(out, /^name: legion-sign-existing$/m);
+  assert.match(out, /on:\n  workflow_dispatch:\n    inputs:\n      run_id:[\s\S]*      artifact:[\s\S]*      source_sha:[\s\S]*\npermissions:\n  contents: read\n  actions: read\n/);
+  const job = out.split("\n  sign-existing:\n")[1];
+  assert.match(job, /needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: release\n    runs-on: xcode-27/);
+  assert.match(job, /permissions:\n      contents: read\n      actions: read\n/);
+  assert.doesNotMatch(out, /--release|cargo |notarytool|APPLE_API_KEY|buildScript/);
+  assert.doesNotMatch(out, /(?:contents|actions|id-token|pull-requests|packages): write/);
+  assert.match(job, /pnpm exec right-release sign-dev-artifact --artifact "\$work" --manifest "\$GITHUB_WORKSPACE\/build\/dev-sign\.json" --metadata "\$work\/Legion\.app\/Contents\/Resources\/payload\.json" --evidence "\$RUNNER_TEMP\/dev-signed\/sign-evidence\.json"/);
+  assert.match(job, /sign-evidence\.json\n[\s\S]*source-verification\.json\n          retention-days: 7\n          if-no-files-found: error/);
+  // Inputs reach the shell only through env, never through inline expressions in run scripts.
+  assert.match(job, /INPUT_RUN_ID: \$\{\{ inputs\.run_id \}\}[\s\S]*INPUT_ARTIFACT: \$\{\{ inputs\.artifact \}\}[\s\S]*INPUT_SOURCE_SHA: \$\{\{ inputs\.source_sha \}\}/);
+  assert.equal(out.match(/inputs\./g).length, 3);
+});
+
+test("sign-existing verifies repository, run, artifact and head sha before it downloads, and signs only after", () => {
+  const job = renderSignExisting(SIGN_EXISTING_MANIFEST).split("\n  sign-existing:\n")[1];
+  const at = (needle) => { const index = job.indexOf(needle); assert.ok(index >= 0, `missing ${needle}`); return index; };
+  assert.ok(at("id: verify") < at("actions/download-artifact@") && at("actions/download-artifact@") < at("Install Apple signing identity") && at("Install Apple signing identity") < at("sign-dev-artifact"));
+  assert.match(job, /actions\/runs\/\$INPUT_RUN_ID"\)"/);
+  assert.match(job, /run \$INPUT_RUN_ID belongs to \$run_repo, not \$GITHUB_REPOSITORY/);
+  assert.match(job, /another repository or a fork/);
+  assert.match(job, /case "\$head_sha" in "\$INPUT_SOURCE_SHA"\*\)/);
+  assert.match(job, /\.workflow_run\.id[\s\S]*\.workflow_run\.head_sha[\s\S]*\.workflow_run\.head_repository_id/);
+  assert.match(job, /git merge-base --is-ancestor "\$head_sha" "\$GITHUB_SHA"/);
+  assert.match(job, /uses: actions\/download-artifact@[0-9a-f]{40} # v4\.3\.0\n        with:\n          name: \$\{\{ steps\.verify\.outputs\.artifact_name \}\}\n          run-id: \$\{\{ steps\.verify\.outputs\.run_id \}\}\n          repository: \$\{\{ github\.repository \}\}\n          github-token: \$\{\{ github\.token \}\}/);
+  assert.match(job, /uses: actions\/(?:checkout|setup-node|upload-artifact)@[0-9a-f]{40}/);
+  assert.doesNotMatch(job, /uses: [^\n]*@v\d/, "third-party actions are pinned to a commit");
+});
+
+test("sign-existing mirrors the dev-mac-sign secret and keychain handling and adds no new secret", () => {
+  const sign = renderSignExisting(SIGN_EXISTING_MANIFEST);
+  assert.deepEqual([...new Set([...sign.matchAll(/secrets\.([A-Z_]+)/g)].map((match) => match[1]))].sort(), ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+  const devMac = renderRustCi({ ...DEV_MANIFEST, devArtifact: PER_FILE_DEV }).split("  dev-mac-sign:")[1];
+  const block = (text, from, to) => text.slice(text.indexOf(from), text.indexOf(to));
+  assert.equal(block(sign, "      - name: Install Apple signing identity", "      - name: Developer ID sign"), block(devMac, "      - name: Install Apple signing identity", "      - name: Developer ID sign"));
+  const cleanup = '      - name: Remove Apple signing material\n        if: ${{ always() }}\n        shell: bash\n        run: |\n          security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true\n          rm -f "$RUNNER_TEMP/apple-signing.p12"\n';
+  assert.ok(sign.includes(cleanup) && devMac.includes(cleanup), "same keychain removal");
+  assert.match(sign, /APPLE_DEVELOPER_ID: \$\{\{ vars\.APPLE_DEVELOPER_ID \}\}/);
+});
+
+test("sign-existing environment defaults to the signing environment and can be set", () => {
+  assert.match(renderSignExisting(SIGN_EXISTING_MANIFEST), /\n    environment: release\n/);
+  assert.match(renderSignExisting({ ...SIGN_EXISTING_MANIFEST, signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, environment: "legion-sign" } }), /\n    environment: legion-sign\n/);
+});
+
+test("signExisting unset leaves the ci workflow byte-identical, and the lane is not rendered unless declared", () => {
+  assert.equal(renderRustCi(SIGN_EXISTING_MANIFEST), renderRustCi(INCREMENTAL_BASE));
+  assert.doesNotMatch(renderRustCi(SIGN_EXISTING_MANIFEST), /sign-existing|sign-dev-artifact/);
+  assert.equal(KNOWN_LANES.includes("sign-existing"), false, "node-profile all-lane checks keep their lane list");
+});
+
+test("signExisting validation", () => {
+  const check = (patch) => validateManifest({ ...SIGN_EXISTING_MANIFEST, regenerate: undefined, ...patch });
+  assert.equal(check({}).valid, true);
+  assert.equal(check({ signExisting: undefined }).valid, false, "lane needs config");
+  assert.equal(check({ lanes: ["ci"] }).valid, false, "config needs lane");
+  assert.equal(check({ signExisting: { macSignManifest: "build/dev-sign.json" } }).valid, false, "metadata required");
+  assert.equal(check({ signExisting: { macPayloadMetadata: "payload.json" } }).valid, false, "sign manifest required");
+  assert.equal(check({ signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, macSignManifest: "../x.json" } }).valid, false, "safe path");
+  assert.equal(check({ signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, environment: "a b" } }).valid, false, "safe environment");
+  assert.equal(check({ signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, release: true } }).valid, false, "no unknown fields, so no release mode");
+  assert.equal(check({ matrix: { os: ["windows-2025"], node: ["26.8.1"] } }).valid, false, "needs a macOS runner");
+  assert.equal(validateManifest({ ...SIGN_EXISTING_MANIFEST, profile: undefined, gate: undefined, ciAllOs: undefined, regenerate: undefined }).valid, false, "rust-hybrid only");
+});
+
 test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
   const bin = spawnSync("actionlint", ["-version"], { encoding: "utf8" });
   if (bin.error) return t.skip("actionlint not installed");
