@@ -23,8 +23,8 @@ use tokio::time::{sleep, timeout, Sleep};
 
 use crate::cancel::CancelToken;
 use crate::client::{
-    header_of, AttemptEvent, redact_str, redaction_values_for, scrub_error, status_error, ClientConfig, Method,
-    Request, Response, RetryEvent,
+    header_of, redact_str, redaction_values_for, scrub_error, status_error, AttemptEvent,
+    ClientConfig, Method, Request, Response, RetryEvent,
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy};

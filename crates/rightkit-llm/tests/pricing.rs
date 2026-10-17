@@ -54,19 +54,31 @@ fn a_dated_model_is_not_priced_by_prefix_unless_asked() {
 fn try_cost_of_blocks_an_unpriced_per_token_response_even_without_usage() {
     let t = table(ONE);
     assert_eq!(
-        t.try_cost_of(&response("claude-sonnet-5", Metering::PerToken, true), PriceMatch::Exact),
+        t.try_cost_of(
+            &response("claude-sonnet-5", Metering::PerToken, true),
+            PriceMatch::Exact
+        ),
         Ok(Some(12.0))
     );
     assert_eq!(
-        t.try_cost_of(&response("claude-sonnet-5", Metering::PerToken, false), PriceMatch::Exact),
+        t.try_cost_of(
+            &response("claude-sonnet-5", Metering::PerToken, false),
+            PriceMatch::Exact
+        ),
         Ok(None)
     );
     assert!(matches!(
-        t.try_cost_of(&response("mystery", Metering::PerToken, false), PriceMatch::Exact),
+        t.try_cost_of(
+            &response("mystery", Metering::PerToken, false),
+            PriceMatch::Exact
+        ),
         Err(PriceError::Unpriced { .. })
     ));
     assert_eq!(
-        t.try_cost_of(&response("mystery", Metering::Subscription, true), PriceMatch::Exact),
+        t.try_cost_of(
+            &response("mystery", Metering::Subscription, true),
+            PriceMatch::Exact
+        ),
         Ok(None)
     );
 }
@@ -83,7 +95,9 @@ fn merge_refuses_a_differing_row_and_accepts_new_and_identical_rows() {
 
     let changed = table(r#"[{"slug":"claude-sonnet-5","input_per_m":9.0,"output_per_m":10.0}]"#);
     match base.merge(changed) {
-        Err(PriceError::Conflict { existing, incoming, .. }) => {
+        Err(PriceError::Conflict {
+            existing, incoming, ..
+        }) => {
             assert_eq!(existing.input_per_m, 2.0);
             assert_eq!(incoming.input_per_m, 9.0);
         }
@@ -105,10 +119,19 @@ fn merge_overriding_reports_every_replaced_row() {
 #[test]
 fn from_json_rejects_duplicates_and_bad_prices() {
     let dup = r#"[{"slug":"a/m","input_per_m":1.0,"output_per_m":1.0},{"slug":"b/M","input_per_m":2.0,"output_per_m":2.0}]"#;
-    assert!(matches!(PriceTable::from_json(dup), Err(PriceError::Duplicate { .. })));
+    assert!(matches!(
+        PriceTable::from_json(dup),
+        Err(PriceError::Duplicate { .. })
+    ));
     let neg = r#"[{"slug":"m","input_per_m":-1.0,"output_per_m":1.0}]"#;
-    assert!(matches!(PriceTable::from_json(neg), Err(PriceError::Invalid { .. })));
-    assert!(matches!(PriceTable::from_json("nope"), Err(PriceError::Parse(_))));
+    assert!(matches!(
+        PriceTable::from_json(neg),
+        Err(PriceError::Invalid { .. })
+    ));
+    assert!(matches!(
+        PriceTable::from_json("nope"),
+        Err(PriceError::Parse(_))
+    ));
 }
 
 #[test]

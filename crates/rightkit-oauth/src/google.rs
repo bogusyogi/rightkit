@@ -126,8 +126,7 @@ pub struct Jwks {
 
 impl Jwks {
     pub fn parse(json: &str) -> Result<Self, IdTokenError> {
-        let v: Value =
-            serde_json::from_str(json).map_err(|e| IdTokenError::Keys(e.to_string()))?;
+        let v: Value = serde_json::from_str(json).map_err(|e| IdTokenError::Keys(e.to_string()))?;
         let list = v
             .get("keys")
             .and_then(Value::as_array)
@@ -772,7 +771,11 @@ mod tests {
     fn issuer_audience_azp_expiry_and_subject_rules() {
         let bare = with(claims(), "iss", json!("accounts.google.com"));
         assert!(check(&token(header(), bare)).is_ok());
-        let multi = with(with(claims(), "aud", json!([CLIENT, "x"])), "azp", json!(CLIENT));
+        let multi = with(
+            with(claims(), "aud", json!([CLIENT, "x"])),
+            "azp",
+            json!(CLIENT),
+        );
         assert!(check(&token(header(), multi)).is_ok());
 
         let bad = |c: Value| check(&token(header(), c));
@@ -788,7 +791,11 @@ mod tests {
             bad(with(claims(), "aud", json!("someone-else"))),
             Err(IdTokenError::BadAudience)
         );
-        let wrong_azp = with(with(claims(), "aud", json!([CLIENT, "x"])), "azp", json!("x"));
+        let wrong_azp = with(
+            with(claims(), "aud", json!([CLIENT, "x"])),
+            "azp",
+            json!("x"),
+        );
         assert_eq!(bad(wrong_azp), Err(IdTokenError::BadAudience));
         let no_azp = with(claims(), "aud", json!([CLIENT, "x"]));
         assert_eq!(bad(no_azp), Err(IdTokenError::BadAudience));
@@ -854,7 +861,10 @@ mod tests {
             Err(IdTokenError::Malformed)
         );
         // Bad claims behind a bad signature report the signature, not the claims.
-        let forged = token(header(), with(claims(), "iss", json!("https://evil.example")));
+        let forged = token(
+            header(),
+            with(claims(), "iss", json!("https://evil.example")),
+        );
         assert_eq!(
             check_with(&forged, None, reject_sig),
             Err(IdTokenError::BadSignature)
@@ -881,7 +891,10 @@ mod tests {
         assert_eq!(v.read_trusted(&old).unwrap().sub, "1100234");
         let wrong_aud = token(header(), with(claims(), "aud", json!("other")));
         assert_eq!(v.read_trusted(&wrong_aud), Err(IdTokenError::BadAudience));
-        let wrong_iss = token(header(), with(claims(), "iss", json!("https://evil.example")));
+        let wrong_iss = token(
+            header(),
+            with(claims(), "iss", json!("https://evil.example")),
+        );
         assert_eq!(v.read_trusted(&wrong_iss), Err(IdTokenError::BadIssuer));
         assert_eq!(v.read_trusted("not-a-jwt"), Err(IdTokenError::Malformed));
     }
@@ -1057,7 +1070,10 @@ mod tests {
 
         let mut t = tokens("cached", GRANTED, Some(id_token_for(None)));
         r.store.save("google", &t).unwrap();
-        assert_eq!(r.session.access_token().unwrap().unwrap().expose(), "cached");
+        assert_eq!(
+            r.session.access_token().unwrap().unwrap().expose(),
+            "cached"
+        );
         assert_eq!(r.token_server.request_count(), 0);
 
         // 60 s left is inside the 120 s refresh skew.
@@ -1192,10 +1208,19 @@ mod tests {
         handle.borrow_mut().take().unwrap().join().unwrap();
 
         assert_eq!(identity.sub, "1100234");
-        assert_eq!(query_param(&sent_url, "code_challenge_method").as_deref(), Some("S256"));
+        assert_eq!(
+            query_param(&sent_url, "code_challenge_method").as_deref(),
+            Some("S256")
+        );
         assert!(query_param(&sent_url, "code_challenge").is_some());
-        assert_eq!(query_param(&sent_url, "access_type").as_deref(), Some("offline"));
-        assert_eq!(query_param(&sent_url, "response_type").as_deref(), Some("code"));
+        assert_eq!(
+            query_param(&sent_url, "access_type").as_deref(),
+            Some("offline")
+        );
+        assert_eq!(
+            query_param(&sent_url, "response_type").as_deref(),
+            Some("code")
+        );
         assert!(query_param(&sent_url, "redirect_uri")
             .unwrap()
             .starts_with("http://127.0.0.1:"));
@@ -1207,8 +1232,20 @@ mod tests {
             .unwrap()
             .iter()
             .any(|(k, v)| k == "code_verifier" && !v.is_empty()));
-        assert_eq!(session.access_token().unwrap().unwrap().expose(), "access-1");
-        assert_eq!(store.load("google").unwrap().unwrap().refresh_token.unwrap().expose(), "refresh-1");
+        assert_eq!(
+            session.access_token().unwrap().unwrap().expose(),
+            "access-1"
+        );
+        assert_eq!(
+            store
+                .load("google")
+                .unwrap()
+                .unwrap()
+                .refresh_token
+                .unwrap()
+                .expose(),
+            "refresh-1"
+        );
         assert_eq!(token_server.request_count(), 1);
     }
 }

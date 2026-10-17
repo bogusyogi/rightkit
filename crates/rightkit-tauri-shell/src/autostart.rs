@@ -488,7 +488,8 @@ fn set_enabled_service_management(
 /// already loaded stops at the next login. Call it once at startup; the shell does when the backend
 /// is on.
 pub fn migrate_launch_agent(spec: &AutostartSpec) -> Result<AutostartMigration, String> {
-    if reports_unsupported(&spec.options, cfg!(target_os = "macos")) || !uses_service_management(spec)
+    if reports_unsupported(&spec.options, cfg!(target_os = "macos"))
+        || !uses_service_management(spec)
     {
         return Ok(AutostartMigration::NoLegacy);
     }

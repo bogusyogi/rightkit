@@ -660,25 +660,40 @@ mod tests {
         let route = |scheme: &str, host: &str| static_route_for_url(&s, scheme, host);
         let proxy = |u: &str| Some(UrlRoute::Proxy(u.into()));
         let direct = Some(UrlRoute::Direct);
-        assert_eq!(route("http", "api.example.com"), proxy("http://plain.corp:8080"));
-        assert_eq!(route("https", "api.example.com"), proxy("http://secure.corp:8443"));
+        assert_eq!(
+            route("http", "api.example.com"),
+            proxy("http://plain.corp:8080")
+        );
+        assert_eq!(
+            route("https", "api.example.com"),
+            proxy("http://secure.corp:8443")
+        );
         // `<local>`: dotless names, both schemes.
         assert_eq!(route("http", "intranet"), direct);
         assert_eq!(route("https", "intranet"), direct);
         // Wildcards.
         assert_eq!(route("https", "a.corp.example"), direct);
         assert_eq!(route("http", "10.1.2.3"), direct);
-        assert_eq!(route("https", "110.1.2.3"), proxy("http://secure.corp:8443"));
+        assert_eq!(
+            route("https", "110.1.2.3"),
+            proxy("http://secure.corp:8443")
+        );
         // The scheme-limited entry bypasses https only: http still uses its proxy.
         assert_eq!(route("https", "only-tls.example"), direct);
-        assert_eq!(route("http", "only-tls.example"), proxy("http://plain.corp:8080"));
+        assert_eq!(
+            route("http", "only-tls.example"),
+            proxy("http://plain.corp:8080")
+        );
     }
 
     #[test]
     fn a_scheme_with_no_endpoint_is_direct_under_a_split_config() {
         let s = settings("https=secure.corp:8443", "http://skip.example");
         assert_eq!(proxy_choice(&s), SystemProxyChoice::PerRequest);
-        assert_eq!(static_route_for_url(&s, "http", "x.example"), Some(UrlRoute::Direct));
+        assert_eq!(
+            static_route_for_url(&s, "http", "x.example"),
+            Some(UrlRoute::Direct)
+        );
         assert_eq!(
             static_route_for_url(&s, "https", "skip.example"),
             Some(UrlRoute::Proxy("http://secure.corp:8443".into()))

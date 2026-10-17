@@ -766,7 +766,10 @@ mod tests {
         let env = |_: &str| None;
         let b = Some(base.join("rightkit-build-control"));
         let q = query("myapp", &app, b.clone(), &env);
-        assert!(matches!(resolve(&q).unwrap().source, BinarySource::BrokerTarget(_)));
+        assert!(matches!(
+            resolve(&q).unwrap().source,
+            BinarySource::BrokerTarget(_)
+        ));
         let got = resolve_stashed(&q).unwrap();
         assert!(matches!(got.source, BinarySource::BrokerTarget(_)));
         assert!(is_stashed(&got.path, &app));
@@ -775,8 +778,11 @@ mod tests {
         // A new generation lands in a new folder; the launch path stays the same, `.previous` keeps the old copy.
         let gen2 = ws.join("g/002/t/debug").join(exe("myapp"));
         std::fs::create_dir_all(gen2.parent().unwrap()).unwrap();
-        std::fs::write(&gen2, [b"MZ-gen2".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat())
-            .unwrap();
+        std::fs::write(
+            &gen2,
+            [b"MZ-gen2".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat(),
+        )
+        .unwrap();
         let later = resolve_stashed(&query("myapp", &app, b, &env)).unwrap();
         assert_eq!(later.path, got.path);
         assert!(crate::inplace::previous_path(&got.path).is_file());
@@ -789,7 +795,10 @@ mod tests {
         let env2 = move |k: &str| (k == "MYAPP_APP_BINARY").then(|| p.clone());
         let from_env = resolve_stashed(&query("myapp", &app, None, &env2)).unwrap();
         assert!(from_env.path.starts_with(app.join(STASH_DIR)));
-        assert_eq!(from_env.source, BinarySource::Env("MYAPP_APP_BINARY".into()));
+        assert_eq!(
+            from_env.source,
+            BinarySource::Env("MYAPP_APP_BINARY".into())
+        );
         // The installed-app refusal from 0.6.3 still applies to the resolved source.
         assert!(is_stashed(&from_env.path, &app) && !is_stashed(&envd, &app));
     }
@@ -814,8 +823,11 @@ mod tests {
         assert!(got.with_extension("pdb").is_file());
         // Stashing a different build replaces it in place and keeps exactly one `.previous`.
         write_exe(&built, 3, true);
-        std::fs::write(&built, [b"MZ-second".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat())
-            .unwrap();
+        std::fs::write(
+            &built,
+            [b"MZ-second".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat(),
+        )
+        .unwrap();
         let again = stash_qa_build(&built, &app, None).unwrap();
         assert_eq!(again, got);
         let prev = crate::inplace::previous_path(&got);

@@ -105,15 +105,27 @@ mod tests {
     fn namespaced_keys_differ_per_store() {
         let s = Scope::new("v", "c", "a").unwrap();
         assert_eq!(s.namespaced("tokens").unwrap(), "tokens:v/c/a");
-        assert_ne!(s.namespaced("cache").unwrap(), s.namespaced("proof").unwrap());
+        assert_ne!(
+            s.namespaced("cache").unwrap(),
+            s.namespaced("proof").unwrap()
+        );
         assert!(s.namespaced("a:b").is_err());
     }
 
     #[test]
     fn bad_parts_are_refused() {
-        assert_eq!(Scope::new("", "c", "a"), Err(ScopeError::Empty { part: "venture" }));
-        assert_eq!(Scope::new("v", "c/d", "a"), Err(ScopeError::Reserved { part: "channel" }));
-        assert_eq!(Scope::new("v", "c", "a b"), Err(ScopeError::Reserved { part: "account" }));
+        assert_eq!(
+            Scope::new("", "c", "a"),
+            Err(ScopeError::Empty { part: "venture" })
+        );
+        assert_eq!(
+            Scope::new("v", "c/d", "a"),
+            Err(ScopeError::Reserved { part: "channel" })
+        );
+        assert_eq!(
+            Scope::new("v", "c", "a b"),
+            Err(ScopeError::Reserved { part: "account" })
+        );
         assert!(Scope::parse("v/c").is_err());
         assert!(Scope::parse("v/c/a/x").is_err());
         assert!(Scope::parse("v//a").is_err());

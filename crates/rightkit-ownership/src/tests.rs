@@ -957,7 +957,11 @@ fn inventory_hash_workers_are_bounded_and_shared() {
                     &|_| 1 << 20,
                     &dir,
                 );
-                inventory.files.iter().filter(|f| f.digest.is_some()).count()
+                inventory
+                    .files
+                    .iter()
+                    .filter(|f| f.digest.is_some())
+                    .count()
             })
         })
         .collect();

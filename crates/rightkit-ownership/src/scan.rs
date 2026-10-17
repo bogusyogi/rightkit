@@ -100,7 +100,13 @@ fn has_code_ext(rel: &str) -> bool {
 
 fn is_manifest_or_lock(rel: &str) -> bool {
     let base = posix_basename(rel);
-    ["Cargo.toml", "package.json", "Package.swift", "pnpm-workspace.yaml"].contains(&base)
+    [
+        "Cargo.toml",
+        "package.json",
+        "Package.swift",
+        "pnpm-workspace.yaml",
+    ]
+    .contains(&base)
         || OWNERSHIP_LOCKFILES.contains(&base)
 }
 
@@ -1418,17 +1424,36 @@ mod exception_tests {
     }
 
     fn run(findings: &[Value], exceptions: &[Value]) -> EvalResult {
-        evaluate(findings, exceptions, &Value::Null, &json!({"enrolled": true}))
+        evaluate(
+            findings,
+            exceptions,
+            &Value::Null,
+            &json!({"enrolled": true}),
+        )
     }
 
     fn stale(result: &EvalResult) -> usize {
-        result.warnings.iter().filter(|w| w.contains("stale")).count()
+        result
+            .warnings
+            .iter()
+            .filter(|w| w.contains("stale"))
+            .count()
     }
 
     #[test]
     fn plain_entry_marks_matching_findings_excepted_without_trust_or_signature() {
-        let github = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
-        let other = finding("src/b.rs", "browser.x", "browser-automation", "rightkit-browser");
+        let github = finding(
+            "src/a.rs",
+            "oauth.endpoint.github",
+            "oauth-sign-in",
+            "rightkit-oauth",
+        );
+        let other = finding(
+            "src/b.rs",
+            "browser.x",
+            "browser-automation",
+            "rightkit-browser",
+        );
         let result = run(&[github, other], &[entry()]);
         assert!(result.problems.is_empty(), "{:?}", result.problems);
         assert_eq!(result.covered.len(), 1);
@@ -1439,7 +1464,12 @@ mod exception_tests {
 
     #[test]
     fn crate_alias_fingerprint_and_path_narrow_the_match() {
-        let f = finding("engine/src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
+        let f = finding(
+            "engine/src/a.rs",
+            "oauth.endpoint.github",
+            "oauth-sign-in",
+            "rightkit-oauth",
+        );
         let mut aliased = entry();
         aliased.as_object_mut().unwrap().remove("package");
         aliased["crate"] = json!("rightkit-oauth");
@@ -1451,7 +1481,14 @@ mod exception_tests {
         let mut wrong_fingerprint = entry();
         wrong_fingerprint["fingerprint"] = json!("oauth.endpoint.google");
         let result = run(&[f.clone()], &[wrong_fingerprint]);
-        assert_eq!((result.covered.len(), result.violations.len(), stale(&result)), (0, 1, 1));
+        assert_eq!(
+            (
+                result.covered.len(),
+                result.violations.len(),
+                stale(&result)
+            ),
+            (0, 1, 1)
+        );
         let mut wrong_path = entry();
         wrong_path["path"] = json!("apps/src");
         let result = run(&[f], &[wrong_path]);
@@ -1460,23 +1497,45 @@ mod exception_tests {
 
     #[test]
     fn entry_matching_nothing_is_a_stale_warning_not_a_problem() {
-        let f = finding("src/a.rs", "browser.x", "browser-automation", "rightkit-browser");
+        let f = finding(
+            "src/a.rs",
+            "browser.x",
+            "browser-automation",
+            "rightkit-browser",
+        );
         let result = run(&[f], &[entry()]);
         assert!(result.problems.is_empty());
         assert_eq!(result.covered.len(), 0);
         assert_eq!(result.violations.len(), 1);
-        assert!(result.warnings.iter().any(|w| w.starts_with("exception #0 (oauth-sign-in/rightkit-oauth): stale, matches no current finding")));
+        assert!(result.warnings.iter().any(|w| w.starts_with(
+            "exception #0 (oauth-sign-in/rightkit-oauth): stale, matches no current finding"
+        )));
     }
 
     #[test]
     fn malformed_and_legacy_signed_entries_are_problems_and_never_cover() {
-        let f = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
-        for (key, expected) in [("reason", "missing reason"), ("owner", "missing owner"), ("capability", "missing capability"), ("package", "missing package"), ("date", "date must be YYYY-MM-DD")] {
+        let f = finding(
+            "src/a.rs",
+            "oauth.endpoint.github",
+            "oauth-sign-in",
+            "rightkit-oauth",
+        );
+        for (key, expected) in [
+            ("reason", "missing reason"),
+            ("owner", "missing owner"),
+            ("capability", "missing capability"),
+            ("package", "missing package"),
+            ("date", "date must be YYYY-MM-DD"),
+        ] {
             let mut broken = entry();
             broken.as_object_mut().unwrap().remove(key);
             let result = run(&[f.clone()], &[broken]);
             assert_eq!(result.covered.len(), 0, "{key}");
-            assert!(result.problems[0].contains(expected), "{:?}", result.problems);
+            assert!(
+                result.problems[0].contains(expected),
+                "{:?}",
+                result.problems
+            );
         }
         let mut bad_date = entry();
         bad_date["date"] = json!("2026-99-99");
@@ -1489,10 +1548,23 @@ mod exception_tests {
 
     #[test]
     fn two_entries_for_one_finding_cover_it_once_and_pending_enrollment_only_warns() {
-        let f = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
-        let result = evaluate(&[f], &[entry(), entry()], &Value::Null, &json!({"pending": true}));
+        let f = finding(
+            "src/a.rs",
+            "oauth.endpoint.github",
+            "oauth-sign-in",
+            "rightkit-oauth",
+        );
+        let result = evaluate(
+            &[f],
+            &[entry(), entry()],
+            &Value::Null,
+            &json!({"pending": true}),
+        );
         assert_eq!((result.covered.len(), result.violations.len()), (1, 0));
         assert!(result.problems.is_empty());
-        assert!(result.warnings.iter().any(|w| w.contains("enrollment pending")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("enrollment pending")));
     }
 }

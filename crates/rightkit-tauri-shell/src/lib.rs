@@ -70,7 +70,6 @@ use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::{AppHandle, Manager, Wry};
 
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames, MacosBackend};
-pub use login_item::LoginItemStatus;
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
 pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
@@ -80,6 +79,7 @@ pub use idle::{
     IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
     IdleTransitionKind, IdleTrigger,
 };
+pub use login_item::LoginItemStatus;
 pub use menu::{MenuEntry, MenuGroup, MenuSpec};
 pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
 pub use nav::{NavDecision, NavPolicy};

@@ -73,10 +73,16 @@ fn custom_table_and_columns_keep_names() {
     let c = conn();
     c.execute_batch("CREATE TABLE app_prefs (name TEXT PRIMARY KEY, val TEXT)")
         .unwrap();
-    let s = plain().table("app_prefs").unwrap().columns("name", "val").unwrap();
+    let s = plain()
+        .table("app_prefs")
+        .unwrap()
+        .columns("name", "val")
+        .unwrap();
     s.set(&c, "x", "y").unwrap();
     let got: String = c
-        .query_row("SELECT val FROM app_prefs WHERE name = 'x'", [], |r| r.get(0))
+        .query_row("SELECT val FROM app_prefs WHERE name = 'x'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(got, "y");
     assert!(matches!(
@@ -95,7 +101,8 @@ fn rename_old(m: &mut serde_json::Map<String, Value>) -> Result<(), Error> {
 #[test]
 fn migrate_applies_pending_and_stamps_version() {
     let c = conn();
-    let s = SqlSettings::new(Schema::new("mail", 2).migration(2, rename_old)).version_key("schema_version");
+    let s = SqlSettings::new(Schema::new("mail", 2).migration(2, rename_old))
+        .version_key("schema_version");
     s.ensure_table(&c).unwrap();
     s.set(&c, "old", "v").unwrap();
     s.set(&c, "other", "o").unwrap();
@@ -153,7 +160,8 @@ fn failed_migration_writes_nothing() {
         Err(Error::Invalid("no".into()))
     }
     let c = conn();
-    let s = SqlSettings::new(Schema::new("mail", 1).migration(1, boom)).version_key("schema_version");
+    let s =
+        SqlSettings::new(Schema::new("mail", 1).migration(1, boom)).version_key("schema_version");
     s.ensure_table(&c).unwrap();
     s.set(&c, "a", "1").unwrap();
     assert!(s.migrate(&c).is_err());

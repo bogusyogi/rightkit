@@ -237,7 +237,10 @@ fn denial_text_names_the_configured_app() {
         .require_file(path.to_str().unwrap())
         .unwrap_err()
         .to_string();
-    assert!(default_msg.contains("through the app first"), "{default_msg}");
+    assert!(
+        default_msg.contains("through the app first"),
+        "{default_msg}"
+    );
     let named_msg = PathBroker::with_app_name("ViewRight")
         .require_file(path.to_str().unwrap())
         .unwrap_err()
@@ -254,6 +257,8 @@ fn revoke_ignores_case_on_case_insensitive_platforms() {
     let display = broker.grant_file(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     broker.revoke_path(&display.to_uppercase()).unwrap();
-    let normalized = std::fs::canonicalize(dir.path()).unwrap().join("Case-Revoke.txt");
+    let normalized = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join("Case-Revoke.txt");
     assert!(!broker.is_granted_normalized(&normalized).unwrap());
 }

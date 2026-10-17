@@ -398,9 +398,7 @@ impl ToolExecutor {
     }
 
     fn deadline_passed(&self, started: Instant) -> bool {
-        self.budget
-            .deadline
-            .is_some_and(|d| started.elapsed() >= d)
+        self.budget.deadline.is_some_and(|d| started.elapsed() >= d)
     }
 
     /// Bounds that apply before a further model call.
@@ -503,7 +501,11 @@ impl ToolExecutor {
 
     fn invoke(&self, call: &ToolInvocation<'_>) -> (String, bool, ToolOutcome) {
         if let GateDecision::Deny(reason) = self.gate.decide(call) {
-            return (format!("denied: {reason}"), true, ToolOutcome::Denied(reason));
+            return (
+                format!("denied: {reason}"),
+                true,
+                ToolOutcome::Denied(reason),
+            );
         }
         let Some(handler) = self.registry.handler(call.name) else {
             return (

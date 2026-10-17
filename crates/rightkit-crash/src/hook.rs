@@ -498,10 +498,10 @@ fn persist_report(
 
 #[cfg(test)]
 mod tests {
+    use super::TEST_SERIAL as SERIAL;
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
-    use super::TEST_SERIAL as SERIAL;
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()

@@ -42,15 +42,24 @@ fn a_record_carries_the_binding_of_its_rule_set() {
     assert_eq!(record.binding, Some(rules.policy_binding().unwrap()));
     let binding = rules.policy_binding().unwrap();
     assert_eq!(binding.policy_hash.len(), 64);
-    assert_eq!(binding.check_versions["det.flash_rate"], BUILTIN_CHECK_VERSION);
+    assert_eq!(
+        binding.check_versions["det.flash_rate"],
+        BUILTIN_CHECK_VERSION
+    );
     assert!(record.verify_current(&rules).is_ok());
 }
 
 #[test]
 fn the_hash_is_stable_and_follows_every_policy_change() {
     let a = flash_set(3.0);
-    assert_eq!(a.policy_hash().unwrap(), flash_set(3.0).policy_hash().unwrap());
-    assert_ne!(a.policy_hash().unwrap(), flash_set(2.0).policy_hash().unwrap());
+    assert_eq!(
+        a.policy_hash().unwrap(),
+        flash_set(3.0).policy_hash().unwrap()
+    );
+    assert_ne!(
+        a.policy_hash().unwrap(),
+        flash_set(2.0).policy_hash().unwrap()
+    );
     let mut optional = flash_set(3.0);
     optional.rules[0].required = false;
     assert_ne!(a.policy_hash().unwrap(), optional.policy_hash().unwrap());
@@ -61,7 +70,10 @@ fn tightening_a_policy_under_the_same_name_and_version_makes_a_pass_stale() {
     let loose = flash_set(3.0);
     let record = record_for(&loose);
     let tight = flash_set(0.5);
-    assert_eq!((tight.id.as_str(), tight.version), (loose.id.as_str(), loose.version));
+    assert_eq!(
+        (tight.id.as_str(), tight.version),
+        (loose.id.as_str(), loose.version)
+    );
     assert!(matches!(
         record.verify_current(&tight),
         Err(ReviewError::StaleVerdict(_))

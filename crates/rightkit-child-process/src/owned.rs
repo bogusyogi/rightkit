@@ -633,7 +633,10 @@ impl OwnedChild {
     /// (an ordinary spawn, a child already resumed, and every Unix child). On error the child
     /// stays held and `resume` can be retried.
     pub fn resume(&self) -> io::Result<()> {
-        if self.suspended.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if self
+            .suspended
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
             #[cfg(windows)]
             if let Err(error) = self.child().resume(self.detached) {
                 self.suspended
@@ -834,7 +837,10 @@ impl OwnedChild {
         self.force_kill(options.windows_exit_code)?;
         let status = self.wait()?;
         let descendants = crate::sweep(&found, options.grace)?;
-        Ok(TreeTermination { status, descendants })
+        Ok(TreeTermination {
+            status,
+            descendants,
+        })
     }
     fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
         #[cfg(unix)]

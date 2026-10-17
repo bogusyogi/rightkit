@@ -38,7 +38,10 @@ const ERROR_SHARING_VIOLATION: i32 = 32;
 /// or a sharing violation. Pure; it looks only at the code.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn is_replace_refusal(code: Option<i32>) -> bool {
-    matches!(code, Some(ERROR_ACCESS_DENIED) | Some(ERROR_SHARING_VIOLATION))
+    matches!(
+        code,
+        Some(ERROR_ACCESS_DENIED) | Some(ERROR_SHARING_VIOLATION)
+    )
 }
 
 /// The pause after failed try number `try_index` (0 for the first): 1 ms, plus 1 ms per earlier

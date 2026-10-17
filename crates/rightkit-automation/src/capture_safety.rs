@@ -229,9 +229,14 @@ pub(crate) fn sharing_evidence(rows: &[WindowRow], target: &Target) -> Vec<Safet
     let check = SafetyCheck::WindowCapturable;
     let ev = |outcome| SafetyEvidence::new(check, outcome);
     if let Some(id) = target.window_id {
-        return match rows.iter().find(|r| r.window_id == id && r.pid == target.pid) {
+        return match rows
+            .iter()
+            .find(|r| r.window_id == id && r.pid == target.pid)
+        {
             Some(r) => vec![ev(sharing_outcome(id, r.sharing_state))],
-            None => vec![ev(SafetyOutcome::Unavailable(GapKind::TargetWindowNotFound))],
+            None => vec![ev(SafetyOutcome::Unavailable(
+                GapKind::TargetWindowNotFound,
+            ))],
         };
     }
     let out: Vec<_> = rows
@@ -265,9 +270,7 @@ pub(crate) fn ax_focus_outcome(role: Option<&str>, subrole: Option<&str>) -> Saf
     }
     match role {
         None => SafetyOutcome::Unavailable(GapKind::ReadFailed("AXRole")),
-        Some(r) if OPAQUE_AX_ROLES.contains(&r) => {
-            SafetyOutcome::Unavailable(GapKind::FocusOpaque)
-        }
+        Some(r) if OPAQUE_AX_ROLES.contains(&r) => SafetyOutcome::Unavailable(GapKind::FocusOpaque),
         Some(_) => SafetyOutcome::Clear,
     }
 }
@@ -278,12 +281,10 @@ pub(crate) fn ax_focus_outcome(role: Option<&str>, subrole: Option<&str>) -> Saf
 pub(crate) fn affinity_outcome(window_id: u64, affinity: Option<u32>) -> SafetyOutcome {
     match affinity {
         Some(0) => SafetyOutcome::Clear,
-        Some(a @ (0x1 | 0x11)) => {
-            SafetyOutcome::Found(SafetyReason::WindowDisplayAffinity {
-                window_id,
-                affinity: a,
-            })
-        }
+        Some(a @ (0x1 | 0x11)) => SafetyOutcome::Found(SafetyReason::WindowDisplayAffinity {
+            window_id,
+            affinity: a,
+        }),
         Some(other) => SafetyOutcome::Unavailable(GapKind::UnrecognisedValue(i64::from(other))),
         None => SafetyOutcome::Unavailable(GapKind::ReadFailed("GetWindowDisplayAffinity")),
     }
@@ -346,7 +347,10 @@ mod tests {
     fn one_gap_makes_unknown() {
         let e = [
             clear(SafetyCheck::SecureEventInput),
-            gap(SafetyCheck::FocusedSecureField, GapKind::PermissionMissing("Accessibility")),
+            gap(
+                SafetyCheck::FocusedSecureField,
+                GapKind::PermissionMissing("Accessibility"),
+            ),
         ];
         match classify(&e) {
             CaptureSafety::Unknown(g) => {
@@ -479,7 +483,10 @@ mod tests {
             ax_focus_outcome(Some("AXTextField"), None),
             SafetyOutcome::Clear
         );
-        assert_eq!(ax_focus_outcome(Some("AXButton"), None), SafetyOutcome::Clear);
+        assert_eq!(
+            ax_focus_outcome(Some("AXButton"), None),
+            SafetyOutcome::Clear
+        );
         for role in ["AXWebArea", "AXGroup", "AXScrollArea", "AXWindow"] {
             assert_eq!(
                 ax_focus_outcome(Some(role), None),

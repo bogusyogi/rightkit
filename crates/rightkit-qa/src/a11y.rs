@@ -20,8 +20,18 @@ pub struct Rgba {
 }
 
 impl Rgba {
-    pub const WHITE: Rgba = Rgba { r: 255.0, g: 255.0, b: 255.0, a: 1.0 };
-    pub const TRANSPARENT: Rgba = Rgba { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+    pub const WHITE: Rgba = Rgba {
+        r: 255.0,
+        g: 255.0,
+        b: 255.0,
+        a: 1.0,
+    };
+    pub const TRANSPARENT: Rgba = Rgba {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
 
     /// `self` painted over `under` (source-over). The result's alpha is the union of both.
     pub fn over(self, under: Rgba) -> Rgba {
@@ -30,18 +40,32 @@ impl Rgba {
             return Rgba::TRANSPARENT;
         }
         let mix = |f: f64, b: f64| (f * self.a + b * under.a * (1.0 - self.a)) / a;
-        Rgba { r: mix(self.r, under.r), g: mix(self.g, under.g), b: mix(self.b, under.b), a }
+        Rgba {
+            r: mix(self.r, under.r),
+            g: mix(self.g, under.g),
+            b: mix(self.b, under.b),
+            a,
+        }
     }
 
     pub fn hex(&self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self.r.round() as u8, self.g.round() as u8, self.b.round() as u8)
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            self.r.round() as u8,
+            self.g.round() as u8,
+            self.b.round() as u8
+        )
     }
 }
 
 fn channel(token: &str, scale: f64) -> Option<f64> {
     let t = token.trim();
     if let Some(p) = t.strip_suffix('%') {
-        return p.trim().parse::<f64>().ok().map(|v| (v / 100.0 * scale).clamp(0.0, scale));
+        return p
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|v| (v / 100.0 * scale).clamp(0.0, scale));
     }
     t.parse::<f64>().ok().map(|v| v.clamp(0.0, scale))
 }
@@ -49,7 +73,11 @@ fn channel(token: &str, scale: f64) -> Option<f64> {
 fn alpha(token: &str) -> Option<f64> {
     let t = token.trim();
     if let Some(p) = t.strip_suffix('%') {
-        return p.trim().parse::<f64>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0));
+        return p
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|v| (v / 100.0).clamp(0.0, 1.0));
     }
     t.parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0))
 }
@@ -66,13 +94,37 @@ pub fn parse_css_color(text: &str) -> Option<Rgba> {
         if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
             return None;
         }
-        let nib = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).ok().map(|v| f64::from(v * 17));
+        let nib = |i: usize| {
+            u8::from_str_radix(&hex[i..i + 1], 16)
+                .ok()
+                .map(|v| f64::from(v * 17))
+        };
         let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok().map(f64::from);
         return match hex.len() {
-            3 => Some(Rgba { r: nib(0)?, g: nib(1)?, b: nib(2)?, a: 1.0 }),
-            4 => Some(Rgba { r: nib(0)?, g: nib(1)?, b: nib(2)?, a: nib(3)? / 255.0 }),
-            6 => Some(Rgba { r: byte(0)?, g: byte(2)?, b: byte(4)?, a: 1.0 }),
-            8 => Some(Rgba { r: byte(0)?, g: byte(2)?, b: byte(4)?, a: byte(6)? / 255.0 }),
+            3 => Some(Rgba {
+                r: nib(0)?,
+                g: nib(1)?,
+                b: nib(2)?,
+                a: 1.0,
+            }),
+            4 => Some(Rgba {
+                r: nib(0)?,
+                g: nib(1)?,
+                b: nib(2)?,
+                a: nib(3)? / 255.0,
+            }),
+            6 => Some(Rgba {
+                r: byte(0)?,
+                g: byte(2)?,
+                b: byte(4)?,
+                a: 1.0,
+            }),
+            8 => Some(Rgba {
+                r: byte(0)?,
+                g: byte(2)?,
+                b: byte(4)?,
+                a: byte(6)? / 255.0,
+            }),
             _ => None,
         };
     }
@@ -99,7 +151,12 @@ pub fn parse_css_color(text: &str) -> Option<Rgba> {
                 (None, None) => 1.0,
                 _ => return None,
             };
-            Some(Rgba { r: channel(rgb[0], 255.0)?, g: channel(rgb[1], 255.0)?, b: channel(rgb[2], 255.0)?, a })
+            Some(Rgba {
+                r: channel(rgb[0], 255.0)?,
+                g: channel(rgb[1], 255.0)?,
+                b: channel(rgb[2], 255.0)?,
+                a,
+            })
         }
         "color" => {
             if parts.len() != 4 || parts[0] != "srgb" {
@@ -143,7 +200,10 @@ pub fn contrast_ratio(fg: Rgba, bg: Rgba) -> f64 {
 /// The colour actually behind an element: `chain` holds the computed `background-color` of the
 /// element then each ancestor up to the root (innermost first). They are painted over a white canvas.
 pub fn effective_background(chain: &[Rgba]) -> Rgba {
-    chain.iter().rev().fold(Rgba::WHITE, |under, layer| layer.over(under))
+    chain
+        .iter()
+        .rev()
+        .fold(Rgba::WHITE, |under, layer| layer.over(under))
 }
 
 /// WCAG "large text": at least 24 CSS px, or at least 18.66 px (14 pt) and bold (weight 700+).
@@ -194,30 +254,56 @@ pub fn contrast_report(selector: &str, probe: &Value, opts: &ContrastOptions) ->
         return err(format!("contrast: no element matches '{selector}'"));
     }
     let text = |k: &str| probe.get(k).and_then(Value::as_str).unwrap_or_default();
-    let fg = parse_css_color(text("color"))
-        .ok_or_else(|| Error(format!("contrast: cannot read text colour '{}' of '{selector}'", text("color"))))?;
+    let fg = parse_css_color(text("color")).ok_or_else(|| {
+        Error(format!(
+            "contrast: cannot read text colour '{}' of '{selector}'",
+            text("color")
+        ))
+    })?;
     let mut chain = Vec::new();
-    for c in probe.get("chain").and_then(Value::as_array).into_iter().flatten() {
+    for c in probe
+        .get("chain")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let s = c.as_str().unwrap_or_default();
-        chain.push(
-            parse_css_color(s)
-                .ok_or_else(|| Error(format!("contrast: cannot read background colour '{s}' behind '{selector}'")))?,
-        );
+        chain.push(parse_css_color(s).ok_or_else(|| {
+            Error(format!(
+                "contrast: cannot read background colour '{s}' behind '{selector}'"
+            ))
+        })?);
     }
     let bg = effective_background(&chain);
     // The element's own opacity dims its text against the background.
-    let opacity = probe.get("opacity").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.0, 1.0);
-    let fg = Rgba { a: fg.a * opacity, ..fg };
+    let opacity = probe
+        .get("opacity")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    let fg = Rgba {
+        a: fg.a * opacity,
+        ..fg
+    };
     let ratio = contrast_ratio(fg, bg);
-    let px = probe.get("fontSize").and_then(Value::as_f64).unwrap_or(16.0);
-    let weight = probe.get("fontWeight").and_then(Value::as_f64).unwrap_or(400.0);
+    let px = probe
+        .get("fontSize")
+        .and_then(Value::as_f64)
+        .unwrap_or(16.0);
+    let weight = probe
+        .get("fontWeight")
+        .and_then(Value::as_f64)
+        .unwrap_or(400.0);
     let large = opts.large.unwrap_or_else(|| is_large_text(px, weight));
     let level = opts.level.clone().unwrap_or_else(|| "AA".into());
     let min = match opts.min {
         Some(m) => m,
         None => contrast_threshold(&level, large)?,
     };
-    let has_image = probe.get("hasImage").and_then(Value::as_bool).unwrap_or(false);
+    let has_image = probe
+        .get("hasImage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let passes = ratio >= min;
     if !passes && !opts.report_only {
         return err(format!(
@@ -256,7 +342,10 @@ pub fn focus_probe_js(selector: Option<&str>) -> String {
 }
 
 fn px_value(token: &str) -> Option<f64> {
-    token.trim().strip_suffix("px").and_then(|v| v.trim().parse::<f64>().ok())
+    token
+        .trim()
+        .strip_suffix("px")
+        .and_then(|v| v.trim().parse::<f64>().ok())
 }
 
 /// Split on whitespace outside parentheses (a computed `box-shadow` colour holds spaces).
@@ -339,11 +428,21 @@ pub fn focus_ring_verdict(probe: &Value) -> Value {
     let outline = !matches!(style, "" | "none" | "hidden") && width > 0.0 && colour_visible;
     let shadow = box_shadow_visible(text("boxShadow"));
     let (kind, reason) = if outline {
-        ("outline", format!("outline {style} {width}px {}", text("outlineColor")))
+        (
+            "outline",
+            format!("outline {style} {width}px {}", text("outlineColor")),
+        )
     } else if shadow {
         ("box-shadow", format!("box-shadow {}", text("boxShadow")))
     } else {
-        ("none", format!("outline is '{style} {}' and box-shadow is '{}'", text("outlineWidth"), text("boxShadow")))
+        (
+            "none",
+            format!(
+                "outline is '{style} {}' and box-shadow is '{}'",
+                text("outlineWidth"),
+                text("boxShadow")
+            ),
+        )
     };
     json!({
         "focused": true, "visible": kind != "none", "kind": kind, "reason": reason,
@@ -400,16 +499,20 @@ impl AxQuery {
     fn matches(&self, node: &Value) -> bool {
         let role = node.get("role").and_then(Value::as_str).unwrap_or_default();
         let name = collapse(node.get("name").and_then(Value::as_str).unwrap_or_default());
-        self.role.as_deref().map_or(true, |r| role.eq_ignore_ascii_case(r.trim()))
+        self.role
+            .as_deref()
+            .map_or(true, |r| role.eq_ignore_ascii_case(r.trim()))
             && self.name.as_deref().map_or(true, |n| name == collapse(n))
-            && self
-                .name_contains
-                .as_deref()
-                .map_or(true, |n| name.to_lowercase().contains(&collapse(n).to_lowercase()))
+            && self.name_contains.as_deref().map_or(true, |n| {
+                name.to_lowercase().contains(&collapse(n).to_lowercase())
+            })
             && (!self.named || !name.is_empty())
-            && self
-                .disabled
-                .map_or(true, |d| node.get("disabled").and_then(Value::as_bool).unwrap_or(false) == d)
+            && self.disabled.map_or(true, |d| {
+                node.get("disabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    == d
+            })
     }
 }
 
@@ -455,17 +558,37 @@ mod tests {
     use super::*;
 
     fn rgb(r: u8, g: u8, b: u8) -> Rgba {
-        Rgba { r: f64::from(r), g: f64::from(g), b: f64::from(b), a: 1.0 }
+        Rgba {
+            r: f64::from(r),
+            g: f64::from(g),
+            b: f64::from(b),
+            a: 1.0,
+        }
     }
 
     #[test]
     fn parses_the_colour_forms_a_browser_reports() {
         assert_eq!(parse_css_color("rgb(12, 34, 56)"), Some(rgb(12, 34, 56)));
-        assert_eq!(parse_css_color("rgba(0, 0, 0, 0)"), Some(Rgba { a: 0.0, ..rgb(0, 0, 0) }));
-        assert_eq!(parse_css_color("rgb(10 20 30 / 50%)"), Some(Rgba { a: 0.5, ..rgb(10, 20, 30) }));
+        assert_eq!(
+            parse_css_color("rgba(0, 0, 0, 0)"),
+            Some(Rgba {
+                a: 0.0,
+                ..rgb(0, 0, 0)
+            })
+        );
+        assert_eq!(
+            parse_css_color("rgb(10 20 30 / 50%)"),
+            Some(Rgba {
+                a: 0.5,
+                ..rgb(10, 20, 30)
+            })
+        );
         assert_eq!(parse_css_color("#fff"), Some(Rgba::WHITE));
         assert_eq!(parse_css_color("#102030"), Some(rgb(16, 32, 48)));
-        assert_eq!(parse_css_color("#10203080").map(|c| (c.a * 255.0).round()), Some(128.0));
+        assert_eq!(
+            parse_css_color("#10203080").map(|c| (c.a * 255.0).round()),
+            Some(128.0)
+        );
         assert_eq!(parse_css_color("transparent"), Some(Rgba::TRANSPARENT));
         let c = parse_css_color("color(srgb 1 0.5 0 / 0.25)").unwrap();
         assert_eq!((c.r, c.g.round(), c.b, c.a), (255.0, 128.0, 0.0, 0.25));
@@ -480,7 +603,10 @@ mod tests {
         assert!((contrast_ratio(black, Rgba::WHITE) - 21.0).abs() < 1e-9);
         assert!((contrast_ratio(Rgba::WHITE, Rgba::WHITE) - 1.0).abs() < 1e-9);
         // Order does not matter: the ratio is light over dark.
-        assert_eq!(contrast_ratio(black, Rgba::WHITE), contrast_ratio(Rgba::WHITE, black));
+        assert_eq!(
+            contrast_ratio(black, Rgba::WHITE),
+            contrast_ratio(Rgba::WHITE, black)
+        );
         // #767676 is the lightest grey that passes AA on white; #777777 just fails.
         assert!(contrast_ratio(rgb(0x76, 0x76, 0x76), Rgba::WHITE) >= 4.5);
         assert!(contrast_ratio(rgb(0x77, 0x77, 0x77), Rgba::WHITE) < 4.5);
@@ -489,16 +615,29 @@ mod tests {
     #[test]
     fn translucent_layers_composite_before_the_ratio() {
         // Half-transparent black text on white reads as mid grey: 21:1 down to about 4:1.
-        let half = Rgba { a: 0.5, ..rgb(0, 0, 0) };
+        let half = Rgba {
+            a: 0.5,
+            ..rgb(0, 0, 0)
+        };
         let r = contrast_ratio(half, Rgba::WHITE);
         assert!(r > 3.8 && r < 4.2, "{r}");
         // Background chain, innermost first: transparent, then 50% black, then the page (transparent).
-        let chain = [Rgba::TRANSPARENT, Rgba { a: 0.5, ..rgb(0, 0, 0) }, Rgba::TRANSPARENT];
+        let chain = [
+            Rgba::TRANSPARENT,
+            Rgba {
+                a: 0.5,
+                ..rgb(0, 0, 0)
+            },
+            Rgba::TRANSPARENT,
+        ];
         let bg = effective_background(&chain);
         assert_eq!(bg.hex(), "#808080");
         assert_eq!(effective_background(&[]).hex(), "#ffffff");
         // The inner opaque layer wins.
-        assert_eq!(effective_background(&[rgb(1, 2, 3), rgb(9, 9, 9)]).hex(), "#010203");
+        assert_eq!(
+            effective_background(&[rgb(1, 2, 3), rgb(9, 9, 9)]).hex(),
+            "#010203"
+        );
     }
 
     #[test]
@@ -520,23 +659,76 @@ mod tests {
 
     #[test]
     fn contrast_report_passes_fails_and_reports() {
-        let ok = contrast_report("#a", &probe("rgb(0, 0, 0)", &["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"], 16.0), &ContrastOptions::default()).unwrap();
+        let ok = contrast_report(
+            "#a",
+            &probe(
+                "rgb(0, 0, 0)",
+                &["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"],
+                16.0,
+            ),
+            &ContrastOptions::default(),
+        )
+        .unwrap();
         assert_eq!(ok["ratio"], json!(21.0));
         assert_eq!(ok["passes"], json!(true));
         let low = probe("rgb(119, 119, 119)", &["rgb(255, 255, 255)"], 16.0);
         let e = contrast_report("#a", &low, &ContrastOptions::default()).unwrap_err();
         assert!(e.0.contains("#a") && e.0.contains("4.5:1"), "{e}");
         // The same colours pass as large text, with an explicit lower minimum, or when only reporting.
-        assert!(contrast_report("#a", &low, &ContrastOptions { large: Some(true), ..Default::default() }).is_ok());
-        assert!(contrast_report("#a", &low, &ContrastOptions { min: Some(4.0), ..Default::default() }).is_ok());
-        let rep = contrast_report("#a", &low, &ContrastOptions { report_only: true, ..Default::default() }).unwrap();
+        assert!(contrast_report(
+            "#a",
+            &low,
+            &ContrastOptions {
+                large: Some(true),
+                ..Default::default()
+            }
+        )
+        .is_ok());
+        assert!(contrast_report(
+            "#a",
+            &low,
+            &ContrastOptions {
+                min: Some(4.0),
+                ..Default::default()
+            }
+        )
+        .is_ok());
+        let rep = contrast_report(
+            "#a",
+            &low,
+            &ContrastOptions {
+                report_only: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(rep["passes"], json!(false));
         // A large font size picks the large threshold on its own.
-        assert_eq!(contrast_report("#a", &probe("rgb(119, 119, 119)", &["rgb(255, 255, 255)"], 28.0), &ContrastOptions::default()).unwrap()["large"], json!(true));
+        assert_eq!(
+            contrast_report(
+                "#a",
+                &probe("rgb(119, 119, 119)", &["rgb(255, 255, 255)"], 28.0),
+                &ContrastOptions::default()
+            )
+            .unwrap()["large"],
+            json!(true)
+        );
         // Missing element and unreadable colours are errors, not silent passes.
-        assert!(contrast_report("#a", &json!({"found": false}), &ContrastOptions::default()).is_err());
-        assert!(contrast_report("#a", &probe("oklch(0.5 0.1 20)", &[], 16.0), &ContrastOptions::default()).is_err());
-        assert!(contrast_report("#a", &probe("rgb(0,0,0)", &["lab(1 2 3)"], 16.0), &ContrastOptions::default()).is_err());
+        assert!(
+            contrast_report("#a", &json!({"found": false}), &ContrastOptions::default()).is_err()
+        );
+        assert!(contrast_report(
+            "#a",
+            &probe("oklch(0.5 0.1 20)", &[], 16.0),
+            &ContrastOptions::default()
+        )
+        .is_err());
+        assert!(contrast_report(
+            "#a",
+            &probe("rgb(0,0,0)", &["lab(1 2 3)"], 16.0),
+            &ContrastOptions::default()
+        )
+        .is_err());
     }
 
     #[test]
@@ -550,7 +742,9 @@ mod tests {
     #[test]
     fn box_shadow_is_an_indicator_only_when_it_paints() {
         assert!(box_shadow_visible("rgb(0, 95, 204) 0px 0px 0px 2px"));
-        assert!(box_shadow_visible("rgba(0, 0, 0, 0.3) 0px 1px 4px 0px, rgb(0, 95, 204) 0px 0px 0px 3px"));
+        assert!(box_shadow_visible(
+            "rgba(0, 0, 0, 0.3) 0px 1px 4px 0px, rgb(0, 95, 204) 0px 0px 0px 3px"
+        ));
         assert!(!box_shadow_visible("none"));
         assert!(!box_shadow_visible(""));
         assert!(!box_shadow_visible("rgba(0, 0, 0, 0) 0px 0px 0px 2px"));
@@ -562,7 +756,10 @@ mod tests {
         let base = json!({"focused": true, "matches": true, "tag": "button", "id": "go", "focusVisible": true,
             "outlineStyle": "auto", "outlineWidth": "1px", "outlineColor": "rgb(16, 16, 16)", "outlineOffset": "0px", "boxShadow": "none"});
         let v = focus_ring_verdict(&base);
-        assert_eq!((v["visible"].clone(), v["kind"].clone()), (json!(true), json!("outline")));
+        assert_eq!(
+            (v["visible"].clone(), v["kind"].clone()),
+            (json!(true), json!("outline"))
+        );
         assert_eq!(v["id"], json!("go"));
         let mut shadow = base.clone();
         shadow["outlineStyle"] = json!("none");
@@ -572,7 +769,10 @@ mod tests {
         let mut none = shadow.clone();
         none["boxShadow"] = json!("none");
         let v = focus_ring_verdict(&none);
-        assert_eq!((v["visible"].clone(), v["kind"].clone()), (json!(false), json!("none")));
+        assert_eq!(
+            (v["visible"].clone(), v["kind"].clone()),
+            (json!(false), json!("none"))
+        );
         // A zero-width or transparent outline is no outline.
         let mut zero = base.clone();
         zero["outlineWidth"] = json!("0px");
@@ -581,7 +781,10 @@ mod tests {
         clear["outlineColor"] = json!("rgba(0, 0, 0, 0)");
         assert_eq!(focus_ring_verdict(&clear)["visible"], json!(false));
         let unfocused = focus_ring_verdict(&json!({"focused": false}));
-        assert_eq!((unfocused["focused"].clone(), unfocused["visible"].clone()), (json!(false), json!(false)));
+        assert_eq!(
+            (unfocused["focused"].clone(), unfocused["visible"].clone()),
+            (json!(false), json!(false))
+        );
     }
 
     fn nodes() -> Vec<Value> {
@@ -602,22 +805,48 @@ mod tests {
         let n = nodes();
         assert_eq!(ax_find(&n, &query(json!({"role": "BUTTON"}))).len(), 2);
         // Names compare after whitespace is collapsed.
-        assert_eq!(ax_find(&n, &query(json!({"role": "button", "name": "Save project"}))).len(), 1);
-        assert_eq!(ax_find(&n, &query(json!({"name_contains": "save"}))).len(), 1);
-        assert_eq!(ax_find(&n, &query(json!({"role": "button", "named": true}))).len(), 1);
-        assert_eq!(ax_find(&n, &query(json!({"role": "button", "disabled": true}))).len(), 1);
+        assert_eq!(
+            ax_find(
+                &n,
+                &query(json!({"role": "button", "name": "Save project"}))
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            ax_find(&n, &query(json!({"name_contains": "save"}))).len(),
+            1
+        );
+        assert_eq!(
+            ax_find(&n, &query(json!({"role": "button", "named": true}))).len(),
+            1
+        );
+        assert_eq!(
+            ax_find(&n, &query(json!({"role": "button", "disabled": true}))).len(),
+            1
+        );
         assert_eq!(ax_find(&n, &query(json!({"name": "save"}))).len(), 0);
     }
 
     #[test]
     fn ax_assert_counts_and_explains_a_miss() {
         let n = nodes();
-        assert_eq!(ax_assert(&n, &query(json!({"role": "textbox", "name": "Title"}))).unwrap()["count"], json!(1));
+        assert_eq!(
+            ax_assert(&n, &query(json!({"role": "textbox", "name": "Title"}))).unwrap()["count"],
+            json!(1)
+        );
         let e = ax_assert(&n, &query(json!({"role": "button", "name": "Delete"}))).unwrap_err();
-        assert!(e.0.contains("Delete") && e.0.contains("textbox:'Title'"), "{e}");
+        assert!(
+            e.0.contains("Delete") && e.0.contains("textbox:'Title'"),
+            "{e}"
+        );
         assert!(ax_assert(&n, &query(json!({"role": "button", "max_count": 1}))).is_err());
         assert!(ax_assert(&n, &query(json!({"role": "button", "min_count": 2}))).is_ok());
-        assert!(ax_assert(&n, &query(json!({"role": "link", "min_count": 0, "max_count": 0}))).is_ok());
+        assert!(ax_assert(
+            &n,
+            &query(json!({"role": "link", "min_count": 0, "max_count": 0}))
+        )
+        .is_ok());
         assert!(AxQuery::from_params(json!({"min_count": 1}).as_object().unwrap()).is_err());
     }
 }

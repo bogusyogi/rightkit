@@ -333,8 +333,7 @@ fn the_loopback_test_hook_needs_a_test_run() {
         .allow_loopback_for_tests(&release)
         .is_err());
     assert!(
-        rightkit_models::http::ModelHttp::for_loopback_tests(Default::default(), &release)
-            .is_err()
+        rightkit_models::http::ModelHttp::for_loopback_tests(Default::default(), &release).is_err()
     );
     let tmp = tempfile::tempdir().unwrap();
     let err = Store::new(tmp.path().join("models"), "t")

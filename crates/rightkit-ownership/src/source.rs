@@ -108,7 +108,12 @@ fn split_lines(text: &str) -> Vec<&str> {
 
 fn excluded(matcher: &SourceMatcher, rel: &str) -> bool {
     matcher.exclude_paths.iter().any(|p| {
-        rel == p || rel.starts_with(&if p.ends_with('/') { p.clone() } else { format!("{p}/") })
+        rel == p
+            || rel.starts_with(&if p.ends_with('/') {
+                p.clone()
+            } else {
+                format!("{p}/")
+            })
     })
 }
 

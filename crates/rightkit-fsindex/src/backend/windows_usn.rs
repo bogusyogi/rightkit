@@ -68,7 +68,10 @@ impl fmt::Display for UsnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             UsnError::PermissionDenied => {
-                write!(f, "usn journal needs an elevated volume handle (access denied)")
+                write!(
+                    f,
+                    "usn journal needs an elevated volume handle (access denied)"
+                )
             }
             UsnError::Unsupported(s) => write!(f, "usn journal unsupported: {s}"),
             UsnError::JournalNotActive => write!(f, "usn journal is not active on this volume"),
@@ -220,7 +223,10 @@ pub fn parse_usn_records(buf: &[u8]) -> std::result::Result<UsnRecords, UsnError
             let r = &buf[at..at + len];
             let name_len = rd16(r, 56) as usize;
             let name_off = rd16(r, 58) as usize;
-            if !name_len.is_multiple_of(2) || name_off < USN_RECORD_V2_HEADER || name_off + name_len > len {
+            if !name_len.is_multiple_of(2)
+                || name_off < USN_RECORD_V2_HEADER
+                || name_off + name_len > len
+            {
                 return Err(UsnError::Parse("file name outside the record"));
             }
             let units: Vec<u16> = r[name_off..name_off + name_len]
@@ -330,8 +336,8 @@ mod imp {
     impl UsnJournal {
         /// Open the volume of `letter` (`C` opens `\\.\C:`). Not elevated: `PermissionDenied`.
         pub fn open(letter: char) -> std::result::Result<UsnJournal, UsnError> {
-            let path = volume_device_path(letter)
-                .ok_or(UsnError::Unsupported("not a drive letter"))?;
+            let path =
+                volume_device_path(letter).ok_or(UsnError::Unsupported("not a drive letter"))?;
             let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
             let h = unsafe {
                 CreateFileW(
@@ -475,7 +481,14 @@ mod tests {
         let b = buffer(
             4096,
             &[
-                record(10, 5, 100, USN_REASON_FILE_CREATE | USN_REASON_CLOSE, 0x20, "a.txt"),
+                record(
+                    10,
+                    5,
+                    100,
+                    USN_REASON_FILE_CREATE | USN_REASON_CLOSE,
+                    0x20,
+                    "a.txt",
+                ),
                 record(11, 5, 200, USN_REASON_FILE_DELETE, 0x10, "dir\u{e9}"),
                 record(12, 5, 300, USN_REASON_RENAME_NEW_NAME, 0x20, "x"),
             ],
@@ -567,7 +580,10 @@ mod tests {
         let r = read_journal_input(-5, 0xFFFF_FFFF, 0x1122_3344_5566_7788, 0, 0);
         assert_eq!(r.len(), 48);
         assert_eq!(i64::from_le_bytes(r[0..8].try_into().unwrap()), -5);
-        assert_eq!(u32::from_le_bytes(r[8..12].try_into().unwrap()), 0xFFFF_FFFF);
+        assert_eq!(
+            u32::from_le_bytes(r[8..12].try_into().unwrap()),
+            0xFFFF_FFFF
+        );
         assert_eq!(
             u64::from_le_bytes(r[32..40].try_into().unwrap()),
             0x1122_3344_5566_7788
@@ -581,17 +597,28 @@ mod tests {
 
     #[test]
     fn win32_errors_classify_into_the_reported_states() {
-        assert!(matches!(classify_win32_error(5), UsnError::PermissionDenied));
-        assert!(matches!(classify_win32_error(1314), UsnError::PermissionDenied));
+        assert!(matches!(
+            classify_win32_error(5),
+            UsnError::PermissionDenied
+        ));
+        assert!(matches!(
+            classify_win32_error(1314),
+            UsnError::PermissionDenied
+        ));
         assert!(matches!(classify_win32_error(1), UsnError::Unsupported(_)));
-        assert!(matches!(classify_win32_error(1179), UsnError::JournalNotActive));
+        assert!(matches!(
+            classify_win32_error(1179),
+            UsnError::JournalNotActive
+        ));
         assert!(matches!(
             classify_win32_error(1181),
             UsnError::JournalEntryDeleted
         ));
         assert!(matches!(classify_win32_error(9999), UsnError::Io(_)));
         let e: Error = UsnError::PermissionDenied.into();
-        assert!(matches!(e, Error::Io(ref io) if io.kind() == std::io::ErrorKind::PermissionDenied));
+        assert!(
+            matches!(e, Error::Io(ref io) if io.kind() == std::io::ErrorKind::PermissionDenied)
+        );
         let e: Error = UsnError::Unsupported("x").into();
         assert!(matches!(e, Error::Unsupported(_)));
     }

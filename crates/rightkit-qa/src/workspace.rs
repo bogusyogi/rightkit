@@ -721,7 +721,11 @@ mod tests {
         ws.finish().unwrap();
         let report = prune_abandoned(&root, Duration::ZERO, &[]);
         assert!(report.retained.is_empty());
-        let removed: Vec<PathBuf> = report.removed.iter().map(|p| crate::util::plain_path(p)).collect();
+        let removed: Vec<PathBuf> = report
+            .removed
+            .iter()
+            .map(|p| crate::util::plain_path(p))
+            .collect();
         assert_eq!(removed, vec![ws.root.clone()]);
         assert!(!ws.home.exists());
         fs::remove_dir_all(root).unwrap();
@@ -732,7 +736,13 @@ mod tests {
     fn workspace_paths_and_env_are_plain_drive_paths() {
         let root = storage::app_temp_dir().join(format!("rkqa-plain-{}", new_id()));
         let ws = create(&root, Some("plain1"), "plainapp").unwrap();
-        let paths = [&ws.root, &ws.home, &ws.data_dir, &ws.evidence_dir, &ws.capture_dir];
+        let paths = [
+            &ws.root,
+            &ws.home,
+            &ws.data_dir,
+            &ws.evidence_dir,
+            &ws.capture_dir,
+        ];
         for p in paths {
             assert!(!p.to_string_lossy().starts_with(r"\\?\"), "{}", p.display());
             assert!(p.exists(), "{}", p.display());

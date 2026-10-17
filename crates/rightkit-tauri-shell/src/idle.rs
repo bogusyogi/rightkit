@@ -100,7 +100,10 @@ pub enum IdleSource {
 
 /// Whether a request of `source` may start the idle period under `trigger`. Pure.
 pub fn source_starts_idle(trigger: IdleTrigger, source: IdleSource) -> bool {
-    !matches!((trigger, source), (IdleTrigger::Minimised, IdleSource::Hide))
+    !matches!(
+        (trigger, source),
+        (IdleTrigger::Minimised, IdleSource::Hide)
+    )
 }
 
 /// Per-hide delay source held by [`IdleOptions`]; set with [`IdleOptions::suspend_after_with`].
@@ -1277,7 +1280,10 @@ mod tests {
             IdleTrigger::HiddenOrMinimised,
             IdleSource::Hide
         ));
-        assert!(!source_starts_idle(IdleTrigger::Minimised, IdleSource::Hide));
+        assert!(!source_starts_idle(
+            IdleTrigger::Minimised,
+            IdleSource::Hide
+        ));
         let o = IdleOptions::default().on_minimise(true);
         assert_eq!(o.trigger, IdleTrigger::Minimised);
         assert!(o.minimise_enabled() && !o.start_on_minimize);

@@ -51,7 +51,10 @@ fn absolute_text(os: Os, text: &str) -> bool {
     match os {
         Os::Windows => {
             let b = text.as_bytes();
-            (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/'))
+            (b.len() >= 3
+                && b[0].is_ascii_alphabetic()
+                && b[1] == b':'
+                && (b[2] == b'\\' || b[2] == b'/'))
                 || text.starts_with("\\\\")
         }
         _ => text.starts_with('/'),
@@ -98,7 +101,11 @@ fn fold(os: Os, text: &str) -> Vec<String> {
             ".." => {
                 parts.pop();
             }
-            s => parts.push(if os == Os::Other { s.to_owned() } else { s.to_lowercase() }),
+            s => parts.push(if os == Os::Other {
+                s.to_owned()
+            } else {
+                s.to_lowercase()
+            }),
         }
     }
     parts
@@ -115,7 +122,13 @@ pub fn installed_root_of<'a>(os: Os, candidate: &str, roots: &'a [String]) -> Op
 
 /// Refusal decision with everything injected: `Err` when `candidate` is under a root and
 /// installed-QA mode is off. The message names the path and the way to opt in.
-pub fn decide(os: Os, what: &str, candidate: &str, roots: &[String], installed_qa: bool) -> Result<()> {
+pub fn decide(
+    os: Os,
+    what: &str,
+    candidate: &str,
+    roots: &[String],
+    installed_qa: bool,
+) -> Result<()> {
     if installed_qa {
         return Ok(());
     }
@@ -140,7 +153,10 @@ fn canonical_text(path: &Path) -> String {
             }
             return out.display().to_string();
         }
-        match (base.file_name().map(|n| n.to_owned()), base.parent().map(Path::to_path_buf)) {
+        match (
+            base.file_name().map(|n| n.to_owned()),
+            base.parent().map(Path::to_path_buf),
+        ) {
             (Some(name), Some(parent)) if !parent.as_os_str().is_empty() => {
                 tail.push(name);
                 base = parent;
@@ -186,10 +202,19 @@ mod tests {
         let roots = installed_roots(Os::Mac, &|_| None, "/Users/a");
         assert_eq!(roots, ["/Applications", "/Users/a/Applications"]);
         let hit = |p: &str| installed_root_of(Os::Mac, p, &roots);
-        assert_eq!(hit("/Applications/CutRight.app/Contents/MacOS/CutRight"), Some("/Applications"));
+        assert_eq!(
+            hit("/Applications/CutRight.app/Contents/MacOS/CutRight"),
+            Some("/Applications")
+        );
         assert_eq!(hit("/applications/CutRight.app"), Some("/Applications"));
-        assert_eq!(hit("/Users/a/Applications/X.app"), Some("/Users/a/Applications"));
-        assert_eq!(hit("/Users/a/dev/../../../Applications/X.app"), Some("/Applications"));
+        assert_eq!(
+            hit("/Users/a/Applications/X.app"),
+            Some("/Users/a/Applications")
+        );
+        assert_eq!(
+            hit("/Users/a/dev/../../../Applications/X.app"),
+            Some("/Applications")
+        );
         assert_eq!(hit("/ApplicationsExtra/X.app"), None);
         assert_eq!(hit("/Users/a/dev/target/debug/X.app"), None);
     }
@@ -199,16 +224,29 @@ mod tests {
         let roots = installed_roots(Os::Windows, &win_env, r"C:\Users\a");
         assert_eq!(
             roots,
-            [r"C:\Program Files", r"C:\Program Files (x86)", r"C:\Users\a\AppData\Local\Programs"]
+            [
+                r"C:\Program Files",
+                r"C:\Program Files (x86)",
+                r"C:\Users\a\AppData\Local\Programs"
+            ]
         );
         let hit = |p: &str| installed_root_of(Os::Windows, p, &roots);
-        assert_eq!(hit(r"C:\Program Files\CutRight\cutright.exe"), Some(r"C:\Program Files"));
-        assert_eq!(hit("c:/program files (x86)/CutRight/x.exe"), Some(r"C:\Program Files (x86)"));
+        assert_eq!(
+            hit(r"C:\Program Files\CutRight\cutright.exe"),
+            Some(r"C:\Program Files")
+        );
+        assert_eq!(
+            hit("c:/program files (x86)/CutRight/x.exe"),
+            Some(r"C:\Program Files (x86)")
+        );
         assert_eq!(
             hit(r"\\?\C:\Users\a\AppData\Local\Programs\X\x.exe"),
             Some(r"C:\Users\a\AppData\Local\Programs")
         );
-        assert_eq!(hit(r"C:\work\..\Program Files\X\x.exe"), Some(r"C:\Program Files"));
+        assert_eq!(
+            hit(r"C:\work\..\Program Files\X\x.exe"),
+            Some(r"C:\Program Files")
+        );
         assert_eq!(hit(r"C:\Program Files Extra\x.exe"), None);
         assert_eq!(hit(r"C:\Users\a\AppData\Local\Temp\x.exe"), None);
     }
@@ -221,7 +259,9 @@ mod tests {
 
     #[test]
     fn installed_qa_mode_reads_the_release_stage_signal() {
-        let with = |v: Option<&'static str>| installed_mode_with(&move |k| (k == STAGE_ENV).then(|| v.map(String::from)).flatten());
+        let with = |v: Option<&'static str>| {
+            installed_mode_with(&move |k| (k == STAGE_ENV).then(|| v.map(String::from)).flatten())
+        };
         assert!(with(Some("installed")));
         assert!(with(Some(" Installed ")));
         assert!(!with(Some("source")));
@@ -231,10 +271,31 @@ mod tests {
     #[test]
     fn refuses_installed_path_unless_opted_in_and_names_path_and_opt_in() {
         let roots = vec!["/Applications".to_owned()];
-        let e = decide(Os::Mac, "UI app bundle", "/Applications/CutRight.app", &roots, false).unwrap_err();
+        let e = decide(
+            Os::Mac,
+            "UI app bundle",
+            "/Applications/CutRight.app",
+            &roots,
+            false,
+        )
+        .unwrap_err();
         assert!(e.0.contains("/Applications/CutRight.app"), "{e}");
         assert!(e.0.contains("RIGHT_RELEASE_QA_STAGE=installed"), "{e}");
-        assert!(decide(Os::Mac, "UI app bundle", "/Applications/CutRight.app", &roots, true).is_ok());
-        assert!(decide(Os::Mac, "UI app bundle", "/tmp/dev/CutRight.app", &roots, false).is_ok());
+        assert!(decide(
+            Os::Mac,
+            "UI app bundle",
+            "/Applications/CutRight.app",
+            &roots,
+            true
+        )
+        .is_ok());
+        assert!(decide(
+            Os::Mac,
+            "UI app bundle",
+            "/tmp/dev/CutRight.app",
+            &roots,
+            false
+        )
+        .is_ok());
     }
 }

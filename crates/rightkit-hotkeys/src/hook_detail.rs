@@ -167,7 +167,10 @@ mod tests {
     #[test]
     fn key_flags_decode() {
         let d = KeyEventDetail::from_raw(0x20, true, 0x39, LLKHF_ALTDOWN, 0xABCD);
-        assert_eq!((d.vk, d.down, d.scan_code, d.extra_info), (0x20, true, 0x39, 0xABCD));
+        assert_eq!(
+            (d.vk, d.down, d.scan_code, d.extra_info),
+            (0x20, true, 0x39, 0xABCD)
+        );
         assert!(d.alt_down && !d.injected && !d.extended);
 
         let d = KeyEventDetail::from_raw(0x41, false, 0x1E, LLKHF_INJECTED | LLKHF_EXTENDED, 0);
@@ -192,15 +195,28 @@ mod tests {
         assert_eq!(classify_mouse_message(0x020C, 1 << 16), MouseKind::X1Up);
         assert_eq!(classify_mouse_message(0x020B, 2 << 16), MouseKind::X2Down);
         assert_eq!(classify_mouse_message(0x020C, 2 << 16), MouseKind::X2Up);
-        assert_eq!(classify_mouse_message(0x020B, 3 << 16), MouseKind::Other(0x020B));
+        assert_eq!(
+            classify_mouse_message(0x020B, 3 << 16),
+            MouseKind::Other(0x020B)
+        );
         assert_eq!(classify_mouse_message(0x0203, 0), MouseKind::Other(0x0203));
     }
 
     #[test]
     fn wheel_delta_is_signed_high_word() {
         let up = MouseEvent::from_raw(0x020A, 10, 20, 120u32 << 16, 0, 7);
-        assert_eq!((up.kind, up.wheel_delta, up.x, up.y, up.extra_info), (MouseKind::Wheel, 120, 10, 20, 7));
-        let down = MouseEvent::from_raw(0x020A, 0, 0, ((-120i16) as u16 as u32) << 16, LLMHF_INJECTED, 0);
+        assert_eq!(
+            (up.kind, up.wheel_delta, up.x, up.y, up.extra_info),
+            (MouseKind::Wheel, 120, 10, 20, 7)
+        );
+        let down = MouseEvent::from_raw(
+            0x020A,
+            0,
+            0,
+            ((-120i16) as u16 as u32) << 16,
+            LLMHF_INJECTED,
+            0,
+        );
         assert_eq!(down.wheel_delta, -120);
         assert!(down.injected);
         let click = MouseEvent::from_raw(0x0201, 0, 0, 0xFFFF_0000, 0, 0);

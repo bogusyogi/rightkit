@@ -52,9 +52,7 @@ pub fn eyes_gate(
     match mode {
         ReviewMode::None => Ok(EyesGate::NotRequired),
         ReviewMode::AutoWhenClean if clean_verdict => Ok(EyesGate::AutoClean),
-        ReviewMode::Manual | ReviewMode::AutoWhenClean if person_approved => {
-            Ok(EyesGate::Approved)
-        }
+        ReviewMode::Manual | ReviewMode::AutoWhenClean if person_approved => Ok(EyesGate::Approved),
         ReviewMode::Manual | ReviewMode::AutoWhenClean => Err(EYES_APPROVAL_REQUIRED),
     }
 }

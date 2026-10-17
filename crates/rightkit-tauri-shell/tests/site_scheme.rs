@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use rightkit_tauri_shell::broker::PathBroker;
 use rightkit_tauri_shell::site::{
-    grant_document_site, infer_site_root, infer_site_root_report, percent_decode, serve_site_request, site_base_url,
-    site_mime, split_site_request, validate_chosen_site_root, SitePolicy,
+    grant_document_site, infer_site_root, infer_site_root_report, percent_decode,
+    serve_site_request, site_base_url, site_mime, split_site_request, validate_chosen_site_root,
+    SitePolicy,
 };
 use tauri::http::{header, Request, Response, StatusCode};
 
@@ -301,13 +302,15 @@ fn inference_reports_whether_a_marker_was_found() {
     let project = dir.path().join("project");
     write(&project, "package.json", b"{}");
     write(&project, "a/page.html", b"<p/>");
-    let found = infer_site_root_report(&project.join("a/page.html"), &SitePolicy::default()).unwrap();
+    let found =
+        infer_site_root_report(&project.join("a/page.html"), &SitePolicy::default()).unwrap();
     assert!(found.marker_found);
     assert_eq!(found.root, std::fs::canonicalize(&project).unwrap());
 
     let loose = dir.path().join("loose");
     write(&loose, "page.html", b"<p/>");
-    let fallback = infer_site_root_report(&loose.join("page.html"), &SitePolicy::default()).unwrap();
+    let fallback =
+        infer_site_root_report(&loose.join("page.html"), &SitePolicy::default()).unwrap();
     assert!(!fallback.marker_found);
     assert_eq!(fallback.root, std::fs::canonicalize(&loose).unwrap());
 }

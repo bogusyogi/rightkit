@@ -51,10 +51,12 @@ impl ChannelMemory {
         ids.sort_unstable();
         ids.dedup();
         ids.iter()
-            .map(|id| match self.proofs.iter().find(|proof| proof.id == *id) {
-                Some(proof) => entry(proof),
-                None => format!("{id}@missing"),
-            })
+            .map(
+                |id| match self.proofs.iter().find(|proof| proof.id == *id) {
+                    Some(proof) => entry(proof),
+                    None => format!("{id}@missing"),
+                },
+            )
             .collect::<Vec<_>>()
             .join(";")
     }

@@ -88,7 +88,10 @@ pub struct Window {
 pub enum Limit {
     Min(f64),
     Max(f64),
-    Range { min: f64, max: f64 },
+    Range {
+        min: f64,
+        max: f64,
+    },
     ExactNumber(f64),
     ExactText(String),
     Boolean(bool),
@@ -181,7 +184,8 @@ impl Rule {
                         .iter()
                         .map(|v| v.as_str().map(str::to_owned))
                         .collect();
-                    list.filter(|l| !l.is_empty()).map_or(Limit::Unstated, Limit::OneOf)
+                    list.filter(|l| !l.is_empty())
+                        .map_or(Limit::Unstated, Limit::OneOf)
                 }
                 _ => Limit::Unstated,
             },
@@ -202,17 +206,21 @@ impl Rule {
     }
 
     fn key(&self) -> Key<'_> {
-        (&self.platform, &self.account_type, &self.capability, &self.format)
+        (
+            &self.platform,
+            &self.account_type,
+            &self.capability,
+            &self.format,
+        )
     }
 
     /// Canonical text hashed into a [`RuleRevision`]. Source URL and dates are left out: a change
     /// to them alone has no content effect, so it does not change the revision.
     fn canonical(&self) -> String {
         let n = |v: Option<f64>| v.map_or("-".to_owned(), |x| format!("{x}"));
-        let value = self
-            .value
-            .as_ref()
-            .map_or("-".to_owned(), |v| serde_json::to_string(v).unwrap_or_default());
+        let value = self.value.as_ref().map_or("-".to_owned(), |v| {
+            serde_json::to_string(v).unwrap_or_default()
+        });
         let window = self
             .window
             .as_ref()
@@ -274,7 +282,12 @@ pub enum PlannedValue {
 
 impl Planned {
     pub fn number(account_type: &str, capability: &str, format: &str, value: f64) -> Self {
-        Self::new(account_type, capability, format, PlannedValue::Number(value))
+        Self::new(
+            account_type,
+            capability,
+            format,
+            PlannedValue::Number(value),
+        )
     }
 
     pub fn boolean(account_type: &str, capability: &str, format: &str, value: bool) -> Self {
@@ -282,7 +295,12 @@ impl Planned {
     }
 
     pub fn text(account_type: &str, capability: &str, format: &str, value: &str) -> Self {
-        Self::new(account_type, capability, format, PlannedValue::Text(value.to_owned()))
+        Self::new(
+            account_type,
+            capability,
+            format,
+            PlannedValue::Text(value.to_owned()),
+        )
     }
 
     fn new(account_type: &str, capability: &str, format: &str, value: PlannedValue) -> Self {
@@ -307,18 +325,46 @@ impl Planned {
 #[non_exhaustive]
 pub enum Violation {
     /// The bound revision is not the catalog's current revision for the platform.
-    StaleRevision { bound: RuleRevision, current: RuleRevision },
+    StaleRevision {
+        bound: RuleRevision,
+        current: RuleRevision,
+    },
     /// No rule exists for the planned value. An absent rule blocks use like an unsourced one.
-    NoRule { platform: String, account_type: String, capability: String, format: String },
+    NoRule {
+        platform: String,
+        account_type: String,
+        capability: String,
+        format: String,
+    },
     /// The rule is unsourced or stale on the check date.
     Blocked { rule_id: String, status: Status },
-    UnitMismatch { rule_id: String, rule_unit: Option<String>, planned_unit: String },
+    UnitMismatch {
+        rule_id: String,
+        rule_unit: Option<String>,
+        planned_unit: String,
+    },
     /// The planned value has a different type than the rule's limit.
     WrongType { rule_id: String },
-    BelowMin { rule_id: String, planned: f64, min: f64 },
-    AboveMax { rule_id: String, planned: f64, max: f64 },
-    NotExact { rule_id: String, planned: String, expected: String },
-    NotAllowed { rule_id: String, planned: String, allowed: Vec<String> },
+    BelowMin {
+        rule_id: String,
+        planned: f64,
+        min: f64,
+    },
+    AboveMax {
+        rule_id: String,
+        planned: f64,
+        max: f64,
+    },
+    NotExact {
+        rule_id: String,
+        planned: String,
+        expected: String,
+    },
+    NotAllowed {
+        rule_id: String,
+        planned: String,
+        allowed: Vec<String>,
+    },
 }
 
 impl fmt::Display for Violation {
@@ -367,11 +413,21 @@ pub enum CatalogError {
     Json(String),
     Schema(u32),
     /// A record breaks a promotion or shape rule.
-    Invalid { rule_id: String, reason: String },
+    Invalid {
+        rule_id: String,
+        reason: String,
+    },
     /// A record repeats an existing (key, revision).
-    DuplicateRevision { rule_id: String, revision: u32 },
+    DuplicateRevision {
+        rule_id: String,
+        revision: u32,
+    },
     /// A merged record is not the previous latest revision plus one naming it in `supersedes`.
-    NotNextRevision { rule_id: String, expected: u32, got: u32 },
+    NotNextRevision {
+        rule_id: String,
+        expected: u32,
+        got: u32,
+    },
 }
 
 impl fmt::Display for CatalogError {
@@ -417,7 +473,8 @@ impl Catalog {
 
     /// Parse and validate a catalog document `{"schema": 1, "rules": [...]}`.
     pub fn from_json(text: &str) -> Result<Self, CatalogError> {
-        let file: File = serde_json::from_str(text).map_err(|e| CatalogError::Json(e.to_string()))?;
+        let file: File =
+            serde_json::from_str(text).map_err(|e| CatalogError::Json(e.to_string()))?;
         if file.schema != SCHEMA {
             return Err(CatalogError::Schema(file.schema));
         }
@@ -425,7 +482,11 @@ impl Catalog {
         for rule in &rules {
             validate(rule)?;
         }
-        rules.sort_by(|a, b| a.key().cmp(&b.key()).then(a.rule_revision.cmp(&b.rule_revision)));
+        rules.sort_by(|a, b| {
+            a.key()
+                .cmp(&b.key())
+                .then(a.rule_revision.cmp(&b.rule_revision))
+        });
         for pair in rules.windows(2) {
             if pair[0].key() == pair[1].key() && pair[0].rule_revision == pair[1].rule_revision {
                 return Err(CatalogError::DuplicateRevision {
@@ -456,8 +517,11 @@ impl Catalog {
     }
 
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(&File { schema: SCHEMA, rules: self.rules.clone() })
-            .unwrap_or_default()
+        serde_json::to_string_pretty(&File {
+            schema: SCHEMA,
+            rules: self.rules.clone(),
+        })
+        .unwrap_or_default()
     }
 
     /// Every record, every revision, ordered by key then revision.
@@ -471,12 +535,19 @@ impl Catalog {
     pub fn merge(&self, overrides: Catalog) -> Result<Catalog, CatalogError> {
         let mut out = self.clone();
         let mut incoming = overrides.rules;
-        incoming.sort_by(|a, b| a.key().cmp(&b.key()).then(a.rule_revision.cmp(&b.rule_revision)));
+        incoming.sort_by(|a, b| {
+            a.key()
+                .cmp(&b.key())
+                .then(a.rule_revision.cmp(&b.rule_revision))
+        });
         for rule in incoming {
             validate(&rule)?;
-            let latest = out.latest_for_key(rule.key()).map(|r| (r.rule_revision, r.rule_id.clone()));
+            let latest = out
+                .latest_for_key(rule.key())
+                .map(|r| (r.rule_revision, r.rule_id.clone()));
             let expected = latest.as_ref().map_or(1, |(rev, _)| rev + 1);
-            if rule.rule_revision != expected || rule.supersedes != latest.as_ref().map(|(r, _)| *r) {
+            if rule.rule_revision != expected || rule.supersedes != latest.as_ref().map(|(r, _)| *r)
+            {
                 return Err(CatalogError::NotNextRevision {
                     rule_id: rule.rule_id.clone(),
                     expected,
@@ -493,14 +564,19 @@ impl Catalog {
             }
             out.rules.push(rule);
         }
-        out.rules.sort_by(|a, b| a.key().cmp(&b.key()).then(a.rule_revision.cmp(&b.rule_revision)));
+        out.rules.sort_by(|a, b| {
+            a.key()
+                .cmp(&b.key())
+                .then(a.rule_revision.cmp(&b.rule_revision))
+        });
         Ok(out)
     }
 
     /// [`Catalog::merge`] with the overrides given as a catalog document.
     pub fn merge_json(&self, overrides: &str) -> Result<Catalog, CatalogError> {
         // Override documents hold only the new revisions, so chain validation is done by merge.
-        let file: File = serde_json::from_str(overrides).map_err(|e| CatalogError::Json(e.to_string()))?;
+        let file: File =
+            serde_json::from_str(overrides).map_err(|e| CatalogError::Json(e.to_string()))?;
         if file.schema != SCHEMA {
             return Err(CatalogError::Schema(file.schema));
         }
@@ -555,7 +631,8 @@ impl Catalog {
             .iter()
             .filter(|r| r.platform == platform)
             .filter(|r| {
-                self.latest_for_key(r.key()).is_some_and(|l| l.rule_revision == r.rule_revision)
+                self.latest_for_key(r.key())
+                    .is_some_and(|l| l.rule_revision == r.rule_revision)
             })
             .collect();
         latest.sort_by(|a, b| a.key().cmp(&b.key()));
@@ -567,7 +644,10 @@ impl Catalog {
                 b = (b ^ u64::from(byte.rotate_left(3))).wrapping_mul(0x0000_0100_0000_01b3);
             }
         }
-        RuleRevision { platform: platform.to_owned(), hash: format!("{a:016x}{b:016x}") }
+        RuleRevision {
+            platform: platform.to_owned(),
+            hash: format!("{a:016x}{b:016x}"),
+        }
     }
 
     /// True when `bound` equals this catalog's current revision for its platform.
@@ -592,7 +672,10 @@ impl Catalog {
     ) -> Result<(), Violation> {
         let current = self.revision(&bound.platform);
         if current != *bound {
-            return Err(Violation::StaleRevision { bound: bound.clone(), current });
+            return Err(Violation::StaleRevision {
+                bound: bound.clone(),
+                current,
+            });
         }
         for p in planned {
             let rule = self
@@ -613,7 +696,10 @@ fn check_one(rule: &Rule, p: &Planned, today: &str) -> Result<(), Violation> {
     let id = || rule.rule_id.clone();
     let status = rule.status_at(today);
     if status != Status::Sourced {
-        return Err(Violation::Blocked { rule_id: id(), status });
+        return Err(Violation::Blocked {
+            rule_id: id(),
+            status,
+        });
     }
     if let Some(planned_unit) = &p.unit {
         if rule.unit.as_ref() != Some(planned_unit) {
@@ -627,28 +713,52 @@ fn check_one(rule: &Rule, p: &Planned, today: &str) -> Result<(), Violation> {
     let inclusive = rule.inclusive.unwrap_or(true);
     let wrong = || Violation::WrongType { rule_id: id() };
     let below = |v: f64, min: f64| {
-        if inclusive { v < min } else { v <= min }
+        if inclusive {
+            v < min
+        } else {
+            v <= min
+        }
     };
     let above = |v: f64, max: f64| {
-        if inclusive { v > max } else { v >= max }
+        if inclusive {
+            v > max
+        } else {
+            v >= max
+        }
     };
     match (rule.limit(), &p.value) {
         (Limit::Min(min), PlannedValue::Number(v)) => {
             if below(*v, min) {
-                return Err(Violation::BelowMin { rule_id: id(), planned: *v, min });
+                return Err(Violation::BelowMin {
+                    rule_id: id(),
+                    planned: *v,
+                    min,
+                });
             }
         }
         (Limit::Max(max), PlannedValue::Number(v)) => {
             if above(*v, max) {
-                return Err(Violation::AboveMax { rule_id: id(), planned: *v, max });
+                return Err(Violation::AboveMax {
+                    rule_id: id(),
+                    planned: *v,
+                    max,
+                });
             }
         }
         (Limit::Range { min, max }, PlannedValue::Number(v)) => {
             if below(*v, min) {
-                return Err(Violation::BelowMin { rule_id: id(), planned: *v, min });
+                return Err(Violation::BelowMin {
+                    rule_id: id(),
+                    planned: *v,
+                    min,
+                });
             }
             if above(*v, max) {
-                return Err(Violation::AboveMax { rule_id: id(), planned: *v, max });
+                return Err(Violation::AboveMax {
+                    rule_id: id(),
+                    planned: *v,
+                    max,
+                });
             }
         }
         (Limit::ExactNumber(x), PlannedValue::Number(v)) => {
@@ -662,7 +772,11 @@ fn check_one(rule: &Rule, p: &Planned, today: &str) -> Result<(), Violation> {
         }
         (Limit::ExactText(x), PlannedValue::Text(v)) => {
             if *v != x {
-                return Err(Violation::NotExact { rule_id: id(), planned: v.clone(), expected: x });
+                return Err(Violation::NotExact {
+                    rule_id: id(),
+                    planned: v.clone(),
+                    expected: x,
+                });
             }
         }
         (Limit::Boolean(x), PlannedValue::Bool(v)) => {
@@ -676,10 +790,19 @@ fn check_one(rule: &Rule, p: &Planned, today: &str) -> Result<(), Violation> {
         }
         (Limit::OneOf(allowed), PlannedValue::Text(v)) => {
             if !allowed.contains(v) {
-                return Err(Violation::NotAllowed { rule_id: id(), planned: v.clone(), allowed });
+                return Err(Violation::NotAllowed {
+                    rule_id: id(),
+                    planned: v.clone(),
+                    allowed,
+                });
             }
         }
-        (Limit::Unstated, _) => return Err(Violation::Blocked { rule_id: id(), status: Status::Unsourced }),
+        (Limit::Unstated, _) => {
+            return Err(Violation::Blocked {
+                rule_id: id(),
+                status: Status::Unsourced,
+            })
+        }
         _ => return Err(wrong()),
     }
     Ok(())
@@ -743,7 +866,11 @@ fn validate(rule: &Rule) -> Result<(), CatalogError> {
             if rule.source_grade != SourceGrade::OfficialFetched {
                 return Err(bad("sourced needs sourceGrade official_fetched"));
             }
-            if rule.source_url.as_deref().is_none_or(|u| u.trim().is_empty()) {
+            if rule
+                .source_url
+                .as_deref()
+                .is_none_or(|u| u.trim().is_empty())
+            {
                 return Err(bad("sourced needs a sourceUrl"));
             }
             if !stated {
@@ -820,10 +947,14 @@ mod tests {
     fn get_falls_back_to_all_accounts_and_any_format() {
         let c = Catalog::bundled();
         // threads.publish.window is format any, account all.
-        assert!(c.get("threads", "member", "publish.window", "text").is_some());
+        assert!(c
+            .get("threads", "member", "publish.window", "text")
+            .is_some());
         // x video limits differ by account type and must not fall through to each other.
         let d = c.get("x", "default", "video.duration", "video").unwrap();
-        let p = c.get("x", "premium_or_verified", "video.duration", "video").unwrap();
+        let p = c
+            .get("x", "premium_or_verified", "video.duration", "video")
+            .unwrap();
         assert_eq!(d.limit(), Limit::Max(20.0));
         assert_eq!(p.limit(), Limit::Max(125.0));
         assert!(c.get("x", "other", "video.duration", "video").is_none());
@@ -837,9 +968,15 @@ mod tests {
         let at = Planned::number("all", "text.length", "text", 500.0).in_unit("characters");
         assert_eq!(c.check_at(&rev, &[at], TODAY), Ok(()));
         let over = Planned::number("all", "text.length", "text", 501.0);
-        assert!(matches!(c.check_at(&rev, &[over], TODAY), Err(Violation::AboveMax { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[over], TODAY),
+            Err(Violation::AboveMax { .. })
+        ));
         let low = Planned::number("all", "carousel.item_count", "carousel", 1.0);
-        assert!(matches!(c.check_at(&rev, &[low], TODAY), Err(Violation::BelowMin { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[low], TODAY),
+            Err(Violation::BelowMin { .. })
+        ));
         let top = Planned::number("all", "carousel.item_count", "carousel", 20.0);
         assert_eq!(c.check_at(&rev, &[top], TODAY), Ok(()));
     }
@@ -851,7 +988,10 @@ mod tests {
         let ok = Planned::number("premium_or_verified", "video.duration", "video", 125.0);
         assert_eq!(c.check_at(&rev, &[ok], TODAY), Ok(()));
         let over = Planned::number("default", "video.duration", "video", 21.0);
-        assert!(matches!(c.check_at(&rev, &[over], TODAY), Err(Violation::AboveMax { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[over], TODAY),
+            Err(Violation::AboveMax { .. })
+        ));
     }
 
     #[test]
@@ -859,11 +999,20 @@ mod tests {
         let c = Catalog::bundled();
         let rev = c.revision("threads");
         let wrong_unit = Planned::number("all", "text.length", "text", 10.0).in_unit("words");
-        assert!(matches!(c.check_at(&rev, &[wrong_unit], TODAY), Err(Violation::UnitMismatch { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[wrong_unit], TODAY),
+            Err(Violation::UnitMismatch { .. })
+        ));
         let wrong_type = Planned::text("all", "text.length", "text", "ten");
-        assert!(matches!(c.check_at(&rev, &[wrong_type], TODAY), Err(Violation::WrongType { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[wrong_type], TODAY),
+            Err(Violation::WrongType { .. })
+        ));
         let none = Planned::number("all", "no.such", "text", 1.0);
-        assert!(matches!(c.check_at(&rev, &[none], TODAY), Err(Violation::NoRule { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[none], TODAY),
+            Err(Violation::NoRule { .. })
+        ));
     }
 
     #[test]
@@ -873,7 +1022,10 @@ mod tests {
         let p = Planned::number("all", "video.duration", "reel", 30.0);
         assert!(matches!(
             c.check_at(&rev, &[p], TODAY),
-            Err(Violation::Blocked { status: Status::Unsourced, .. })
+            Err(Violation::Blocked {
+                status: Status::Unsourced,
+                ..
+            })
         ));
     }
 
@@ -882,10 +1034,16 @@ mod tests {
         let c = Catalog::bundled();
         let rev = c.revision("linkedin");
         let p = Planned::text("all", "api_version", "any", "202510");
-        assert_eq!(c.check_at(&rev, std::slice::from_ref(&p), "2026-10-15"), Ok(()));
+        assert_eq!(
+            c.check_at(&rev, std::slice::from_ref(&p), "2026-10-15"),
+            Ok(())
+        );
         assert!(matches!(
             c.check_at(&rev, &[p], "2026-10-16"),
-            Err(Violation::Blocked { status: Status::Stale, .. })
+            Err(Violation::Blocked {
+                status: Status::Stale,
+                ..
+            })
         ));
     }
 
@@ -896,16 +1054,25 @@ mod tests {
         let ok = Planned::text("all", "trial_reel.graduation", "reel", "MANUAL");
         assert_eq!(c.check_at(&rev, &[ok], TODAY), Ok(()));
         let bad = Planned::text("all", "trial_reel.graduation", "reel", "AUTO");
-        assert!(matches!(c.check_at(&rev, &[bad], TODAY), Err(Violation::NotAllowed { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[bad], TODAY),
+            Err(Violation::NotAllowed { .. })
+        ));
         let rev = c.revision("threads");
         let host = Planned::boolean("all", "media.public_host", "any", false);
-        assert!(matches!(c.check_at(&rev, &[host], TODAY), Err(Violation::NotExact { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[host], TODAY),
+            Err(Violation::NotExact { .. })
+        ));
     }
 
     #[test]
     fn revision_is_stable_and_platform_scoped() {
         let c = Catalog::bundled();
-        assert_eq!(c.revision("threads"), Catalog::bundled().revision("threads"));
+        assert_eq!(
+            c.revision("threads"),
+            Catalog::bundled().revision("threads")
+        );
         assert_ne!(c.revision("threads").hash, c.revision("x").hash);
         assert_eq!(c.revision("threads").hash.len(), 32);
         assert!(c.is_current(&c.revision("threads")));
@@ -920,11 +1087,27 @@ mod tests {
         assert_eq!(base.revision("threads"), old, "merge returns a new catalog");
         assert!(!merged.is_current(&old));
         assert_ne!(merged.revision("threads"), old);
-        assert_eq!(merged.get("threads", "all", "text.length", "text").unwrap().revision(), 2);
-        assert_eq!(merged.rules().len(), base.rules().len() + 1, "history is kept");
+        assert_eq!(
+            merged
+                .get("threads", "all", "text.length", "text")
+                .unwrap()
+                .revision(),
+            2
+        );
+        assert_eq!(
+            merged.rules().len(),
+            base.rules().len() + 1,
+            "history is kept"
+        );
         let p = Planned::number("all", "text.length", "text", 550.0);
-        assert!(matches!(merged.check_at(&old, std::slice::from_ref(&p), TODAY), Err(Violation::StaleRevision { .. })));
-        assert_eq!(merged.check_at(&merged.revision("threads"), &[p], TODAY), Ok(()));
+        assert!(matches!(
+            merged.check_at(&old, std::slice::from_ref(&p), TODAY),
+            Err(Violation::StaleRevision { .. })
+        ));
+        assert_eq!(
+            merged.check_at(&merged.revision("threads"), &[p], TODAY),
+            Ok(())
+        );
         // Other platforms are untouched.
         assert_eq!(merged.revision("x"), base.revision("x"));
     }
@@ -940,53 +1123,115 @@ mod tests {
     #[test]
     fn merge_refuses_edits_and_skipped_revisions() {
         let base = Catalog::bundled();
-        let edit = sourced("threads.text.length", "threads", "text.length", "max", r#""max":900"#);
+        let edit = sourced(
+            "threads.text.length",
+            "threads",
+            "text.length",
+            "max",
+            r#""max":900"#,
+        );
         assert!(matches!(
             base.merge_json(&doc(&[edit])),
-            Err(CatalogError::NotNextRevision { expected: 2, got: 1, .. })
+            Err(CatalogError::NotNextRevision {
+                expected: 2,
+                got: 1,
+                ..
+            })
         ));
         let skip = r#"{"ruleId":"threads.text.length","platform":"threads","accountType":"all","capability":"text.length","format":"text","limitKind":"max","max":900,"sourceUrl":"https://example.test/x","sourceGrade":"official_fetched","sourceDate":"not_stated","fetchedDate":"2026-10-20","ruleRevision":3,"supersedes":2,"status":"sourced"}"#;
         assert!(matches!(
             base.merge_json(&doc(&[skip.to_owned()])),
-            Err(CatalogError::NotNextRevision { expected: 2, got: 3, .. })
+            Err(CatalogError::NotNextRevision {
+                expected: 2,
+                got: 3,
+                ..
+            })
         ));
         let renamed = r#"{"ruleId":"threads.other","platform":"threads","accountType":"all","capability":"text.length","format":"text","limitKind":"max","max":900,"sourceUrl":"https://example.test/x","sourceGrade":"official_fetched","sourceDate":"not_stated","fetchedDate":"2026-10-20","ruleRevision":2,"supersedes":1,"status":"sourced"}"#;
-        assert!(matches!(base.merge_json(&doc(&[renamed.to_owned()])), Err(CatalogError::Invalid { .. })));
+        assert!(matches!(
+            base.merge_json(&doc(&[renamed.to_owned()])),
+            Err(CatalogError::Invalid { .. })
+        ));
     }
 
     #[test]
     fn merge_adds_a_new_key_at_revision_one() {
         let base = Catalog::bundled();
-        let new = sourced("bluesky.text.length", "bluesky", "text.length", "max", r#""max":300"#);
+        let new = sourced(
+            "bluesky.text.length",
+            "bluesky",
+            "text.length",
+            "max",
+            r#""max":300"#,
+        );
         let merged = base.merge_json(&doc(&[new])).unwrap();
-        assert_eq!(merged.get("bluesky", "all", "text.length", "text").unwrap().limit(), Limit::Max(300.0));
+        assert_eq!(
+            merged
+                .get("bluesky", "all", "text.length", "text")
+                .unwrap()
+                .limit(),
+            Limit::Max(300.0)
+        );
     }
 
     #[test]
     fn promotion_rule_is_enforced_on_load() {
         // Wrong grade.
-        let snippet = sourced("a.b", "a", "b", "max", r#""max":1"#).replace("official_fetched", "search_snippet");
-        assert!(matches!(Catalog::from_json(&doc(&[snippet])), Err(CatalogError::Invalid { .. })));
+        let snippet = sourced("a.b", "a", "b", "max", r#""max":1"#)
+            .replace("official_fetched", "search_snippet");
+        assert!(matches!(
+            Catalog::from_json(&doc(&[snippet])),
+            Err(CatalogError::Invalid { .. })
+        ));
         // No source URL.
-        let no_url = sourced("a.b", "a", "b", "max", r#""max":1"#).replace(r#""sourceUrl":"https://example.test/doc","#, "");
-        assert!(matches!(Catalog::from_json(&doc(&[no_url])), Err(CatalogError::Invalid { .. })));
+        let no_url = sourced("a.b", "a", "b", "max", r#""max":1"#)
+            .replace(r#""sourceUrl":"https://example.test/doc","#, "");
+        assert!(matches!(
+            Catalog::from_json(&doc(&[no_url])),
+            Err(CatalogError::Invalid { .. })
+        ));
         // No stated value.
         let no_value = sourced("a.b", "a", "b", "max", r#""unit":"x""#);
-        assert!(matches!(Catalog::from_json(&doc(&[no_value])), Err(CatalogError::Invalid { .. })));
+        assert!(matches!(
+            Catalog::from_json(&doc(&[no_value])),
+            Err(CatalogError::Invalid { .. })
+        ));
         // Conflict note on a sourced record.
-        let conflict = sourced("a.b", "a", "b", "max", r#""max":1,"conflictNote":"sources disagree""#);
-        assert!(matches!(Catalog::from_json(&doc(&[conflict])), Err(CatalogError::Invalid { .. })));
+        let conflict = sourced(
+            "a.b",
+            "a",
+            "b",
+            "max",
+            r#""max":1,"conflictNote":"sources disagree""#,
+        );
+        assert!(matches!(
+            Catalog::from_json(&doc(&[conflict])),
+            Err(CatalogError::Invalid { .. })
+        ));
         // An unsourced record may not carry a number.
         let unsourced = r#"{"ruleId":"a.b","platform":"a","accountType":"all","capability":"b","format":"text","limitKind":"max","max":95,"sourceGrade":"none","sourceDate":"not_stated","fetchedDate":"2026-10-08","ruleRevision":1,"status":"unsourced"}"#;
-        assert!(matches!(Catalog::from_json(&doc(&[unsourced.to_owned()])), Err(CatalogError::Invalid { .. })));
+        assert!(matches!(
+            Catalog::from_json(&doc(&[unsourced.to_owned()])),
+            Err(CatalogError::Invalid { .. })
+        ));
     }
 
     #[test]
     fn shape_errors_are_refused() {
-        assert!(matches!(Catalog::from_json("{"), Err(CatalogError::Json(_))));
-        assert!(matches!(Catalog::from_json(r#"{"schema":2,"rules":[]}"#), Err(CatalogError::Schema(2))));
-        let bad_date = sourced("a.b", "a", "b", "max", r#""max":1"#).replace("2026-10-08", "2026-13-40");
-        assert!(matches!(Catalog::from_json(&doc(&[bad_date])), Err(CatalogError::Invalid { .. })));
+        assert!(matches!(
+            Catalog::from_json("{"),
+            Err(CatalogError::Json(_))
+        ));
+        assert!(matches!(
+            Catalog::from_json(r#"{"schema":2,"rules":[]}"#),
+            Err(CatalogError::Schema(2))
+        ));
+        let bad_date =
+            sourced("a.b", "a", "b", "max", r#""max":1"#).replace("2026-10-08", "2026-13-40");
+        assert!(matches!(
+            Catalog::from_json(&doc(&[bad_date])),
+            Err(CatalogError::Invalid { .. })
+        ));
         let dup = sourced("a.b", "a", "b", "max", r#""max":1"#);
         assert!(matches!(
             Catalog::from_json(&doc(&[dup.clone(), dup])),
@@ -1000,7 +1245,10 @@ mod tests {
         let c = Catalog::from_json(&doc(&[r])).unwrap();
         let rev = c.revision("a");
         let at = Planned::number("all", "b", "text", 10.0);
-        assert!(matches!(c.check_at(&rev, &[at], TODAY), Err(Violation::AboveMax { .. })));
+        assert!(matches!(
+            c.check_at(&rev, &[at], TODAY),
+            Err(Violation::AboveMax { .. })
+        ));
         let under = Planned::number("all", "b", "text", 9.0);
         assert_eq!(c.check_at(&rev, &[under], TODAY), Ok(()));
     }

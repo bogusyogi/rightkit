@@ -130,19 +130,19 @@ impl ContextHandle for AndroidContext {
         // `attach_current_thread` runs `f` in a fresh local frame, so local references made by `f`
         // are released on return. The inner result carries `f`'s own error; the outer one is an
         // attach or detach failure.
-        let attached = self.vm.attach_current_thread(
-            |env| -> jni::errors::Result<jni::errors::Result<()>> {
-                match f(env, self.app_context.as_obj()) {
-                    Ok(()) => Ok(Ok(())),
-                    Err(e) => {
-                        if env.exception_check() {
-                            env.exception_clear();
+        let attached =
+            self.vm
+                .attach_current_thread(|env| -> jni::errors::Result<jni::errors::Result<()>> {
+                    match f(env, self.app_context.as_obj()) {
+                        Ok(()) => Ok(Ok(())),
+                        Err(e) => {
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                            Ok(Err(e))
                         }
-                        Ok(Err(e))
                     }
-                }
-            },
-        );
+                });
         match attached {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(AndroidError::Jni {

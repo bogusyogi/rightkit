@@ -133,7 +133,11 @@ impl QuotaSchedule {
 
     /// Record a raw `Retry-After` header value (seconds or HTTP-date). Returns the wait that
     /// was recorded, or `None` when the value does not parse.
-    pub fn defer_for_header(&mut self, provider: &str, value: &str) -> io::Result<Option<Duration>> {
+    pub fn defer_for_header(
+        &mut self,
+        provider: &str,
+        value: &str,
+    ) -> io::Result<Option<Duration>> {
         match parse_retry_after_at(value, SystemTime::now()) {
             Some(wait) => {
                 self.defer(provider, wait)?;
@@ -168,7 +172,10 @@ impl QuotaSchedule {
 
     fn remaining_at(&self, provider: &str, now: u64) -> Option<Duration> {
         let until = *self.not_before_ms.get(provider)?;
-        until.checked_sub(now).filter(|d| *d > 0).map(Duration::from_millis)
+        until
+            .checked_sub(now)
+            .filter(|d| *d > 0)
+            .map(Duration::from_millis)
     }
 
     /// The wall-clock time `provider` becomes callable again, `None` when it is free now.

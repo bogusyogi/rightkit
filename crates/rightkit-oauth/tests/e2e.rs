@@ -379,7 +379,11 @@ fn default_browser_sign_in_ignores_other_paths_and_refuses_webviews() {
 
     // Non-https authorization URLs never reach the OS handler.
     let http_provider = OAuthClient::new(
-        OAuthConfig::new("c", "http://example.com/authorize", "http://example.com/token"),
+        OAuthConfig::new(
+            "c",
+            "http://example.com/authorize",
+            "http://example.com/token",
+        ),
         client(),
     )
     .unwrap();
@@ -393,7 +397,10 @@ fn default_browser_sign_in_ignores_other_paths_and_refuses_webviews() {
             Duration::from_millis(200),
         )
         .unwrap_err();
-    assert!(matches!(err, OAuthError::UnsafeAuthorizationUrl(_)), "{err:?}");
+    assert!(
+        matches!(err, OAuthError::UnsafeAuthorizationUrl(_)),
+        "{err:?}"
+    );
     assert!(!opened.load(std::sync::atomic::Ordering::SeqCst));
 
     // Wrong path is ignored, then the exact path with a bad state is a state mismatch.

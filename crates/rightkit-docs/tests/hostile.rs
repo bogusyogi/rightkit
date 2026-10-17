@@ -660,9 +660,8 @@ fn mismatched_and_hostile_xml_in_a_part_is_malformed_with_the_part_named() {
 fn a_huge_attribute_value_does_not_break_the_walk() {
     // Under the 1 MiB point where the ratio cap starts to apply to a single part.
     let big = "x".repeat(512 * 1024);
-    let body = format!(
-        r#"<w:p><w:pPr><w:pStyle w:val="{big}"/></w:pPr><w:r><w:t>kept</w:t></w:r></w:p>"#
-    );
+    let body =
+        format!(r#"<w:p><w:pPr><w:pStyle w:val="{big}"/></w:pPr><w:r><w:t>kept</w:t></w:r></w:p>"#);
     let d = read(
         Source::Bytes(&docx_with("word/document.xml", &doc_xml(body.as_bytes()))),
         &ReadOptions::default(),

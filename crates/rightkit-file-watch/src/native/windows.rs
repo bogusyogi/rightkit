@@ -925,7 +925,9 @@ mod tests {
         assert_eq!(clamp_buffer(65_539), 65_536);
         assert_eq!(clamp_buffer(262_144), 65_536);
         assert_eq!(clamp_buffer(u32::MAX), 65_536);
-        assert!((0..70_000u32).step_by(997).all(|n| clamp_buffer(n).is_multiple_of(4)));
+        assert!((0..70_000u32)
+            .step_by(997)
+            .all(|n| clamp_buffer(n).is_multiple_of(4)));
     }
 
     #[test]
@@ -964,9 +966,8 @@ mod tests {
         use crate::{TypedOptions, TypedWatcher, WatchBackend};
         let dir = tempfile::tempdir().unwrap();
         for backend in [WatchBackend::Native, WatchBackend::Auto] {
-            let watch =
-                TypedWatcher::watch_with(dir.path(), TypedOptions::new().backend(backend))
-                    .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
+            let watch = TypedWatcher::watch_with(dir.path(), TypedOptions::new().backend(backend))
+                .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
             // Native translates through the pump thread, not a notify translator thread.
             assert_eq!(watch.translator_threads(), 0);
         }
@@ -974,8 +975,8 @@ mod tests {
 
     #[test]
     fn typed_watch_maps_a_lost_report_to_overflow() {
-        use crate::{WatchEvent, WatchEventRecord};
         use crate::native::{BackendSink, BoundedQueue, TypedOptions};
+        use crate::{WatchEvent, WatchEventRecord};
         let queue = std::sync::Arc::new(BoundedQueue::new(16));
         let mut sink = BackendSink::new(queue.clone(), &TypedOptions::new(), false);
         sink.event(Ok(rescan_event()), None);

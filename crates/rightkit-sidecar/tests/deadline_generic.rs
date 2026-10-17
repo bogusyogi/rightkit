@@ -46,7 +46,9 @@ fn a_frame_in_pieces_round_trips_and_matches_the_blocking_codec() {
     };
     let got = read_frame_bytes_deadline(&mut reader, 1 << 20, soon(), &mut always_ready).unwrap();
     assert_eq!(got, body);
-    let blocking = read_frame_bytes(&mut Cursor::new(wire), 1 << 20).unwrap().unwrap();
+    let blocking = read_frame_bytes(&mut Cursor::new(wire), 1 << 20)
+        .unwrap()
+        .unwrap();
     assert_eq!(blocking, got);
 }
 
@@ -115,7 +117,10 @@ fn a_peer_that_never_becomes_ready_times_out_on_a_boundary() {
         Ok(false)
     };
     let err = read_frame_bytes_deadline(&mut reader, 64, deadline, &mut not_ready).unwrap_err();
-    assert!(matches!(err, FrameError::TimedOut { partial_bytes: 0 }), "{err:?}");
+    assert!(
+        matches!(err, FrameError::TimedOut { partial_bytes: 0 }),
+        "{err:?}"
+    );
     assert_eq!(reader.position(), 0);
 }
 
@@ -139,7 +144,10 @@ fn a_stall_mid_frame_reports_the_bytes_consumed() {
     };
     let deadline = Instant::now() + Duration::from_millis(60);
     let err = read_frame_bytes_deadline(&mut reader, 64, deadline, &mut stalls).unwrap_err();
-    assert!(matches!(err, FrameError::TimedOut { partial_bytes: 6 }), "{err:?}");
+    assert!(
+        matches!(err, FrameError::TimedOut { partial_bytes: 6 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -170,7 +178,9 @@ fn would_block_waits_for_the_next_readiness() {
 #[test]
 fn a_readiness_error_fails_the_call() {
     let mut reader = Cursor::new(frame(b"abc"));
-    let mut failing = |_: Duration| -> io::Result<bool> { Err(io::Error::new(io::ErrorKind::BrokenPipe, "gone")) };
+    let mut failing = |_: Duration| -> io::Result<bool> {
+        Err(io::Error::new(io::ErrorKind::BrokenPipe, "gone"))
+    };
     let err = read_frame_bytes_deadline(&mut reader, 64, soon(), &mut failing).unwrap_err();
     assert!(
         matches!(&err, FrameError::Io(e) if e.kind() == io::ErrorKind::BrokenPipe),
@@ -205,8 +215,7 @@ fn a_frame_written_in_pieces_equals_the_blocking_encoding() {
 #[test]
 fn an_empty_or_oversized_body_writes_nothing() {
     let mut out = Vec::new();
-    let err =
-        write_frame_bytes_deadline(&mut out, b"", 64, soon(), &mut always_ready).unwrap_err();
+    let err = write_frame_bytes_deadline(&mut out, b"", 64, soon(), &mut always_ready).unwrap_err();
     assert!(
         matches!(&err, FrameError::Io(e) if e.kind() == io::ErrorKind::InvalidData),
         "{err:?}"
@@ -246,7 +255,10 @@ fn a_write_that_stalls_reports_the_bytes_the_peer_received() {
     let deadline = Instant::now() + Duration::from_millis(60);
     let err = write_frame_bytes_deadline(&mut sink, b"0123456789", 64, deadline, &mut stalls)
         .unwrap_err();
-    assert!(matches!(err, FrameError::TimedOut { partial_bytes: 8 }), "{err:?}");
+    assert!(
+        matches!(err, FrameError::TimedOut { partial_bytes: 8 }),
+        "{err:?}"
+    );
     assert_eq!(sink.out.len(), 8);
 }
 
@@ -261,8 +273,8 @@ fn a_zero_byte_write_is_write_zero() {
             Ok(())
         }
     }
-    let err = write_frame_bytes_deadline(&mut Full, b"abc", 64, soon(), &mut always_ready)
-        .unwrap_err();
+    let err =
+        write_frame_bytes_deadline(&mut Full, b"abc", 64, soon(), &mut always_ready).unwrap_err();
     assert!(
         matches!(&err, FrameError::Io(e) if e.kind() == io::ErrorKind::WriteZero),
         "{err:?}"

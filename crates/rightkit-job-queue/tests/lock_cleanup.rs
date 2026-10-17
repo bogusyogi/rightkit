@@ -20,11 +20,7 @@ struct Probe {
 
 impl JobHandler for Probe {
     fn run(&self, job: &Job, _ctl: &JobControl) -> JobResult<Value> {
-        if self
-            .locks_dir
-            .join(format!("{}.lock", job.job_id))
-            .exists()
-        {
+        if self.locks_dir.join(format!("{}.lock", job.job_id)).exists() {
             self.saw_lock_while_running.store(true, Ordering::SeqCst);
         }
         if self.fail {
@@ -55,7 +51,8 @@ fn rig(fail: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().to_path_buf();
     let locks_dir = base.join("locks");
-    let store = Arc::new(JobStore::open_configured(base.join("jobs.db"), StoreConfig::new()).unwrap());
+    let store =
+        Arc::new(JobStore::open_configured(base.join("jobs.db"), StoreConfig::new()).unwrap());
     let locks = JobLocks::new(&locks_dir);
     let handler = Arc::new(Probe {
         locks_dir: locks_dir.clone(),
@@ -125,7 +122,10 @@ fn remove_deletes_a_free_lock_file_and_never_a_held_one() {
     assert!(lock_files(&dir.path().join("locks")).is_empty());
 
     let held = locks.try_lock("job-2").unwrap().unwrap();
-    assert!(!locks.remove("job-2").unwrap(), "a held lock is not removed");
+    assert!(
+        !locks.remove("job-2").unwrap(),
+        "a held lock is not removed"
+    );
     assert!(locks.try_lock("job-2").unwrap().is_none(), "still held");
     drop(held);
     assert!(locks.remove("job-2").unwrap());
@@ -188,8 +188,5 @@ fn runner_sweep_job_locks_keeps_queued_jobs_and_clears_finished_and_unknown_ones
     let mut want = vec![finished.clone(), "unknown-job".to_string()];
     want.sort();
     assert_eq!(removed, want);
-    assert_eq!(
-        lock_files(&rig.locks_dir),
-        vec![format!("{queued}.lock")]
-    );
+    assert_eq!(lock_files(&rig.locks_dir), vec![format!("{queued}.lock")]);
 }

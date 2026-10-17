@@ -21,9 +21,9 @@
 #![forbid(unsafe_code)]
 
 mod error;
-pub mod review;
 #[cfg(feature = "schema")]
 pub mod fixtures;
+pub mod review;
 #[cfg(feature = "schema")]
 mod schema;
 #[cfg(feature = "schema")]

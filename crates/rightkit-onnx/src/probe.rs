@@ -168,7 +168,9 @@ fn diagnose(provider: ProviderKind, probe: Probe) -> ProviderDiagnostic {
 
 #[cfg(target_vendor = "apple")]
 fn coreml_probe() -> Probe {
-    Some(guarded(<ort::ep::CoreML as ort::ep::ExecutionProvider>::is_available))
+    Some(guarded(
+        <ort::ep::CoreML as ort::ep::ExecutionProvider>::is_available,
+    ))
 }
 
 #[cfg(not(target_vendor = "apple"))]
@@ -180,7 +182,9 @@ fn coreml_probe() -> Probe {
 /// it is a later step and nothing here claims it works.
 #[cfg(target_os = "android")]
 fn xnnpack_probe() -> Probe {
-    Some(guarded(<ort::ep::XNNPACK as ort::ep::ExecutionProvider>::is_available))
+    Some(guarded(
+        <ort::ep::XNNPACK as ort::ep::ExecutionProvider>::is_available,
+    ))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -190,7 +194,9 @@ fn xnnpack_probe() -> Probe {
 
 #[cfg(target_os = "windows")]
 fn directml_probe() -> Probe {
-    Some(guarded(<ort::ep::DirectML as ort::ep::ExecutionProvider>::is_available))
+    Some(guarded(
+        <ort::ep::DirectML as ort::ep::ExecutionProvider>::is_available,
+    ))
 }
 
 #[cfg(not(target_os = "windows"))]

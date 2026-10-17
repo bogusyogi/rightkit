@@ -58,8 +58,18 @@ fn work_dir(env: &Env, request_id: &str) -> PathBuf {
 #[test]
 fn claims_cover_the_work_directory_of_non_terminal_jobs_only_for_that_scope() {
     let env = env();
-    let live = env.store.submit(&new_job(Some("req-live"))).unwrap().0.job_id;
-    let done = env.store.submit(&new_job(Some("req-done"))).unwrap().0.job_id;
+    let live = env
+        .store
+        .submit(&new_job(Some("req-live")))
+        .unwrap()
+        .0
+        .job_id;
+    let done = env
+        .store
+        .submit(&new_job(Some("req-done")))
+        .unwrap()
+        .0
+        .job_id;
     env.store.complete(&done, &json!({})).unwrap();
     let _ = live;
 
@@ -95,7 +105,12 @@ fn a_sweep_over_the_work_root_keeps_claimed_directories_and_removes_strays() {
     let done = work_dir(&env, "req-done");
     let stray = work_dir(&env, "req-stray");
     env.store.submit(&new_job(Some("req-live"))).unwrap();
-    let id = env.store.submit(&new_job(Some("req-done"))).unwrap().0.job_id;
+    let id = env
+        .store
+        .submit(&new_job(Some("req-done")))
+        .unwrap()
+        .0
+        .job_id;
     env.store.complete(&id, &json!({})).unwrap();
 
     let runner = Runner::new(
@@ -133,7 +148,12 @@ fn delete_removes_the_work_directory_and_reports_it() {
 fn delete_cancels_a_live_job_and_removes_its_work_directory() {
     let env = env();
     let dir = work_dir(&env, "req-live");
-    let id = env.store.submit(&new_job(Some("req-live"))).unwrap().0.job_id;
+    let id = env
+        .store
+        .submit(&new_job(Some("req-live")))
+        .unwrap()
+        .0
+        .job_id;
     env.store.delete(&id).unwrap();
     assert!(!dir.exists());
 }
@@ -154,7 +174,12 @@ fn keep_files_leaves_the_work_directory() {
 #[test]
 fn a_missing_work_directory_is_not_an_error() {
     let env = env();
-    let id = env.store.submit(&new_job(Some("req-none"))).unwrap().0.job_id;
+    let id = env
+        .store
+        .submit(&new_job(Some("req-none")))
+        .unwrap()
+        .0
+        .job_id;
     env.store.complete(&id, &json!({})).unwrap();
     let report = env
         .store

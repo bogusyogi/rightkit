@@ -38,7 +38,10 @@ enum State {
     /// Decided "toggle"; the physical release has not arrived yet and must be swallowed.
     Toggled,
     /// Decided "link" and the press was replayed; the physical release must be replayed too.
-    Replaying { x: f64, y: f64 },
+    Replaying {
+        x: f64,
+        y: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,7 +62,11 @@ pub enum Resolution {
     /// The lookup is stale (reset, or a newer press took over): do nothing.
     Ignore,
     Toggle,
-    Replay { x: f64, y: f64, with_up: bool },
+    Replay {
+        x: f64,
+        y: f64,
+        with_up: bool,
+    },
 }
 
 struct Inner {
@@ -520,7 +527,9 @@ mod tests {
         let actions = JobActions {
             is_link: Box::new(move |_, _| link),
             post: Box::new(move |down, _, _| {
-                tx_post.send(if down { "down" } else { "up" }.into()).unwrap()
+                tx_post
+                    .send(if down { "down" } else { "up" }.into())
+                    .unwrap()
             }),
             toggle: Arc::new(move || {
                 tx_toggle.lock().unwrap().send("toggle".into()).unwrap();

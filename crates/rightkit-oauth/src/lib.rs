@@ -122,9 +122,9 @@ impl fmt::Display for OAuthError {
             Self::AccessDenied => f.write_str("sign-in was declined"),
             Self::Cancelled => f.write_str("sign-in was cancelled"),
             Self::Storage(m) => write!(f, "credential storage error: {m}"),
-            Self::EmbeddedWebviewRefused => f.write_str(
-                "sign-in must open the default browser, never an embedded webview",
-            ),
+            Self::EmbeddedWebviewRefused => {
+                f.write_str("sign-in must open the default browser, never an embedded webview")
+            }
             Self::UnsafeAuthorizationUrl(m) => {
                 write!(f, "authorization URL refused: {m}")
             }
@@ -523,9 +523,10 @@ impl OAuthClient {
                 Err(e) => return Err(e),
             }
         };
-        let state_ok = callback.state.as_deref().is_some_and(|s| {
-            pkce::constant_time_eq(s.as_bytes(), flow.request.state.as_bytes())
-        });
+        let state_ok = callback
+            .state
+            .as_deref()
+            .is_some_and(|s| pkce::constant_time_eq(s.as_bytes(), flow.request.state.as_bytes()));
         if !state_ok {
             return Err(OAuthError::StateMismatch);
         }
@@ -859,7 +860,11 @@ fn read_callback(
         .ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
     let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
     let mut callback = Callback {
-        path: target.split_once('?').map(|(p, _)| p).unwrap_or(target).to_owned(),
+        path: target
+            .split_once('?')
+            .map(|(p, _)| p)
+            .unwrap_or(target)
+            .to_owned(),
         code: None,
         state: None,
         error: None,

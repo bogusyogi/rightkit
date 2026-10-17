@@ -191,7 +191,10 @@ pub fn plan_sheets(spec: SheetSpec) -> Result<SheetPlan, SheetError> {
         let sheet = n / per_sheet;
         let slot = n % per_sheet;
         if slot == 0 {
-            sheets.push(SheetLayout { index: sheet, tiles: Vec::new() });
+            sheets.push(SheetLayout {
+                index: sheet,
+                tiles: Vec::new(),
+            });
         }
         let frame = ((time_ms as f64 * spec.fps / 1000.0).round() as u64).min(total_frames - 1);
         let col = slot as u32 % spec.columns;
@@ -268,7 +271,10 @@ where
             }
             let want = tile.width as usize * tile.height as usize * 4;
             if frame.rgba.len() != want {
-                return Err(SheetError::FrameBufferLength { got: frame.rgba.len(), want });
+                return Err(SheetError::FrameBufferLength {
+                    got: frame.rgba.len(),
+                    want,
+                });
             }
             let img = RgbaImage::from_raw(frame.width, frame.height, frame.rgba)
                 .ok_or(SheetError::FrameBufferLength { got: 0, want })?;
@@ -332,8 +338,20 @@ mod tests {
     #[test]
     fn beats_selection_uses_beat_starts() {
         let beats = vec![
-            Beat { span: 0, start_ms: 400, end_ms: 900, word_start: 0, word_end: 1 },
-            Beat { span: 1, start_ms: 2_000, end_ms: 2_500, word_start: 3, word_end: 4 },
+            Beat {
+                span: 0,
+                start_ms: 400,
+                end_ms: 900,
+                word_start: 0,
+                word_end: 1,
+            },
+            Beat {
+                span: 1,
+                start_ms: 2_000,
+                end_ms: 2_500,
+                word_start: 3,
+                word_end: 4,
+            },
         ];
         let plan = plan_sheets(SheetSpec::new(3_000, 30.0, Selection::Beats(beats))).unwrap();
         let times: Vec<u64> = plan.sheets[0].tiles.iter().map(|t| t.time_ms).collect();
@@ -346,7 +364,10 @@ mod tests {
         spec.tile_width = 330;
         assert_eq!(
             plan_sheets(spec.clone()),
-            Err(SheetError::TileTooNarrow { width: 330, min: DEFAULT_MIN_TILE_WIDTH })
+            Err(SheetError::TileTooNarrow {
+                width: 330,
+                min: DEFAULT_MIN_TILE_WIDTH
+            })
         );
         spec.tile_width = 480;
         spec.tile_height = 270;
@@ -375,7 +396,10 @@ mod tests {
         s.selection = Selection::Times(vec![2_000]);
         assert_eq!(
             plan_sheets(s),
-            Err(SheetError::TimeOutOfRange { time_ms: 2_000, duration_ms: 1_000 })
+            Err(SheetError::TimeOutOfRange {
+                time_ms: 2_000,
+                duration_ms: 1_000
+            })
         );
     }
 
@@ -384,7 +408,9 @@ mod tests {
         let plan = plan_sheets(SheetSpec::new(4_000, 24.0, Selection::Uniform(4))).unwrap();
         let back: SheetPlan = serde_json::from_str(&plan.to_manifest_json()).unwrap();
         assert_eq!(back, plan);
-        assert!(plan.to_manifest_json().contains("rightkit.motion.sheets.v1"));
+        assert!(plan
+            .to_manifest_json()
+            .contains("rightkit.motion.sheets.v1"));
     }
 
     #[cfg(feature = "assemble")]
@@ -394,7 +420,8 @@ mod tests {
         let sheets = assemble(&plan, |t| Frame {
             width: t.width,
             height: t.height,
-            rgba: [if t.slot == 0 { 255 } else { 0 }, 0, 0, 255].repeat((t.width * t.height) as usize),
+            rgba: [if t.slot == 0 { 255 } else { 0 }, 0, 0, 255]
+                .repeat((t.width * t.height) as usize),
         })
         .unwrap();
         assert_eq!(sheets.len(), 1);
@@ -409,8 +436,12 @@ mod tests {
     #[test]
     fn assemble_refuses_wrong_frame_size() {
         let plan = plan_sheets(SheetSpec::new(1_000, 30.0, Selection::Uniform(1))).unwrap();
-        let err = assemble(&plan, |_| Frame { width: 10, height: 10, rgba: vec![0; 400] })
-            .unwrap_err();
+        let err = assemble(&plan, |_| Frame {
+            width: 10,
+            height: 10,
+            rgba: vec![0; 400],
+        })
+        .unwrap_err();
         assert!(matches!(err, SheetError::FrameSizeMismatch { .. }));
     }
 }

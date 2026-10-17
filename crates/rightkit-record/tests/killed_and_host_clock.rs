@@ -30,9 +30,17 @@ fn a_killed_stop_never_seals_complete_and_says_killed_in_the_bundle() {
     rec.record_start(request(out.clone())).expect("start");
 
     let outcome = rec.record_stop_with(StopReason::Killed).expect("stop");
-    assert_eq!(outcome.status, BundleStatus::PartialQuarantined, "{outcome:?}");
+    assert_eq!(
+        outcome.status,
+        BundleStatus::PartialQuarantined,
+        "{outcome:?}"
+    );
     assert_eq!(outcome.reason.as_deref(), Some("killed"));
-    assert_eq!(rec.backend().stops, 1, "the media is still finished through the helper");
+    assert_eq!(
+        rec.backend().stops,
+        1,
+        "the media is still finished through the helper"
+    );
     assert_eq!(rec.record_status().unwrap().phase, Phase::Quarantined);
 
     let manifest = read_manifest(&out);
@@ -62,7 +70,10 @@ fn a_killed_stop_before_any_frame_is_invalid_and_says_killed() {
     rec.record_start(request(out)).expect("start");
     let outcome = rec.record_stop_with(StopReason::Killed).unwrap();
     assert_eq!(outcome.status, BundleStatus::Invalid);
-    assert_eq!(outcome.reason.as_deref(), Some("killed: no_accepted_frames"));
+    assert_eq!(
+        outcome.reason.as_deref(),
+        Some("killed: no_accepted_frames")
+    );
 }
 
 #[test]

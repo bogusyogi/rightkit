@@ -35,7 +35,8 @@ fn flow(server: &MockServer, clock: Arc<Clock>) -> ServerAuthFlow {
 }
 fn creds(namespace: &str) -> rightkit_credentials::Store {
     rightkit_credentials::Store::open(
-        Config::new(Namespace::new(namespace).unwrap()).backend(Arc::new(MemoryBackend::simulating_durable())),
+        Config::new(Namespace::new(namespace).unwrap())
+            .backend(Arc::new(MemoryBackend::simulating_durable())),
     )
 }
 fn tokens(refresh: &str, expires: u64) -> TokenSet {
@@ -140,7 +141,10 @@ fn refresh_persists_rotated_token_and_keeps_old_when_omitted() {
         .unwrap();
     assert_eq!(first.access_token(), "a1");
     let stored = store.get("acct", "test").unwrap().unwrap();
-    assert_eq!(stored.refresh_token.as_ref().unwrap().expose(), "rotated-refresh");
+    assert_eq!(
+        stored.refresh_token.as_ref().unwrap().expose(),
+        "rotated-refresh"
+    );
     assert_eq!(stored.access_token(), "a1");
     clock.0.store(3500, Ordering::SeqCst);
     let second = f

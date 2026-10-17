@@ -144,7 +144,10 @@ pub fn inventory_cache_len() -> usize {
 /// is returned but never kept.
 fn read_hashed(abs: &Path) -> std::io::Result<Hashed> {
     let _permit = acquire();
-    let before = std::fs::symlink_metadata(abs).ok().as_ref().and_then(sig_of);
+    let before = std::fs::symlink_metadata(abs)
+        .ok()
+        .as_ref()
+        .and_then(sig_of);
     if let Some(sig) = &before {
         let mut cache = relock(hash_cache().lock());
         match cache.entries.get(abs) {
@@ -166,7 +169,10 @@ fn read_hashed(abs: &Path) -> std::io::Result<Hashed> {
     let sum = sha256_hex(&read);
     let bytes: Bytes = std::sync::Arc::new(read);
     if let Some(sig) = before {
-        let after = std::fs::symlink_metadata(abs).ok().as_ref().and_then(sig_of);
+        let after = std::fs::symlink_metadata(abs)
+            .ok()
+            .as_ref()
+            .and_then(sig_of);
         let settled = sig
             .mtime
             .checked_add(RACY_WINDOW)

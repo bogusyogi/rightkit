@@ -46,13 +46,13 @@ pub use driver::{
 pub use error::{Error, Result};
 pub use journal::{Event, Journal, Record};
 pub use machine::{ExecContext, Lease, Phase, RetakeReport, Run, StepRef};
-pub use transport::{
-    BundleRef, Capability, EnrolmentRequest, ReconnectState, TransferReport, TransportError,
-    WorkerIdentity, WorkerTransport,
-};
-pub use worker::WorkerEndpoint;
 #[cfg(feature = "sequence")]
 pub use sequence::{
     Gate, GateDecision, NoGate, ReplayPolicy, Sequence, SequenceConfig, SequenceOutcome,
     SequenceRun, StopReason,
 };
+pub use transport::{
+    BundleRef, Capability, EnrolmentRequest, ReconnectState, TransferReport, TransportError,
+    WorkerIdentity, WorkerTransport,
+};
+pub use worker::WorkerEndpoint;

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rightkit_tauri_shell::idle::{
-    effective_delay, hide_plan, ControllerHide, HidePlan, IdleEvents, IdleHost, IdleOptions,
-    IdleSource, IdleState, IdleTrigger, MinimizeStep, MinimizeTracker, DEFAULT_SUSPEND_AFTER,
-    MAX_SUSPEND_AFTER, source_starts_idle,
+    effective_delay, hide_plan, source_starts_idle, ControllerHide, HidePlan, IdleEvents, IdleHost,
+    IdleOptions, IdleSource, IdleState, IdleTrigger, MinimizeStep, MinimizeTracker,
+    DEFAULT_SUSPEND_AFTER, MAX_SUSPEND_AFTER,
 };
 
 #[test]
@@ -261,12 +261,20 @@ fn minimise_only_idle_is_opt_in_and_ignores_hides() {
     assert!(!o.minimise_enabled());
     let o = IdleOptions::default().on_minimise(true);
     assert_eq!(o.trigger, IdleTrigger::Minimised);
-    assert!(o.minimise_enabled(), "a minimise feeds idle without start_on_minimize");
+    assert!(
+        o.minimise_enabled(),
+        "a minimise feeds idle without start_on_minimize"
+    );
     assert!(!source_starts_idle(o.trigger, IdleSource::Hide));
     assert!(source_starts_idle(o.trigger, IdleSource::Minimise));
     // The default trigger keeps accepting a tray hide.
-    assert!(source_starts_idle(IdleTrigger::HiddenOrMinimised, IdleSource::Hide));
-    assert!(IdleOptions::default().start_on_minimize(true).minimise_enabled());
+    assert!(source_starts_idle(
+        IdleTrigger::HiddenOrMinimised,
+        IdleSource::Hide
+    ));
+    assert!(IdleOptions::default()
+        .start_on_minimize(true)
+        .minimise_enabled());
     assert_ne!(o, IdleOptions::default());
     // Host wiring keeps the trigger.
     let host = IdleHost::new(Duration::from_secs(1)).with_options(o);

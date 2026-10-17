@@ -207,13 +207,31 @@ fn contract_1_2_rule_revision_ref_reaches_the_typed_views() {
 
 #[test]
 fn channel_memory_is_registered_with_schema_and_negotiation() {
-    assert_eq!(Contract::from_name("channel-memory"), Some(Contract::ChannelMemory));
-    assert_eq!(Contract::ChannelMemory.supported_version(), Version::new(1, 0, 0));
+    assert_eq!(
+        Contract::from_name("channel-memory"),
+        Some(Contract::ChannelMemory)
+    );
+    assert_eq!(
+        Contract::ChannelMemory.supported_version(),
+        Version::new(1, 0, 0)
+    );
     assert!(!Contract::ChannelMemory.has_semantic_rules());
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/fixtures/channel-memory");
-    let valid = std::fs::read_to_string(format!("{root}/valid/kids-cartoon-rev1.json")).expect("fixture");
+    let root = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/fixtures/channel-memory"
+    );
+    let valid =
+        std::fs::read_to_string(format!("{root}/valid/kids-cartoon-rev1.json")).expect("fixture");
     check_typed(Contract::ChannelMemory, &valid).expect("valid channel-memory document");
-    let newer = std::fs::read_to_string(format!("{root}/version-rejected/newer-minor.json")).expect("fixture");
-    let error = validate(Contract::ChannelMemory, &serde_json::from_str(&newer).unwrap()).unwrap_err();
-    assert!(matches!(error, ContractError::NewerMinor { .. }), "got {error:?}");
+    let newer = std::fs::read_to_string(format!("{root}/version-rejected/newer-minor.json"))
+        .expect("fixture");
+    let error = validate(
+        Contract::ChannelMemory,
+        &serde_json::from_str(&newer).unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, ContractError::NewerMinor { .. }),
+        "got {error:?}"
+    );
 }

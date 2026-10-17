@@ -143,7 +143,10 @@ mod tests {
         std::fs::write(&v2, b"two").unwrap();
         std::fs::write(&v3, b"three").unwrap();
         replace_file_in_place(&v1, &to).unwrap();
-        assert!(!previous_path(&to).exists(), "first install has no previous");
+        assert!(
+            !previous_path(&to).exists(),
+            "first install has no previous"
+        );
         replace_file_in_place(&v2, &to).unwrap();
         replace_file_in_place(&v2, &to).unwrap(); // identical bytes: no rotation
         assert_eq!(std::fs::read(&to).unwrap(), b"two");

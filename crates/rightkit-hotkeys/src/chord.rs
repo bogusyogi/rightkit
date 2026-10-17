@@ -606,7 +606,11 @@ mod tests {
     fn only_f21_to_f24_lack_a_mac_keycode() {
         for (name, mac, _) in TABLE {
             let lacks = *mac == NO_MAC_KEYCODE;
-            assert_eq!(lacks, matches!(*name, "f21" | "f22" | "f23" | "f24"), "{name}");
+            assert_eq!(
+                lacks,
+                matches!(*name, "f21" | "f22" | "f23" | "f24"),
+                "{name}"
+            );
         }
     }
 

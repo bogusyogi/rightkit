@@ -20,8 +20,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW, SetTimer,
     SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
-    PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
-    WM_USER,
+    PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_USER,
 };
 
 use crate::chord::Chord;
@@ -381,7 +381,9 @@ impl LowLevelHooks {
             on_message,
         } = config;
         if keyboard.is_none() && mouse.is_none() && on_message.is_none() {
-            return Err(HookError::Install("no hook or message handler requested".into()));
+            return Err(HookError::Install(
+                "no hook or message handler requested".into(),
+            ));
         }
         let (has_keyboard, has_mouse) = (keyboard.is_some(), mouse.is_some());
         // Claim the slots; give back the first when the second is taken.
@@ -425,7 +427,12 @@ impl LowLevelHooks {
     /// Post a custom message to the hook thread's queue. `message` must be in
     /// `WM_APP..=0xBFFF` ([`is_thread_message`]); anything else is refused with
     /// `HookError::Install`. Returns once the message is queued, not once the handler ran.
-    pub fn post_message(&self, message: u32, wparam: usize, lparam: isize) -> Result<(), HookError> {
+    pub fn post_message(
+        &self,
+        message: u32,
+        wparam: usize,
+        lparam: isize,
+    ) -> Result<(), HookError> {
         if !is_thread_message(message) {
             return Err(HookError::Install(format!(
                 "message {message:#x} is outside WM_APP..=0xBFFF"

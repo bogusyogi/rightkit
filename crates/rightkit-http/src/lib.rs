@@ -19,10 +19,10 @@ pub mod async_client;
 pub mod cancel;
 pub mod client;
 pub mod error;
+mod idle;
 pub mod multipart;
 pub mod netpolicy;
 pub mod quota;
-mod idle;
 mod redirect;
 pub mod retry;
 pub mod secret;
@@ -39,8 +39,8 @@ pub mod testing;
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
     form_encode, percent_decode, percent_encode, AttemptEvent, Client, ClientConfig, Method,
-    ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent, StreamResponse,
-    TrustRoots,
+    ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent,
+    StreamResponse, TrustRoots,
 };
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::Multipart;

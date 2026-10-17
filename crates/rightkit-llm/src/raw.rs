@@ -186,16 +186,20 @@ fn parse_body(
         .json()
         .map_err(|e| LlmError::Malformed(e.to_string()))?;
     parse(&v).map_err(|e| match usage_of(&v) {
-        Some(u) if req.report_failed_usage => {
-            billed(e, &AttemptBilling::new(Spend::Reported(u), Metering::PerToken))
-        }
+        Some(u) if req.report_failed_usage => billed(
+            e,
+            &AttemptBilling::new(Spend::Reported(u), Metering::PerToken),
+        ),
         _ => e,
     })
 }
 
 /// Wrap the two outcomes whose evidence is the body; every other error is returned as it is.
 fn attach(error: LlmError, raw: &RawHandle) -> LlmError {
-    if matches!(error.root(), LlmError::Truncated { .. } | LlmError::Malformed(_)) {
+    if matches!(
+        error.root(),
+        LlmError::Truncated { .. } | LlmError::Malformed(_)
+    ) {
         LlmError::Captured {
             error: Box::new(error),
             raw: Arc::clone(raw),

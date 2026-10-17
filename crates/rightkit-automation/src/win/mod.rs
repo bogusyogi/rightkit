@@ -2,8 +2,8 @@
 //! window-addressed messages for tier 3, SendInput for the opt-in tier 4,
 //! PrintWindow for per-window capture. No Python, no Node.
 
-pub mod input;
 pub(crate) mod capture_safety;
+pub mod input;
 mod sys;
 mod uia;
 

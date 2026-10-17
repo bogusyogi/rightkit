@@ -27,8 +27,9 @@ pub use e40::{E40SessionProfile, RunSplit};
 pub use embedder::{
     truncate_and_normalize, AcceleratorParity, EmbedError, Embedder, EmbedderConfig,
     ExecutionProvider, LoadTimings, ParityCacheOutcome, SessionCreate,
-    ACCELERATOR_PARITY_MIN_COSINE, DEFAULT_INGEST_BATCH, DEFAULT_MAX_BATCH, EMBEDDINGGEMMA2_COREML_MODEL_ID,
-    EMBEDDINGGEMMA2_E40_MODEL_ID, EMBEDDINGGEMMA2_MODEL_ID, EMBEDDINGGEMMA_MODEL_ID,
+    ACCELERATOR_PARITY_MIN_COSINE, DEFAULT_INGEST_BATCH, DEFAULT_MAX_BATCH,
+    EMBEDDINGGEMMA2_COREML_MODEL_ID, EMBEDDINGGEMMA2_E40_MODEL_ID, EMBEDDINGGEMMA2_MODEL_ID,
+    EMBEDDINGGEMMA_MODEL_ID,
 };
 #[cfg(feature = "bench-internals")]
 pub use embedder::{BenchEmbedSplit, BenchTokens};

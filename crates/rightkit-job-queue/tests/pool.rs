@@ -155,7 +155,11 @@ impl StagedHandler for Rec {
     }
 
     fn warmed(&self, lane: &Lane) -> bool {
-        assert_eq!(thread::current().id(), lane.id, "warmed left the lane thread");
+        assert_eq!(
+            thread::current().id(),
+            lane.id,
+            "warmed left the lane thread"
+        );
         self.warm.load(Ordering::SeqCst)
     }
 }

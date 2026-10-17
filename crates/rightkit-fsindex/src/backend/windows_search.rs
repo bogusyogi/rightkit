@@ -40,7 +40,8 @@ pub const MAX_LIMIT: usize = 10_000;
 /// Default row cap of `folder_rollup`.
 pub const DEFAULT_ROLLUP_ROWS: u64 = 2_000_000;
 
-const COLUMNS: &str = "System.ItemPathDisplay, System.Size, System.DateModified, System.FileAttributes";
+const COLUMNS: &str =
+    "System.ItemPathDisplay, System.Size, System.DateModified, System.FileAttributes";
 
 // ------------------------------------------------------------------ pure: SQL
 
@@ -63,7 +64,13 @@ pub fn escape_sql_literal(s: &str) -> String {
 pub fn like_pattern(token: &str) -> String {
     let neutral: String = token
         .chars()
-        .map(|c| if matches!(c, '%' | '_' | '[' | ']') { '_' } else { c })
+        .map(|c| {
+            if matches!(c, '%' | '_' | '[' | ']') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     escape_sql_literal(&neutral)
 }
@@ -170,8 +177,7 @@ pub struct WsRow {
 
 impl WsRow {
     pub fn is_dir(&self) -> bool {
-        self.attributes.is_some_and(|a| a & ATTR_DIRECTORY != 0)
-            && !self.is_link()
+        self.attributes.is_some_and(|a| a & ATTR_DIRECTORY != 0) && !self.is_link()
     }
     pub fn is_link(&self) -> bool {
         self.attributes.is_some_and(|a| a & ATTR_REPARSE_POINT != 0)
@@ -434,10 +440,7 @@ pub fn windows_search_status(scope: Option<&Path>) -> WindowsSearchStatus {
 
 /// Name search over the Windows Search index. `opts.scope` limits it to a folder; every
 /// whitespace-separated token must occur in the file name (case-insensitive).
-pub fn search_names(
-    text: &str,
-    opts: &SearchOptions,
-) -> Result<Vec<WindowsSearchHit>> {
+pub fn search_names(text: &str, opts: &SearchOptions) -> Result<Vec<WindowsSearchHit>> {
     let toks = tokens(text);
     let scope = match &opts.scope {
         Some(p) => Some(
@@ -610,9 +613,7 @@ impl Backend for WindowsSearchBackend {
     }
 
     fn list_dir(&self, dir: &Path, excludes: &Excludes) -> std::io::Result<Listing> {
-        let dir = dir
-            .to_str()
-            .ok_or(std::io::ErrorKind::InvalidInput)?;
+        let dir = dir.to_str().ok_or(std::io::ErrorKind::InvalidInput)?;
         let session = sys::Session::open().map_err(|e| std::io::Error::from(error_kind(&e)))?;
         let mut l = Listing::default();
         list_one(&session, dir, excludes, &mut l)
@@ -676,10 +677,10 @@ mod sys {
         COINIT_MULTITHREADED,
     };
     use windows::Win32::System::Search::{
-        DBBINDING, DBACCESSOR_ROWDATA, DBMEMOWNER_CLIENTOWNED, DBMEMOWNER_PROVIDEROWNED,
+        IAccessor, ICommand, ICommandText, IDBCreateCommand, IDBCreateSession, IDBInitialize,
+        IRowset, DBACCESSOR_ROWDATA, DBBINDING, DBMEMOWNER_CLIENTOWNED, DBMEMOWNER_PROVIDEROWNED,
         DBPART_LENGTH, DBPART_STATUS, DBPART_VALUE, DBTYPE_BYREF, DBTYPE_FILETIME, DBTYPE_UI4,
-        DBTYPE_UI8, DBTYPE_WSTR, HACCESSOR, IAccessor, ICommand, ICommandText, IDBCreateCommand,
-        IDBCreateSession, IDBInitialize, IRowset,
+        DBTYPE_UI8, DBTYPE_WSTR, HACCESSOR,
     };
     use windows::Win32::System::Services::{
         CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatus, SC_MANAGER_CONNECT,
@@ -700,8 +701,7 @@ mod sys {
 
     pub fn service_state() -> ServiceState {
         unsafe {
-            let Ok(scm) = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)
-            else {
+            let Ok(scm) = OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) else {
                 return ServiceState::Unknown;
             };
             let state = match OpenServiceW(scm, w!("WSearch"), SERVICE_QUERY_STATUS) {
@@ -881,8 +881,12 @@ mod sys {
             ))?;
             let com = ComGuard::init();
             unsafe {
-                let source: IDBInitialize =
-                    CoCreateInstance(&clsid, None::<&windows::core::IUnknown>, CLSCTX_INPROC_SERVER).map_err(io)?;
+                let source: IDBInitialize = CoCreateInstance(
+                    &clsid,
+                    None::<&windows::core::IUnknown>,
+                    CLSCTX_INPROC_SERVER,
+                )
+                .map_err(io)?;
                 source.Initialize().map_err(io)?;
                 let create_session: IDBCreateSession = source.cast().map_err(io)?;
                 let session = create_session
@@ -1041,13 +1045,25 @@ mod tests {
 
     #[test]
     fn scope_urls_cover_drives_unc_and_relative() {
-        assert_eq!(scope_url(r"C:\Users\me").as_deref(), Some("file:C:/Users/me"));
-        assert_eq!(scope_url(r"C:\Users\me\").as_deref(), Some("file:C:/Users/me"));
+        assert_eq!(
+            scope_url(r"C:\Users\me").as_deref(),
+            Some("file:C:/Users/me")
+        );
+        assert_eq!(
+            scope_url(r"C:\Users\me\").as_deref(),
+            Some("file:C:/Users/me")
+        );
         assert_eq!(scope_url("C:").as_deref(), Some("file:C:/"));
         assert_eq!(scope_url(r"C:\").as_deref(), Some("file:C:/"));
-        assert_eq!(scope_url(r"\\srv\share\d").as_deref(), Some("file://srv/share/d"));
+        assert_eq!(
+            scope_url(r"\\srv\share\d").as_deref(),
+            Some("file://srv/share/d")
+        );
         assert_eq!(scope_url(r"\\?\C:\x").as_deref(), Some("file:C:/x"));
-        assert_eq!(scope_url(r"\\?\UNC\srv\sh").as_deref(), Some("file://srv/sh"));
+        assert_eq!(
+            scope_url(r"\\?\UNC\srv\sh").as_deref(),
+            Some("file://srv/sh")
+        );
         assert_eq!(scope_url("docs/a"), None);
         assert_eq!(scope_url(""), None);
     }
@@ -1119,7 +1135,10 @@ mod tests {
         assert_eq!(l.kind, EntryKind::Symlink);
         assert_eq!(l.size.logical, 0);
         // no attributes: treated as a file
-        assert_eq!(row_to_item(&row(r"C:\x", Some(1), None)).kind, EntryKind::File);
+        assert_eq!(
+            row_to_item(&row(r"C:\x", Some(1), None)).kind,
+            EntryKind::File
+        );
         assert_eq!(row(r"C:\Users\me\Dir\", None, Some(0x10)).name(), "Dir");
     }
 
@@ -1142,9 +1161,15 @@ mod tests {
             .iter()
             .map(|h| h.hit.item.name.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, vec!["invoice", "invoice 2024.pdf", "notes invoice.txt"]);
+        assert_eq!(
+            names,
+            vec!["invoice", "invoice 2024.pdf", "notes invoice.txt"]
+        );
         assert!(hits[0].hit.score > hits[1].hit.score);
-        assert_eq!(hits[0].modified_unix, Some(filetime_to_unix(133_000_000_000_000_000)));
+        assert_eq!(
+            hits[0].modified_unix,
+            Some(filetime_to_unix(133_000_000_000_000_000))
+        );
         assert_eq!(map_hits(&rows, "invoice", 2).len(), 2);
         assert!(map_hits(&rows, "zzz", 5).is_empty());
     }
@@ -1178,7 +1203,10 @@ mod tests {
         assert_eq!(d.flags & FLAG_HIDDEN, FLAG_HIDDEN);
         let f = entry_of(&row(r"C:\f", Some(7), Some(0x20)));
         assert_eq!((f.kind, f.logical, f.alloc, f.nlink), (KIND_FILE, 7, 7, 1));
-        assert_eq!(entry_of(&row(r"C:\l", Some(7), Some(0x400))).kind, KIND_LINK);
+        assert_eq!(
+            entry_of(&row(r"C:\l", Some(7), Some(0x400))).kind,
+            KIND_LINK
+        );
     }
 
     #[test]

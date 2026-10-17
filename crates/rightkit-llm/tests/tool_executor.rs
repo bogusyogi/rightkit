@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rightkit_llm::{
-    AllowAll, AllowTools, ChatRequest, ChatResponse, ContentBlock, GateDecision, LlmError,
-    Message, Metering, Provider, Role, StopCause, StopReason, StreamEvent, ToolBudget,
-    ToolExecutor, ToolOutcome, ToolRegistry, ToolSpec, Usage,
+    AllowAll, AllowTools, ChatRequest, ChatResponse, ContentBlock, GateDecision, LlmError, Message,
+    Metering, Provider, Role, StopCause, StopReason, StreamEvent, ToolBudget, ToolExecutor,
+    ToolOutcome, ToolRegistry, ToolSpec, Usage,
 };
 use serde_json::{json, Value};
 
@@ -196,7 +196,10 @@ fn a_denied_unknown_failing_and_panicking_call_each_get_an_error_result() {
     let out = executor.run(&provider, request()).unwrap();
 
     let outcomes: Vec<&ToolOutcome> = out.calls.iter().map(|c| &c.outcome).collect();
-    assert_eq!(outcomes[0], &ToolOutcome::Denied("not for this task".into()));
+    assert_eq!(
+        outcomes[0],
+        &ToolOutcome::Denied("not for this task".into())
+    );
     assert_eq!(outcomes[1], &ToolOutcome::Unknown);
     assert_eq!(outcomes[2], &ToolOutcome::Failed("no luck".into()));
     assert_eq!(outcomes[3], &ToolOutcome::Panicked);
@@ -351,7 +354,10 @@ fn a_cancel_flag_stops_the_run_before_the_first_model_call() {
 #[test]
 fn a_provider_failure_keeps_the_spend_of_earlier_rounds() {
     let provider = Scripted::new(vec![
-        calls(vec![tool_use("1", "echo", json!({"x": "a"}))], Some((10, 5))),
+        calls(
+            vec![tool_use("1", "echo", json!({"x": "a"}))],
+            Some((10, 5)),
+        ),
         Err(LlmError::Cancelled),
     ]);
     let err = ToolExecutor::new(echo_registry(), AllowAll, ToolBudget::default())

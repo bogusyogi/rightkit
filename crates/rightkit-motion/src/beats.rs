@@ -118,7 +118,10 @@ pub fn parse_script(script: &str) -> Result<BracketedScript, BeatError> {
         word_ranges.push((s, text.len()));
     }
 
-    let words: Vec<String> = word_ranges.iter().map(|&(s, e)| text[s..e].to_string()).collect();
+    let words: Vec<String> = word_ranges
+        .iter()
+        .map(|&(s, e)| text[s..e].to_string())
+        .collect();
     let spans = raw_spans
         .iter()
         .enumerate()
@@ -296,7 +299,13 @@ mod tests {
         assert_eq!(beats.len(), 2);
         assert_eq!(
             beats[0],
-            Beat { span: 0, start_ms: 600, end_ms: 1300, word_start: 2, word_end: 4 }
+            Beat {
+                span: 0,
+                start_ms: 600,
+                end_ms: 1300,
+                word_start: 2,
+                word_end: 4
+            }
         );
         assert_eq!((beats[1].start_ms, beats[1].end_ms), (1600, 1900));
     }
@@ -305,7 +314,10 @@ mod tests {
     fn lead_and_tail_pad_and_clamp() {
         let s = parse_script("[hi] there").unwrap();
         let words = vec![tw("hi", 50, 300), tw("there", 300, 600)];
-        let cfg = SnapConfig { lead_ms: 100, tail_ms: 40 };
+        let cfg = SnapConfig {
+            lead_ms: 100,
+            tail_ms: 40,
+        };
         let b = snap(&s, &words, cfg).unwrap();
         assert_eq!((b[0].start_ms, b[0].end_ms), (0, 340));
     }
@@ -313,7 +325,11 @@ mod tests {
     #[test]
     fn mismatch_is_typed_error() {
         let s = parse_script("say [hello] now").unwrap();
-        let words = vec![tw("say", 0, 100), tw("hullo", 100, 200), tw("now", 200, 300)];
+        let words = vec![
+            tw("say", 0, 100),
+            tw("hullo", 100, 200),
+            tw("now", 200, 300),
+        ];
         assert_eq!(
             snap(&s, &words, SnapConfig::default()),
             Err(BeatError::WordMismatch {
@@ -330,14 +346,20 @@ mod tests {
         let words = vec![tw("say", 0, 100)];
         assert_eq!(
             snap(&s, &words, SnapConfig::default()),
-            Err(BeatError::WordCountMismatch { script: 2, timed: 1 })
+            Err(BeatError::WordCountMismatch {
+                script: 2,
+                timed: 1
+            })
         );
     }
 
     #[test]
     fn script_without_spans_is_refused() {
         let s = parse_script("plain words").unwrap();
-        assert_eq!(snap(&s, &[], SnapConfig::default()), Err(BeatError::NoSpans));
+        assert_eq!(
+            snap(&s, &[], SnapConfig::default()),
+            Err(BeatError::NoSpans)
+        );
     }
 
     #[test]

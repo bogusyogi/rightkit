@@ -299,11 +299,10 @@ pub mod windows {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, EnumWindows, GetDesktopWindow, GetForegroundWindow,
         GetShellWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-        IsWindowVisible, SetWindowLongPtrW, GWL_STYLE,
-        SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED,
-        SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-        WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        IsWindowVisible, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE,
+        HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC,
+        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
 
     use crate::{ex_style, MonitorPlacement, OverlayStyle, WorkArea};
@@ -885,10 +884,19 @@ mod tests {
     fn the_rect_must_equal_the_monitor_rect() {
         let monitor = area(1920.0, 0.0, 3840.0, 1080.0);
         assert!(rect_equals_monitor(monitor, monitor));
-        assert!(!rect_equals_monitor(area(1912.0, -8.0, 3848.0, 1088.0), monitor));
-        assert!(!rect_equals_monitor(area(1920.0, 0.0, 3840.0, 1040.0), monitor));
+        assert!(!rect_equals_monitor(
+            area(1912.0, -8.0, 3848.0, 1088.0),
+            monitor
+        ));
+        assert!(!rect_equals_monitor(
+            area(1920.0, 0.0, 3840.0, 1040.0),
+            monitor
+        ));
         assert!(!rect_equals_monitor(monitor, area(0.0, 0.0, 0.0, 0.0)));
-        assert!(!rect_equals_monitor(area(f64::NAN, 0.0, 3840.0, 1080.0), monitor));
+        assert!(!rect_equals_monitor(
+            area(f64::NAN, 0.0, 3840.0, 1080.0),
+            monitor
+        ));
     }
 
     #[test]
@@ -903,11 +911,20 @@ mod tests {
     fn foreign_borderless_fullscreen_verdict() {
         let monitor = area(0.0, 0.0, 1920.0, 1080.0);
         let popup = 0x9000_0000;
-        assert!(is_foreign_borderless_fullscreen(popup, monitor, monitor, false));
+        assert!(is_foreign_borderless_fullscreen(
+            popup, monitor, monitor, false
+        ));
         // The app's own window never counts.
-        assert!(!is_foreign_borderless_fullscreen(popup, monitor, monitor, true));
+        assert!(!is_foreign_borderless_fullscreen(
+            popup, monitor, monitor, true
+        ));
         // A bordered window the size of the monitor (maximised on a small display) does not.
-        assert!(!is_foreign_borderless_fullscreen(0x00CF_0000, monitor, monitor, false));
+        assert!(!is_foreign_borderless_fullscreen(
+            0x00CF_0000,
+            monitor,
+            monitor,
+            false
+        ));
         // A borderless window that is not the monitor rect does not.
         assert!(!is_foreign_borderless_fullscreen(
             popup,

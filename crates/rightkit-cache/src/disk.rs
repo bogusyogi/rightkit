@@ -1524,20 +1524,18 @@ fn move_file(src: &Path, dst: &Path, to: &Path, owner_only: bool) -> io::Result<
     // temp name, then rename into place so the destination is never half written.
     let tmp = to.join(".tmp").join(unique_tmp_name(None));
     let modified = fs::metadata(src).and_then(|m| m.modified()).ok();
-    let copied = fs::copy(src, &tmp)
-        .map(|_| ())
-        .and_then(|()| {
-            if owner_only {
-                rightkit_fs::private::restrict_owner_only(&tmp).map_err(io_other)?;
-            }
-            if let Some(modified) = modified {
-                OpenOptions::new()
-                    .write(true)
-                    .open(&tmp)
-                    .and_then(|f| f.set_modified(modified))?;
-            }
-            fs::rename(&tmp, dst)
-        });
+    let copied = fs::copy(src, &tmp).map(|_| ()).and_then(|()| {
+        if owner_only {
+            rightkit_fs::private::restrict_owner_only(&tmp).map_err(io_other)?;
+        }
+        if let Some(modified) = modified {
+            OpenOptions::new()
+                .write(true)
+                .open(&tmp)
+                .and_then(|f| f.set_modified(modified))?;
+        }
+        fs::rename(&tmp, dst)
+    });
     if let Err(e) = copied {
         let _ = fs::remove_file(&tmp);
         return Err(e);

@@ -46,7 +46,10 @@ mod tests {
 
     #[test]
     fn strips_verbatim_drive() {
-        assert_eq!(p(r"\\?\C:\Users\a\b.txt"), PathBuf::from(r"C:\Users\a\b.txt"));
+        assert_eq!(
+            p(r"\\?\C:\Users\a\b.txt"),
+            PathBuf::from(r"C:\Users\a\b.txt")
+        );
         assert_eq!(p(r"\\?\d:\"), PathBuf::from(r"d:\"));
         assert_eq!(p(r"\\?\C:"), PathBuf::from("C:"));
     }
@@ -72,7 +75,10 @@ mod tests {
         let dir = std::env::temp_dir();
         let got = canonicalize_plain(&dir).expect("temp dir exists");
         assert!(got.is_absolute());
-        assert!(!got.to_string_lossy().starts_with(r"\\?\") || got.to_string_lossy().starts_with(r"\\?\UNC"));
+        assert!(
+            !got.to_string_lossy().starts_with(r"\\?\")
+                || got.to_string_lossy().starts_with(r"\\?\UNC")
+        );
         assert!(canonicalize_plain(dir.join("rightkit-fs-no-such-path-272")).is_err());
     }
 }

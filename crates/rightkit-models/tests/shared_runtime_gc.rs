@@ -162,23 +162,32 @@ fn activate_installs_in_place_at_current_and_keeps_one_previous() {
     assert_eq!(current, tools.join("onnxruntime").join("current"));
 
     assert_eq!(
-        store.activate_shared_runtime("onnxruntime", "1.20.1").unwrap(),
+        store
+            .activate_shared_runtime("onnxruntime", "1.20.1")
+            .unwrap(),
         current
     );
     assert_eq!(fs::read(current.join("onnxruntime.dll")).unwrap(), b"dll");
     // Idempotent: nothing is moved aside when the files already match.
-    store.activate_shared_runtime("onnxruntime", "1.20.1").unwrap();
+    store
+        .activate_shared_runtime("onnxruntime", "1.20.1")
+        .unwrap();
     assert!(!tools.join("onnxruntime").join("current.previous").exists());
 
     // An update replaces `current` in place and keeps exactly one `.previous`.
-    store.activate_shared_runtime("onnxruntime", "1.21.0").unwrap();
+    store
+        .activate_shared_runtime("onnxruntime", "1.21.0")
+        .unwrap();
     assert_eq!(fs::read(current.join("onnxruntime.dll")).unwrap(), b"dll-2");
     assert_eq!(
         fs::read(tools.join("onnxruntime/current.previous/onnxruntime.dll")).unwrap(),
         b"dll"
     );
     assert!(!tools.join("onnxruntime").join("current.staging").exists());
-    assert!(v1.exists() && v2.exists(), "version directories are untouched");
+    assert!(
+        v1.exists() && v2.exists(),
+        "version directories are untouched"
+    );
 
     // The fixed names are not versions: they cannot be registered and GC never removes them.
     assert!(store

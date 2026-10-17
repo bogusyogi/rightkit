@@ -1070,7 +1070,9 @@ fn pnpm_membership(bytes: Option<&Bytes>) -> Option<PnpmMembership> {
             .and_then(|rest| rest.trim_start().strip_prefix(':'))
             .map(String::from)
     };
-    let start = lines.iter().position(|line| packages_rest(line).is_some())?;
+    let start = lines
+        .iter()
+        .position(|line| packages_rest(line).is_some())?;
     let mut globs: Vec<String> = Vec::new();
     let inline = strip_comment(&packages_rest(lines[start])?)
         .trim()

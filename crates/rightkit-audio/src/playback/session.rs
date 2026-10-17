@@ -408,9 +408,9 @@ impl OutputSession {
         }
         let dev = resolve_output_device(device)?;
         let name = device_name(&dev);
-        let supported = dev
-            .default_output_config()
-            .map_err(|e| playback_err(&format!("default_output_config() failed for '{name}'"), e))?;
+        let supported = dev.default_output_config().map_err(|e| {
+            playback_err(&format!("default_output_config() failed for '{name}'"), e)
+        })?;
         let rate = supported.sample_rate();
         let channels = supported.channels();
         if rate == 0 || channels == 0 {
@@ -418,9 +418,8 @@ impl OutputSession {
                 "device '{name}' reported an empty output format ({rate} Hz, {channels} ch)"
             )));
         }
-        let capacity_frames = ((capacity.as_nanos() * rate as u128).div_ceil(1_000_000_000)
-            as usize)
-            .max(1);
+        let capacity_frames =
+            ((capacity.as_nanos() * rate as u128).div_ceil(1_000_000_000) as usize).max(1);
         let shared = Arc::new(Shared::new(rate, channels, capacity_frames));
         let stream = build_and_start(&dev, supported, &shared)?;
         Ok(Self {

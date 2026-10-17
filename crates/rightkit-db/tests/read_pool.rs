@@ -304,15 +304,26 @@ fn get_timeout_returns_none_after_about_the_duration_when_every_reader_is_out() 
     let held = pool.get().unwrap();
 
     let started = std::time::Instant::now();
-    let outcome = pool.get_timeout(Duration::from_millis(150)).map(|r| r.is_some());
+    let outcome = pool
+        .get_timeout(Duration::from_millis(150))
+        .map(|r| r.is_some());
     let waited = started.elapsed();
     assert!(matches!(outcome, Ok(false)), "got {outcome:?}");
-    assert!(waited >= Duration::from_millis(140), "returned early: {waited:?}");
-    assert!(waited < Duration::from_secs(5), "waited too long: {waited:?}");
+    assert!(
+        waited >= Duration::from_millis(140),
+        "returned early: {waited:?}"
+    );
+    assert!(
+        waited < Duration::from_secs(5),
+        "waited too long: {waited:?}"
+    );
     // A timed-out wait takes nothing from the pool.
     assert_eq!(pool.total_len(), 1);
     drop(held);
-    assert!(pool.get_timeout(Duration::from_millis(50)).unwrap().is_some());
+    assert!(pool
+        .get_timeout(Duration::from_millis(50))
+        .unwrap()
+        .is_some());
 }
 
 #[test]
@@ -321,7 +332,10 @@ fn get_timeout_with_zero_duration_never_waits() {
     let (options, _writer) = fixture(&dir);
     let pool = options.open_read_pool(1).unwrap();
     // An idle reader is handed out even with a zero timeout.
-    let held = pool.get_timeout(Duration::ZERO).unwrap().expect("idle reader");
+    let held = pool
+        .get_timeout(Duration::ZERO)
+        .unwrap()
+        .expect("idle reader");
     let started = std::time::Instant::now();
     assert!(pool.get_timeout(Duration::ZERO).unwrap().is_none());
     assert!(started.elapsed() < Duration::from_secs(2));
@@ -393,8 +407,13 @@ fn get_timeout_on_a_closed_pool_is_read_pool_closed_not_none() {
     let (options, _writer) = fixture(&dir);
     let pool = options.open_read_pool(1).unwrap();
     pool.close();
-    let outcome = pool.get_timeout(Duration::ZERO).map(|reader| reader.is_some());
-    assert!(matches!(outcome, Err(DbError::ReadPoolClosed)), "got {outcome:?}");
+    let outcome = pool
+        .get_timeout(Duration::ZERO)
+        .map(|reader| reader.is_some());
+    assert!(
+        matches!(outcome, Err(DbError::ReadPoolClosed)),
+        "got {outcome:?}"
+    );
 }
 
 #[test]

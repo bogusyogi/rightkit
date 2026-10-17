@@ -85,7 +85,11 @@ impl ProcessQuery {
         if self.exe.is_none() && self.args_exact.is_empty() && self.args_containing.is_empty() {
             return Err(invalid("a process query needs at least one criterion"));
         }
-        if self.exe.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
+        if self
+            .exe
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
             return Err(invalid("the executable path of a process query is empty"));
         }
         if self.args_exact.iter().any(|token| token.is_empty()) {
@@ -215,10 +219,8 @@ pub fn sweep_matching(
             sweep: SweepReport::default(),
         });
     }
-    let targets: Vec<AdoptedIdentity> = matched
-        .iter()
-        .map(|found| found.identity.clone())
-        .collect();
+    let targets: Vec<AdoptedIdentity> =
+        matched.iter().map(|found| found.identity.clone()).collect();
     let report = sweep(&targets, options.grace)?;
     Ok(MatchSweepReport {
         matched,
@@ -256,7 +258,11 @@ fn inspect(
     };
     // Cheap rejection first: the executable is already in hand.
     if let Some(wanted) = wanted_exe {
-        if !first.exe.as_deref().is_some_and(|seen| exe_matches(seen, wanted)) {
+        if !first
+            .exe
+            .as_deref()
+            .is_some_and(|seen| exe_matches(seen, wanted))
+        {
             return Ok(None);
         }
     }
@@ -283,7 +289,11 @@ fn inspect(
         return Ok(None);
     }
     if let Some(wanted) = wanted_exe {
-        if !last.exe.as_deref().is_some_and(|seen| exe_matches(seen, wanted)) {
+        if !last
+            .exe
+            .as_deref()
+            .is_some_and(|seen| exe_matches(seen, wanted))
+        {
             return Ok(None);
         }
     }
@@ -598,12 +608,10 @@ mod os {
 
 #[cfg(windows)]
 mod os {
-    use std::{ffi::OsString, ffi::c_void, io};
+    use std::{ffi::c_void, ffi::OsString, io};
 
     use windows::Win32::{
-        Foundation::{
-            CloseHandle, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, HANDLE,
-        },
+        Foundation::{CloseHandle, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, HANDLE},
         Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER},
         System::Threading::{
             GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -704,7 +712,9 @@ mod os {
             return Err(io::Error::from(io::ErrorKind::InvalidData));
         }
         // SAFETY: the whole SID lies inside the buffer.
-        Ok(Some(unsafe { std::slice::from_raw_parts(sid, length) }.to_vec()))
+        Ok(Some(
+            unsafe { std::slice::from_raw_parts(sid, length) }.to_vec(),
+        ))
     }
 
     pub(super) struct Me {
@@ -790,7 +800,12 @@ mod os {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", windows)))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+)))]
 mod os {
     use std::{ffi::OsString, io};
 
@@ -851,8 +866,14 @@ mod tests {
     fn a_substring_is_found_inside_one_argument_not_across_two() {
         let args = strings(&["tool", "ab", "cd"]);
         assert!(args_match(&ProcessQuery::new().arg_containing("ab"), &args));
-        assert!(!args_match(&ProcessQuery::new().arg_containing("b c"), &args));
-        assert!(!args_match(&ProcessQuery::new().arg_containing("bcd"), &args));
+        assert!(!args_match(
+            &ProcessQuery::new().arg_containing("b c"),
+            &args
+        ));
+        assert!(!args_match(
+            &ProcessQuery::new().arg_containing("bcd"),
+            &args
+        ));
     }
 
     #[test]
@@ -874,7 +895,10 @@ mod tests {
             vec!["prog", "one", "two"]
         );
         assert_eq!(split_windows_command_line(r#"p "" x"#), vec!["p", "", "x"]);
-        assert_eq!(split_windows_command_line(r#"p "a""b" c"#), vec!["p", "a\"b", "c"]);
+        assert_eq!(
+            split_windows_command_line(r#"p "a""b" c"#),
+            vec!["p", "a\"b", "c"]
+        );
         assert_eq!(split_windows_command_line(r"p a\\b"), vec!["p", r"a\\b"]);
         assert!(split_windows_command_line("   ").is_empty());
     }
@@ -902,6 +926,9 @@ mod tests {
             Path::new(r"C:\Program Files\App\x.exe"),
             Path::new("c:/program files/app/X.EXE")
         ));
-        assert!(!same_path(Path::new(r"C:\a\x.exe"), Path::new(r"C:\b\x.exe")));
+        assert!(!same_path(
+            Path::new(r"C:\a\x.exe"),
+            Path::new(r"C:\b\x.exe")
+        ));
     }
 }

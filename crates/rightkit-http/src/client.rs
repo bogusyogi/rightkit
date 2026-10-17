@@ -463,9 +463,7 @@ impl ClientConfig {
     /// How this config reaches the network and which source that came from. Same as
     /// [`ClientConfig::resolved_proxy_with_mode`] except that `ProxyMode::System` with a
     /// static configuration that needs a decision per URL is [`Routing::PerRequest`].
-    pub(crate) fn resolved_routing_with_mode(
-        &self,
-    ) -> Result<(Routing, ProxyModeUsed), HttpError> {
+    pub(crate) fn resolved_routing_with_mode(&self) -> Result<(Routing, ProxyModeUsed), HttpError> {
         let bypassed = self.proxy_bypass_first_party && self.address_policy.is_first_party();
         if matches!(self.proxy, ProxyMode::System) && !bypassed {
             let env = |name: &str| std::env::var(name).ok();
@@ -1251,8 +1249,7 @@ impl Client {
             Err(e) => {
                 let mut direct = config;
                 direct.proxy = ProxyMode::None;
-                let mut client =
-                    Self::build(direct, Routing::Fixed(None), ProxyModeUsed::Direct);
+                let mut client = Self::build(direct, Routing::Fixed(None), ProxyModeUsed::Direct);
                 if let HttpError::SystemProxyUnsupported { element } = &e {
                     client.system_proxy_unsupported = Some(element.clone());
                 }
@@ -2423,7 +2420,9 @@ mod tests {
             ..SystemProxySettings::default()
         };
         let expected = "a proxy auto-config script is set";
-        let error = proxy_from_system(&pac).err().expect("a PAC script is refused");
+        let error = proxy_from_system(&pac)
+            .err()
+            .expect("a PAC script is refused");
         assert!(
             matches!(&error, HttpError::SystemProxyUnsupported { element } if element == expected),
             "{error}"
@@ -2451,7 +2450,10 @@ mod tests {
             };
             let no_env = |_: &str| None::<String>;
             let (routing, used) = resolve_system_routing(&settings, &no_env).unwrap();
-            assert!(matches!(routing, Routing::PerRequest(_)), "{proxy} {bypass:?}");
+            assert!(
+                matches!(routing, Routing::PerRequest(_)),
+                "{proxy} {bypass:?}"
+            );
             assert_eq!(used, ProxyModeUsed::System);
         }
     }
@@ -2740,13 +2742,22 @@ mod tests {
                 .proxy_for(scheme, host)
                 .map(|p| (p.host.clone(), p.port))
         };
-        assert_eq!(at("http", "api.example.com"), Some(("plain.corp".into(), 8080)));
-        assert_eq!(at("https", "api.example.com"), Some(("secure.corp".into(), 8443)));
+        assert_eq!(
+            at("http", "api.example.com"),
+            Some(("plain.corp".into(), 8080))
+        );
+        assert_eq!(
+            at("https", "api.example.com"),
+            Some(("secure.corp".into(), 8443))
+        );
         let mut endpoints = routes.endpoints();
         endpoints.sort();
         assert_eq!(
             endpoints,
-            vec![("plain.corp".to_string(), 8080), ("secure.corp".to_string(), 8443)]
+            vec![
+                ("plain.corp".to_string(), 8080),
+                ("secure.corp".to_string(), 8443)
+            ]
         );
     }
 
@@ -2764,9 +2775,18 @@ mod tests {
     fn local_and_wildcard_bypass_entries_go_direct_on_both_schemes() {
         let routes = SystemRoutes::new(&split_settings()).unwrap();
         for scheme in ["http", "https"] {
-            assert!(routes.proxy_for(scheme, "intranet").is_none(), "{scheme} <local>");
-            assert!(routes.proxy_for(scheme, "a.corp.example").is_none(), "{scheme} *.corp");
-            assert!(routes.proxy_for(scheme, "intranet.other.com").is_some(), "{scheme}");
+            assert!(
+                routes.proxy_for(scheme, "intranet").is_none(),
+                "{scheme} <local>"
+            );
+            assert!(
+                routes.proxy_for(scheme, "a.corp.example").is_none(),
+                "{scheme} *.corp"
+            );
+            assert!(
+                routes.proxy_for(scheme, "intranet.other.com").is_some(),
+                "{scheme}"
+            );
         }
     }
 
@@ -2846,6 +2866,9 @@ mod tests {
                 "CONNECT tls-only.example:80 HTTP/1.1".to_string(),
             ]
         );
-        assert_eq!(https_seen, vec!["CONNECT app.example.com:443 HTTP/1.1".to_string()]);
+        assert_eq!(
+            https_seen,
+            vec!["CONNECT app.example.com:443 HTTP/1.1".to_string()]
+        );
     }
 }

@@ -183,7 +183,10 @@ fn set_budget_evicts_down_least_recently_used_first() {
     // The new cap governs later writes.
     cache.put(&key("e"), &[7; 10]).unwrap();
     assert!(cache.stats().bytes <= 25);
-    assert_eq!(cache.put(&key("big"), &[7; 26]).unwrap(), PutOutcome::TooLarge);
+    assert_eq!(
+        cache.put(&key("big"), &[7; 26]).unwrap(),
+        PutOutcome::TooLarge
+    );
 }
 
 #[test]

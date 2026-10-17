@@ -193,7 +193,8 @@ fn an_untagged_cutright_snapshot_is_read_as_version_one() {
 
 #[test]
 fn a_foreign_schema_or_newer_version_is_refused() {
-    let body = r#""policy":{"approvals_to_review_light":5,"approvals_to_autonomous":10},"pairings":[]"#;
+    let body =
+        r#""policy":{"approvals_to_review_light":5,"approvals_to_autonomous":10},"pairings":[]"#;
     for (schema, version) in [
         ("someone-else.ladder", "1.0.0"),
         (LADDER_SCHEMA, "2.0.0"),

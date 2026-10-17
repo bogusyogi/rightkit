@@ -186,9 +186,12 @@ mod sample {
         scrub: &dyn Fn(&str) -> String,
     ) -> Result<String, &'static str> {
         let text = String::from_utf8_lossy(bytes);
-        let out = catch_unwind(AssertUnwindSafe(|| scrub(&text)))
-            .map_err(|_| "sample_scrub_failed")?;
-        if secrets.iter().any(|s| !s.is_empty() && out.contains(s.as_str())) {
+        let out =
+            catch_unwind(AssertUnwindSafe(|| scrub(&text))).map_err(|_| "sample_scrub_failed")?;
+        if secrets
+            .iter()
+            .any(|s| !s.is_empty() && out.contains(s.as_str()))
+        {
             return Err("sample_scrub_failed");
         }
         Ok(out)
@@ -202,7 +205,10 @@ mod sample {
 
     /// Creates a fresh private directory under `base` (never inside `crash_dir`) holding an empty
     /// owner-only raw file. Returns `(directory, raw file)`.
-    pub(crate) fn create_raw_dir(base: &Path, crash_dir: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
+    pub(crate) fn create_raw_dir(
+        base: &Path,
+        crash_dir: &Path,
+    ) -> std::io::Result<(PathBuf, PathBuf)> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -217,7 +223,9 @@ mod sample {
             _ => a.starts_with(b),
         };
         if inside(base, crash_dir) {
-            return Err(std::io::Error::other("raw directory would be inside the crash folder"));
+            return Err(std::io::Error::other(
+                "raw directory would be inside the crash folder",
+            ));
         }
         #[cfg(unix)]
         let builder = {
@@ -258,7 +266,11 @@ mod sample {
             return;
         };
         for entry in entries.flatten() {
-            if !entry.file_name().to_string_lossy().starts_with(TEMP_RAW_PREFIX) {
+            if !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(TEMP_RAW_PREFIX)
+            {
                 continue;
             }
             let stale = entry
@@ -312,8 +324,10 @@ mod sample {
             private: true,
             ..rightkit_fs::AtomicWriteOptions::default()
         };
-        rightkit_fs::atomic_write_with_options(path, options, |file| file.write_all(text.as_bytes()))
-            .map_err(|_| ())
+        rightkit_fs::atomic_write_with_options(path, options, |file| {
+            file.write_all(text.as_bytes())
+        })
+        .map_err(|_| ())
     }
 }
 
@@ -418,7 +432,6 @@ mod platform {
         }
     }
 }
-
 
 #[cfg(target_os = "windows")]
 mod platform {
@@ -579,7 +592,10 @@ mod tests {
                 );
             }
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            assert!(!name.ends_with(".raw") && !name.starts_with(".sample_raw_"), "{name}");
+            assert!(
+                !name.ends_with(".raw") && !name.starts_with(".sample_raw_"),
+                "{name}"
+            );
         }
     }
 
@@ -620,11 +636,19 @@ mod tests {
 
     #[test]
     fn known_secrets_are_removed_from_a_published_sample() {
-        let (base, crash, raw_dir, raw) =
-            staged("secret", "frame key=ZZ-not-a-pattern-4821 at /Users/adalovelace/x\n");
+        let (base, crash, raw_dir, raw) = staged(
+            "secret",
+            "frame key=ZZ-not-a-pattern-4821 at /Users/adalovelace/x\n",
+        );
         let secrets = vec!["ZZ-not-a-pattern-4821".to_string()];
         let final_path = crash.join("sample_panic_1_2.txt");
-        let outcome = finish(&raw_dir, &raw, &final_path, &secrets, &default_scrub(&secrets));
+        let outcome = finish(
+            &raw_dir,
+            &raw,
+            &final_path,
+            &secrets,
+            &default_scrub(&secrets),
+        );
         assert!(outcome.artifact.is_some(), "{:?}", outcome.note);
         let text = std::fs::read_to_string(&final_path).unwrap();
         assert!(!text.contains("ZZ-not-a-pattern-4821"), "{text}");
@@ -641,7 +665,10 @@ mod tests {
         let outcome = finish(&raw_dir, &raw, &final_path, &[], &boom);
         assert_eq!(outcome.artifact.as_deref(), Some(final_path.as_path()));
         assert_eq!(outcome.note.as_deref(), Some("sample_scrub_failed"));
-        assert_eq!(std::fs::read_to_string(&final_path).unwrap(), WITHHELD_MARKER);
+        assert_eq!(
+            std::fs::read_to_string(&final_path).unwrap(),
+            WITHHELD_MARKER
+        );
         assert!(!raw_dir.exists());
         assert_dir_has_no_raw(&crash);
         assert_dir_has_no_raw(&base);
@@ -657,7 +684,10 @@ mod tests {
         let identity = |t: &str| t.to_string(); // a scrubber that does nothing
         let outcome = finish(&raw_dir, &raw, &final_path, &secrets, &identity);
         assert_eq!(outcome.note.as_deref(), Some("sample_scrub_failed"));
-        assert_eq!(std::fs::read_to_string(&final_path).unwrap(), WITHHELD_MARKER);
+        assert_eq!(
+            std::fs::read_to_string(&final_path).unwrap(),
+            WITHHELD_MARKER
+        );
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&crash);
     }
@@ -671,7 +701,10 @@ mod tests {
         let final_path = crash.join("sample_panic_1_2.txt");
         let outcome = finish(&raw_dir, &raw, &final_path, &[], &default_scrub(&[]));
         assert_eq!(outcome.note.as_deref(), Some("sample_read_failed"));
-        assert_eq!(std::fs::read_to_string(&final_path).unwrap(), WITHHELD_MARKER);
+        assert_eq!(
+            std::fs::read_to_string(&final_path).unwrap(),
+            WITHHELD_MARKER
+        );
         assert!(!raw_dir.exists());
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&crash);
@@ -687,7 +720,10 @@ mod tests {
         let outcome = finish(&raw_dir, &raw, &final_path, &[], &default_scrub(&[]));
         assert!(outcome.artifact.is_none());
         assert_eq!(outcome.note.as_deref(), Some("sample_publish_failed"));
-        assert!(!raw_dir.exists(), "raw directory must be deleted on failure");
+        assert!(
+            !raw_dir.exists(),
+            "raw directory must be deleted on failure"
+        );
         assert!(!final_path.exists());
         assert_dir_has_no_raw(&crash);
         let _ = std::fs::remove_dir_all(&base);
@@ -716,8 +752,14 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&raw_dir).unwrap().permissions().mode() & 0o777, 0o700);
-            assert_eq!(std::fs::metadata(&raw).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(&raw_dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&raw).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
         assert!(remove_raw_dir(&raw_dir).is_none());
         assert!(!raw_dir.exists());
@@ -731,7 +773,10 @@ mod tests {
         let crash = temp_dir("sweep-crash");
         let (fresh, _) = create_raw_dir(&base, &crash).unwrap();
         sweep_temp_raw_in(&base);
-        assert!(fresh.exists(), "a fresh raw directory belongs to a capture in flight");
+        assert!(
+            fresh.exists(),
+            "a fresh raw directory belongs to a capture in flight"
+        );
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&crash);
     }

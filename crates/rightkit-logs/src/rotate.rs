@@ -39,7 +39,11 @@ pub(crate) fn named_generation_path(
         RotatedNaming::Suffix => generation_path(path, n, default_name),
         RotatedNaming::StemNumbered => {
             let fallback = Path::new(default_name);
-            let base = if path.file_name().is_some() { path } else { fallback };
+            let base = if path.file_name().is_some() {
+                path
+            } else {
+                fallback
+            };
             let stem = base
                 .file_stem()
                 .map(OsString::from)

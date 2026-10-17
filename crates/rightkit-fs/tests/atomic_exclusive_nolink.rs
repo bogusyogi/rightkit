@@ -29,7 +29,10 @@ fn a_volume_without_hard_links_publishes_through_the_placeholder() {
     let method = rename_exclusive_reporting(&from, &to).unwrap();
     assert_eq!(method, ExclusiveMethod::PlaceholderThenRename);
     assert_eq!(std::fs::read(&to).unwrap(), b"finished");
-    assert!(!from.exists(), "the source name is gone: it was renamed, not copied");
+    assert!(
+        !from.exists(),
+        "the source name is gone: it was renamed, not copied"
+    );
 }
 
 #[test]
@@ -44,7 +47,11 @@ fn an_existing_destination_is_refused_and_both_files_stay() {
         matches!(&error, FsError::AlreadyExists(p) if p == &to),
         "{error:?}"
     );
-    assert_eq!(std::fs::read(&to).unwrap(), b"old", "the winner is untouched");
+    assert_eq!(
+        std::fs::read(&to).unwrap(),
+        b"old",
+        "the winner is untouched"
+    );
     assert_eq!(std::fs::read(&from).unwrap(), b"new", "the source stays");
 }
 
@@ -55,7 +62,10 @@ fn a_failed_rename_removes_the_placeholder_and_publishes_nothing() {
     let _no_links = force_no_hard_links();
     let error = rename_exclusive(&from, &to).unwrap_err();
     assert!(matches!(error, FsError::Io { .. }), "{error:?}");
-    assert!(!to.exists(), "the empty placeholder this call made is removed");
+    assert!(
+        !to.exists(),
+        "the empty placeholder this call made is removed"
+    );
 }
 
 #[test]
@@ -117,7 +127,11 @@ fn racing_publishers_without_hard_links_have_exactly_one_winner() {
             "round {round}: the winner's whole content"
         );
         let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
-        assert_eq!(names.len(), 1, "round {round}: losers left no temp: {names:?}");
+        assert_eq!(
+            names.len(),
+            1,
+            "round {round}: losers left no temp: {names:?}"
+        );
     }
 }
 

@@ -507,7 +507,8 @@ mod known {
         let mut raw: *mut u16 = std::ptr::null_mut();
         // SAFETY: `id` is a valid GUID, a null token means the current user, and `raw` is a valid
         // out pointer. On return `raw` is null or a NUL-terminated UTF-16 string we own.
-        let hr = unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, std::ptr::null_mut(), &mut raw) };
+        let hr =
+            unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, std::ptr::null_mut(), &mut raw) };
         if raw.is_null() {
             return None;
         }

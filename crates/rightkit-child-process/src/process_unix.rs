@@ -379,7 +379,14 @@ fn run_watchdog(
         let mut parent_dead = parent_error == libc::ESRCH;
         let mut out: [libc::kevent; 2] = std::mem::zeroed();
         while !parent_dead {
-            let count = libc::kevent(kq, std::ptr::null(), 0, out.as_mut_ptr(), 2, std::ptr::null());
+            let count = libc::kevent(
+                kq,
+                std::ptr::null(),
+                0,
+                out.as_mut_ptr(),
+                2,
+                std::ptr::null(),
+            );
             if count < 0 {
                 if *libc::__error() == libc::EINTR {
                     continue;
@@ -396,7 +403,11 @@ fn run_watchdog(
         }
         // One last non-blocking look: a child that exited with the supervisor is left alone.
         let count = libc::kevent(kq, std::ptr::null(), 0, out.as_mut_ptr(), 2, &no_wait);
-        if count > 0 && out[..count as usize].iter().any(|e| e.ident == child as usize) {
+        if count > 0
+            && out[..count as usize]
+                .iter()
+                .any(|e| e.ident == child as usize)
+        {
             libc::_exit(0);
         }
         // The child leads its own group (setpgid/setsid before exec), so -child is its group.
@@ -407,7 +418,11 @@ fn run_watchdog(
         };
         for _ in 0..WATCHDOG_GRACE_STEPS {
             let count = libc::kevent(kq, std::ptr::null(), 0, out.as_mut_ptr(), 2, &step);
-            if count > 0 && out[..count as usize].iter().any(|e| e.ident == child as usize) {
+            if count > 0
+                && out[..count as usize]
+                    .iter()
+                    .any(|e| e.ident == child as usize)
+            {
                 libc::_exit(0);
             }
         }

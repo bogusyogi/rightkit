@@ -26,10 +26,7 @@ pub struct ArmTimer {
 impl ArmTimer {
     /// Start the worker. `on_fire(generation)` runs on the worker thread when an armed deadline
     /// passes without being cancelled or replaced. Sending to the timer never blocks.
-    pub fn spawn(
-        name: &str,
-        on_fire: impl Fn(u64) + Send + 'static,
-    ) -> std::io::Result<ArmTimer> {
+    pub fn spawn(name: &str, on_fire: impl Fn(u64) + Send + 'static) -> std::io::Result<ArmTimer> {
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::Builder::new().name(name.into()).spawn(move || {
             let mut pending: Option<(u64, Instant)> = None;

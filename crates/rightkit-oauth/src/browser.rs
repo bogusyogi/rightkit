@@ -159,7 +159,9 @@ mod tests {
 
     #[test]
     fn https_and_loopback_http_pass() {
-        assert!(check_authorization_url("https://accounts.google.com/o/oauth2/v2/auth?a=b").is_ok());
+        assert!(
+            check_authorization_url("https://accounts.google.com/o/oauth2/v2/auth?a=b").is_ok()
+        );
         assert!(check_authorization_url("http://127.0.0.1:8080/authorize").is_ok());
         assert!(check_authorization_url("http://localhost/authorize").is_ok());
     }

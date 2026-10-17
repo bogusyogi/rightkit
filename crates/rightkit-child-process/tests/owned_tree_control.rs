@@ -152,7 +152,10 @@ fn terminate_all_owned_stops_every_owned_child_and_leaves_detached_ones() {
     let Some(detached) = detached.as_mut() else {
         return;
     };
-    assert!(running(detached.id()), "a detached child must not be touched");
+    assert!(
+        running(detached.id()),
+        "a detached child must not be touched"
+    );
 
     let result = detached
         .terminate_tree_deep(options())
@@ -187,7 +190,10 @@ fn deep_termination_reaches_a_detached_childs_descendants() {
         return;
     };
     let descendants = descendant_pids(&child);
-    assert!(!descendants.is_empty(), "the leader never started a descendant");
+    assert!(
+        !descendants.is_empty(),
+        "the leader never started a descendant"
+    );
 
     let result = child
         .terminate_tree_deep(options())

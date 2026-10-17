@@ -168,7 +168,9 @@ fn stdio_fixture() {
                     send(
                         json!({"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"hi"}}),
                     );
-                    send(json!({"jsonrpc":"2.0","id":message["id"],"result":"after notifications"}));
+                    send(
+                        json!({"jsonrpc":"2.0","id":message["id"],"result":"after notifications"}),
+                    );
                 }
                 Some("late-prefix") => {
                     let bogus =
@@ -790,8 +792,8 @@ fn stdio_cancel_is_prompt_and_sends_original_request_id() {
 fn stdio_notifications_mid_request_reach_subscriber_and_response_resolves() {
     let seen = Arc::new(Mutex::new(Vec::<ServerNotification>::new()));
     let sink = seen.clone();
-    let options = ClientOptions::default()
-        .on_notification(move |n| sink.lock().unwrap().push(n.clone()));
+    let options =
+        ClientOptions::default().on_notification(move |n| sink.lock().unwrap().push(n.clone()));
     let client = McpClient::connect_with_extensions(
         "fixture",
         &rightkit_mcp::ServerSource::User,

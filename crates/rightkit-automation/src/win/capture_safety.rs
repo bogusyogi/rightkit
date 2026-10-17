@@ -4,8 +4,8 @@
 
 use super::{sys, uia};
 use crate::capture_safety::{
-    affinity_outcome, is_password_edit, uia_password_outcome, GapKind, SafetyCheck,
-    SafetyEvidence, SafetyOutcome, SafetyReason,
+    affinity_outcome, is_password_edit, uia_password_outcome, GapKind, SafetyCheck, SafetyEvidence,
+    SafetyOutcome, SafetyReason,
 };
 use crate::model::Target;
 use windows::Win32::Foundation::HWND;
@@ -25,7 +25,9 @@ pub fn collect(target: &Target) -> Vec<SafetyEvidence> {
 
 fn affinity_of(h: HWND) -> Option<u32> {
     let mut a = 0u32;
-    unsafe { GetWindowDisplayAffinity(h, &mut a) }.ok().map(|_| a)
+    unsafe { GetWindowDisplayAffinity(h, &mut a) }
+        .ok()
+        .map(|_| a)
 }
 
 fn window_affinity(target: &Target) -> Vec<SafetyEvidence> {
@@ -36,7 +38,9 @@ fn window_affinity(target: &Target) -> Vec<SafetyEvidence> {
         return if ours {
             vec![ev(affinity_outcome(id, affinity_of(h)))]
         } else {
-            vec![ev(SafetyOutcome::Unavailable(GapKind::TargetWindowNotFound))]
+            vec![ev(SafetyOutcome::Unavailable(
+                GapKind::TargetWindowNotFound,
+            ))]
         };
     }
     let out: Vec<_> = sys::all_top_level()

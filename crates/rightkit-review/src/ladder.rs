@@ -77,7 +77,10 @@ pub enum LadderError {
     InvalidPolicy(&'static str),
     DuplicateKey(String),
     /// The snapshot names another schema or a version this build cannot read.
-    UnsupportedSnapshot { schema: String, version: String },
+    UnsupportedSnapshot {
+        schema: String,
+        version: String,
+    },
     Json(serde_json::Error),
 }
 
@@ -92,7 +95,10 @@ impl fmt::Display for LadderError {
             }
             LadderError::DuplicateKey(key) => write!(f, "ladder pairing {key} is listed twice"),
             LadderError::UnsupportedSnapshot { schema, version } => {
-                write!(f, "unsupported ladder snapshot `{schema}` version {version}")
+                write!(
+                    f,
+                    "unsupported ladder snapshot `{schema}` version {version}"
+                )
             }
             LadderError::Json(error) => write!(f, "ladder JSON: {error}"),
         }

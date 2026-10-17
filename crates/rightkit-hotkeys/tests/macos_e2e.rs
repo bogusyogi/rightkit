@@ -187,7 +187,11 @@ mod mac {
         pump_run_loop(0.6);
         assert!(rx.try_recv().is_err(), "a link click must not toggle");
         assert!(tap.is_idle(), "the click was fully replayed");
-        assert_eq!(tap.reenable_count(), 0, "a slow lookup must not disable the tap");
+        assert_eq!(
+            tap.reenable_count(),
+            0,
+            "a slow lookup must not disable the tap"
+        );
         drop(tap);
     }
 }

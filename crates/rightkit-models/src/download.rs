@@ -196,9 +196,7 @@ fn write_response_body_with_progress(
             let file = OpenOptions::new()
                 .append(true)
                 .open(part)
-                .map_err(|error| {
-                    TransferError::Fatal(io_msg("open partial for append", error))
-                })?;
+                .map_err(|error| TransferError::Fatal(io_msg("open partial for append", error)))?;
             (file, offset, total)
         }
         ResponsePlan::Replace { total } => {
@@ -542,8 +540,7 @@ fn download_inner(
             max_bytes,
         ) {
             Ok(received) => {
-                let got =
-                    sha256_file(request.part_path).map_err(|e| io_msg("hash download", e))?;
+                let got = sha256_file(request.part_path).map_err(|e| io_msg("hash download", e))?;
                 if let Some(pin) = expected.as_deref() {
                     if !got.eq_ignore_ascii_case(pin) {
                         cleanup_poisoned(request.part_path, &metadata_path);
@@ -825,8 +822,13 @@ mod cap_tests {
 
     #[test]
     fn disk_and_cap_messages_are_not_connectivity_errors() {
-        assert!(!is_connectivity_error(&io_msg("write partial", "disk full")));
+        assert!(!is_connectivity_error(&io_msg(
+            "write partial",
+            "disk full"
+        )));
         assert!(!is_connectivity_error(&format!("{CAP_PREFIX}too big")));
-        assert!(is_connectivity_error("download request failed: connection reset"));
+        assert!(is_connectivity_error(
+            "download request failed: connection reset"
+        ));
     }
 }

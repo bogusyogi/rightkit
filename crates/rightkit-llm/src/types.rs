@@ -87,7 +87,11 @@ impl Message {
     /// A user turn with a text prompt followed by images.
     pub fn user_with_images(text: impl Into<String>, images: Vec<ImageSource>) -> Self {
         let mut content = vec![ContentBlock::text(text)];
-        content.extend(images.into_iter().map(|source| ContentBlock::Image { source }));
+        content.extend(
+            images
+                .into_iter()
+                .map(|source| ContentBlock::Image { source }),
+        );
         Self {
             role: Role::User,
             content,

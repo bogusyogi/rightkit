@@ -8,9 +8,7 @@ use rightkit_http::{Client, ClientConfig, RetryPolicy};
 use rightkit_llm::anthropic::{self, AnthropicProvider};
 use rightkit_llm::credentials::{CredentialSource, StaticCredentials};
 use rightkit_llm::openai::{self, MaxTokensField, OpenAiCompatProvider};
-use rightkit_llm::{
-    ChatRequest, ContentBlock, Frame, ImageSource, LlmError, Message, Provider,
-};
+use rightkit_llm::{ChatRequest, ContentBlock, Frame, ImageSource, LlmError, Message, Provider};
 use serde_json::json;
 
 fn client() -> Client {
@@ -84,8 +82,14 @@ fn openai_text_only_messages_keep_the_string_content() {
 #[test]
 fn frames_are_labelled_with_their_timestamp() {
     let frames = [
-        Frame::new(ImageSource::from_bytes("image/png", b"a"), Duration::from_millis(0)),
-        Frame::new(ImageSource::from_bytes("image/png", b"b"), Duration::from_millis(2500)),
+        Frame::new(
+            ImageSource::from_bytes("image/png", b"a"),
+            Duration::from_millis(0),
+        ),
+        Frame::new(
+            ImageSource::from_bytes("image/png", b"b"),
+            Duration::from_millis(2500),
+        ),
     ];
     let message = Message::user_with_frames("decode the motion", &frames);
     assert_eq!(message.content.len(), 5);
@@ -123,7 +127,8 @@ fn a_bad_image_fails_before_anything_is_sent() {
 #[test]
 fn an_image_in_an_assistant_message_is_rejected() {
     let server = MockServer::start(|_, _| MockResponse::text(500, "must not be reached"));
-    let provider = OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai"));
+    let provider =
+        OpenAiCompatProvider::new("openai", &server.base_url(), client(), creds("openai"));
     let mut assistant = Message::assistant("seen");
     assistant
         .content

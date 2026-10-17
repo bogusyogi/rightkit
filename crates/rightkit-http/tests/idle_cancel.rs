@@ -64,9 +64,8 @@ fn a_slow_but_steady_body_outlives_the_idle_limit() {
 #[test]
 fn the_idle_limit_is_separate_from_the_header_timeout() {
     // Headers arrive after 500 ms, longer than the idle limit: the idle clock only runs on the body.
-    let server = MockServer::start(|_, _| {
-        MockResponse::text(200, "ok").delay(Duration::from_millis(500))
-    });
+    let server =
+        MockServer::start(|_, _| MockResponse::text(200, "ok").delay(Duration::from_millis(500)));
     let c = Client::new(config(Some(Duration::from_millis(200))));
     let mut reader = c
         .stream(&Request::get(server.url("/")))

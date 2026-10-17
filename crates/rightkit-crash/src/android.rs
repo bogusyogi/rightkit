@@ -211,9 +211,14 @@ pub fn record_android_exits(config: &CrashConfig, exits: &[AndroidExit]) -> Vec<
             base, exit.pid, exit.process_name, exit.description
         );
         let trace = exit.trace.as_deref().map(reduce_trace).unwrap_or_default();
-        if let Some(path) =
-            record_report(config, &kind, &message, None, "android_exit_history", &trace)
-        {
+        if let Some(path) = record_report(
+            config,
+            &kind,
+            &message,
+            None,
+            "android_exit_history",
+            &trace,
+        ) {
             paths.push(path);
         }
         newest = newest.max(exit.timestamp_ms);

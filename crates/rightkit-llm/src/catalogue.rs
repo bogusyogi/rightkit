@@ -446,7 +446,10 @@ impl PriceCatalogue {
         };
         let per = |tokens: u64, price: f64| tokens as f64 / 1_000_000.0 * price;
         let mut usd = per(usage.input_tokens, need(PriceUnit::PerMillionInputTokens)?)
-            + per(usage.output_tokens, need(PriceUnit::PerMillionOutputTokens)?);
+            + per(
+                usage.output_tokens,
+                need(PriceUnit::PerMillionOutputTokens)?,
+            );
         if usage.cache_read_tokens > 0 {
             usd += per(
                 usage.cache_read_tokens,
@@ -480,11 +483,7 @@ impl PriceCatalogue {
             .filter_map(|r| {
                 let input = r.amount(PriceUnit::PerMillionInputTokens)?;
                 let output = r.amount(PriceUnit::PerMillionOutputTokens)?;
-                let mult = |unit| {
-                    r.amount(unit)
-                        .filter(|_| input > 0.0)
-                        .map(|a| a / input)
-                };
+                let mult = |unit| r.amount(unit).filter(|_| input > 0.0).map(|a| a / input);
                 Some(ModelPrice {
                     slug: r.id.clone(),
                     input_per_m: input,

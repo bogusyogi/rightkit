@@ -135,7 +135,15 @@ pub fn test_png() -> Vec<u8> {
         a = (a + u32::from(x)) % 65521;
         b = (b + a) % 65521;
     }
-    let mut z = vec![0x78, 0x01, 0x01, raw.len() as u8, 0, !(raw.len() as u8), 0xFF];
+    let mut z = vec![
+        0x78,
+        0x01,
+        0x01,
+        raw.len() as u8,
+        0,
+        !(raw.len() as u8),
+        0xFF,
+    ];
     z.extend_from_slice(&raw);
     z.extend_from_slice(&((b << 16) | a).to_be_bytes());
     chunk(&mut out, b"IDAT", &z);

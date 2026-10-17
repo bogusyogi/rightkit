@@ -539,9 +539,9 @@ fn resolve_expect(e: &Expect, vars: &BTreeMap<String, Value>) -> Result<Expect> 
 
 /// The `commands` of an `engine_seed` step: a non-empty array of tables, each a `cli` step's parameters.
 pub(crate) fn seed_commands(p: &Map<String, Value>) -> Result<Vec<Map<String, Value>>> {
-    let list = pv(p, "commands")
-        .and_then(Value::as_array)
-        .ok_or_else(|| Error("engine_seed needs a `commands` array of cli parameter tables".into()))?;
+    let list = pv(p, "commands").and_then(Value::as_array).ok_or_else(|| {
+        Error("engine_seed needs a `commands` array of cli parameter tables".into())
+    })?;
     if list.is_empty() {
         return err("engine_seed `commands` is empty");
     }
@@ -553,7 +553,10 @@ pub(crate) fn seed_commands(p: &Map<String, Value>) -> Result<Vec<Map<String, Va
                 .cloned()
                 .ok_or_else(|| Error(format!("engine_seed command {} is not a table", i + 1)))?;
             if pv(&m, "command").is_none() && pv(&m, "args").is_none() {
-                return err(format!("engine_seed command {} needs 'command' or 'args'", i + 1));
+                return err(format!(
+                    "engine_seed command {} needs 'command' or 'args'",
+                    i + 1
+                ));
             }
             Ok(m)
         })
@@ -621,7 +624,10 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             let mut results = Vec::new();
             for (i, one) in commands.iter().enumerate() {
                 let log = format!("{:02}-seed-{:02}.log", ctx.step_no, i + 1);
-                results.push(run_cli(ctx, one, &log).map_err(|e| Error(format!("engine_seed command {}: {}", i + 1, e.0)))?);
+                results.push(
+                    run_cli(ctx, one, &log)
+                        .map_err(|e| Error(format!("engine_seed command {}: {}", i + 1, e.0)))?,
+                );
             }
             Ok(json!({"seeded": results.len(), "results": results}))
         }
@@ -1305,14 +1311,30 @@ screenshot = true
         let s = s.unwrap();
         assert_eq!(s.target, "ui");
         let kinds: Vec<&str> = s.steps.iter().map(|s| s.kind.as_str()).collect();
-        assert_eq!(kinds, ["engine_seed", "ui_launch", "ui_assert_ax", "ui_contrast", "ui_focus_ring"]);
+        assert_eq!(
+            kinds,
+            [
+                "engine_seed",
+                "ui_launch",
+                "ui_assert_ax",
+                "ui_contrast",
+                "ui_focus_ring"
+            ]
+        );
         let seeds = seed_commands(&s.steps[0].params.clone().into_iter().collect()).unwrap();
         assert_eq!(seeds.len(), 2);
-        assert_eq!(seeds[1]["args"], json!(["settings", "set", "theme", "dark"]));
+        assert_eq!(
+            seeds[1]["args"],
+            json!(["settings", "set", "theme", "dark"])
+        );
         assert_eq!(s.steps[3].params["selector"], json!("#status"));
         assert_eq!(s.steps[4].expect[0].eq, Some(json!(true)));
-        let q = a11y::AxQuery::from_params(&s.steps[2].params.clone().into_iter().collect()).unwrap();
-        assert_eq!((q.role.as_deref(), q.name.as_deref(), q.min_count), (Some("button"), Some("Save"), Some(1)));
+        let q =
+            a11y::AxQuery::from_params(&s.steps[2].params.clone().into_iter().collect()).unwrap();
+        assert_eq!(
+            (q.role.as_deref(), q.name.as_deref(), q.min_count),
+            (Some("button"), Some("Save"), Some(1))
+        );
     }
 
     #[test]
@@ -1322,7 +1344,12 @@ screenshot = true
         assert!(get(json!({"commands": []})).is_err());
         assert!(get(json!({"commands": ["doctor"]})).is_err());
         assert!(get(json!({"commands": [{"input": {"a": 1}}]})).is_err());
-        assert_eq!(get(json!({"commands": [{"command": "doctor"}]})).unwrap().len(), 1);
+        assert_eq!(
+            get(json!({"commands": [{"command": "doctor"}]}))
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     /// `engine_seed` through the executor: it needs the engine (a `ui` scenario with no engine
@@ -1331,8 +1358,12 @@ screenshot = true
     fn engine_seed_needs_the_engine_and_runs_before_the_app() {
         let root = std::env::temp_dir().join(format!("rkqa-seed-ws-{}", util::new_id()));
         std::fs::create_dir_all(&root).unwrap();
-        let cfg = QaConfig::parse("app = \"seedtest\"
-", &root.join("rightkit-qa.toml")).unwrap();
+        let cfg = QaConfig::parse(
+            "app = \"seedtest\"
+",
+            &root.join("rightkit-qa.toml"),
+        )
+        .unwrap();
         let ws = crate::workspace::create(&root.join("managed"), None, "seedtest").unwrap();
         let tracker = Tracker::new();
         let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();

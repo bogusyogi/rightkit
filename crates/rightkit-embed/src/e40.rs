@@ -157,7 +157,9 @@ fn parse_graph_set(
         if batches != [1] {
             check_ingest_batch(batch)?;
         }
-        return Err(bad(&format!("{what} has batch {batch}, expected {batches:?}")));
+        return Err(bad(&format!(
+            "{what} has batch {batch}, expected {batches:?}"
+        )));
     }
     let lengths: Vec<usize> = value
         .get("lengths")
@@ -272,7 +274,9 @@ impl Layout {
             Some(spec) => {
                 if let Some(out) = spec.get("dtype_out") {
                     if out.as_str() != Some("float16") {
-                        return Err(bad(&format!("token_table.dtype_out must be float16: {out}")));
+                        return Err(bad(&format!(
+                            "token_table.dtype_out must be float16: {out}"
+                        )));
                     }
                 }
                 let name = |key: &str, default: Option<&str>| match spec.get(key) {
@@ -373,7 +377,10 @@ pub(crate) fn is_bundle(dir: &Path) -> bool {
 }
 
 /// The smallest graph length that holds `tokens`, or `None` when it exceeds [`MAX_TOKENS`].
-#[cfg_attr(not(any(target_os = "macos", feature = "bench-internals")), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "macos", feature = "bench-internals")),
+    allow(dead_code)
+)]
 pub(crate) fn bucket_for(tokens: usize) -> Option<usize> {
     BUCKETS.iter().copied().find(|bucket| *bucket >= tokens)
 }
@@ -1391,7 +1398,13 @@ mod tests {
             "one shared weights file"
         );
         // The cap picks the ingest sets: batch 4 only, or both.
-        let up_to = |cap| layout.ingest_up_to(cap).iter().map(|s| s.batch).collect::<Vec<_>>();
+        let up_to = |cap| {
+            layout
+                .ingest_up_to(cap)
+                .iter()
+                .map(|s| s.batch)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(up_to(4), vec![4]);
         assert_eq!(up_to(8), vec![4, 8]);
     }
@@ -1428,10 +1441,7 @@ mod tests {
         refuse(MANIFEST.replace(r#""schema":2,"#, ""));
         refuse("not json".to_owned());
         // Query graphs: not batch 1, short of 512, not ascending, template without {L}.
-        refuse(MANIFEST.replace(
-            r#""query":{"batch":1"#,
-            r#""query":{"batch":4"#,
-        ));
+        refuse(MANIFEST.replace(r#""query":{"batch":1"#, r#""query":{"batch":4"#));
         refuse(MANIFEST.replace("384,512]", "384,500]"));
         refuse(MANIFEST.replace("[16,32,48", "[32,16,48"));
         refuse(MANIFEST.replace("model_{L}.onnx", "model.onnx"));
@@ -1594,8 +1604,16 @@ mod tests {
         assert_eq!(calls, vec![(8, 7)]);
         assert_eq!(out.len(), rows.len(), "no embedding comes back for padding");
         for (row, vector) in out.iter().enumerate() {
-            assert_eq!(vector[0], owned[row].len() as f32, "token count of row {row}");
-            assert_eq!(vector[1], row as f32 + 2.0, "row {row} came back in its slot");
+            assert_eq!(
+                vector[0],
+                owned[row].len() as f32,
+                "token count of row {row}"
+            );
+            assert_eq!(
+                vector[1],
+                row as f32 + 2.0,
+                "row {row} came back in its slot"
+            );
         }
         // Eleven documents: 8, then 3 on batch 4 (one padding row); then 1 alone.
         let eleven: Vec<Vec<i64>> = (0..11).map(|i| vec![i as i64 + 1; (i % 5) + 1]).collect();
@@ -1626,7 +1644,11 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(calls, vec![(8, 8), (1, 1)], "a lone last document uses the query graph");
+        assert_eq!(
+            calls,
+            vec![(8, 8), (1, 1)],
+            "a lone last document uses the query graph"
+        );
         assert!(run_ingest_groups(&[], |_| 8, |_, _| unreachable!())
             .unwrap()
             .is_empty());

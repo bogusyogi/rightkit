@@ -64,8 +64,8 @@ pub mod macos;
 #[cfg(windows)]
 pub mod win;
 
-pub use capture_safety::{probe_capture_safety, CaptureSafety, CaptureSafetyReport};
 pub use admission::{Admission, Admit, AllowAll, EffectKind, EffectRequest, Settled};
+pub use capture_safety::{probe_capture_safety, CaptureSafety, CaptureSafetyReport};
 pub use delivery::{DeliveryOptions, DeliveryOutcome, DeliveryRecord, FocusPin, Why};
 pub use engine::{ActOptions, ActOutcome, Automation, Guard};
 pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};

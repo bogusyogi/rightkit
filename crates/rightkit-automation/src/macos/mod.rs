@@ -28,19 +28,7 @@ impl MacPlatform {
 /// Post one press and release of a system-defined aux key (`NX_KEYTYPE_*`, see
 /// [`crate::media_keys`]) to the HID tap: an `NSSystemDefined` event, subtype 8.
 pub(crate) fn post_media_key(key_type: i64) -> Result<()> {
-    type Ctor = unsafe extern "C" fn(
-        Id,
-        Sel,
-        u64,
-        CGPoint,
-        u64,
-        f64,
-        i64,
-        Id,
-        i16,
-        i64,
-        i64,
-    ) -> Id;
+    type Ctor = unsafe extern "C" fn(Id, Sel, u64, CGPoint, u64, f64, i64, Id, i16, i64, i64) -> Id;
     pool(|| unsafe {
         let ctor: Ctor = std::mem::transmute(objc_msgSend as *const ());
         for down in [true, false] {

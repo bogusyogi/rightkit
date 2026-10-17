@@ -139,7 +139,11 @@ pub(crate) fn parse_http_date(v: &str) -> Option<SystemTime> {
             }
             let yy = y.parse::<i64>().ok()?;
             let year = if y.len() == 2 {
-                if yy < 70 { 2000 + yy } else { 1900 + yy }
+                if yy < 70 {
+                    2000 + yy
+                } else {
+                    1900 + yy
+                }
             } else {
                 yy
             };
@@ -232,7 +236,10 @@ mod tests {
             Some(Duration::ZERO)
         );
         assert_eq!(parse_retry_after_at("soon", now), None);
-        assert_eq!(parse_retry_after_at("Sun, 32 Nov 1994 08:49:37 GMT", now), None);
+        assert_eq!(
+            parse_retry_after_at("Sun, 32 Nov 1994 08:49:37 GMT", now),
+            None
+        );
     }
 
     #[test]

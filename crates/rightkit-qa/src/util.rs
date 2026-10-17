@@ -143,7 +143,11 @@ const PLAIN_PATH_LIMIT: usize = 200;
 
 fn is_reserved_device_name(component: &str) -> bool {
     // Windows reserves the device name with or without an extension (`NUL.txt`).
-    let stem = component.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || ((stem.starts_with("COM") || stem.starts_with("LPT"))
             && stem.len() == 4
@@ -186,7 +190,8 @@ pub fn plain_path_text(text: &str) -> String {
             || c == "."
             || c == ".."
             || is_reserved_device_name(c)
-            || c.chars().any(|ch| ch.is_control() || "<>:\"|?*/".contains(ch))
+            || c.chars()
+                .any(|ch| ch.is_control() || "<>:\"|?*/".contains(ch))
         {
             return text.to_owned();
         }
@@ -218,7 +223,10 @@ mod plain_path_tests {
 
     #[test]
     fn drive_and_unc_paths_lose_the_verbatim_prefix() {
-        assert_eq!(plain_path_text(r"\\?\C:\Users\a\run-1"), r"C:\Users\a\run-1");
+        assert_eq!(
+            plain_path_text(r"\\?\C:\Users\a\run-1"),
+            r"C:\Users\a\run-1"
+        );
         assert_eq!(plain_path_text(r"\\?\C:\"), r"C:\");
         assert_eq!(plain_path_text(r"\\?\UNC\srv\share\x"), r"\\srv\share\x");
         assert_eq!(plain_path_text(r"C:\already\plain"), r"C:\already\plain");

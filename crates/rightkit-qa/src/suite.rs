@@ -677,9 +677,15 @@ mod tests {
     #[test]
     fn an_explicit_ui_binary_skips_the_resolver_checks() {
         // Not named after the app, not a file, not a QA build: the caller named it, so it stands.
-        let p = std::env::temp_dir().join("rkqa-explicit").join("release").join("anything.bin");
+        let p = std::env::temp_dir()
+            .join("rkqa-explicit")
+            .join("release")
+            .join("anything.bin");
         assert_eq!(explicit_ui_binary(&p).unwrap(), p);
-        assert!(crate::binary::validate(&p, "app").is_err(), "the resolver path would have refused it");
+        assert!(
+            crate::binary::validate(&p, "app").is_err(),
+            "the resolver path would have refused it"
+        );
     }
 
     #[cfg(any(target_os = "macos", windows))]
@@ -691,7 +697,9 @@ mod tests {
         #[cfg(target_os = "macos")]
         let p = PathBuf::from("/Applications/CutRight.app/Contents/MacOS/CutRight");
         #[cfg(windows)]
-        let Some(p) = std::env::var_os("ProgramFiles").map(|d| PathBuf::from(d).join("CutRight").join("cutright.exe")) else {
+        let Some(p) = std::env::var_os("ProgramFiles")
+            .map(|d| PathBuf::from(d).join("CutRight").join("cutright.exe"))
+        else {
             return;
         };
         let e = explicit_ui_binary(&p).unwrap_err();

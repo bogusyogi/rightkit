@@ -231,9 +231,10 @@ impl PathBroker {
         if self.is_granted_normalized(&normalized)? {
             Ok(path_to_string(&normalized))
         } else {
-            Err(ShellError::BrokerDenied(
-                format!("path is not authorized; open it through {} first", self.app()),
-            ))
+            Err(ShellError::BrokerDenied(format!(
+                "path is not authorized; open it through {} first",
+                self.app()
+            )))
         }
     }
 
@@ -242,9 +243,10 @@ impl PathBroker {
         if self.is_granted_normalized(&normalized)? {
             Ok(path_to_string(&normalized))
         } else {
-            Err(ShellError::BrokerDenied(
-                format!("path is not authorized; choose it through {} first", self.app()),
-            ))
+            Err(ShellError::BrokerDenied(format!(
+                "path is not authorized; choose it through {} first",
+                self.app()
+            )))
         }
     }
 
@@ -273,12 +275,10 @@ impl PathBroker {
     pub fn regrant_saved_target(&self, path: &str) -> Result<String, ShellError> {
         let normalized = normalize_write_target(path)?;
         if !self.was_recently_written(&normalized)? {
-            return Err(ShellError::BrokerDenied(
-                format!(
-                    "path was not just written by the app; save it through {} first",
-                    self.app()
-                ),
-            ));
+            return Err(ShellError::BrokerDenied(format!(
+                "path was not just written by the app; save it through {} first",
+                self.app()
+            )));
         }
         self.grant_normalized(normalized)
     }
@@ -340,9 +340,10 @@ impl PathBroker {
         let normalized = normalize_existing_file(path)?;
         let allowed = self.allowed.lock().map_err(poisoned)?;
         if !allowed.contains(&normalized) {
-            return Err(ShellError::BrokerDenied(
-                format!("path is not authorized; open it through {} first", self.app()),
-            ));
+            return Err(ShellError::BrokerDenied(format!(
+                "path is not authorized; open it through {} first",
+                self.app()
+            )));
         }
         let mut streams = self.stream_tokens.lock().map_err(poisoned)?;
         if let Some((id, _)) = streams.iter().find(|(_, p)| *p == &normalized) {

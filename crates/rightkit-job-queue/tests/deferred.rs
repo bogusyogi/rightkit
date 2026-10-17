@@ -76,7 +76,11 @@ fn held(a: Admitted) -> ProvisionalJob {
 
 fn admit(store: &JobStore, request_id: Option<&str>) -> Admitted {
     store
-        .admit(&new_job("a", request_id), &Ext::new(), &SubmitOptions::new())
+        .admit(
+            &new_job("a", request_id),
+            &Ext::new(),
+            &SubmitOptions::new(),
+        )
         .unwrap()
 }
 
@@ -198,7 +202,10 @@ fn the_held_set_is_bounded() {
             &SubmitOptions::new(),
         )
         .unwrap_err();
-    assert_eq!(err.code, "db", "past the bound the storage error is returned");
+    assert_eq!(
+        err.code, "db",
+        "past the bound the storage error is returned"
+    );
     assert_eq!(store.pending_deferred().len(), MAX_DEFERRED_OPS);
 }
 

@@ -49,9 +49,9 @@ pub use rightkit_child_process::{
     OwnedChild, ProcessPriority, ReapOutcome, TerminationOptions, WaitOutcome,
 };
 pub use runner::{
-    run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in, spawn_streaming_with_priority,
-    Captured,
-    ProgressEvent, ProgressParser, RunError, RunOptions, RunReport, StdioMode, StdioPolicy,
+    run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in,
+    spawn_streaming_with_priority, Captured, ProgressEvent, ProgressParser, RunError, RunOptions,
+    RunReport, StdioMode, StdioPolicy,
 };
 pub use staging::{
     external_bin_path, stage_external_bin, tauri_target_triple, StagedBinary, VerifiedArtifact,

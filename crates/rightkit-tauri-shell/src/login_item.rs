@@ -107,9 +107,9 @@ pub fn unregister_result(
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use objc2::msg_send;
     use objc2::rc::{autoreleasepool, Retained};
     use objc2::runtime::{AnyClass, AnyObject, Bool};
-    use objc2::msg_send;
     use objc2_foundation::NSError;
 
     use super::{login_item_status_from_raw, LoginItemStatus};
@@ -291,7 +291,10 @@ mod tests {
 
     #[test]
     fn raw_values_map_to_the_four_apple_states() {
-        assert_eq!(login_item_status_from_raw(0), LoginItemStatus::NotRegistered);
+        assert_eq!(
+            login_item_status_from_raw(0),
+            LoginItemStatus::NotRegistered
+        );
         assert_eq!(login_item_status_from_raw(1), LoginItemStatus::Enabled);
         assert_eq!(
             login_item_status_from_raw(2),
@@ -312,7 +315,13 @@ mod tests {
     #[test]
     fn only_enabled_is_enabled_and_only_requires_approval_needs_approval() {
         use LoginItemStatus::*;
-        for s in [NotRegistered, Enabled, RequiresApproval, NotFound, Unknown(9)] {
+        for s in [
+            NotRegistered,
+            Enabled,
+            RequiresApproval,
+            NotFound,
+            Unknown(9),
+        ] {
             assert_eq!(s.is_enabled(), s == Enabled);
             assert_eq!(s.needs_approval(), s == RequiresApproval);
         }

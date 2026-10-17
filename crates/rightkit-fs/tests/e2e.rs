@@ -342,8 +342,7 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
 /// opens, a short bounded pause between them), so a refusal is not mistaken for wrong content.
 /// Any other error, and any error on Unix, fails the test.
 fn read_during_replaces(path: &Path) -> Vec<u8> {
-    rightkit_fs::read_replaced(path)
-        .unwrap_or_else(|error| panic!("read_replaced failed: {error}"))
+    rightkit_fs::read_replaced(path).unwrap_or_else(|error| panic!("read_replaced failed: {error}"))
 }
 
 /// The contract is about content: a reader never sees a truncated file or a mix of two writers.

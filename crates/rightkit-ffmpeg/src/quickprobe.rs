@@ -190,9 +190,7 @@ fn webp(b: &[u8]) -> Option<Probe> {
                 return None;
             }
             let bits = le32(b, 21)?;
-            Some(
-                Probe::dims((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1).with_codec("webp"),
-            )
+            Some(Probe::dims((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1).with_codec("webp"))
         }
         b"VP8X" => {
             let w = u32::from_le_bytes([*b.get(24)?, *b.get(25)?, *b.get(26)?, 0]) + 1;

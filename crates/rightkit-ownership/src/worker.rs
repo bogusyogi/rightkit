@@ -80,7 +80,8 @@ pub fn host_string() -> String {
 }
 
 fn decision_json(decision: &Decision) -> Value {
-    let mut out = json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems});
+    let mut out =
+        json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems});
     if !decision.warnings.is_empty() {
         out["warnings"] = json!(decision.warnings);
     }

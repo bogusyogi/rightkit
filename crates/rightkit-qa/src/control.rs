@@ -267,7 +267,11 @@ fn launch_timeout_diagnostics(
                         format!(
                             "{}{}",
                             e.file_name().to_string_lossy(),
-                            if has { " (service.json)" } else { " (no service.json)" }
+                            if has {
+                                " (service.json)"
+                            } else {
+                                " (no service.json)"
+                            }
                         )
                     })
                     .collect();
@@ -295,7 +299,11 @@ fn launch_timeout_diagnostics(
          app pid {pid} alive: {}; app log {} tail:\n{log}",
         suite.root().display(),
         rightkit_daemon::endpoint_for(suite, service),
-        if last_error.is_empty() { "none" } else { last_error },
+        if last_error.is_empty() {
+            "none"
+        } else {
+            last_error
+        },
         is_alive(pid),
         raw_log.display()
     )
@@ -659,7 +667,13 @@ pub fn resolve_bundle_executable(bundle: &Path) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn qa_bundle_suffix(exe: &str) -> String {
     exe.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -1647,7 +1661,11 @@ mod launch_path_tests {
         fs::create_dir_all(&other).unwrap();
         fs::write(other.join("service.json"), "{}").unwrap();
         let log = ws.home.join("app.log");
-        fs::write(&log, format!("{}\nRIGHTKIT QA CONTROL SERVER ACTIVE", "x".repeat(5000))).unwrap();
+        fs::write(
+            &log,
+            format!("{}\nRIGHTKIT QA CONTROL SERVER ACTIVE", "x".repeat(5000)),
+        )
+        .unwrap();
         let text = launch_timeout_diagnostics(
             &suite,
             "control-aaaaaaaa",
@@ -1659,7 +1677,10 @@ mod launch_path_tests {
         assert!(text.contains("control-aaaaaaaa"), "{text}");
         assert!(text.contains("no readable record"), "{text}");
         assert!(text.contains("control-other (service.json)"), "{text}");
-        assert!(text.contains("no service.json for control-aaaaaaaa"), "{text}");
+        assert!(
+            text.contains("no service.json for control-aaaaaaaa"),
+            "{text}"
+        );
         assert!(text.contains("RIGHTKIT QA CONTROL SERVER ACTIVE"), "{text}");
         assert!(text.contains(&log.display().to_string()), "{text}");
         // Only the tail of a long log is quoted.
@@ -1770,7 +1791,9 @@ mod launch_path_tests {
         assert_eq!(again, bundle);
         let plist_text = fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap();
         assert!(plist_text.contains("<string>app.rightkit.qa.control-test-app</string>"));
-        assert!(!bundle.with_file_name("control-test-app.app.previous").exists());
+        assert!(!bundle
+            .with_file_name("control-test-app.app.previous")
+            .exists());
         // A different build replaces the bundle in place and keeps exactly one `.previous`.
         fs::write(&spec.binary, "second build").unwrap();
         let next = stage_bundle(&spec, &ws, "0123456789abcdef").unwrap();

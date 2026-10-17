@@ -32,9 +32,9 @@ pub use event::{EventRecord, Level};
 pub use log_bridge::init_log_bridge;
 pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, OutboxStatus};
 pub use redact::RedactionPolicy;
+pub use rotate::RotatedNaming;
 pub use scrub::{redact_quoted, scrub_text, scrub_value};
 pub use store::{JsonlStore, StoreStatus};
-pub use rotate::RotatedNaming;
 pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture};
 #[cfg(feature = "tracing")]
 pub use tracing_file::{

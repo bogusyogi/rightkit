@@ -85,13 +85,22 @@ pub enum AttrValue {
     Int(i64),
     Float(f64),
     /// `AXValue` of type CGPoint (for example `AXPosition`).
-    Point { x: f64, y: f64 },
+    Point {
+        x: f64,
+        y: f64,
+    },
     /// `AXValue` of type CGSize (for example `AXSize`).
-    Size { w: f64, h: f64 },
+    Size {
+        w: f64,
+        h: f64,
+    },
     /// `AXValue` of type CGRect.
     Rect(Rect),
     /// `AXValue` of type CFRange (for example `AXSelectedTextRange`), UTF-16 units.
-    Range { location: i64, length: i64 },
+    Range {
+        location: i64,
+        length: i64,
+    },
     Element(El),
     /// An array; each item is converted the same way (a nested array becomes `Other`).
     List(Vec<AttrValue>),
@@ -558,7 +567,8 @@ impl El {
     ) -> Result<()> {
         require_trusted()?;
         let k = Cf::string(attr);
-        let v = Cf::new(unsafe { AXValueCreate(ty, value) }).ok_or(Error::Unsupported("ax value"))?;
+        let v =
+            Cf::new(unsafe { AXValueCreate(ty, value) }).ok_or(Error::Unsupported("ax value"))?;
         match unsafe { AXUIElementSetAttributeValue((self.0).0, k.0, v.0) } {
             0 => Ok(()),
             c => Err(ax_err(c, op)),
@@ -568,7 +578,12 @@ impl El {
     /// The app may clamp or refuse; read [`El::frame`] back to see what it did.
     pub fn set_point(&self, x: f64, y: f64) -> Result<()> {
         let pt = CGPoint { x, y };
-        self.set_ax_value("AXPosition", 1, &pt as *const _ as *const c_void, "set_point")
+        self.set_ax_value(
+            "AXPosition",
+            1,
+            &pt as *const _ as *const c_void,
+            "set_point",
+        )
     }
     /// Write `AXSize` (points). Resizes a window. The app may clamp it to its own limits.
     pub fn set_size(&self, w: f64, h: f64) -> Result<()> {

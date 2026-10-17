@@ -13,7 +13,7 @@
 //! nothing is sent. On Windows termination uses the process handle and the job, which cannot
 //! name a recycled pid.
 
-use crate::{TerminationOptions, process_handle::ProcessHandle};
+use crate::{process_handle::ProcessHandle, TerminationOptions};
 use std::{
     io,
     sync::{Arc, Mutex, MutexGuard, Weak},
@@ -200,12 +200,20 @@ fn terminate_all_unix(options: TerminationOptions) -> TerminateAllReport {
 
 #[cfg(windows)]
 fn terminate_all_windows(options: TerminationOptions) -> TerminateAllReport {
-    let live: Vec<(u32, ProcessHandle, Option<Arc<crate::process_windows::KillOnCloseJob>>)> = {
+    let live: Vec<(
+        u32,
+        ProcessHandle,
+        Option<Arc<crate::process_windows::KillOnCloseJob>>,
+    )> = {
         let mut list = owned();
         list.retain(|entry| entry.child.strong_count() > 0);
         list.iter()
             .filter_map(|entry| {
-                Some((entry.pid, entry.process.try_clone().ok()?, entry.job.upgrade()))
+                Some((
+                    entry.pid,
+                    entry.process.try_clone().ok()?,
+                    entry.job.upgrade(),
+                ))
             })
             .collect()
     };

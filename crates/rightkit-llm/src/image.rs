@@ -29,8 +29,7 @@ use crate::error::LlmError;
 use crate::types::ContentBlock;
 
 /// Media types both providers accept for base64 images.
-pub const SUPPORTED_MEDIA_TYPES: [&str; 4] =
-    ["image/png", "image/jpeg", "image/gif", "image/webp"];
+pub const SUPPORTED_MEDIA_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /// Where an image's bytes come from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,7 +138,11 @@ const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 pub fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(ALPHABET[(n >> 18) as usize & 63] as char);
         out.push(ALPHABET[(n >> 12) as usize & 63] as char);
@@ -188,8 +191,12 @@ mod tests {
 
     #[test]
     fn validation_checks_type_data_and_url() {
-        assert!(ImageSource::from_bytes("image/png", b"x").validate().is_ok());
-        assert!(ImageSource::from_bytes("image/bmp", b"x").validate().is_err());
+        assert!(ImageSource::from_bytes("image/png", b"x")
+            .validate()
+            .is_ok());
+        assert!(ImageSource::from_bytes("image/bmp", b"x")
+            .validate()
+            .is_err());
         assert!(ImageSource::Base64 {
             media_type: "image/png".into(),
             data: String::new()
@@ -202,14 +209,19 @@ mod tests {
         }
         .validate()
         .is_err());
-        assert!(ImageSource::url("https://example.com/a.png").validate().is_ok());
+        assert!(ImageSource::url("https://example.com/a.png")
+            .validate()
+            .is_ok());
         assert!(ImageSource::url("file:///etc/passwd").validate().is_err());
         assert!(ImageSource::url("https://a b").validate().is_err());
     }
 
     #[test]
     fn frame_label_has_millisecond_precision() {
-        let f = Frame::new(ImageSource::url("https://e.test/f.png"), Duration::from_millis(1500));
+        let f = Frame::new(
+            ImageSource::url("https://e.test/f.png"),
+            Duration::from_millis(1500),
+        );
         assert_eq!(f.label(), "Frame at 1.500 s:");
     }
 }

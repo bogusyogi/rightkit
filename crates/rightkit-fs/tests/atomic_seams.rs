@@ -40,7 +40,11 @@ fn a_write_fails_after_n_bytes_leaving_the_destination_and_no_temp() {
     let mut writer = AtomicWriter::create_with(&target, plain()).unwrap();
     let temp = writer.temp_path().to_path_buf();
     let error = writer.write_all(b"0123456789").unwrap_err();
-    assert_eq!(error.kind(), Some(std::io::ErrorKind::StorageFull), "{error:?}");
+    assert_eq!(
+        error.kind(),
+        Some(std::io::ErrorKind::StorageFull),
+        "{error:?}"
+    );
     drop(guard);
     assert_eq!(
         std::fs::read(&temp).unwrap(),
@@ -63,7 +67,10 @@ fn the_budget_is_cumulative_across_writes_and_writers() {
     assert!(second.write_all(b"123456").is_err(), "4 bytes were left");
     let mut third = AtomicWriter::create_with(&dir.path().join("c"), plain()).unwrap();
     assert!(third.write_all(b"1").is_err(), "the budget is spent");
-    assert!(third.write_all(b"").is_ok(), "an empty write needs no bytes");
+    assert!(
+        third.write_all(b"").is_ok(),
+        "an empty write needs no bytes"
+    );
 }
 
 #[test]
@@ -108,7 +115,11 @@ fn a_durable_write_syncs_the_file_once_and_the_directory_once() {
             dir_syncs: DIR_SYNCS
         }
     );
-    assert_eq!(sync_counts(), SyncCounts::default(), "take zeroes the counts");
+    assert_eq!(
+        sync_counts(),
+        SyncCounts::default(),
+        "take zeroes the counts"
+    );
 }
 
 #[test]

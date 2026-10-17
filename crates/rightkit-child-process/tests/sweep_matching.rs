@@ -35,7 +35,9 @@ fn spawn_marked(marker: &str) -> Child {
         // `read` is a builtin, so the shell stays the process and keeps its arguments; the
         // marker is `$0`. The piped stdin is never written, so the shell waits until it is killed.
         let mut command = Command::new("/bin/sh");
-        command.args(["-c", "read line", marker]).stdin(Stdio::piped());
+        command
+            .args(["-c", "read line", marker])
+            .stdin(Stdio::piped());
         command
     };
     #[cfg(windows)]
@@ -104,7 +106,10 @@ fn the_executable_path_and_the_marker_must_both_hold() {
     // the child is long-lived, so the pair must agree within a bounded wait.
     let deadline = Instant::now() + Duration::from_secs(10);
     let (exe, by_exe) = loop {
-        let exe = identity(&child).exe().expect("an executable path").to_owned();
+        let exe = identity(&child)
+            .exe()
+            .expect("an executable path")
+            .to_owned();
         let both = ProcessQuery::new().exe(&exe).arg_containing(marker.clone());
         let found = find_processes(&both).unwrap();
         let by_exe = find_processes(&ProcessQuery::new().exe(&exe)).unwrap();

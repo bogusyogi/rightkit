@@ -18,13 +18,11 @@
 pub mod beats;
 pub mod sheet;
 
-pub use beats::{
-    parse_script, snap, Beat, BeatError, BracketedScript, ScriptSpan, SnapConfig,
-};
-pub use sheet::{
-    plan_sheets, SheetError, SheetLayout, SheetPlan, SheetSpec, Selection, TileSlot,
-    DEFAULT_COLUMNS, DEFAULT_MIN_TILE_WIDTH, DEFAULT_ROWS, DEFAULT_TILE_HEIGHT,
-    DEFAULT_TILE_WIDTH, SHEETS_SCHEMA,
-};
+pub use beats::{parse_script, snap, Beat, BeatError, BracketedScript, ScriptSpan, SnapConfig};
 #[cfg(feature = "assemble")]
 pub use sheet::{assemble, AssembledSheet, Frame};
+pub use sheet::{
+    plan_sheets, Selection, SheetError, SheetLayout, SheetPlan, SheetSpec, TileSlot,
+    DEFAULT_COLUMNS, DEFAULT_MIN_TILE_WIDTH, DEFAULT_ROWS, DEFAULT_TILE_HEIGHT, DEFAULT_TILE_WIDTH,
+    SHEETS_SCHEMA,
+};

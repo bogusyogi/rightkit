@@ -767,7 +767,11 @@ fn oauth_webview_rules() {
         .unwrap()
         .iter()
         .flat_map(|c| c["fingerprints"].as_array().unwrap().iter())
-        .filter(|f| f["id"].as_str().is_some_and(|id| id.starts_with("oauth.webview.")))
+        .filter(|f| {
+            f["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("oauth.webview."))
+        })
         .collect();
     assert_eq!(fingerprints.len(), 3);
     let matches = |id: &str, line: &str| {

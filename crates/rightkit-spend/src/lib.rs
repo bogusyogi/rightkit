@@ -63,7 +63,10 @@ pub enum SpendError {
     #[error("no allowance for scope {scope:?} and period {period:?}")]
     AllowanceMissing { scope: String, period: String },
     #[error("estimate {estimate_micro} exceeds the remaining allowance {remaining_micro}")]
-    AllowanceExceeded { estimate_micro: i64, remaining_micro: i64 },
+    AllowanceExceeded {
+        estimate_micro: i64,
+        remaining_micro: i64,
+    },
     #[error("limit {limit_micro} is below the spend already held or committed ({spent_micro})")]
     AllowanceBelowSpend { limit_micro: i64, spent_micro: i64 },
     #[error("{count} overrun(s) await acknowledgement before this allowance reserves again")]
@@ -77,7 +80,10 @@ pub enum SpendError {
     #[error("no reservation {0:?}")]
     NotFound(String),
     #[error("a {from} reservation cannot become {to}")]
-    InvalidTransition { from: ReservationState, to: ReservationState },
+    InvalidTransition {
+        from: ReservationState,
+        to: ReservationState,
+    },
     #[error("amount overflow")]
     Overflow,
 }
@@ -116,7 +122,10 @@ impl ReservationState {
 
     /// An open reservation still holds its estimate in the allowance's `reserved` total.
     pub fn is_open(self) -> bool {
-        matches!(self, ReservationState::Reserved | ReservationState::InFlight)
+        matches!(
+            self,
+            ReservationState::Reserved | ReservationState::InFlight
+        )
     }
 }
 
@@ -303,7 +312,10 @@ impl Ledger {
             ..MigrateOptions::default()
         };
         migrate(&conn, None, MIGRATIONS, &options)?;
-        Ok(Self { conn, clock: Box::new(clock) })
+        Ok(Self {
+            conn,
+            clock: Box::new(clock),
+        })
     }
 
     /// The underlying connection (read-only use).
@@ -333,11 +345,16 @@ impl Ledger {
             return Err(SpendError::BadInput("limit_micro is negative".into()));
         }
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let out = match get_allowance(&tx, scope, period)? {
             None => {
                 if let Some(expected) = expected_revision {
-                    return Err(SpendError::RevisionConflict { expected, actual: 0 });
+                    return Err(SpendError::RevisionConflict {
+                        expected,
+                        actual: 0,
+                    });
                 }
                 tx.execute(
                     "INSERT INTO spend_allowances (scope, period, limit_micro, reserved_micro, \
@@ -349,13 +366,22 @@ impl Ledger {
             Some(current) => {
                 let expected = expected_revision.ok_or(SpendError::RevisionRequired)?;
                 if expected != current.revision {
-                    return Err(SpendError::RevisionConflict { expected, actual: current.revision });
+                    return Err(SpendError::RevisionConflict {
+                        expected,
+                        actual: current.revision,
+                    });
                 }
                 let spent = spent_total(&current)?;
                 if limit_micro < spent {
-                    return Err(SpendError::AllowanceBelowSpend { limit_micro, spent_micro: spent });
+                    return Err(SpendError::AllowanceBelowSpend {
+                        limit_micro,
+                        spent_micro: spent,
+                    });
                 }
-                let next = current.revision.checked_add(1).ok_or(SpendError::Overflow)?;
+                let next = current
+                    .revision
+                    .checked_add(1)
+                    .ok_or(SpendError::Overflow)?;
                 let changed = tx.execute(
                     "UPDATE spend_allowances SET limit_micro = ?3, revision = ?4, updated_at = ?5 \
                      WHERE scope = ?1 AND period = ?2 AND revision = ?6",
@@ -407,7 +433,9 @@ impl Ledger {
             return Err(SpendError::BadInput("estimate_micro is negative".into()));
         }
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         if let Some(stored) = find_by_request(&tx, request_id)? {
             let same = stored.scope == scope
@@ -416,7 +444,9 @@ impl Ledger {
                 && stored.price_version == price_version
                 && stored.estimate_micro == estimate_micro;
             if !same {
-                return Err(SpendError::RequestMismatch { request_id: request_id.to_owned() });
+                return Err(SpendError::RequestMismatch {
+                    request_id: request_id.to_owned(),
+                });
             }
             return outcome(&tx, stored, true);
         }
@@ -442,7 +472,15 @@ impl Ledger {
             "INSERT INTO spend_reservations (request_id, scope, period, route_id, price_version, \
              estimated_micro, state, committed_micro, over_reservation, created_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'reserved', NULL, 0, ?7)",
-            params![request_id, scope, period, route_id, price_version, estimate_micro, now],
+            params![
+                request_id,
+                scope,
+                period,
+                route_id,
+                price_version,
+                estimate_micro,
+                now
+            ],
         )?;
         let stored = find_by_request(&tx, request_id)?
             .ok_or_else(|| SpendError::NotFound(request_id.to_owned()))?;
@@ -455,7 +493,9 @@ impl Ledger {
     /// an in-flight reservation changes nothing.
     pub fn mark_in_flight(&mut self, reservation_id: &str) -> Result<Outcome> {
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let res = require_reservation(&tx, reservation_id)?;
         match res.state {
             ReservationState::InFlight => return outcome(&tx, res, true),
@@ -488,7 +528,9 @@ impl Ledger {
             return Err(SpendError::BadInput("actual_micro is negative".into()));
         }
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let res = require_reservation(&tx, reservation_id)?;
         match res.state {
             ReservationState::Committed if res.committed_micro == Some(actual_micro) => {
@@ -528,7 +570,13 @@ impl Ledger {
             "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
              over_reservation = ?3, settled_at = ?4, reason = ?5 \
              WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
-            params![seq_of(reservation_id)?, actual_micro, i64::from(over), now, reason],
+            params![
+                seq_of(reservation_id)?,
+                actual_micro,
+                i64::from(over),
+                now,
+                reason
+            ],
         )?;
         let res = require_reservation(&tx, reservation_id)?;
         let out = outcome(&tx, res, false)?;
@@ -540,7 +588,9 @@ impl Ledger {
     /// or provably cost nothing). Releasing a released reservation returns it unchanged.
     pub fn release(&mut self, reservation_id: &str, reason: Option<&str>) -> Result<Outcome> {
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let res = require_reservation(&tx, reservation_id)?;
         match res.state {
             ReservationState::Released => return outcome(&tx, res, true),
@@ -581,8 +631,12 @@ impl Ledger {
             return Err(SpendError::BadInput("older_than_secs is negative".into()));
         }
         let now = self.now();
-        let cutoff = now.checked_sub(older_than_secs).ok_or(SpendError::Overflow)?;
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let cutoff = now
+            .checked_sub(older_than_secs)
+            .ok_or(SpendError::Overflow)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let stale: Vec<Reservation> = {
             let sql = format!(
                 "SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE scope = ?1 AND \
@@ -613,7 +667,9 @@ impl Ledger {
                     .released_micro
                     .checked_add(res.estimate_micro)
                     .ok_or(SpendError::Overflow)?;
-                report.expired.push(require_reservation(&tx, &res.reservation_id)?);
+                report
+                    .expired
+                    .push(require_reservation(&tx, &res.reservation_id)?);
             } else {
                 let committed = allowance
                     .committed_micro
@@ -630,7 +686,9 @@ impl Ledger {
                     .ceiling_micro
                     .checked_add(res.estimate_micro)
                     .ok_or(SpendError::Overflow)?;
-                report.committed_at_ceiling.push(require_reservation(&tx, &res.reservation_id)?);
+                report
+                    .committed_at_ceiling
+                    .push(require_reservation(&tx, &res.reservation_id)?);
             }
         }
         tx.commit()?;
@@ -643,10 +701,14 @@ impl Ledger {
     /// [`SpendError::BadInput`].
     pub fn acknowledge_overrun(&mut self, reservation_id: &str, note: Option<&str>) -> Result<()> {
         let now = self.now();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let res = require_reservation(&tx, reservation_id)?;
         if !res.over_reservation {
-            return Err(SpendError::BadInput(format!("{reservation_id} is not flagged as an overrun")));
+            return Err(SpendError::BadInput(format!(
+                "{reservation_id} is not flagged as an overrun"
+            )));
         }
         tx.execute(
             "INSERT OR IGNORE INTO spend_overrun_acks (seq, acknowledged_at, note) VALUES (?1, ?2, ?3)",
@@ -705,12 +767,14 @@ impl Ledger {
                 report.measured_micro = add(report.measured_micro, actual)?;
                 committed_estimates = add(committed_estimates, res.estimate_micro)?;
             }
-            let route = routes.entry(res.route_id.clone()).or_insert_with(|| RouteTotal {
-                route_id: res.route_id.clone(),
-                count: 0,
-                estimated_micro: 0,
-                committed_micro: 0,
-            });
+            let route = routes
+                .entry(res.route_id.clone())
+                .or_insert_with(|| RouteTotal {
+                    route_id: res.route_id.clone(),
+                    count: 0,
+                    estimated_micro: 0,
+                    committed_micro: 0,
+                });
             route.count += 1;
             route.estimated_micro = add(route.estimated_micro, res.estimate_micro)?;
             route.committed_micro = add(route.committed_micro, actual)?;
@@ -791,7 +855,9 @@ fn reservation_from_row(row: &Row<'_>) -> rusqlite::Result<Reservation> {
 }
 
 fn get_allowance(conn: &Connection, scope: &str, period: &str) -> Result<Option<Allowance>> {
-    let sql = format!("SELECT {ALLOWANCE_COLUMNS} FROM spend_allowances WHERE scope = ?1 AND period = ?2");
+    let sql = format!(
+        "SELECT {ALLOWANCE_COLUMNS} FROM spend_allowances WHERE scope = ?1 AND period = ?2"
+    );
     Ok(conn
         .query_row(&sql, params![scope, period], allowance_from_row)
         .optional()?)
@@ -818,7 +884,9 @@ fn find_reservation(conn: &Connection, reservation_id: &str) -> Result<Option<Re
         return Ok(None);
     };
     let sql = format!("SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE seq = ?1");
-    Ok(conn.query_row(&sql, [seq], reservation_from_row).optional()?)
+    Ok(conn
+        .query_row(&sql, [seq], reservation_from_row)
+        .optional()?)
 }
 
 fn require_reservation(conn: &Connection, reservation_id: &str) -> Result<Reservation> {
@@ -828,7 +896,9 @@ fn require_reservation(conn: &Connection, reservation_id: &str) -> Result<Reserv
 
 fn find_by_request(conn: &Connection, request_id: &str) -> Result<Option<Reservation>> {
     let sql = format!("SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE request_id = ?1");
-    Ok(conn.query_row(&sql, [request_id], reservation_from_row).optional()?)
+    Ok(conn
+        .query_row(&sql, [request_id], reservation_from_row)
+        .optional()?)
 }
 
 fn unacknowledged_overruns(conn: &Connection, scope: &str, period: &str) -> Result<i64> {
@@ -842,13 +912,20 @@ fn unacknowledged_overruns(conn: &Connection, scope: &str, period: &str) -> Resu
 
 fn outcome(conn: &Connection, reservation: Reservation, replayed: bool) -> Result<Outcome> {
     let allowance = require_allowance(conn, &reservation.scope, &reservation.period)?;
-    Ok(Outcome { reservation, allowance, replayed })
+    Ok(Outcome {
+        reservation,
+        allowance,
+        replayed,
+    })
 }
 
 /// The error for a lost compare-and-swap: re-read the revision that won.
 fn conflict(conn: &Connection, read: &Allowance) -> Result<SpendError> {
     let actual = get_allowance(conn, &read.scope, &read.period)?.map_or(0, |a| a.revision);
-    Ok(SpendError::RevisionConflict { expected: read.revision, actual })
+    Ok(SpendError::RevisionConflict {
+        expected: read.revision,
+        actual,
+    })
 }
 
 /// The one compare-and-swap on an allowance's totals: write only if `revision` still equals the
@@ -865,7 +942,15 @@ fn cas_totals(
     let changed = conn.execute(
         "UPDATE spend_allowances SET reserved_micro = ?3, committed_micro = ?4, revision = ?5, \
          updated_at = ?6 WHERE scope = ?1 AND period = ?2 AND revision = ?7",
-        params![read.scope, read.period, reserved_micro, committed_micro, next, now, read.revision],
+        params![
+            read.scope,
+            read.period,
+            reserved_micro,
+            committed_micro,
+            next,
+            now,
+            read.revision
+        ],
     )?;
     if changed == 0 {
         return Err(conflict(conn, read)?);
@@ -902,7 +987,8 @@ mod tests {
     }
 
     fn reserve(f: &mut Fixture, request: &str, estimate: i64) -> Result<Outcome> {
-        f.ledger.reserve(SCOPE, request, MONTH, "fal-ai/flux", "v1", estimate)
+        f.ledger
+            .reserve(SCOPE, request, MONTH, "fal-ai/flux", "v1", estimate)
     }
 
     #[test]
@@ -911,14 +997,21 @@ mod tests {
         let path = dir.path().join("app.db");
         {
             let conn = Connection::open(&path).unwrap();
-            conn.execute_batch("PRAGMA user_version = 7; CREATE TABLE app_table (x INTEGER);").unwrap();
+            conn.execute_batch("PRAGMA user_version = 7; CREATE TABLE app_table (x INTEGER);")
+                .unwrap();
             let mut ledger = Ledger::attach(conn).unwrap();
             ledger.set_allowance(SCOPE, MONTH, 100, None).unwrap();
         }
         let conn = Connection::open(&path).unwrap();
         let ledger = Ledger::attach(conn).unwrap();
-        assert_eq!(ledger.allowance(SCOPE, MONTH).unwrap().unwrap().limit_micro, 100);
-        let uv: i64 = ledger.connection().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            ledger.allowance(SCOPE, MONTH).unwrap().unwrap().limit_micro,
+            100
+        );
+        let uv: i64 = ledger
+            .connection()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(uv, 7);
     }
 
@@ -926,25 +1019,54 @@ mod tests {
     fn set_allowance_creates_then_needs_the_revision() {
         let mut f = fixture();
         let a = f.ledger.set_allowance(SCOPE, MONTH, 1_000, None).unwrap();
-        assert_eq!((a.revision, a.limit_micro, a.reserved_micro, a.committed_micro), (1, 1_000, 0, 0));
-        assert!(matches!(f.ledger.set_allowance(SCOPE, MONTH, 2_000, None), Err(SpendError::RevisionRequired)));
+        assert_eq!(
+            (
+                a.revision,
+                a.limit_micro,
+                a.reserved_micro,
+                a.committed_micro
+            ),
+            (1, 1_000, 0, 0)
+        );
+        assert!(matches!(
+            f.ledger.set_allowance(SCOPE, MONTH, 2_000, None),
+            Err(SpendError::RevisionRequired)
+        ));
         assert!(matches!(
             f.ledger.set_allowance(SCOPE, MONTH, 2_000, Some(5)),
-            Err(SpendError::RevisionConflict { expected: 5, actual: 1 })
+            Err(SpendError::RevisionConflict {
+                expected: 5,
+                actual: 1
+            })
         ));
-        let b = f.ledger.set_allowance(SCOPE, MONTH, 2_000, Some(1)).unwrap();
+        let b = f
+            .ledger
+            .set_allowance(SCOPE, MONTH, 2_000, Some(1))
+            .unwrap();
         assert_eq!((b.revision, b.limit_micro), (2, 2_000));
         // A stale writer loses the swap.
         assert!(matches!(
             f.ledger.set_allowance(SCOPE, MONTH, 3_000, Some(1)),
-            Err(SpendError::RevisionConflict { expected: 1, actual: 2 })
+            Err(SpendError::RevisionConflict {
+                expected: 1,
+                actual: 2
+            })
         ));
         assert!(matches!(
             f.ledger.set_allowance(SCOPE, "2026-11", 10, Some(1)),
-            Err(SpendError::RevisionConflict { expected: 1, actual: 0 })
+            Err(SpendError::RevisionConflict {
+                expected: 1,
+                actual: 0
+            })
         ));
-        assert!(matches!(f.ledger.set_allowance(SCOPE, "2026-12", -1, None), Err(SpendError::BadInput(_))));
-        assert!(matches!(f.ledger.set_allowance("", "p", 1, None), Err(SpendError::BadInput(_))));
+        assert!(matches!(
+            f.ledger.set_allowance(SCOPE, "2026-12", -1, None),
+            Err(SpendError::BadInput(_))
+        ));
+        assert!(matches!(
+            f.ledger.set_allowance("", "p", 1, None),
+            Err(SpendError::BadInput(_))
+        ));
     }
 
     #[test]
@@ -953,7 +1075,10 @@ mod tests {
         reserve(&mut f, "r1", 600).unwrap();
         assert!(matches!(
             f.ledger.set_allowance(SCOPE, MONTH, 599, Some(2)),
-            Err(SpendError::AllowanceBelowSpend { limit_micro: 599, spent_micro: 600 })
+            Err(SpendError::AllowanceBelowSpend {
+                limit_micro: 599,
+                spent_micro: 600
+            })
         ));
         let a = f.ledger.set_allowance(SCOPE, MONTH, 600, Some(2)).unwrap();
         assert_eq!(a.remaining_micro(), 0);
@@ -968,23 +1093,46 @@ mod tests {
         assert_eq!(a.allowance.reserved_micro, 400);
         assert!(!a.replayed);
         let b = reserve(&mut f, "r2", 600).unwrap();
-        assert_eq!(b.allowance.remaining_micro(), 0, "an estimate equal to the remaining fits");
+        assert_eq!(
+            b.allowance.remaining_micro(),
+            0,
+            "an estimate equal to the remaining fits"
+        );
         assert!(matches!(
             reserve(&mut f, "r3", 1),
-            Err(SpendError::AllowanceExceeded { estimate_micro: 1, remaining_micro: 0 })
+            Err(SpendError::AllowanceExceeded {
+                estimate_micro: 1,
+                remaining_micro: 0
+            })
         ));
         // The refused reserve wrote nothing.
-        assert_eq!(f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap().reserved_micro, 1_000);
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            1_000
+        );
         assert!(f.ledger.reservation("res-00000003").unwrap().is_none());
     }
 
     #[test]
     fn reserve_needs_an_allowance_and_valid_input() {
         let mut f = fixture();
-        assert!(matches!(reserve(&mut f, "r1", 1), Err(SpendError::AllowanceMissing { .. })));
+        assert!(matches!(
+            reserve(&mut f, "r1", 1),
+            Err(SpendError::AllowanceMissing { .. })
+        ));
         let mut g = funded(10);
-        assert!(matches!(reserve(&mut g, "r1", -1), Err(SpendError::BadInput(_))));
-        assert!(matches!(reserve(&mut g, " ", 1), Err(SpendError::BadInput(_))));
+        assert!(matches!(
+            reserve(&mut g, "r1", -1),
+            Err(SpendError::BadInput(_))
+        ));
+        assert!(matches!(
+            reserve(&mut g, " ", 1),
+            Err(SpendError::BadInput(_))
+        ));
     }
 
     #[test]
@@ -995,14 +1143,25 @@ mod tests {
         let again = reserve(&mut f, "req-1", 300).unwrap();
         assert!(again.replayed);
         assert_eq!(again.reservation, first.reservation);
-        assert_eq!(again.allowance.reserved_micro, 300, "nothing reserved twice");
-        assert_eq!(again.allowance.revision, first.allowance.revision, "nothing written");
+        assert_eq!(
+            again.allowance.reserved_micro, 300,
+            "nothing reserved twice"
+        );
+        assert_eq!(
+            again.allowance.revision, first.allowance.revision,
+            "nothing written"
+        );
         for bad in [
-            f.ledger.reserve(SCOPE, "req-1", MONTH, "fal-ai/flux", "v1", 301),
-            f.ledger.reserve(SCOPE, "req-1", MONTH, "other-route", "v1", 300),
-            f.ledger.reserve(SCOPE, "req-1", MONTH, "fal-ai/flux", "v2", 300),
-            f.ledger.reserve(SCOPE, "req-1", "2026-11", "fal-ai/flux", "v1", 300),
-            f.ledger.reserve("other", "req-1", MONTH, "fal-ai/flux", "v1", 300),
+            f.ledger
+                .reserve(SCOPE, "req-1", MONTH, "fal-ai/flux", "v1", 301),
+            f.ledger
+                .reserve(SCOPE, "req-1", MONTH, "other-route", "v1", 300),
+            f.ledger
+                .reserve(SCOPE, "req-1", MONTH, "fal-ai/flux", "v2", 300),
+            f.ledger
+                .reserve(SCOPE, "req-1", "2026-11", "fal-ai/flux", "v1", 300),
+            f.ledger
+                .reserve("other", "req-1", MONTH, "fal-ai/flux", "v1", 300),
         ] {
             assert!(matches!(bad, Err(SpendError::RequestMismatch { .. })));
         }
@@ -1019,16 +1178,25 @@ mod tests {
         assert_eq!(out.reservation.state, ReservationState::Committed);
         assert_eq!(out.reservation.committed_micro, Some(150));
         assert!(!out.reservation.over_reservation);
-        assert_eq!((out.allowance.reserved_micro, out.allowance.committed_micro), (0, 150));
+        assert_eq!(
+            (out.allowance.reserved_micro, out.allowance.committed_micro),
+            (0, 150)
+        );
         assert_eq!(out.allowance.remaining_micro(), 850);
         // Same actual again is a no-op; a different one is a transition error.
         let again = f.ledger.commit(&r.reservation_id, 150).unwrap();
         assert!(again.replayed);
         assert!(matches!(
             f.ledger.commit(&r.reservation_id, 151),
-            Err(SpendError::InvalidTransition { from: ReservationState::Committed, .. })
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Committed,
+                ..
+            })
         ));
-        assert!(matches!(f.ledger.release(&r.reservation_id, None), Err(SpendError::InvalidTransition { .. })));
+        assert!(matches!(
+            f.ledger.release(&r.reservation_id, None),
+            Err(SpendError::InvalidTransition { .. })
+        ));
     }
 
     #[test]
@@ -1037,18 +1205,31 @@ mod tests {
         let r = reserve(&mut f, "r1", 400).unwrap().reservation;
         let out = f.ledger.commit(&r.reservation_id, 500).unwrap();
         assert!(out.reservation.over_reservation);
-        assert_eq!(out.reservation.reason.as_deref(), Some("overrun taken from the allowance"));
+        assert_eq!(
+            out.reservation.reason.as_deref(),
+            Some("overrun taken from the allowance")
+        );
         assert_eq!(out.allowance.remaining_micro(), 500);
-        assert!(matches!(reserve(&mut f, "r2", 1), Err(SpendError::OverrunUnacknowledged { count: 1 })));
+        assert!(matches!(
+            reserve(&mut f, "r2", 1),
+            Err(SpendError::OverrunUnacknowledged { count: 1 })
+        ));
         // Acknowledging a reservation that was not flagged is refused.
         let ok = {
-            f.ledger.acknowledge_overrun(&r.reservation_id, Some("seen")).unwrap();
-            f.ledger.acknowledge_overrun(&r.reservation_id, None).unwrap();
+            f.ledger
+                .acknowledge_overrun(&r.reservation_id, Some("seen"))
+                .unwrap();
+            f.ledger
+                .acknowledge_overrun(&r.reservation_id, None)
+                .unwrap();
             reserve(&mut f, "r2", 1)
         };
         assert!(ok.is_ok());
         let clean = ok.unwrap().reservation;
-        assert!(matches!(f.ledger.acknowledge_overrun(&clean.reservation_id, None), Err(SpendError::BadInput(_))));
+        assert!(matches!(
+            f.ledger.acknowledge_overrun(&clean.reservation_id, None),
+            Err(SpendError::BadInput(_))
+        ));
     }
 
     #[test]
@@ -1059,13 +1240,21 @@ mod tests {
         assert!(out.reservation.over_reservation);
         assert_eq!(out.allowance.remaining_micro(), -300);
         assert!(out.reservation.reason.unwrap().contains("-300"));
-        f.ledger.acknowledge_overrun(&r.reservation_id, None).unwrap();
+        f.ledger
+            .acknowledge_overrun(&r.reservation_id, None)
+            .unwrap();
         assert!(matches!(
             reserve(&mut f, "r2", 0),
-            Err(SpendError::AllowanceExceeded { remaining_micro: -300, .. })
+            Err(SpendError::AllowanceExceeded {
+                remaining_micro: -300,
+                ..
+            })
         ));
         // Raising the limit restores room.
-        let a = f.ledger.set_allowance(SCOPE, MONTH, 2_000, Some(out.allowance.revision)).unwrap();
+        let a = f
+            .ledger
+            .set_allowance(SCOPE, MONTH, 2_000, Some(out.allowance.revision))
+            .unwrap();
         assert_eq!(a.remaining_micro(), 700);
         assert!(reserve(&mut f, "r3", 700).is_ok());
     }
@@ -1074,17 +1263,29 @@ mod tests {
     fn release_returns_the_estimate_and_is_idempotent() {
         let mut f = funded(1_000);
         let r = reserve(&mut f, "r1", 400).unwrap().reservation;
-        let out = f.ledger.release(&r.reservation_id, Some("call skipped")).unwrap();
+        let out = f
+            .ledger
+            .release(&r.reservation_id, Some("call skipped"))
+            .unwrap();
         assert_eq!(out.reservation.state, ReservationState::Released);
         assert_eq!(out.reservation.reason.as_deref(), Some("call skipped"));
         assert_eq!(out.allowance.reserved_micro, 0);
         assert!(f.ledger.release(&r.reservation_id, None).unwrap().replayed);
         assert!(matches!(
             f.ledger.commit(&r.reservation_id, 1),
-            Err(SpendError::InvalidTransition { from: ReservationState::Released, .. })
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Released,
+                ..
+            })
         ));
-        assert!(matches!(f.ledger.release("res-00000099", None), Err(SpendError::NotFound(_))));
-        assert!(matches!(f.ledger.release("nonsense", None), Err(SpendError::NotFound(_))));
+        assert!(matches!(
+            f.ledger.release("res-00000099", None),
+            Err(SpendError::NotFound(_))
+        ));
+        assert!(matches!(
+            f.ledger.release("nonsense", None),
+            Err(SpendError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -1095,14 +1296,31 @@ mod tests {
         assert_eq!(marked.reservation.state, ReservationState::InFlight);
         assert_eq!(marked.reservation.in_flight_at, Some(1_000_000));
         assert!(f.ledger.mark_in_flight(&a.reservation_id).unwrap().replayed);
-        assert_eq!(f.ledger.commit(&a.reservation_id, 90).unwrap().reservation.state, ReservationState::Committed);
+        assert_eq!(
+            f.ledger
+                .commit(&a.reservation_id, 90)
+                .unwrap()
+                .reservation
+                .state,
+            ReservationState::Committed
+        );
         assert!(matches!(
             f.ledger.mark_in_flight(&a.reservation_id),
-            Err(SpendError::InvalidTransition { from: ReservationState::Committed, .. })
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Committed,
+                ..
+            })
         ));
         let b = reserve(&mut f, "b", 100).unwrap().reservation;
         f.ledger.mark_in_flight(&b.reservation_id).unwrap();
-        assert_eq!(f.ledger.release(&b.reservation_id, None).unwrap().allowance.reserved_micro, 0);
+        assert_eq!(
+            f.ledger
+                .release(&b.reservation_id, None)
+                .unwrap()
+                .allowance
+                .reserved_micro,
+            0
+        );
     }
 
     #[test]
@@ -1132,32 +1350,75 @@ mod tests {
 
         let a = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
         assert_eq!((a.reserved_micro, a.committed_micro), (300, 200));
-        assert_eq!(f.ledger.reservation(&fresh.reservation_id).unwrap().unwrap().state, ReservationState::Reserved);
+        assert_eq!(
+            f.ledger
+                .reservation(&fresh.reservation_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            ReservationState::Reserved
+        );
         // The ceiling commit is a flagged overrun: reserve waits for an acknowledgement.
-        assert!(matches!(reserve(&mut f, "next", 1), Err(SpendError::OverrunUnacknowledged { count: 1 })));
+        assert!(matches!(
+            reserve(&mut f, "next", 1),
+            Err(SpendError::OverrunUnacknowledged { count: 1 })
+        ));
         // Nothing left to expire.
-        assert_eq!(f.ledger.expire_stale(SCOPE, 100).unwrap(), ExpireReport::default());
-        assert!(matches!(f.ledger.expire_stale(SCOPE, -1), Err(SpendError::BadInput(_))));
+        assert_eq!(
+            f.ledger.expire_stale(SCOPE, 100).unwrap(),
+            ExpireReport::default()
+        );
+        assert!(matches!(
+            f.ledger.expire_stale(SCOPE, -1),
+            Err(SpendError::BadInput(_))
+        ));
     }
 
     #[test]
     fn periods_and_scopes_are_independent_allowances() {
         let mut f = funded(1_000);
-        f.ledger.set_allowance(SCOPE, "2026-10-17", 100, None).unwrap();
-        f.ledger.set_allowance(SCOPE, "device:dev_abc", 50, None).unwrap();
+        f.ledger
+            .set_allowance(SCOPE, "2026-10-17", 100, None)
+            .unwrap();
+        f.ledger
+            .set_allowance(SCOPE, "device:dev_abc", 50, None)
+            .unwrap();
         f.ledger.set_allowance("other", MONTH, 5, None).unwrap();
         f.ledger.reserve(SCOPE, "m", MONTH, "r", "v1", 60).unwrap();
-        f.ledger.reserve(SCOPE, "d", "2026-10-17", "r", "v1", 60).unwrap();
+        f.ledger
+            .reserve(SCOPE, "d", "2026-10-17", "r", "v1", 60)
+            .unwrap();
         assert!(matches!(
-            f.ledger.reserve(SCOPE, "dev", "device:dev_abc", "r", "v1", 60),
-            Err(SpendError::AllowanceExceeded { remaining_micro: 50, .. })
+            f.ledger
+                .reserve(SCOPE, "dev", "device:dev_abc", "r", "v1", 60),
+            Err(SpendError::AllowanceExceeded {
+                remaining_micro: 50,
+                ..
+            })
         ));
         assert!(matches!(
             f.ledger.reserve(SCOPE, "d2", "2026-10-17", "r", "v1", 41),
-            Err(SpendError::AllowanceExceeded { remaining_micro: 40, .. })
+            Err(SpendError::AllowanceExceeded {
+                remaining_micro: 40,
+                ..
+            })
         ));
-        assert_eq!(f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap().reserved_micro, 60);
-        assert_eq!(f.ledger.allowance("other", MONTH).unwrap().unwrap().reserved_micro, 0);
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            60
+        );
+        assert_eq!(
+            f.ledger
+                .allowance("other", MONTH)
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            0
+        );
     }
 
     #[test]
@@ -1166,19 +1427,31 @@ mod tests {
         let a = reserve(&mut f, "a", 1).unwrap().reservation;
         f.ledger.release(&a.reservation_id, None).unwrap();
         let b = reserve(&mut f, "b", 1).unwrap().reservation;
-        assert_eq!((a.reservation_id.as_str(), b.reservation_id.as_str()), ("res-00000001", "res-00000002"));
+        assert_eq!(
+            (a.reservation_id.as_str(), b.reservation_id.as_str()),
+            ("res-00000001", "res-00000002")
+        );
     }
 
     #[test]
     fn checked_arithmetic_refuses_overflow() {
         let mut f = fixture();
-        f.ledger.set_allowance(SCOPE, MONTH, i64::MAX, None).unwrap();
+        f.ledger
+            .set_allowance(SCOPE, MONTH, i64::MAX, None)
+            .unwrap();
         let a = reserve(&mut f, "a", i64::MAX - 1).unwrap().reservation;
         let out = f.ledger.commit(&a.reservation_id, i64::MAX - 1).unwrap();
         assert_eq!(out.allowance.committed_micro, i64::MAX - 1);
-        let b = f.ledger.reserve(SCOPE, "b", MONTH, "r", "v1", 1).unwrap().reservation;
+        let b = f
+            .ledger
+            .reserve(SCOPE, "b", MONTH, "r", "v1", 1)
+            .unwrap()
+            .reservation;
         // Committing 2 more would push committed + reserved past i64::MAX.
-        assert!(matches!(f.ledger.commit(&b.reservation_id, 2), Err(SpendError::Overflow)));
+        assert!(matches!(
+            f.ledger.commit(&b.reservation_id, 2),
+            Err(SpendError::Overflow)
+        ));
         // The failed commit left the reservation open and the totals unchanged.
         let a2 = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
         assert_eq!((a2.reserved_micro, a2.committed_micro), (1, i64::MAX - 1));
@@ -1187,33 +1460,75 @@ mod tests {
     #[test]
     fn report_reconciles_and_groups_by_route() {
         let mut f = funded(10_000);
-        let a = f.ledger.reserve(SCOPE, "a", MONTH, "route-a", "v1", 100).unwrap().reservation;
-        let b = f.ledger.reserve(SCOPE, "b", MONTH, "route-b", "v1", 200).unwrap().reservation;
-        let c = f.ledger.reserve(SCOPE, "c", MONTH, "route-a", "v1", 300).unwrap().reservation;
-        let d = f.ledger.reserve(SCOPE, "d", MONTH, "route-b", "v1", 50).unwrap().reservation;
+        let a = f
+            .ledger
+            .reserve(SCOPE, "a", MONTH, "route-a", "v1", 100)
+            .unwrap()
+            .reservation;
+        let b = f
+            .ledger
+            .reserve(SCOPE, "b", MONTH, "route-b", "v1", 200)
+            .unwrap()
+            .reservation;
+        let c = f
+            .ledger
+            .reserve(SCOPE, "c", MONTH, "route-a", "v1", 300)
+            .unwrap()
+            .reservation;
+        let d = f
+            .ledger
+            .reserve(SCOPE, "d", MONTH, "route-b", "v1", 50)
+            .unwrap()
+            .reservation;
         f.ledger.commit(&a.reservation_id, 80).unwrap();
         f.ledger.commit(&b.reservation_id, 260).unwrap();
         f.ledger.release(&d.reservation_id, None).unwrap();
         f.ledger.mark_in_flight(&c.reservation_id).unwrap();
 
         let r = f.ledger.report(SCOPE, MONTH).unwrap();
-        assert_eq!((r.count_reserved, r.count_in_flight, r.count_committed, r.count_released, r.count_expired), (0, 1, 2, 1, 0));
+        assert_eq!(
+            (
+                r.count_reserved,
+                r.count_in_flight,
+                r.count_committed,
+                r.count_released,
+                r.count_expired
+            ),
+            (0, 1, 2, 1, 0)
+        );
         assert_eq!(r.over_reservations, 1);
         assert_eq!(r.unacknowledged_overruns, 1);
         assert_eq!(r.open_micro, 300);
         assert_eq!(r.measured_micro, 340);
-        assert_eq!(r.forecast_micro, 300 + 300, "committed estimates 100+200 plus open 300");
+        assert_eq!(
+            r.forecast_micro,
+            300 + 300,
+            "committed estimates 100+200 plus open 300"
+        );
         assert_eq!(r.variance_micro, 340 - 300);
         assert_eq!(r.remaining_micro, 10_000 - 300 - 340);
         assert!(r.reconciles);
         assert_eq!(
             r.routes,
             vec![
-                RouteTotal { route_id: "route-a".into(), count: 2, estimated_micro: 400, committed_micro: 80 },
-                RouteTotal { route_id: "route-b".into(), count: 2, estimated_micro: 250, committed_micro: 260 },
+                RouteTotal {
+                    route_id: "route-a".into(),
+                    count: 2,
+                    estimated_micro: 400,
+                    committed_micro: 80
+                },
+                RouteTotal {
+                    route_id: "route-b".into(),
+                    count: 2,
+                    estimated_micro: 250,
+                    committed_micro: 260
+                },
             ]
         );
-        assert!(matches!(f.ledger.report(SCOPE, "2030-01"), Err(SpendError::AllowanceMissing { .. })));
+        assert!(matches!(
+            f.ledger.report(SCOPE, "2030-01"),
+            Err(SpendError::AllowanceMissing { .. })
+        ));
     }
 
     #[test]
@@ -1223,7 +1538,10 @@ mod tests {
         let id = {
             let mut ledger = Ledger::attach(Connection::open(&path).unwrap()).unwrap();
             ledger.set_allowance(SCOPE, MONTH, 1_000, None).unwrap();
-            let r = ledger.reserve(SCOPE, "req", MONTH, "r", "v1", 250).unwrap().reservation;
+            let r = ledger
+                .reserve(SCOPE, "req", MONTH, "r", "v1", 250)
+                .unwrap()
+                .reservation;
             ledger.mark_in_flight(&r.reservation_id).unwrap();
             r.reservation_id
         };
@@ -1231,7 +1549,12 @@ mod tests {
         let r = ledger.reservation(&id).unwrap().unwrap();
         assert_eq!(r.state, ReservationState::InFlight);
         // The retry after a crash finds the same reservation.
-        assert!(ledger.reserve(SCOPE, "req", MONTH, "r", "v1", 250).unwrap().replayed);
+        assert!(
+            ledger
+                .reserve(SCOPE, "req", MONTH, "r", "v1", 250)
+                .unwrap()
+                .replayed
+        );
         let out = ledger.commit(&id, 240).unwrap();
         assert_eq!(out.allowance.remaining_micro(), 760);
     }

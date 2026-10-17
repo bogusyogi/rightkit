@@ -110,13 +110,19 @@ pub enum StopReason {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SequenceOutcome {
     /// A non-final step completed. Call `run_next` again.
-    Advanced { step: String, value: Value },
+    Advanced {
+        step: String,
+        value: Value,
+    },
     /// The final step completed. Carries its value. Repeated calls return it again.
     Done(Value),
     Stopped(StopReason),
     /// A step's outcome was never observed and the replay policy does not
     /// allow another attempt.
-    Unresolved { step: String, reason: String },
+    Unresolved {
+        step: String,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -400,7 +406,11 @@ mod tests {
         }
     }
 
-    fn open(path: &TempJournal, clock: &ManualClock, replay: ReplayPolicy) -> SequenceRun<ManualClock> {
+    fn open(
+        path: &TempJournal,
+        clock: &ManualClock,
+        replay: ReplayPolicy,
+    ) -> SequenceRun<ManualClock> {
         SequenceRun::open(&path.0, "r1", clock.clone())
             .unwrap()
             .with_config(config(replay))
@@ -414,7 +424,13 @@ mod tests {
         let s = seq(&["a", "b"]);
         let mut d = Mock::new();
         let out = run.run_next(&s, &mut d, &mut NoGate).unwrap();
-        assert_eq!(out, SequenceOutcome::Advanced { step: "a".into(), value: json!("a") });
+        assert_eq!(
+            out,
+            SequenceOutcome::Advanced {
+                step: "a".into(),
+                value: json!("a")
+            }
+        );
         assert_eq!(d.performed, vec!["r1/a/take-0"]);
         let out = run.run_next(&s, &mut d, &mut NoGate).unwrap();
         assert_eq!(out, SequenceOutcome::Done(json!("b")));
@@ -438,7 +454,13 @@ mod tests {
         assert_eq!(out, SequenceOutcome::Done(json!("b")));
         assert_eq!(d.performed, vec!["r1/a/take-0", "r1/b/take-0"]);
         let reopened = open(&j, &clock, ReplayPolicy::Unresolved);
-        assert_eq!(reopened.run().phase(&StepRef { step: "b".into(), take: 0 }), Phase::Completed);
+        assert_eq!(
+            reopened.run().phase(&StepRef {
+                step: "b".into(),
+                take: 0
+            }),
+            Phase::Completed
+        );
     }
 
     #[test]
@@ -494,7 +516,8 @@ mod tests {
 
     impl Gate for Budget {
         fn before_perform(&mut self, step: &StepSpec, key: &IdempotencyKey) -> GateDecision {
-            self.calls.push((step.step_id.clone(), key.as_str().to_string()));
+            self.calls
+                .push((step.step_id.clone(), key.as_str().to_string()));
             if self.allow || step.step_id == "a" {
                 GateDecision::Proceed
             } else {
@@ -509,16 +532,28 @@ mod tests {
         let clock = ManualClock::new(1000);
         let s = seq(&["a", "b"]);
         let mut d = Mock::new();
-        let mut gate = Budget { allow: false, calls: Vec::new() };
+        let mut gate = Budget {
+            allow: false,
+            calls: Vec::new(),
+        };
         let mut run = open(&j, &clock, ReplayPolicy::Unresolved);
         run.run_next(&s, &mut d, &mut gate).unwrap();
         let out = run.run_next(&s, &mut d, &mut gate).unwrap();
         assert_eq!(
             out,
-            SequenceOutcome::Stopped(StopReason::Gated { step: "b".into(), reason: "budget".into() })
+            SequenceOutcome::Stopped(StopReason::Gated {
+                step: "b".into(),
+                reason: "budget".into()
+            })
         );
         assert_eq!(d.performed, vec!["r1/a/take-0"]);
-        assert_eq!(run.run().phase(&StepRef { step: "b".into(), take: 0 }), Phase::Pending);
+        assert_eq!(
+            run.run().phase(&StepRef {
+                step: "b".into(),
+                take: 0
+            }),
+            Phase::Pending
+        );
         assert_eq!(gate.calls[1], ("b".to_string(), "r1/b/take-0".to_string()));
 
         gate.allow = true;
@@ -533,7 +568,10 @@ mod tests {
         let clock = ManualClock::new(1000);
         let s = seq(&["a"]);
         let mut d = Mock::new();
-        let mut gate = Budget { allow: true, calls: Vec::new() };
+        let mut gate = Budget {
+            allow: true,
+            calls: Vec::new(),
+        };
         let mut run = open(&j, &clock, ReplayPolicy::Unresolved);
         run.run_next(&s, &mut d, &mut gate).unwrap();
         assert_eq!(gate.calls.len(), 1);
@@ -548,7 +586,10 @@ mod tests {
         let s = seq(&["a", "b"]);
         let mut d = Mock::new().with("a", Mode::Fail);
         let mut run = open(&j, &clock, ReplayPolicy::ReissueOnce);
-        let want = SequenceOutcome::Stopped(StopReason::Failed { step: "a".into(), reason: "bad".into() });
+        let want = SequenceOutcome::Stopped(StopReason::Failed {
+            step: "a".into(),
+            reason: "bad".into(),
+        });
         assert_eq!(run.run_next(&s, &mut d, &mut NoGate).unwrap(), want);
         assert_eq!(run.run_next(&s, &mut d, &mut NoGate).unwrap(), want);
         assert_eq!(d.performed.len(), 1);
@@ -563,9 +604,15 @@ mod tests {
         token.request(5000);
         let mut run = open(&j, &clock, ReplayPolicy::Unresolved).with_cancel(token);
         let mut d = Mock::new();
-        let mut gate = Budget { allow: true, calls: Vec::new() };
+        let mut gate = Budget {
+            allow: true,
+            calls: Vec::new(),
+        };
         let out = run.run_next(&s, &mut d, &mut gate).unwrap();
-        assert_eq!(out, SequenceOutcome::Stopped(StopReason::Cancelled { step: "a".into() }));
+        assert_eq!(
+            out,
+            SequenceOutcome::Stopped(StopReason::Cancelled { step: "a".into() })
+        );
         assert!(gate.calls.is_empty());
         assert!(d.performed.is_empty());
     }

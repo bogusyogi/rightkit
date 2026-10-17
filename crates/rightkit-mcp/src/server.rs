@@ -179,7 +179,12 @@ impl CallHandle {
     /// Emits `notifications/progress` with this request's token. Returns `false` (nothing sent)
     /// when the client sent no progress token or the transport cannot carry notifications.
     /// Progress must increase between calls; that is the handler's responsibility.
-    pub fn notify_progress(&self, progress: f64, total: Option<f64>, message: Option<&str>) -> bool {
+    pub fn notify_progress(
+        &self,
+        progress: f64,
+        total: Option<f64>,
+        message: Option<&str>,
+    ) -> bool {
         let Some(shared) = &self.shared else {
             return false;
         };
@@ -1516,11 +1521,11 @@ impl ServerHost {
     ) -> Result<Value> {
         if params.get("name").and_then(Value::as_str).is_none() {
             if self.inner.admission.is_none() {
-                if let Some(result) = self.inner.provider.call_tool_with_handle(
-                    request,
-                    &ctx.request,
-                    &ctx.call,
-                ) {
+                if let Some(result) =
+                    self.inner
+                        .provider
+                        .call_tool_with_handle(request, &ctx.request, &ctx.call)
+                {
                     return result;
                 }
             }

@@ -47,14 +47,14 @@ pub use image::{Frame, ImageSource};
 pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;
 pub use raw::{RawExchange, RawHandle};
-pub use tools::{
-    AllowAll, AllowTools, GateDecision, StopCause, ToolBudget, ToolCallRecord, ToolExecutor,
-    ToolGate, ToolHandler, ToolInvocation, ToolLoopError, ToolLoopOutcome, ToolOutcome,
-    ToolRegistry, ToolSetupError, ToolTally,
-};
 /// The HTTP client this crate's providers are built on, re-exported so a host can build a
 /// [`Client`] (timeout, retry, proxy, redaction, address policy) without a direct
 /// `rightkit-http` dependency.
 pub use rightkit_http as http;
 pub use rightkit_http::{AddressPolicy, Client, ClientConfig, HttpError, ProxyMode, RetryPolicy};
+pub use tools::{
+    AllowAll, AllowTools, GateDecision, StopCause, ToolBudget, ToolCallRecord, ToolExecutor,
+    ToolGate, ToolHandler, ToolInvocation, ToolLoopError, ToolLoopOutcome, ToolOutcome,
+    ToolRegistry, ToolSetupError, ToolTally,
+};
 pub use types::*;

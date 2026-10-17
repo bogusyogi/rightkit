@@ -134,7 +134,8 @@ pub fn sync_once<M: RecordMapper + 'static>(
         total.tombstones_written += rep.tombstones_written;
         total.quarantined += rep.quarantined;
         total.blocked_reuploads += rep.blocked_reuploads;
-        let progress = rep.uploaded + rep.downloaded + rep.tombstones_applied + rep.tombstones_written;
+        let progress =
+            rep.uploaded + rep.downloaded + rep.tombstones_applied + rep.tombstones_written;
         total.outcome = rep.outcome;
         total.retry_after_secs = rep.retry_after_secs;
         if !should_continue(
@@ -229,8 +230,9 @@ pub fn next_delay(
             }
         }
         PassOutcome::Cancelled => engine.unwrap_or(policy.cancelled_secs),
-        PassOutcome::Unavailable(_) | PassOutcome::Failed(_) => engine
-            .unwrap_or_else(|| policy.backoff.delay_secs(failures.max(1), None)),
+        PassOutcome::Unavailable(_) | PassOutcome::Failed(_) => {
+            engine.unwrap_or_else(|| policy.backoff.delay_secs(failures.max(1), None))
+        }
     };
     Some(secs.max(policy.min_secs))
 }
@@ -347,7 +349,15 @@ mod tests {
         budget: &SyncBudget,
         elapsed: Duration,
     ) -> bool {
-        should_continue(outcome, retry, progress, passes, budget.max_passes, elapsed, budget)
+        should_continue(
+            outcome,
+            retry,
+            progress,
+            passes,
+            budget.max_passes,
+            elapsed,
+            budget,
+        )
     }
 
     #[test]
@@ -368,12 +378,26 @@ mod tests {
         assert!(cont(&pending, Some(0.5), 2, 1, &b, Duration::from_secs(1)));
         assert!(cont(&pending, None, 2, 1, &b, Duration::from_secs(1)));
         // The engine wants to wait longer than the inline allowance.
-        assert!(!cont(&pending, Some(30.0), 2, 1, &b, Duration::from_secs(1)));
+        assert!(!cont(
+            &pending,
+            Some(30.0),
+            2,
+            1,
+            &b,
+            Duration::from_secs(1)
+        ));
         // No progress: another pass would do the same.
         assert!(!cont(&pending, Some(0.5), 0, 1, &b, Duration::from_secs(1)));
         // Pass cap and time cap.
         assert!(!cont(&pending, Some(0.5), 2, 3, &b, Duration::from_secs(1)));
-        assert!(!cont(&pending, Some(0.5), 2, 1, &b, Duration::from_secs(10)));
+        assert!(!cont(
+            &pending,
+            Some(0.5),
+            2,
+            1,
+            &b,
+            Duration::from_secs(10)
+        ));
         // Only Pending continues.
         assert!(!cont(&PassOutcome::Synced, None, 2, 1, &b, Duration::ZERO));
         assert!(!cont(

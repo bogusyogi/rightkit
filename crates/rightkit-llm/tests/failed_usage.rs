@@ -8,9 +8,7 @@ use rightkit_http::{Client, ClientConfig, RetryPolicy};
 use rightkit_llm::credentials::{CredentialSource, StaticCredentials};
 use rightkit_llm::failover::{FailoverChain, FailoverPolicy, Route};
 use rightkit_llm::openai::OpenAiCompatProvider;
-use rightkit_llm::{
-    ChatRequest, LlmError, Metering, Provider, Spend, StreamEvent, Usage,
-};
+use rightkit_llm::{ChatRequest, LlmError, Metering, Provider, Spend, StreamEvent, Usage};
 use serde_json::json;
 
 fn client() -> Client {
@@ -85,7 +83,10 @@ fn refusal_with_usage_is_billed_when_asked() {
     let err = provider
         .complete(&ChatRequest::simple("m", "s", "u").report_failed_usage())
         .unwrap_err();
-    assert!(matches!(err.root(), LlmError::Refused { .. }), "got {err:?}");
+    assert!(
+        matches!(err.root(), LlmError::Refused { .. }),
+        "got {err:?}"
+    );
     assert_eq!(err.billing().spend, Spend::Reported(expected()));
 }
 

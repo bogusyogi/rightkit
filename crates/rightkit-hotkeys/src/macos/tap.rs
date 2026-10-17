@@ -223,9 +223,7 @@ impl EventTap {
         let handler: Handler = Box::new(handler);
         let thread = thread::Builder::new()
             .name(config.name.clone())
-            .spawn(move || unsafe {
-                run(config, handler, on_reenable, thread_reenables, ready_tx)
-            })
+            .spawn(move || unsafe { run(config, handler, on_reenable, thread_reenables, ready_tx) })
             .map_err(|e| TapError::Thread(e.to_string()))?;
         match ready_rx.recv() {
             Ok(Ok(run_loop)) => Ok(EventTap {

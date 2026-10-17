@@ -144,11 +144,7 @@ impl SqlSettings {
     /// Every stored `(key, value)` whose key starts with `prefix` (empty prefix: all), ordered by
     /// key. Does not include defaults. Empty while the data is refused. The version key is
     /// included if it matches the prefix.
-    pub fn list(
-        &self,
-        conn: &Connection,
-        prefix: &str,
-    ) -> Result<Vec<(String, String)>, SqlError> {
+    pub fn list(&self, conn: &Connection, prefix: &str) -> Result<Vec<(String, String)>, SqlError> {
         if self.refusal(conn)?.is_some() {
             return Ok(Vec::new());
         }

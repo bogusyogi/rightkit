@@ -17,11 +17,11 @@ use std::time::{Duration, Instant};
 use super::ffi::*;
 use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, TapLocation};
 use crate::decision::should_accept_fn_chord;
-use crate::ptt_timer::{ArmTimer, MAX_ARM_DELAY};
 use crate::ptt::{
     format_abort, should_abort_ptt_chord, should_arm_ptt, should_clear_ptt_hold_suppression,
     PttAbortCause, PttAbortKind, PttEnd, PttHandoff, PttModifiers, PttPhase,
 };
+use crate::ptt_timer::{ArmTimer, MAX_ARM_DELAY};
 
 pub type Action = Arc<dyn Fn() + Send + Sync + 'static>;
 pub type FnAction = Arc<dyn Fn(bool) + Send + Sync + 'static>;
@@ -664,7 +664,11 @@ mod tests {
             on_flags_changed(&shared, &control(false));
         }
         std::thread::sleep(Duration::from_millis(450));
-        assert_eq!(starts.load(Ordering::SeqCst), 0, "tapped presses never start");
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            0,
+            "tapped presses never start"
+        );
     }
 
     #[test]

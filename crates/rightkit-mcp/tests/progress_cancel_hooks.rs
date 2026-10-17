@@ -84,7 +84,11 @@ struct Worker {
 
 impl ToolProvider for Worker {
     fn list(&self) -> Vec<ToolDescriptor> {
-        vec![ToolDescriptor::new("work", "Work", json!({"type":"object"}))]
+        vec![ToolDescriptor::new(
+            "work",
+            "Work",
+            json!({"type":"object"}),
+        )]
     }
     fn call(&self, name: &str, _args: Value) -> Result<ToolResult> {
         Err(McpError::ToolNotFound(name.into()))
@@ -105,8 +109,7 @@ impl ToolProvider for Worker {
             while !call.is_cancelled() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(2));
             }
-            self.saw_cancel
-                .store(call.is_cancelled(), Ordering::SeqCst);
+            self.saw_cancel.store(call.is_cancelled(), Ordering::SeqCst);
             return Some(Ok(ToolResult::text("stopped").to_value()));
         }
         call.notify_progress(2.0, Some(3.0), None);
@@ -200,7 +203,9 @@ fn numeric_token_is_echoed_and_no_token_means_no_notification() {
     let progress: Vec<&Value> = frames.iter().filter(|f| is_progress(f)).collect();
     assert_eq!(progress.len(), 2, "only the call with a token reports");
     assert!(progress.iter().all(|p| p["params"]["progressToken"] == 42));
-    assert!(frames.iter().any(|f| f["id"] == 2 && f.get("result").is_some()));
+    assert!(frames
+        .iter()
+        .any(|f| f["id"] == 2 && f.get("result").is_some()));
 }
 
 #[test]
@@ -229,7 +234,9 @@ fn cancelled_response_send_still_replies() {
     s.send(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}));
     let (frames, saw_cancel) = s.finish();
     assert!(saw_cancel);
-    assert!(frames.iter().any(|f| f["id"] == 7 && f.get("result").is_some()));
+    assert!(frames
+        .iter()
+        .any(|f| f["id"] == 7 && f.get("result").is_some()));
 }
 
 #[test]
@@ -238,11 +245,14 @@ fn cancelling_an_unknown_or_finished_request_is_ignored() {
     s.send(call(1, None, "finish"));
     // The request must really be finished before it is cancelled; otherwise the cancel races the
     // handler and (by default) suppresses the reply.
-    s.out.wait_for("reply to 1", |f| f["id"] == 1 && f.get("result").is_some());
+    s.out
+        .wait_for("reply to 1", |f| f["id"] == 1 && f.get("result").is_some());
     s.send(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}));
     s.send(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":99}}));
     let (frames, _) = s.finish();
-    assert!(frames.iter().any(|f| f["id"] == 1 && f.get("result").is_some()));
+    assert!(frames
+        .iter()
+        .any(|f| f["id"] == 1 && f.get("result").is_some()));
 }
 
 #[test]
@@ -297,7 +307,10 @@ fn initialize_overrides_appear_in_the_result_and_negotiation_is_kept() {
             default_protocol_version: Some("2025-06-18".into()),
         });
     let r = host.dispatch(&init_request("2025-03-26")).unwrap()["result"].clone();
-    assert_eq!(r["protocolVersion"], "2025-03-26", "negotiates the client's version");
+    assert_eq!(
+        r["protocolVersion"], "2025-03-26",
+        "negotiates the client's version"
+    );
     assert_eq!(r["serverInfo"]["name"], "ember");
     assert_eq!(r["serverInfo"]["version"], "9");
     assert_eq!(r["serverInfo"]["title"], "Ember");
@@ -339,7 +352,11 @@ fn response_hook_fires_once_per_response_and_sees_it_unchanged() {
         .unwrap();
     assert_eq!(seen.lock().unwrap().len(), 1);
     assert_eq!(seen.lock().unwrap()[0].0.as_deref(), Some("ping"));
-    assert_eq!(seen.lock().unwrap()[0].1, ping, "the hook saw exactly the sent reply");
+    assert_eq!(
+        seen.lock().unwrap()[0].1,
+        ping,
+        "the hook saw exactly the sent reply"
+    );
 
     // A notification has no response: no hook call.
     assert!(host
@@ -367,8 +384,12 @@ fn response_hook_fires_on_stdio_including_parse_errors() {
     });
     let input = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\nnot json\n";
     let mut out = Vec::new();
-    host.serve_stdio_on(io::Cursor::new(input), &mut out).unwrap();
-    assert_eq!(out.split(|b| *b == b'\n').filter(|l| !l.is_empty()).count(), 2);
+    host.serve_stdio_on(io::Cursor::new(input), &mut out)
+        .unwrap();
+    assert_eq!(
+        out.split(|b| *b == b'\n').filter(|l| !l.is_empty()).count(),
+        2
+    );
     assert_eq!(*count.lock().unwrap(), 2);
 }
 
@@ -402,17 +423,22 @@ fn transform_rewrites_the_result_only_and_runs_before_the_observer() {
     assert_eq!(reply["id"], 7);
     assert_eq!(reply["jsonrpc"], "2.0");
     assert_eq!(reply["result"], json!({"resultType":"complete","ttlMs":0}));
-    assert_eq!(observed.lock().unwrap()[0], reply, "the observer saw the transformed reply");
+    assert_eq!(
+        observed.lock().unwrap()[0],
+        reply,
+        "the observer saw the transformed reply"
+    );
 }
 
 #[test]
 fn transform_skips_errors_and_notifications() {
     let calls = Arc::new(Mutex::new(0usize));
     let c = calls.clone();
-    let host = ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_transform(move |_, r| {
-        *c.lock().unwrap() += 1;
-        r["x"] = json!(1);
-    });
+    let host =
+        ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_transform(move |_, r| {
+            *c.lock().unwrap() += 1;
+            r["x"] = json!(1);
+        });
     let err = host
         .dispatch(&json!({"jsonrpc":"2.0","id":1,"method":"nope"}))
         .unwrap();
@@ -421,7 +447,8 @@ fn transform_skips_errors_and_notifications() {
         .dispatch(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
         .is_none());
     let mut out = Vec::new();
-    host.serve_stdio_on(io::Cursor::new("not json\n"), &mut out).unwrap();
+    host.serve_stdio_on(io::Cursor::new("not json\n"), &mut out)
+        .unwrap();
     assert!(String::from_utf8(out).unwrap().contains("\"error\""));
     assert_eq!(*calls.lock().unwrap(), 0);
 }
@@ -441,8 +468,11 @@ fn transform_applies_per_item_in_a_batch_and_on_stdio() {
         assert_eq!(item["result"]["tagged"], true);
     }
     let mut out = Vec::new();
-    host.serve_stdio_on(io::Cursor::new("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n"), &mut out)
-        .unwrap();
+    host.serve_stdio_on(
+        io::Cursor::new("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n"),
+        &mut out,
+    )
+    .unwrap();
     let v: Value = serde_json::from_slice(out.split(|b| *b == b'\n').next().unwrap()).unwrap();
     assert_eq!(v["result"]["tagged"], true);
 }
@@ -455,7 +485,11 @@ fn a_panicking_transform_falls_back_to_the_untransformed_result() {
     });
     let reply = host.dispatch(&tools_call_ping()).unwrap();
     assert_eq!(reply["id"], 7);
-    assert_eq!(reply["result"], json!({}), "no partial edits leak out of a panic");
+    assert_eq!(
+        reply["result"],
+        json!({}),
+        "no partial edits leak out of a panic"
+    );
 }
 
 // ---- resource not found (#238 item 4) ----
@@ -490,7 +524,9 @@ impl ToolProvider for LegacyResources {
 fn a_provider_returning_tool_not_found_for_a_resource_still_gets_minus_32002() {
     let host = ServerHost::new("ember", "9", Arc::new(LegacyResources));
     let reply = host
-        .dispatch(&json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"x://y"}}))
+        .dispatch(
+            &json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"x://y"}}),
+        )
         .unwrap();
     assert_eq!(reply["error"]["code"], -32002);
     assert_eq!(reply["error"]["data"]["uri"], "x://y");
