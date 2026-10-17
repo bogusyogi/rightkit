@@ -20,39 +20,49 @@ test("ownership help documents explicit local new-capability approval & conflict
   assert.match(printed[0], /owner conflicts are always refused/);
 });
 
-test("ownership CLI refuses pending enrollment with a diagnostic while preserving findings", async () => {
+test("ownership CLI reports pending enrollment as a warning and still refuses real findings", async () => {
   const printed = [];
-  const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: ["approval enrollment pending"], coverage: [], metadata: {} };
+  const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: [], coverage: [], metadata: {} };
   const status = await main(["--app", repositoryRoot, "--json"], {
     gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
-    evidenceFactory: () => ({ ok: false, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: ["floor unavailable"] } }),
+    evidenceFactory: () => ({ ok: false, enrollmentPending: true, warning: "WARNING: enrollment pending (warning only)", result, floor: { ok: true, problems: [] } }),
     print: (line) => printed.push(line),
   });
-  assert.equal(status, 1);
+  assert.equal(status, 1, "a real finding still fails");
   const output = JSON.parse(printed[0]);
   assert.equal(output.ok, false);
   assert.equal(output.enrollmentPending, true);
   assert.match(output.warning, /^WARNING:/);
   assert.equal(output.violations[0].fingerprint, "pending");
-  assert.equal(output.error, undefined);
+  assert.equal(output.blocked[0].check, "ownership-violation");
+  const clean = [];
+  const passed = await main(["--app", repositoryRoot, "--json"], {
+    gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending (warning only)", result: { ...result, violations: [] }, floor: { ok: true, problems: [] } }),
+    print: (line) => clean.push(line),
+  });
+  assert.equal(passed, 0, "pending enrollment alone never fails");
+  assert.equal(JSON.parse(clean[0]).ok, true);
+  assert.match(JSON.parse(clean[0]).warning, /^WARNING:/);
   const human = [];
   await main(["--app", repositoryRoot], {
     gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
-    evidenceFactory: () => ({ ok: false, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: [] } }),
+    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending (warning only)", result: { ...result, violations: [] }, floor: { ok: true, problems: [] } }),
     print: (line) => human.push(line),
   });
-  assert.ok(human.some((line) => line.startsWith("  DIAGNOSTIC ")));
+  assert.ok(human.some((line) => line.includes("ownership passed")));
   assert.ok(human.at(-1).includes("WARNING:"));
 });
 
-test("ownership CLI --advisory-when-pending exits 0 only while enrollment is pending", async () => {
+test("ownership CLI --advisory-when-pending is accepted and ignored: only real findings decide the exit code", async () => {
   const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: [], coverage: [], metadata: {} };
   const run = (checked) => main(["--app", repositoryRoot, "--advisory-when-pending"], {
     gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
     evidenceFactory: () => ({ result, floor: { ok: false, problems: [] }, ...checked }),
     print: () => {},
   });
-  assert.equal(await run({ ok: false, enrollmentPending: true, warning: "WARNING: pending" }), 0);
+  assert.equal(await run({ ok: false, enrollmentPending: true, warning: "WARNING: pending" }), 1);
+  assert.equal(await run({ ok: true, enrollmentPending: true, warning: "WARNING: pending" }), 0);
   assert.equal(await run({ ok: false }), 1);
 });
 
@@ -91,13 +101,12 @@ test("published ownership command runs without development sibling packages & re
     }
 
     const command = spawnSync(process.execPath, [path.join(packageRoot, "ownership-command.mjs"), "--app", app, "--json"], { encoding: "utf8", windowsHide: true });
-    assert.equal(command.status, 1, command.stderr);
     const output = JSON.parse(command.stdout);
-    assert.equal(output.ok, false);
-    // Host-state independent: a host still pending enrollment warns; an enrolled host refuses the
-    // unregistered fixture repository. Both fail closed with a well-formed report.
-    if (output.enrollmentPending) { assert.match(output.warning, /^WARNING:/); assert.equal(output.error, undefined); }
-    else assert.match(output.error?.message ?? "", /not registered in protected trust/, JSON.stringify(output));
+    assert.equal(command.status, output.ok ? 0 : 1, command.stderr);
+    // Host-state independent: a host still pending enrollment passes this clean fixture with a warning (#262); an enrolled
+    // host refuses the unregistered fixture repository. Both produce a well-formed report.
+    if (output.enrollmentPending) { assert.match(output.warning, /^WARNING:/); assert.equal(output.ok, true); assert.equal(output.error, undefined); }
+    else { assert.equal(output.ok, false); assert.match(output.error?.message ?? "", /not registered in protected trust/, JSON.stringify(output)); }
     assert.ok(Array.isArray(output.rows));
     assert.ok(Array.isArray(output.violations));
   } finally {

@@ -194,11 +194,11 @@ test("one-key enrollment fails closed and retains backlog findings", () => {
     assert.equal(pending.evidence.floorOk, true);
     assert.equal(pending.evidence.visibility, "private");
     assert.equal(pending.result.violations[0].fingerprint, "pending-finding");
-    assert.throws(() => createCommittedOwnershipEvidenceForTest(root, { ...options, scanRoot: root }), /requires both distinct/);
+    // Committed evidence no longer throws for pending enrollment (#262); it is a warning only.
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("absent trust fails closed without fabricated registry binding", () => {
+test("absent trust is a warning, with no fabricated registry binding (#262)", () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-no-trust-")));
   try {
     git(root, "init", "-q");
@@ -213,12 +213,13 @@ test("absent trust fails closed without fabricated registry binding", () => {
       trustLoader: () => ({ enrolled: false, pending: true, protection: { ok: false, reason: "external trust file is absent" }, trust: null }),
       scan: (_scanRoot, manifest) => ({ ok: true, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } }),
     });
-    assert.equal(pending.ok, false);
+    assert.equal(pending.ok, true, "pending enrollment and an absent trust registry never fail by themselves");
     assert.equal(pending.enrollmentPending, true);
     assert.match(pending.warning, /enrollment.*pending/);
+    assert.match(pending.warnings.join(" "), /no protected trust registry is enrolled/);
     assert.equal(pending.evidence.source, "enrollment-pending-advisory");
     assert.equal(pending.evidence.commit, git(root, "rev-parse", "HEAD"));
-    assert.equal(pending.evidence.floorOk, false);
+    assert.equal(pending.evidence.floorOk, true);
     assert.equal(pending.evidence.registrationDigest, null);
     assert.deepEqual(pending.evidence.registeredRoots, []);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -260,12 +261,12 @@ test("pending trust registration and floor problems remain diagnostics", () => {
         return { ok: false, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { repositoryIdentity: "https://github.com/test/repo", catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } };
       },
     });
-    assert.equal(pending.ok, false);
+    assert.equal(pending.ok, false, "a real scanner-floor downgrade still fails");
     assert.equal(pending.enrollmentPending, true);
     assert.match(pending.warning, /enrollment.*pending/);
     assert.equal(scans, 2);
-    assert.ok(pending.result.problems.some((problem) => /outside protected ownership roots/.test(problem)));
-    assert.ok(pending.result.problems.some((problem) => /protected minimum|protected pinned|floor/.test(problem)));
+    assert.ok(pending.result.warnings.some((warning) => /outside protected ownership roots/.test(warning)), "registration diagnostics are warnings");
+    assert.ok(pending.floor.problems.some((problem) => /protected minimum|protected pinned|floor/.test(problem)));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -452,11 +453,11 @@ test("plain exception entry covers a finding in committed evidence even when the
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
-test("ordinary evidence uses committed key history and refuses pending enrollment", () => {
+test("ordinary evidence uses committed key history and reports pending enrollment as a warning", () => {
   const fixture = pinnedFixture({ includeDevice: false });
   try {
     const result = createOwnershipEvidenceForTest(fixture.root, fixture.options);
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, result.result.ok && result.floor.ok && result.contentCoverage.length === 0, "pending enrollment never fails by itself");
     assert.match(result.warning, /enrollment.*pending/);
     assert.equal(result.enrollmentPending, true);
     assert.equal(result.evidence.trustEnrolled, false);
@@ -623,7 +624,7 @@ test("pinned policy bundle mismatch stays advisory while approval enrollment is 
     const manifestPath = path.join(releaseRoot, "rightkit-ownership.json");
     const running = runningPolicyBundle({ scannerVersion: SCANNER_VERSION, manifest: JSON.parse(readFileSync(manifestPath, "utf8")) });
     const result = createOwnershipEvidenceForTest(root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { enrolled: false, extraTrust: { policyBundle: { ...running, digest: "3".repeat(64) } } }) });
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, result.result.ok && result.floor.ok && result.contentCoverage.length === 0, "pending enrollment and a bundle mismatch never fail by themselves");
     assert.equal(result.enrollmentPending, true);
     assert.match(result.warnings.join("\n"), /policy bundle/);
   } finally { rmSync(root, { recursive: true, force: true }); }

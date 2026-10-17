@@ -17,7 +17,8 @@ function admission(mode, value, options = {}) {
 const root = join(tmpdir(), 'ownership-verdict-app');
 const cases = [
   ['ok false', report({ ok: false }), 'RK_OWNERSHIP_REPORT_FAILED'],
-  ['pending enrollment', report({ ok: false, enrollmentPending: true }), 'RK_OWNERSHIP_PENDING_ENROLLMENT'],
+  ['pending enrollment is only a warning: ok:false still refuses as report-failed', report({ ok: false, enrollmentPending: true }), 'RK_OWNERSHIP_REPORT_FAILED'],
+  ['pending enrollment never hides a violation', report({ ok: false, enrollmentPending: true, violations: [violation] }), 'RK_OWNERSHIP_VIOLATION'],
   ['incomplete coverage', report({ coverage: [{ path: 'source.bin', status: 'unscanned', reason: 'unsupported-input' }] }), 'RK_OWNERSHIP_INCOMPLETE_COVERAGE'],
   ['invalid registration', report({ metadata: { ...report().metadata, repositoryIdentity: 'https://github.com/test/unregistered' } }), 'RK_OWNERSHIP_INVALID_REGISTRATION'],
   ['scanner downgrade', report({ metadata: { ...report().metadata, scannerVersion: '1.0.0' } }), 'RK_OWNERSHIP_POLICY_DOWNGRADE'],
@@ -56,7 +57,12 @@ test('shared classification accepts complete protected report & preserves violat
   const dirty = classifyOwnershipReport(report({ violations: [violation] }), trust);
   assert.equal(dirty.code, 'RK_OWNERSHIP_VIOLATION');
   assert.deepEqual(dirty.violations[0], { capability: 'browser-automation', owner: 'rightkit-browser', fingerprint: 'browser.npm.playwright', file: 'package.json', line: 0 });
-  assert.equal(classifyOwnershipReport(report({ enrollmentPending: true }), null).outcome, 'pending-enrollment');
+  const pendingNoTrust = classifyOwnershipReport(report({ enrollmentPending: true }), null);
+  assert.equal(pendingNoTrust.outcome, 'clean');
+  assert.equal(pendingNoTrust.admit, true);
+  assert.match(pendingNoTrust.warnings.join(' '), /enrollment is pending/);
+  assert.equal(classifyOwnershipReport(report({ enrollmentPending: true }), trust).warnings.length, 1);
+  assert.equal(classifyOwnershipReport(report(), trust).warnings, undefined);
   assert.equal(classifyOwnershipReport(report(), null).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
 });
 

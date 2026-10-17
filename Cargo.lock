@@ -6147,7 +6147,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ownership"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "base64 0.23.1",
  "fancy-regex",

@@ -4,11 +4,11 @@
       "result": {
         "mode": "report",
         "admit": false,
-        "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+        "code": "RK_OWNERSHIP_REPORT_FAILED",
         "problems": [
-          "protected ownership approval enrollment is pending"
+          "protected ownership scanner reported ok:false"
         ],
-        "outcome": "pending-enrollment",
+        "outcome": "report-failed",
         "violations": [],
         "scanRoot": "/fixture/repo",
         "scanMs": 0,

@@ -41,7 +41,7 @@ function createEvidence(repoRoot, {
   if (trustState.protection?.ok !== true && !pendingWithoutTrust) throw new Error("protected ownership trust location was not verified");
   if (!trustState.trust && !pendingWithoutTrust) throw new Error("protected ownership trust registry is missing");
   let enrollmentPending = trustState.enrolled !== true;
-  if (committed && enrollmentPending && !allowPendingAdvisory && !trustState.trust?.rootFingerprint) throw new Error("protected ownership evidence requires both distinct, unrevoked approval keys to be enrolled");
+  // Pending approval enrollment is a reported warning, never a failure: enrollment existed only for retired signed approvals (#262).
   // A valid protected registry with incomplete key enrollment can still drive
   // a useful local backlog scan. It cannot assert a protected source binding or verify
   // approval signatures, so this result is deliberately advisory.
@@ -88,7 +88,7 @@ function createEvidence(repoRoot, {
   }
   const floor = trustState.trust
     ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest, ...(policyBundleDigest !== undefined ? { policyBundleDigest } : {}) })
-    : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
+    : { ok: true, problems: [], warnings: ["protected ownership floor is unavailable: no protected trust registry is enrolled on this host (warning only)"] };
   floor.warnings = [...(floor.warnings ?? []), ...(bundleProblem ? [bundleProblem] : [])];
   // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
   const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
@@ -149,15 +149,16 @@ function createEvidence(repoRoot, {
     catch (error) { if (error?.code !== "ENOENT") throw error; return { root: registered, digest: sha256([]) }; }
   });
   const approvalsDigest = enrollmentPending ? null : sha256(approvals);
+  const resultWarnings = [...scans.flatMap(({ scanned, root: registered }) => (scanned.warnings ?? []).filter((w) => w.startsWith("exception #")).map((w) => (registered === "." ? w : `${registered}: ${w}`))), ...evidenceDiagnostics];
   const result = {
     ok: scans.every(({ scanned }) => scanned.ok),
     findings: scans.flatMap(({ scanned, prefix }) => (scanned.findings ?? []).map((entry) => rebase(entry, prefix))),
     violations: scans.flatMap(({ scanned, prefix }) => (scanned.violations ?? []).map((entry) => rebase(entry, prefix))),
-    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : [])],
+    problems: scans.flatMap(({ scanned }) => scanned.problems ?? []),
     rows: scans.flatMap(({ scanned, root: registered }) => (scanned.rows ?? []).map((row) => ({ ...row, root: registered }))),
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
     // Stale plain exception entries (match no finding) are warnings, never blockers (Orthic-Labs/rightkit#262).
-    warnings: scans.flatMap(({ scanned, root: registered }) => (scanned.warnings ?? []).filter((w) => w.startsWith("exception #")).map((w) => (registered === "." ? w : `${registered}: ${w}`))),
+    ...(resultWarnings.length ? { warnings: resultWarnings } : {}),
     coverage: contentCoverage,
     metadata: {
       repositoryIdentity, commit, tree, catalogDigest, contentDigests, coverage: contentCoverage,
@@ -184,8 +185,8 @@ function createEvidence(repoRoot, {
     contentDigest: enrollmentPending ? null : contentDigest,
     checkedAt: new Date().toISOString(),
   };
-  const warning = enrollmentPending ? "WARNING: ownership approval enrollment is pending; findings remain backlog diagnostics and no protected evidence or approvals are asserted" : undefined;
-  return { ok: !enrollmentPending && result.ok && floor.ok && contentCoverage.length === 0, ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), ...(floor.warnings.length ? { warnings: floor.warnings } : {}), evidence, result, floor, contentCoverage };
+  const warning = enrollmentPending ? "WARNING: ownership approval enrollment is pending (warning only: exceptions are plain git-reviewed entries); the advisory evidence asserts no protected source binding" : undefined;
+  return { ok: result.ok && floor.ok && contentCoverage.length === 0, ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), ...(floor.warnings.length ? { warnings: floor.warnings } : {}), evidence, result, floor, contentCoverage };
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */

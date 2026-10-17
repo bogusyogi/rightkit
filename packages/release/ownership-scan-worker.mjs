@@ -68,11 +68,11 @@ function scanProtected(appRoot, options, createEvidence) {
   const before = scanInputs(appRoot, options);
   const preliminary = { ok: true, enrollmentPending: before.enrollmentPending, violations: [], problems: [], coverage: before.metadata.coverage, metadata: before.metadata };
   const preflight = ownershipVerdict(preliminary, before.trust);
-  if (!preflight.admit && preflight.code !== "RK_OWNERSHIP_PENDING_ENROLLMENT") return { ...before, report: { ...preliminary, ok: false }, verdict: preflight };
+  if (!preflight.admit) return { ...before, report: { ...preliminary, ok: false }, verdict: preflight };
   let checked;
   try { checked = createEvidence(); }
   catch (error) {
-    if (preflight.code !== "RK_OWNERSHIP_PENDING_ENROLLMENT") throw error;
+    if (!before.enrollmentPending) throw error;
     const report = { ...preliminary, ok: false, problems: [error.message] };
     return { ...before, report, verdict: ownershipVerdict(report, before.trust) };
   }

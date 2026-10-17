@@ -80,7 +80,11 @@ pub fn host_string() -> String {
 }
 
 fn decision_json(decision: &Decision) -> Value {
-    json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems})
+    let mut out = json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems});
+    if !decision.warnings.is_empty() {
+        out["warnings"] = json!(decision.warnings);
+    }
+    out
 }
 
 fn error_json(error: &ScanError) -> Value {
@@ -248,7 +252,7 @@ impl Scanner {
             out["verdict"] = decision_json(verdict);
             out
         };
-        if !preflight.admit && preflight.code != codes::PENDING_ENROLLMENT {
+        if !preflight.admit {
             let mut report = preliminary.clone();
             report["ok"] = json!(false);
             return Ok(with_before(report, &preflight));
@@ -256,7 +260,7 @@ impl Scanner {
         let checked = match create_evidence(&self.ctx, &root, &self.catalog) {
             Ok(checked) => checked,
             Err(error) => {
-                if preflight.code != codes::PENDING_ENROLLMENT {
+                if !before.enrollment_pending {
                     return Err(error);
                 }
                 let mut report = preliminary.clone();

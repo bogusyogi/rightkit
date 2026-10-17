@@ -182,15 +182,13 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
     let catalog_digest = catalog_digest(manifest);
     let catalog_version = catalog_version(manifest);
     let metadata_floor = json!({"scannerVersion": SCANNER_VERSION, "catalogVersion": catalog_version, "catalogDigest": catalog_digest});
+    // No protected trust registry on this host is a reported warning, never a failure (#262).
     let floor: Result<(), Vec<String>> = if truthy(&trust) {
         validate_ownership_floor(&trust, &metadata_floor)
     } else {
-        Err(vec![
-            "protected ownership floor is unavailable until trust registry enrollment".into(),
-        ])
+        Ok(())
     };
     let floor_ok = floor.is_ok();
-    let floor_problems = floor.err().unwrap_or_default();
     let requested_root = ".".to_string();
     let mut diagnostics: Vec<String> = Vec::new();
     let mut identity: Option<String> = None;
@@ -399,14 +397,29 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
             })
             .collect()
     };
-    let mut problems: Vec<Value> = scans
+    let problems: Vec<Value> = scans
         .iter()
         .flat_map(|s| items(field(&s.scanned, "problems")).to_vec())
         .collect();
-    problems.extend(diagnostics.iter().map(|d| json!(d)));
-    if pending {
-        problems.extend(floor_problems.iter().map(|p| json!(p)));
-    }
+    // Stale plain exception entries and pending-enrollment diagnostics are warnings, never blockers (#262).
+    let mut warnings: Vec<Value> = scans
+        .iter()
+        .flat_map(|s| {
+            items(field(&s.scanned, "warnings"))
+                .iter()
+                .filter_map(|w| w.as_str())
+                .filter(|w| w.starts_with("exception #"))
+                .map(|w| {
+                    if s.root == "." {
+                        json!(w)
+                    } else {
+                        json!(format!("{}: {w}", s.root))
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    warnings.extend(diagnostics.iter().map(|d| json!(d)));
     let rows: Vec<Value> = scans
         .iter()
         .flat_map(|s| {
@@ -423,7 +436,7 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
     let all_ok = scans
         .iter()
         .all(|s| field(&s.scanned, "ok").as_bool() == Some(true));
-    let result = json!({
+    let mut result = json!({
         "ok": all_ok,
         "findings": flat("findings"),
         "violations": flat("violations"),
@@ -438,6 +451,9 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
             "roots": scans.iter().map(|s| json!({"root": s.root, "metadata": field(&s.scanned, "metadata")})).collect::<Vec<_>>(),
         },
     });
+    if !warnings.is_empty() {
+        result["warnings"] = Value::Array(warnings);
+    }
     let mut evidence = Map::new();
     evidence.insert("schema".into(), json!(1));
     evidence.insert(
@@ -495,7 +511,7 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
         },
     );
     evidence.insert("checkedAt".into(), json!(iso_from_ms(ctx.clock.now_ms())));
-    let ok = !pending && all_ok && floor_ok && content_coverage.is_empty();
+    let ok = all_ok && floor_ok && content_coverage.is_empty();
     let _ = WARNING;
     Ok(Checked {
         ok,

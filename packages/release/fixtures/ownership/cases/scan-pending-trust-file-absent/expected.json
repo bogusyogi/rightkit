@@ -14,12 +14,10 @@
     },
     "trust": null,
     "report": {
-      "ok": false,
+      "ok": true,
       "findings": [],
       "violations": [],
-      "problems": [
-        "protected ownership floor is unavailable until trust registry enrollment"
-      ],
+      "problems": [],
       "rows": [
         {
           "capability": "http-client",
@@ -116,11 +114,11 @@
       "enrollmentPending": true
     },
     "verdict": {
-      "admit": false,
-      "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
-      "problems": [
-        "protected ownership approval enrollment is pending",
-        "protected ownership floor is unavailable until trust registry enrollment"
+      "admit": true,
+      "code": "RK_OWNERSHIP_CLEAN",
+      "problems": [],
+      "warnings": [
+        "protected ownership approval enrollment is pending (warning only; it existed only for retired signed approvals)"
       ]
     },
     "evidence": {
@@ -133,7 +131,7 @@
       "scannerVersion": "2.6.0",
       "approvalsDigest": null,
       "trustEnrolled": false,
-      "floorOk": false,
+      "floorOk": true,
       "visibility": null,
       "registrationDigest": null,
       "registeredRoots": [],

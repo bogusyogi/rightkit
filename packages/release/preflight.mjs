@@ -341,13 +341,11 @@ export function ownershipCheck(repoRoot, options = {}) {
   try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot); }
   catch (error) { return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog"); }
   const { result, evidence, floor } = checked;
-  if (checked.enrollmentPending) {
-    const diagnostics = [...(result.problems ?? []), ...(result.violations ?? []).map((entry) => `${entry.fingerprint} at ${entry.file}${entry.line ? `:${entry.line}` : ""}`)];
-    return { ...warn("ownership", `${checked.warning}${diagnostics.length ? `; ${diagnostics.length} diagnostic finding/problem(s) retained` : ""}`, null), evidence, diagnostics, result, floor };
-  }
   if (checked.ok) {
     const excepted = result.covered.length;
-    return { ...ok("ownership", excepted ? `no unapproved copies (${excepted} signed findings)` : "no copies of RightKit-owned capabilities"), evidence };
+    const detail = excepted ? `no unapproved copies (${excepted} excepted findings)` : "no copies of RightKit-owned capabilities";
+    // Pending approval enrollment is a warning only (#262); real findings still fail below.
+    return checked.enrollmentPending ? { ...warn("ownership", `${detail}; ${checked.warning}`, null), evidence, result, floor } : { ...ok("ownership", detail), evidence };
   }
   const first = result.violations[0];
   const detail = !floor.ok
@@ -355,7 +353,7 @@ export function ownershipCheck(repoRoot, options = {}) {
     : first
       ? `${result.violations.length} own cop${result.violations.length === 1 ? "y" : "ies"} of RightKit capabilities, e.g. ${first.fingerprint} at ${first.file}${first.line ? `:${first.line}` : ""}`
       : result.problems[0] ?? result.coverage[0]?.reason ?? "ownership scan incomplete";
-  return { ...fail("ownership", detail, "run: right-release ownership (move to RightKit, or request a signed, dated exception)"), evidence };
+  return { ...fail("ownership", detail, "run: right-release ownership (move to RightKit, or add a dated entry to the repo exceptions file)"), evidence };
 }
 
 export function formatPreflight(checks) {

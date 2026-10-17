@@ -1,7 +1,7 @@
 {
   "kind": "verdict",
-  "description": "Pending enrollment outranks violations.",
-  "expectCode": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+  "description": "Pending enrollment never hides a violation: the finding gate still refuses.",
+  "expectCode": "RK_OWNERSHIP_VIOLATION",
   "report": {
     "ok": false,
     "enrollmentPending": true,

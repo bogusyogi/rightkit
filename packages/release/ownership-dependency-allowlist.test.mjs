@@ -197,7 +197,7 @@ test("scan: pending enrollment makes the allowlist finding advisory", () => {
     assert.equal(result.enrollmentPending, true);
     const [finding] = notAllowlisted(result);
     assert.equal(finding.tier, "advise");
-    assert.equal(result.ok, false, "pending enrollment still refuses protected evidence");
+    assert.equal(result.ok, result.problems.length === 0 && result.coverage.length === 0 && !result.violations.some((f) => f.tier !== "advise"), "pending enrollment no longer refuses; only blocking findings do");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

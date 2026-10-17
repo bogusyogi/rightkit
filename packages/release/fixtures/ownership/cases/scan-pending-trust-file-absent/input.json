@@ -1,7 +1,7 @@
 {
   "kind": "scan",
-  "description": "Trust file absent (the one tolerated protection failure) is pending enrollment.",
-  "expectCode": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+  "description": "Trust file absent (the one tolerated protection failure): pending enrollment is a warning and a clean scan is admitted.",
+  "expectCode": "RK_OWNERSHIP_CLEAN",
   "harness": {
     "now": "2026-10-09T00:00:00.000Z",
     "origin": "https://github.com/test/repo",

@@ -42,18 +42,19 @@ test("worker uses protected evidence & shared verdict instead of raw checkApp", 
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });
 
-test("unenrolled hosts & protected evidence pending short-circuit fail closed", () => {
+test("unenrolled hosts: pending enrollment is a warning and no longer short-circuits the verdict (#262)", () => {
   const f = fixture();
   try {
     f.state.enrolled = false; f.state.pending = true;
     const checked = scanOwnershipForTest(f.root, f.options);
-    assert.equal(checked.report.ok, false);
+    assert.equal(checked.report.enrollmentPending, true);
     assert.equal(checked.evidence.trustEnrolled, false);
-    assert.equal(checked.verdict.code, "RK_OWNERSHIP_PENDING_ENROLLMENT");
+    assert.notEqual(checked.verdict.code, "RK_OWNERSHIP_PENDING_ENROLLMENT");
+    if (checked.verdict.admit) assert.match((checked.verdict.warnings ?? []).join(" "), /enrollment is pending/);
     f.state.trust = null; f.state.protection = { ok: false, reason: "external trust file is absent" };
-    assert.equal(scanOwnershipForTest(f.root, f.options).verdict.code, "RK_OWNERSHIP_PENDING_ENROLLMENT");
+    assert.notEqual(scanOwnershipForTest(f.root, f.options).verdict.code, "RK_OWNERSHIP_PENDING_ENROLLMENT");
     const direct = checkApp(f.root, { schema: 1, version: "1", capabilities: [] }, { trust: f.state });
-    assert.equal(direct.enrollmentPending, true); assert.equal(direct.ok, false);
+    assert.equal(direct.enrollmentPending, true); assert.equal(direct.ok, true);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });
 

@@ -1,9 +1,8 @@
 {
   "verdict": {
     "admit": false,
-    "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+    "code": "RK_OWNERSHIP_UNVERIFIED",
     "problems": [
-      "protected ownership approval enrollment is pending",
       "diag one"
     ]
   }

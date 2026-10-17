@@ -1,9 +1,9 @@
 {
   "verdict": {
     "admit": false,
-    "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+    "code": "RK_OWNERSHIP_VIOLATION",
     "problems": [
-      "protected ownership approval enrollment is pending"
+      "http-client (http.fetch-call in src/main.rs) is owned by rightkit-http"
     ]
   }
 }

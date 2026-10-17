@@ -101,10 +101,10 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   const result = checked.result;
   if (args.includes("--audit-json")) return printAuditJson(result, print);
   // A refusal names every blocking check on stderr and in the JSON `blocked` field. Advise-tier findings never refuse.
-  const blocked = checked.enrollmentPending || checked.ok ? undefined : blockingChecks(checked);
+  const blocked = checked.ok ? undefined : blockingChecks(checked);
   if (blocked) reportBlocked(blocked, stderr);
   if (args.includes("--json")) {
-    const error = checked.enrollmentPending ? undefined : !checked.floor.ok
+    const error = !checked.floor.ok
       ? { type: "ownership-floor", message: checked.floor.problems.join("; ") }
       : result.coverage.length
         ? { type: "ownership-coverage", message: `${result.coverage.length} ownership coverage gap(s)` }
@@ -116,13 +116,12 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
     for (const v of result.violations) {
       print(`  OWN COPY ${v.fingerprint} (${v.package}) ${v.file}${v.line ? `:${v.line}` : ""}  ${v.text}`);
     }
-    for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
+    for (const p of result.problems) print(`  EXCEPTION ${p}`);
     print(verdictLine(checked, result, blocked));
     for (const warning of [...(checked.warnings ?? []), ...(result.warnings ?? [])]) print(`  WARNING ${warning}`);
+    if (checked.enrollmentPending && checked.warning) print(`  ${checked.warning}`);
   }
-  // CI lanes may pass `--advisory-when-pending`: before approval keys are enrolled the scan asserts
-  // nothing, so findings print as diagnostics and the step exits 0. Release lanes never pass it.
-  if (checked.enrollmentPending && args.includes("--advisory-when-pending")) return 0;
+  // `--advisory-when-pending` is accepted and ignored: pending approval enrollment is a warning and never changes the exit code (#262).
   return checked.ok ? 0 : 1;
 }
 
@@ -193,7 +192,6 @@ function tierCounts(violations) {
 
 // The human verdict line. Advise-only results pass and say so; a refusal names its checks.
 function verdictLine(checked, result, blocked) {
-  if (checked.enrollmentPending) return `[right-release] ${checked.warning}`;
   if (checked.ok) {
     const counts = tierCounts(result.violations ?? []);
     return counts.advise

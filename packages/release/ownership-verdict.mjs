@@ -40,19 +40,22 @@ const refuse = (code, problems) => ({ admit: false, code, problems });
 /** One fail-closed contract for protected scan workers & broker admission. */
 export function ownershipVerdict(report, trust) {
   if (!validReport(report)) return refuse("RK_OWNERSHIP_MALFORMED_REPORT", ["ownership report has missing, unknown, or wrong-typed fields"]);
-  if (report.enrollmentPending) return refuse("RK_OWNERSHIP_PENDING_ENROLLMENT", ["protected ownership approval enrollment is pending", ...report.problems]);
+  // Pending approval enrollment is a reported warning, never a refusal (#262): every real finding gate below still applies.
+  const warnings = report.enrollmentPending ? ["protected ownership approval enrollment is pending (warning only; it existed only for retired signed approvals)"] : [];
+  const withWarnings = (verdict) => (warnings.length ? { ...verdict, warnings } : verdict);
+  const noRegistry = report.enrollmentPending && !trust;
   let registration;
-  try {
+  if (!noRegistry) try {
     registration = verifyRepositoryRegistration(trust, report.metadata.repositoryIdentity, { files: [
       ...report.violations.map((entry) => entry.file), ...(report.findings ?? []).map((entry) => entry.file),
       ...(report.metadata.contentDigests ?? []).map((entry) => entry.path),
     ] });
   } catch { return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["protected repository registry is missing or malformed"]); }
-  if (!registration.ok) return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", registration.problems);
+  if (!noRegistry && !registration.ok) return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", registration.problems);
   const scannedRoots = report.metadata.roots?.map((entry) => entry.root) ?? [report.metadata.pathPrefix?.replace(/\/$/, "") || "."];
-  if (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort()))
+  if (!noRegistry && (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort())))
     return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["scan roots do not exactly cover protected repository registration"]);
-  const floor = validateOwnershipFloor(trust, report.metadata);
+  const floor = noRegistry ? { ok: true, problems: [] } : validateOwnershipFloor(trust, report.metadata);
   if (!floor.ok) return refuse("RK_OWNERSHIP_POLICY_DOWNGRADE", floor.problems);
   const incomplete = [...report.coverage, ...report.metadata.coverage].filter((entry) => entry.status !== "complete");
   if (incomplete.length) return refuse("RK_OWNERSHIP_INCOMPLETE_COVERAGE", [...new Set(incomplete.map((entry) => entry.path + ": " + entry.reason))]);
@@ -61,8 +64,8 @@ export function ownershipVerdict(report, trust) {
   if (report.problems.length) return refuse("RK_OWNERSHIP_UNVERIFIED", report.problems);
   if (!report.ok) return refuse("RK_OWNERSHIP_REPORT_FAILED", ["protected ownership scanner reported ok:false"]);
   const advisory = report.violations.filter((entry) => !isBlockingFinding(entry));
-  if (advisory.length) return { admit: true, code: "RK_OWNERSHIP_ADVISORY", problems: advisory.map((entry) => entry.capability + " (" + entry.fingerprint + " in " + entry.file + ") is owned by " + entry.package + " [advise]") };
-  return { admit: true, code: "RK_OWNERSHIP_CLEAN", problems: [] };
+  if (advisory.length) return withWarnings({ admit: true, code: "RK_OWNERSHIP_ADVISORY", problems: advisory.map((entry) => entry.capability + " (" + entry.fingerprint + " in " + entry.file + ") is owned by " + entry.package + " [advise]") });
+  return withWarnings({ admit: true, code: "RK_OWNERSHIP_CLEAN", problems: [] });
 }
 
 /** SHA-256 over every required authenticated cache binding; never directory or age. */

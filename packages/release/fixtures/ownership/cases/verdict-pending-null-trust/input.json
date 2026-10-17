@@ -1,7 +1,7 @@
 {
   "kind": "verdict",
-  "description": "Pending enrollment is decided before trust is consulted, so trust may be null.",
-  "expectCode": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+  "description": "Pending enrollment with no trust skips the protected registry checks; a report with ok:false still refuses.",
+  "expectCode": "RK_OWNERSHIP_REPORT_FAILED",
   "report": {
     "ok": false,
     "enrollmentPending": true,

@@ -77,9 +77,12 @@ agents may edit the file directly.
 - An entry that matches no current finding is **stale**: it is reported as a
   warning (`exception #N (...): stale, matches no current finding`), never a
   block. Remove it.
-- Pending approval enrollment is a warning in `checkApp` / `checkCommitted` (and the Rust `check_app` / `check_committed`),
-  never a failure: enrollment existed only for signed approvals. Protected evidence and broker admission still gate on
-  enrollment separately.
+- Pending approval enrollment is a reported warning everywhere, never a failure (`checkApp` / `checkCommitted`,
+  protected evidence, the verdict, broker admission and the Rust `check_app`, `create_evidence` and `ownership_verdict`):
+  enrollment existed only for signed approvals. `enrollmentPending` is still reported, and an admitted verdict carries a
+  `warnings` entry. Every real gate stays: an unexcepted block-tier finding, a malformed exception entry, incomplete
+  coverage, a scanner or catalog floor downgrade, an unregistered repository when a protected registry exists, and the
+  `trust.json` write guard. With no trust registry on the host at all, the registry and floor checks are skipped with a warning.
 - `right-release ownership-approval` (draft, sign, verify, import) is a retired
   no-op that prints this pointer. `verifyException` and the native signing path
   are gone; the approval keys and key log remain only for the unrelated trust

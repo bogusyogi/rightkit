@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::approval::{validate_ownership_floor, verify_repository_registration};
 use crate::json::{
     any_string, boolean, digest, field, fields, items, nullable_boolean, nullable_text,
-    safe_ordinal, sha256_json, str_of, strings, text, version, Check,
+    safe_ordinal, sha256_json, str_of, strings, text, truthy, version, Check,
 };
 use crate::OwnershipError;
 
@@ -38,6 +38,8 @@ pub struct Decision {
     pub admit: bool,
     pub code: &'static str,
     pub problems: Vec<String>,
+    /// Reported warnings on an admitted verdict (pending approval enrollment); never a refusal (#262).
+    pub warnings: Vec<String>,
 }
 
 fn refuse(code: &'static str, problems: Vec<String>) -> Decision {
@@ -45,6 +47,7 @@ fn refuse(code: &'static str, problems: Vec<String>) -> Decision {
         admit: false,
         code,
         problems,
+        warnings: Vec::new(),
     }
 }
 
@@ -367,34 +370,39 @@ pub fn ownership_verdict(report: &Value, trust: &Value) -> Decision {
             vec!["ownership report has missing, unknown, or wrong-typed fields".into()],
         );
     }
-    if field(report, "enrollmentPending").as_bool() == Some(true) {
-        let mut problems = vec!["protected ownership approval enrollment is pending".to_string()];
-        problems.extend(strings_of(field(report, "problems")));
-        return refuse(codes::PENDING_ENROLLMENT, problems);
-    }
+    // Pending approval enrollment is a reported warning, never a refusal (#262): every real finding gate below still applies.
+    let pending = field(report, "enrollmentPending").as_bool() == Some(true);
+    let warnings: Vec<String> = if pending {
+        vec!["protected ownership approval enrollment is pending (warning only; it existed only for retired signed approvals)".to_string()]
+    } else {
+        Vec::new()
+    };
+    let no_registry = pending && !truthy(trust);
     let metadata = field(report, "metadata");
     let mut files = strings_at(field(report, "violations"), "file");
     files.extend(strings_at(field(report, "findings"), "file"));
     files.extend(strings_at(field(metadata, "contentDigests"), "path"));
-    let mut registered = match verify_repository_registration(
-        trust,
-        field(metadata, "repositoryIdentity"),
-        &files,
-    ) {
-        Ok(roots) => roots,
-        Err(problems) => return refuse(codes::INVALID_REGISTRATION, problems),
-    };
-    let mut scanned = scanned_roots(metadata);
-    scanned.sort();
-    registered.sort();
-    if scanned.windows(2).any(|pair| pair[0] == pair[1]) || scanned != registered {
-        return refuse(
-            codes::INVALID_REGISTRATION,
-            vec!["scan roots do not exactly cover protected repository registration".into()],
-        );
-    }
-    if let Err(problems) = validate_ownership_floor(trust, metadata) {
-        return refuse(codes::POLICY_DOWNGRADE, problems);
+    if !no_registry {
+        let mut registered = match verify_repository_registration(
+            trust,
+            field(metadata, "repositoryIdentity"),
+            &files,
+        ) {
+            Ok(roots) => roots,
+            Err(problems) => return refuse(codes::INVALID_REGISTRATION, problems),
+        };
+        let mut scanned = scanned_roots(metadata);
+        scanned.sort();
+        registered.sort();
+        if scanned.windows(2).any(|pair| pair[0] == pair[1]) || scanned != registered {
+            return refuse(
+                codes::INVALID_REGISTRATION,
+                vec!["scan roots do not exactly cover protected repository registration".into()],
+            );
+        }
+        if let Err(problems) = validate_ownership_floor(trust, metadata) {
+            return refuse(codes::POLICY_DOWNGRADE, problems);
+        }
     }
     let incomplete: Vec<String> = items(field(report, "coverage"))
         .iter()
@@ -441,12 +449,14 @@ pub fn ownership_verdict(report: &Value, trust: &Value) -> Decision {
             admit: true,
             code: codes::ADVISORY,
             problems: advisory,
+            warnings,
         };
     }
     Decision {
         admit: true,
         code: codes::CLEAN,
         problems: Vec::new(),
+        warnings,
     }
 }
 

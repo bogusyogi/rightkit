@@ -163,7 +163,7 @@ fn enforce_refuses_ok_false_report_records_identical_typed_verdict() {
 fn enforce_refuses_pending_enrollment_report_records_identical_typed_verdict() {
     enforce_refuses_and_report_records(
         report_with(json!({"ok": false, "enrollmentPending": true})),
-        codes::PENDING_ENROLLMENT,
+        codes::REPORT_FAILED,
     );
 }
 
@@ -289,7 +289,8 @@ fn shared_classification_accepts_complete_protected_report_and_preserves_violati
             &Value::Null
         )
         .outcome,
-        "pending-enrollment"
+        "clean",
+        "pending enrollment with no trust skips the registry checks and is only a warning"
     );
     assert_eq!(
         classify_ownership_report(&report(), &Value::Null).code,

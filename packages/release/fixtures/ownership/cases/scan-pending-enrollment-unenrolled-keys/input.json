@@ -1,7 +1,7 @@
 {
   "kind": "scan",
-  "description": "Host keys not enrolled: findings are advisory backlog, no protected evidence asserted.",
-  "expectCode": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+  "description": "Host keys not enrolled: pending enrollment is a warning; the finding still refuses.",
+  "expectCode": "RK_OWNERSHIP_VIOLATION",
   "harness": {
     "now": "2026-10-09T00:00:00.000Z",
     "origin": "https://github.com/test/repo",
