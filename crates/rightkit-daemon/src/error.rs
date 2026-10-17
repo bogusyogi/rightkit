@@ -17,6 +17,13 @@ pub const ERROR_NOT_ALLOWED: &str = "request_not_allowed";
 /// The handler's result did not fit the host's frame limit, so it was not sent. Not retryable:
 /// the same request produces the same result. Ask for less (a page, a smaller body).
 pub const ERROR_RESPONSE_TOO_LARGE: &str = "response_too_large";
+/// A request is larger than the host will assemble from chunks
+/// ([`HostOptions::max_message`](crate::HostOptions::max_message)), or than one frame when the
+/// host does not chunk. Not retryable. Ask for less.
+pub const ERROR_REQUEST_TOO_LARGE: &str = "request_too_large";
+/// A chunk frame (`rk.upload`, `rk.fetch`) was malformed, out of order, repeated or for an upload
+/// or result that is gone. Not retryable as sent: start the whole transfer again.
+pub const ERROR_BAD_CHUNK: &str = "bad_chunk";
 /// The connection dropped before a response arrived. Retryable.
 pub const ERROR_CONNECTION_CLOSED: &str = "connection_closed";
 /// The per-request deadline (connect + write + read) expired and the

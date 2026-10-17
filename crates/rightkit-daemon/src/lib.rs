@@ -45,6 +45,7 @@
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
 mod app_root;
+pub mod chunk;
 mod client;
 pub mod contract;
 mod discovery;
@@ -90,8 +91,9 @@ pub use app_root::{
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
-    ConnectError, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN, ERROR_HOST_HANDOFF,
-    ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT,
+    ConnectError, ERROR_BAD_CHUNK, ServiceError, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN, ERROR_HOST_HANDOFF,
+    ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_REQUEST_TOO_LARGE, ERROR_RESPONSE_TOO_LARGE,
+    ERROR_REVISION_CONFLICT,
     ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT, ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
 };
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};

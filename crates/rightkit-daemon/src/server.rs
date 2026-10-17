@@ -133,6 +133,7 @@ impl ServiceConfig {
 pub struct HostOptions {
     max_pipe_instances: u32,
     write_timeout: Option<Duration>,
+    max_message: usize,
 }
 
 impl Default for HostOptions {
@@ -140,6 +141,7 @@ impl Default for HostOptions {
         Self {
             max_pipe_instances: DEFAULT_MAX_PIPE_INSTANCES,
             write_timeout: Some(DEFAULT_WRITE_TIMEOUT),
+            max_message: crate::chunk::DEFAULT_MAX_MESSAGE,
         }
     }
 }
@@ -183,6 +185,22 @@ impl HostOptions {
     /// The effective write bound (`None` = unbounded).
     pub fn get_write_timeout(&self) -> Option<Duration> {
         self.write_timeout
+    }
+
+    /// Largest message the host assembles from chunks, or hands out in chunks (see the `chunk`
+    /// module). The frame limit ([`ServiceConfig::frame_limit`]) stays the cap on any one frame;
+    /// this is the second, separate cap on a whole chunked request or result, held in memory per
+    /// connection. Default 256 MiB. `0` turns chunking off: the host then refuses `rk.upload`
+    /// and never announces a chunked result.
+    #[must_use]
+    pub fn max_message(mut self, bytes: usize) -> Self {
+        self.max_message = bytes;
+        self
+    }
+
+    /// The effective message bound.
+    pub fn get_max_message(&self) -> usize {
+        self.max_message
     }
 }
 
@@ -249,6 +267,7 @@ struct Shared {
     bell: Arc<Bell>,
     watch: WatchTuning,
     write_timeout: Option<Duration>,
+    max_message: usize,
 }
 
 /// Bounds each frame write on one connection. The writer calls [`begin`](Self::begin) before and
@@ -598,6 +617,7 @@ fn start_host(
         bell: Arc::new(Bell::new()),
         watch,
         write_timeout: options.write_timeout,
+        max_message: options.max_message,
     });
     takeover_watch::register(
         takeover_path(&shared.suite, &shared.cfg.service),
@@ -889,6 +909,8 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         "type": "hello", "ok": true, "service": s.cfg.service, "role": s.cfg.role, "rank": s.cfg.rank,
         "version": s.cfg.version, "protocol_major": PROTOCOL_MAJOR, "protocol_minor": PROTOCOL_MINOR,
         "methods": s.cfg.allowlist.methods_for(&app),
+        "frame_limit": limit, "max_message": s.max_message,
+        "chunk_bytes": crate::chunk::chunk_bytes_for(limit),
     }));
 
     let caller = Caller::local_app(app.clone(), peer.clone());
@@ -901,6 +923,12 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             }
         }
     };
+    // Chunked transfers (see the `chunk` module): at most one of each per connection, dropped
+    // with it.
+    let chunk_bytes = crate::chunk::chunk_bytes_for(limit);
+    let mut uploads = crate::chunk::Uploads::default();
+    let mut download: Option<crate::chunk::Download> = None;
+    let mut downloads_made: u64 = 0;
     // ---- requests, lock-step: one in flight per connection
     loop {
         let req: Value = match read_json_line(&mut reader, &mut buf, limit) {
@@ -933,10 +961,52 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         let respond_err = |e: ServiceError| {
             send(&json!({"type": "response", "id": rid, "ok": false, "error": e.to_value()}))
         };
-        let method = req["method"].as_str().unwrap_or("").to_string();
+        let mut method = req["method"].as_str().unwrap_or("").to_string();
+        let chunked_ok = req["chunked_ok"] == true && s.max_message > 0;
         if s.handoff.load(Ordering::SeqCst) {
             respond_err(ServiceError::handoff());
             continue;
+        }
+        // The reserved chunk methods carry other calls: the carried call is authorised below on
+        // its own method id, so these need no allowlist entry of their own.
+        let mut assembled: Option<Value> = None;
+        if method == crate::chunk::METHOD_FETCH {
+            let answer = match &download {
+                Some(d) => d.fetch(req.get("params").unwrap_or(&Value::Null)),
+                None => Err(ServiceError::new(
+                    crate::error::ERROR_BAD_CHUNK,
+                    "no chunked result is held on this connection",
+                )),
+            };
+            match answer {
+                Ok(v) => send(&json!({"type": "response", "id": rid, "ok": true, "result": v})),
+                Err(e) => respond_err(e),
+            }
+            continue;
+        }
+        if method == crate::chunk::METHOD_UPLOAD {
+            if s.max_message == 0 {
+                respond_err(ServiceError::new(
+                    crate::error::ERROR_REQUEST_TOO_LARGE,
+                    "this host does not accept chunked requests",
+                ));
+                continue;
+            }
+            match uploads.accept(req.get("params").unwrap_or(&Value::Null), s.max_message) {
+                Ok(crate::chunk::UploadStep::More { received }) => {
+                    send(&json!({"type": "response", "id": rid, "ok": true,
+                        "result": {"received": received}}));
+                    continue;
+                }
+                Ok(crate::chunk::UploadStep::Done { method: m, params }) => {
+                    method = m;
+                    assembled = Some(params);
+                }
+                Err(e) => {
+                    respond_err(e);
+                    continue;
+                }
+            }
         }
         if let Err(e) = crate::contract::authorize_allowlist(&s.cfg.allowlist, &caller, &method) {
             s.event(ServiceEvent::Denied {
@@ -953,7 +1023,8 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             );
             continue;
         }
-        let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
+        let params = assembled
+            .unwrap_or_else(|| req.get("params").cloned().unwrap_or_else(|| json!({})));
         let cx = new_context(
             id,
             caller.clone(),
@@ -1011,12 +1082,33 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
                         kind: "response",
                         limit,
                     });
-                    respond_err(ServiceError::new(
-                        ERROR_RESPONSE_TOO_LARGE,
-                        format!(
-                            "the result of {method} is larger than the {limit}-byte frame limit"
-                        ),
-                    ));
+                    // A client that opted in gets the result in pieces, within the message
+                    // bound; everyone else, and anything beyond the bound, the typed error.
+                    let held = chunked_ok
+                        .then(|| serde_json::to_string(&v).ok())
+                        .flatten()
+                        .filter(|text| text.len() <= s.max_message);
+                    drop(v);
+                    match held {
+                        Some(text) => {
+                            downloads_made += 1;
+                            let held = crate::chunk::Download::new(
+                                format!("d{downloads_made}"),
+                                text,
+                                chunk_bytes,
+                            );
+                            let descriptor = held.descriptor();
+                            download = Some(held);
+                            send(&json!({"type": "response", "id": rid, "ok": true,
+                                "result": Value::Null, "chunked": descriptor}));
+                        }
+                        None => respond_err(ServiceError::new(
+                            ERROR_RESPONSE_TOO_LARGE,
+                            format!(
+                                "the result of {method} is larger than the {limit}-byte frame limit"
+                            ),
+                        )),
+                    }
                 }
             }
             Err(e) => respond_err(e),

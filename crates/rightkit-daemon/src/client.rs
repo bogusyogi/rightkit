@@ -497,6 +497,20 @@ impl Client {
         deadline: Option<Instant>,
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
+        let mut frame = self.call_frame_until(method, params, false, deadline, on_event)?;
+        Ok(frame["result"].take())
+    }
+
+    /// One request and its whole response frame. `chunked_ok` tells the host it may answer a
+    /// result larger than a frame in pieces (see the `chunk` module).
+    fn call_frame_until(
+        &self,
+        method: &str,
+        params: Value,
+        chunked_ok: bool,
+        deadline: Option<Instant>,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
         let started = Instant::now();
         let total = deadline.map(|d| d.saturating_duration_since(started));
         if self.dead.load(Ordering::SeqCst) {
@@ -517,35 +531,38 @@ impl Client {
             self.shutdown.clone(),
         );
         let res = (|| {
+            let mut frame =
+                json!({"type": "request", "id": id, "method": method, "params": params});
+            if chunked_ok {
+                frame["chunked_ok"] = Value::Bool(true);
+            }
             write_json_line(
                 &mut io.writer,
-                &with_secret(
-                    json!({"type": "request", "id": id, "method": method, "params": params}),
-                    self.secret.as_ref(),
-                ),
+                &with_secret(frame, self.secret.as_ref()),
                 LIMIT,
             )
             .map_err(|e| match e {
-                FrameError::TooLarge { .. } => {
-                    ServiceError::new("request_too_large", "request exceeds the frame limit")
-                }
+                FrameError::TooLarge { .. } => ServiceError::new(
+                    ERROR_REQUEST_TOO_LARGE,
+                    "request exceeds the frame limit (Client::call_large sends it in pieces)",
+                ),
                 _ => closed(),
             })?;
             io.writer.flush().map_err(|_| closed())?;
             loop {
                 let Io { reader, buf, .. } = &mut *io;
                 match read_json_line::<_, Value>(reader, buf, LIMIT) {
-                    Ok(Some(v)) if v["id"].as_u64() == Some(id) => match v["type"].as_str() {
-                        Some("event") => on_event(&v["event"]),
-                        Some("response") => {
+                    Ok(Some(v)) if v["id"].as_u64() == Some(id) => {
+                        if v["type"] == "event" {
+                            on_event(&v["event"]);
+                        } else if v["type"] == "response" {
                             return if v["ok"] == true {
-                                Ok(v["result"].clone())
+                                Ok(v)
                             } else {
                                 Err(ServiceError::from_value(&v["error"]))
                             };
                         }
-                        _ => {}
-                    },
+                    }
                     Ok(Some(_)) => {} // frame for another request or a connection-level error
                     Ok(None) | Err(FrameError::Io(_)) => return Err(closed()),
                     // The frame was drained through its newline, so the stream is still on a
@@ -569,6 +586,144 @@ impl Client {
             self.dead.store(true, Ordering::SeqCst);
         }
         res
+    }
+}
+
+impl Client {
+    /// One frame of a chunked transfer: its own per-request deadline, the whole response frame.
+    fn call_step(
+        &self,
+        method: &str,
+        params: Value,
+        chunked_ok: bool,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        let deadline = match self.deadline_ms.load(Ordering::SeqCst) {
+            0 => None,
+            ms => Some(Instant::now() + Duration::from_millis(ms)),
+        };
+        self.call_frame_until(method, params, chunked_ok, deadline, on_event)
+    }
+
+    /// Like [`Client::call_events`] for a request or a result that may be larger than one frame
+    /// (issue #294). The frame limit stays the cap on every frame; a message above it is cut into
+    /// pieces and assembled by the other side under the host's separate message bound
+    /// ([`HostOptions::max_message`](crate::HostOptions::max_message)), as the `chunk` module
+    /// describes.
+    ///
+    /// * Params that fit in half the host's frame go as one ordinary request, and a result that
+    ///   does not fit one frame comes back in pieces (this call opts in to that).
+    /// * Larger params are uploaded in pieces through the reserved `rk.upload` method; the host
+    ///   runs `method` once the last piece arrives, and its response answers this call. A host
+    ///   that predates chunking (no `max_message` in its `hello`) or has it off refuses with
+    ///   `request_too_large`, and so does a message beyond the host's bound, before any piece is
+    ///   sent.
+    ///
+    /// Each frame is its own request with its own deadline (the per-request deadline set on the
+    /// client), so a long transfer is not cut by one deadline for the whole. A failure part-way
+    /// leaves nothing in the host after the next call or the end of the connection; resubmitting
+    /// the whole call is safe for the transfer itself, but whether `method` may run twice is the
+    /// caller's call, as for [`Client::call`]. Events of the call (`on_event`) arrive with the
+    /// final upload piece's request.
+    pub fn call_large(
+        &self,
+        method: &str,
+        params: Value,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        use crate::chunk::{boundaries, CHUNK_TEXT_BYTES, METHOD_FETCH, METHOD_UPLOAD};
+        let advertised =
+            |key: &str| self.hello[key].as_u64().and_then(|n| usize::try_from(n).ok());
+        let max_message = advertised("max_message").unwrap_or(0);
+        let frame_limit = advertised("frame_limit").unwrap_or(LIMIT).min(LIMIT);
+        let chunk = advertised("chunk_bytes")
+            .unwrap_or(CHUNK_TEXT_BYTES)
+            .clamp(16, CHUNK_TEXT_BYTES);
+        let text = serde_json::to_string(&params)
+            .map_err(|e| ServiceError::new("bad_request", e.to_string()))?;
+        let single_max = if max_message == 0 {
+            frame_limit.saturating_sub(64 * 1024)
+        } else {
+            frame_limit / 2
+        };
+        let mut frame = if text.len() <= single_max {
+            drop(text);
+            self.call_step(method, params, max_message > 0, &mut *on_event)?
+        } else {
+            if max_message == 0 || text.len() > max_message {
+                return Err(ServiceError::new(
+                    ERROR_REQUEST_TOO_LARGE,
+                    if max_message == 0 {
+                        "the request exceeds the frame limit and the host does not chunk"
+                            .to_string()
+                    } else {
+                        format!(
+                            "the request is {} bytes, over the host's {max_message}-byte message limit",
+                            text.len()
+                        )
+                    },
+                ));
+            }
+            drop(params);
+            let ends = boundaries(&text, chunk);
+            let upload_id = format!("u{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+            let mut start = 0;
+            let mut answer = Value::Null;
+            for (seq, end) in ends.iter().enumerate() {
+                let last = seq + 1 == ends.len();
+                let mut piece = json!({
+                    "id": upload_id, "seq": seq, "last": last, "text": &text[start..*end],
+                });
+                if seq == 0 {
+                    piece["method"] = Value::String(method.to_string());
+                }
+                start = *end;
+                let frame = self.call_step(METHOD_UPLOAD, piece, last, &mut *on_event)?;
+                if last {
+                    answer = frame;
+                }
+            }
+            answer
+        };
+        let held = frame.get_mut("chunked").map(Value::take);
+        let Some(held) = held else {
+            return Ok(frame["result"].take());
+        };
+        // The result came back in pieces.
+        let bad = |why: &str| ServiceError::new(ERROR_BAD_CHUNK, why.to_string());
+        let id = held["id"]
+            .as_str()
+            .ok_or_else(|| bad("the chunked result has no id"))?
+            .to_string();
+        let bytes = held["bytes"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| bad("the chunked result has no size"))?;
+        let count = held["count"]
+            .as_u64()
+            .ok_or_else(|| bad("the chunked result has no count"))?;
+        if bytes > max_message || count > bytes.max(1) as u64 {
+            return Err(bad(
+                "the chunked result is larger than the host's own message limit",
+            ));
+        }
+        let mut joined = String::with_capacity(bytes);
+        for seq in 0..count {
+            let request = json!({"id": id, "seq": seq});
+            let piece = self.call_step(METHOD_FETCH, request, false, &mut *on_event)?;
+            let part = piece["result"]["text"]
+                .as_str()
+                .ok_or_else(|| bad("a result piece has no text"))?;
+            if joined.len() + part.len() > bytes {
+                return Err(bad("the result pieces add up to more than announced"));
+            }
+            joined.push_str(part);
+        }
+        if joined.len() != bytes {
+            return Err(bad("the result pieces add up to less than announced"));
+        }
+        serde_json::from_str(&joined)
+            .map_err(|e| bad(&format!("the assembled result is not JSON: {e}")))
     }
 }
 
