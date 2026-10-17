@@ -285,6 +285,10 @@ The app still declares `"externalBin": ["binaries/ffmpeg", "binaries/ffprobe"]` 
 
 Linux has catalog and planner support only: the planner maps `linux` to the `*-unknown-linux-gnu` triples and works as soon as the crate catalog carries approved Linux rows, but there is no Linux release target in right-release yet, and the catalog has no Linux rows (they need a Linux build and the crate's identity check; see the rightkit-ffmpeg README). Until then an app ships without video on Linux. Tests (fakes only, no catalog download, binary, signer or notary): `media-sidecar.test.mjs`.
 
+## Generic Tauri externalBin sidecars (any app)
+
+Any app that ships more than the ffmpeg sidecar (MailRight: `mailright-engine`, `mailright-core`) sets `targets.mac.externalBin` / `targets.win.externalBin`: `{ names: [...], arch?, stageDir? ("src-tauri/binaries"), bundleDir? (mac: "Contents/MacOS" | "Contents/Resources"), stage?: { cmd, args? } }`. It is the generic form of the ffmpeg staging above and reuses its target-triple naming (`<name>-<triple>[.exe]`), staged-file checks and signing evidence checks (`external-bin.mjs` over `media-sidecar.mjs`); it has no catalog, notices or manifest seal. `stage` is the app's own build of the files. Windows signs the staged files in the raw-EXE step; macOS signs `<bundleDir>/<name>` as nested code (hardened runtime) and checks the nested receipt. `external-bin.json` (state root) records pre-sign and signed digests. Names that `mediaSidecar` stages (`ffmpeg`, `ffprobe`) are refused here. Tests: `external-bin.test.mjs`.
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that depends on a different `smol-toml` version gets a second copy.
