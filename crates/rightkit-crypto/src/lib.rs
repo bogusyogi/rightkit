@@ -25,8 +25,8 @@ const H0: [u32; 8] = [
 
 fn compress(state: &mut [u32; 8], block: &[u8]) {
     let mut w = [0u32; 64];
-    for (i, chunk) in block.chunks_exact(4).enumerate() {
-        w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+    for (i, chunk) in block.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_be_bytes(*chunk);
     }
     for i in 16..64 {
         let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -65,18 +65,17 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
 /// SHA-256 digest of `data` (FIPS 180-4).
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut state = H0;
-    let mut chunks = data.chunks_exact(64);
-    for block in &mut chunks {
+    let (blocks, rem) = data.as_chunks::<64>();
+    for block in blocks {
         compress(&mut state, block);
     }
-    let rem = chunks.remainder();
     let mut tail = [0u8; 128];
     tail[..rem.len()].copy_from_slice(rem);
     tail[rem.len()] = 0x80;
     let total = if rem.len() < 56 { 64 } else { 128 };
     let bits = (data.len() as u64).wrapping_mul(8);
     tail[total - 8..total].copy_from_slice(&bits.to_be_bytes());
-    for block in tail[..total].chunks_exact(64) {
+    for block in tail[..total].as_chunks::<64>().0 {
         compress(&mut state, block);
     }
     let mut out = [0u8; 32];
@@ -172,7 +171,7 @@ fn encode(data: &[u8], alphabet: &[u8; 64], pad: bool) -> String {
 fn decode(text: &str, alphabet: &[u8; 64], pad: bool) -> Result<Vec<u8>, DecodeError> {
     let bytes = text.as_bytes();
     let body = if pad {
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return Err(DecodeError);
         }
         let pads = bytes.iter().rev().take_while(|&&b| b == b'=').count();
