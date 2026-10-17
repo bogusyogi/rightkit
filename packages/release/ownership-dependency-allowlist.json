@@ -789,7 +789,28 @@
     },
     {
       "repositoryIdentity": "https://github.com/bogusyogi/postright",
-      "dependencies": []
+      "dependencies": [
+        "cargo:jiff",
+        "cargo:serde_json",
+        "cargo:tauri",
+        "cargo:tauri-build",
+        "cargo:tauri-plugin-os",
+        "cargo:tauri-plugin-process",
+        "cargo:tauri-plugin-updater",
+        "npm:@tailwindcss/vite",
+        "npm:@tauri-apps/api",
+        "npm:@tauri-apps/cli",
+        "npm:@tauri-apps/plugin-os",
+        "npm:@tauri-apps/plugin-process",
+        "npm:@tauri-apps/plugin-updater",
+        "npm:@types/react",
+        "npm:@types/react-dom",
+        "npm:@vitejs/plugin-react",
+        "npm:react",
+        "npm:react-dom",
+        "npm:tailwindcss",
+        "npm:vite"
+      ]
     },
     {
       "repositoryIdentity": "https://github.com/orthic-labs/cockpit",
