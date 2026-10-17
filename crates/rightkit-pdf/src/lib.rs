@@ -21,6 +21,7 @@
 //! | `raster`  | (feature `raster`) render scanned pages to gray/RGBA/PNG for OCR  |
 //! | `redact`  | (feature `redact`) remove content under marks, fail closed        |
 //! | `forms`   | (feature `forms`) AcroForm fields, set values, appearances        |
+//! | `optimize`| (feature `optimize`) unused objects, measured image downsampling  |
 
 #[cfg(feature = "edit")]
 pub mod commit;
@@ -36,6 +37,8 @@ pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;
 pub mod model;
+#[cfg(feature = "optimize")]
+pub mod optimize;
 #[cfg(feature = "merge")]
 pub mod organize;
 #[cfg(feature = "raster")]

@@ -37,6 +37,8 @@ raster = ["dep:image"]
 redact = []
 # AcroForm: list fields, set values, generate appearances, typed refusals (`src/forms.rs`).
 forms = []
+# Size reduction: unused-object clean-up, stream compression, measured image downsampling (`src/optimize.rs`).
+optimize = []
 
 [dependencies]
 lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
