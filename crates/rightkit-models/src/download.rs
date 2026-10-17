@@ -22,6 +22,15 @@ use rightkit_http::{HttpError, Request};
 
 const CANCELLED: &str = "download cancelled";
 const BASE_BACKOFF_MS: u64 = 250;
+/// Start of a failure message from the local disk (create, write, sync, rename, hash read).
+/// `download_resumable*` reports these as `ErrorCode::Io`, never `ErrorCode::Download`.
+const IO_PREFIX: &str = "local disk error: ";
+/// Start of the failure message when a download is larger than the caller's size cap.
+const CAP_PREFIX: &str = "download exceeds the size cap: ";
+
+fn io_msg(context: &str, error: impl std::fmt::Display) -> String {
+    format!("{IO_PREFIX}{context}: {error}")
+}
 
 /// The total time budget of one download call ([`crate::http::ModelHttpOptions::total_timeout`]),
 /// started when the first request is about to be made.
@@ -161,6 +170,8 @@ enum TransferError {
     Fatal(String),
     /// The call's total time budget ran out while the body was streaming.
     BudgetSpent,
+    /// The body is larger than the caller's size cap.
+    TooLarge(String),
 }
 
 fn write_response_body_with_progress(
@@ -170,11 +181,12 @@ fn write_response_body_with_progress(
     progress: &mut dyn FnMut(u64, u64),
     cancelled: &dyn Fn() -> bool,
     deadline: Option<Instant>,
+    max_bytes: Option<u64>,
 ) -> Result<u64, TransferError> {
     let (mut file, mut received, total) = match plan {
         ResponsePlan::Append { offset, total } => {
             let length = fs::metadata(part)
-                .map_err(|error| TransferError::Fatal(format!("read partial metadata: {error}")))?
+                .map_err(|error| TransferError::Fatal(io_msg("read partial metadata", error)))?
                 .len();
             if length != offset {
                 return Err(TransferError::Fatal(format!(
@@ -185,13 +197,13 @@ fn write_response_body_with_progress(
                 .append(true)
                 .open(part)
                 .map_err(|error| {
-                    TransferError::Fatal(format!("open partial for append: {error}"))
+                    TransferError::Fatal(io_msg("open partial for append", error))
                 })?;
             (file, offset, total)
         }
         ResponsePlan::Replace { total } => {
             let file = File::create(part)
-                .map_err(|error| TransferError::Fatal(format!("create partial: {error}")))?;
+                .map_err(|error| TransferError::Fatal(io_msg("create partial", error)))?;
             (file, 0, total)
         }
         ResponsePlan::RetryFromZero => {
@@ -201,6 +213,13 @@ fn write_response_body_with_progress(
         }
     };
 
+    if let Some(cap) = max_bytes {
+        if total > cap {
+            return Err(TransferError::TooLarge(format!(
+                "{CAP_PREFIX}the server reports {total} bytes, the cap is {cap}"
+            )));
+        }
+    }
     let mut buffer = [0u8; 1 << 16];
     loop {
         if cancelled() {
@@ -222,12 +241,18 @@ fn write_response_body_with_progress(
             }
         };
         file.write_all(&buffer[..count])
-            .map_err(|error| TransferError::Fatal(format!("write partial: {error}")))?;
+            .map_err(|error| TransferError::Fatal(io_msg("write partial", error)))?;
         received += count as u64;
+        if let Some(cap) = max_bytes.filter(|cap| received > *cap) {
+            let _ = file.sync_all();
+            return Err(TransferError::TooLarge(format!(
+                "{CAP_PREFIX}received more than {cap} bytes"
+            )));
+        }
         progress(received, total);
     }
     file.sync_all()
-        .map_err(|error| TransferError::Fatal(format!("sync partial: {error}")))?;
+        .map_err(|error| TransferError::Fatal(io_msg("sync partial", error)))?;
     if total > 0 && received != total {
         return Err(TransferError::Transient(format!(
             "incomplete download: received {received} of {total} bytes"
@@ -255,6 +280,29 @@ pub fn download_resumable(
     download_resumable_with_identity(&client.vetted_client(), request, None, progress)
 }
 
+/// As [`download_resumable`], with an optional size cap. The cap is checked against the
+/// size the server reports (`Content-Length` / `Content-Range`) before any byte is written,
+/// and again against the bytes received while streaming, so a server that lies or sends no
+/// length still cannot fill the disk past `max_bytes`. A download over the cap fails with
+/// `ErrorCode::SizeMismatch` and its `.part` is removed. `None` is exactly
+/// [`download_resumable`]. Disk-write failures (full disk, permissions, rename) are
+/// `ErrorCode::Io` in both functions; network failures stay `ErrorCode::Download`.
+pub fn download_resumable_capped(
+    client: &impl AsHttpClient,
+    request: DownloadRequest<'_>,
+    max_bytes: Option<u64>,
+    progress: impl FnMut(u64, u64),
+) -> Result<DownloadResult, Error> {
+    download_resumable_recorded_capped(
+        &client.vetted_client(),
+        request,
+        None,
+        max_bytes,
+        progress,
+        &FailureSlot::default(),
+    )
+}
+
 /// As [`download_resumable`], with an immutable, hash-pinned resume identity
 /// independent of a rotating signed URL. Callers must bind it to object identity.
 pub(crate) fn download_resumable_with_identity(
@@ -274,12 +322,27 @@ pub(crate) fn download_resumable_recorded(
     progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, Error> {
+    download_resumable_recorded_capped(client, request, identity, None, progress, slot)
+}
+
+fn download_resumable_recorded_capped(
+    client: &ModelHttp,
+    request: DownloadRequest<'_>,
+    identity: Option<&str>,
+    max_bytes: Option<u64>,
+    progress: impl FnMut(u64, u64),
+    slot: &FailureSlot,
+) -> Result<DownloadResult, Error> {
     let resume_url = identity
         .filter(|_| request.expected_sha256.is_some())
         .unwrap_or(request.url);
-    download_inner(client, request, resume_url, progress, slot).map_err(|message| {
+    download_inner(client, request, resume_url, max_bytes, progress, slot).map_err(|message| {
         let code = if message == CANCELLED {
             ErrorCode::Cancelled
+        } else if message.starts_with(IO_PREFIX) {
+            ErrorCode::Io
+        } else if message.starts_with(CAP_PREFIX) {
+            ErrorCode::SizeMismatch
         } else if message.contains("integrity check") {
             ErrorCode::HashMismatch
         } else {
@@ -293,14 +356,15 @@ fn download_inner(
     http: &ModelHttp,
     request: DownloadRequest<'_>,
     resume_url: &str,
+    max_bytes: Option<u64>,
     mut progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, String> {
     if let Some(parent) = request.part_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("create download dir: {error}"))?;
+        fs::create_dir_all(parent).map_err(|error| io_msg("create download dir", error))?;
     }
     if let Some(parent) = request.dest_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("create dest dir: {error}"))?;
+        fs::create_dir_all(parent).map_err(|error| io_msg("create dest dir", error))?;
     }
     let metadata_path = metadata_path(request.part_path);
     let expected = request
@@ -318,7 +382,7 @@ fn download_inner(
     if let Some(received) =
         completed_partial_candidate(request.part_path, &metadata_path, resume_url, &expected)?
     {
-        let got = sha256_file(request.part_path)?;
+        let got = sha256_file(request.part_path).map_err(|e| io_msg("hash partial", e))?;
         if expected
             .as_deref()
             .map(|pin| got.eq_ignore_ascii_case(pin))
@@ -475,9 +539,11 @@ fn download_inner(
             &mut progress,
             request.cancelled,
             budget.as_ref().map(|budget| budget.deadline),
+            max_bytes,
         ) {
             Ok(received) => {
-                let got = sha256_file(request.part_path)?;
+                let got =
+                    sha256_file(request.part_path).map_err(|e| io_msg("hash download", e))?;
                 if let Some(pin) = expected.as_deref() {
                     if !got.eq_ignore_ascii_case(pin) {
                         cleanup_poisoned(request.part_path, &metadata_path);
@@ -495,6 +561,10 @@ fn download_inner(
                 });
             }
             Err(TransferError::Fatal(message)) => return Err(message),
+            Err(TransferError::TooLarge(message)) => {
+                cleanup_poisoned(request.part_path, &metadata_path);
+                return Err(message);
+            }
             Err(TransferError::BudgetSpent) => {
                 return Err(budget
                     .as_ref()
@@ -521,8 +591,12 @@ fn download_inner(
 /// (MoveFileExW with MOVEFILE_REPLACE_EXISTING), so the previous file is never
 /// deleted first: if the rename fails it is still there.
 fn commit_part(part: &Path, metadata: &Path, dest: &Path) -> Result<(), String> {
-    fs::rename(part, dest)
-        .map_err(|e| format!("commit {} -> {}: {e}", part.display(), dest.display()))?;
+    fs::rename(part, dest).map_err(|e| {
+        io_msg(
+            "commit",
+            format!("{} -> {}: {e}", part.display(), dest.display()),
+        )
+    })?;
     let _ = fs::remove_file(metadata);
     Ok(())
 }
@@ -572,7 +646,7 @@ fn resume_state(
     let offset = match fs::metadata(part) {
         Ok(metadata) => metadata.len(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(format!("read partial metadata: {error}")),
+        Err(error) => return Err(io_msg("read partial metadata", error)),
     };
     if offset == 0 {
         let _ = fs::remove_file(metadata);
@@ -602,7 +676,7 @@ fn completed_partial_candidate(
     let length = match fs::metadata(part) {
         Ok(metadata) => metadata.len(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("read partial metadata: {error}")),
+        Err(error) => return Err(io_msg("read partial metadata", error)),
     };
     let resume = fs::read(metadata)
         .ok()
@@ -621,8 +695,8 @@ fn write_metadata(path: &Path, metadata: &ResumeMetadata) -> Result<(), String> 
     let staged = metadata_path(path);
     let bytes = serde_json::to_vec(metadata)
         .map_err(|error| format!("serialize resume metadata: {error}"))?;
-    fs::write(&staged, bytes).map_err(|error| format!("write resume metadata: {error}"))?;
-    fs::rename(&staged, path).map_err(|error| format!("commit resume metadata: {error}"))
+    fs::write(&staged, bytes).map_err(|error| io_msg("write resume metadata", error))?;
+    fs::rename(&staged, path).map_err(|error| io_msg("commit resume metadata", error))
 }
 
 fn cleanup_poisoned(part: &Path, metadata: &Path) {
@@ -651,7 +725,9 @@ fn is_transient_http_error(error: &HttpError) -> bool {
 /// connect, TLS, timeout, body-read). A destination refused by the address
 /// policy is not connectivity either: the network may be fine.
 pub fn is_connectivity_error(message: &str) -> bool {
-    !(message.contains("status")
+    !(message.starts_with(IO_PREFIX)
+        || message.starts_with(CAP_PREFIX)
+        || message.contains("status")
         || message.contains("address denied")
         || message.contains("(404)")
         || message.contains("integrity check")
@@ -683,4 +759,74 @@ pub fn http_agent() -> ureq::Agent {
         .max_redirects(crate::http::DEFAULT_MAX_REDIRECTS)
         .build()
         .into()
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+
+    fn temp_part(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rk-models-cap-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("f.part")
+    }
+
+    #[test]
+    fn a_reported_total_over_the_cap_writes_nothing() {
+        let part = temp_part("reported");
+        let mut body: &[u8] = b"0123456789";
+        let err = write_response_body_with_progress(
+            &part,
+            ResponsePlan::Replace { total: 10 },
+            &mut body,
+            &mut |_, _| {},
+            &|| false,
+            None,
+            Some(5),
+        )
+        .unwrap_err();
+        assert!(matches!(err, TransferError::TooLarge(ref m) if m.starts_with(CAP_PREFIX)));
+        assert_eq!(fs::metadata(&part).unwrap().len(), 0);
+        let _ = fs::remove_dir_all(part.parent().unwrap());
+    }
+
+    #[test]
+    fn a_stream_past_the_cap_stops_even_without_a_reported_length() {
+        let part = temp_part("streamed");
+        let data = vec![7u8; 200_000];
+        let mut body: &[u8] = &data;
+        let err = write_response_body_with_progress(
+            &part,
+            ResponsePlan::Replace { total: 0 },
+            &mut body,
+            &mut |_, _| {},
+            &|| false,
+            None,
+            Some(100_000),
+        )
+        .unwrap_err();
+        assert!(matches!(err, TransferError::TooLarge(_)));
+        assert!(fs::metadata(&part).unwrap().len() <= 100_000 + (1 << 16));
+        // Within the cap: unchanged behaviour.
+        let mut ok: &[u8] = &data[..1000];
+        let n = write_response_body_with_progress(
+            &part,
+            ResponsePlan::Replace { total: 1000 },
+            &mut ok,
+            &mut |_, _| {},
+            &|| false,
+            None,
+            Some(1000),
+        )
+        .unwrap();
+        assert_eq!(n, 1000);
+        let _ = fs::remove_dir_all(part.parent().unwrap());
+    }
+
+    #[test]
+    fn disk_and_cap_messages_are_not_connectivity_errors() {
+        assert!(!is_connectivity_error(&io_msg("write partial", "disk full")));
+        assert!(!is_connectivity_error(&format!("{CAP_PREFIX}too big")));
+        assert!(is_connectivity_error("download request failed: connection reset"));
+    }
 }
