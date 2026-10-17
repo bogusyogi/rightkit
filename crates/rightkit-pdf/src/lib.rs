@@ -20,6 +20,7 @@
 //! | `scan`    | scanned-page detection (no text layer, page-sized image)          |
 //! | `raster`  | (feature `raster`) render scanned pages to gray/RGBA/PNG for OCR  |
 //! | `redact`  | (feature `redact`) remove content under marks, fail closed        |
+//! | `forms`   | (feature `forms`) AcroForm fields, set values, appearances        |
 
 #[cfg(feature = "edit")]
 pub mod commit;
@@ -29,6 +30,8 @@ pub mod compose;
 pub mod extract;
 #[cfg(feature = "fonts")]
 pub mod font;
+#[cfg(feature = "forms")]
+pub mod forms;
 pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;

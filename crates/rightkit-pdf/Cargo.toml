@@ -35,6 +35,8 @@ extract = ["dep:pdf-extract"]
 raster = ["dep:image"]
 # Redaction: remove text, images, paths and annotations under marked areas, fail closed, full rewrite (`src/redact.rs`).
 redact = []
+# AcroForm: list fields, set values, generate appearances, typed refusals (`src/forms.rs`).
+forms = []
 
 [dependencies]
 lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }

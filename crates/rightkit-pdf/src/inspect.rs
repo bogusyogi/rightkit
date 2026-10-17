@@ -1535,7 +1535,7 @@ const STANDARD14_WIDTHS: [[u16; 95]; 14] = [
     ], // ZapfDingbats
 ];
 
-fn standard14_width(base_font: &[u8], code: u32) -> Option<f64> {
+pub(crate) fn standard14_width(base_font: &[u8], code: u32) -> Option<f64> {
     let name = std::str::from_utf8(base_font).ok()?;
     let row = STANDARD14_NAMES.iter().position(|known| *known == name)?;
     let index = code.checked_sub(32)? as usize;

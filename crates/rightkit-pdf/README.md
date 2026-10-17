@@ -16,6 +16,7 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 | `extract` | off | `pdf-extract` | Whole-document and per-page text extraction (`src/extract.rs`). |
 | `raster` | off | `image` (`png`, `jpeg` codecs only) | Render scanned pages to gray/RGBA/PNG for OCR (`src/raster.rs`). Detection (`src/scan.rs`) is always compiled. |
 | `redact` | off | none | Remove text, images, vector paths and annotations under marked areas, fail closed, whole-file rewrite (`src/redact.rs`). |
+| `forms` | off | none | AcroForm: list fields, set values, regenerate appearances, `/NeedAppearances` handling, typed refusals (`src/forms.rs`). |
 
 Inspection (`src/inspect.rs`, `src/model.rs`) is always compiled. `--no-default-features` gives inspection only.
 
