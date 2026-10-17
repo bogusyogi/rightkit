@@ -10,8 +10,8 @@ use std::time::Duration;
 use serde_json::{json, Map, Value};
 
 use crate::approval::{
-    canonical_repository_identity, occurrence_hash, policy_entry_digest, resolve_key_log_trust,
-    sha256_value, verify_exception, verify_protected_provenance, ExceptionContext,
+    canonical_repository_identity, occurrence_hash, resolve_key_log_trust, sha256_value,
+    verify_protected_provenance,
 };
 use crate::clock::Clock;
 use crate::committed::CommittedSource;
@@ -823,17 +823,81 @@ struct EvalResult {
     covered: Vec<Value>,
     problems: Vec<String>,
     warnings: Vec<String>,
+    /// Informational only: pending enrollment is a warning and never affects `ok`.
     enrollment_pending: bool,
 }
 
+/// Problems with one plain exception entry (Orthic-Labs/rightkit#262). Same rules as `validateExceptionEntry` in `ownership.mjs`.
+fn exception_entry_problems(e: &Value) -> Vec<String> {
+    let Some(map) = e.as_object() else {
+        return vec!["not an object".into()];
+    };
+    if map.contains_key("payload") || map.contains_key("signature") || map.contains_key("schema") {
+        return vec!["legacy signed exception record; replace it with a plain entry {capability, package, reason, owner, date}".into()];
+    }
+    let mut problems = Vec::new();
+    let non_empty = |key: &str| {
+        field(e, key)
+            .as_str()
+            .is_some_and(|text| !text.trim().is_empty())
+    };
+    for key in ["capability", "reason", "owner"] {
+        if !non_empty(key) {
+            problems.push(format!("missing {key}"));
+        }
+    }
+    if !non_empty("package") && !non_empty("crate") {
+        problems.push("missing package (crate or package)".into());
+    }
+    if !crate::approval::is_valid_date(str_of(field(e, "date"))) {
+        problems.push("date must be YYYY-MM-DD".into());
+    }
+    for key in ["fingerprint", "path"] {
+        if let Some(value) = map.get(key) {
+            if !value.as_str().is_some_and(|text| !text.is_empty()) {
+                problems.push(format!("{key} must be a non-empty string when present"));
+            }
+        }
+    }
+    problems
+}
+
+/// Does a plain exception entry cover this finding? Same rules as `exceptionMatches` in `ownership.mjs`.
+fn exception_matches(e: &Value, finding: &Value) -> bool {
+    let owner = if field(e, "package").is_null() {
+        field(e, "crate")
+    } else {
+        field(e, "package")
+    };
+    if field(finding, "capability") != field(e, "capability") || field(finding, "package") != owner
+    {
+        return false;
+    }
+    if map_has(e, "fingerprint") && field(finding, "fingerprint") != field(e, "fingerprint") {
+        return false;
+    }
+    if map_has(e, "path") {
+        let prefix = str_of(field(e, "path")).trim_end_matches('/');
+        let file = str_of(field(finding, "file"));
+        if !(file == str_of(field(e, "path")) || file.starts_with(&format!("{prefix}/"))) {
+            return false;
+        }
+    }
+    true
+}
+
+fn map_has(value: &Value, key: &str) -> bool {
+    value.get(key).is_some_and(|v| !v.is_null())
+}
+
+/// Plain exception entries, reviewed through git (Orthic-Labs/rightkit#262): a matching entry marks a finding excepted,
+/// an entry that matches nothing is a stale warning, a malformed or legacy signed entry is a problem. Enrollment state
+/// no longer affects the verdict; pending enrollment is only a warning.
 fn evaluate(
     findings: &[Value],
     exceptions: &[Value],
-    manifest: &Value,
     trust: &Value,
     enrollment: &Value,
-    metadata: &Value,
-    today: &str,
 ) -> EvalResult {
     let (mut problems, mut covered, mut violations, mut warnings) = (
         Vec::new(),
@@ -841,129 +905,55 @@ fn evaluate(
         Vec::<Value>::new(),
         Vec::<String>::new(),
     );
-    let catalog_digest = str_of(field(metadata, "catalogDigest")).to_string();
-    let identity = if field(metadata, "repositoryIdentity").is_null() {
-        json!("")
-    } else {
-        field(metadata, "repositoryIdentity").clone()
-    };
     for e in exceptions {
-        let p = if field(e, "payload").is_null() {
-            e
-        } else {
-            field(e, "payload")
-        };
         let where_ = format!(
-            "exception #{} ({})",
+            "exception #{} ({}/{})",
             js_scalar(field(e, "index")),
-            if field(p, "fingerprint").is_null() {
+            if field(e, "capability").is_null() {
                 "?".to_string()
             } else {
-                js_scalar(field(p, "fingerprint"))
+                js_scalar(field(e, "capability"))
+            },
+            if !field(e, "package").is_null() {
+                js_scalar(field(e, "package"))
+            } else if !field(e, "crate").is_null() {
+                js_scalar(field(e, "crate"))
+            } else {
+                "?".to_string()
             }
         );
-        let missing: Vec<&str> = [
-            "fingerprint",
-            "occurrences",
-            "policyDigest",
-            "minimumScannerVersion",
-            "minimumCatalogVersion",
-            "issued",
-            "reason",
-            "owner",
-            "expires",
-            "requestId",
-        ]
-        .into_iter()
-        .filter(|k| !truthy(field(p, k)) || field(p, k).as_array().is_some_and(|a| a.is_empty()))
-        .collect();
-        if !missing.is_empty() {
-            problems.push(format!("{where_}: missing {}", missing.join(", ")));
+        let invalid = exception_entry_problems(e);
+        if !invalid.is_empty() {
+            problems.push(format!("{where_}: {}", invalid.join("; ")));
             continue;
         }
-        let approved_by = if !field(e, "approvedBy").is_null() {
-            field(e, "approvedBy")
-        } else {
-            field(p, "approvedBy")
-        };
-        if !approved_by.is_null() && approved_by.as_str() != Some("Adrian") {
-            problems.push(format!("{where_}: approvedBy must be Adrian"));
-            continue;
-        }
-        let expires = str_of(field(p, "expires"));
-        if !crate::approval::is_valid_date(expires) || expires < today {
-            problems.push(format!("{where_}: invalid or expired expires date"));
-            continue;
-        }
-        let tracking = field(p, "trackingRef");
-        if !truthy(tracking)
-            || !tracking.is_object()
-            || !truthy(field(tracking, "verified"))
-            || !str_of(field(tracking, "url")).starts_with("https://")
-            || !truthy(field(tracking, "id"))
-        {
-            problems.push(format!(
-                "{where_}: tracking must be a verified RightKit request reference"
+        let matching: Vec<&Value> = findings
+            .iter()
+            .filter(|f| exception_matches(e, f))
+            .collect();
+        if matching.is_empty() {
+            warnings.push(format!(
+                "{where_}: stale, matches no current finding (remove it from the exceptions file)"
             ));
             continue;
         }
-        let policy_digest = match policy_entry_digest(manifest, field(p, "fingerprint")) {
-            Ok(d) => d,
-            Err(error) => {
-                problems.push(format!("{where_}: {error}"));
+        for f in matching {
+            let hash = occurrence_hash(f).unwrap_or_default();
+            if covered
+                .iter()
+                .any(|x| str_of(field(x, "occurrenceHash")) == hash)
+            {
                 continue;
             }
-        };
-        let mut record = e.clone();
-        if let Some(map) = record.as_object_mut() {
-            map.remove("index");
-        }
-        let ctx = ExceptionContext {
-            repository_identity: &identity,
-            catalog_digest: &catalog_digest,
-            policy_digest: &policy_digest,
-            findings,
-            trust,
-            today,
-            scanner_version: field(metadata, "scannerVersion")
-                .as_str()
-                .unwrap_or(SCANNER_VERSION),
-            catalog_version: field(metadata, "catalogVersion").as_str(),
-        };
-        if let Err(list) = verify_exception(&record, &ctx) {
-            let detail = if list.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", list.join("; "))
-            };
-            problems.push(format!("{where_}: signature verification failed{detail}"));
-            continue;
-        }
-        let occurrences = items(field(p, "occurrences"));
-        let matching: Vec<&Value> = findings
-            .iter()
-            .filter(|f| {
-                field(f, "fingerprint") == field(p, "fingerprint")
-                    && occurrences.iter().any(|item| {
-                        field(item, "path") == field(f, "file")
-                            && occurrence_hash(f).ok().as_deref() == field(item, "hash").as_str()
-                    })
-            })
-            .collect();
-        if matching.is_empty() {
-            problems.push(format!("{where_}: stale, matches no signed occurrence"));
-            continue;
-        }
-        for f in matching {
             let mut entry = f.clone();
-            entry["occurrenceHash"] = json!(occurrence_hash(f).unwrap_or_default());
+            entry["occurrenceHash"] = json!(hash);
             entry["exception"] = e.clone();
             covered.push(entry);
         }
     }
     let pending = enrollment_pending(trust, enrollment);
     if pending {
-        warnings.push("approval enrollment pending; detected findings remain open backlog requests until distinct Windows & macOS keys are enrolled".into());
+        warnings.push("approval enrollment pending (warning only): exceptions are plain git-reviewed entries and no scan result depends on enrolled approval keys".into());
     }
     for f in findings {
         let hash = occurrence_hash(f).unwrap_or_default();
@@ -1108,7 +1098,6 @@ fn finish(
     exceptions: Vec<Value>,
     trust: &Value,
     enrollment: &Value,
-    today: &str,
 ) -> Value {
     let mut metadata = metadata_base;
     metadata.insert(
@@ -1120,16 +1109,7 @@ fn finish(
         "provenance".into(),
         Value::Array(scanned.provenance.clone()),
     );
-    let metadata_value = Value::Object(metadata.clone());
-    let result = evaluate(
-        &scanned.findings,
-        &exceptions,
-        manifest,
-        trust,
-        enrollment,
-        &metadata_value,
-        today,
-    );
+    let result = evaluate(&scanned.findings, &exceptions, trust, enrollment);
     let coverage = dedup_coverage(&scanned.coverage);
     let rows = capability_table(
         manifest,
@@ -1138,8 +1118,7 @@ fn finish(
         &result.covered,
         !coverage.is_empty(),
     );
-    let ok = !result.enrollment_pending
-        && !result.violations.iter().any(is_blocking_finding)
+    let ok = !result.violations.iter().any(is_blocking_finding)
         && result.problems.is_empty()
         && coverage.is_empty();
     json!({
@@ -1258,7 +1237,6 @@ pub fn check_app(
                 .map_err(|_| ScanError::new("Unexpected end of JSON input"))?,
             Err(_) => Vec::new(),
         };
-    let today = iso_from_ms(ctx.clock.now_ms())[..10].to_string();
     Ok(finish(
         manifest,
         scanned,
@@ -1266,7 +1244,6 @@ pub fn check_app(
         exceptions,
         &trust,
         &enrollment,
-        &today,
     ))
 }
 
@@ -1416,7 +1393,6 @@ pub fn check_committed(
     metadata.insert("source".into(), json!("committed-git-tree"));
     metadata.extend(key_meta);
     let enrollment = enrollment_of(&trust, &trust_state);
-    let today = iso_from_ms(ctx.clock.now_ms())[..10].to_string();
     Ok(finish(
         manifest,
         scanned,
@@ -1424,6 +1400,99 @@ pub fn check_committed(
         exceptions,
         &trust,
         &enrollment,
-        &today,
     ))
+}
+
+#[cfg(test)]
+mod exception_tests {
+    use super::*;
+
+    fn finding(file: &str, fingerprint: &str, capability: &str, package: &str) -> Value {
+        json!({"fingerprint": fingerprint, "capability": capability, "package": package, "kind": "source",
+               "file": file, "line": 1, "lineText": "marker", "ordinal": 0, "text": "marker"})
+    }
+
+    fn entry() -> Value {
+        json!({"capability": "oauth-sign-in", "package": "rightkit-oauth", "reason": "migration",
+               "owner": "app", "date": "2026-10-17", "index": 0})
+    }
+
+    fn run(findings: &[Value], exceptions: &[Value]) -> EvalResult {
+        evaluate(findings, exceptions, &Value::Null, &json!({"enrolled": true}))
+    }
+
+    fn stale(result: &EvalResult) -> usize {
+        result.warnings.iter().filter(|w| w.contains("stale")).count()
+    }
+
+    #[test]
+    fn plain_entry_marks_matching_findings_excepted_without_trust_or_signature() {
+        let github = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
+        let other = finding("src/b.rs", "browser.x", "browser-automation", "rightkit-browser");
+        let result = run(&[github, other], &[entry()]);
+        assert!(result.problems.is_empty(), "{:?}", result.problems);
+        assert_eq!(result.covered.len(), 1);
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(str_of(field(&result.violations[0], "file")), "src/b.rs");
+        assert_eq!(stale(&result), 0);
+    }
+
+    #[test]
+    fn crate_alias_fingerprint_and_path_narrow_the_match() {
+        let f = finding("engine/src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
+        let mut aliased = entry();
+        aliased.as_object_mut().unwrap().remove("package");
+        aliased["crate"] = json!("rightkit-oauth");
+        assert_eq!(run(&[f.clone()], &[aliased]).covered.len(), 1);
+        let mut narrowed = entry();
+        narrowed["fingerprint"] = json!("oauth.endpoint.github");
+        narrowed["path"] = json!("engine/src");
+        assert_eq!(run(&[f.clone()], &[narrowed]).covered.len(), 1);
+        let mut wrong_fingerprint = entry();
+        wrong_fingerprint["fingerprint"] = json!("oauth.endpoint.google");
+        let result = run(&[f.clone()], &[wrong_fingerprint]);
+        assert_eq!((result.covered.len(), result.violations.len(), stale(&result)), (0, 1, 1));
+        let mut wrong_path = entry();
+        wrong_path["path"] = json!("apps/src");
+        let result = run(&[f], &[wrong_path]);
+        assert_eq!((result.covered.len(), stale(&result)), (0, 1));
+    }
+
+    #[test]
+    fn entry_matching_nothing_is_a_stale_warning_not_a_problem() {
+        let f = finding("src/a.rs", "browser.x", "browser-automation", "rightkit-browser");
+        let result = run(&[f], &[entry()]);
+        assert!(result.problems.is_empty());
+        assert_eq!(result.covered.len(), 0);
+        assert_eq!(result.violations.len(), 1);
+        assert!(result.warnings.iter().any(|w| w.starts_with("exception #0 (oauth-sign-in/rightkit-oauth): stale, matches no current finding")));
+    }
+
+    #[test]
+    fn malformed_and_legacy_signed_entries_are_problems_and_never_cover() {
+        let f = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
+        for (key, expected) in [("reason", "missing reason"), ("owner", "missing owner"), ("capability", "missing capability"), ("package", "missing package"), ("date", "date must be YYYY-MM-DD")] {
+            let mut broken = entry();
+            broken.as_object_mut().unwrap().remove(key);
+            let result = run(&[f.clone()], &[broken]);
+            assert_eq!(result.covered.len(), 0, "{key}");
+            assert!(result.problems[0].contains(expected), "{:?}", result.problems);
+        }
+        let mut bad_date = entry();
+        bad_date["date"] = json!("2026-99-99");
+        assert!(run(&[f.clone()], &[bad_date]).problems[0].contains("date must be YYYY-MM-DD"));
+        let legacy = json!({"schema": 2, "payload": {"fingerprint": "oauth.endpoint.github"}, "signature": null, "index": 0});
+        let result = run(&[f], &[legacy]);
+        assert_eq!(result.covered.len(), 0);
+        assert!(result.problems[0].contains("legacy signed exception record"));
+    }
+
+    #[test]
+    fn two_entries_for_one_finding_cover_it_once_and_pending_enrollment_only_warns() {
+        let f = finding("src/a.rs", "oauth.endpoint.github", "oauth-sign-in", "rightkit-oauth");
+        let result = evaluate(&[f], &[entry(), entry()], &Value::Null, &json!({"pending": true}));
+        assert_eq!((result.covered.len(), result.violations.len()), (1, 0));
+        assert!(result.problems.is_empty());
+        assert!(result.warnings.iter().any(|w| w.contains("enrollment pending")));
+    }
 }

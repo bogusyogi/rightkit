@@ -426,7 +426,23 @@ test("plain exception entries (#262): a matching entry marks the finding excepte
   assert.equal(result.covered.length, 1);
 });
 
-test("sample source occurrence fails closed while enrollment is pending", () => {
+test("an excepted app passes on an unenrolled host; pending enrollment is only a warning (#262)", () => {
+  const root = app({ "engine/bins/coderight/src/github_signin.rs": `${SAMPLES["oauth.endpoint.github"]}\n` });
+  try {
+    const trust = { enrolled: false, pending: true, trust: null };
+    const found = scanApp(root, shipped).find((f) => f.fingerprint === "oauth.endpoint.github");
+    mkdirSync(path.join(root, ".rightkit"), { recursive: true });
+    writeFileSync(path.join(root, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [{ capability: found.capability, package: found.package, reason: "migration", owner: "app", date: "2026-10-17" }] }));
+    const result = checkApp(root, shipped, { trust });
+    assert.equal(result.violations.filter((f) => f.fingerprint === "oauth.endpoint.github").length, 0);
+    assert.ok(result.covered.some((f) => f.fingerprint === "oauth.endpoint.github"));
+    assert.equal(result.problems.length, 0);
+    assert.equal(result.ok, true);
+    assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("sample source occurrence still fails on its own finding while enrollment is pending (pending is only a warning)", () => {
   const root = app({ "engine/bins/coderight/src/github_signin.rs": `${SAMPLES["oauth.endpoint.github"]}\n` });
   try {
     const findings = scanApp(root, shipped);
@@ -439,11 +455,11 @@ test("sample source occurrence fails closed while enrollment is pending", () => 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("clean RightKit dependency integration fixture fails closed pending enrollment with declaration-only status", () => {
+test("clean RightKit dependency integration fixture passes with a pending-enrollment warning and declaration-only status", () => {
   const root = app({ "Cargo.toml": '[package]\nname = "clean-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-oauth = "0.2.0"\n' });
   try {
     const result = checkApp(root, shipped, { trust: { enrolled: false, pending: true, trust: null } });
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, true);
     assert.equal(result.violations.length, 0);
     assert.equal(result.problems.length, 0);
     assert.equal(result.enrollmentPending, true);
@@ -519,19 +535,19 @@ test("committed scanner verifies pinned key log from Git blobs & ignores forged 
     writeFileSync(path.join(root, ".rightkit", "ownership-keys.json"), '{"schema":1,"events":[]}\n');
     const scanned = checkCommittedAppForTest(root, manifest, { trust });
     assert.equal(scanned.enrollmentPending, true);
-    assert.equal(scanned.ok, false);
+    assert.equal(scanned.ok, scanned.problems.length === 0 && scanned.coverage.length === 0, "pending enrollment never fails the check by itself");
     assert.match(scanned.warnings.join(" "), /enrollment pending/);
     assert.equal(scanned.metadata.rootFingerprint, key.keyId);
     assert.equal(scanned.metadata.keyCheckpoint.head, eventHash(draft));
     assert.equal(scanned.metadata.keyLogDigest, sha256(committedBytes));
     const forgedDoctor = checkAppForTest(root, manifest, { trust, readAuthorityForTest });
     assert.equal(forgedDoctor.enrollmentPending, true);
-    assert.equal(forgedDoctor.ok, false);
+    assert.equal(forgedDoctor.ok, forgedDoctor.problems.length === 0 && forgedDoctor.coverage.length === 0);
     assert.equal(forgedDoctor.metadata.keyLogDigest, sha256(committedBytes));
     rmSync(path.join(root, ".rightkit", "ownership-keys.json"));
     const deletedDoctor = checkAppForTest(root, manifest, { trust, readAuthorityForTest });
     assert.equal(deletedDoctor.enrollmentPending, true);
-    assert.equal(deletedDoctor.ok, false);
+    assert.equal(deletedDoctor.ok, deletedDoctor.problems.length === 0 && deletedDoctor.coverage.length === 0);
     assert.equal(deletedDoctor.metadata.keyLogDigest, sha256(committedBytes));
     let injected = false;
     const forbiddenReader = () => { injected = true; throw new Error("production must not call test reader"); };

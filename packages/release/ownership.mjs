@@ -709,7 +709,7 @@ export function evaluate(findings, exceptions, options = {}) {
     for (const f of matching) if (!covered.some((x) => x.occurrenceHash === occurrenceHash(f))) covered.push({ ...f, occurrenceHash: occurrenceHash(f), exception: e });
   }
   const pending = enrollmentPending(options.trust, options.trustEnrollment);
-  if (pending) warnings.push("approval enrollment pending; detected findings remain open backlog requests until distinct Windows & macOS keys are enrolled");
+  if (pending) warnings.push("approval enrollment pending (warning only): exceptions are plain git-reviewed entries and no scan result depends on enrolled approval keys");
   for (const f of findings) if (!covered.some((x) => x.occurrenceHash === occurrenceHash(f))) violations.push({ ...f, occurrenceHash: occurrenceHash(f) });
   return { violations, covered, problems, warnings, enrollmentPending: pending };
 }
@@ -754,7 +754,7 @@ function checkAppInternal(appRoot, manifest, options, readAuthority) {
   const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
-  return { ok: !result.enrollmentPending && !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+  return { ok: !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
 }
 
 function checkCommitted(appRoot, manifest, options, acquire, readAuthority = readCommittedKeyAuthority) {
@@ -822,7 +822,7 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
-  return { ok: !result.enrollmentPending && !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+  return { ok: !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
 }
 
 /** Protected production scan: acquire and inspect exact HEAD blobs without reading checkout contents. */
