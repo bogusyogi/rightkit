@@ -138,15 +138,15 @@ macro_rules! cft_chrome {
 pub const PINNED_CHROME_FOR_TESTING: PinnedChrome = PinnedChrome {
     version: "155.0.8059.39",
     downloads: &[
-        cft_chrome!("155.0.8059.39", "mac-arm64"),
-        cft_chrome!("155.0.8059.39", "mac-x64"),
-        cft_chrome!("155.0.8059.39", "linux64"),
-        cft_chrome!("155.0.8059.39", "win64"),
+        cft_chrome!("155.0.8059.39", "mac-arm64", "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e"),
+        cft_chrome!("155.0.8059.39", "mac-x64", "9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7"),
+        cft_chrome!("155.0.8059.39", "linux64", "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea"),
+        cft_chrome!("155.0.8059.39", "win64", "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e"),
         PinnedDownload {
             platform: "win64",
             kind: DownloadKind::HeadlessShell,
             url: cft_url!("155.0.8059.39", "win64", "chrome-headless-shell"),
-            sha256: Sha256Pin::Todo,
+            sha256: Sha256Pin::Pinned("20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436"),
         },
     ],
 };

@@ -47,7 +47,10 @@ export interface PinnedChrome {
 // install refuses it. Keep the begin/end markers: the script rewrites the lines between them.
 const CHROME_SHA256: Record<string, string | undefined> = {
   // chrome-pins:begin
-  // chrome-pins:end
+  'mac-arm64': '529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e',
+  'mac-x64': '9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7',
+  'linux64': '55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea',
+  'win64': '59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e',  // chrome-pins:end
 };
 
 const cft = (version: string, platform: string): PinnedDownload => ({
