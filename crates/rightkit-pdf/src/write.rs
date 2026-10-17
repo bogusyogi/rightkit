@@ -568,7 +568,6 @@ impl Document {
         if !embeddable || !subsettable {
             return Err(WriteError::FontEmbeddingDenied);
         }
-        drop(face);
         self.fonts.push(FontEntry { bytes, face_index });
         Ok(FontId(self.fonts.len() - 1))
     }
@@ -594,6 +593,7 @@ impl Document {
     /// black). One call is one run: no wrapping, shaping or kerning. Every character needs a
     /// glyph in the font ([`WriteError::MissingGlyph`] otherwise, nothing is drawn).
     #[cfg(feature = "fonts")]
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text(
         &mut self,
         page: PageId,
@@ -620,7 +620,6 @@ impl Document {
                 return Err(WriteError::MissingGlyph(c));
             }
         }
-        drop(face);
         let slot = self
             .pages
             .get_mut(page.0)
