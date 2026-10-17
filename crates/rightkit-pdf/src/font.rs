@@ -252,7 +252,7 @@ pub(crate) fn glyph_ids_for_text(
 /// §7.4's `is_outline_embedding_allowed`/`is_subsetting_allowed` + `permissions()` gate, factored
 /// out so both catalog listing (§7.2's `embeddable`/`subsettable` columns) and [`subset_for_pdf`]
 /// (§7.4's hard reject) agree on exactly one definition. Returns `(embeddable, subsettable)`.
-fn face_embedding_permissions(face: &ttf_parser::Face) -> (bool, bool) {
+pub(crate) fn face_embedding_permissions(face: &ttf_parser::Face) -> (bool, bool) {
     let restricted = matches!(
         face.permissions(),
         Some(ttf_parser::Permissions::Restricted)
