@@ -26,10 +26,15 @@ export const MANAGED_CURRENT_DIR = 'current';
 export const MANAGED_PREVIOUS_DIR = 'current.previous';
 export const MANAGED_STAGING_DIR = 'current.staging';
 
+/** Which archive a {@link PinnedDownload} is (rightkit-browser's `DownloadKind`, same snake_case names in `install.json`). */
+export type DownloadKind = 'chrome' | 'headless_shell';
+
 export interface PinnedDownload {
   /** Google's platform key: `mac-arm64`, `mac-x64`, `win64`, `win32` or `linux64`. */
   platform: string;
-  /** `https` URL of `chrome-<platform>.zip`. Immutable: it names the version. */
+  /** Default `chrome`. `headless_shell` is `chrome-headless-shell-<platform>.zip`, installed beside Chrome. */
+  kind?: DownloadKind;
+  /** `https` URL of `chrome-<platform>.zip` (or `chrome-headless-shell-<platform>.zip`). Immutable: it names the version. */
   url: string;
   /** Lowercase hex SHA-256 of the archive. REQUIRED: leave it out only as a recorded TODO; the install then refuses. */
   sha256?: string;
@@ -53,23 +58,40 @@ const CHROME_SHA256: Record<string, string | undefined> = {
   'win64': '59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e',  // chrome-pins:end
 };
 
+// Same rule for chrome-headless-shell, which rightkit-browser pins for win64 only (the Windows fixture's browser).
+// `node scripts/chrome-pins.mjs --apply` rewrites the lines between the headless-pins markers.
+const HEADLESS_SHELL_SHA256: Record<string, string | undefined> = {
+  // headless-pins:begin
+  'win64': '20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436',  // headless-pins:end
+};
+
 const cft = (version: string, platform: string): PinnedDownload => ({
   platform,
   url: `https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}/chrome-${platform}.zip`,
   sha256: CHROME_SHA256[platform],
 });
 
-/** The build this package installs; the same version and URLs as rightkit-browser's pin. */
+const cftHeadless = (version: string, platform: string): PinnedDownload => ({
+  platform,
+  kind: 'headless_shell',
+  url: `https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}/chrome-headless-shell-${platform}.zip`,
+  sha256: HEADLESS_SHELL_SHA256[platform],
+});
+
+/** The build this package installs; the same version, URLs and digests as rightkit-browser's pin. */
 export const PINNED_CHROME_FOR_TESTING: PinnedChrome = {
   version: '155.0.8059.39',
-  downloads: ['mac-arm64', 'mac-x64', 'linux64', 'win64'].map((p) => cft('155.0.8059.39', p)),
+  downloads: [
+    ...['mac-arm64', 'mac-x64', 'linux64', 'win64'].map((p) => cft('155.0.8059.39', p)),
+    ...['win64'].map((p) => cftHeadless('155.0.8059.39', p)),
+  ],
 };
 
 /** Thrown before any download when the pin has no usable digest for the platform. */
 export class ChromeForTestingDigestMissingError extends Error {
   readonly code = 'CHROME_DIGEST_NOT_PINNED';
-  constructor(readonly platform: string, readonly version: string) {
-    super(`no SHA-256 is pinned for Chrome for Testing ${version} (${platform}); refusing to download without one`);
+  constructor(readonly platform: string, readonly version: string, readonly kind: DownloadKind = 'chrome') {
+    super(`no SHA-256 is pinned for Chrome for Testing ${version} (${kind} ${platform}); refusing to download without one`);
     this.name = 'ChromeForTestingDigestMissingError';
   }
 }
@@ -128,6 +150,16 @@ export function managedExecutable(dir: string, platformKey: string): string {
   return path.join(sub, platformKey.startsWith('win') ? 'chrome.exe' : 'chrome');
 }
 
+/** `chrome-headless-shell` inside one extracted folder, beside `chrome-<key>/` (rightkit-browser: `chrome-headless-shell-win64/chrome-headless-shell.exe`). */
+export function managedHeadlessShellExecutable(dir: string, platformKey: string): string {
+  return path.join(dir, `chrome-headless-shell-${platformKey}`, platformKey.startsWith('win') ? 'chrome-headless-shell.exe' : 'chrome-headless-shell');
+}
+
+/** The single top-level folder every member of the archive must sit under. */
+function topLevel(kind: DownloadKind, platformKey: string): string {
+  return kind === 'headless_shell' ? `chrome-headless-shell-${platformKey}` : `chrome-${platformKey}`;
+}
+
 export interface InstallChromeForTestingOptions extends ManagedRootOptions {
   /** Defaults to {@link PINNED_CHROME_FOR_TESTING}. */
   pin?: PinnedChrome;
@@ -140,6 +172,8 @@ export interface InstallChromeForTestingOptions extends ManagedRootOptions {
 export interface InstalledChromeForTesting {
   version: string;
   executablePath: string;
+  /** `chrome-headless-shell` in `current`, present only when the pin has a headless-shell download for this platform. */
+  headlessShellExecutablePath?: string;
   /** False when the pinned version was already installed. */
   downloaded: boolean;
 }
@@ -147,7 +181,7 @@ export interface InstalledChromeForTesting {
 interface Marker {
   version: string;
   platform: string;
-  files: { kind: 'chrome'; url: string; sha256: string }[];
+  files: { kind: DownloadKind; url: string; sha256: string }[];
 }
 
 function readMarker(dir: string): Marker | undefined {
@@ -158,9 +192,9 @@ function readMarker(dir: string): Marker | undefined {
   }
 }
 
-/** Throws when a listed archive member could escape `chrome-<key>/` (absolute, `..`, backslash, drive colon, foreign top level). */
-export function assertSafeArchiveMembers(names: string[], platformKey: string): void {
-  const top = `chrome-${platformKey}`;
+/** Throws when a listed archive member could escape `chrome-<key>/` (or `chrome-headless-shell-<key>/`): absolute, `..`, backslash, drive colon, foreign top level. */
+export function assertSafeArchiveMembers(names: string[], platformKey: string, kind: DownloadKind = 'chrome'): void {
+  const top = topLevel(kind, platformKey);
   if (names.length === 0) throw new Error('archive is empty');
   for (const raw of names) {
     const parts = raw.split('/').filter((p) => p !== '' && p !== '.');
@@ -195,12 +229,19 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
   const key = chromeForTestingPlatform(platform, options.arch ?? process.arch);
   const log = options.log ?? (() => {});
   if (!/^\d+(\.\d+)+$/.test(pin.version)) throw new Error(`invalid pin: version ${JSON.stringify(pin.version)}`);
-  const download = pin.downloads.find((d) => d.platform === key);
-  if (!download) throw new Error(`the pin has no Chrome for Testing download for ${key}`);
-  if (!download.url.startsWith('https://')) throw new Error(`invalid pin: ${download.url} is not an https URL`);
-  if (download.sha256 === undefined) throw new ChromeForTestingDigestMissingError(key, pin.version);
-  if (!/^[0-9a-fA-F]{64}$/.test(download.sha256)) throw new Error(`invalid pin: digest for ${download.url} is not 64 hex characters`);
-  const sha256 = download.sha256.toLowerCase();
+  // Every download the pin lists for this platform is installed (Chrome, plus chrome-headless-shell where pinned),
+  // in pin order, exactly as rightkit-browser's `plan` does; each one needs a valid digest.
+  const items: { kind: DownloadKind; url: string; sha256: string }[] = [];
+  for (const d of pin.downloads.filter((p) => p.platform === key)) {
+    const kind = d.kind ?? 'chrome';
+    if (!d.url.startsWith('https://')) throw new Error(`invalid pin: ${d.url} is not an https URL`);
+    if (items.some((o) => o.kind === kind)) throw new Error(`invalid pin: two ${kind} downloads for ${key}`);
+    if (d.sha256 === undefined) throw new ChromeForTestingDigestMissingError(key, pin.version, kind);
+    if (!/^[0-9a-fA-F]{64}$/.test(d.sha256)) throw new Error(`invalid pin: digest for ${d.url} is not 64 hex characters`);
+    items.push({ kind, url: d.url, sha256: d.sha256.toLowerCase() });
+  }
+  if (!items.some((i) => i.kind === 'chrome')) throw new Error(`the pin has no Chrome for Testing download for ${key}`);
+  const hasHeadless = items.some((i) => i.kind === 'headless_shell');
 
   const root = managedChromeForTestingRoot(options);
   const current = path.join(root, MANAGED_CURRENT_DIR);
@@ -208,14 +249,21 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
   const staging = path.join(root, MANAGED_STAGING_DIR);
   const scratch = path.join(root, 'current.download');
   const exe = managedExecutable(current, key);
-  const marker: Marker = { version: pin.version, platform: key, files: [{ kind: 'chrome', url: download.url, sha256 }] };
+  const headlessExe = hasHeadless ? managedHeadlessShellExecutable(current, key) : undefined;
+  const result = (downloaded: boolean): InstalledChromeForTesting => ({
+    version: pin.version,
+    executablePath: exe,
+    ...(headlessExe ? { headlessShellExecutablePath: headlessExe } : {}),
+    downloaded,
+  });
+  const marker: Marker = { version: pin.version, platform: key, files: items.map(({ kind, url, sha256 }) => ({ kind, url, sha256 })) };
 
   const have = readMarker(current);
   if (have && JSON.stringify(have) === JSON.stringify(marker) && existsSync(exe)) {
     // Windows: an install made before the grant existed is repaired here.
     grantSandboxAccess(current, exe);
     log(`Chrome for Testing ${pin.version} already installed: ${exe}`);
-    return { version: pin.version, executablePath: exe, downloaded: false };
+    return result(false);
   }
 
   mkdirSync(root, { recursive: true });
@@ -224,19 +272,21 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
   mkdirSync(scratch);
   mkdirSync(staging);
   try {
-    const zip = path.join(scratch, 'chrome.zip');
-    log(`downloading Chrome for Testing ${pin.version} (${key}) from ${download.url}`);
-    await (options.download ?? defaultDownload)(download.url, zip);
-    const actual = createHash('sha256').update(readFileSync(zip)).digest('hex');
-    if (actual !== sha256) throw new ChromeForTestingDigestMismatchError(download.url, sha256, actual);
-    assertSafeArchiveMembers(listArchive(zip, platform), key);
-    // macOS: ditto keeps the app bundle's symlinks and signature intact (Info-ZIP unzip does not).
-    const unzip = platform === 'win32'
-      ? spawnSync(windowsTar(), ['-xf', zip, '-C', staging], { stdio: 'inherit', windowsHide: true })
-      : platform === 'darwin'
-        ? spawnSync('ditto', ['-x', '-k', zip, staging], { stdio: 'inherit' })
-        : spawnSync('unzip', ['-q', zip, '-d', staging], { stdio: 'inherit' });
-    if (unzip.status !== 0) throw new Error('extracting Chrome for Testing failed');
+    for (const item of items) {
+      const zip = path.join(scratch, `${topLevel(item.kind, key)}.zip`);
+      log(`downloading ${item.kind === 'headless_shell' ? 'chrome-headless-shell' : 'Chrome for Testing'} ${pin.version} (${key}) from ${item.url}`);
+      await (options.download ?? defaultDownload)(item.url, zip);
+      const actual = createHash('sha256').update(readFileSync(zip)).digest('hex');
+      if (actual !== item.sha256) throw new ChromeForTestingDigestMismatchError(item.url, item.sha256, actual);
+      assertSafeArchiveMembers(listArchive(zip, platform), key, item.kind);
+      // macOS: ditto keeps the app bundle's symlinks and signature intact (Info-ZIP unzip does not).
+      const unzip = platform === 'win32'
+        ? spawnSync(windowsTar(), ['-xf', zip, '-C', staging], { stdio: 'inherit', windowsHide: true })
+        : platform === 'darwin'
+          ? spawnSync('ditto', ['-x', '-k', zip, staging], { stdio: 'inherit' })
+          : spawnSync('unzip', ['-q', zip, '-d', staging], { stdio: 'inherit' });
+      if (unzip.status !== 0) throw new Error(`extracting ${topLevel(item.kind, key)} failed`);
+    }
     const staged = managedExecutable(staging, key);
     if (!existsSync(staged)) throw new Error(`archive has no executable at ${staged}`);
     writeFileSync(path.join(staging, 'install.json'), `${JSON.stringify(marker, null, 2)}\n`);
@@ -253,7 +303,7 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
       throw error;
     }
     log(`installed Chrome for Testing ${pin.version}: ${exe}`);
-    return { version: pin.version, executablePath: exe, downloaded: true };
+    return result(true);
   } finally {
     rmSync(staging, { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });

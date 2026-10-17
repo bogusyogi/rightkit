@@ -9,8 +9,9 @@
 // The two pin sources are:
 //   crates/rightkit-browser/src/install.rs   cft_chrome!("<version>", "<platform>"[, "<sha256>"]) and the
 //                                            headless-shell PinnedDownload with `sha256: Sha256Pin::Todo|Pinned("..")`
-//   packages/qa-chrome/src/install.ts        the version, the platform list, and the CHROME_SHA256 table between
-//                                            the `chrome-pins:begin` / `chrome-pins:end` markers
+//   packages/qa-chrome/src/install.ts        the version, the platform lists, the CHROME_SHA256 table between
+//                                            the `chrome-pins:begin` / `chrome-pins:end` markers, and the
+//                                            HEADLESS_SHELL_SHA256 table between `headless-pins:begin` / `headless-pins:end`
 // A missing digest is `Sha256Pin::Todo` in Rust and a missing CHROME_SHA256 entry in TypeScript.
 // Extraction fails when the two sources disagree on a version or URL. Byte sizes in chrome-pins.json are
 // checked for shape only: neither source has a field to hold one.
@@ -58,10 +59,13 @@ function parseRust(text) {
   return { version: tableVersion, pins };
 }
 
-/** Pins from the TypeScript table (Chrome archives only). */
+/** Pins from the TypeScript tables (Chrome and chrome-headless-shell archives). */
 function parseTs(text) {
   if (!text.includes(`${BASE}\${version}/\${platform}/chrome-\${platform}.zip`)) {
     fail('install.ts: the cft() URL template no longer matches the expected Chrome for Testing URL');
+  }
+  if (!text.includes(`${BASE}\${version}/\${platform}/chrome-headless-shell-\${platform}.zip`)) {
+    fail('install.ts: the cftHeadless() URL template no longer matches the expected chrome-headless-shell URL');
   }
   const table = text.match(/PINNED_CHROME_FOR_TESTING:\s*PinnedChrome\s*=\s*\{[\s\S]*?\n\};/);
   if (!table) fail('install.ts: PINNED_CHROME_FOR_TESTING not found');
@@ -73,28 +77,43 @@ function parseTs(text) {
   if (list[2] !== tableVersion) fail(`install.ts: cft() version ${list[2]} differs from the table version ${tableVersion}`);
   const platforms = [...list[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
   if (platforms.length === 0) fail('install.ts: empty platform list');
-  const sha = tsDigests(text);
-  const pins = platforms.map((platform) => ({
-    kind: 'chrome',
-    platform,
-    version: tableVersion,
-    url: urlFor(tableVersion, platform, 'chrome'),
-    sha256: sha.get(platform) ?? null,
-  }));
-  return { version: tableVersion, pins, platforms };
+  const headlessList = body.match(/\[([^\]]+)\]\.map\(\(p\)\s*=>\s*cftHeadless\('([^']+)',\s*p\)\)/);
+  if (!headlessList) fail('install.ts: the platform list passed to cftHeadless() not found');
+  if (headlessList[2] !== tableVersion) fail(`install.ts: cftHeadless() version ${headlessList[2]} differs from the table version ${tableVersion}`);
+  const headlessPlatforms = [...headlessList[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const sha = tsDigests(text, TS_BLOCK);
+  const headlessSha = tsDigests(text, TS_HEADLESS_BLOCK);
+  const pins = [
+    ...platforms.map((platform) => ({
+      kind: 'chrome',
+      platform,
+      version: tableVersion,
+      url: urlFor(tableVersion, platform, 'chrome'),
+      sha256: sha.get(platform) ?? null,
+    })),
+    ...headlessPlatforms.map((platform) => ({
+      kind: 'headless_shell',
+      platform,
+      version: tableVersion,
+      url: urlFor(tableVersion, platform, 'chrome-headless-shell'),
+      sha256: headlessSha.get(platform) ?? null,
+    })),
+  ];
+  return { version: tableVersion, pins, platforms, headlessPlatforms };
 }
 
 const TS_BLOCK = /(\/\/ chrome-pins:begin\r?\n)([\s\S]*?)(\s*\/\/ chrome-pins:end)/;
+const TS_HEADLESS_BLOCK = /(\/\/ headless-pins:begin\r?\n)([\s\S]*?)(\s*\/\/ headless-pins:end)/;
 
-function tsDigests(text) {
-  const block = text.match(TS_BLOCK);
-  if (!block) fail('install.ts: chrome-pins:begin / chrome-pins:end markers not found');
+function tsDigests(text, re) {
+  const block = text.match(re);
+  if (!block) fail(`install.ts: ${re === TS_BLOCK ? 'chrome-pins' : 'headless-pins'}:begin / :end markers not found`);
   const map = new Map();
   for (const m of block[2].matchAll(/^\s*'([^']+)':\s*'([^']*)',?\s*$/gm)) map.set(m[1], m[2]);
   return map;
 }
 
-function extract() {
+function extract({ compareDigests = true } = {}) {
   const rust = parseRust(readFileSync(RUST_PATH, 'utf8'));
   const ts = parseTs(readFileSync(TS_PATH, 'utf8'));
   if (rust.version !== ts.version) {
@@ -113,7 +132,13 @@ function extract() {
     if (r.url !== t.url) fail(`${k}: URL differs:\n  install.rs ${r.url}\n  install.ts ${t.url}`);
   }
   for (const r of rust.pins) {
-    if (r.kind === 'chrome' && !tsKeys.has(keyOf(r))) fail(`${keyOf(r)} is pinned in install.rs but not in install.ts`);
+    if (!tsKeys.has(keyOf(r))) fail(`${keyOf(r)} is pinned in install.rs but not in install.ts`);
+  }
+  // Pinned digests must agree between the two sources (a missing one is a recorded TODO on both sides).
+  // --apply skips this: it is about to overwrite both.
+  for (const t of compareDigests ? ts.pins : []) {
+    const r = rustByKey.get(keyOf(t));
+    if (r.sha256 !== t.sha256) fail(`${keyOf(t)}: digest differs: install.rs ${r.sha256 ?? 'none'} vs install.ts ${t.sha256 ?? 'none'}`);
   }
   for (const r of rust.pins) {
     if (!r.url.startsWith(BASE)) fail(`${keyOf(r)}: URL is not under ${BASE}`);
@@ -122,7 +147,7 @@ function extract() {
 }
 
 function apply(file) {
-  const { pins } = extract();
+  const { pins } = extract({ compareDigests: false });
   let recorded;
   try {
     recorded = JSON.parse(readFileSync(file, 'utf8'));
@@ -166,9 +191,11 @@ function apply(file) {
 
   // TypeScript
   let ts = readFileSync(TS_PATH, 'utf8');
-  const { platforms } = parseTs(ts);
+  const { platforms, headlessPlatforms } = parseTs(ts);
   const lines = platforms.map((p) => `  '${p}': '${digests.get(`chrome/${p}`)}',`).join('\n');
   ts = ts.replace(TS_BLOCK, (_m, begin, _body, end) => `${begin}${lines}${end}`);
+  const headlessLines = headlessPlatforms.map((p) => `  '${p}': '${digests.get(`headless_shell/${p}`)}',`).join('\n');
+  ts = ts.replace(TS_HEADLESS_BLOCK, (_m, begin, _body, end) => `${begin}${headlessLines}${end}`);
   writeFileSync(TS_PATH, ts);
 
   // Prove the result still parses and agrees.

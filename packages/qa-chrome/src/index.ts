@@ -14,7 +14,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { MANAGED_CURRENT_DIR, MANAGED_PREVIOUS_DIR, chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedVersions } from './install.js';
+import { MANAGED_CURRENT_DIR, MANAGED_PREVIOUS_DIR, chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedHeadlessShellExecutable, managedVersions } from './install.js';
 import { sandboxAccessProblem } from './sandbox-access.js';
 
 export * from './install.js';
@@ -159,6 +159,48 @@ export function findChromeForTesting(options: ResolveChromeForTestingOptions = {
   } catch (error) {
     return { reason: (error as Error).message };
   }
+}
+
+/** Environment variable naming an explicit `chrome-headless-shell` executable (the same name rightkit-browser reads). */
+export const CHROME_HEADLESS_SHELL_ENV = 'RIGHTKIT_CHROME_HEADLESS_SHELL';
+
+/**
+ * `chrome-headless-shell` locations in resolution order: the managed `current`, then `current.previous`,
+ * then legacy per-version folders (newest first). Only the managed fixed path has a headless shell installed.
+ */
+export function chromeHeadlessShellCandidates(options: ResolveChromeForTestingOptions = {}): string[] {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const home = options.homedir ?? homedir();
+  const key = chromeForTestingPlatform(platform, options.arch ?? process.arch);
+  const managedRoot = managedChromeForTestingRoot({ env, platform, homedir: home });
+  return [
+    managedHeadlessShellExecutable(path.join(managedRoot, MANAGED_CURRENT_DIR), key),
+    managedHeadlessShellExecutable(path.join(managedRoot, MANAGED_PREVIOUS_DIR), key),
+    ...managedVersions({ env, platform, homedir: home }).map((v) => managedHeadlessShellExecutable(path.join(managedRoot, v), key)),
+  ];
+}
+
+/**
+ * Resolve the `chrome-headless-shell` executable installed by `rightkit-qa-chrome install` (or rightkit-browser):
+ * `executablePath`, then `RIGHTKIT_CHROME_HEADLESS_SHELL`, then {@link chromeHeadlessShellCandidates}.
+ * Throws {@link ChromeForTestingNotFoundError} when none exists.
+ */
+export function resolveChromeHeadlessShell(options: ResolveChromeForTestingOptions = {}): string {
+  const env = options.env ?? process.env;
+  if (options.executablePath) {
+    if (existsSync(options.executablePath)) return options.executablePath;
+    throw new ChromeForTestingNotFoundError(`explicit chrome-headless-shell executable does not exist: ${options.executablePath}`, [options.executablePath]);
+  }
+  const fromEnv = env[CHROME_HEADLESS_SHELL_ENV];
+  if (fromEnv) {
+    if (existsSync(fromEnv)) return fromEnv;
+    throw new ChromeForTestingNotFoundError(`${CHROME_HEADLESS_SHELL_ENV} points at a missing file: ${fromEnv}`, [fromEnv]);
+  }
+  const candidates = chromeHeadlessShellCandidates(options);
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found) return found;
+  throw new ChromeForTestingNotFoundError('chrome-headless-shell is not installed', candidates);
 }
 
 export interface LaunchChromeOptions extends ResolveChromeForTestingOptions {
