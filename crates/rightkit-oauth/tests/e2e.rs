@@ -377,31 +377,24 @@ fn default_browser_sign_in_ignores_other_paths_and_refuses_webviews() {
         Err(OAuthError::EmbeddedWebviewRefused)
     ));
 
-    // Non-https authorization URLs never reach the OS handler.
-    let http_provider = OAuthClient::new(
+    // Non-https, non-loopback authorization URLs never reach the OS handler. The config is
+    // refused at construction (so no client, and no opener call, can exist for it), and the
+    // opener-side check refuses the same URL independently.
+    let Err(err) = OAuthClient::new(
         OAuthConfig::new(
             "c",
             "http://example.com/authorize",
             "http://example.com/token",
         ),
         client(),
-    )
-    .unwrap();
-    let opened = std::sync::atomic::AtomicBool::new(false);
-    let err = http_provider
-        .sign_in_with_browser(
-            &|_: &str| {
-                opened.store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
-            },
-            Duration::from_millis(200),
-        )
-        .unwrap_err();
-    assert!(
-        matches!(err, OAuthError::UnsafeAuthorizationUrl(_)),
-        "{err:?}"
-    );
-    assert!(!opened.load(std::sync::atomic::Ordering::SeqCst));
+    ) else {
+        panic!("a plain-http, non-loopback provider must be refused at construction");
+    };
+    assert!(matches!(err, OAuthError::InvalidConfig(_)), "{err:?}");
+    assert!(matches!(
+        rightkit_oauth::browser::check_authorization_url("http://example.com/authorize"),
+        Err(OAuthError::UnsafeAuthorizationUrl(_))
+    ));
 
     // Wrong path is ignored, then the exact path with a bad state is a state mismatch.
     let err = oauth
