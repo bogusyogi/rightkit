@@ -1,0 +1,24 @@
+rightkit: request 67ee7eac-40c0-4ac9-ae20-cd77ffdf19c7
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+   Compiling rightkit-child-process v0.4.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling rightkit-daemon v0.2.7 (D:\Claude\rightkit\crates\rightkit-daemon)
+   Compiling rightkit-qa v0.6.4 (D:\Claude\rightkit\crates\rightkit-qa)
+    Finished `release-iterate` profile [optimized] target(s) in 58.48s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-60c17884662f004c.exe)
+warm-up: 10000 commands in 0.60 s (16634 cmd/s), buffered events 3856, stderr bytes 262125, resident 11.6 MiB (before start 4.7 MiB)
+RESULT events_buffered=3856 frames
+RESULT stderr_bytes_buffered=262125 bytes
+RESULT warm_resident_bytes=12181504 bytes
+RESULT idle_resident_bytes=12165120 bytes
+RESULT resident_memory_bytes=12181504 bytes
+RESULT footprint_bytes=7860224 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=1.565 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=10000 echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-qa version=0.6.4 resident_bytes=12181504 idle_cpu_percent=0.052 wakeups_per_s=1.565 disk_ops_per_s=0.000 scale_unit=commands scale_count=10000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 5/715
