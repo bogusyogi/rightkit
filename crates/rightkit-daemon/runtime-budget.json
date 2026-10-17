@@ -29,11 +29,41 @@
     ],
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.2.7",
+      "commit": "a59df38364f3412ed412bb5567fdb3d4f2a3ae98",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-daemon/benches/budget.rs)",
+        "unit": "connections",
+        "count": 64
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "observed": {
+        "residentMemoryBytes": 12947456,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 3.886,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.2.7-synthetic.txt",
+        "sha256": "155a917b2302ec48a456e8b8e7c83d24cf175876f0d63eef2e47ab36d4a9bca0"
+      }
+    }
+  ],
   "profiles": {
     "remote": {
       "description": "rightkit-daemon built with the remote feature (the Hetzner Pulse/PostRight HTTPS host, formerly the standalone daemon crate). Top-level ceilings above are the default (local) profile.",
-      "features": ["remote"],
+      "features": [
+        "remote"
+      ],
       "ceilings": {
         "residentMemoryBytes": 99614720,
         "idleCpuPercent": 1,

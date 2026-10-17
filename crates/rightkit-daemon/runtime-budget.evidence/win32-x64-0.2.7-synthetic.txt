@@ -1,0 +1,39 @@
+rightkit: request 0e9c60c8-b48b-4ca4-9c64-1095b9fc77ea
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+    Blocking waiting for file lock on package cache
+   Compiling windows v0.62.2
+warning: methods `http` and `https` are never used
+   --> crates\rightkit-http\src\client.rs:419:19
+    |
+365 | impl SystemRoutes {
+    | ----------------- methods in this implementation
+...
+419 |     pub(crate) fn http(&self) -> Option<&ResolvedProxy> {
+    |                   ^^^^
+...
+423 |     pub(crate) fn https(&self) -> Option<&ResolvedProxy> {
+    |                   ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rightkit-http` (lib) generated 1 warning
+   Compiling rightkit-child-process v0.4.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling rightkit-daemon v0.2.7 (D:\Claude\rightkit\crates\rightkit-daemon)
+    Finished `release-iterate` profile [optimized] target(s) in 1m 47s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-d95f93da7b13f34a.exe)
+warm-up: 20000 requests over 64 connections in 9.76 s (2049 req/s), open connections 64, inflight 0, resident 12.3 MiB (before host 6.0 MiB)
+RESULT open_connections=64 connections
+RESULT warm_resident_bytes=12935168 bytes
+RESULT idle_resident_bytes=12947456 bytes
+RESULT resident_memory_bytes=12947456 bytes
+RESULT footprint_bytes=10256384 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=3.886 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=64 open connections after echo requests, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-daemon version=0.2.7 resident_bytes=12947456 idle_cpu_percent=0.052 wakeups_per_s=3.886 disk_ops_per_s=0.000 scale_unit=connections scale_count=64
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 4/705
