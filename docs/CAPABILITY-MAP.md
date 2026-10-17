@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 82 (56 with fingerprints, 26 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 86 (57 with fingerprints, 29 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -56,8 +56,11 @@ Capabilities: 82 (56 with fingerprints, 26 declaration-only). Internal owners th
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.2.1 (crates.io) |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.3.4 (npm) |
 | model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.3.2 (crates.io) |
+| motion-beat-sync | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: none recorded |
+| motion-inspect-sheets | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: none recorded |
+| motion-takes | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: none recorded |
 | nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: published 0.1.0 (crates.io) |
-| oauth-sign-in | `rightkit-oauth` | advise | fingerprinted | 5 (0 block, 5 advise) | rightkit-oauth: published 0.5.0 (crates.io) |
+| oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.5.0 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.2 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.3.3 (npm) |
 | onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.3 (crates.io) |
@@ -91,6 +94,7 @@ Capabilities: 82 (56 with fingerprints, 26 declaration-only). Internal owners th
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.2.1 (crates.io); rightkit-tts-qwen: published 0.2.6 (crates.io); rightkit-tts-qwen-sys: published 0.1.2 (crates.io) |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.2.3 (npm) |
 | timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.3.0 (crates.io) |
+| typeset | `rightkit-typeset` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-typeset: none recorded |
 | update-policy | `@rightkit/app-update` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/app-update: published 0.2.5 (npm) |
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.1.1 (crates.io) |
 | xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.0 (crates.io) |
