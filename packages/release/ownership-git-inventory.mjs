@@ -19,10 +19,10 @@ function gitEnv() {
   return env;
 }
 
-function runGit(root, repositoryRoot, args, { input, maxBuffer = MAX_LIST_BYTES } = {}) {
+function runGit(root, repositoryRoot, args, { input, maxBuffer = MAX_LIST_BYTES, timeout = 2500 } = {}) {
   const executable = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
   const result = spawnSync(executable, ["-C", root, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, "-c", `safe.directory=${repositoryRoot}`, ...args], {
-    encoding: "buffer", env: gitEnv(), windowsHide: true, maxBuffer, timeout: 2500, ...(input ? { input } : {}),
+    encoding: "buffer", env: gitEnv(), windowsHide: true, maxBuffer, timeout, ...(input ? { input } : {}),
   });
   if (result?.error || result?.status !== 0) throw new Error(`ownership inventory: git ${args[0]} failed${result?.error?.code ? ` (${result.error.code})` : ""}`);
   return result.stdout;
@@ -95,7 +95,9 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
   catch (error) { return { files: [], coverage: [{ path: ".", status: "unscanned", reason: `repository-root-unavailable:${error.code ?? "error"}` }] }; }
   let listing, dirtyBytes;
   try {
-    listing = runGit(root, safeRoot, ["ls-files", "--stage", "--cached", "--others", "--exclude-standard", "-z"]);
+    // Listing walks the whole worktree (--others), which takes seconds on a CI checkout; the short
+    // default stays for the per-object calls.
+    listing = runGit(root, safeRoot, ["ls-files", "--stage", "--cached", "--others", "--exclude-standard", "-z"], { timeout: 60_000 });
     dirtyBytes = runGit(root, safeRoot, ["diff-files", "--name-only", "-z", "--no-ext-diff", "--no-textconv", "--relative"]);
   } catch (error) { return { files: [], coverage: [{ path: ".", status: "unscanned", reason: `git-inventory-failed:${error.message}` }] }; }
   const dirty = new Set(dirtyBytes.length ? dirtyBytes.subarray(0, dirtyBytes.length - (dirtyBytes.at(-1) === 0 ? 1 : 0)).toString("utf8").split("\0") : []);
