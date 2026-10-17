@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-platform-rules",
+  "capabilities": [
+    {
+      "capability": "platform-rules",
+      "summary": "Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the bundled rules catalog and revision hash are not an ownership fingerprint.",
+        "Unsourced, stale or missing rules block use; apps bind work to a rule revision instead of hard-coding platform limits."
+      ]
+    }
+  ]
+}

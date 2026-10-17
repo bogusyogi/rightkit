@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-spend",
+  "capabilities": [
+    {
+      "capability": "spend-ledger",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
+        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
+      ]
+    }
+  ]
+}

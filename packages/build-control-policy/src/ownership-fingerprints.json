@@ -3281,6 +3281,28 @@
       ]
     },
     {
+      "package": "rightkit-platform-rules",
+      "capability": "platform-rules",
+      "summary": "Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the bundled rules catalog and revision hash are not an ownership fingerprint.",
+        "Unsourced, stale or missing rules block use; apps bind work to a rule revision instead of hard-coding platform limits."
+      ]
+    },
+    {
+      "package": "rightkit-spend",
+      "capability": "spend-ledger",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
+        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
+      ]
+    },
+    {
       "package": "rightkit-workflow",
       "capability": "scenario-runtime",
       "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
