@@ -1,20 +1,18 @@
 #!/usr/bin/env node
-import { installChromeForTesting, managedChromeForTestingRoot, managedVersions } from './install.js';
+import { installChromeForTesting, managedChromeForTestingRoot, managedCurrentDir, managedPreviousDir, managedVersions } from './install.js';
 import { resolveChromeForTesting } from './index.js';
 
-const [command, ...rest] = process.argv.slice(2);
-const channelArg = rest[rest.indexOf('--channel') + 1];
+const [command] = process.argv.slice(2);
 try {
   if (command === 'install') {
-    const channel = rest.includes('--channel') ? (channelArg[0]!.toUpperCase() + channelArg.slice(1).toLowerCase()) as 'Stable' : 'Stable';
-    const r = await installChromeForTesting({ channel, log: (l) => process.stderr.write(`${l}\n`) });
+    const r = await installChromeForTesting({ log: (l) => process.stderr.write(`${l}\n`) });
     process.stdout.write(`${r.executablePath}\n`);
   } else if (command === 'path') {
     process.stdout.write(`${resolveChromeForTesting()}\n`);
   } else if (command === 'list') {
-    process.stdout.write(`${managedChromeForTestingRoot()}\n${managedVersions().map((v) => `  ${v}`).join('\n')}\n`);
+    process.stdout.write(`${managedChromeForTestingRoot()}\n  current: ${managedCurrentDir()}\n  previous: ${managedPreviousDir()}\n${managedVersions().map((v) => `  legacy ${v}`).join('\n')}\n`);
   } else {
-    process.stderr.write('usage: rightkit-qa-chrome <install [--channel stable|beta]|path|list>\n');
+    process.stderr.write('usage: rightkit-qa-chrome <install|path|list>\n');
     process.exitCode = 2;
   }
 } catch (e) {

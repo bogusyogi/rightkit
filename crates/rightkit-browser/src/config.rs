@@ -214,7 +214,7 @@ pub const MANAGED_STAGING_DIR: &str = "current.staging";
 
 /// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`].
 pub const CHROME_FOR_TESTING_INSTALL_HINT: &str = "Chrome for Testing is put in place by the app's installer or updater step, which calls \
-rightkit_browser::ensure_chrome_for_testing (cargo feature `install`; pinned version, SHA-256 checked) \
+rightkit_browser::install::ensure_chrome_for_testing (cargo feature `install`; pinned version, SHA-256 checked) \
 into <app data>/Orthic Labs/shared/chrome-for-testing/current. For development, point \
 RIGHTKIT_CHROME_FOR_TESTING at an existing Chrome for Testing executable, or run \
 `rightkit-qa-chrome install` from @rightkit/qa-chrome. Regular Google Chrome is used only with \

@@ -1,11 +1,17 @@
 /**
- * RightKit-managed Chrome for Testing: downloaded straight from Google's Chrome for Testing
- * release list into one suite-wide folder, so every app and agent resolves the same current
- * build without Puppeteer's or Playwright's caches.
+ * RightKit-managed Chrome for Testing at ONE fixed path, the same layout the Rust installer
+ * (`rightkit-browser` feature `install`) uses, so dev, QA and installed apps agree:
+ *
+ *   <root>/current            the install (`install.json` records version, platform, digests)
+ *   <root>/current.previous   the single rollback copy
+ *   <root>/current.staging    extraction area; swapped into `current` only when complete
+ *
+ * No per-version folder and no new id. The archive's SHA-256 must be pinned ({@link PinnedChrome});
+ * a pin entry without a digest is refused before anything is downloaded.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -15,10 +21,56 @@ import { grantSandboxAccess } from './sandbox-access.js';
 /** Environment variable overriding the managed Chrome for Testing folder. */
 export const CHROME_FOR_TESTING_ROOT_ENV = 'RIGHTKIT_CHROME_FOR_TESTING_ROOT';
 
-/** Google's published Chrome for Testing channel list. */
-export const CHROME_FOR_TESTING_RELEASES =
-  'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json';
+/** Folder names inside the managed root (identical to rightkit-browser's `ManagedRoot`). */
+export const MANAGED_CURRENT_DIR = 'current';
+export const MANAGED_PREVIOUS_DIR = 'current.previous';
+export const MANAGED_STAGING_DIR = 'current.staging';
 
+export interface PinnedDownload {
+  /** Google's platform key: `mac-arm64`, `mac-x64`, `win64`, `win32` or `linux64`. */
+  platform: string;
+  /** `https` URL of `chrome-<platform>.zip`. Immutable: it names the version. */
+  url: string;
+  /** Lowercase hex SHA-256 of the archive. REQUIRED: leave it out only as a recorded TODO; the install then refuses. */
+  sha256?: string;
+}
+
+export interface PinnedChrome {
+  /** Dotted numeric version. */
+  version: string;
+  downloads: PinnedDownload[];
+}
+
+const cft = (version: string, platform: string): PinnedDownload => ({
+  platform,
+  url: `https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}/chrome-${platform}.zip`,
+  // TODO(#267): Google publishes no digests for Chrome for Testing. Compute each from the archive served
+  // at `url`, record it here AND in rightkit-browser's PINNED_CHROME_FOR_TESTING, and review the change.
+  sha256: undefined,
+});
+
+/** The build this package installs; the same version and URLs as rightkit-browser's pin. */
+export const PINNED_CHROME_FOR_TESTING: PinnedChrome = {
+  version: '155.0.8059.39',
+  downloads: ['mac-arm64', 'mac-x64', 'linux64', 'win64'].map((p) => cft('155.0.8059.39', p)),
+};
+
+/** Thrown before any download when the pin has no usable digest for the platform. */
+export class ChromeForTestingDigestMissingError extends Error {
+  readonly code = 'CHROME_DIGEST_NOT_PINNED';
+  constructor(readonly platform: string, readonly version: string) {
+    super(`no SHA-256 is pinned for Chrome for Testing ${version} (${platform}); refusing to download without one`);
+    this.name = 'ChromeForTestingDigestMissingError';
+  }
+}
+
+export class ChromeForTestingDigestMismatchError extends Error {
+  readonly code = 'CHROME_DIGEST_MISMATCH';
+  constructor(readonly url: string, readonly expected: string, readonly actual: string) {
+    super(`${url}: archive digest ${actual} does not match the pinned ${expected}`);
+    this.name = 'ChromeForTestingDigestMismatchError';
+  }
+}
 
 export interface ManagedRootOptions {
   env?: NodeJS.ProcessEnv;
@@ -28,7 +80,7 @@ export interface ManagedRootOptions {
 
 /**
  * The suite-wide folder (`<app data>/Orthic Labs/shared/chrome-for-testing`), or
- * `RIGHTKIT_CHROME_FOR_TESTING_ROOT`. Versions live in `<root>/<version>/<platform dir>/`.
+ * `RIGHTKIT_CHROME_FOR_TESTING_ROOT`. The install is `<root>/current`.
  */
 export function managedChromeForTestingRoot(options: ManagedRootOptions = {}): string {
   const env = options.env ?? process.env;
@@ -42,6 +94,14 @@ export function managedChromeForTestingRoot(options: ManagedRootOptions = {}): s
   return path.join(appData, 'Orthic Labs', 'shared', 'chrome-for-testing');
 }
 
+/** `<root>/current` and `<root>/current.previous`. */
+export function managedCurrentDir(options: ManagedRootOptions = {}): string {
+  return path.join(managedChromeForTestingRoot(options), MANAGED_CURRENT_DIR);
+}
+export function managedPreviousDir(options: ManagedRootOptions = {}): string {
+  return path.join(managedChromeForTestingRoot(options), MANAGED_PREVIOUS_DIR);
+}
+
 /** Google's platform key for this host. */
 export function chromeForTestingPlatform(platform: NodeJS.Platform = process.platform, arch: string = process.arch): string {
   if (platform === 'darwin') return arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
@@ -49,93 +109,148 @@ export function chromeForTestingPlatform(platform: NodeJS.Platform = process.pla
   return 'linux64';
 }
 
-/** Executable path inside one extracted version folder. */
-export function managedExecutable(versionDir: string, platformKey: string): string {
-  const dir = path.join(versionDir, `chrome-${platformKey}`);
+/** Executable path inside one extracted folder (`current`, `current.previous`, or a legacy version folder). */
+export function managedExecutable(dir: string, platformKey: string): string {
+  const sub = path.join(dir, `chrome-${platformKey}`);
   if (platformKey.startsWith('mac')) {
-    return path.join(dir, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
+    return path.join(sub, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
   }
-  return path.join(dir, platformKey.startsWith('win') ? 'chrome.exe' : 'chrome');
+  return path.join(sub, platformKey.startsWith('win') ? 'chrome.exe' : 'chrome');
 }
 
 export interface InstallChromeForTestingOptions extends ManagedRootOptions {
-  /** Google channel: Stable (default), Beta, Dev or Canary. */
-  channel?: 'Stable' | 'Beta' | 'Dev' | 'Canary';
+  /** Defaults to {@link PINNED_CHROME_FOR_TESTING}. */
+  pin?: PinnedChrome;
   arch?: string;
   log?: (line: string) => void;
+  /** Test seam: fetch the archive bytes (default: global `fetch`). */
+  download?: (url: string, dest: string) => Promise<void>;
 }
 
 export interface InstalledChromeForTesting {
   version: string;
   executablePath: string;
-  /** False when that version was already installed. */
+  /** False when the pinned version was already installed. */
   downloaded: boolean;
 }
 
-/**
- * Install the channel's current Chrome for Testing into the managed folder (idempotent),
- * downloading only from Google's Chrome for Testing bucket; `install.json` records the archive digest.
- */
-export async function installChromeForTesting(options: InstallChromeForTestingOptions = {}): Promise<InstalledChromeForTesting> {
-  const channel = options.channel ?? 'Stable';
-  const platform = options.platform ?? process.platform;
-  const key = chromeForTestingPlatform(platform, options.arch ?? process.arch);
-  const log = options.log ?? (() => {});
-  const res = await fetch(CHROME_FOR_TESTING_RELEASES);
-  if (!res.ok) throw new Error(`Chrome for Testing release list: HTTP ${res.status}`);
-  const list = (await res.json()) as {
-    channels: Record<string, { version: string; downloads: { chrome?: { platform: string; url: string }[] } }>;
-  };
-  const entry = list.channels[channel];
-  const download = entry?.downloads.chrome?.find((d) => d.platform === key);
-  if (!entry || !download) throw new Error(`no Chrome for Testing ${channel} download for ${key}`);
-  if (!download.url.startsWith('https://storage.googleapis.com/chrome-for-testing-public/')) {
-    throw new Error(`unexpected Chrome for Testing download host: ${download.url}`);
-  }
-  const root = managedChromeForTestingRoot(options);
-  const versionDir = path.join(root, entry.version);
-  const exe = managedExecutable(versionDir, key);
-  if (existsSync(exe)) {
-    // Windows: an install made before the grant existed is repaired here.
-    grantSandboxAccess(versionDir, exe);
-    log(`Chrome for Testing ${entry.version} already installed: ${exe}`);
-    return { version: entry.version, executablePath: exe, downloaded: false };
-  }
-  mkdirSync(root, { recursive: true });
-  const staging = mkdtempSync(path.join(root, `.staging-${entry.version}-`));
+interface Marker {
+  version: string;
+  platform: string;
+  files: { kind: 'chrome'; url: string; sha256: string }[];
+}
+
+function readMarker(dir: string): Marker | undefined {
   try {
-    const zip = path.join(staging, 'chrome.zip');
-    log(`downloading Chrome for Testing ${entry.version} (${key}) from ${download.url}`);
-    const body = await fetch(download.url);
-    if (!body.ok || !body.body) throw new Error(`download failed: HTTP ${body.status}`);
-    await pipeline(Readable.fromWeb(body.body as never), createWriteStream(zip));
-    const out = path.join(staging, 'out');
-    mkdirSync(out);
-    // macOS: ditto keeps the app bundle's symlinks and signature intact (Info-ZIP unzip does not).
-    const unzip = platform === 'win32'
-      ? spawnSync(windowsTar(), ['-xf', zip, '-C', out], { stdio: 'inherit', windowsHide: true })
-      : platform === 'darwin'
-        ? spawnSync('ditto', ['-x', '-k', zip, out], { stdio: 'inherit' })
-        : spawnSync('unzip', ['-q', zip, '-d', out], { stdio: 'inherit' });
-    if (unzip.status !== 0) throw new Error('extracting Chrome for Testing failed');
-    const staged = managedExecutable(out, key);
-    if (!existsSync(staged)) throw new Error(`archive has no executable at ${staged}`);
-    // Chrome for Testing is not Developer-ID signed (no team, no sealed resources), so
-    // integrity rests on the pinned Google HTTPS host; record what was installed.
-    const sha256 = createHash('sha256').update(readFileSync(zip)).digest('hex');
-    writeFileSync(path.join(out, 'install.json'), `${JSON.stringify({ version: entry.version, platform: key, channel, url: download.url, sha256, installedAt: new Date().toISOString() }, null, 2)}\n`);
-    rmSync(versionDir, { recursive: true, force: true });
-    renameSync(out, versionDir);
-    // Windows: an unpacked Chrome is unreadable to its own sandbox until this grant (see sandbox-access.ts).
-    grantSandboxAccess(versionDir, exe);
-    log(`installed Chrome for Testing ${entry.version}: ${exe}`);
-    return { version: entry.version, executablePath: exe, downloaded: true };
-  } finally {
-    rmSync(staging, { recursive: true, force: true });
+    return JSON.parse(readFileSync(path.join(dir, 'install.json'), 'utf8')) as Marker;
+  } catch {
+    return undefined;
   }
 }
 
-/** Installed managed versions, newest first. */
+/** Throws when a listed archive member could escape `chrome-<key>/` (absolute, `..`, backslash, drive colon, foreign top level). */
+export function assertSafeArchiveMembers(names: string[], platformKey: string): void {
+  const top = `chrome-${platformKey}`;
+  if (names.length === 0) throw new Error('archive is empty');
+  for (const raw of names) {
+    const parts = raw.split('/').filter((p) => p !== '' && p !== '.');
+    if (raw.startsWith('/') || raw.includes('\\') || raw.includes('\0') || parts.length === 0 || parts[0] !== top || parts.some((p) => p === '..' || p.includes(':'))) {
+      throw new Error(`unsafe archive member ${JSON.stringify(raw)}`);
+    }
+  }
+}
+
+function listArchive(zip: string, platform: NodeJS.Platform): string[] {
+  const done = platform === 'win32'
+    ? spawnSync(windowsTar(), ['-tf', zip], { encoding: 'utf8', windowsHide: true })
+    : spawnSync('unzip', ['-Z1', zip], { encoding: 'utf8' });
+  if (done.status !== 0) throw new Error('listing the Chrome for Testing archive failed');
+  return done.stdout.split(/\r?\n/).filter((l) => l !== '');
+}
+
+async function defaultDownload(url: string, dest: string): Promise<void> {
+  const body = await fetch(url);
+  if (!body.ok || !body.body) throw new Error(`download failed: HTTP ${body.status}`);
+  await pipeline(Readable.fromWeb(body.body as never), createWriteStream(dest));
+}
+
+/**
+ * Install the pinned Chrome for Testing at `<root>/current` (idempotent): digest checked before
+ * extraction, extracted to `current.staging`, swapped in, the old `current` kept as the one
+ * `current.previous`. Throws {@link ChromeForTestingDigestMissingError} when no digest is pinned.
+ */
+export async function installChromeForTesting(options: InstallChromeForTestingOptions = {}): Promise<InstalledChromeForTesting> {
+  const pin = options.pin ?? PINNED_CHROME_FOR_TESTING;
+  const platform = options.platform ?? process.platform;
+  const key = chromeForTestingPlatform(platform, options.arch ?? process.arch);
+  const log = options.log ?? (() => {});
+  if (!/^\d+(\.\d+)+$/.test(pin.version)) throw new Error(`invalid pin: version ${JSON.stringify(pin.version)}`);
+  const download = pin.downloads.find((d) => d.platform === key);
+  if (!download) throw new Error(`the pin has no Chrome for Testing download for ${key}`);
+  if (!download.url.startsWith('https://')) throw new Error(`invalid pin: ${download.url} is not an https URL`);
+  if (download.sha256 === undefined) throw new ChromeForTestingDigestMissingError(key, pin.version);
+  if (!/^[0-9a-fA-F]{64}$/.test(download.sha256)) throw new Error(`invalid pin: digest for ${download.url} is not 64 hex characters`);
+  const sha256 = download.sha256.toLowerCase();
+
+  const root = managedChromeForTestingRoot(options);
+  const current = path.join(root, MANAGED_CURRENT_DIR);
+  const previous = path.join(root, MANAGED_PREVIOUS_DIR);
+  const staging = path.join(root, MANAGED_STAGING_DIR);
+  const scratch = path.join(root, 'current.download');
+  const exe = managedExecutable(current, key);
+  const marker: Marker = { version: pin.version, platform: key, files: [{ kind: 'chrome', url: download.url, sha256 }] };
+
+  const have = readMarker(current);
+  if (have && JSON.stringify(have) === JSON.stringify(marker) && existsSync(exe)) {
+    // Windows: an install made before the grant existed is repaired here.
+    grantSandboxAccess(current, exe);
+    log(`Chrome for Testing ${pin.version} already installed: ${exe}`);
+    return { version: pin.version, executablePath: exe, downloaded: false };
+  }
+
+  mkdirSync(root, { recursive: true });
+  rmSync(staging, { recursive: true, force: true });
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch);
+  mkdirSync(staging);
+  try {
+    const zip = path.join(scratch, 'chrome.zip');
+    log(`downloading Chrome for Testing ${pin.version} (${key}) from ${download.url}`);
+    await (options.download ?? defaultDownload)(download.url, zip);
+    const actual = createHash('sha256').update(readFileSync(zip)).digest('hex');
+    if (actual !== sha256) throw new ChromeForTestingDigestMismatchError(download.url, sha256, actual);
+    assertSafeArchiveMembers(listArchive(zip, platform), key);
+    // macOS: ditto keeps the app bundle's symlinks and signature intact (Info-ZIP unzip does not).
+    const unzip = platform === 'win32'
+      ? spawnSync(windowsTar(), ['-xf', zip, '-C', staging], { stdio: 'inherit', windowsHide: true })
+      : platform === 'darwin'
+        ? spawnSync('ditto', ['-x', '-k', zip, staging], { stdio: 'inherit' })
+        : spawnSync('unzip', ['-q', zip, '-d', staging], { stdio: 'inherit' });
+    if (unzip.status !== 0) throw new Error('extracting Chrome for Testing failed');
+    const staged = managedExecutable(staging, key);
+    if (!existsSync(staged)) throw new Error(`archive has no executable at ${staged}`);
+    writeFileSync(path.join(staging, 'install.json'), `${JSON.stringify(marker, null, 2)}\n`);
+    // Windows: an unpacked Chrome is unreadable to its own sandbox until this grant (see sandbox-access.ts);
+    // granting before the swap means `current` never appears without it.
+    grantSandboxAccess(staging, staged);
+    rmSync(previous, { recursive: true, force: true });
+    const hadCurrent = existsSync(current);
+    if (hadCurrent) renameSync(current, previous);
+    try {
+      renameSync(staging, current);
+    } catch (error) {
+      if (hadCurrent) renameSync(previous, current);
+      throw error;
+    }
+    log(`installed Chrome for Testing ${pin.version}: ${exe}`);
+    return { version: pin.version, executablePath: exe, downloaded: true };
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** Legacy per-version folders (installs made before the fixed layout), newest first. `current` is not listed. */
 export function managedVersions(options: ManagedRootOptions = {}): string[] {
   try {
     return readdirSync(managedChromeForTestingRoot(options))
@@ -152,5 +267,5 @@ export function managedVersions(options: ManagedRootOptions = {}): string[] {
 
 /** System bsdtar: a bare `tar` under Git Bash resolves to GNU tar, which reads `C:\…` as a remote host. */
 function windowsTar(): string {
-  return path.join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe');
+  return path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
 }

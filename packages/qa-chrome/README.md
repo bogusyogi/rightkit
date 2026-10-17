@@ -14,9 +14,11 @@ Chrome for Testing resolver, launcher and graceful closer for repository QA harn
 | Import | Contents |
 |---|---|
 | `@rightkit/qa-chrome` | `resolveChromeForTesting`, `findChromeForTesting`, `chromeForTestingCandidates`, `launchChromeForTesting`, `closeChromeGracefully`, `settleProfileProcesses`, `chromeProcessesForProfile`, `ChromeForTestingNotFoundError`, `CHROME_FOR_TESTING_ENV`, `codeSignCloneRoots`, `codeSignCloneEntries`, install helpers, and Windows sandbox-access helpers (`sandboxAccessProblem`, `grantSandboxAccess`, `ChromeSandboxAccessError`) |
-| `rightkit-qa-chrome` (bin) | `install [--channel stable\|beta]`, `path`, `list` |
+| `rightkit-qa-chrome` (bin) | `install`, `path`, `list` |
 
-Resolution order: explicit path, then `RIGHTKIT_CHROME_FOR_TESTING`, then the RightKit-managed folder (newest installed version first; `rightkit-qa-chrome install` fills it and `RIGHTKIT_CHROME_FOR_TESTING_ROOT` moves it), then `/Applications` and `~/Applications` (macOS only), then the newest Puppeteer and Playwright cache builds. An explicit path or `RIGHTKIT_CHROME_FOR_TESTING` that names a missing file throws without trying the rest. A miss throws `ChromeForTestingNotFoundError` with install steps.
+`install` puts the pinned, SHA-256-checked Chrome for Testing at `<shared>/chrome-for-testing/current` (one `current.previous` kept for rollback), the same layout `rightkit-browser`'s `install` feature uses. It refuses while a pin has no recorded digest.
+
+Resolution order: explicit path, then `RIGHTKIT_CHROME_FOR_TESTING`, then the RightKit-managed `current` folder (then `current.previous`, then legacy per-version folders; `RIGHTKIT_CHROME_FOR_TESTING_ROOT` moves the root), then `/Applications` and `~/Applications` (macOS only), then the newest Puppeteer and Playwright cache builds. An explicit path or `RIGHTKIT_CHROME_FOR_TESTING` that names a missing file throws without trying the rest. A miss throws `ChromeForTestingNotFoundError` with install steps.
 
 On Windows, `launchChromeForTesting` throws `ChromeSandboxAccessError` before starting the browser when Chrome's sandbox is known to lack read and execute access to the executable's folder, unless `--no-sandbox` is passed in `args`.
 

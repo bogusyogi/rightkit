@@ -22,7 +22,7 @@ Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automati
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
+`install` (off by default): `install::ensure_chrome_for_testing`; pulls `rightkit-models`, `rightkit-fs` and `zip`. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
 
 ## Usage
 
@@ -54,14 +54,16 @@ Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local tes
 
 ## Chrome resolution
 
-Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then RightKit-managed versions, app installs, and the newest Puppeteer or Playwright cache builds. Managed versions are tried in numeric version order, newest first.
+Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then the RightKit-managed `current` folder (one fixed path, with a single `current.previous` kept for rollback; legacy per-version folders are tried after it, newest first), app installs, and the newest Puppeteer or Playwright cache builds.
 
 | Platform | Managed executable |
 |---|---|
-| macOS ARM64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
-| macOS x64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
-| Windows | `%LOCALAPPDATA%\Orthic Labs\shared\chrome-for-testing\<version>\chrome-win64\chrome.exe` |
-| Linux | `$XDG_DATA_HOME/Orthic Labs/shared/chrome-for-testing/<version>/chrome-linux64/chrome` (`XDG_DATA_HOME` defaults to `~/.local/share`) |
+| macOS ARM64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/current/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
+| macOS x64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/current/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
+| Windows | `%LOCALAPPDATA%\Orthic Labs\shared\chrome-for-testing\current\chrome-win64\chrome.exe` |
+| Linux | `$XDG_DATA_HOME/Orthic Labs/shared/chrome-for-testing/current/chrome-linux64/chrome` (`XDG_DATA_HOME` defaults to `~/.local/share`) |
+
+The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoot, &PinnedChrome)` for an app's installer or updater step: it downloads through rightkit-models, checks the pinned SHA-256 before extracting, extracts to `current.staging`, swaps into `current` and keeps `current.previous`. A pin whose digest is `Sha256Pin::Todo` is refused.
 
 - `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides only the managed root. An explicit executable override keeps priority.
 - If Chrome for Testing is missing, launch returns `BrowserError::ChromeForTestingNotFound` with install instructions.

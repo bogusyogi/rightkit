@@ -14,7 +14,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedVersions } from './install.js';
+import { MANAGED_CURRENT_DIR, MANAGED_PREVIOUS_DIR, chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedVersions } from './install.js';
 import { sandboxAccessProblem } from './sandbox-access.js';
 
 export * from './install.js';
@@ -24,7 +24,7 @@ export * from './sandbox-access.js';
 export const CHROME_FOR_TESTING_ENV = 'RIGHTKIT_CHROME_FOR_TESTING';
 
 export const CHROME_FOR_TESTING_INSTALL_HINT = [
-  'Install Chrome for Testing into the RightKit-managed folder:',
+  'Install the pinned Chrome for Testing at the RightKit-managed fixed path (<shared>/chrome-for-testing/current):',
   '  pnpm exec rightkit-qa-chrome install',
   `or point ${CHROME_FOR_TESTING_ENV} at its executable, e.g.`,
   `  ${CHROME_FOR_TESTING_ENV}="$HOME/.cache/puppeteer/chrome/mac_arm-<version>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"`,
@@ -77,8 +77,8 @@ function versionedChildren(root: string, prefix: RegExp): string[] {
 
 /**
  * Known Chrome for Testing install locations in resolution order (after the explicit option
- * and the environment variable): the RightKit-managed folder (newest version first, see
- * `rightkit-qa-chrome install`), then app installs, then Puppeteer's and Playwright's caches
+ * and the environment variable): the RightKit-managed `current` folder, then `current.previous`,
+ * then legacy per-version folders (newest first; see `rightkit-qa-chrome install`), then app installs, then Puppeteer's and Playwright's caches
  * as legacy fallbacks.
  */
 export function chromeForTestingCandidates(options: ResolveChromeForTestingOptions = {}): string[] {
@@ -89,8 +89,14 @@ export function chromeForTestingCandidates(options: ResolveChromeForTestingOptio
   const puppeteerRoot = path.join(env.PUPPETEER_CACHE_DIR || path.join(home, '.cache', 'puppeteer'), 'chrome');
   const out: string[] = [];
   const key = chromeForTestingPlatform(platform, arch);
+  const managedRoot = managedChromeForTestingRoot({ env, platform, homedir: home });
+  out.push(
+    managedExecutable(path.join(managedRoot, MANAGED_CURRENT_DIR), key),
+    managedExecutable(path.join(managedRoot, MANAGED_PREVIOUS_DIR), key),
+  );
+  // Legacy per-version folders from before the fixed layout.
   for (const v of managedVersions({ env, platform, homedir: home })) {
-    out.push(managedExecutable(path.join(managedChromeForTestingRoot({ env, platform, homedir: home }), v), key));
+    out.push(managedExecutable(path.join(managedRoot, v), key));
   }
 
   if (platform === 'darwin') {

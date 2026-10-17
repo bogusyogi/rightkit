@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+- Chrome for Testing lives at ONE fixed path, the layout `rightkit-browser` 0.3.3 installs: `<shared>/chrome-for-testing/current/`, one `current.previous` kept for rollback, `current.staging` while installing (no per-version folder, no new id; #267). The resolver lists `current`, then `current.previous`, then any legacy per-version folders (still honoured), before app installs and the Puppeteer and Playwright caches.
+- **Breaking for `installChromeForTesting`:** it now installs a pinned build (`PINNED_CHROME_FOR_TESTING`, or `options.pin`) and checks the archive's SHA-256 before extracting; the `channel` option and the Google release-list lookup are gone. Google publishes no Chrome for Testing digests, so each digest is recorded when its version is pinned; until then every pin has no `sha256` and the install throws `ChromeForTestingDigestMissingError` before downloading anything. A wrong digest throws `ChromeForTestingDigestMismatchError`. Archive members are checked (under `chrome-<platform>/`, no `..`, absolute, backslash or drive paths) before extraction. The Windows sandbox grant is applied to the staged folder before the swap.
+- New exports: `PINNED_CHROME_FOR_TESTING`, `PinnedChrome`, `PinnedDownload`, `ChromeForTestingDigestMissingError`, `ChromeForTestingDigestMismatchError`, `assertSafeArchiveMembers`, `managedCurrentDir`, `managedPreviousDir`, `MANAGED_CURRENT_DIR`, `MANAGED_PREVIOUS_DIR`, `MANAGED_STAGING_DIR`. `managedVersions` now lists only legacy folders. The CLI `install` takes no `--channel`.
+- Not compiled or run yet.
+
 ## 0.1.7 — 2026-10-16
 
 - Found by HeardRight (#167): on Windows `close()` failed teardown with `profileRemoved: false` ("Owned QA browser & profile must close"). The profile was deleted straight after the kill, while the dying Chrome tree still held handles in it, and `rmSync` gave up after about one second of EBUSY/EPERM retries. It was never tried again.
