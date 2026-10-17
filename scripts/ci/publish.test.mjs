@@ -897,7 +897,9 @@ jobs:
   ]) assert.throws(() => parseYaml(bad), pattern, JSON.stringify(bad));
 });
 
-test("the real publish workflow parses, and it is the sealed-upload shape", () => {
+// RightKit hosts no workflow since 2026-10-17 (#342); the real-workflow checks skip while publish.yml is absent.
+const realWorkflowSkip = !fs.existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url)) && "no publish.yml (#342)";
+test("the real publish workflow parses, and it is the sealed-upload shape", { skip: realWorkflowSkip }, () => {
   const text = fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8");
   const doc = parseYaml(text);
   assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "sign-swap", "pack", "verify", "seal-check", "upload"]);
@@ -909,7 +911,7 @@ test("the real publish workflow parses, and it is the sealed-upload shape", () =
 
 const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8"));
 
-test("the real publish workflow holds the contract and every mutation is rejected", () => {
+test("the real publish workflow holds the contract and every mutation is rejected", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(assertPublishDoc(doc), true);
   assert.deepEqual(proveMutations(doc), []);
@@ -917,7 +919,7 @@ test("the real publish workflow holds the contract and every mutation is rejecte
   for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
 });
 
-test("the contract compares conditions exactly and finds every secret expression", () => {
+test("the contract compares conditions exactly and finds every secret expression", { skip: realWorkflowSkip }, () => {
   const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc); return () => assertPublishDoc(doc); };
   assert.throws(broken((d) => { d.jobs.upload.if = `${d.jobs.upload.if} || true`; }), /upload's condition must be exactly/);
   assert.throws(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if.replace(" }}", " || true }}")}`; }), /upload's condition must be exactly/);
@@ -930,7 +932,7 @@ test("the contract compares conditions exactly and finds every secret expression
   assert.throws(broken((d) => { d.jobs.verify.secrets = "inherit"; }), /secrets/);
 });
 
-test("the privileged upload job is closed: env, shell, working directory, step list, with keys and job keys", () => {
+test("the privileged upload job is closed: env, shell, working directory, step list, with keys and job keys", { skip: realWorkflowSkip }, () => {
   const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc.jobs.upload); return () => assertPublishDoc(doc); };
   const npm = 5; const crates = 6;
   for (const key of ["NODE_OPTIONS", "NPM_CONFIG_SCRIPT_SHELL", "npm_config_registry", "JAVA_TOOL_OPTIONS", "PATH", "BASH_ENV", "LD_PRELOAD"]) {
@@ -946,7 +948,7 @@ test("the privileged upload job is closed: env, shell, working directory, step l
   assert.doesNotThrow(broken(() => {}));
 });
 
-test("the YAML parser reads the real workflow's run blocks as the spec does", () => {
+test("the YAML parser reads the real workflow's run blocks as the spec does", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   const upload = doc.jobs.upload.steps.find((s) => s.name === "Upload to npm");
   assert.equal(upload.run, "node scripts/ci/upload.mjs run");

@@ -1046,10 +1046,12 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 // reviewed, manual-dispatch Windows FFmpeg build (ffmpeg-windows.yml), named here as an exception and held to its safety
 // properties, and the manual-dispatch registry publication workflow (publish.yml), the only workflow that may read
 // secrets, held to its own properties below. Any other workflow file fails. Product repositories host none.
-// android.yml (#203) and chrome-pins.yml (#267) only verify; neither publishes nor reads secrets.
-const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
-const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
-const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish.yml"];
+// RightKit is private with no CI since 2026-10-17 (#342): it hosts no workflow at all. The publish.yml
+// contract checks below stay for the file's return and skip while it is absent.
+const RIGHTKIT_VERIFICATION_WORKFLOWS = [];
+const RIGHTKIT_EXCEPTION_WORKFLOWS = [];
+const RIGHTKIT_PUBLISHING_WORKFLOWS = [];
+const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
 function pinnedActionLines(text, name) {
   const usesLines = text.split("\n").filter((line) => /^\s*(?:- )?uses:/.test(line));
@@ -1095,7 +1097,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
 
 const publishWorkflowText = () => readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
-test("publish.yml: every security property is asserted on the parsed workflow and each violation is rejected", () => {
+test("publish.yml: every security property is asserted on the parsed workflow and each violation is rejected", { skip: !publishWorkflowPresent && "no publish.yml (#342)" }, () => {
   const doc = parseYaml(publishWorkflowText());
   assertPublishWorkflowContract(publishWorkflowText(), "publish.yml");
   assert.deepEqual(VERIFY_HOSTS, ["windows-2025", "xcode-27"]);
@@ -1106,7 +1108,7 @@ test("publish.yml: every security property is asserted on the parsed workflow an
   assert.deepEqual(proveMutations(doc), []);
 });
 
-test("publish.yml: named violations fail the contract with the property they break", () => {
+test("publish.yml: named violations fail the contract with the property they break", { skip: !publishWorkflowPresent && "no publish.yml (#342)" }, () => {
   const expectations = [
     ["drop the Windows verify host", /verify must run on exactly/],
     ["upload no longer needs verify", /upload must need verify/],
