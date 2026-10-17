@@ -1059,6 +1059,50 @@ function swiftPrivateSecretRefusal({ source, workflow, manifest, lanes, name, in
   return null;
 }
 
+// @rightkit/ci `sign-existing` lane (0.2.49, Orthic-Labs/rightkit#257): signs an already-qualified artifact of another run.
+// It is accepted only in its exact rendered shape: workflow_dispatch only; jobs private-repo-guard and sign-existing only;
+// the default-branch gate behind the private-repo guard; the protected environment; contents: read and actions: read
+// (workflow and job); exactly the three Apple Developer ID secrets, referenced inside the sign-existing job only; pinned
+// allowlisted actions; and no build, notarization or release step. Returns null when the shape matches, else the reason.
+const SIGN_EXISTING_SECRETS = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+const SIGN_EXISTING_ACTIONS = new Set(["actions/checkout", "actions/setup-node", "pnpm/action-setup", "actions/download-artifact", "actions/upload-artifact"]);
+const SIGN_EXISTING_RIGHT_RELEASE_COMMANDS = new Set(["ownership", "sign-dev-artifact"]);
+const SIGN_EXISTING_BUILD_RE = /\b(?:cargo|rustc|xcodebuild|tauri|cmake|msbuild|gradle|notarytool|stapler)\b|swift build|right-release build|--release\b|\b(?:npm|pnpm|yarn) (?:run|build)\b/;
+const SIGN_EXISTING_GUARD = "  private-repo-guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Refuse private repository\n        if: ${{ github.event.repository.private }}\n        run: exit 1\n";
+const SIGN_EXISTING_JOB_HEAD = /^(?:    #[^\n]*\n)*    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: [A-Za-z0-9][A-Za-z0-9._-]*\n    runs-on: (?:macos|xcode)-[A-Za-z0-9._-]+\n(?:    timeout-minutes: \d+\n)?    permissions:\n      contents: read\n      actions: read\n    steps:\n/;
+
+function signExistingRefusal(source) {
+  const jobsAt = source.indexOf("\njobs:\n");
+  if (jobsAt < 0) return "it declares no jobs";
+  const head = source.slice(0, jobsAt + 1);
+  const jobs = source.slice(jobsAt + 7);
+  const onBlock = /^on:\n((?:[ \t]+[^\n]*\n|\n)*)/m.exec(head)?.[1] ?? "";
+  const triggers = [...onBlock.matchAll(/^  ([A-Za-z_]+):/gm)].map((match) => match[1]);
+  if (triggers.length !== 1 || triggers[0] !== "workflow_dispatch") return "it must be triggered by workflow_dispatch only";
+  if (!/^permissions:\n  contents: read\n  actions: read\n(?!  )/m.test(head)) return "workflow permissions must be exactly contents: read and actions: read";
+  const names = [...jobs.matchAll(/^  ([A-Za-z0-9_-]+):[ \t]*$/gm)].map((match) => match[1]);
+  if (names.join(",") !== "private-repo-guard,sign-existing") return `jobs must be exactly private-repo-guard and sign-existing, got ${names.join(", ") || "none"}`;
+  const marker = "\n  sign-existing:\n";
+  const guard = jobs.slice(0, jobs.indexOf(marker) + 1);
+  if (!guard.startsWith(SIGN_EXISTING_GUARD) || guard.length !== SIGN_EXISTING_GUARD.length + (guard.endsWith("\n\n") ? 1 : 0)) return "the private-repo-guard job is not the managed guard";
+  const sign = jobs.slice(jobs.indexOf(marker) + marker.length);
+  if (!SIGN_EXISTING_JOB_HEAD.test(sign)) return "the sign-existing job must need only private-repo-guard, run only for workflow_dispatch on the default branch in an environment on a macOS runner, with job permissions exactly contents: read and actions: read";
+  const secrets = [...source.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => match[1]);
+  const signSecrets = [...sign.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => match[1]);
+  if (secrets.length !== signSecrets.length || new Set(secrets).size !== SIGN_EXISTING_SECRETS.size || secrets.some((name) => !SIGN_EXISTING_SECRETS.has(name))) return "it must reference exactly the three Apple Developer ID secrets, inside the sign-existing job";
+  for (const [, action] of sign.matchAll(/^\s*(?:- )?uses: (\S+)/gm)) {
+    const [name, pin] = action.split("@");
+    if (!SIGN_EXISTING_ACTIONS.has(name) || !/^[0-9a-f]{40}$/.test(pin ?? "")) return `action ${action} is not an allowed commit-pinned action`;
+  }
+  for (const [, command] of source.matchAll(/right-release\s+([A-Za-z][A-Za-z-]*)/g)) {
+    if (!SIGN_EXISTING_RIGHT_RELEASE_COMMANDS.has(command)) return `right-release ${command} is not allowed; the lane only signs an existing artifact`;
+  }
+  if (!/right-release sign-dev-artifact /.test(sign)) return "it must run right-release sign-dev-artifact";
+  const build = SIGN_EXISTING_BUILD_RE.exec(sign);
+  if (build) return `it must not build, notarize or release (found ${JSON.stringify(build[0])})`;
+  return null;
+}
+
 async function validateHostedWorkflows(root, appName, workflows, policy) {
   if (policy !== "right-git-ci-only") {
     fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")}`);
@@ -1072,7 +1116,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   }
   const lanes = manifest?.lanes;
   // Mirrors the `lanes` enum in @rightkit/ci manifest.schema.json.
-  const safeLanes = new Set(["ci", "swift-check", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
+  const safeLanes = new Set(["ci", "swift-check", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate", "sign-existing"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
     || !Array.isArray(lanes)
@@ -1158,6 +1202,14 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedDevMacSigning = workflow === "ci.yml"
       && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
+    // @rightkit/ci `sign-existing` lane: any deviation from the exact managed shape is refused outright.
+    const signExistingSpan = workflow === "sign-existing.yml" ? jobSpan("sign-existing") : null;
+    let protectedSignExisting = false;
+    if (workflow === "sign-existing.yml") {
+      const reason = manifest?.signExisting && typeof manifest.signExisting === "object" ? signExistingRefusal(source) : "the manifest declares no signExisting";
+      if (reason !== null) fail(`${appName} right-git managed sign-existing.yml is not the protected sign-existing shape: ${reason}`);
+      protectedSignExisting = true;
+    }
     // @rightkit/ci `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
     // env lines listed with SWIFT_PRIVATE_JOBS; swiftPrivateSecretRefusal explains every other reference.
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
@@ -1181,6 +1233,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const refusedSecrets = requestedSecrets
       .filter(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
         && !(protectedDevMacSigning && inside(index, devMacSpan) && allowedDevMacSecrets.has(name))
+        && !(protectedSignExisting && inside(index, signExistingSpan) && SIGN_EXISTING_SECRETS.has(name))
         && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name)))
       .map(({ name, index }) => swiftPrivateSecretRefusal({ source, workflow, manifest, lanes, name, index }))
       .filter((reason) => reason !== null);

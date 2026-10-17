@@ -956,6 +956,64 @@ function assertRefused(manifest, workflows, detail, label) {
   assert.match(result.stderr, detail, label);
 }
 
+// @rightkit/ci 0.2.49 `sign-existing` lane (Orthic-Labs/rightkit#257): accepted only in its exact rendered shape.
+const SIGN_EXISTING_MANIFEST = {
+  schemaVersion: 1,
+  compile: "github-actions-only",
+  profile: "rust-hybrid",
+  lanes: ["ci", "sign-existing"],
+  gate: { path: "scripts/gate.sh" },
+  matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+  packageManager: "pnpm@11.24.0",
+  templateVersion: "1.2.0",
+  signExisting: { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "Legion.app/Contents/Resources/payload.json" },
+};
+
+test("accepts the rendered sign-existing lane in its exact shape", () => {
+  assert.deepEqual(validateManifest(SIGN_EXISTING_MANIFEST).errors, []);
+  const workflows = renderedWorkflows(SIGN_EXISTING_MANIFEST);
+  assert.match(workflows["sign-existing.yml"], /secrets\.APPLE_CERTIFICATE_BASE64/);
+  const result = releaseWithManagedWorkflows(SIGN_EXISTING_MANIFEST, workflows);
+  assert.equal(result.status, 0, result.stderr);
+  const named = releaseWithManagedWorkflows({ ...SIGN_EXISTING_MANIFEST, signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, environment: "legion-sign" } }, renderedWorkflows({ ...SIGN_EXISTING_MANIFEST, signExisting: { ...SIGN_EXISTING_MANIFEST.signExisting, environment: "legion-sign" } }));
+  assert.equal(named.status, 0, named.stderr);
+});
+
+test("refuses every deviation from the sign-existing shape", () => {
+  const base = renderedWorkflows(SIGN_EXISTING_MANIFEST);
+  const guardRun = "        run: exit 1\n";
+  const cases = [
+    ["extra trigger", (t) => editText(t, "  workflow_dispatch:\n    inputs:", "  pull_request:\n  workflow_dispatch:\n    inputs:"), /workflow_dispatch only/],
+    ["push trigger", (t) => editText(t, "  workflow_dispatch:\n    inputs:", "  push:\n  workflow_dispatch:\n    inputs:"), /workflow_dispatch only/],
+    ["extra needs", (t) => editText(t, "needs: [private-repo-guard]", "needs: [private-repo-guard, ci]"), /job must need only private-repo-guard/],
+    ["no default-branch gate", (t) => editText(t, "github.ref_name == github.event.repository.default_branch", "true"), /job must need only private-repo-guard/],
+    ["no environment", (t) => editText(t, "    environment: release\n", ""), /job must need only private-repo-guard/],
+    ["job write permission", (t) => editText(t, "      actions: read\n    steps:", "      actions: read\n      contents: write\n    steps:"), /job must need only private-repo-guard/],
+    ["extra job permission", (t) => editText(t, "      actions: read\n    steps:", "      actions: read\n      id-token: read\n    steps:"), /job must need only private-repo-guard/],
+    ["extra workflow permission", (t) => editText(t, "  actions: read\nconcurrency:", "  actions: read\n  pull-requests: read\nconcurrency:"), /workflow permissions must be exactly/],
+    ["fourth secret", (t) => editText(t, "APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}", "APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}\n          NOTARY: ${{ secrets.APPLE_API_KEY }}"), /exactly the three Apple/],
+    ["missing secret", (t) => editText(t, "APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}", "APPLE_KEYCHAIN_PASSWORD: fixed"), /exactly the three Apple/],
+    ["secret outside the sign job", (t) => editText(t, guardRun, `${guardRun}        env:\n          T: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n`), /private-repo-guard job is not the managed guard|exactly the three Apple/],
+    ["cargo build step", (t) => editText(t, "      - name: Remove Apple signing material", "      - name: Build\n        run: cargo build\n      - name: Remove Apple signing material"), /must not build/],
+    ["release flag", (t) => editText(t, "      - name: Remove Apple signing material", "      - name: Build\n        run: pnpm exec right-release sign-dev-artifact --release\n      - name: Remove Apple signing material"), /must not build/],
+    ["right-release build", (t) => editText(t, "      - name: Remove Apple signing material", "      - name: Build\n        run: pnpm exec right-release build\n      - name: Remove Apple signing material"), /right-release build is not allowed/],
+    ["notarization", (t) => editText(t, "      - name: Remove Apple signing material", "      - name: Notarize\n        run: xcrun notarytool submit x\n      - name: Remove Apple signing material"), /must not build, notarize or release/],
+    ["unpinned action", (t) => editText(t, /actions\/download-artifact@[0-9a-f]{40}/, "actions/download-artifact@v4"), /not an allowed commit-pinned action/],
+    ["unlisted action", (t) => editText(t, /actions\/download-artifact@[0-9a-f]{40}/, "evil/steal@0123456789012345678901234567890123456789"), /not an allowed commit-pinned action/],
+    ["extra job", (t) => `${t}  extra:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n`, /jobs must be exactly private-repo-guard and sign-existing/],
+    ["pull_request_target", (t) => editText(t, "  workflow_dispatch:\n    inputs:", "  pull_request_target:\n  workflow_dispatch:\n    inputs:"), /workflow_dispatch only/],
+  ];
+  for (const [label, edit, detail] of cases) {
+    const result = releaseWithManagedWorkflows(SIGN_EXISTING_MANIFEST, { ...base, "sign-existing.yml": edit(base["sign-existing.yml"]) });
+    assert.notEqual(result.status, 0, label);
+    assert.match(result.stderr, /sign-existing/, label);
+    assert.match(result.stderr, detail, label);
+  }
+  const undeclared = releaseWithManagedWorkflows({ ...SIGN_EXISTING_MANIFEST, signExisting: undefined }, base);
+  assert.notEqual(undeclared.status, 0, "manifest must declare signExisting");
+  assert.match(undeclared.stderr, /declares no signExisting/);
+});
+
 test("accepts the swift.privatePackages credential in every workflow and job @rightkit/git 0.2.41 renders it into", () => {
   const expected = [
     [SWIFT_NODE_LANES, { "ci.yml": ["test"], "qualification.yml": ["qualification"], "package-smoke.yml": [], "release-candidate.yml": ["candidate"], "regenerate.yml": ["regenerate"] }],
