@@ -2522,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "windows",
 ]
@@ -2537,7 +2537,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
