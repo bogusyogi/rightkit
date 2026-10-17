@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.5
+
+Issue #269. Written without compiling or running Cargo here; CI builds and runs the tests.
+
+- Added: `private` module, the private per-run child service pattern. `PrivateSecret` (256-bit, OS random, hex form, redacted `Debug`, wiped on drop, `verify` constant time over a fixed-length buffer), `PrivateChild::spawn` / `spawn_with` (stdin piped, secret written as the first line, pipe held open; dropping it closes stdin), the child half `PrivateSecret::read_from_stdin`, `watch_stdin_eof`, `watch_reader_eof` and `exit_when_stdin_closes`.
+- Added: `ServiceConfig::private_secret` (host: `hello` and every `request` frame must carry the secret; refused with `unauthenticated` before any handler runs, connection closed on a bad request frame) and `ClientConfig::secret` (client sends it on every frame). `ServiceConfig` gained a public field `private_secret` (struct-literal construction needs it; `ServiceConfig::new` sets `None`).
+- Changed: `subtle` is a normal dependency (it was optional behind `link`); new dependency `getrandom` 0.4. The `link` feature no longer lists `dep:subtle`.
+- Tests: `tests/private_service.rs` (served with the secret, refused without or with a wrong one, a host with no secret unchanged) and unit tests in `src/private.rs`.
+
 ## 0.2.4
 
 - Added: `Daemon::forget_device(id)` (in process only; `remote`). Removes a REVOKED device so the same key can enrol again (enrolment answered 409 `already_enrolled` for any id still in state). Idempotent (`Ok(false)` for an unknown id) and refused for a live device (`ForgetDeviceError::NotRevoked`). One durable write removes the device record, its idempotency records, the pending nonces older than the replay window (those inside it are kept, so captured traffic cannot be replayed once the key enrols again), its unfinished upload sessions, and any open link; tasks leased to it return to the queue and tasks pinned to it fail with `device_forgotten`. A failed write restores memory. Logs `DEVICE_FORGOTTEN`.

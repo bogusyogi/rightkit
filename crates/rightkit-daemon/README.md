@@ -163,6 +163,10 @@ Bounds, all enforced in the daemon: nothing is served unless the owner opened a 
 
 `Daemon::forget_device(id)` (in process, never routed) removes a revoked device and everything keyed by its id so the same key can enrol again as a new device; see its documentation for what is removed and what is kept.
 
+## Private per-run child service (`private`)
+
+For an app that runs its own engine as a child that only it may call (MailRight's core, issue #269). The parent makes a per-run suite (`Suite::per_run_temp`) and starts the child with `PrivateChild::spawn(OwnedCommand)`, which pipes stdin and writes a fresh 256-bit `PrivateSecret` to it as the first line (never an argument or environment variable). The child reads it with `PrivateSecret::read_from_stdin()`, hosts with `ServiceConfig::private_secret(secret)`, and calls `exit_when_stdin_closes(code)` (or `watch_stdin_eof`) so it ends when the parent does, however the parent ended. The parent connects with `ClientConfig::secret(..)` (use `connect_expecting` too: a secret goes to whatever answered). The `hello` and every `request` frame carry a top-level `secret`; the host compares it in constant time over a fixed-length buffer before any handler runs, and a missing or wrong one is answered `unauthenticated` and the connection closed. The secret adds to the same-user transport check; it does not replace it, and code running as the user that can read the child's stdin or memory is out of scope. `subtle` and `getrandom` are now unconditional dependencies (both small, already in the tree).
+
 ## Threat model
 
 **Defended against:** another local user (or a service running as one) connecting to the endpoint to call the service; another local user squatting on the endpoint name or path so a client sends its `hello` and requests to an impostor; a remote client (Windows pipes reject remote clients); a server that tries to impersonate the calling user through the pipe (clients open with `SECURITY_IDENTIFICATION`); connection floods growing the host without bound (Windows: `max_pipe_instances`).

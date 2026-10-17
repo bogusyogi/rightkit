@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -15,6 +15,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+# Private per-run child service (`private`): constant-time secret check and the secret itself.
+subtle = "2.6"
+getrandom = "0.4"
 
 # `link` (device client) and `remote` (daemon host) dependencies, all optional. Copied from the
 # retired standalone daemon crate (M7 merge). `link` carries no tokio, axum or hyper.
@@ -23,7 +26,6 @@ blake3 = { version = "1", optional = true }
 form_urlencoded = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
-subtle = { version = "2.6", optional = true }
 # `remote` only.
 rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", default-features = false, optional = true }
 rightkit-oauth = { version = "0.8.0", path = "../rightkit-oauth", default-features = false, features = ["server"], optional = true }
@@ -56,7 +58,7 @@ default = ["local"]
 local = []
 # Blocking device client (enrol, signed requests, resumable upload) pinned to caller-supplied roots.
 # No tokio, axum or hyper. Enables `remote::client` and `remote::signing`.
-link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rustls", "dep:subtle"]
+link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rustls"]
 # Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed
 # webhook route classes, durable state and lifecycle events (daemon-api v1). Implies `link`.
 remote = [

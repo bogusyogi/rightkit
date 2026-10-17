@@ -54,6 +54,7 @@ mod host_identity;
 pub mod link;
 pub mod mode;
 mod peer;
+pub mod private;
 mod record;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]
@@ -64,6 +65,10 @@ mod suite;
 mod takeover_watch;
 mod transport;
 
+pub use private::{
+    exit_when_stdin_closes, watch_reader_eof, watch_stdin_eof, PrivateChild, PrivateSecret,
+    SecretError, SECRET_BYTES, SECRET_HEX_LEN,
+};
 pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,

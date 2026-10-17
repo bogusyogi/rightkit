@@ -88,6 +88,8 @@ pub struct ServiceConfig {
     /// Explicit endpoint (a compatibility convention such as HeardRight's
     /// `<service_dir>/speech.sock`); default is [`crate::endpoint_for`].
     pub endpoint: Option<String>,
+    /// A per-run secret every frame must carry; see [`ServiceConfig::private_secret`].
+    pub private_secret: Option<crate::private::PrivateSecret>,
 }
 
 impl ServiceConfig {
@@ -104,7 +106,17 @@ impl ServiceConfig {
             on_event: None,
             known_roles: Default::default(),
             endpoint: None,
+            private_secret: None,
         }
+    }
+
+    /// Require `secret` on the `hello` frame and on every `request` frame (a top-level `secret`
+    /// field, checked in constant time before any handler runs). A frame without it, or with a
+    /// wrong one, is answered `unauthenticated` and the connection is closed. This is the host
+    /// half of the private per-run child service pattern; see the `private` module.
+    pub fn private_secret(mut self, secret: crate::private::PrivateSecret) -> Self {
+        self.private_secret = Some(secret);
+        self
     }
 
     /// Take the allowlist from a [`MethodTable`](crate::contract::MethodTable), the single source
@@ -838,6 +850,15 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             false,
         );
     }
+    if let Some(secret) = &s.cfg.private_secret {
+        if !secret.verify(hello["secret"].as_str().unwrap_or("")) {
+            return reject(
+                "missing or wrong secret",
+                crate::error::ERROR_UNAUTHENTICATED,
+                false,
+            );
+        }
+    }
     if hello["protocol_major"].as_u64() != Some(u64::from(PROTOCOL_MAJOR)) {
         return reject("protocol major mismatch", "protocol_mismatch", false);
     }
@@ -892,6 +913,17 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
                 continue;
             }
         };
+        if let Some(secret) = &s.cfg.private_secret {
+            if !secret.verify(req["secret"].as_str().unwrap_or("")) {
+                s.event(ServiceEvent::ConnectionRejected {
+                    app: app.clone(),
+                    reason: "missing or wrong secret".into(),
+                });
+                send(&json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
+                    "error": ServiceError::new(crate::error::ERROR_UNAUTHENTICATED, "missing or wrong secret").to_value()}));
+                break;
+            }
+        }
         let Some(rid) = req["id"].as_u64().filter(|_| req["type"] == "request") else {
             send(
                 &json!({"type": "response", "id": 0, "ok": false, "error": ServiceError::new("bad_request", "expected {type:request,id,method}").to_value()}),

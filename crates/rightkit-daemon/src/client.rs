@@ -1,4 +1,5 @@
 use crate::error::*;
+use crate::private::PrivateSecret;
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::record::{try_read_record, ServiceRecord, PROTOCOL_MAJOR};
 use crate::suite::{Suite, SuiteError};
@@ -108,6 +109,7 @@ pub struct ClientConfig {
     suite: Option<Suite>,
     deadline: Option<Duration>,
     ignore_env_overrides: bool,
+    secret: Option<PrivateSecret>,
 }
 
 impl ClientConfig {
@@ -121,7 +123,16 @@ impl ClientConfig {
             suite: None,
             deadline: Some(DEFAULT_DEADLINE),
             ignore_env_overrides: false,
+            secret: None,
         }
+    }
+
+    /// Send `secret` on the `hello` and on every request, for a host that requires one (see
+    /// [`ServiceConfig::private_secret`](crate::ServiceConfig::private_secret)). Pair it with
+    /// [`Client::connect_expecting`]: a secret goes to whatever answered at the endpoint.
+    pub fn secret(mut self, secret: PrivateSecret) -> Self {
+        self.secret = Some(secret);
+        self
     }
 
     /// Use this suite instead of resolving one.
@@ -192,6 +203,16 @@ pub struct Client {
     deadline_ms: AtomicU64,
     /// The host the OS identified, for a client opened with [`Client::connect_expecting`].
     host: Option<HostProcess>,
+    /// Sent on every request frame when the host requires one.
+    secret: Option<PrivateSecret>,
+}
+
+/// Add the per-run secret to an outgoing frame.
+fn with_secret(mut frame: Value, secret: Option<&PrivateSecret>) -> Value {
+    if let Some(secret) = secret {
+        frame["secret"] = Value::String(secret.expose().to_string());
+    }
+    frame
 }
 
 fn closed() -> ServiceError {
@@ -224,7 +245,7 @@ impl Client {
         app: &str,
         deadline: Option<Duration>,
     ) -> Result<Client, ServiceError> {
-        Self::connect_bounded(suite, service, app, deadline, None)
+        Self::connect_bounded(suite, service, app, deadline, None, None)
             .map_err(ConnectError::into_service_error)
     }
 
@@ -233,8 +254,15 @@ impl Client {
     /// authenticated (see [`Client::connect`]); this hardens only where the client looks.
     pub fn connect_config(config: &ClientConfig) -> Result<Client, ServiceError> {
         let suite = config.resolve_suite().map_err(suite_error)?;
-        Self::connect_bounded(&suite, &config.service, &config.app, config.deadline, None)
-            .map_err(ConnectError::into_service_error)
+        Self::connect_bounded(
+            &suite,
+            &config.service,
+            &config.app,
+            config.deadline,
+            None,
+            config.secret.clone(),
+        )
+        .map_err(ConnectError::into_service_error)
     }
 
     /// Discover the host of the configured service, verify it is the program `expect` names, and
@@ -272,6 +300,7 @@ impl Client {
             &config.app,
             config.deadline,
             Some(expect.clone()),
+            config.secret.clone(),
         )
     }
 
@@ -284,14 +313,15 @@ impl Client {
         app: &str,
         deadline: Option<Duration>,
         expect: Option<HostExpectation>,
+        secret: Option<PrivateSecret>,
     ) -> Result<Client, ConnectError> {
         let Some(d) = deadline else {
-            return Self::handshake(suite, service, app, None, expect.as_ref());
+            return Self::handshake(suite, service, app, None, expect.as_ref(), secret);
         };
         let (tx, rx) = mpsc::channel();
         let (s, sv, ap) = (suite.clone(), service.to_string(), app.to_string());
         std::thread::spawn(move || {
-            let _ = tx.send(Self::handshake(&s, &sv, &ap, Some(d), expect.as_ref()));
+            let _ = tx.send(Self::handshake(&s, &sv, &ap, Some(d), expect.as_ref(), secret));
         });
         match rx.recv_timeout(d + Duration::from_millis(250)) {
             Ok(r) => r,
@@ -305,6 +335,7 @@ impl Client {
         app: &str,
         deadline: Option<Duration>,
         expect: Option<&HostExpectation>,
+        secret: Option<PrivateSecret>,
     ) -> Result<Client, ConnectError> {
         let started = Instant::now();
         // Absent and unreadable are both retryable `service_unavailable`, but they are not the
@@ -366,7 +397,10 @@ impl Client {
         let hello_res = (|| {
             write_json_line(
                 &mut io.writer,
-                &json!({"type": "hello", "app": app, "protocol_major": PROTOCOL_MAJOR}),
+                &with_secret(
+                    json!({"type": "hello", "app": app, "protocol_major": PROTOCOL_MAJOR}),
+                    secret.as_ref(),
+                ),
                 LIMIT,
             )
             .map_err(|e| ServiceError::new("io", e.to_string()))?;
@@ -397,6 +431,7 @@ impl Client {
             shutdown,
             deadline_ms: AtomicU64::new(deadline.map(|d| d.as_millis() as u64).unwrap_or(0)),
             host,
+            secret,
         })
     }
 
@@ -484,7 +519,10 @@ impl Client {
         let res = (|| {
             write_json_line(
                 &mut io.writer,
-                &json!({"type": "request", "id": id, "method": method, "params": params}),
+                &with_secret(
+                    json!({"type": "request", "id": id, "method": method, "params": params}),
+                    self.secret.as_ref(),
+                ),
                 LIMIT,
             )
             .map_err(|e| match e {
@@ -577,7 +615,7 @@ impl Client {
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
         Self::retry_loop(
-            &|deadline| Self::connect_bounded(suite, service, app, deadline, None),
+            &|deadline| Self::connect_bounded(suite, service, app, deadline, None, None),
             method,
             params,
             policy,
@@ -607,6 +645,7 @@ impl Client {
                     &config.app,
                     deadline,
                     Some(expect.clone()),
+                    config.secret.clone(),
                 )
             },
             method,
