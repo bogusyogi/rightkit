@@ -18,6 +18,7 @@
 //! | `extract` | (feature `extract`) text extraction, whole-document and per page  |
 //! | `scan`    | scanned-page detection (no text layer, page-sized image)          |
 //! | `raster`  | (feature `raster`) render scanned pages to gray/RGBA/PNG for OCR  |
+//! | `redact`  | (feature `redact`) remove content under marks, fail closed        |
 
 #[cfg(feature = "edit")]
 pub mod commit;
@@ -33,6 +34,8 @@ pub mod merge;
 pub mod model;
 #[cfg(feature = "raster")]
 pub mod raster;
+#[cfg(feature = "redact")]
+pub mod redact;
 #[cfg(feature = "edit")]
 pub mod save;
 pub mod scan;
