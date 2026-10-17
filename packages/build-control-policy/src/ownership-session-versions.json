@@ -537,7 +537,7 @@
       "@rightkit/outdated": "0.2.0",
       "@rightkit/pdf-ui": "0.1.8",
       "@rightkit/platform-ui": "0.2.8",
-      "@rightkit/qa": "0.4.8",
+      "@rightkit/qa": "0.4.9",
       "@rightkit/qa-chrome": "0.1.8",
       "@rightkit/react-shell": "0.6.8",
       "@rightkit/release": "0.2.172",

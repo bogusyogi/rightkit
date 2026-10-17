@@ -2,26 +2,47 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/qa",
-  "version": "0.4.7",
-  "commit": "067535f5a8881778a9b5d933d4ced62c73f13700",
-  "artifactSha256": "56c4d11441d0197e077cf997496a746b9c592439b26df146c7c0ac9d0b8d0647",
+  "version": "0.4.9",
+  "commit": "16e58c6aa56ba8c44738e259231563f8cd084e20",
+  "artifactSha256": "77412fcca7aeced29d2df20f239484900890935074fd3965d3c31d188aab8fdd",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "067535f5a8881778a9b5d933d4ced62c73f13700",
-      "command": "pnpm --dir packages/$D test",
+      "commit": "16e58c6aa56ba8c44738e259231563f8cd084e20",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-11T08:23:55Z",
-      "passed": 163,
-      "failed": 0
+      "artifactSha256": "77412fcca7aeced29d2df20f239484900890935074fd3965d3c31d188aab8fdd",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/qa run test && pnpm --dir packages/qa pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-C3I4xf",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-17T11:44:57.261Z",
+      "passed": 251,
+      "failed": 0,
+      "skipped": 5,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/qa run test",
+          "ok": true,
+          "executed": 251,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 5,
+          "binaries": 0
+        }
+      ]
     }
   ]
 }
