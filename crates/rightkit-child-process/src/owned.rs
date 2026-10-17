@@ -38,6 +38,13 @@ pub enum UnixContainment {
 /// Windows: `BelowNormal` adds `BELOW_NORMAL_PRIORITY_CLASS` and `Idle` adds
 /// `IDLE_PRIORITY_CLASS` to the creation flags. Unix: the child's nice value is raised to at
 /// least 10 (`BelowNormal`) or 19 (`Idle`) between fork and exec.
+///
+/// `Efficient` is `BelowNormal` plus the platform's energy-efficiency class, for background
+/// work that should not wake the fast cores. Windows: `BELOW_NORMAL_PRIORITY_CLASS` plus
+/// EcoQoS (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` through `SetProcessInformation`, set
+/// while the child is still suspended; a Windows without EcoQoS ignores it, best effort).
+/// macOS: nice 10 and the `QOS_CLASS_UTILITY` quality of service on the child's initial
+/// thread (set between fork and exec; advisory). Other Unix: nice 10.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ProcessPriority {
@@ -45,6 +52,7 @@ pub enum ProcessPriority {
     Normal,
     BelowNormal,
     Idle,
+    Efficient,
 }
 
 impl ProcessPriority {
@@ -53,7 +61,7 @@ impl ProcessPriority {
     pub(crate) fn nice_floor(self) -> Option<libc::c_int> {
         match self {
             Self::Normal => None,
-            Self::BelowNormal => Some(10),
+            Self::BelowNormal | Self::Efficient => Some(10),
             Self::Idle => Some(19),
         }
     }
@@ -345,6 +353,8 @@ impl OwnedCommand {
             use std::os::unix::process::CommandExt;
             let session = detached || self.unix_containment == UnixContainment::Session;
             let nice_floor = self.process_priority.nice_floor();
+            #[cfg(target_os = "macos")]
+            let utility_qos = self.process_priority == ProcessPriority::Efficient;
             let inheritance = self
                 .inherited_handles
                 .take()
@@ -369,6 +379,10 @@ impl OwnedCommand {
                     }
                     if let Some(floor) = nice_floor {
                         crate::process_unix::raise_nice_to(floor)?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    if utility_qos {
+                        crate::process_unix::set_utility_qos();
                     }
                     if let Some(inheritance) = &inheritance {
                         inheritance.apply()?;
@@ -476,12 +490,14 @@ impl OwnedCommand {
             )?;
         }
         #[cfg(windows)]
-        partial
-            .child
-            .as_ref()
-            .expect("partial child is present")
-            .child()
-            .resume(detached)?;
+        {
+            let owned = partial.child.as_ref().expect("partial child is present");
+            if self.process_priority == ProcessPriority::Efficient {
+                // Best effort: EcoQoS is a hint and older Windows builds lack it.
+                let _ = crate::process_windows::apply_efficiency(&*owned.child());
+            }
+            owned.child().resume(detached)?;
+        }
         if fail_after_spawn {
             return Err(io::Error::other("injected post-spawn wrapping failure"));
         }
@@ -1195,6 +1211,7 @@ mod tests {
         assert_eq!(ProcessPriority::Normal.nice_floor(), None);
         assert_eq!(ProcessPriority::BelowNormal.nice_floor(), Some(10));
         assert_eq!(ProcessPriority::Idle.nice_floor(), Some(19));
+        assert_eq!(ProcessPriority::Efficient.nice_floor(), Some(10));
     }
 
     /// A real child at `BelowNormal` reports the class Windows was asked for.

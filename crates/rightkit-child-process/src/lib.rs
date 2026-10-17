@@ -11,6 +11,7 @@ mod identity;
 mod identity_tests;
 mod no_window;
 mod owned;
+mod power;
 mod process_handle;
 #[cfg(unix)]
 mod process_unix;
@@ -44,6 +45,7 @@ pub use owned::{
     ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions, TreeTermination,
     UnixContainment, WaitOutcome, DEFAULT_DROP_REAP_TIMEOUT, DEFAULT_ENV_ALLOWLIST,
 };
+pub use power::{PowerAssertion, PowerKind};
 pub use process_handle::ProcessHandle;
 pub use registry::{owned_count, terminate_all_owned, TerminateAllReport};
 pub use restart::{

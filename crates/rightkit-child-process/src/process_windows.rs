@@ -19,7 +19,9 @@ use windows::Win32::{
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         },
         Threading::{
-            OpenThread, ResumeThread, TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS,
+            OpenThread, ProcessPowerThrottling, ResumeThread, SetProcessInformation,
+            TerminateProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE, BELOW_NORMAL_PRIORITY_CLASS,
             CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED, IDLE_PRIORITY_CLASS,
             PROCESS_CREATION_FLAGS, THREAD_SUSPEND_RESUME,
         },
@@ -51,9 +53,29 @@ fn own(handle: HANDLE) -> OwnedHandle {
 pub(crate) fn priority_class(priority: ProcessPriority) -> PROCESS_CREATION_FLAGS {
     match priority {
         ProcessPriority::Normal => PROCESS_CREATION_FLAGS(0),
-        ProcessPriority::BelowNormal => BELOW_NORMAL_PRIORITY_CLASS,
+        ProcessPriority::BelowNormal | ProcessPriority::Efficient => BELOW_NORMAL_PRIORITY_CLASS,
         ProcessPriority::Idle => IDLE_PRIORITY_CLASS,
     }
+}
+
+/// EcoQoS: ask Windows to run the process on its efficiency class (power throttling of
+/// execution speed). The process may still be suspended.
+pub(crate) fn apply_efficiency(process: &impl AsHandle) -> io::Result<()> {
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+    };
+    // SAFETY: `state` is a valid, live PROCESS_POWER_THROTTLING_STATE of the stated size.
+    unsafe {
+        SetProcessInformation(
+            raw(process),
+            ProcessPowerThrottling,
+            &state as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    }
+    .map_err(os_error)
 }
 
 /// Full creation flags for a spawn: the suspension or breakaway mode and the console flag this
@@ -135,6 +157,14 @@ mod tests {
         let flags = creation_flags(false, false, ProcessPriority::BelowNormal);
         assert_eq!(bits(flags) & bits(CREATE_NO_WINDOW), 0);
         assert_ne!(bits(flags) & bits(BELOW_NORMAL_PRIORITY_CLASS), 0);
+    }
+
+    #[test]
+    fn efficient_is_below_normal() {
+        assert_eq!(
+            bits(priority_class(ProcessPriority::Efficient)),
+            bits(priority_class(ProcessPriority::BelowNormal))
+        );
     }
 
     #[test]

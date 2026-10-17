@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rightkit_child_process::{OwnedChild, OwnedCommand, StderrTail, WaitOutcome};
+use rightkit_child_process::{OwnedChild, OwnedCommand, ProcessPriority, StderrTail, WaitOutcome};
 use std::path::{Path, PathBuf};
 
 use crate::{CancellationToken, FfmpegBinary, FfmpegCommand};
@@ -146,6 +146,8 @@ pub struct RunOptions<'a> {
     /// Working directory for the child; `None` inherits the caller's. See
     /// [`RunOptions::with_current_dir`].
     pub current_dir: Option<PathBuf>,
+    /// Scheduling priority for the ffmpeg child. See [`RunOptions::with_priority`].
+    pub priority: ProcessPriority,
     pub on_progress: Option<&'a mut dyn FnMut(&ProgressEvent)>,
 }
 
@@ -169,6 +171,7 @@ impl RunOptions<'_> {
             kill_grace: DEFAULT_KILL_GRACE,
             cancel,
             current_dir: None,
+            priority: ProcessPriority::Normal,
             on_progress: None,
         }
     }
@@ -196,6 +199,7 @@ impl RunOptions<'_> {
             kill_grace: self.kill_grace,
             cancel: self.cancel,
             current_dir: self.current_dir,
+            priority: self.priority,
             on_progress: Some(on_progress),
         }
     }
@@ -207,6 +211,15 @@ impl RunOptions<'_> {
     /// binary from `dir`. Unset, the child inherits the caller's directory.
     pub fn with_current_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.current_dir = Some(dir.into());
+        self
+    }
+
+    /// Run the ffmpeg child at a lower scheduling priority (see [`ProcessPriority`]: below
+    /// normal, idle, or `Efficient` for EcoQoS on Windows and the utility quality of service
+    /// on macOS). The default, `Normal`, leaves the spawn exactly as it was. Applies to the
+    /// whole process tree the child starts, because children inherit the priority.
+    pub fn with_priority(mut self, priority: ProcessPriority) -> Self {
+        self.priority = priority;
         self
     }
 
@@ -496,6 +509,7 @@ where
         return Err(RunError::Cancelled);
     }
     let mut command = owned_command(ffmpeg.ffmpeg_path(), opts.current_dir.as_deref())?;
+    command.process_priority(opts.priority);
     command
         .command_mut()
         .args(cmd.to_os_args())
@@ -711,7 +725,15 @@ pub fn run_capture(
     timeout: Duration,
     cancel: &CancellationToken,
 ) -> Result<Captured, RunError> {
-    run_capture_inner(ffmpeg, cmd, Some(timeout), DEFAULT_KILL_GRACE, cancel, None)
+    run_capture_inner(
+        ffmpeg,
+        cmd,
+        Some(timeout),
+        DEFAULT_KILL_GRACE,
+        cancel,
+        None,
+        ProcessPriority::Normal,
+    )
 }
 
 /// [`run_capture`] with the deadline, kill grace, and cancellation taken from `opts`.
@@ -729,6 +751,7 @@ pub fn run_capture_with(
         opts.kill_grace,
         &opts.cancel,
         opts.current_dir.as_deref(),
+        opts.priority,
     )
 }
 
@@ -739,11 +762,13 @@ fn run_capture_inner(
     kill_grace: Duration,
     cancel: &CancellationToken,
     current_dir: Option<&Path>,
+    priority: ProcessPriority,
 ) -> Result<Captured, RunError> {
     if cancel.is_cancelled() {
         return Err(RunError::Cancelled);
     }
     let mut command = owned_command(ffmpeg.ffmpeg_path(), current_dir)?;
+    command.process_priority(priority);
     command
         .command_mut()
         .args(cmd.to_os_args())
@@ -931,6 +956,19 @@ pub fn spawn_streaming_in(
     policy: StdioPolicy,
     current_dir: Option<&Path>,
 ) -> Result<OwnedChild, RunError> {
+    spawn_streaming_with_priority(ffmpeg, cmd, policy, current_dir, ProcessPriority::Normal)
+}
+
+/// [`spawn_streaming_in`] with a scheduling priority for the child (see
+/// [`RunOptions::with_priority`]). `ProcessPriority::Normal` is identical to
+/// [`spawn_streaming_in`].
+pub fn spawn_streaming_with_priority(
+    ffmpeg: &dyn FfmpegBinary,
+    cmd: &FfmpegCommand,
+    policy: StdioPolicy,
+    current_dir: Option<&Path>,
+    priority: ProcessPriority,
+) -> Result<OwnedChild, RunError> {
     if policy.stdin == StdioMode::Piped && !cmd.stdin_is_piped() {
         return Err(RunError::Io(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -938,6 +976,7 @@ pub fn spawn_streaming_in(
         )));
     }
     let mut command = owned_command(ffmpeg.ffmpeg_path(), current_dir)?;
+    command.process_priority(priority);
     command
         .command_mut()
         .args(cmd.to_os_args())

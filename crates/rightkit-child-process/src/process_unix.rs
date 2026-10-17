@@ -118,6 +118,15 @@ pub(crate) fn raise_nice_to(floor: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
+/// macOS: request the utility quality of service for the calling thread, which becomes the
+/// child's initial thread across exec. Advisory: a refusal is ignored. Called between fork and
+/// exec; it is a thin kernel call with no allocation.
+#[cfg(target_os = "macos")]
+pub(crate) fn set_utility_qos() {
+    // SAFETY: takes a class value and a relative priority only.
+    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
+}
+
 /// How long the macOS watchdog waits for the child to leave after `SIGTERM` before `SIGKILL`.
 #[cfg(target_os = "macos")]
 const WATCHDOG_GRACE_STEPS: u32 = 40; // 40 steps of 50 ms: 2 s

@@ -45,9 +45,12 @@ pub use content_digest::{
 /// Re-exports of the `rightkit-child-process` types that appear in this crate's public signatures
 /// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return
 /// [`WaitOutcome`] and [`ReapOutcome`]), so consumers need no direct dependency to name them.
-pub use rightkit_child_process::{OwnedChild, ReapOutcome, TerminationOptions, WaitOutcome};
+pub use rightkit_child_process::{
+    OwnedChild, ProcessPriority, ReapOutcome, TerminationOptions, WaitOutcome,
+};
 pub use runner::{
-    run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in, Captured,
+    run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in, spawn_streaming_with_priority,
+    Captured,
     ProgressEvent, ProgressParser, RunError, RunOptions, RunReport, StdioMode, StdioPolicy,
 };
 pub use staging::{

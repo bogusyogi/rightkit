@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.3
+
+Issue #271. Written without compiling or running Cargo here; CI builds and runs the tests.
+
+- **New: `PowerAssertion::acquire(reason, PowerKind)`**, a keep-awake guard released on drop. `PowerKind::System`
+  prevents idle system sleep; `SystemAndDisplay` also keeps the display on. Windows: `SetThreadExecutionState` on a
+  holder thread that lives as long as the guard (the state is per thread). macOS: an IOKit
+  `IOPMAssertionCreateWithName` assertion (`PreventUserIdleSystemSleep` or `PreventUserIdleDisplaySleep`), visible in
+  `pmset -g assertions`. Other hosts return `ErrorKind::Unsupported`. New Windows feature `Win32_System_Power`.
+- **New: `ProcessPriority::Efficient`** (the enum was already `#[non_exhaustive]`). Windows: below-normal priority class
+  plus EcoQoS (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` via `SetProcessInformation`, applied while the child is still
+  suspended, best effort). macOS: nice 10 plus `QOS_CLASS_UTILITY` set between fork and exec (advisory; whether the
+  class survives exec is to be confirmed on a Mac). Other Unix: nice 10.
+- **Item 4 of #271 (macOS parent-death tie) is already delivered** by 0.4.2: `kill_on_parent_exit(true)` arms a kqueue
+  `NOTE_EXIT` watchdog on macOS. Nothing further was added for it.
+
 ## 0.4.2
 
 Issue #171. Written without compiling or running Cargo here; CI builds and runs the tests.

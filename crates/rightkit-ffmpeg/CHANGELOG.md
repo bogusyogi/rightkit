@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- New (crate version 0.2.8; Orthic-Labs/rightkit#271): process priority for ffmpeg. `RunOptions::with_priority(ProcessPriority)` (used by `run_with_progress`, `run_with_stdin`, `run_capture_with` and the checked variants) and `spawn_streaming_with_priority(.., priority)`; `ProcessPriority` is re-exported. `Normal` (the default) changes nothing; `BelowNormal`, `Idle` and the new `Efficient` (EcoQoS on Windows, utility QoS on macOS) come from rightkit-child-process 0.4.3, now the minimum. Written without compiling or running anything; CI builds it.
+
 - Security (behaviour change, crate version 0.2.7; Orthic-Labs/rightkit#109): allowing UNVERIFIED binaries no longer follows `cfg(debug_assertions)` (on in the dev profile of installed dev builds). It is now behind the explicit, non-default `dev-overrides` feature. New `BuildMode::from_build_features()`; `BuildMode::from_debug_assertions()` is kept as a deprecated alias that follows the feature, so it no longer returns `Development` in a plain dev build. `DevFfmpeg::try_unverified` refuses with `UnverifiedRefusedInRelease` unless the feature is on. App migration: enable `rightkit-ffmpeg/dev-overrides` only from a QA/test feature to keep the old debug-build behaviour. Not built or run locally.
 
 Renamed from rightkit-media; 0.2.5 remains published under the old name.
