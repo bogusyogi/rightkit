@@ -1057,7 +1057,7 @@ impl ServerHost {
     /// Like [`serve_stdio`](Self::serve_stdio) on process stdin/stdout, but reading continues
     /// while a request runs; see [`serve_stdio_concurrent_on`](Self::serve_stdio_concurrent_on).
     pub fn serve_stdio_concurrent(&self) -> std::io::Result<()> {
-        self.serve_stdio_concurrent_on(std::io::stdin().lock(), std::io::stdout())
+        self.serve_stdio_concurrent_on(std::io::BufReader::new(std::io::stdin()), std::io::stdout())
     }
 
     /// Stdio serving with concurrent input. A reader thread keeps reading while a request runs:

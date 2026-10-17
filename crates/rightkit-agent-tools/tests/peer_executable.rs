@@ -3,9 +3,9 @@
 //! this test binary.
 
 use rightkit_agent_tools::CallContextExt;
+use rightkit_daemon::contract::{MethodPolicy, MethodTable};
 use rightkit_daemon::{
-    host, Allowlist, CallContext, Client, Emit, Handler, MethodPolicy, MethodTable, ServiceConfig,
-    ServiceError, Suite,
+    host, Allowlist, CallContext, Client, Emit, Handler, ServiceConfig, ServiceError, Suite,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;

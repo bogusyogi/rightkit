@@ -121,7 +121,7 @@ fn fill_deadline<R: Read>(
         if now >= deadline {
             return Err(ReadStop::Deadline(filled));
         }
-        if !ready(deadline - now).map_err(|e| ReadStop::Failed(e))? {
+        if !ready(deadline - now).map_err(ReadStop::Failed)? {
             continue;
         }
         match reader.read(&mut buf[filled..]) {
