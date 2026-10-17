@@ -1,0 +1,23 @@
+rightkit: request b6c75cde-10aa-4cb1-b5bb-c63cd6f233b8
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+    Blocking waiting for file lock on package cache
+   Compiling rightkit-tauri-shell v0.3.2 (D:\Claude\rightkit\crates\rightkit-tauri-shell)
+    Finished `release-iterate` profile [optimized] target(s) in 5m 04s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-3d55c9f8ce4e2918.exe)
+warm-up: event loop running, watchdog installed, resident 9.8 MiB (before app build 7.7 MiB)
+RESULT watchdog_stalls=0 stalls
+RESULT watchdog_last_beat_age_ms=70 ms
+RESULT warm_resident_bytes=10268672 bytes
+RESULT idle_resident_bytes=10260480 bytes
+RESULT resident_memory_bytes=10268672 bytes
+RESULT footprint_bytes=1839104 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=4.859 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=1 default hang watchdog on an idle Wry event loop with no windows
+RESULT scope=synthetic
+RESULT budget crate=rightkit-tauri-shell version=0.3.2 resident_bytes=10268672 idle_cpu_percent=0.000 wakeups_per_s=4.859 disk_ops_per_s=0.000 scale_unit=watchdogs scale_count=1
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 4/715

@@ -348,4 +348,5 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required scale: 1 watchdogs or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `status()` in `src/watchdog.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: not yet measured.
+- Measured: darwin/arm64 (Mac18,5), rightkit-tauri-shell 0.3.2 at 0b0a275db242, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 292b696d0b59: resident memory 58.5 MiB, idle CPU 0.024%, wake-ups 5.089 per second, disk operations n/a (not measurable on this host).
+- Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-tauri-shell 0.3.2 at 2c2303f8cae6, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 8eb097044951: resident memory 9.8 MiB, idle CPU 0%, wake-ups 4.859 per second, disk operations 0 operations per second.
