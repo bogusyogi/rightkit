@@ -540,7 +540,7 @@
       "@rightkit/qa": "0.4.8",
       "@rightkit/qa-chrome": "0.1.8",
       "@rightkit/react-shell": "0.6.8",
-      "@rightkit/release": "0.2.165",
+      "@rightkit/release": "0.2.172",
       "@rightkit/settings-ui": "0.5.0",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.2.1",
