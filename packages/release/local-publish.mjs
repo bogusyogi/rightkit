@@ -18,6 +18,7 @@ import { runCargoPublish } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
+import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -194,6 +195,12 @@ export async function runLocalPublish(kind, argv, deps = {}) {
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {
     let artifactFile; const packCommands = [];
+    if (kind === "npm" && unit === SWAP_HELPER_PACKAGE) {
+      // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed).
+      try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: unitPath, platform, run, env, log }); }
+      catch (error) { refuse(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
+      packCommands.push(`rightkit cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
+    }
     if (kind === "npm") {
       const args = ["--dir", dir, "pack", "--pack-destination", scratch];
       packCommands.push(`pnpm ${args.join(" ")}`);

@@ -5,6 +5,7 @@
 import { execFile as nodeExecFile, execFileSync as nodeExecFileSync } from "./background-process.mjs";
 import { detachWithRetry } from "./hdiutil-detach.mjs";
 import { previousPathOf } from "./in-place-install.mjs";
+import { assertShippedSwapHelperSigned } from "./swap-helper-bundle.mjs";
 import { installAppWindows, InstallAppWindowsError } from "./install-app-windows.mjs";
 import fs from "node:fs";
 import os from "node:os";
@@ -230,10 +231,15 @@ function coded(code, message) {
 
 // Sync on purpose: signal-handler rollback must be able to swap back. Throws an error whose `code`
 // is in SWAP_FALLBACK_CODES when no atomic swap is possible here (no helper, or exit 3 / ENOTSUP / EINVAL).
-export function createSwapPaths({ env = process.env, resolve = resolveSwapHelper, execFileSync = nodeExecFileSync } = {}) {
+// A helper that exists must be code-signed (#258): an unsigned one is a typed SWAP_HELPER_UNSIGNED error naming the fix,
+// never a silent downgrade. No helper at all keeps the documented journaled two-rename fallback, which is logged
+// (`swap-fallback`, then `replaced {swap}`).
+export function createSwapPaths({ env = process.env, resolve = resolveSwapHelper, execFileSync = nodeExecFileSync, assertSigned = assertShippedSwapHelperSigned } = {}) {
+  const checked = new Set();
   return (a, b) => {
     const helper = resolve({ env });
     if (!helper) throw coded("ENOHELPER", `${SWAP_HELPER_NAME} helper not found`);
+    if (!checked.has(helper)) { assertSigned({ file: helper, execFileSync }); checked.add(helper); }
     try { execFileSync(helper, [a, b], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
     catch (error) {
       const text = `${error?.stderr || ""}`.trim();
