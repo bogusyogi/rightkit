@@ -55,6 +55,8 @@ pub mod link;
 pub mod mode;
 mod peer;
 pub mod private;
+#[cfg(feature = "relay")]
+pub mod relay;
 mod record;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]

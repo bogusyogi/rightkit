@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.6
+
+Issue #133 (the Pulse blind relay; decisions "Pulse device connectivity" and its "relay-first" amendment, 2026-10-16). Written without compiling or running Cargo here; CI builds and runs the tests. The design file `/Volumes/D/scratch/pulse-connectivity-design.md` was not readable from this host, so the protocol follows the decisions text and `docs/design/daemon-blind-relay.md`, adapted to the decided shape (relay-first, no fixed roles, store-and-forward, Hetzner).
+
+- Added: feature `relay` (implies `link`; no tokio, axum or hyper) and module `relay`, `rk-relay/1`, transport-free.
+  - Frames (`ClientFrame`, `ServerFrame`, one JSON object per line): challenge, `Auth`, `Put`, `Fetch`, `Ack`, `Ping`, `Stored`, `Deliver`, `Acked`, typed errors (`relay::code`).
+  - Identity without accounts: `MailboxId` (hash of a device key) and `CircleId` (hash of an owner key); `issue_ticket` signs `owner, device, exp`; the device proves its key by signing the relay's per-connection nonce. Signed bytes are `ticket_message` and `auth_message`.
+  - `RelayCore`, the relay state machine (no sockets, no clock): stateless authentication, store-and-forward queues keyed (recipient mailbox, sender circle) so a stranger can neither read nor block a mailbox, live delivery to a connected recipient, idempotent `Put`, acknowledgement, message TTL (7 days), queue bounds, per-class size caps (small 64 KiB, clipboard/attachment 10 MiB, transfer 25 MiB, screen refused: direct only), a 250 MiB per-circle 30-day quota, challenge deadline, bound on unauthenticated connections. The relay stores only the sealed bytes it was given.
+  - `RelaySession`, the device side: answers the challenge, seals (through the caller's `Sealer`) and checks caps before upload, refuses screen, drops duplicate deliveries, acknowledges, tolerates undecryptable messages.
+- Tests: `tests/relay.rs` (live and stored delivery, ack, duplicates, retried put, circle isolation, direct-only screen, caps and quota, forged, expired and replayed authentication, expiry of stored messages).
+- Open, not done here:
+  1. The end-to-end cipher and key agreement (the `Sealer`). `ring` cannot hold a static X25519 key, so it needs `snow` or the dalek/chacha20poly1305 pair (both already in the tree for other crates); the design's open questions (new dependency, one key or two per device, re-pairing existing devices) are unanswered.
+  2. A socket adapter: TLS or WebSocket carrying these frames, the Hetzner deployment, the frame limit above 25 MiB bodies (base64 in JSON is about 33 MiB), and a binary framing if wanted.
+  3. Durable queues (this one is in memory; a restart drops mail) and metrics and abuse controls beyond the quotas (per-IP limits are the adapter's).
+  4. Direct paths: mDNS, DHT and STUN hole punching, and the choice between direct and relay per transfer (bulk goes direct; this module only caps what is relayed).
+  5. Push-wake through APNs and FCM for sleeping phones.
+  6. Circle revocation: tickets are short-lived (7 days at most) and the owner stops reissuing; there is no relay-side revocation list.
+  7. Whether the relay may see the declared `Class` (it does today; padding and size buckets against size leakage are not applied).
+  8. Wiring into `Daemon` (`link_accept`) and the pairing protocol (`rk-pair/2`) that would hand a device its ticket.
+
 ## 0.2.5
 
 Issue #269. Written without compiling or running Cargo here; CI builds and runs the tests.
