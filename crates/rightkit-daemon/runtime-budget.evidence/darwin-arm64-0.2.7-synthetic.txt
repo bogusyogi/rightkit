@@ -1,0 +1,36 @@
+rustright managed-agent: request b53f85e4-b535-4b35-bb4a-b46d8615112e
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling rightkit-daemon v0.2.7 (/Volumes/D/claude/rightkit/crates/rightkit-daemon)
+warning: methods `http` and `https` are never used
+   --> crates/rightkit-http/src/client.rs:419:19
+    |
+365 | impl SystemRoutes {
+    | ----------------- methods in this implementation
+...
+419 |     pub(crate) fn http(&self) -> Option<&ResolvedProxy> {
+    |                   ^^^^
+...
+423 |     pub(crate) fn https(&self) -> Option<&ResolvedProxy> {
+    |                   ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rightkit-http` (lib) generated 1 warning
+    Finished `release-iterate` profile [optimized] target(s) in 1m 45s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-4cb9cfb1cb90815b)
+warm-up: 20000 requests over 64 connections in 0.34 s (58078 req/s), open connections 64, inflight 0, resident 10.2 MiB (before host 5.5 MiB)
+RESULT open_connections=64 connections
+RESULT warm_resident_bytes=10665984 bytes
+RESULT idle_resident_bytes=10665984 bytes
+RESULT resident_memory_bytes=10665984 bytes
+RESULT footprint_bytes=6439584 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.003 percent
+RESULT wakeups_per_second=0.966 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=64 open connections after echo requests, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-daemon version=0.2.7 resident_bytes=10665984 idle_cpu_percent=0.003 wakeups_per_s=0.966 disk_ops_per_s=unavailable scale_unit=connections scale_count=64
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 2/621

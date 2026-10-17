@@ -56,6 +56,33 @@
         "file": "runtime-budget.evidence/win32-x64-0.2.7-synthetic.txt",
         "sha256": "155a917b2302ec48a456e8b8e7c83d24cf175876f0d63eef2e47ab36d4a9bca0"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.2.7",
+      "commit": "3f4bdf9cc98539807f5efad0f56e0587954b7b86",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-daemon/benches/budget.rs)",
+        "unit": "connections",
+        "count": 64
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "observed": {
+        "residentMemoryBytes": 10665984,
+        "idleCpuPercent": 0.003,
+        "wakeupsPerSecond": 0.966,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.2.7-synthetic.txt",
+        "sha256": "b931363f9d99d12675a7cbc916a6ef5053e979d842dbd2c5e2bb4d4481d194d4"
+      }
     }
   ],
   "profiles": {
