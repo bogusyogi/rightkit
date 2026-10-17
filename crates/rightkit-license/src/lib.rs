@@ -47,12 +47,6 @@
 //!   held; checking `expiresAt`/`graceSeconds`, `deviceIdHash` and `generation` (and
 //!   rejecting a lower generation than the one stored) is the caller's job.
 
-/// The shared RightSites licence server host every Right Suite app uses (no scheme,
-/// no path): endpoints are `https://<host>/v1/licenses/*`. Apps take the host from here
-/// instead of registering a per-app brand host. Mirrors `SHARED_LICENSE_HOST` in
-/// `@rightkit/license` (Orthic-Labs/rightkit#272).
-pub const SHARED_LICENSE_HOST: &str = "heardright.app";
-
 mod clock;
 mod engine;
 mod file_store;

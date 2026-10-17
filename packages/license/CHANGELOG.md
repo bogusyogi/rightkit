@@ -3,10 +3,6 @@
 Versions 0.1.5 to 0.1.8 below are reconstructed from git history (`git log -p -- packages/license`).
 npm publication dates were not checked; the dates are commit dates.
 
-## 0.2.1
-
-Additive. `LicenseConfig.host` is now optional and defaults to the new exported `SHARED_LICENSE_HOST` (`'heardright.app'`, the shared RightSites licence server). Explicit hosts behave as before. Pairs with `rightkit-license` 0.2.3 (Orthic-Labs/rightkit#272).
-
 ## 0.2.0
 
 Additive. Existing exports and `refresh()`'s return type are unchanged. The one behaviour change is
