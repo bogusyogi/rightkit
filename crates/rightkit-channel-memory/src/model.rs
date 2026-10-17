@@ -195,6 +195,39 @@ pub enum ProofStatus {
     Superseded,
 }
 
+impl ProofStatus {
+    /// The four fact statuses, in lifecycle order.
+    pub const ALL: [ProofStatus; 4] = [
+        ProofStatus::Collected,
+        ProofStatus::Approved,
+        ProofStatus::Withdrawn,
+        ProofStatus::Superseded,
+    ];
+
+    /// The wire name, the same text the schema enum and serde use.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProofStatus::Collected => "collected",
+            ProofStatus::Approved => "approved",
+            ProofStatus::Withdrawn => "withdrawn",
+            ProofStatus::Superseded => "superseded",
+        }
+    }
+
+    /// Parses a wire name. Anything outside the four (for example the retired
+    /// `pending`) is `None`.
+    pub fn from_wire(text: &str) -> Option<ProofStatus> {
+        ProofStatus::ALL
+            .into_iter()
+            .find(|status| status.as_str() == text)
+    }
+
+    /// Withdrawn and superseded are terminal: no later status exists.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, ProofStatus::Withdrawn | ProofStatus::Superseded)
+    }
+}
+
 /// Present only when the status is `approved`. The approver is always Adrian.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]

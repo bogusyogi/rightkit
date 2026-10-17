@@ -8,6 +8,12 @@ contract's change history is visible. If the owner wants a published contract
 to start from this state, bump the major (`2.0.0`, file `channel-memory.v2`)
 at that point.
 
+## Unreleased: fact statuses as one list (#333)
+
+- The four fact statuses `collected`, `approved`, `withdrawn` and `superseded` have been in the schema and `ProofStatus` since 0.1.0 (`pending` was renamed `collected`). This change makes them a checkable surface for PostRight's pin. Additive, no schema change.
+- `ProofStatus::ALL` (lifecycle order), `ProofStatus::as_str()` (the wire name), `ProofStatus::from_wire(&str)` (`None` for `pending` or any other text) and `ProofStatus::is_terminal()` (withdrawn and superseded).
+- Tests: `tests/fact_statuses.rs` pins the schema enum, the serde names, the refusal of `pending`, and the terminal set.
+
 ## Unreleased: review epoch and brief re-entry (#314)
 
 - Additive, no schema change. `ChannelMemory::review_epoch(proof_ids)` returns the epoch of the facts a brief cites (`id@revision:status`, sorted by id, `;`-joined, `id@missing` for an absent proof). `ChannelMemory::brief_reentry(proof_ids, reviewed_epoch)` returns `BriefReentry::Current` or `BriefReentry::NeedsReview { changed, epoch }`, so a brief re-enters review when a cited fact is revised, withdrawn, superseded or removed. A brief stores the epoch when it passes review.
