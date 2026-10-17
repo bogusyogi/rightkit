@@ -230,7 +230,7 @@ Opting out removes an accessibility accommodation for people who asked their sys
 
 ### Palette and toast tokens
 
-`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
+`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `ShellProvider toastPlacement` and `ToastViewport placement` take `"bottom-center"` (default, markup unchanged) or `"top-center"`; the latter sets `data-placement="top-center"` on the live region, anchors it with `top: var(--rk-toast-top-offset, 16px)` (so `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)` puts it 12px under the titlebar) and slides rows in from above (0.6.8). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
 
 ## Adopting with a locked UI
 

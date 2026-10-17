@@ -46,4 +46,8 @@ describe("overlay default markup", () => {
   it("ToastViewport: empty live region", () => {
     expect(renderToStaticMarkup(<ToastViewport bus={createToastBus()} className="t" slots={{ root: "r" }} />)).toMatchSnapshot();
   });
+  it("ToastViewport: placement is absent by default and data-placement for top-center", () => {
+    expect(renderToStaticMarkup(<ToastViewport bus={createToastBus()} />)).not.toContain("data-placement");
+    expect(renderToStaticMarkup(<ToastViewport bus={createToastBus()} placement="top-center" />)).toContain('data-placement="top-center"');
+  });
 });

@@ -87,6 +87,10 @@ describe("shell.css split", () => {
       sorted([
         "| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))",
         "| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)",
+        "| .rk-toasts[data-placement=\"top-center\"] | top: var(--rk-toast-top-offset, 16px)",
+        "| .rk-toasts[data-placement=\"top-center\"] | bottom: auto",
+        "| .rk-toasts[data-placement=\"top-center\"] .rk-toast | animation-name: rk-toast-in-top",
+        "@keyframes rk-toast-in-top | from { opacity: 0; transform: translateY(-8px); }",
         "| .rk-toggle | width: var(--rk-toggle-width, 36px)",
         "| .rk-toggle | height: var(--rk-toggle-height, 22px)",
         "| .rk-toggle__knob | width: var(--rk-toggle-knob, 18px)",
@@ -103,9 +107,9 @@ describe("shell.css split", () => {
         `@media (prefers-reduced-motion: reduce) | ${motionSelectors} | transition: none !important`,
       ]),
     );
-    // Same count of declarations apart from those: nothing duplicated or dropped. The net +4 is the two menu exit
-    // declarations, the one (0.6.5) explicit-ink declaration and the (0.6.7) `.rk-caption__btn` cursor declaration; every other added line replaces a removed one.
-    expect(after.length - before.length).toBe(4);
+    // Same count of declarations apart from those: nothing duplicated or dropped. The net +8 is the two menu exit
+    // declarations, the one (0.6.5) explicit-ink declaration the (0.6.7) `.rk-caption__btn` cursor declaration and the four (0.6.8) top-center toast placement lines; every other added line replaces a removed one.
+    expect(after.length - before.length).toBe(8);
   });
 
   it("0.6.5: shell text elements carry an explicit zero-specificity `color: var(--rk-ink)`, so a data-theme switch restyles them directly instead of through inheritance (WKWebView stale-colour bug)", () => {
@@ -187,7 +191,7 @@ describe("shell.css split", () => {
   });
 
   it("package version, exports and files list the new stylesheets", () => {
-    expect(pkg.version).toBe("0.6.7");
+    expect(pkg.version).toBe("0.6.8");
     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
       expect(pkg.files).toContain(name);

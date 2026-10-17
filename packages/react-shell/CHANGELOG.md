@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.8
+
+Additive (#291). Without the new props the markup, classes and CSS values are those of 0.6.7.
+
+- Toast placement: `ToastViewport placement` and `ShellProvider toastPlacement`, `"bottom-center"` (default) or `"top-center"`. `top-center` adds `data-placement="top-center"` to the live region. New type `ToastPlacement`.
+- Token `--rk-toast-top-offset` (default `16px`) is the top-center distance from the top edge; `--rk-toast-offset` still moves only the bottom edge. Top-center rows enter from above (`rk-toast-in-top`). `shell.structure.css`, `shell.visual.css` and the generated `shell.css` carry the rules.
+- CutRight can drop its `.rk-toasts` override: `toastPlacement="top-center"` plus `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)`.
+
 ## 0.6.7
 
 Additive (#174). Defaults render the same markup and CSS values as 0.6.6.

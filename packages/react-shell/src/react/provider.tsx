@@ -17,7 +17,7 @@ import { createToastBus, type ToastBus, type ToastOptions } from "../toast.js";
 import { useLatest, useMediaQuery } from "./hooks.js";
 import { ConfirmDialog, PromptDialog, type ConfirmDialogProps, type PromptDialogProps } from "./overlays.js";
 import { CommandPalette, ShortcutHelp, type PaletteLabels } from "./palette.js";
-import { ToastViewport } from "./toasts.js";
+import { ToastViewport, type ToastPlacement } from "./toasts.js";
 
 type ConfirmOptions = Omit<ConfirmDialogProps, "onConfirm" | "onCancel">;
 type PromptOptions = Omit<PromptDialogProps, "onSubmit" | "onCancel">;
@@ -82,6 +82,8 @@ export interface ShellProviderProps {
   /** Inject a registry/bus (tests, shared across windows). */
   registry?: ShortcutRegistry;
   toastBus?: ToastBus;
+  /** Toast stack placement: `bottom-center` (default) or `top-center`. See `--rk-toast-top-offset`. */
+  toastPlacement?: ToastPlacement;
   bridge?: AppShellBridge;
   platform?: Platform;
   /** Palette chord. `false` disables the built-in binding. Default "mod+k". Superseded by `keybindings.palette`. */
@@ -103,6 +105,7 @@ export function ShellProvider({
   themeStore,
   registry: registryProp,
   toastBus,
+  toastPlacement,
   bridge,
   platform: platformProp,
   paletteChord = "mod+k",
@@ -216,7 +219,7 @@ export function ShellProvider({
           {top?.kind === "prompt" ? (
             <PromptDialog {...top.options} onSubmit={(v) => settle(() => top.resolve(v))} onCancel={() => settle(() => top.resolve(null))} />
           ) : null}
-          <ToastViewport bus={bus} />
+          <ToastViewport bus={bus} placement={toastPlacement} />
         </>
       ) : null}
     </ShellContext.Provider>

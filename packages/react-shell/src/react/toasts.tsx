@@ -53,8 +53,15 @@ function ToastRow({ toast, leaving, onDismiss, options }: { toast: Toast; leavin
 }
 
 /** Single mount point for a toast bus: a polite live region, errors announce as alerts. */
+export type ToastPlacement = "top-center" | "bottom-center";
+
 export interface ToastViewportProps {
   bus?: ToastBus;
+  /**
+   * Where the stack sits. Default `bottom-center` (the 0.6.x position, markup unchanged). `top-center` sets
+   * `data-placement="top-center"` on the live region; `--rk-toast-top-offset` (default 16px) is the distance from the top edge.
+   */
+  placement?: ToastPlacement;
   /** Extra class on the live region. */
   className?: string;
   /** Extra classes per region: `root` (live region), `toast`, `message`, `action`, `dismiss`, `glyph`. */
@@ -73,7 +80,7 @@ export interface ToastViewportProps {
   renderRow?: (row: ToastRowContext) => ReactNode;
 }
 
-export function ToastViewport({ bus = defaultToastBus, className, slots, roles, rowClassName, exitClassName, exitMs = EXIT_MS, renderGlyph, renderRow }: ToastViewportProps) {
+export function ToastViewport({ bus = defaultToastBus, placement, className, slots, roles, rowClassName, exitClassName, exitMs = EXIT_MS, renderGlyph, renderRow }: ToastViewportProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [leaving, setLeaving] = useState<ReadonlySet<number>>(() => new Set());
   const timers = useRef(new Map<number, number>());
@@ -113,7 +120,7 @@ export function ToastViewport({ bus = defaultToastBus, className, slots, roles, 
 
   const rowOptions: RowOptions = { slots, roles, rowClassName, exitClassName, renderGlyph, renderRow };
   return (
-    <div className={cx("rk-toasts", className, slots?.root)} aria-live="polite" aria-atomic="false" data-rk-toasts>
+    <div className={cx("rk-toasts", className, slots?.root)} aria-live="polite" aria-atomic="false" data-rk-toasts data-placement={placement}>
       {toasts.map((toast) => (
         <ToastRow key={toast.id} toast={toast} leaving={leaving.has(toast.id)} onDismiss={() => dismiss(toast.id)} options={rowOptions} />
       ))}

@@ -107,6 +107,7 @@
 .rk-menu__label { flex: 1; min-width: 0; overflow: hidden; }
 /* ---- Toasts ----------------------------------------------------------------------------- */
 .rk-toasts { position: fixed; z-index: 95; bottom: var(--rk-toast-offset); left: 50%; translate: var(--rk-toast-translate, -50% 0); display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.rk-toasts[data-placement="top-center"] { top: var(--rk-toast-top-offset, 16px); bottom: auto; }
 .rk-toast { pointer-events: auto; display: flex; align-items: center; }
 .rk-toast__glyph { display: grid; place-items: center; flex: none; }
 .rk-toast__msg { flex: 1; min-width: 0; overflow: hidden; }
@@ -312,6 +313,7 @@
 /* ---- Toasts ----------------------------------------------------------------------------- */
 .rk-toasts { width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem)); gap: 8px; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 .rk-toast { gap: 10px; min-height: 38px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: 99px; background: var(--rk-elevated); color: var(--rk-ink); box-shadow: var(--rk-pop); animation: rk-toast-in .18s cubic-bezier(.2,.8,.2,1); }
+.rk-toasts[data-placement="top-center"] .rk-toast { animation-name: rk-toast-in-top; }
 .rk-toast.is-leaving { animation: rk-pop-out .15s ease-in forwards; }
 .rk-toast__glyph { width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; background: var(--rk-fill-3); color: var(--rk-ink-2); }
 .rk-toast--success .rk-toast__glyph { background: var(--rk-ok-soft); color: var(--rk-ok); }
@@ -324,6 +326,7 @@
 .rk-toast__x:hover { background: var(--rk-fill-2); color: var(--rk-ink); }
 .rk-toast__x:focus-visible, .rk-toast__action:focus-visible { outline: 2px solid var(--rk-focus); }
 @keyframes rk-toast-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes rk-toast-in-top { from { opacity: 0; transform: translateY(-8px); } }
 /* Honoured by default. A host that deliberately wants full motion sets data-rk-motion="full" on the root (or on any ancestor of the
    shell, or on the element itself). The :where() keeps the selector's specificity exactly what it was, so nothing else changes. */
 @media (prefers-reduced-motion: reduce) {
