@@ -320,6 +320,7 @@ impl Provider for AnthropicProvider {
             self.raw_capture,
             req,
             parse_response,
+            |v| v.get("usage").map(parse_usage),
         );
         self.observe(false, &body, &result, raw.as_ref());
         result
@@ -331,7 +332,21 @@ impl Provider for AnthropicProvider {
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, true)?;
-        let result = self.stream_call(req, &http, secret.as_deref(), on_event);
+        let mut asm = Assembler::default();
+        let result = self
+            .stream_call(req, &http, secret.as_deref(), &mut asm, on_event)
+            .map_err(|e| {
+                // The usage frame arrives with `message_start`; a stream that fails or is
+                // cancelled after it was still billed for what the provider counted.
+                if req.report_failed_usage && asm.usage != Usage::default() {
+                    billed(
+                        e,
+                        &AttemptBilling::new(Spend::Reported(asm.usage), Metering::PerToken),
+                    )
+                } else {
+                    e
+                }
+            });
         self.observe(true, &body, &result, None);
         result
     }
@@ -361,13 +376,13 @@ impl AnthropicProvider {
         req: &ChatRequest,
         http: &Request,
         key: Option<&str>,
+        asm: &mut Assembler,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
         let response = self
             .client
             .stream(http)
             .map_err(|e| LlmError::from_http(e, key))?;
-        let mut asm = Assembler::default();
         let mut delivered = false;
         for item in response.sse() {
             let ev = match item {
@@ -542,9 +557,10 @@ impl Assembler {
         out
     }
 
-    fn finish(self) -> Result<ChatResponse, LlmError> {
+    /// Leaves `usage` in place so a failure here is still billed by the caller.
+    fn finish(&mut self) -> Result<ChatResponse, LlmError> {
         let mut content = Vec::new();
-        for slot in self.blocks {
+        for slot in std::mem::take(&mut self.blocks) {
             match slot {
                 Slot::Text(t) => content.push(ContentBlock::text(t)),
                 Slot::Tool { id, name, json } => {
@@ -560,8 +576,8 @@ impl Assembler {
             }
         }
         Ok(ChatResponse {
-            id: self.id,
-            model: self.model,
+            id: self.id.clone(),
+            model: self.model.clone(),
             content,
             stop_reason: parse_stop(self.stop.as_deref()),
             usage: self.usage,

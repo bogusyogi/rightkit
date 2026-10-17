@@ -225,12 +225,14 @@ impl FailoverChain {
                 }
                 Err(e) if !sent && self.on.matches(&e) => {
                     let reason = e.to_string();
+                    let billing = e.billing();
                     self.record_away(&route.name);
                     let next = order.get(pos + 1).map(|&n| self.routes[n].name.as_str());
                     self.notify(&route.name, next, &reason);
                     attempts.push(Attempt {
                         route: route.name.clone(),
                         reason,
+                        billing,
                     });
                 }
                 Err(e) => return Err(e),

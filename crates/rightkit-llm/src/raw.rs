@@ -48,7 +48,9 @@ use rightkit_http::{Client, Request, Response};
 use serde_json::Value;
 
 use crate::error::{provider_message, LlmError};
-use crate::types::{check_output, ChatRequest, ChatResponse};
+use crate::types::{
+    billed, check_output, AttemptBilling, ChatRequest, ChatResponse, Metering, Spend, Usage,
+};
 
 /// Response headers that carry the provider's request id, in the order they are tried:
 /// `x-request-id` (OpenAI and most compatible endpoints) and `request-id` (Anthropic).
@@ -139,12 +141,13 @@ pub(crate) fn exchange(
     capture: Option<usize>,
     req: &ChatRequest,
     parse: fn(&Value) -> Result<ChatResponse, LlmError>,
+    usage_of: fn(&Value) -> Option<Usage>,
 ) -> (Result<ChatResponse, LlmError>, Option<RawHandle>) {
     let Some(cap) = capture else {
         let result = client
             .send(http)
             .map_err(|e| LlmError::from_http(e, secret))
-            .and_then(|resp| parse_body(&resp, parse))
+            .and_then(|resp| parse_body(&resp, parse, usage_of, req))
             .and_then(|r| check_output(r, req));
         return (result, None);
     };
@@ -164,25 +167,35 @@ pub(crate) fn exchange(
         };
         return (Err(error), Some(raw));
     }
-    let result = parse_body(&resp, parse)
+    let result = parse_body(&resp, parse, usage_of, req)
         .and_then(|r| check_output(r, req))
         .map_err(|e| attach(e, &raw));
     (result, Some(raw))
 }
 
+/// Parse a 2xx body. A parse failure (refusal, empty completion, bad tool arguments) of a
+/// body that carried usage is wrapped in [`LlmError::Billed`] when the request asked for
+/// that, since the provider billed the call whatever the answer was.
 fn parse_body(
     resp: &Response,
     parse: fn(&Value) -> Result<ChatResponse, LlmError>,
+    usage_of: fn(&Value) -> Option<Usage>,
+    req: &ChatRequest,
 ) -> Result<ChatResponse, LlmError> {
     let v: Value = resp
         .json()
         .map_err(|e| LlmError::Malformed(e.to_string()))?;
-    parse(&v)
+    parse(&v).map_err(|e| match usage_of(&v) {
+        Some(u) if req.report_failed_usage => {
+            billed(e, &AttemptBilling::new(Spend::Reported(u), Metering::PerToken))
+        }
+        _ => e,
+    })
 }
 
 /// Wrap the two outcomes whose evidence is the body; every other error is returned as it is.
 fn attach(error: LlmError, raw: &RawHandle) -> LlmError {
-    if matches!(error, LlmError::Truncated { .. } | LlmError::Malformed(_)) {
+    if matches!(error.root(), LlmError::Truncated { .. } | LlmError::Malformed(_)) {
         LlmError::Captured {
             error: Box::new(error),
             raw: Arc::clone(raw),

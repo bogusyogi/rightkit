@@ -10,7 +10,7 @@ use rightkit_http::{Client, ClientConfig, HttpError, RetryPolicy};
 use rightkit_llm::anthropic::AnthropicProvider;
 use rightkit_llm::credentials::{CredentialSource, StaticCredentials};
 use rightkit_llm::openai::OpenAiCompatProvider;
-use rightkit_llm::{Attempt, ChatRequest, LlmError, Provider, StreamEvent};
+use rightkit_llm::{Attempt, AttemptBilling, ChatRequest, LlmError, Provider, StreamEvent};
 
 const SENTINEL: &str = "sk-SENTINEL-do-not-leak-7f3a9c";
 
@@ -414,6 +414,7 @@ fn every_error_variant_and_provider_and_credential_debug_omit_the_sentinel() {
         LlmError::AllRoutesFailed(vec![Attempt {
             route: "openai".into(),
             reason: "HTTP 429".into(),
+            billing: AttemptBilling::unknown(),
         }]),
     ];
     for e in &variants {

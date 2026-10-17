@@ -3,6 +3,7 @@ use std::fmt;
 use rightkit_http::HttpError;
 
 use crate::raw::RawHandle;
+use crate::types::{AttemptBilling, Metering, Spend};
 
 /// Longest provider error text kept in [`LlmError::Status`], in bytes (cut on a character
 /// boundary). The full body is never copied into an error.
@@ -12,6 +13,8 @@ pub const MAX_PROVIDER_MESSAGE_BYTES: usize = 512;
 pub struct Attempt {
     pub route: String,
     pub reason: String,
+    /// What the attempt cost or may have cost. See [`AttemptBilling`].
+    pub billing: AttemptBilling,
 }
 
 #[derive(Debug)]
@@ -77,6 +80,14 @@ pub enum LlmError {
         error: Box<LlmError>,
         raw: RawHandle,
     },
+    /// A failure after the provider had reported token counts, returned only for a request
+    /// that asked for it ([`crate::ChatRequest::report_failed_usage`]). Display, `status`
+    /// and `is_failover_trigger` answer for the inner error; [`LlmError::root`] looks
+    /// through it and [`LlmError::billing`] returns the reported usage.
+    Billed {
+        error: Box<LlmError>,
+        billing: AttemptBilling,
+    },
 }
 
 impl LlmError {
@@ -98,7 +109,7 @@ impl LlmError {
             LlmError::Status { status, .. } => Some(*status),
             LlmError::Http(e) => e.status(),
             LlmError::Auth { status, .. } => Some(*status),
-            LlmError::Captured { error, .. } => error.status(),
+            LlmError::Captured { error, .. } | LlmError::Billed { error, .. } => error.status(),
             _ => None,
         }
     }
@@ -107,7 +118,7 @@ impl LlmError {
     /// error is returned as it is. Match on this when raw capture may be on.
     pub fn root(&self) -> &LlmError {
         match self {
-            LlmError::Captured { error, .. } => error.root(),
+            LlmError::Captured { error, .. } | LlmError::Billed { error, .. } => error.root(),
             other => other,
         }
     }
@@ -117,7 +128,29 @@ impl LlmError {
     pub fn raw(&self) -> Option<&RawHandle> {
         match self {
             LlmError::Captured { raw, .. } => Some(raw),
+            LlmError::Billed { error, .. } => error.raw(),
             _ => None,
+        }
+    }
+
+    /// What the failed attempt cost or may have cost. Reported usage is returned when the
+    /// error carries it ([`LlmError::Billed`]); otherwise the state is classified from the
+    /// error alone: `NotSpent` when nothing was sent or the provider rejected the request
+    /// (HTTP 4xx other than 408, a local validation error), `Unknown` once the request was
+    /// dispatched without counts. A command-line route is `Metering::Subscription`.
+    pub fn billing(&self) -> AttemptBilling {
+        let per_token = |spend| AttemptBilling::new(spend, Metering::PerToken);
+        match self {
+            LlmError::Billed { billing, .. } => *billing,
+            LlmError::Captured { error, .. } => error.billing(),
+            LlmError::MissingCredential(_)
+            | LlmError::InvalidRequest(_)
+            | LlmError::Auth { .. } => per_token(Spend::NotSpent),
+            LlmError::Status { status, .. } => per_token(status_spend(*status)),
+            LlmError::Http(HttpError::Status { status, .. }) => per_token(status_spend(*status)),
+            #[cfg(feature = "cli")]
+            LlmError::Cli(e) => AttemptBilling::new(e.spend(), Metering::Subscription),
+            _ => per_token(Spend::Unknown),
         }
     }
 
@@ -150,9 +183,19 @@ impl LlmError {
             }
             #[cfg(feature = "cli")]
             LlmError::Cli(e) => e.is_failover_trigger(),
-            LlmError::Captured { error, .. } => error.is_failover_trigger(),
+            LlmError::Captured { error, .. } | LlmError::Billed { error, .. } => {
+                error.is_failover_trigger()
+            }
             _ => false,
         }
+    }
+}
+
+fn status_spend(status: u16) -> Spend {
+    if (400..500).contains(&status) && status != 408 {
+        Spend::NotSpent
+    } else {
+        Spend::Unknown
     }
 }
 
@@ -238,7 +281,9 @@ impl fmt::Display for LlmError {
             }
             #[cfg(feature = "cli")]
             LlmError::Cli(e) => write!(f, "{e}"),
-            LlmError::Captured { error, .. } => write!(f, "{error}"),
+            LlmError::Captured { error, .. } | LlmError::Billed { error, .. } => {
+                write!(f, "{error}")
+            }
             LlmError::AllRoutesFailed(a) => {
                 write!(f, "all routes failed: ")?;
                 for (i, x) in a.iter().enumerate() {

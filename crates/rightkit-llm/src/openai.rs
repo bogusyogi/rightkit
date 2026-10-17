@@ -409,6 +409,7 @@ impl Provider for OpenAiCompatProvider {
             self.raw_capture,
             req,
             parse_response,
+            |v| v.get("usage").map(parse_usage),
         );
         self.observe(false, &body, &result, raw.as_ref());
         result
@@ -420,7 +421,21 @@ impl Provider for OpenAiCompatProvider {
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
         let (http, secret, body) = self.request(req, true)?;
-        let result = self.stream_call(req, &http, secret.as_deref(), on_event);
+        let mut usage = Usage::default();
+        let result = self
+            .stream_call(req, &http, secret.as_deref(), &mut usage, on_event)
+            .map_err(|e| {
+                // The usage frame is the last chunk; a stream that fails or is cancelled after
+                // it was billed for what the provider counted.
+                if req.report_failed_usage && usage != Usage::default() {
+                    billed(
+                        e,
+                        &AttemptBilling::new(Spend::Reported(usage), Metering::PerToken),
+                    )
+                } else {
+                    e
+                }
+            });
         self.observe(true, &body, &result, None);
         result
     }
@@ -432,6 +447,7 @@ impl OpenAiCompatProvider {
         req: &ChatRequest,
         http: &Request,
         key: Option<&str>,
+        usage: &mut Usage,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
         let response = self
@@ -442,7 +458,6 @@ impl OpenAiCompatProvider {
         let mut model = String::new();
         let mut text = String::new();
         let mut finish: Option<String> = None;
-        let mut usage = Usage::default();
         // index -> (id, name, args)
         let mut calls: BTreeMap<u64, (String, String, String)> = BTreeMap::new();
         let mut delivered = false;
@@ -490,7 +505,7 @@ impl OpenAiCompatProvider {
                 model = s.into();
             }
             if let Some(u) = chunk.get("usage").filter(|u| !u.is_null()) {
-                usage = parse_usage(u);
+                *usage = parse_usage(u);
             }
             let Some(choice) = chunk["choices"].get(0) else {
                 continue;
@@ -560,8 +575,8 @@ impl OpenAiCompatProvider {
                 model,
                 content,
                 stop_reason: parse_finish(finish.as_deref()),
-                usage,
-                usage_known: usage != Usage::default(),
+                usage: *usage,
+                usage_known: *usage != Usage::default(),
                 metering: Metering::PerToken,
             },
             req,

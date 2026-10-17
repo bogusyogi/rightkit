@@ -153,6 +153,11 @@ pub struct ChatRequest {
     /// [`LlmError::InvalidRequest`] before anything is sent. See
     /// [`ChatRequest::keep_empty_messages`].
     pub keep_empty_messages: bool,
+    /// Wrap a failure that happened after the provider reported or began to bill usage in
+    /// [`LlmError::Billed`], so the spend is visible on the error. Default `false`: errors
+    /// keep their exact variants. [`LlmError::billing`] and `Attempt::billing` answer
+    /// either way. See [`ChatRequest::report_failed_usage`].
+    pub report_failed_usage: bool,
 }
 
 impl ChatRequest {
@@ -173,6 +178,7 @@ impl ChatRequest {
             extra_body: ExtraBody::default(),
             reject_truncated: false,
             keep_empty_messages: false,
+            report_failed_usage: false,
         }
     }
     /// One system prompt plus one user turn.
@@ -240,6 +246,16 @@ impl ChatRequest {
     /// [`LlmError::InvalidRequest`] there, before sending.
     pub fn keep_empty_messages(mut self, keep: bool) -> Self {
         self.keep_empty_messages = keep;
+        self
+    }
+    /// Make a call that fails after dispatch report the usage it incurred. When the provider
+    /// had reported token counts by the time of the failure (a truncated or refused answer,
+    /// a stream that broke after its usage frame, a cancelled stream), the error is returned
+    /// as [`LlmError::Billed`] carrying those counts; look through it with
+    /// [`LlmError::root`]. Failures with no counts are returned bare, and
+    /// [`LlmError::billing`] still classifies them as `Spend::Unknown` or `Spend::NotSpent`.
+    pub fn report_failed_usage(mut self) -> Self {
+        self.report_failed_usage = true;
         self
     }
     /// Treat a provider stop at the output limit as [`LlmError::Truncated`]. By default the
@@ -356,9 +372,71 @@ pub(crate) fn check_output(
 ) -> Result<ChatResponse, LlmError> {
     if req.reject_truncated && response.stop_reason == StopReason::MaxTokens {
         let output_tokens = response.usage_known.then_some(response.usage.output_tokens);
-        return Err(LlmError::Truncated { output_tokens });
+        let error = LlmError::Truncated { output_tokens };
+        return Err(if req.report_failed_usage {
+            billed(error, &response.billing())
+        } else {
+            error
+        });
     }
     Ok(response)
+}
+
+/// Wrap `error` in [`LlmError::Billed`] when `billing` carries reported usage; otherwise
+/// return it unchanged.
+pub(crate) fn billed(error: LlmError, billing: &AttemptBilling) -> LlmError {
+    match billing.spend {
+        Spend::Reported(_) => LlmError::Billed {
+            error: Box::new(error),
+            billing: *billing,
+        },
+        _ => error,
+    }
+}
+
+/// What a call cost, or may have cost, when it ended. Present on every attempt record
+/// (`Attempt::billing`), derivable from any error ([`LlmError::billing`]) and from a
+/// response ([`ChatResponse::billing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttemptBilling {
+    pub spend: Spend,
+    pub metering: Metering,
+}
+
+impl AttemptBilling {
+    pub fn new(spend: Spend, metering: Metering) -> Self {
+        Self { spend, metering }
+    }
+    /// Dispatched, nothing known about the usage, billed per token.
+    pub fn unknown() -> Self {
+        Self::new(Spend::Unknown, Metering::PerToken)
+    }
+    /// The usage the route reported, if any. Never zero-filled.
+    pub fn usage(&self) -> Option<Usage> {
+        match self.spend {
+            Spend::Reported(u) => Some(u),
+            _ => None,
+        }
+    }
+    /// True when spend may have been incurred and a caller counting spend must not treat
+    /// the attempt as free: reported usage, or dispatched with unknown usage on a per-token
+    /// route.
+    pub fn may_have_spend(&self) -> bool {
+        self.metering == Metering::PerToken && !matches!(self.spend, Spend::NotSpent)
+    }
+}
+
+/// Spend state of one attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Spend {
+    /// The request was not sent, or the provider rejected it (HTTP 4xx other than 408)
+    /// before any generation. Providers document these as unbilled.
+    NotSpent,
+    /// The route reported these token counts for the attempt.
+    Reported(Usage),
+    /// The request was dispatched and may have been billed, but no counts arrived
+    /// (transport failure, timeout, 5xx, a stream cut before its usage frame).
+    Unknown,
 }
 
 /// Token usage. `input_tokens` EXCLUDES cache reads/writes on every provider
@@ -415,6 +493,17 @@ pub struct ChatResponse {
 }
 
 impl ChatResponse {
+    /// The billing state of this response: `Reported` when `usage_known`, else `Unknown`.
+    pub fn billing(&self) -> AttemptBilling {
+        AttemptBilling::new(
+            if self.usage_known {
+                Spend::Reported(self.usage)
+            } else {
+                Spend::Unknown
+            },
+            self.metering,
+        )
+    }
     /// All text blocks concatenated.
     pub fn text(&self) -> String {
         self.content

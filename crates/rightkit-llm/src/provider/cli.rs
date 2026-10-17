@@ -441,6 +441,24 @@ impl CliError {
     }
 }
 
+impl CliError {
+    /// Spend state of a run that ended with this error. Nothing was run for a spec, request,
+    /// capability, install, sign-in or spawn problem; after the tool started, the tool's own
+    /// token use is unknown (and the route is subscription-metered, so no per-token price
+    /// applies either way).
+    pub fn spend(&self) -> Spend {
+        match self {
+            CliError::InvalidSpec(_)
+            | CliError::InvalidRequest(_)
+            | CliError::Unsupported(_)
+            | CliError::NotInstalled { .. }
+            | CliError::NotSignedIn { .. }
+            | CliError::Spawn(_) => Spend::NotSpent,
+            _ => Spend::Unknown,
+        }
+    }
+}
+
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -568,14 +586,18 @@ impl CliProvider {
     pub fn attempt(&self, req: &ChatRequest) -> CliAttempt {
         let started = Instant::now();
         let outcome = self.run(req, None);
-        let reason = match &outcome {
-            Ok(_) => "ok".to_string(),
-            Err(e) => e.to_string(),
+        let (reason, billing) = match &outcome {
+            Ok(c) => ("ok".to_string(), c.response.billing()),
+            Err(e) => (
+                e.to_string(),
+                AttemptBilling::new(e.spend(), Metering::Subscription),
+            ),
         };
         CliAttempt {
             attempt: Attempt {
                 route: self.spec.id.clone(),
                 reason,
+                billing,
             },
             elapsed: started.elapsed(),
             outcome,
