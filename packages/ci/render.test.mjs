@@ -1202,6 +1202,51 @@ test("signExisting unset leaves the ci workflow byte-identical, and the lane is 
   assert.equal(KNOWN_LANES.includes("sign-existing"), false, "node-profile all-lane checks keep their lane list");
 });
 
+// signExisting.macPayloadMetadataSource: the unsigned packaging step zips the .app plus the generated payload metadata file.
+const KEEP_PARENT = 'ditto -c -k --keepParent "$DEV_APP_PATH" "$RUNNER_TEMP/dev-unsigned/app.zip"';
+const WITH_SOURCE = { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "payload.json", macPayloadMetadataSource: "dist/dev-macos/payload.json" };
+const withSource = (devArtifact, signExisting = WITH_SOURCE) => ({ ...INCREMENTAL_BASE, lanes: ["ci", "sign-existing"], devArtifact, signExisting });
+
+test("macPayloadMetadataSource unset keeps the packaging step byte-identical in every macOS leg", () => {
+  const legs = [
+    DEV_MANIFEST.devArtifact,
+    { mac: "unsigned", macAppPath: "target/release/bundle/macos/Pulse.app" },
+    { ...DEV_MANIFEST.devArtifact, parallel: true, buildScript: "build:dev" },
+  ];
+  for (const devArtifact of legs) {
+    const plain = renderRustCi({ ...INCREMENTAL_BASE, devArtifact });
+    assert.ok(plain.includes(KEEP_PARENT), JSON.stringify(devArtifact));
+    const unrelated = renderRustCi(withSource(devArtifact, { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "payload.json" }));
+    assert.equal(unrelated, plain, "signExisting without the key changes nothing");
+  }
+});
+
+test("macPayloadMetadataSource zips the .app and the payload metadata file, keeping the wrapper layout, in every macOS leg", () => {
+  const legs = [
+    DEV_MANIFEST.devArtifact,
+    { mac: "unsigned", macAppPath: "target/release/bundle/macos/Pulse.app" },
+    { ...DEV_MANIFEST.devArtifact, parallel: true, buildScript: "build:dev" },
+  ];
+  for (const devArtifact of legs) {
+    const out = renderRustCi(withSource(devArtifact));
+    assert.ok(!out.includes(KEEP_PARENT), "the plain keepParent zip is replaced");
+    assert.match(out, /test -f "dist\/dev-macos\/payload\.json"\n          stage="\$RUNNER_TEMP\/dev-unsigned-stage"\n          rm -rf "\$stage" && mkdir -p "\$stage"\n          ditto "\$DEV_APP_PATH" "\$stage\/\$\(basename "\$DEV_APP_PATH"\)"\n          cp "dist\/dev-macos\/payload\.json" "\$stage\/payload\.json"\n          ditto -c -k "\$stage" "\$RUNNER_TEMP\/dev-unsigned\/app\.zip"\n/, JSON.stringify(devArtifact));
+    assert.match(out, /set -euo pipefail\n          test -d "\$DEV_APP_PATH"\n          mkdir -p "\$RUNNER_TEMP\/dev-unsigned"\n          test -f /, "the step fails on a missing file under set -e, after the app check");
+  }
+});
+
+test("macPayloadMetadataSource validation", () => {
+  const check = (devArtifact, signExisting) => validateManifest({ ...withSource(devArtifact, signExisting), regenerate: undefined });
+  const dev = { ...DEV_MANIFEST.devArtifact };
+  assert.equal(check(dev, WITH_SOURCE).valid, true);
+  assert.equal(check(dev, { ...WITH_SOURCE, macPayloadMetadataSource: "../payload.json" }).valid, false, "safe path");
+  assert.equal(check(dev, { ...WITH_SOURCE, macPayloadMetadataSource: "/abs/payload.json" }).valid, false, "repository-relative");
+  assert.equal(check(dev, { ...WITH_SOURCE, macPayloadMetadataSource: 7 }).valid, false, "a string");
+  assert.equal(check(dev, { ...WITH_SOURCE, macPayloadMetadata: "Legion.app/Contents/Resources/payload.json" }).valid, false, "bare file name at the zip root");
+  assert.equal(check({ windows: "unsigned", windowsGlob: "dist/*.exe" }, WITH_SOURCE).valid, false, "needs a macOS dev leg");
+  assert.equal(check(dev, { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "Legion.app/Contents/Resources/payload.json" }).valid, true, "unset keeps any metadata path");
+});
+
 test("signExisting validation", () => {
   const check = (patch) => validateManifest({ ...SIGN_EXISTING_MANIFEST, regenerate: undefined, ...patch });
   assert.equal(check({}).valid, true);

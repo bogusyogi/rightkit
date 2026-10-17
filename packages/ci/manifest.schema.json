@@ -252,6 +252,7 @@
       "properties": {
         "macSignManifest": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Repository-relative sign manifest JSON (per-file fixed codesign identifiers, paths relative to the extracted artifact)." },
         "macPayloadMetadata": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*$", "description": "Payload metadata JSON inside the artifact, relative to the extracted artifact root." },
+        "macPayloadMetadataSource": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Optional repository-relative path of a generated payload metadata file (for example dist/dev-macos/payload.json). When set, the unsigned dev packaging step zips the .app (wrapper layout kept) plus this file at the inner-zip root, named by macPayloadMetadata (a bare file name); the step fails if the file is missing. Needs devArtifact.mac 'sign', 'notarize' or 'unsigned'." },
         "environment": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", "description": "Protected GitHub environment holding the Developer ID secrets. Defaults to the candidate.releaseChain signing environment, else 'release'." }
       }
     },

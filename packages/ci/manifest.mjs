@@ -663,7 +663,12 @@ function validateSignExisting(manifest, lanes, errors) {
   }
   if (!hasLane) errors.push("signExisting requires lane 'sign-existing'");
   for (const key of Object.keys(sign)) {
-    if (!["macSignManifest", "macPayloadMetadata", "environment"].includes(key)) errors.push(`unknown signExisting field: ${key}`);
+    if (!["macSignManifest", "macPayloadMetadata", "macPayloadMetadataSource", "environment"].includes(key)) errors.push(`unknown signExisting field: ${key}`);
+  }
+  if (sign.macPayloadMetadataSource !== undefined) {
+    if (typeof sign.macPayloadMetadataSource !== "string" || !GATE_PATH_RE.test(sign.macPayloadMetadataSource)) errors.push("signExisting.macPayloadMetadataSource must be a safe repository-relative path to the generated payload metadata file");
+    if (typeof sign.macPayloadMetadata === "string" && sign.macPayloadMetadata.includes("/")) errors.push("signExisting.macPayloadMetadataSource places the file at the inner-zip root, so signExisting.macPayloadMetadata must be a bare file name");
+    if (!["sign", "notarize", "unsigned"].includes(manifest.devArtifact?.mac)) errors.push("signExisting.macPayloadMetadataSource needs devArtifact.mac 'sign', 'notarize' or 'unsigned' (the unsigned packaging step zips it)");
   }
   if (typeof sign.macSignManifest !== "string" || !GATE_PATH_RE.test(sign.macSignManifest)) errors.push("signExisting.macSignManifest must be a safe repository-relative path to a sign manifest JSON");
   if (typeof sign.macPayloadMetadata !== "string" || !DEV_MAC_PATH_RE.test(sign.macPayloadMetadata)) errors.push("signExisting.macPayloadMetadata must be a safe path inside the artifact archive");
@@ -922,7 +927,7 @@ export function devArtifactCi(manifest, options = {}) {
       "          set -euo pipefail",
       "          test -d \"$DEV_APP_PATH\"",
       "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
-      "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+      ...devMacZipLines(manifest),
       "      - name: Upload unsigned dev app for signing (macOS)",
       `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'macOS' }}`,
       `        uses: ${UPLOAD_ARTIFACT_PIN}`,
@@ -945,7 +950,7 @@ export function devArtifactCi(manifest, options = {}) {
       "          set -euo pipefail",
       "          test -d \"$DEV_APP_PATH\"",
       "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
-      "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+      ...devMacZipLines(manifest),
       "      - name: Upload unsigned dev app (macOS)",
       `        if: \${{ ${unsignedCondition} && runner.os == 'macOS' }}`,
       `        uses: ${UPLOAD_ARTIFACT_PIN}`,
@@ -986,6 +991,23 @@ function firstMatchingRunner(manifest, pattern, platform) {
   return runner;
 }
 
+// The line that zips the built .app into the inner zip. With `signExisting.macPayloadMetadataSource` set, the .app (wrapper layout
+// preserved, ditto) and the generated payload metadata file are staged together and zipped so the file sits at the inner-zip root
+// under the basename of `macPayloadMetadata`; a missing file fails the step. Unset, the single original line renders, byte-identical.
+function devMacZipLines(manifest) {
+  const source = manifest.signExisting?.macPayloadMetadataSource;
+  if (typeof source !== "string") return ['          ditto -c -k --keepParent "$DEV_APP_PATH" "$RUNNER_TEMP/dev-unsigned/app.zip"'];
+  const name = path.posix.basename(manifest.signExisting.macPayloadMetadata);
+  return [
+    `          test -f ${JSON.stringify(source)}`,
+    '          stage="$RUNNER_TEMP/dev-unsigned-stage"',
+    '          rm -rf "$stage" && mkdir -p "$stage"',
+    '          ditto "$DEV_APP_PATH" "$stage/$(basename "$DEV_APP_PATH")"',
+    `          cp ${JSON.stringify(source)} "$stage/${name}"`,
+    '          ditto -c -k "$stage" "$RUNNER_TEMP/dev-unsigned/app.zip"',
+  ];
+}
+
 function devMacArtifactJob({ manifest, lane, artifactPrefix, retention }) {
   const dev = manifest.devArtifact;
   const signed = dev.mac === "sign" || dev.mac === "notarize";
@@ -998,7 +1020,7 @@ function devMacArtifactJob({ manifest, lane, artifactPrefix, retention }) {
     "          set -euo pipefail",
     "          test -d \"$DEV_APP_PATH\"",
     "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
-    "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+    ...devMacZipLines(manifest),
     ...(signed
       ? [
         "      - name: Upload unsigned dev app for signing (macOS)",

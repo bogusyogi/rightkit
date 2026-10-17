@@ -51,11 +51,11 @@ function prepare({ provenance, portableCoreSha256, metadataInsideWrapper = false
   put(`${PAYLOAD}/plugin/skills/demo/SKILL.md`, "a skill\n");
   put(`${PAYLOAD}/plugin/rightax-portable-core.json`, jsonText({ schemaVersion: 1, publicFiles: ["release-binding.json"] }));
   const unsigned = sha(readFileSync(at(`${PAYLOAD}/bin/legion`)));
-  const locator = provenance ?? `local-build://macos-arm64/${unsigned}`;
+  const locator = provenance ?? `local-build://macos-aarch64/${unsigned}`;
   put(`${PAYLOAD}/plugin/release-binding.json`, jsonText({ schemaVersion: 1, kind: "legion-installed-plugin-release-binding", plugin: "legion", releaseVersion: "0.3.21", runtimeSha256: unsigned, runtimeProvenance: locator, releaseManifestPath: "../share/legion/release.json" }));
   put(`${PAYLOAD}/share/legion/release.json`, jsonText({
     releaseVersion: "0.3.21",
-    runtime: { platform: "macos", architecture: "arm64", sha256: unsigned, provenance: locator },
+    runtime: { platform: "macos", architecture: "aarch64", sha256: unsigned, provenance: locator },
     capabilityCatalogSha256: "a".repeat(64),
     stateSchemaVersion: 1,
     portableCoreSha256: portableCoreSha256 ?? sha(readFileSync(at(`${PAYLOAD}/plugin/rightax-portable-core.json`))),
@@ -68,12 +68,12 @@ function prepare({ provenance, portableCoreSha256, metadataInsideWrapper = false
   put(metadataRelative, JSON.stringify(record()));
   const ops = (of = "bin/legion") => [
     { file: "plugin/release-binding.json", pointer: "/runtimeSha256", compute: "sha256-file", of },
-    { file: "plugin/release-binding.json", pointer: "/runtimeProvenance", compute: "sha256-file", of, format: "local-build://macos-arm64/{value}", currentMatches: "^local-build://" },
+    { file: "plugin/release-binding.json", pointer: "/runtimeProvenance", compute: "sha256-file", of, format: "local-build://macos-aarch64/{value}", currentMatches: "^local-build://macos-aarch64/" },
     { file: "share/legion/release.json", pointer: "/runtime/sha256", compute: "sha256-file", of },
-    { file: "share/legion/release.json", pointer: "/runtime/provenance", compute: "sha256-file", of, format: "local-build://macos-arm64/{value}", currentMatches: "^local-build://" },
+    { file: "share/legion/release.json", pointer: "/runtime/provenance", compute: "sha256-file", of, format: "local-build://macos-aarch64/{value}", currentMatches: "^local-build://macos-aarch64/" },
     { file: "share/legion/release.json", pointer: "/portableCoreSha256", compute: "verify-sha256-file", of: "plugin/rightax-portable-core.json" },
     { file: "share/legion/release.json", pointer: "/pluginSha256", compute: "sha256-tree-v1", of: "plugin" },
-    { file: "share/legion/composition.json", pointer: "/releaseBinding/runtimeProvenance", compute: "sha256-file", of, format: "local-build://macos-arm64/{value}", currentMatches: "^local-build://" },
+    { file: "share/legion/composition.json", pointer: "/releaseBinding/runtimeProvenance", compute: "sha256-file", of, format: "local-build://macos-aarch64/{value}", currentMatches: "^local-build://macos-aarch64/" },
   ];
   const writeManifest = (patch = {}) => {
     const manifest = path.join(root, "sign.json");
@@ -130,7 +130,7 @@ test("refresh recomputes the Legion-shaped metadata from signed bytes, signs the
 
     const signedLegion = sha(readFileSync(p.at(`${PAYLOAD}/bin/legion`)));
     assert.notEqual(signedLegion, p.unsigned, "signing changed the runtime bytes");
-    const locator = `local-build://macos-arm64/${signedLegion}`;
+    const locator = `local-build://macos-aarch64/${signedLegion}`;
     const release = read(p, "share/legion/release.json");
     assert.equal(release.runtime.sha256, signedLegion);
     assert.equal(release.runtime.provenance, locator);
@@ -188,6 +188,22 @@ test("a provenance that is not a recomputable locator (a signed attestation) sto
     assert.throws(() => run(p, f), (error) => error.code === "SIGN_DEV_ARTIFACT_REFRESH_UNRECOMPUTABLE" && /rightkit-release:\/\/attested\/abc123/.test(error.message));
     assert.ok(!f.state.signed.includes(APP), "the wrapper is not signed");
     assert.equal(read(p, "share/legion/release.json").runtime.provenance, "rightkit-release://attested/abc123");
+  } finally { cleanup(p); }
+});
+
+test("currentMatches requires the original locator prefix, and format is applied exactly as given", () => {
+  const wrong = prepare({ provenance: "local-build://macos-arm64/abc" });
+  try {
+    const f = fakes(wrong);
+    assert.throws(() => run(wrong, f), (error) => error.code === "SIGN_DEV_ARTIFACT_REFRESH_UNRECOMPUTABLE" && /macos-arm64/.test(error.message), "another architecture token is not rewritten");
+    assert.ok(!f.state.signed.includes(APP));
+  } finally { cleanup(wrong); }
+  const p = prepare();
+  try {
+    const exact = "local-build://macos-aarch64/{value}";
+    p.writeManifest({ refresh: p.ops().map((op) => (op.format ? { ...op, format: exact } : op)) });
+    run(p);
+    assert.equal(read(p, "share/legion/release.json").runtime.provenance, `local-build://macos-aarch64/${sha(readFileSync(p.at(`${PAYLOAD}/bin/legion`)))}`);
   } finally { cleanup(p); }
 });
 
