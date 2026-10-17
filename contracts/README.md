@@ -30,4 +30,6 @@ Field meanings:
 - `ruleRevision` is the platform rule revision a document was validated against.
 - `review.policyRevision` (brief) and `policyRevision` (envelope) are review policy revisions.
 
+- `review.mode` is the eyes gate. `manual` needs a person to approve the exact assets and is otherwise refused with `eyes_approval_required` (a consumer reads that as awaiting approval). `auto_when_clean` delivers without a person only when a `rightkit-review` verdict on those exact assets is clean under `review.policyRevision`; with no such verdict it behaves as `manual` (fail closed). `none` delivers and reports `not_required`. `rightkit_contracts::eyes_gate` encodes the rule.
+
 Approval records are not defined in these schemas. A `ruleRevision` on an approval record needs a new contract; it is not added here.

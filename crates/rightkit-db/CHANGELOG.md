@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- Additive: `replace_database(&DbOptions, replacement, &rightkit_fs::LockOptions)` and `replace_database_locked`, an atomic replace of the live database with a validated copy (Orthic-Labs/rightkit#311, PostRight ledger 196). The replacement is opened read-only with the options' key and must pass every `PRAGMA integrity_check` row; it is copied through the backup API (WAL included) into a staging file beside the live database, checked and synced; the live `-wal`, `-shm` and `-journal` are removed so a stale log is never replayed; the staging file is renamed onto the path. A failure before the sidecars are removed leaves the live database untouched.
+- Additive: a store-wide advisory lock, `StoreLock::shared` / `StoreLock::exclusive` over `<db>.store-lock` (`store_lock_path`). A daemon and a shell hold a shared guard while they have connections open; `replace_database` takes the exclusive guard, so it runs only when no cooperating process is using the store and waits or fails (`DbError::Fs`, locked or timed out) per `LockOptions`. Cooperative: a process that never takes the shared guard is not excluded. Callers must still close their own connections first (required on Windows).
+- The `rightkit-fs` dependency now enables its `lock` feature (libc on unix; no new crate). Not compiled when written.
+
 ## 0.4.2
 
 - Additive: public `remove_database_files(&Path) -> io::Result<()>`, the former private `remove_with_sidecars` (Orthic-Labs/rightkit#199). Deletes a database and its `-wal`, `-shm` and `-journal` sidecars; a missing file is not an error, every file is attempted and the first real failure is returned. Backup's internal cleanup still ignores errors. For releasing connections first, `ReadPool::close` / `close_and_wait` already exist (the crate has no `JobStore`; a store type in an app or in rightkit-jobs closes its own writer and pool before calling this). Not compiled when written.

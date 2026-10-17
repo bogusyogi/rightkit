@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -28,8 +28,8 @@ hooks = ["rusqlite/hooks"]
 
 [dependencies]
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup"] }
-# Opts out of rightkit-fs `lock` (nix), `json` (serde), and `digest` (sha2): db needs only atomic writes, sweeps, owner-only files, and netfs.
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+# Opts out of rightkit-fs `json` (serde) and `digest` (sha2): db needs atomic writes, sweeps, owner-only files, netfs and the store-wide advisory lock.
+rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "lock"] }
 thiserror = "2"
 zeroize = "1.9"
 

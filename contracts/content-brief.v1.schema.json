@@ -64,7 +64,7 @@
       "additionalProperties": false,
       "required": ["mode"],
       "properties": {
-        "mode": { "enum": ["manual", "auto_when_clean", "none"] },
+        "mode": { "enum": ["manual", "auto_when_clean", "none"], "description": "Eyes gate for delivering these assets. manual: a person must approve the exact assets; until then the producer refuses with eyes_approval_required (consumers treat it as awaiting approval). auto_when_clean: deliver without a person only when an automated review (rightkit-review verdict) of these exact assets returned clean under policyRevision; a producer with no such verdict treats the mode as manual and refuses (fail closed). none: deliver; the gate reported is not_required." },
         "policyRevision": { "type": "integer", "minimum": 1, "description": "Review policy revision. Not the platform rule revision; see the top-level ruleRevision." }
       }
     },

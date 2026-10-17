@@ -21,6 +21,7 @@
 #![forbid(unsafe_code)]
 
 mod error;
+pub mod review;
 #[cfg(feature = "schema")]
 pub mod fixtures;
 #[cfg(feature = "schema")]
@@ -36,6 +37,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 pub use error::ContractError;
+pub use review::{eyes_gate, EyesGate, EYES_APPROVAL_REQUIRED};
 pub use version::{negotiate, Version};
 
 /// The six contracts defined in `rightkit/contracts/`.

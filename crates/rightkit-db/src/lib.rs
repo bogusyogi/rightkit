@@ -24,7 +24,10 @@ mod migrate;
 mod recover;
 mod unreadable;
 
-pub use backup::{online_backup_to, remove_database_files, restore_from, BackupProgress};
+pub use backup::{
+    online_backup_to, remove_database_files, replace_database, replace_database_locked,
+    restore_from, store_lock_path, BackupProgress, StoreLock,
+};
 pub use migrate::{
     add_column_if_missing, column_exists, migrate, migration_version, pending_marker, rollback_to,
     rollback_to_with_storage, user_version, LegacyVersionTable, MigrateOptions, Migration,

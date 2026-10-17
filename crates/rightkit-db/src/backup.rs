@@ -189,3 +189,109 @@ pub fn remove_database_files(path: &Path) -> std::io::Result<()> {
     }
     first_error.map_or(Ok(()), Err)
 }
+
+/// The lock file that guards the whole store behind the database at `db_path`:
+/// `<db_path>.store-lock`.
+pub fn store_lock_path(db_path: &Path) -> PathBuf {
+    let mut name = db_path.as_os_str().to_os_string();
+    name.push(".store-lock");
+    PathBuf::from(name)
+}
+
+/// A held store-wide lock (see [`store_lock_path`]). Released on drop.
+///
+/// Processes that use the database (daemon, shell) hold a [`StoreLock::shared`] guard for as long
+/// as they keep connections open; [`replace_database`] takes the [`StoreLock::exclusive`] guard,
+/// so a replace runs only when no cooperating process is using the store. The lock is advisory
+/// and cooperative: a process that never takes the shared guard is not excluded.
+#[derive(Debug)]
+pub struct StoreLock {
+    lock: rightkit_fs::FileLock,
+}
+
+impl StoreLock {
+    /// Shared guard: any number of holders, excluded only by an exclusive holder. Waits per
+    /// `options.timeout` and returns `DbError::Fs` (locked or timed out) when busy.
+    pub fn shared(db_path: &Path, options: &rightkit_fs::LockOptions) -> Result<Self> {
+        let lock = rightkit_fs::FileLock::acquire_shared(&store_lock_path(db_path), options)?;
+        Ok(Self { lock })
+    }
+
+    /// Exclusive guard: excludes every shared and exclusive holder. Waits per `options.timeout`.
+    pub fn exclusive(db_path: &Path, options: &rightkit_fs::LockOptions) -> Result<Self> {
+        let lock = rightkit_fs::FileLock::acquire(&store_lock_path(db_path), options)?;
+        Ok(Self { lock })
+    }
+
+    /// Path of the lock file.
+    pub fn path(&self) -> &Path {
+        self.lock.path()
+    }
+}
+
+/// Atomically replace the database at `options.path` with the database at `replacement`.
+///
+/// Under the store-wide exclusive lock ([`StoreLock::exclusive`], waiting per `lock`):
+/// 1. `replacement` is opened read-only with `options`' key and every `PRAGMA integrity_check`
+///    row must be `ok` (`DbError::Integrity` otherwise; the live database is untouched).
+/// 2. Its committed contents (WAL included) are copied through SQLite's backup API into a
+///    staging file beside the live database, checked, narrowed to owner-only and synced.
+/// 3. The live database's `-wal`, `-shm` and `-journal` sidecars are removed, so a stale log
+///    can never be replayed onto the new file, and the staging file is renamed onto the path.
+///
+/// A failure in step 1 or 2 leaves the live database untouched and removes the staging file. The
+/// only crash window is between removing the sidecars and the rename in step 3: the old main
+/// file is then still in place without its uncheckpointed log, and the staging file remains
+/// (reclaimed by `rightkit_fs::sweep_stale_temps`). The replacement keeps the options' key, so
+/// it must be encrypted with the same key.
+///
+/// Every connection to the live database, in this process and in any other, must be closed
+/// before the call: other processes by holding only [`StoreLock::shared`] guards (the exclusive
+/// guard cannot be taken while one is held), this process by dropping its writer and calling
+/// `ReadPool::close_and_wait`. On Windows an open connection also makes the rename fail.
+pub fn replace_database(
+    options: &DbOptions,
+    replacement: &Path,
+    lock: &rightkit_fs::LockOptions,
+) -> Result<()> {
+    let _guard = StoreLock::exclusive(&options.path, lock)?;
+    replace_database_locked(options, replacement)
+}
+
+/// [`replace_database`] for a caller that already holds the exclusive [`StoreLock`] for
+/// `options.path` (for example to do more work under the same lock).
+pub fn replace_database_locked(options: &DbOptions, replacement: &Path) -> Result<()> {
+    let target = options.path.as_path();
+    let source = validated_backup(options, replacement)?;
+    let staging = temp_path(target)?;
+    let staged = (|| -> Result<()> {
+        online_backup_to(options, &source, &staging, None)?;
+        drop(source);
+        remove_database_files_except_main(target)
+            .map_err(|e| DbError::Backup(format!("clear live sidecars: {e}")))?;
+        std::fs::rename(&staging, target)
+            .map_err(|e| DbError::Backup(format!("publish replacement: {e}")))?;
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            rightkit_fs::atomic::sync_dir(parent);
+        }
+        Ok(())
+    })();
+    if staged.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    staged
+}
+
+fn remove_database_files_except_main(path: &Path) -> std::io::Result<()> {
+    let mut first_error = None;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(suffix);
+        if let Err(e) = std::fs::remove_file(PathBuf::from(name)) {
+            if e.kind() != std::io::ErrorKind::NotFound && first_error.is_none() {
+                first_error = Some(e);
+            }
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
