@@ -536,6 +536,17 @@ impl Transcriber for CoreMlParakeet {
         }
         Ok(result)
     }
+
+    fn transcribe_samples_with_language(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        mode: Option<TimestampMode>,
+    ) -> Result<crate::decoder::LanguageTranscription> {
+        let result = self.transcribe_samples(audio, sample_rate, channels, mode)?;
+        Ok(crate::decoder::LanguageTranscription { result, language: self.language() })
+    }
 }
 
 // --- model identity -------------------------------------------------------

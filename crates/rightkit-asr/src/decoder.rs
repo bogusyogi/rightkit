@@ -114,9 +114,31 @@ impl ReportedLanguage {
     }
 }
 
+/// A [`TranscriptionResult`] together with the language the engine reports for
+/// it. Returned by `Transcriber::transcribe_samples_with_language` so a caller
+/// reads the language from the result on every backend (macOS CoreML included)
+/// instead of assuming one. `result` is exactly what `transcribe_samples`
+/// returns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LanguageTranscription {
+    pub result: TranscriptionResult,
+    pub language: ReportedLanguage,
+}
+
 #[cfg(test)]
 mod language_tests {
     use super::*;
+
+    #[test]
+    fn language_transcription_carries_result_and_language() {
+        let t = LanguageTranscription {
+            result: TranscriptionResult { text: "bonjour".into(), tokens: Vec::new() },
+            language: ReportedLanguage::new("fr", LanguageSource::Detected),
+        };
+        assert_eq!(t.result.text, "bonjour");
+        assert_eq!(t.language.code.as_deref(), Some("fr"));
+        assert_eq!(t.language.source, LanguageSource::Detected);
+    }
 
     #[test]
     fn reported_language_sources() {

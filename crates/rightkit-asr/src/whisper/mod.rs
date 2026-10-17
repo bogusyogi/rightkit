@@ -737,14 +737,30 @@ impl Transcriber for Whisper {
         _mode: Option<TimestampMode>,
     ) -> Result<TranscriptionResult> {
         let t = self.run(audio, sample_rate, channels)?;
-        Ok(TranscriptionResult {
-            text: t.text,
-            tokens: t
-                .segments
-                .into_iter()
-                .map(|s| TimedToken { text: s.text, start: s.start, end: s.end })
-                .collect(),
-        })
+        Ok(whisper_transcription_result(t))
+    }
+
+    fn transcribe_samples_with_language(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        _mode: Option<TimestampMode>,
+    ) -> Result<crate::decoder::LanguageTranscription> {
+        let t = self.run(audio, sample_rate, channels)?;
+        let language = self.reported_language(&t);
+        Ok(crate::decoder::LanguageTranscription { result: whisper_transcription_result(t), language })
+    }
+}
+
+fn whisper_transcription_result(t: WhisperTranscript) -> TranscriptionResult {
+    TranscriptionResult {
+        text: t.text,
+        tokens: t
+            .segments
+            .into_iter()
+            .map(|s| TimedToken { text: s.text, start: s.start, end: s.end })
+            .collect(),
     }
 }
 
