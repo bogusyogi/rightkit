@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -111,6 +111,43 @@ test("manifest validation: identifier required, valid, relative paths only, nest
     const ok = read([{ file: "Installer.app/Contents/MacOS/x", identifier: "a.x" }, { file: "Installer.app", identifier: "a.installer" }]);
     assert.equal(ok.length, 2);
     assert.equal(ok[0].identifier, "a.x");
+  } finally { rmSync(p.root, { recursive: true, force: true }); }
+});
+
+// A directory link (a junction on Windows, which needs no privilege) from `link` to `target`; null when the host refuses links.
+function linkDirectory(target, link) {
+  try { symlinkSync(target, link, "junction"); return true; } catch { return false; }
+}
+
+test("containment is on disk, not only lexical: a symlink inside the artifact cannot redirect outside it, and the root itself is refused", (t) => {
+  const p = prepare();
+  try {
+    const outside = path.join(p.root, "outside");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(path.join(outside, "victim"), "not part of the artifact");
+    if (!linkDirectory(outside, path.join(p.artifact, "escape"))) { t.skip("this host cannot create directory links"); return; }
+    mkdirSync(path.join(p.artifact, "inside"), { recursive: true });
+    assert.ok(linkDirectory(path.join(p.artifact, "inside"), path.join(p.artifact, "alias")), "a link that stays inside is created");
+    writeFileSync(path.join(p.artifact, "inside", "ok"), "x");
+    const read = (entries) => { writeFileSync(p.manifest, JSON.stringify({ schema: 1, entries })); return readDevArtifactSignManifest(p.manifest, p.artifact); };
+    assert.throws(() => read([{ file: "escape/victim", identifier: "a.b" }]), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE");
+    assert.throws(() => read([{ file: "legion", identifier: "a.b", entitlements: "escape/victim" }]), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE");
+    assert.throws(() => read([{ file: "escape", identifier: "a.b" }]), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE", "the link itself is refused");
+    assert.equal(read([{ file: "alias/ok", identifier: "a.b" }]).length, 1, "a link that resolves inside the artifact is allowed");
+    // The payload metadata path goes through the same check, so a recorded path cannot read outside either.
+    writeFileSync(p.metadata, JSON.stringify({ schema: 1, files: [{ path: "escape/victim", sha256: "0".repeat(64) }] }));
+    assert.throws(() => run(p), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE");
+  } finally { rmSync(p.root, { recursive: true, force: true }); }
+});
+
+test("an entry equal to the artifact root is refused", () => {
+  const p = prepare();
+  try {
+    const read = (entries) => { writeFileSync(p.manifest, JSON.stringify({ schema: 1, entries })); return readDevArtifactSignManifest(p.manifest, p.artifact); };
+    for (const file of [".", "", "./", "inside/..", "inside/../."]) {
+      assert.throws(() => read([{ file, identifier: "a.b" }]), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_INVALID", JSON.stringify(file));
+    }
+    assert.throws(() => read([{ file: "legion", identifier: "a.b", entitlements: "." }]), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_INVALID");
   } finally { rmSync(p.root, { recursive: true, force: true }); }
 });
 

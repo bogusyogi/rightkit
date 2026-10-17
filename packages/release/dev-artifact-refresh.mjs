@@ -22,9 +22,9 @@
 // over their final bytes. An operation may not read a file a later operation writes. JSON is rewritten in place keeping key order, and a
 // file the serializer cannot reproduce byte for byte (apart from the edited value) is refused rather than reformatted.
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { contained, fail, isWithin, toPosix } from "./dev-artifact-support.mjs";
+import { assertInsideOnDisk, contained, fail, isWithin, toPosix } from "./dev-artifact-support.mjs";
 
 export const REFRESH_COMPUTES = Object.freeze(["sha256-file", "sha256-tree-v1", "verify-sha256-file"]);
 const OPERATION_KEYS = new Set(["file", "pointer", "compute", "of", "format", "currentMatches"]);
@@ -78,7 +78,7 @@ export function readRefreshPlan(raw, artifact) {
       try { currentMatches = new RegExp(item.currentMatches); } catch { fail("SIGN_DEV_ARTIFACT_REFRESH_INVALID", `${label}.currentMatches is not a valid regular expression`); }
     }
     return {
-      index, file: contained(root, item.file, `${label}.file`), of: contained(root, item.of, `${label}.of`),
+      index, artifact, file: contained(root, item.file, `${label}.file`), of: contained(root, item.of, `${label}.of`),
       pointer: item.pointer, compute: item.compute, format: item.format, currentMatches, writes: item.compute !== "verify-sha256-file",
       declared: { file: item.file, pointer: item.pointer, compute: item.compute, of: item.of },
     };
@@ -150,6 +150,9 @@ function locate(root, pointer, label) {
 export function applyRefresh(operations, root) {
   return operations.map((operation) => {
     const label = `${operation.declared.file} ${operation.pointer}`;
+    // A link can appear after the plan was read: check every path again on disk right before it is read or written.
+    assertInsideOnDisk(operation.artifact, operation.of, `${label} input`);
+    assertInsideOnDisk(operation.artifact, operation.file, `${label} file`);
     const digest = operation.compute === "sha256-tree-v1" ? sha256TreeV1(operation.of) : sha256(readFileSync(operation.of));
     const { value, serialize } = readJson(operation.file, operation.declared.file);
     const { container, key } = locate(value, operation.pointer, label);
@@ -164,7 +167,9 @@ export function applyRefresh(operations, root) {
     const after = operation.format === undefined ? digest : operation.format.replace("{value}", digest);
     container[key] = after;
     const staging = `${operation.file}.refresh`;
-    writeFileSync(staging, serialize(value));
+    assertInsideOnDisk(operation.artifact, staging, `${label} staging file`);
+    rmSync(staging, { force: true }); // removes a stale file or a planted link itself, never what a link points at
+    writeFileSync(staging, serialize(value), { flag: "wx" });
     renameSync(staging, operation.file);
     return { ...record, after, changed: after !== before };
   });

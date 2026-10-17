@@ -334,18 +334,58 @@ function parseAgentEnv(rest, platform) {
   return opts;
 }
 
-/** True when `value` lies on the internal drive: a path on the system drive (Windows), any path outside /Volumes (macOS), or
- * a relative path (cannot be proven external). Lexical, pure. */
-export function pointsAtInternalDrive(value, { platform = process.platform, env = {} } = {}) {
+const LOCAL_UNC_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "."]);
+
+/** Realpath of `value`, resolving its nearest existing ancestor when the path itself does not exist yet. Null when nothing resolves. */
+function realpathOfExisting(value, realpath) {
+  let current = value;
+  let rest = "";
+  for (;;) {
+    try { return rest ? path.posix.join(realpath(current), rest) : realpath(current); } catch { /* try the parent */ }
+    const up = path.posix.dirname(current);
+    if (up === current) return null;
+    rest = rest ? `${path.posix.basename(current)}/${rest}` : path.posix.basename(current);
+    current = up;
+  }
+}
+
+/** True when `value` lies on the internal drive, or cannot be proven external. Windows: a path on the system drive, including the
+ * `\\?\C:\`, `\\.\C:\` and `\\?\UNC\localhost\C$\` / `\\localhost\C$\` spellings; any other path on this machine's own host name or
+ * loopback, a relative path and any device or volume-GUID path are unprovable and count as internal. macOS: any path outside
+ * /Volumes, and a /Volumes entry that resolves outside it (`/Volumes/Macintosh HD` is a symlink to /). Pure apart from the
+ * injectable `realpath` used on macOS. */
+export function pointsAtInternalDrive(value, { platform = process.platform, env = {}, realpath = realpathSync } = {}) {
   const v = String(value ?? "");
   if (platform === "win32") {
-    if (/^[\\/]{2}[^\\/]/.test(v)) return false;
-    const m = /^([A-Za-z]):/.exec(v);
-    if (!m) return true;
     const system = String(envValue(env, "SystemDrive", platform) ?? "C:").slice(0, 1).toUpperCase();
+    let p = v.replace(/\//g, "\\");
+    let unc = null;
+    const extended = /^\\\\[?.]\\(.*)$/.exec(p);
+    if (extended) {
+      const tail = extended[1];
+      if (/^UNC\\/i.test(tail)) unc = tail.slice(4);
+      else if (/^[A-Za-z]:/.test(tail)) p = tail;
+      else return true;
+    } else if (/^\\\\[^\\]/.test(p)) unc = p.slice(2);
+    if (unc !== null) {
+      const [host = "", share = ""] = unc.split("\\");
+      const hostName = host.toLowerCase();
+      const own = String(envValue(env, "COMPUTERNAME", platform) ?? "").toLowerCase();
+      if (!host) return true;
+      if (!LOCAL_UNC_HOSTS.has(hostName) && !(own && hostName === own)) return false;
+      const admin = /^([A-Za-z])\$$/.exec(share);
+      return admin ? admin[1].toUpperCase() === system : true;
+    }
+    const m = /^([A-Za-z]):/.exec(p);
+    if (!m) return true;
     return m[1].toUpperCase() === system;
   }
-  return !v.startsWith("/Volumes/");
+  if (!v.startsWith("/Volumes/")) return true;
+  if (platform === "darwin") {
+    const real = realpathOfExisting(v, realpath);
+    if (real !== null && !real.startsWith("/Volumes/")) return true;
+  }
+  return false;
 }
 
 function isUnder(value, root, platform) {
@@ -407,7 +447,18 @@ export function runProbe({ platform = process.platform, env = process.env, home,
   const locations = probeLocations({ platform, env, ...(home ? { home } : {}), ...(tmpdir ? { tmpdir } : {}), root });
   const probed = locations.map((l) => ({ l, r: probeDirectory(l.dir, { fs, nonce, platform }) }));
   const external = locations.find((l) => l.location === "external-root").dir;
+  // Fail closed. An internal location is sealed only when the write was refused (EACCES, EPERM, EROFS) or the directory does not
+  // exist (ENOENT); ENOSPC, EBUSY and every other error prove nothing, so they count against the probe. The external root must
+  // accept the probe file, or agent writes have nowhere to go.
+  const problems = [];
+  for (const { l, r } of probed) {
+    if (l.location === "external-root") {
+      if (r.outcome !== "allowed") problems.push(`${l.location} ${l.dir} is not writable (${r.code})`);
+    } else if (r.outcome === "allowed") problems.push(`${l.location} ${l.dir} is writable`);
+    else if (r.outcome === "error" && r.code !== "ENOENT") problems.push(`${l.location} ${l.dir} could not be proven blocked (${r.code})`);
+  }
   return {
+    problems,
     report: {
       schema: PROBE_SCHEMA, host, root: external,
       results: probed.map(({ l, r }) => ({ location: l.location, path: l.dir, outcome: r.outcome, code: r.code })),
@@ -441,7 +492,7 @@ function agentEnvCommand(rest, { env, stdout, platform, deps }) {
   const opts = parseAgentEnv(rest, platform);
   const root = opts.root ?? defaultExternalRoot(platform);
   const fail = (message) => { stderr(`disk agent-env: ${message}; refusing (no fallback to the internal drive)`); return { exitCode: 1 }; };
-  if (pointsAtInternalDrive(root, { platform, env })) return fail(`root ${root} is on the internal drive`);
+  if (pointsAtInternalDrive(root, { platform, env, realpath: (p) => fs.realpathSync(p) })) return fail(`root ${root} is on the internal drive`);
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return fail(`root ${root} is missing`);
   if (platform === "darwin") {
     let real = root;
@@ -474,9 +525,12 @@ function probeCommand(rest, { env, stdout, platform, deps }) {
     else if (rest[i] === "--root") { root = rest[++i]; if (!root) throw new Error("disk probe: --root needs a value"); }
     else throw new Error(`disk probe: unknown option ${rest[i]}`);
   }
-  const { report, leftovers } = runProbe({ platform, env, root, ...(deps.probe ?? {}), ...(deps.fs ? { fs: deps.fs } : {}), nonce: deps.nonce });
+  const { report, leftovers, problems } = runProbe({ platform, env, root, ...(deps.probe ?? {}), ...(deps.fs ? { fs: deps.fs } : {}), nonce: deps.nonce });
   stdout(json ? JSON.stringify(report) : renderProbe(report));
-  return { exitCode: report.internalWritable || leftovers.length ? 1 : 0, report };
+  const stderr = deps.stderr ?? console.error;
+  for (const problem of problems) stderr(`disk probe: ${problem}`);
+  for (const file of leftovers) stderr(`disk probe: could not remove ${file}`);
+  return { exitCode: report.internalWritable || leftovers.length || problems.length ? 1 : 0, report, problems };
 }
 
 export async function runDiskCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, platform = process.platform, deps = {} } = {}) {

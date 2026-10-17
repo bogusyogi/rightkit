@@ -2,6 +2,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
@@ -1103,6 +1104,44 @@ function signExistingRefusal(source) {
   return null;
 }
 
+// The checks above are a denylist backstop. The authority is byte equality with what @rightkit/ci renders for this repository's
+// manifest: an extra step (for example one that copies a secret into `env:` and posts it somewhere, or one that interpolates
+// `${{ inputs.* }}` straight into `run:`) passes every pattern above but can never equal the managed render.
+// The renderer comes from this monorepo's own packages/ci when present, else from the repository's installed @rightkit/ci; with
+// neither the file is refused, because an unverifiable sign-existing.yml must not be accepted.
+async function loadRightKitCiRenderer(root) {
+  const candidates = [pathToFileURL(fileURLToPath(new URL("../ci/sync.mjs", import.meta.url))).href];
+  try {
+    candidates.push(pathToFileURL(createRequire(path.join(root, "package.json")).resolve("@rightkit/ci/sync.mjs")).href);
+  } catch {
+    // not installed in the repository; the sibling candidate may still apply
+  }
+  for (const href of candidates) {
+    try {
+      if (href.startsWith("file:") && !existsSync(fileURLToPath(href))) continue;
+      const loaded = await import(href);
+      if (typeof loaded.renderLanes === "function") return loaded.renderLanes;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
+async function signExistingRenderRefusal(root, manifest, source) {
+  const renderLanes = await loadRightKitCiRenderer(root);
+  if (!renderLanes) return "the @rightkit/ci renderer is not available (install @rightkit/ci as a devDependency), so the file cannot be compared with its managed render";
+  let expected;
+  try {
+    expected = renderLanes(manifest, root).find((lane) => lane.filename === "sign-existing.yml")?.content;
+  } catch (error) {
+    return `the manifest does not render a sign-existing lane (${error.message})`;
+  }
+  if (typeof expected !== "string") return "the manifest does not render a sign-existing lane";
+  if (source.replace(/\r\n?/g, "\n") !== expected.replace(/\r\n?/g, "\n")) return "the file is not byte-for-byte the @rightkit/ci render of this repository's .rightgit.json (run right-git sync); extra, changed or reordered steps are refused";
+  return null;
+}
+
 // Head of the managed `supersede` job (the span starts at the preceding newline, before the job key line).
 const SUPERSEDE_JOB_HEAD = /^\n  supersede:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: ubuntu-[0-9.]+\n    timeout-minutes: \d+\n    permissions:\n      contents: read\n      actions: write\n    steps:\n/;
 
@@ -1219,7 +1258,9 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const signExistingSpan = workflow === "sign-existing.yml" ? jobSpan("sign-existing") : null;
     let protectedSignExisting = false;
     if (workflow === "sign-existing.yml") {
-      const reason = manifest?.signExisting && typeof manifest.signExisting === "object" ? signExistingRefusal(source) : "the manifest declares no signExisting";
+      const reason = manifest?.signExisting && typeof manifest.signExisting === "object"
+        ? (signExistingRefusal(source) ?? await signExistingRenderRefusal(root, manifest, source))
+        : "the manifest declares no signExisting";
       if (reason !== null) fail(`${appName} right-git managed sign-existing.yml is not the protected sign-existing shape: ${reason}`);
       protectedSignExisting = true;
     }

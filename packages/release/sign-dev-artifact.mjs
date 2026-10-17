@@ -5,7 +5,7 @@
 // TeamIdentifier, refresh the payload metadata, and write evidence JSON. An optional declarative `refresh` in the sign manifest
 // (dev-artifact-refresh.mjs) recomputes digests recorded in JSON files after the code they describe is signed and before the bundle
 // that contains those files is signed, so that bundle seals their final bytes; the payload metadata refresh then records everything.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
@@ -14,7 +14,7 @@ import { SIGN_MANIFEST_SCHEMA, parseSignManifest, signMacosEntries } from "./mac
 import { fileEvidence } from "./macos-file-evidence.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
-import { SignDevArtifactError, contained, fail, toPosix } from "./dev-artifact-support.mjs";
+import { SignDevArtifactError, assertInsideOnDisk, contained, fail, toPosix } from "./dev-artifact-support.mjs";
 import { applyRefresh, planRefresh, readRefreshPlan } from "./dev-artifact-refresh.mjs";
 
 export const DEV_ARTIFACT_PAYLOAD_SCHEMA = 1;
@@ -127,9 +127,17 @@ export function signDevArtifact({
   // Entries before the refresh sign first, then the declared metadata is recomputed from their final bytes, then the entries that
   // contain the refreshed files (the wrapper bundle) sign over them. Without a refresh this is one signing pass, as before.
   const signingOptions = { identity, signOne, inspect, evidence: evidenceOf, bundle: root };
-  const signed = plan.before.length ? signMacosEntries(plan.before, signingOptions) : [];
+  // The manifest paths were checked when it was read; check them on disk again right before codesign touches them.
+  const recheck = (list) => {
+    for (const entry of list) {
+      assertInsideOnDisk(root, entry.file, `sign manifest file ${path.relative(root, entry.file)}`);
+      if (entry.entitlements) assertInsideOnDisk(root, entry.entitlements, `entitlements ${path.relative(root, entry.entitlements)}`);
+    }
+    return list;
+  };
+  const signed = plan.before.length ? signMacosEntries(recheck(plan.before), signingOptions) : [];
   const refreshOps = refreshPlan.operations.length ? applyRefresh(refreshPlan.operations, refreshPlan.root) : [];
-  if (plan.after.length) signed.push(...signMacosEntries(plan.after, signingOptions));
+  if (plan.after.length) signed.push(...signMacosEntries(recheck(plan.after), signingOptions));
   const files = signed.map((record) => {
     const rel = toPosix(path.relative(root, record.file));
     const details = inspect("codesign", ["-dvv", record.file]);
@@ -151,7 +159,8 @@ export function signDevArtifact({
   const metadata = { ...before.metadata, files: payloadFiles, signing: { contract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, teamIdentifier, signedPaths: files.map((file) => file.path) } };
   const metadataBefore = evidenceOf(metadataFile).sha256;
   const staging = `${metadataFile}.signing`;
-  writeFileSync(staging, `${JSON.stringify(metadata, null, 2)}\n`);
+  rmSync(staging, { force: true }); // a stale file or planted link is removed itself, never written through
+  writeFileSync(staging, `${JSON.stringify(metadata, null, 2)}\n`, { flag: "wx" });
   renameSync(staging, metadataFile);
   verifyDevArtifactPayload(root, metadataFile);
 

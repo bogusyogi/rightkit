@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -250,6 +250,43 @@ test("payload metadata inside a signed bundle is refused: refreshing it after si
     const f = fakes(p);
     assert.throws(() => run(p, f), (error) => error.code === "SIGN_DEV_ARTIFACT_METADATA_IN_SIGNED_ENTRY");
     assert.equal(f.state.signed.length, 0);
+  } finally { cleanup(p); }
+});
+
+test("refresh paths are contained on disk: a symlink inside the artifact cannot redirect a read or a write outside it", (t) => {
+  const p = prepare();
+  try {
+    const outside = path.join(p.root, "outside");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(path.join(outside, "release.json"), jsonText({ runtime: { sha256: "x" } }));
+    writeFileSync(path.join(outside, "tool"), "outside bytes");
+    try { symlinkSync(outside, p.at(`${PAYLOAD}/leak`), "junction"); } catch { t.skip("this host cannot create directory links"); return; }
+    const [op] = p.ops();
+    for (const refresh of [[{ ...op, file: "leak/release.json" }], [{ ...op, of: "leak/tool" }]]) {
+      p.writeManifest({ refresh });
+      const f = fakes(p);
+      assert.throws(() => run(p, f), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE", JSON.stringify(refresh));
+      assert.equal(f.state.signed.length, 0, "refused before anything is signed");
+    }
+    assert.equal(readFileSync(path.join(outside, "release.json"), "utf8"), jsonText({ runtime: { sha256: "x" } }), "the file outside the artifact is untouched");
+    // refreshRoot cannot point through the link either, nor be the artifact root spelled out.
+    p.writeManifest({ refreshRoot: `${PAYLOAD}/leak`, refresh: [{ ...op, file: "release.json", of: "tool" }] });
+    assert.throws(() => run(p), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_ESCAPE");
+    for (const refreshRoot of [".", "./", `${PAYLOAD}/..`]) {
+      p.writeManifest({ refreshRoot, refresh: [op] });
+      assert.throws(() => run(p), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_INVALID", JSON.stringify(refreshRoot));
+    }
+  } finally { cleanup(p); }
+});
+
+test("refresh refuses an input or file equal to the refresh root", () => {
+  const p = prepare();
+  try {
+    const [op] = p.ops();
+    for (const refresh of [[{ ...op, of: "." }], [{ ...op, file: "" }], [{ ...op, of: "bin/.", file: "." }]]) {
+      p.writeManifest({ refresh });
+      assert.throws(() => run(p), (error) => error.code === "SIGN_DEV_ARTIFACT_PATH_INVALID", JSON.stringify(refresh));
+    }
   } finally { cleanup(p); }
 });
 

@@ -180,6 +180,68 @@ test("probeLocations and runProbe cover profile, local temp, OS temp and externa
   assert.equal(mac[3].dir, "/Volumes/D");
 });
 
+// A directory whose writes fail with an arbitrary error code.
+function failingFs(base, failing, code) {
+  const writeFileSync = base.writeFileSync;
+  return Object.assign(base, {
+    writeFileSync: (p, ...rest) => {
+      if (p.startsWith(failing)) { const e = new Error(code); e.code = code; throw e; }
+      return writeFileSync(p, ...rest);
+    },
+  });
+}
+
+test("probe fails closed: only EACCES, EPERM and EROFS count as blocked; a missing internal directory is fine", async () => {
+  const run = (fs, tmpdir = "/tmp") => runDiskCommand(["probe", "--json"], { platform: "darwin", env: { TMPDIR: tmpdir }, stdout: () => {}, deps: { fs, stderr: () => {}, probe: { home: "/Users/a", tmpdir, host: "mac" } } });
+  for (const code of ["ENOSPC", "EBUSY", "EIO", "ENOTDIR"]) {
+    const fs = failingFs(fakeFs({ dirs: ["/Users/a", "/tmp", "/Volumes/D"], blocked: ["/Users/a"] }), "/tmp", code);
+    const r = await run(fs);
+    assert.equal(r.exitCode, 1, code);
+    assert.equal(r.report.internalWritable, false, "the report shape is unchanged");
+    assert.match(r.problems.join("\n"), new RegExp(`could not be proven blocked \\(${code}\\)`), code);
+  }
+  for (const code of ["EACCES", "EPERM", "EROFS"]) {
+    const fs = failingFs(fakeFs({ dirs: ["/Users/a", "/tmp", "/Volumes/D"], blocked: ["/Users/a"] }), "/tmp", code);
+    assert.equal((await run(fs)).exitCode, 0, code);
+  }
+  const missingTemp = await run(fakeFs({ dirs: ["/Users/a", "/Volumes/D"], blocked: ["/Users/a"] }));
+  assert.equal(missingTemp.exitCode, 0, "ENOENT on an internal location does not fail the probe");
+});
+
+test("probe fails when the external root is not writable", async () => {
+  for (const fs of [
+    fakeFs({ dirs: ["/Users/a", "/tmp"], blocked: ["/Users/a", "/tmp"] }),
+    fakeFs({ dirs: ["/Users/a", "/tmp", "/Volumes/D"], blocked: ["/Users/a", "/tmp", "/Volumes/D"] }),
+    failingFs(fakeFs({ dirs: ["/Users/a", "/tmp", "/Volumes/D"], blocked: ["/Users/a", "/tmp"] }), "/Volumes/D", "ENOSPC"),
+  ]) {
+    const r = await runDiskCommand(["probe", "--json"], { platform: "darwin", env: { TMPDIR: "/tmp" }, stdout: () => {}, deps: { fs, stderr: () => {}, probe: { home: "/Users/a", tmpdir: "/tmp", host: "mac" } } });
+    assert.equal(r.exitCode, 1);
+    assert.match(r.problems.join("\n"), /external-root \/Volumes\/D is not writable/);
+  }
+});
+
+test("pointsAtInternalDrive treats extended, localhost-UNC and boot-volume spellings as internal", () => {
+  const win = (value, env = {}) => pointsAtInternalDrive(value, { platform: "win32", env });
+  assert.equal(win("\\\\?\\C:\\Users\\a"), true);
+  assert.equal(win("\\\\.\\C:\\Users\\a"), true);
+  assert.equal(win("//?/C:/Users/a"), true);
+  assert.equal(win("\\\\?\\UNC\\localhost\\C$\\Users\\a"), true);
+  assert.equal(win("\\\\localhost\\C$\\Users\\a"), true);
+  assert.equal(win("\\\\127.0.0.1\\c$\\x"), true);
+  assert.equal(win("\\\\BOX\\C$\\x", { COMPUTERNAME: "box" }), true);
+  assert.equal(win("\\\\?\\Volume{0000}\\x"), true, "a volume GUID cannot be proven external");
+  assert.equal(win("\\\\?\\D:\\agent-cache"), false);
+  assert.equal(win("\\\\?\\UNC\\localhost\\D$\\x"), false);
+  assert.equal(win("\\\\nas\\share\\x"), false);
+  assert.equal(win("\\\\?\\E:\\x", { SystemDrive: "E:" }), true);
+  const real = (map) => (p) => { if (map[p] !== undefined) return map[p]; const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; };
+  const mac = (value, map) => pointsAtInternalDrive(value, { platform: "darwin", realpath: real(map) });
+  assert.equal(mac("/Volumes/Macintosh HD", { "/Volumes/Macintosh HD": "/" }), true, "the boot-volume symlink resolves to /");
+  assert.equal(mac("/Volumes/Macintosh HD/Users/a/new", { "/Volumes/Macintosh HD": "/" }), true, "a path below a missing entry resolves through its existing ancestor");
+  assert.equal(mac("/Volumes/D/x", { "/Volumes/D": "/Volumes/D" }), false);
+  assert.equal(mac("/Volumes/D/x", {}), false, "nothing resolves: keep the lexical answer");
+});
+
 test("probe --json emits exactly the v1 schema; exits 0 when sealed and 1 when an internal location is writable", async () => {
   const sealedFs = fakeFs({ dirs: ["/Users/a", "/tmp", "/Volumes/D"], blocked: ["/Users/a", "/tmp"] });
   const lines = [];
