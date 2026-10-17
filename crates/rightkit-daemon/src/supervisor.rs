@@ -283,7 +283,7 @@ struct Running {
 }
 
 enum Phase {
-    Running(Running),
+    Running(Box<Running>),
     /// The next start is waiting for `due`.
     Waiting(RestartPermit, Instant),
     /// Nothing runs: `AwaitingDemand`, `Exhausted` or `Stopped`.
@@ -357,13 +357,13 @@ where
                     launch: self.launches,
                     pid,
                 });
-                self.phase = Phase::Running(Running {
+                self.phase = Phase::Running(Box::new(Running {
                     child,
                     generation,
                     health: HealthTracker::new(self.cfg.health, at),
                     ready: false,
                     launch: self.launches,
-                });
+                }));
             }
             Err(error) => {
                 self.emit(SupervisorEvent::LaunchFailed {
@@ -406,7 +406,7 @@ where
     fn tick(&mut self) {
         let placeholder = Phase::Idle(SupervisorState::Stopped);
         match std::mem::replace(&mut self.phase, placeholder) {
-            Phase::Running(running) => self.tick_running(running),
+            Phase::Running(running) => self.tick_running(*running),
             Phase::Waiting(permit, due) => {
                 if Instant::now() >= due && self.tracker.permit_valid(&permit, self.at()) {
                     self.start();
@@ -473,7 +473,7 @@ where
             _ => None,
         };
         match failure {
-            None => self.phase = Phase::Running(running),
+            None => self.phase = Phase::Running(Box::new(running)),
             Some(event) => {
                 self.emit(event);
                 self.stop_child(running.child);

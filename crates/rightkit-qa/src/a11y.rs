@@ -410,7 +410,7 @@ pub fn box_shadow_visible(box_shadow: &str) -> bool {
         let colour = tokens.iter().find_map(|t| parse_css_color(t));
         let lengths: Vec<f64> = tokens.iter().filter_map(|t| px_value(t)).collect();
         // A shadow with no parsable colour uses currentColor, which is visible.
-        colour.map_or(true, |c| c.a > 0.0) && lengths.iter().any(|v| *v != 0.0)
+        colour.is_none_or(|c| c.a > 0.0) && lengths.iter().any(|v| *v != 0.0)
     })
 }
 
@@ -424,7 +424,7 @@ pub fn focus_ring_verdict(probe: &Value) -> Value {
     let text = |k: &str| probe.get(k).and_then(Value::as_str).unwrap_or_default();
     let style = text("outlineStyle");
     let width = px_value(text("outlineWidth")).unwrap_or(0.0);
-    let colour_visible = parse_css_color(text("outlineColor")).map_or(true, |c| c.a > 0.0);
+    let colour_visible = parse_css_color(text("outlineColor")).is_none_or(|c| c.a > 0.0);
     let outline = !matches!(style, "" | "none" | "hidden") && width > 0.0 && colour_visible;
     let shadow = box_shadow_visible(text("boxShadow"));
     let (kind, reason) = if outline {
@@ -501,13 +501,14 @@ impl AxQuery {
         let name = collapse(node.get("name").and_then(Value::as_str).unwrap_or_default());
         self.role
             .as_deref()
-            .map_or(true, |r| role.eq_ignore_ascii_case(r.trim()))
-            && self.name.as_deref().map_or(true, |n| name == collapse(n))
-            && self.name_contains.as_deref().map_or(true, |n| {
-                name.to_lowercase().contains(&collapse(n).to_lowercase())
-            })
+            .is_none_or(|r| role.eq_ignore_ascii_case(r.trim()))
+            && self.name.as_deref().is_none_or(|n| name == collapse(n))
+            && self
+                .name_contains
+                .as_deref()
+                .is_none_or(|n| name.to_lowercase().contains(&collapse(n).to_lowercase()))
             && (!self.named || !name.is_empty())
-            && self.disabled.map_or(true, |d| {
+            && self.disabled.is_none_or(|d| {
                 node.get("disabled")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)

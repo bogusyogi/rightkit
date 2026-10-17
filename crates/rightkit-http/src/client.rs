@@ -2147,11 +2147,6 @@ pub(crate) fn read_limited(reader: &mut dyn Read, limit: usize) -> Result<Vec<u8
     Ok(out)
 }
 
-/// Map a ureq error raised while connecting or waiting for headers.
-pub(crate) fn map_ureq_error(err: ureq::Error) -> HttpError {
-    map_ureq_error_in(err, Phase::Headers)
-}
-
 /// Phase of a ureq timeout, falling back to `default` for the global and per-call budgets.
 fn timeout_phase(t: &ureq::Timeout, default: Phase) -> Phase {
     use ureq::Timeout as T;
