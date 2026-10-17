@@ -2,7 +2,12 @@
 # docs/CI.md ("Publishing") explains dispatch, what each job proves and how the ledger is updated.
 #
 # Trust boundary. Bytes are built once, then only moved:
-#   pack        no secret, no id-token: builds the npm tarballs / .crate files, seals them with a manifest
+#   sign-swap   the ONLY job besides upload with a secret (environment: release, the three Apple signing
+#               secrets, no id-token). Runs for npm runs that name @rightkit/release: builds the
+#               rightkit-swap helper with no secret in scope, then installs the Developer ID identity,
+#               signs and verifies that one binary, removes the keychain and hands the bytes over as an artifact
+#   pack        no secret, no id-token: builds the npm tarballs / .crate files, seals them with a manifest.
+#               It receives the signed rightkit-swap only by artifact download (hash re-checked), never signs
 #   verify      no secret, no id-token: on macOS AND Windows re-hashes the sealed bytes, checks them, runs
 #               the unit gate, and writes a per-host receipt bound to the manifest hash
 #   seal-check  no secret, no id-token: the upload script in dry-run mode (hash, receipt and provenance
@@ -113,9 +118,75 @@ jobs:
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ inputs.allow_missing_assets }}
         run: node scripts/ci/publish.mjs plan
 
-  pack:
+  sign-swap:
     needs: [guard, plan]
-    if: ${{ needs.plan.outputs.count != '0' }}
+    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}
+    environment: release
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - name: Build rightkit-swap with no secret in scope
+        run: cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs
+      - name: Install Apple signing identity in temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-signing.p12"
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+          rm -f "$certificate_path"
+      - name: Developer ID sign and verify rightkit-swap
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/swap-signed"
+          rm -rf "$out" && mkdir -p "$out"
+          cp target/release/rightkit-swap "$out/rightkit-swap"
+          codesign --force --strict --options runtime --timestamp --sign "$APPLE_DEVELOPER_ID" "$out/rightkit-swap"
+          codesign --verify --strict --verbose=2 "$out/rightkit-swap"
+          details="$(codesign -dvv "$out/rightkit-swap" 2>&1)"
+          printf '%s\n' "$details"
+          printf '%s\n' "$details" | grep -q 'Authority=Developer ID Application'
+          printf '%s\n' "$details" | grep -Eq 'flags=0x[0-9a-f]+\(.*runtime'
+          (cd "$out" && shasum -a 256 rightkit-swap > rightkit-swap.sha256 && cat rightkit-swap.sha256)
+          { echo '### rightkit-swap (Developer ID signed)'; echo '```'; cat "$out/rightkit-swap.sha256"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove Apple signing material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          security delete-keychain "$keychain_path" || true
+          rm -f "$RUNNER_TEMP/apple-signing.p12"
+      - name: Hand over the signed helper
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rightkit-swap-signed
+          path: ${{ runner.temp }}/swap-signed
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+
+  pack:
+    needs: [guard, plan, sign-swap]
+    if: ${{ always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}
     runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
@@ -139,6 +210,19 @@ jobs:
           pnpm -r --workspace-concurrency=1 run build
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: ${{ needs.plan.outputs.registry == 'crates' }}
+      - name: Fetch the signed rightkit-swap
+        if: ${{ needs.sign-swap.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rightkit-swap-signed
+          path: ${{ runner.temp }}/swap-signed
+      - name: Place the signed rightkit-swap in @rightkit/release after re-checking its hash
+        if: ${{ needs.sign-swap.result == 'success' }}
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/swap-signed" && sha256sum -c rightkit-swap.sha256)
+          install -d packages/release/bin/darwin
+          install -m 0755 "$RUNNER_TEMP/swap-signed/rightkit-swap" packages/release/bin/darwin/rightkit-swap
       - name: Pack the planned units once and seal them
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}

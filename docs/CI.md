@@ -104,6 +104,12 @@ receipt (operator `agent (local-build grant)`) with `hostPolicy: "darwin-only"` 
 `enforcePublicationGate` and the existing publisher (`publishGatedTarball`, or the `publish cargo` flow) then run on that
 evidence. No test or evidence step can be skipped, and Windows is covered by the next CI run.
 
+**Signed helper.** An npm run that names `@rightkit/release` first runs the `sign-swap` job (`xcode-27`, `environment: release`):
+it builds `rightkit-swap` with no secret in scope, then installs the Developer ID identity from `APPLE_CERTIFICATE_BASE64`,
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` and `vars.APPLE_DEVELOPER_ID`, signs and verifies it, and records its sha256.
+`pack` stays secretless: it downloads the `rightkit-swap-signed` artifact, re-checks the hash and places it at
+`packages/release/bin/darwin/rightkit-swap` before sealing. The `release` environment must hold those three secrets and variable.
+
 Four optional inputs make a skip explicit instead of silent; each name must be a unit of the request:
 
 - `allow_host_exclusion`: crates that `ci/gate.config.json` keeps off one verify host.

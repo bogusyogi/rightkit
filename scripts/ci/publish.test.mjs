@@ -900,7 +900,7 @@ jobs:
 test("the real publish workflow parses, and it is the sealed-upload shape", () => {
   const text = fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8");
   const doc = parseYaml(text);
-  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "pack", "verify", "seal-check", "upload"]);
+  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "sign-swap", "pack", "verify", "seal-check", "upload"]);
   assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
   assert.equal(doc.jobs.upload.environment, "release");
 });
@@ -923,7 +923,7 @@ test("the contract compares conditions exactly and finds every secret expression
   assert.throws(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if.replace(" }}", " || true }}")}`; }), /upload's condition must be exactly/);
   assert.doesNotThrow(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if}  `; }), "surrounding whitespace is not a different condition");
   for (const form of ["${{ secrets.X }}", "${{ secrets['X'] }}", '${{ secrets["X"] }}', "${{ toJSON(secrets) }}", "${{ secrets }}", "${{ SECRETS.X }}", "${{ format('{0}', secrets.X) }}"]) {
-    for (const job of ["guard", "plan", "pack", "verify", "seal-check"]) {
+    for (const job of ["guard", "plan", "sign-swap", "pack", "verify", "seal-check"]) {
       assert.throws(broken((d) => { const step = d.jobs[job].steps.at(-1); step.env = { ...(step.env ?? {}), T: form }; }), /secrets context|secret/, `${job}: ${form}`);
     }
   }
