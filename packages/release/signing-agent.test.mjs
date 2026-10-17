@@ -26,12 +26,17 @@ function fixture(t) {
 test("protocol rejects arbitrary execution, secrets, unknown fields & unsafe options", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   assert.equal(validateSigningRequest(f.request, f.policy).items[0].path, f.app);
-  for (const change of [{ type: "shell" }, { schema: 2 }, { command: "sh" }, { env: { SECRET: "secret" } }, { timeoutMs: Infinity }, { timeoutMs: 180001 },
+  for (const change of [{ type: "shell" }, { schema: 3 }, { command: "sh" }, { env: { SECRET: "secret" } }, { timeoutMs: Infinity }, { timeoutMs: 180001 },
     { items: [{ path: f.app, identity: "-" }] }, { items: [{ path: f.app, identity: "real", runtime: "yes" }] },
     { items: [{ path: f.app, identity: "real", entitlements: "relative" }] }, { items: [{ path: f.app, identity: "real", argv: ["--deep"] }] }]) {
     assert.throws(() => validateSigningRequest({ ...f.request, ...change }, f.policy));
   }
   assert.deepEqual(validateSigningRequest({ schema: 1, type: "health", token: "x" }, f.policy), { schema: 1, type: "health", token: "x" });
+  // Schema 2 adds only a typed codesign identifier (#345); schema 1 refuses it, and a malformed one is refused.
+  const withId = (schema, identifier) => ({ ...f.request, schema, items: [{ ...f.request.items[0], identifier }] });
+  assert.equal(validateSigningRequest(withId(2, "app.example.engine"), f.policy).items[0].identifier, "app.example.engine");
+  assert.throws(() => validateSigningRequest(withId(1, "app.example.engine"), f.policy));
+  for (const bad of ["-app", "app example", "app;rm", "app_x", ""]) assert.throws(() => validateSigningRequest(withId(2, bad), f.policy), JSON.stringify(bad));
   assert.throws(() => validateSigningRequest({ schema: 1, type: "health", token: "x", command: "sh" }, f.policy), { code: "MAC_SIGNING_AGENT_PROTOCOL" });
 });
 test("caller allow-list narrows installed roots; traversal, prefix siblings & symlink escapes rejected", { skip: WINDOWS_SKIP }, (t) => {
