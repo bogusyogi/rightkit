@@ -21,7 +21,8 @@ use windows::Win32::{
         Threading::{
             OpenThread, ProcessPowerThrottling, ResumeThread, SetProcessInformation,
             TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, IDLE_PRIORITY_CLASS, PROCESS_CREATION_FLAGS,
+            CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS,
+            IDLE_PRIORITY_CLASS, PROCESS_CREATION_FLAGS,
             PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
             PROCESS_POWER_THROTTLING_STATE, THREAD_SUSPEND_RESUME,
         },
@@ -107,6 +108,25 @@ pub(crate) fn configure(
     command.creation_flags(creation_flags(detached, hidden, priority).0);
 }
 
+/// Creation flags of the detached fallback used when the caller's job denies breakaway:
+/// `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` plus the priority class. No
+/// `CREATE_BREAKAWAY_FROM_JOB`, and no `CREATE_NO_WINDOW` (a detached process has no console, and
+/// the two console flags must not be combined).
+pub(crate) fn in_job_detached_flags(priority: ProcessPriority) -> PROCESS_CREATION_FLAGS {
+    DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | priority_class(priority)
+}
+
+/// Replaces the command's creation flags with the in-job detached fallback.
+pub(crate) fn configure_in_job_detached(command: &mut Command, priority: ProcessPriority) {
+    command.creation_flags(in_job_detached_flags(priority).0);
+}
+
+/// Whether a failed breakaway launch was refused by the caller's job object
+/// (`ERROR_ACCESS_DENIED`).
+pub(crate) fn is_breakaway_denied(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +150,26 @@ mod tests {
             bits(creation_flags(false, false, ProcessPriority::Normal)),
             bits(CREATE_SUSPENDED)
         );
+    }
+
+    #[test]
+    fn the_in_job_detached_fallback_has_no_breakaway_and_no_window_flag() {
+        let flags = bits(in_job_detached_flags(ProcessPriority::Normal));
+        assert_eq!(flags, bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP));
+        assert_eq!(flags & bits(CREATE_BREAKAWAY_FROM_JOB), 0);
+        assert_eq!(flags & bits(CREATE_NO_WINDOW), 0);
+        let idle = bits(in_job_detached_flags(ProcessPriority::Idle));
+        assert_eq!(
+            idle,
+            bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | IDLE_PRIORITY_CLASS)
+        );
+    }
+
+    #[test]
+    fn only_access_denied_counts_as_a_denied_breakaway() {
+        assert!(is_breakaway_denied(&io::Error::from_raw_os_error(5)));
+        assert!(!is_breakaway_denied(&io::Error::from_raw_os_error(2)));
+        assert!(!is_breakaway_denied(&io::Error::other("no code")));
     }
 
     #[test]

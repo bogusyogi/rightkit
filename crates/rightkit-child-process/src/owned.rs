@@ -333,17 +333,50 @@ impl OwnedCommand {
         self.hold_suspended = true;
         self.spawn_inner(false, false, None)
     }
-    /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid;
-    /// Windows requires breakaway and never falls back when escape is denied.
+    /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid.
     /// Stdio follows Command: dropping piped stdin can still deliver EOF.
+    ///
+    /// Windows first asks to break away from the caller's job object
+    /// (`CREATE_BREAKAWAY_FROM_JOB`). If the caller's job denies breakaway
+    /// (`ERROR_ACCESS_DENIED`), the launch is retried once without it, as
+    /// `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` with the same stdio and handle
+    /// allowlist (an ordinary spawn without an allowlist still inherits what std inherits).
+    /// The child is then detached from the console and process group but stays inside the
+    /// caller's job, so the job's limits (including kill-on-close) still reach it. Check
+    /// [`OwnedChild::stayed_in_parent_job`] to learn which happened. A caller that must not
+    /// run inside the parent's job uses
+    /// [`spawn_uncontained_detached_strict`](Self::spawn_uncontained_detached_strict). Any
+    /// other launch failure is returned as is, without a retry. Unix behaviour is unchanged.
     pub fn spawn_uncontained_detached(self) -> io::Result<OwnedChild> {
-        self.spawn_inner(true, false, None)
+        self.spawn_inner_with(true, false, None, true)
+    }
+    /// Like [`spawn_uncontained_detached`](Self::spawn_uncontained_detached), but never falls
+    /// back. On Windows, when the caller's job denies breakaway the launch fails with an
+    /// [`io::Error`] of kind `PermissionDenied` wrapping [`BreakawayDenied`] (recover it with
+    /// `error.get_ref().and_then(|e| e.downcast_ref::<BreakawayDenied>())`), and nothing is
+    /// started. On Unix this is identical to `spawn_uncontained_detached`.
+    pub fn spawn_uncontained_detached_strict(self) -> io::Result<OwnedChild> {
+        match self.spawn_inner_with(true, false, None, false) {
+            Err(error) if cfg!(windows) && is_denied_breakaway(&error) => {
+                Err(io::Error::new(io::ErrorKind::PermissionDenied, BreakawayDenied))
+            }
+            other => other,
+        }
     }
     fn spawn_inner(
+        self,
+        detached: bool,
+        fail_after_spawn: bool,
+        captured_pid: Option<Arc<std::sync::atomic::AtomicU32>>,
+    ) -> io::Result<OwnedChild> {
+        self.spawn_inner_with(detached, fail_after_spawn, captured_pid, false)
+    }
+    fn spawn_inner_with(
         mut self,
         detached: bool,
         fail_after_spawn: bool,
         captured_pid: Option<Arc<std::sync::atomic::AtomicU32>>,
+        in_job_fallback: bool,
     ) -> io::Result<OwnedChild> {
         if detached && self.caller_job.is_some() {
             return Err(io::Error::new(
@@ -446,12 +479,27 @@ impl OwnedCommand {
             child
         };
         #[cfg(windows)]
-        let child: PlatformChild = match self.inherited_handles.as_deref() {
+        let (child, stayed_in_parent_job) = match self.inherited_handles.as_deref() {
             None => {
                 // An ordinary spawn inherits every inheritable handle. Held so it never runs
                 // while an allowlisted spawn has private handles raised.
                 let _spawning = crate::spawn_windows::spawn_guard();
-                self.command.spawn()?.into()
+                match self.command.spawn() {
+                    Ok(child) => (PlatformChild::from(child), false),
+                    // The caller's job denied breakaway: one retry, detached but inside it.
+                    Err(error)
+                        if detached
+                            && in_job_fallback
+                            && crate::process_windows::is_breakaway_denied(&error) =>
+                    {
+                        crate::process_windows::configure_in_job_detached(
+                            &mut self.command,
+                            self.process_priority,
+                        );
+                        (PlatformChild::from(self.command.spawn()?), true)
+                    }
+                    Err(error) => return Err(error),
+                }
             }
             Some(handles) => {
                 let config = self.windows_spawn_config.take().ok_or_else(|| {
@@ -467,9 +515,14 @@ impl OwnedCommand {
                     self.process_priority,
                     self.env_cleared,
                     self.partial_spawn_cleanup_timeout,
+                    in_job_fallback,
                 )?
             }
         };
+        #[cfg(not(windows))]
+        let _ = in_job_fallback;
+        #[cfg(not(windows))]
+        let stayed_in_parent_job = false;
         let pid = child.id();
         if let Some(captured) = captured_pid {
             captured.store(pid, std::sync::atomic::Ordering::SeqCst);
@@ -493,6 +546,7 @@ impl OwnedCommand {
                 tree_terminated: false,
                 assignment_failures: Vec::new(),
                 suspended: std::sync::atomic::AtomicBool::new(cfg!(windows) && hold_suspended),
+                stayed_in_parent_job,
                 #[cfg(windows)]
                 job: None,
             }),
@@ -543,6 +597,34 @@ impl OwnedCommand {
     }
 }
 
+/// The error source returned (inside an [`io::Error`] of kind `PermissionDenied`) by
+/// [`OwnedCommand::spawn_uncontained_detached_strict`] on Windows when the caller's job object
+/// denies `CREATE_BREAKAWAY_FROM_JOB`. The OS reports this as `ERROR_ACCESS_DENIED`, which this
+/// crate cannot tell apart from other access-denied launch failures; a job that forbids
+/// breakaway is the cause this crate expects.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BreakawayDenied;
+
+impl std::fmt::Display for BreakawayDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "detached launch denied: the caller's job object does not allow breakaway \
+             (ERROR_ACCESS_DENIED); no fallback was attempted",
+        )
+    }
+}
+
+impl std::error::Error for BreakawayDenied {}
+
+#[cfg(windows)]
+fn is_denied_breakaway(error: &io::Error) -> bool {
+    crate::process_windows::is_breakaway_denied(error)
+}
+#[cfg(not(windows))]
+fn is_denied_breakaway(_error: &io::Error) -> bool {
+    false
+}
+
 /// How long `Drop` waits for a killed leader to be reaped before handing the reap to a
 /// background thread.
 pub const DEFAULT_DROP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -582,6 +664,8 @@ pub struct OwnedChild {
     assignment_failures: Vec<JobAssignmentFailure>,
     // True from `spawn_suspended` (Windows) until `resume` releases the child.
     suspended: std::sync::atomic::AtomicBool,
+    // Windows detached launch only: breakaway was denied and the child runs inside the parent's job.
+    stayed_in_parent_job: bool,
     // Shared so the owned-children registry can reach the job without keeping it open
     // (it holds a `Weak`): the kill-on-close job still closes with this child.
     #[cfg(windows)]
@@ -609,6 +693,13 @@ pub enum WaitOutcome {
 impl OwnedChild {
     pub fn id(&self) -> u32 {
         self.pid
+    }
+    /// True only for a Windows [`OwnedCommand::spawn_uncontained_detached`] child that could
+    /// not break away because the caller's job object denied it, so it was launched detached
+    /// but still inside that job (the job's limits, such as kill-on-close, still reach it).
+    /// False for every other child, including every Unix child and any child that broke away.
+    pub fn stayed_in_parent_job(&self) -> bool {
+        self.stayed_in_parent_job
     }
     /// Borrow child state, including stdio, wait and try_wait. Windows uses a
     /// native view with std pipe types for both spawn paths; Unix uses `UnixChild`, which
@@ -1334,6 +1425,41 @@ mod tests {
         assert!(!command.kill_on_parent_exit);
         command.kill_on_parent_exit(true);
         assert!(command.kill_on_parent_exit);
+    }
+
+    #[test]
+    fn breakaway_denied_is_a_typed_recoverable_error() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            super::BreakawayDenied,
+        );
+        assert!(error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<super::BreakawayDenied>())
+            .is_some());
+        assert!(super::BreakawayDenied.to_string().contains("breakaway"));
+    }
+
+    #[test]
+    fn a_strict_detached_spawn_passes_other_failures_through_untyped() {
+        let command = super::OwnedCommand::new("rightkit-no-such-program-for-strict-detach");
+        let Err(error) = command.spawn_uncontained_detached_strict() else {
+            panic!("a missing program must not spawn");
+        };
+        assert!(error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<super::BreakawayDenied>())
+            .is_none());
+    }
+
+    #[test]
+    fn a_strict_detached_spawn_still_rejects_kill_on_parent_exit() {
+        let mut command = super::OwnedCommand::new("unused");
+        command.kill_on_parent_exit(true);
+        let Err(error) = command.spawn_uncontained_detached_strict() else {
+            panic!("a detached spawn must not accept the parent-death tie");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]

@@ -141,7 +141,10 @@ in which that could happen. The rule that replaces it:
   Windows' retained job also works after parent exit; `windows_exit_code` accepts 1067.
   `terminate_tree_bounded_with_options(timeout, options)` bounds grace plus reap.
 - `spawn_uncontained_detached()` skips owner containment and survives owner drop.
-  Windows requires parent-job breakaway permission and fails without fallback.
+  Windows asks for parent-job breakaway first; if the caller's job denies it (`ERROR_ACCESS_DENIED`), it retries
+  once as `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` inside that job, and `OwnedChild::stayed_in_parent_job()`
+  reports it. `spawn_uncontained_detached_strict()` never falls back: it fails with a `PermissionDenied`
+  `io::Error` wrapping `BreakawayDenied`. Unix is unchanged.
   Unix starts a separate session and reaps asynchronously; configure stdio so EOF
   or closed pipes do not request application shutdown.
 - `process_handle()` returns an independent `ProcessHandle` exit reader/waiter.

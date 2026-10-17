@@ -14,6 +14,13 @@ Issue #271. Written without compiling or running Cargo here; CI builds and runs 
   plus EcoQoS (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` via `SetProcessInformation`, applied while the child is still
   suspended, best effort). macOS: nice 10 plus `QOS_CLASS_UTILITY` set between fork and exec (advisory; whether the
   class survives exec is to be confirmed on a Mac). Other Unix: nice 10.
+- **Fixed: `spawn_uncontained_detached` on Windows inside a job that denies breakaway** (Orthic-Labs/rightkit#339).
+  `CREATE_BREAKAWAY_FROM_JOB` fails with `ERROR_ACCESS_DENIED` there, so the launch used to fail. It now retries once
+  as `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (no breakaway, same stdio and handle allowlist) and the child stays
+  inside the caller's job. **New: `OwnedChild::stayed_in_parent_job()`** reports that case (false everywhere else,
+  including all of Unix). **New: `OwnedCommand::spawn_uncontained_detached_strict()`** never falls back and returns a
+  `PermissionDenied` `io::Error` wrapping the new `BreakawayDenied` type. Unix unchanged. Additive. Written without
+  compiling or running Cargo; the version stays 0.4.3 because 0.4.3 is not yet published (crates.io has 0.4.1).
 - **Item 4 of #271 (macOS parent-death tie) is already delivered** by 0.4.2: `kill_on_parent_exit(true)` arms a kqueue
   `NOTE_EXIT` watchdog on macOS. Nothing further was added for it.
 

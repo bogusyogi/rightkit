@@ -29,7 +29,8 @@ use windows::{
             InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
-            EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
+            EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS,
+            PROCESS_INFORMATION,
             PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
@@ -410,7 +411,8 @@ pub(crate) fn spawn(
     priority: crate::ProcessPriority,
     env_cleared: bool,
     cleanup_timeout: Option<Duration>,
-) -> io::Result<WindowsChild> {
+    in_job_fallback: bool,
+) -> io::Result<(WindowsChild, bool)> {
     if env_cleared {
         config.inherit_environment = false;
     }
@@ -483,21 +485,41 @@ pub(crate) fn spawn(
     // Normal contributes no bits, so the default flags are unchanged.
     flags |= crate::process_windows::priority_class(priority);
     let mut info = PROCESS_INFORMATION::default();
-    unsafe {
-        CreateProcessW(
-            PCWSTR(program_wide.as_ptr()),
-            Some(PWSTR(line.as_mut_ptr())),
-            None,
-            None,
-            true,
-            flags,
-            Some(env_block.as_ptr().cast()),
-            PCWSTR(cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr())),
-            &startup.StartupInfo,
-            &mut info,
-        )
+    // CreateProcessW may write into the command line, so a retry gets a fresh copy.
+    let line_backup = (detached && in_job_fallback).then(|| line.clone());
+    let mut create = |flags: PROCESS_CREATION_FLAGS, line: &mut Vec<u16>| {
+        unsafe {
+            CreateProcessW(
+                PCWSTR(program_wide.as_ptr()),
+                Some(PWSTR(line.as_mut_ptr())),
+                None,
+                None,
+                true,
+                flags,
+                Some(env_block.as_ptr().cast()),
+                PCWSTR(cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr())),
+                &startup.StartupInfo,
+                &mut info,
+            )
+        }
+        .map_err(os_error)
+    };
+    let mut stayed_in_parent_job = false;
+    if let Err(error) = create(flags, &mut line) {
+        match line_backup {
+            // The caller's job denied breakaway: retry once, detached but inside that job. The
+            // handle allowlist and startup information are unchanged, so nothing new is inherited.
+            Some(mut retry_line) if crate::process_windows::is_breakaway_denied(&error) => {
+                let retry_flags = CREATE_SUSPENDED
+                    | CREATE_UNICODE_ENVIRONMENT
+                    | EXTENDED_STARTUPINFO_PRESENT
+                    | crate::process_windows::in_job_detached_flags(priority);
+                create(retry_flags, &mut retry_line)?;
+                stayed_in_parent_job = true;
+            }
+            _ => return Err(error),
+        }
     }
-    .map_err(os_error)?;
     // Immediately own both handles, even if restoring caller flags fails.
     let child = WindowsChild {
         stdin: parent_stdin.map(ChildStdin::from),
@@ -511,7 +533,7 @@ pub(crate) fn spawn(
         crate::owned::cleanup_direct(Arc::new(Mutex::new(child)), cleanup_timeout);
         return Err(error);
     }
-    Ok(child)
+    Ok((child, stayed_in_parent_job))
 }
 
 fn wide(value: &OsStr) -> io::Result<Vec<u16>> {
