@@ -63,6 +63,9 @@ pub enum ExecutionProvider {
 pub struct ModelConfig {
     pub execution_provider: ExecutionProvider,
     pub intra_threads: usize,
+    /// Intra-op threads for the small sequential decoder/joint session, apart
+    /// from the encoder's `intra_threads`. `None` uses `intra_threads`.
+    pub decoder_intra_threads: Option<usize>,
     pub inter_threads: usize,
     pub configure: Option<Rc<dyn Fn(SessionBuilder) -> ort::Result<SessionBuilder>>>,
     /// Optional cache directory for compiled CoreML models. When set, avoids
@@ -79,6 +82,7 @@ impl fmt::Debug for ModelConfig {
         f.debug_struct("ModelConfig")
             .field("execution_provider", &self.execution_provider)
             .field("intra_threads", &self.intra_threads)
+            .field("decoder_intra_threads", &self.decoder_intra_threads)
             .field("inter_threads", &self.inter_threads)
             .field(
                 "configure",
@@ -104,6 +108,7 @@ impl Default for ModelConfig {
         Self {
             execution_provider: ExecutionProvider::default(),
             intra_threads: 4,
+            decoder_intra_threads: None,
             inter_threads: 1,
             configure: None,
             coreml_cache_dir: None,
@@ -164,8 +169,26 @@ impl ModelConfig {
         self
     }
 
-    pub(crate) fn auxiliary_config(&self) -> Self {
+    /// Intra-op thread count for the decoder/joint session only. `None` (the
+    /// default) keeps it equal to `intra_threads`, as before.
+    pub fn with_decoder_intra_threads(mut self, threads: usize) -> Self {
+        self.decoder_intra_threads = Some(threads);
+        self
+    }
+
+    /// Config for a decoder/joint session on the same provider as the encoder:
+    /// `intra_threads` is replaced by `decoder_intra_threads` when that is set,
+    /// otherwise the config is returned unchanged.
+    pub(crate) fn decoder_config(&self) -> Self {
         let mut config = self.clone();
+        if let Some(threads) = self.decoder_intra_threads {
+            config.intra_threads = threads;
+        }
+        config
+    }
+
+    pub(crate) fn auxiliary_config(&self) -> Self {
+        let mut config = self.decoder_config();
         config.execution_provider = self.auxiliary_execution_provider;
         config
     }
@@ -280,5 +303,24 @@ mod xnnpack_tests {
         assert_eq!(xnnpack_pool_threads(0).get(), 1);
         assert_eq!(xnnpack_pool_threads(1).get(), 1);
         assert_eq!(xnnpack_pool_threads(4).get(), 4);
+    }
+
+    #[test]
+    fn unset_decoder_threads_change_nothing() {
+        use super::ModelConfig;
+        let cfg = ModelConfig::new().with_intra_threads(6);
+        assert_eq!(cfg.decoder_intra_threads, None);
+        assert_eq!(cfg.decoder_config().intra_threads, 6);
+        assert_eq!(cfg.auxiliary_config().intra_threads, 6);
+    }
+
+    #[test]
+    fn decoder_threads_apply_to_decoder_only() {
+        use super::ModelConfig;
+        let cfg = ModelConfig::new().with_intra_threads(8).with_decoder_intra_threads(2);
+        assert_eq!(cfg.intra_threads, 8);
+        assert_eq!(cfg.decoder_config().intra_threads, 2);
+        assert_eq!(cfg.auxiliary_config().intra_threads, 2);
+        assert_eq!(cfg.decoder_config().execution_provider, cfg.execution_provider);
     }
 }

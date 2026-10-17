@@ -88,7 +88,7 @@ impl MultitalkerModel {
         let encoder = builder.commit_from_file(&encoder_path)?;
 
         let builder = Session::builder(rightkit_onnx::ort_environment()?)?;
-        let mut builder = exec_config.apply_to_session_builder(builder)?;
+        let mut builder = exec_config.decoder_config().apply_to_session_builder(builder)?;
         let decoder_joint = builder.commit_from_file(&decoder_path)?;
 
         Ok(Self {
