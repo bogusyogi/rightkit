@@ -1,0 +1,36 @@
+rustright managed-agent: request 10dbb972-e9f9-4940-9e8e-230085070c33
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling memmap2 v0.9.11
+   Compiling rightkit-fsindex v0.4.0 (/Volumes/D/claude/rightkit/crates/rightkit-fsindex)
+    Finished `release-iterate` profile [optimized] target(s) in 41.36s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-2f8237de12ff2f29)
+generated 1000000 entries in 971.3ms
+open (watch on): mapped    95.1 MB  heap    0.1 MB  per entry   99.9 B  | process anon     2.0 MB  file     6.9 MB  footprint     2.3 MB
+start: process anon 1.5 MB, file 4.3 MB
+steady after 35 s idle: mapped    95.1 MB  heap    0.1 MB  per entry   99.9 B  | process anon     0.7 MB  file     6.9 MB  footprint     2.4 MB
+after search + size query: mapped    95.1 MB  heap    0.1 MB  per entry   99.9 B  | process anon     3.6 MB  file     9.8 MB  footprint     5.2 MB
+query check: 100 hits, 21 root children, unique 1123478 MB
+RESULT warm_resident_bytes=9322496 bytes
+RESULT idle_resident_bytes=5652480 bytes
+RESULT resident_memory_bytes=9322496 bytes
+RESULT footprint_bytes=2425336 bytes
+RESULT idle_window_seconds=35.1 seconds
+RESULT idle_cpu_percent=0.004 percent
+RESULT wakeups_per_second=0.114 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=233.566 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=1000000 synthetic index reopened from its snapshot with the FSEvents watch on, then idle 35 s
+RESULT scope=synthetic
+RESULT budget crate=rightkit-fsindex version=0.4.0 resident_bytes=9322496 idle_cpu_percent=0.004 wakeups_per_s=0.114 disk_ops_per_s=unavailable scale_unit=entries scale_count=1000000
+after shrink(): mapped    95.1 MB  heap    0.1 MB  per entry   99.9 B  | process anon     3.7 MB  file     6.9 MB  footprint     5.2 MB
+RESULT mem entries=1000000 open_mapped_mb=95.1 open_heap_mb=0.14 open_per_entry_b=99.89 steady_mapped_mb=95.1 steady_per_entry_b=99.89 shrink_mapped_mb=95.1 shrink_per_entry_b=99.89 proc_anon_mb=3.7 proc_file_mb=6.9 proc_footprint_mb=5.2
+built 50000 files in 18.5s
+crawl 50000 files in 182.1ms
+open (watch on): mapped     3.9 MB  heap    0.0 MB  per entry   80.9 B  | process anon     6.4 MB  file     4.8 MB  footprint     6.8 MB
+RESULT churn changes_per_s=326 cpu_percent=4.4 dir_reads_per_s=1.2 relists_per_s=1.19 backoff_folders_max=20 wall_s=67.4
+RESULT churn_convergence_s=7.86 files_after=2000
+RESULT churn_audit files_disk=52000 files_index=52000 missing=0 extra=0 recall_pct=100.000 precision_pct=100.000 folders_checked=1022 logical_mismatch_folders=0
+after churn: mapped     4.2 MB  heap    0.0 MB  per entry   83.3 B  | process anon     9.5 MB  file     4.8 MB  footprint     9.9 MB
+RESULT churn_end mapped_mb=4.2 heap_mb=0.01 per_entry_b=83.28 entries=53022
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 3/642

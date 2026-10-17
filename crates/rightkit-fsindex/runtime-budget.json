@@ -18,8 +18,15 @@
   "caps": {
     "crawlThreadsMax": 8,
     "crawlThreadsScope": "one budget per process, concurrent crawls queue",
-    "fullRescanCooldownSeconds": { "base": 30, "max": 600, "quietResetSeconds": 1800 },
-    "subtreeRelistBudget": { "burst": 8, "refillSeconds": 5 },
+    "fullRescanCooldownSeconds": {
+      "base": 30,
+      "max": 600,
+      "quietResetSeconds": 1800
+    },
+    "subtreeRelistBudget": {
+      "burst": 8,
+      "refillSeconds": 5
+    },
     "source": "crates/rightkit-fsindex/src/limits.rs"
   },
   "requiredScale": {
@@ -36,6 +43,34 @@
     ],
     "note": "Status carries index-only resident_bytes (mapped+heap), process-wide cpu_percent, dir_reads_per_s; no wake-up count."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.4.0",
+      "commit": "bd4ce36264689588aac3c9905aec7433ac8b9f5f",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-fsindex/benches/budget.rs)",
+        "unit": "entries",
+        "count": 1000000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-fsindex --bench budget",
+      "observed": {
+        "residentMemoryBytes": 9322496,
+        "idleCpuPercent": 0.004,
+        "wakeupsPerSecond": 0.114,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.4.0-synthetic.txt",
+        "sha256": "c80e2513f38d8b5d570dd70a647b7491cabe589d196168c8e2eb008f681cf2a5"
+      }
+    }
+  ],
   "notes": "0.3.0 declares idle-CPU and wake-up ceilings from the new caps (see ceilingSources); they are declared, not measured. Resident-memory (185 MiB, from the README) and disk-operation (1 per second, idle) ceilings are declared from documented behaviour (see ceilingSources); a subtree re-list reads as many directories as the subtree holds. The gate refuses this crate until measurements are recorded. requiredScale is the bench's own default workload, cited in its source field."
 }
