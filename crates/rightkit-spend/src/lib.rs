@@ -500,7 +500,7 @@ impl Ledger {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let out = f(&*tx, &ctx)?;
+        let out = f(&tx, &ctx)?;
         tx.commit()?;
         Ok(out)
     }
@@ -2600,7 +2600,7 @@ mod tests {
 
     #[test]
     fn dropping_the_callers_transaction_rolls_back_ledger_and_sidecar_together() {
-        let mut f = funded(1_000);
+        let f = funded(1_000);
         sidecar(&f);
         let before = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
         {

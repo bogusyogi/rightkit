@@ -1131,7 +1131,7 @@ fn validate(rule: &Rule) -> Result<(), CatalogError> {
     }
     if rule.capability == "link.placement" {
         if let Limit::OneOf(names) = rule.limit() {
-            let known = |n: &str| LINK_PLACEMENTS.iter().any(|k| *k == n);
+            let known = |n: &str| LINK_PLACEMENTS.contains(&n);
             if let Some(name) = names.iter().find(|n| !known(n.as_str())) {
                 return Err(bad(&format!("{name} is not a link placement")));
             }

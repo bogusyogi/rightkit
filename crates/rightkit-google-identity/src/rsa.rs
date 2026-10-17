@@ -123,7 +123,7 @@ fn strip(b: &[u8]) -> &[u8] {
 pub(crate) fn verify_rs256(n: &[u8], e: &[u8], message: &[u8], signature: &[u8]) -> bool {
     let n = strip(n);
     let e = strip(e);
-    if n.is_empty() || n.len() * 8 - n[0].leading_zeros() as usize <= MIN_MODULUS_BITS - 1 {
+    if n.is_empty() || n.len() * 8 - (n[0].leading_zeros() as usize) < MIN_MODULUS_BITS {
         return false;
     }
     if n[n.len() - 1] & 1 == 0 || e.is_empty() || e.len() > 4 || (e[e.len() - 1] & 1) == 0 {

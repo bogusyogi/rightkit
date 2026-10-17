@@ -206,8 +206,8 @@ mod tests {
                 .collect();
             let full = reference_log_softmax(&logits);
             assert_eq!(full, log_softmax(&logits));
-            for i in 0..n {
-                assert!((log_prob_at(&logits, i) - full[i]).abs() <= 1e-6);
+            for (i, expected) in full.iter().enumerate() {
+                assert!((log_prob_at(&logits, i) - expected).abs() <= 1e-6);
             }
         }
         assert!(logsumexp(&[]).is_infinite());
