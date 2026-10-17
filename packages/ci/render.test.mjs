@@ -1108,6 +1108,36 @@ test("devArtifact entitlements add a checkout and --entitlements", () => {
   assert.match(out.split("  dev-mac-sign:")[1], /actions\/checkout@/);
 });
 
+// Orthic-Labs/rightkit#257: macSignManifest swaps `codesign --deep` for the per-file sign-dev-artifact command.
+const PER_FILE_DEV = { ...DEV_MANIFEST.devArtifact, macSignManifest: "build/dev-sign.json", macPayloadMetadata: "Pulse.app/Contents/Resources/payload.json" };
+
+test("devArtifact macSignManifest signs per file through right-release sign-dev-artifact, not codesign --deep", () => {
+  const out = renderRustCi({ ...DEV_MANIFEST, devArtifact: PER_FILE_DEV });
+  const sign = out.split("  dev-mac-sign:")[1];
+  assert.doesNotMatch(sign, /codesign --force --deep/);
+  assert.match(sign, /pnpm exec right-release sign-dev-artifact --artifact "\$work" --manifest "\$GITHUB_WORKSPACE\/build\/dev-sign\.json" --metadata "\$work\/Pulse\.app\/Contents\/Resources\/payload\.json" --evidence "\$RUNNER_TEMP\/dev-signed\/sign-evidence\.json"/);
+  assert.match(sign, /actions\/checkout@[\s\S]*actions\/setup-node@[\s\S]*pnpm install --frozen-lockfile[\s\S]*Install Apple signing identity/);
+  assert.match(sign, /sign-evidence\.json\n/);
+  assert.doesNotMatch(sign, /notarytool/, "the per-file lane never notarizes");
+});
+
+test("devArtifact without macSignManifest keeps the codesign --deep lane", () => {
+  const out = renderRustCi(DEV_MANIFEST);
+  assert.match(out.split("  dev-mac-sign:")[1], /codesign --force --deep --strict --options runtime --timestamp --sign "\$APPLE_DEVELOPER_ID" "\$app"\n          codesign --verify --deep --strict "\$app"/);
+  assert.doesNotMatch(out, /sign-dev-artifact/);
+});
+
+test("devArtifact macSignManifest validation", () => {
+  const check = (devArtifact) => validateManifest({ ...DEV_MANIFEST, regenerate: undefined, devArtifact });
+  assert.equal(check(PER_FILE_DEV).valid, true);
+  assert.equal(check({ ...PER_FILE_DEV, macPayloadMetadata: undefined }).valid, false, "metadata path required");
+  assert.equal(check({ ...PER_FILE_DEV, mac: "notarize" }).valid, false, "no notarize");
+  assert.equal(check({ ...PER_FILE_DEV, mac: "unsigned" }).valid, false, "needs sign");
+  assert.equal(check({ ...PER_FILE_DEV, macEntitlements: "build/pulse.entitlements" }).valid, false, "no entitlements beside a manifest");
+  assert.equal(check({ ...PER_FILE_DEV, macSignManifest: "../x.json" }).valid, false, "safe path");
+  assert.equal(check({ ...DEV_MANIFEST.devArtifact, macPayloadMetadata: "a/payload.json" }).valid, false, "metadata alone");
+});
+
 test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
   const bin = spawnSync("actionlint", ["-version"], { encoding: "utf8" });
   if (bin.error) return t.skip("actionlint not installed");

@@ -267,6 +267,8 @@
         "retentionDays": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 },
         "macAppPath": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*\\.app$", "description": "Repository-relative path of the built .app (required when mac is 'sign')." },
         "macEntitlements": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Optional repository-relative entitlements plist for codesign." },
+        "macSignManifest": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Optional repository-relative sign manifest JSON (right-release sign-dev-artifact: per-file fixed codesign identifier, paths relative to the extracted archive). With mac 'sign', replaces codesign --deep on the .app. Requires macPayloadMetadata; not combinable with macEntitlements or mac 'notarize'." },
+        "macPayloadMetadata": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*$", "description": "Path of the payload metadata JSON (recorded hashes) inside the staged archive, relative to the extracted archive root. Required with macSignManifest." },
         "windowsGlob": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/*?-]*$", "description": "Repository-relative glob of built files to upload (required when windows is 'unsigned')." }
       }
     },

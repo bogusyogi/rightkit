@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.48
+
+- rust-hybrid `devArtifact.macSignManifest` (with required `macPayloadMetadata`): with `mac: "sign"`, the `dev-mac-sign` job checks out the repo, installs dependencies and runs `right-release sign-dev-artifact` (per-file fixed codesign identifiers from the repo-relative sign manifest, payload metadata refreshed inside the archive, evidence uploaded as `sign-evidence.json`) instead of `codesign --deep` on the `.app` (Orthic-Labs/rightkit#257). Not combinable with `macEntitlements` or `mac: "notarize"`. Unset, the rendered workflow is byte-identical to 0.2.47, so no render baseline hash changed. Needs `@rightkit/release` 0.2.172 or later in the app.
+
 ## 0.2.47
 
 - rust-hybrid ci: with `ciAllOs: true` and a Linux runner (`ubuntu-*` or `linux*`) in `matrix.os`, the `RightKit ownership` step renders `if: ${{ runner.os != 'Linux' }}`, so the Linux leg no longer fails with "ownership approval unsupported platform: linux" (Orthic-Labs/rightkit#245, option b; ownership approval supports only macOS and Windows). Every other leg still runs the step. Manifests without `ciAllOs`, or with no Linux runner in `matrix.os`, render byte-identically, as do the release-candidate `admission` job (macos-15) and `regenerate`. No Tauri apt dependencies are installed on the Linux leg: the app's gate script owns its system packages.

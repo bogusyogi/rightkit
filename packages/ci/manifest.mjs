@@ -727,7 +727,7 @@ function validateDevArtifact(manifest, profile, errors) {
     return;
   }
   for (const key of Object.keys(dev)) {
-    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob", "dispatch", "parallel", "buildScript"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
+    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "macSignManifest", "macPayloadMetadata", "windowsGlob", "dispatch", "parallel", "buildScript"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
   }
   if (dev.mac !== undefined && !["sign", "notarize", "unsigned", "none"].includes(dev.mac)) errors.push("devArtifact.mac must be 'sign', 'notarize', 'unsigned' or 'none'");
   if (dev.windows !== undefined && dev.windows !== "unsigned" && dev.windows !== "none") errors.push("devArtifact.windows must be 'unsigned' or 'none'");
@@ -758,13 +758,21 @@ function validateDevArtifact(manifest, profile, errors) {
     } else if (dev.macEntitlements !== undefined && (typeof dev.macEntitlements !== "string" || !GATE_PATH_RE.test(dev.macEntitlements))) {
       errors.push("devArtifact.macEntitlements must be a safe repository-relative path");
     }
+    if (dev.macSignManifest !== undefined) {
+      if (dev.mac !== "sign") errors.push("devArtifact.macSignManifest requires mac 'sign' (the per-file lane never notarizes)");
+      if (typeof dev.macSignManifest !== "string" || !GATE_PATH_RE.test(dev.macSignManifest)) errors.push("devArtifact.macSignManifest must be a safe repository-relative path to a sign manifest JSON");
+      if (dev.macEntitlements !== undefined) errors.push("devArtifact.macSignManifest and macEntitlements cannot be combined; per-file entitlements go in the sign manifest");
+      if (typeof dev.macPayloadMetadata !== "string" || !DEV_MAC_PATH_RE.test(dev.macPayloadMetadata)) errors.push("devArtifact.macPayloadMetadata (a safe path inside the staged archive) is required with macSignManifest");
+    } else if (dev.macPayloadMetadata !== undefined) {
+      errors.push("devArtifact.macPayloadMetadata requires macSignManifest");
+    }
     if (!runners.some((runner) => MACOS_RUNNER_RE.test(runner))) {
       errors.push(dev.parallel === true
         ? `devArtifact.mac '${dev.mac}' needs a macOS runner (macos-* or xcode-*) in matrix.os`
         : `devArtifact.mac '${dev.mac}' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)`);
     }
-  } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined) {
-    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign', 'notarize' or 'unsigned'");
+  } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined || dev.macSignManifest !== undefined || dev.macPayloadMetadata !== undefined) {
+    errors.push("devArtifact.macAppPath, macEntitlements, macSignManifest and macPayloadMetadata require mac 'sign', 'notarize' or 'unsigned'");
   }
   if (dev.windows === "unsigned") {
     if (typeof dev.windowsGlob !== "string" || !DEV_WINDOWS_GLOB_RE.test(dev.windowsGlob)) {
@@ -1074,13 +1082,35 @@ function devMacSigningJob(manifest, dev, retention) {
   const parallel = dev.parallel === true;
   const runner = (parallel ? manifest.matrix.os : effectiveCiRunners(manifest)).find((os) => MACOS_RUNNER_RE.test(os));
   const entitlements = dev.macEntitlements ? ` --entitlements "$GITHUB_WORKSPACE/${dev.macEntitlements}"` : "";
-  const checkout = dev.macEntitlements
+  // `macSignManifest`: sign each file with its fixed identifier through `right-release sign-dev-artifact`
+  // (Orthic-Labs/rightkit#257) instead of `codesign --deep` on the .app. It needs the repo (the manifest) and the
+  // installed right-release; unset, none of this renders and the --deep lane is byte-identical.
+  const perFile = typeof dev.macSignManifest === "string";
+  const pm = perFile ? parsePackageManager(manifest.packageManager) : null;
+  const exec = pm ? { pnpm: "pnpm exec", npm: "npm exec --", yarn: "yarn exec" }[pm.name] : "";
+  const checkout = dev.macEntitlements || perFile
     ? `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: \${{ github.sha }}
           persist-credentials: false
-`
+${perFile ? `      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${String(manifest.matrix.node[0])}
+          package-manager-cache: false
+${pm.setup ? `${pm.setup}\n` : ""}      - run: ${pm.installCommand}
+` : ""}`
     : "";
+  const signLines = perFile
+    ? `          mkdir -p "$RUNNER_TEMP/dev-signed"
+          ${exec} right-release sign-dev-artifact --artifact "$work" --manifest "$GITHUB_WORKSPACE/${dev.macSignManifest}" --metadata "$work/${dev.macPayloadMetadata}" --evidence "$RUNNER_TEMP/dev-signed/sign-evidence.json"`
+    : `          codesign --force --deep --strict --options runtime --timestamp${entitlements} --sign "$APPLE_DEVELOPER_ID" "$app"
+          codesign --verify --deep --strict "$app"
+          mkdir -p "$RUNNER_TEMP/dev-signed"`;
+  const uploadPath = perFile
+    ? `|
+            \${{ runner.temp }}/dev-signed/*.zip
+            \${{ runner.temp }}/dev-signed/sign-evidence.json`
+    : "${{ runner.temp }}/dev-signed/*.zip";
   // `mac: "notarize"` also submits the signed app to the notary service and
   // staples the ticket, so app extensions (Finder Sync, Share, ...) register on
   // current macOS, which refuses them from unnotarized Developer ID apps.
@@ -1150,15 +1180,13 @@ ${checkout}      - name: Download unsigned dev app
           ditto -x -k "$RUNNER_TEMP/dev-unsigned/app.zip" "$work"
           app="$(find "$work" -maxdepth 1 -name '*.app' -print -quit)"
           test -n "$app"
-          codesign --force --deep --strict --options runtime --timestamp${entitlements} --sign "$APPLE_DEVELOPER_ID" "$app"
-          codesign --verify --deep --strict "$app"
-          mkdir -p "$RUNNER_TEMP/dev-signed"
+${signLines}
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/dev-signed/$(basename "$app").zip"
 ${notarizeStep}      - name: ${uploadLabel}
         uses: ${UPLOAD_ARTIFACT_PIN}
         with:
           name: dev-mac-\${{ github.sha }}
-          path: \${{ runner.temp }}/dev-signed/*.zip
+          path: ${uploadPath}
           retention-days: ${retention}
           if-no-files-found: error
       - name: Remove Apple signing material

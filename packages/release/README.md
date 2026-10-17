@@ -69,7 +69,8 @@ Every Right app has absolutely NO access to DevTools; the single exception is Vi
 | Build (SwiftPM apps) | `swift-package` (`windows-stage`, `msix`, `mac-app`) (config schema 1: `windows.{exe,out,searchDirs,include,dependencies,publisher,assets}`, `mac.{executable,bundleId,out,frameworks,resources,entitlements}`) |
 | Install | `install-app` |
 | Publish | `publish`, `upload`, `publish-update`, `github`, `mirror-root-artifact` |
-| Signing | `sign-windows`, `sign-updater`, `signing-agent`, `create-mac-updater` |
+| Signing | `sign-windows`, `sign-updater`, `signing-agent`, `create-mac-updater`, `sign-dev-artifact` |
+| Dev artifact signing | `sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]`: Developer ID signs an existing CI dev artifact per file with fixed identifiers (macOS). It verifies the recorded hashes in the payload metadata (default `payload.json`, `{ schema: 1, files: [{ path, sha256 }] }`) first, signs each sign-manifest entry (`file` relative to the artifact, `identifier` required, nested code before its bundle) through the dev-signing identity (missing Developer ID: `DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED`, no ad hoc fallback), verifies with `codesign --verify --strict`, reads back Identifier and TeamIdentifier, refreshes the metadata hashes, and writes evidence JSON. Never builds, notarizes or publishes |
 | Checks | `deps`, `hardening`, `harden`, `hardeningscan`, `cargo-target` |
 | Ownership | `ownership`, `ownership-approval`, `ownership-report` |
 | Other | `dev`, `doctor`, `suite-doctor`, `qa`, `dmg`, `cache`, `apple`, `inventory`, `model`, `addon`, `hooks`, `lsclean`, `generate-dmg-background`, `publish cargo`, `publish npm`, `publish swift` |

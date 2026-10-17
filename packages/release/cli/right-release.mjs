@@ -18,6 +18,7 @@ const commands = new Map([
   ["hardeningscan", "hardeningscan.mjs"],
   ["sign-windows", "sign-windows.mjs"],
   ["sign-updater", "sign-updater.mjs"],
+  ["sign-dev-artifact", "sign-dev-artifact.mjs"],
   ["signing-agent", "signing-agent-command.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
@@ -195,6 +196,8 @@ Commands:
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
   bundle-scan [--allow-name <basename>]... <bundle-root>...
                                                       Fail when a bundle carries Node/Python runtimes or script sources
+  sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]
+                                                      Developer ID sign an existing CI dev artifact per file with fixed identifiers; never builds, notarizes or publishes (macOS)
   identity-scan --target <path> [--identifier <id>] [--team <OU>] [--cdhash <hex>] [--arch <arch>]...
                                                       Assert codesign Identifier/Team/cdhash/lipo archs; reject ad-hoc
   upload --release <id> --platform mac|win --tier patch|update
