@@ -1,0 +1,20 @@
+[package]
+name = "rightkit-spend"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, in-flight and overrun handling."
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+keywords = ["spend", "budget", "ledger", "sqlite"]
+categories = ["database"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+rightkit-db = { version = "0.4.2", path = "../rightkit-db", default-features = false }
+thiserror = "2"
+
+[dev-dependencies]
+rightkit-db = { version = "0.4.2", path = "../rightkit-db", default-features = false, features = ["bundled"] }
+tempfile = "3"
