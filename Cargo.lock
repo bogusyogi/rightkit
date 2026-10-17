@@ -6742,7 +6742,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-daemon",
  "tempfile",
@@ -6849,7 +6849,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -6879,7 +6879,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -6933,7 +6933,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6994,7 +6994,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "bytes",
  "futures-util",
@@ -7090,7 +7090,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -7210,7 +7210,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pdf"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "fontdb 0.24.0",
  "getrandom 0.4.3",
@@ -7226,6 +7226,14 @@ dependencies = [
  "ttf-parser",
  "windows-sys 0.61.2",
  "wuff",
+]
+
+[[package]]
+name = "rightkit-platform-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7353,6 +7361,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "rightkit-spend"
+version = "0.1.0"
+dependencies = [
+ "rightkit-db",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -7487,7 +7504,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-workflow"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
