@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "./background-process.mjs";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -141,5 +141,65 @@ test("protected paths remain relevant even when the caller relevance filter reje
     assert.equal(protectedFile.bytes.toString("utf8"), "protected bytes\n");
     assert.equal(protectedFile.size, protectedFile.bytes.length);
     assert.equal(protectedFile.digest, `git:${protectedFile.oid}`);
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});
+
+const stamp = (file, seconds) => utimesSync(file, seconds, seconds);
+const ago = (seconds) => Math.floor(Date.now() / 1000) - seconds;
+const digestOf = (root, rel) => gitListedInventory(root, { relevant: () => true }).files.find((x) => x.rel === rel).digest;
+
+test("a dirty input is reused only while its size & mtime are unchanged", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    const file = path.join(f.root, "settled.txt");
+    const settled = ago(3600);
+    writeFileSync(file, "aaaa\n"); stamp(file, settled);
+    const first = digestOf(f.root, "settled.txt");
+
+    // Same size & mtime: the verified copy is reused, so the rewritten bytes are not read.
+    writeFileSync(file, "bbbb\n"); stamp(file, settled);
+    assert.equal(digestOf(f.root, "settled.txt"), first);
+
+    // A moved mtime invalidates it.
+    writeFileSync(file, "bbbb\n"); stamp(file, ago(1800));
+    const second = digestOf(f.root, "settled.txt");
+    assert.notEqual(second, first);
+
+    // A changed size invalidates it even at the same mtime.
+    writeFileSync(file, "longer content\n"); stamp(file, ago(1800));
+    assert.notEqual(digestOf(f.root, "settled.txt"), second);
+    assert.equal(statSync(file).size, "longer content\n".length);
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});
+
+test("a dirty input modified inside the racy window is never kept", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    const file = path.join(f.root, "fresh.txt");
+    const now = ago(0);
+    writeFileSync(file, "aaaa\n"); stamp(file, now);
+    const first = digestOf(f.root, "fresh.txt");
+    writeFileSync(file, "bbbb\n"); stamp(file, now);
+    assert.notEqual(digestOf(f.root, "fresh.txt"), first, "a same-size rewrite at a fresh mtime must be read again");
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});
+
+test("reuse never serves a deleted or replaced input and clean blobs keep their Git digest", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    const file = path.join(f.root, "gone.txt");
+    writeFileSync(file, "aaaa\n"); stamp(file, ago(3600));
+    assert.ok(digestOf(f.root, "gone.txt"));
+    unlinkSync(file);
+    const result = gitListedInventory(f.root, { relevant: () => true });
+    assert.equal(result.files.find((x) => x.rel === "gone.txt"), undefined);
+    assert.ok(result.coverage.some((x) => x.path === "gone.txt" && x.reason === "deleted"));
+    writeFileSync(path.join(f.root, "clean.txt"), "clean\n");
+    f.git("add", "clean.txt"); f.git("commit", "-qm", "seed");
+    const clean = gitListedInventory(f.root, { relevant: () => true }).files.find((x) => x.rel === "clean.txt");
+    assert.equal(clean.digest, `git:${clean.oid}`);
   } finally { f.close(); clearGitListedInventoryCacheForTests(); }
 });

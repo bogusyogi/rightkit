@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- **Inventory hashing runs on a bounded shared pool and reuses unchanged inputs (Orthic-Labs/rightkit#336).** `git_listed_inventory` reads and hashes dirty inputs on at most `min(4, cores)` workers, shared by every inventory in the process (`inventory_worker_limit`, `peak_hash_workers`), not per call. A dirty input read and hashed once is kept (64 MiB total) and reused while its size and mtime are unchanged; it is never kept when size or mtime moved while it was read or when it was modified within the last 2 seconds, and a changed, deleted or replaced file is read again. Ordering, digests, coverage and the lock-root and `pnpm-workspace.yaml` inputs are unchanged, and `packages/release/ownership-git-inventory.mjs` behaves the same (it is single-threaded, so it hashes one input at a time). `clear_inventory_cache` drops every kept input. Tests: `inventory_hash_workers_are_bounded_and_shared`, `inventory_reuses_inputs_only_while_size_and_mtime_hold`, `inventory_never_keeps_a_file_modified_inside_the_racy_window` in `src/tests.rs`. Not built or run here.
+
 ## 0.3.0
 
 - **Catalog: default-browser sign-in rule (Orthic-Labs/rightkit#279).** Three block-tier source fingerprints under `oauth-sign-in` flag an app rendering an auth URL in its own webview: `oauth.webview.auth-url-load` (WebviewWindowBuilder / WebviewUrl::External / WKWebView / loadRequest / loadUrl / navigate / eval with accounts.google.com, appleid.apple.com or /oauth/authorize on the line), `oauth.webview.on-navigation-intercept` (`on_navigation` with a code/redirect_uri/oauth/token hint) and `oauth.webview.bundled-chromium-login` (chromiumoxide, headless_chrome or CEF with an auth URL). The four byte-identical catalog copies and the rightkit-oauth manifest carry them. Test `oauth_webview_rules` in `tests/ownership_fixtures.rs`. Not built or run here.

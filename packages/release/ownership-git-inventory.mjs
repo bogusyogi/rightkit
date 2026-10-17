@@ -12,6 +12,38 @@ const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const CACHE_LIMIT = 128 * 1024 * 1024;
 const blobCache = new Map();
 let cacheBytes = 0;
+// Dirty inputs kept for reuse. Reused only while size & mtime are unchanged; bounded like the Rust scanner.
+const HASH_CACHE_BYTES = 64 * 1024 * 1024;
+// A file modified more recently than this is never kept: a same-size rewrite inside one timestamp tick is indistinguishable.
+const RACY_WINDOW_MS = 2000;
+const hashCache = new Map();
+let hashCacheBytes = 0;
+
+function signatureOf(abs) {
+  try {
+    const stat = lstatSync(abs, { bigint: true });
+    return stat.isFile() ? { key: `${stat.size}:${stat.mtimeNs}`, size: Number(stat.size), mtimeMs: Number(stat.mtimeNs / 1000000n) } : undefined;
+  } catch { return undefined; }
+}
+
+// Read & hash one dirty input. A kept copy is reused only when size & mtime are unchanged; a file whose size or
+// mtime moved while it was read is returned but never kept. This scanner is single-threaded, so one worker at a time.
+function readHashed(abs) {
+  const before = signatureOf(abs);
+  if (before) {
+    const kept = hashCache.get(abs);
+    if (kept?.key === before.key) return { bytes: kept.bytes, sum: kept.sum };
+    if (kept) { hashCacheBytes -= kept.bytes.length; hashCache.delete(abs); }
+  }
+  const bytes = readFileSync(abs), sum = sha256(bytes);
+  if (before) {
+    const after = signatureOf(abs);
+    if (after?.key === before.key && bytes.length === before.size && before.mtimeMs + RACY_WINDOW_MS <= Date.now() && hashCacheBytes + before.size <= HASH_CACHE_BYTES) {
+      hashCache.set(abs, { key: before.key, bytes, sum }); hashCacheBytes += before.size;
+    }
+  }
+  return { bytes, sum };
+}
 
 function gitEnv() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)));
@@ -195,7 +227,7 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
       if (!stat.isFile()) { coverage.push({ path: rel, status: "unscanned", reason: "not-regular-file" }); continue; }
     }
     const inNodeModules = rel.split("/").includes("node_modules");
-    let bytes, oid = indexed?.oid, digest, cacheKey;
+    let bytes, oid = indexed?.oid, digest, cacheKey, prehashed;
     if (isRelevant && entry.overLimit) {
       // Size-limit coverage was already recorded before any blob or file read.
     } else if (isRelevant) {
@@ -205,7 +237,7 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
         else if (isDirty) {
           if (stat.size > entry.maxFileBytes) {
             coverage.push({ path: rel, status: "unscanned", reason: "file-over-size-limit" });
-          } else bytes = readFileSync(abs);
+          } else ({ bytes, sum: prehashed } = readHashed(abs));
         } else {
           coverage.push({ path: rel, status: "unscanned", reason: "git-blob-cache-miss" });
         }
@@ -214,7 +246,7 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
         coverage.push({ path: rel, status: "unscanned", reason: "file-over-size-limit" });
         bytes = undefined;
       }
-      if (bytes && isDirty) { digest = sha256(bytes); cacheKey = `sha256:${digest}`; }
+      if (bytes && isDirty) { digest = prehashed ?? sha256(bytes); cacheKey = `sha256:${digest}`; }
       else if (bytes) { digest = `git:${oid}`; cacheKey = `gitblob:${oid}`; }
     } else if (!isDirty && oid) { digest = `git:${oid}`; cacheKey = `gitblob:${oid}`; }
     files.push({ rel, abs, size: bytes?.length ?? entry.cleanBlobSize ?? stat?.size, bytes, oid, digest, cacheKey, inNodeModules });
@@ -222,4 +254,4 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
   return { files, coverage };
 }
 
-export function clearGitListedInventoryCacheForTests() { blobCache.clear(); cacheBytes = 0; }
+export function clearGitListedInventoryCacheForTests() { blobCache.clear(); cacheBytes = 0; hashCache.clear(); hashCacheBytes = 0; }

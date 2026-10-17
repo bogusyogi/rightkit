@@ -4,7 +4,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, SystemTime};
 
 use serde_json::{json, Value};
 
@@ -19,6 +21,206 @@ const MAX_BLOB_BATCH_BYTES: u64 = 256 * 1024 * 1024;
 const GIT_TIMEOUT: Duration = Duration::from_millis(2500);
 pub const DEFAULT_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const OPAQUE_DIRS: [&str; 4] = ["target", ".build", "DerivedData", "Pods"];
+/// Hashing workers shared by every inventory in the process: `min(4, cores)`, at least 1.
+const MAX_HASH_WORKERS: usize = 4;
+/// Largest total of dirty-file bytes kept for reuse. An input that would exceed it is not kept.
+const HASH_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+/// A file modified more recently than this is never kept: a same-size rewrite inside one
+/// timestamp tick would be indistinguishable from the kept copy.
+const RACY_WINDOW: Duration = Duration::from_secs(2);
+
+/// The number of workers that read and hash dirty inputs, host-wide for this process.
+pub fn inventory_worker_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        cores.clamp(1, MAX_HASH_WORKERS)
+    })
+}
+
+fn relock<T>(guard: std::sync::LockResult<MutexGuard<'_, T>>) -> MutexGuard<'_, T> {
+    guard.unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+struct Slots {
+    free: Mutex<usize>,
+    ready: Condvar,
+}
+
+static ACTIVE_HASHERS: AtomicUsize = AtomicUsize::new(0);
+static PEAK_HASHERS: AtomicUsize = AtomicUsize::new(0);
+
+fn slots() -> &'static Slots {
+    static SLOTS: OnceLock<Slots> = OnceLock::new();
+    SLOTS.get_or_init(|| Slots {
+        free: Mutex::new(inventory_worker_limit()),
+        ready: Condvar::new(),
+    })
+}
+
+/// One of the shared hashing slots, released on drop.
+struct Permit;
+
+fn acquire() -> Permit {
+    let shared = slots();
+    let mut free = relock(shared.free.lock());
+    while *free == 0 {
+        free = relock(shared.ready.wait(free));
+    }
+    *free -= 1;
+    let now = ACTIVE_HASHERS.fetch_add(1, Ordering::SeqCst) + 1;
+    PEAK_HASHERS.fetch_max(now, Ordering::SeqCst);
+    Permit
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        ACTIVE_HASHERS.fetch_sub(1, Ordering::SeqCst);
+        let shared = slots();
+        *relock(shared.free.lock()) += 1;
+        shared.ready.notify_one();
+    }
+}
+
+/// Most hashing workers that ever ran at once in this process.
+pub fn peak_hash_workers() -> usize {
+    PEAK_HASHERS.load(Ordering::SeqCst)
+}
+
+#[derive(Clone, PartialEq)]
+struct Sig {
+    size: u64,
+    mtime: SystemTime,
+}
+
+fn sig_of(stat: &std::fs::Metadata) -> Option<Sig> {
+    if !stat.is_file() {
+        return None;
+    }
+    Some(Sig {
+        size: stat.len(),
+        mtime: stat.modified().ok()?,
+    })
+}
+
+struct Hashed {
+    bytes: Bytes,
+    sum: String,
+}
+
+struct Kept {
+    sig: Sig,
+    bytes: Bytes,
+    sum: String,
+}
+
+#[derive(Default)]
+struct HashCache {
+    entries: HashMap<PathBuf, Kept>,
+    bytes: u64,
+}
+
+fn hash_cache() -> &'static Mutex<HashCache> {
+    static CACHE: OnceLock<Mutex<HashCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashCache::default()))
+}
+
+/// Forget every kept input (tests, and callers that want a cold inventory).
+pub fn clear_inventory_cache() {
+    let mut cache = relock(hash_cache().lock());
+    cache.entries.clear();
+    cache.bytes = 0;
+}
+
+/// Number of inputs currently kept for reuse.
+pub fn inventory_cache_len() -> usize {
+    relock(hash_cache().lock()).entries.len()
+}
+
+/// Read and hash one dirty input on a shared slot. A kept copy is reused only when the
+/// file's size and mtime are unchanged; a file whose size or mtime moved while it was read
+/// is returned but never kept.
+fn read_hashed(abs: &Path) -> std::io::Result<Hashed> {
+    let _permit = acquire();
+    let before = std::fs::symlink_metadata(abs).ok().as_ref().and_then(sig_of);
+    if let Some(sig) = &before {
+        let mut cache = relock(hash_cache().lock());
+        match cache.entries.get(abs) {
+            Some(kept) if kept.sig == *sig => {
+                return Ok(Hashed {
+                    bytes: kept.bytes.clone(),
+                    sum: kept.sum.clone(),
+                })
+            }
+            Some(_) => {
+                if let Some(stale) = cache.entries.remove(abs) {
+                    cache.bytes -= stale.bytes.len() as u64;
+                }
+            }
+            None => {}
+        }
+    }
+    let read = std::fs::read(abs)?;
+    let sum = sha256_hex(&read);
+    let bytes: Bytes = std::sync::Arc::new(read);
+    if let Some(sig) = before {
+        let after = std::fs::symlink_metadata(abs).ok().as_ref().and_then(sig_of);
+        let settled = sig
+            .mtime
+            .checked_add(RACY_WINDOW)
+            .is_some_and(|quiet| quiet <= SystemTime::now());
+        if after.as_ref() == Some(&sig) && bytes.len() as u64 == sig.size && settled {
+            let mut cache = relock(hash_cache().lock());
+            if cache.bytes + sig.size <= HASH_CACHE_BYTES {
+                cache.bytes += sig.size;
+                cache.entries.insert(
+                    abs.to_path_buf(),
+                    Kept {
+                        sig,
+                        bytes: bytes.clone(),
+                        sum: sum.clone(),
+                    },
+                );
+            }
+        }
+    }
+    Ok(Hashed { bytes, sum })
+}
+
+/// Read and hash every job on the shared worker pool, keyed by relative path.
+fn prefetch_dirty(jobs: &[(String, PathBuf)]) -> HashMap<String, std::io::Result<Hashed>> {
+    let mut out = HashMap::new();
+    if jobs.is_empty() {
+        return out;
+    }
+    let workers = inventory_worker_limit().min(jobs.len());
+    let next = AtomicUsize::new(0);
+    let batches: Vec<Vec<(usize, std::io::Result<Hashed>)>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let at = next.fetch_add(1, Ordering::SeqCst);
+                        let Some((_, abs)) = jobs.get(at) else { break };
+                        done.push((at, read_hashed(abs)));
+                    }
+                    done
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or_default())
+            .collect()
+    });
+    for (at, result) in batches.into_iter().flatten() {
+        out.insert(jobs[at].0.clone(), result);
+    }
+    out
+}
 
 #[derive(Debug, Clone)]
 pub struct File {
@@ -312,6 +514,22 @@ pub fn git_listed_inventory(
             coverage.push(Cov::new(rel.clone(), "file-over-size-limit"));
         }
     }
+    // Dirty relevant inputs are read and hashed on the shared pool before the ordered pass,
+    // which then consumes the results in listing order.
+    let jobs: Vec<(String, PathBuf)> = relevant_rels
+        .iter()
+        .filter(|rel| {
+            let entry = &entries[*rel];
+            (entry.stages.is_empty() || dirty.contains(*rel))
+                && !entry.over_limit
+                && entry
+                    .stat
+                    .as_ref()
+                    .is_some_and(|s| s.is_file() && s.len() <= entry.max_file_bytes)
+        })
+        .map(|rel| (rel.clone(), abs_path(&root, rel)))
+        .collect();
+    let mut prefetched = prefetch_dirty(&jobs);
     let mut files = Vec::new();
     for rel in &order {
         let entry = entries.get_mut(rel).expect("listed entry");
@@ -367,6 +585,7 @@ pub fn git_listed_inventory(
         let mut bytes: Option<Bytes> = None;
         let mut digest = None;
         let mut cache_key = None;
+        let mut prehashed: Option<String> = None;
         if is_relevant && entry.over_limit {
             // Size-limit coverage was already recorded before any blob or file read.
         } else if is_relevant {
@@ -379,8 +598,15 @@ pub fn git_listed_inventory(
                 if too_big {
                     coverage.push(Cov::new(rel.clone(), "file-over-size-limit"));
                 } else {
-                    match std::fs::read(&abs) {
-                        Ok(read) => bytes = Some(std::sync::Arc::new(read)),
+                    let outcome = match prefetched.remove(rel) {
+                        Some(done) => done,
+                        None => read_hashed(&abs),
+                    };
+                    match outcome {
+                        Ok(hashed) => {
+                            bytes = Some(hashed.bytes);
+                            prehashed = Some(hashed.sum);
+                        }
                         Err(error) => {
                             coverage.push(Cov::new(
                                 rel.clone(),
@@ -402,7 +628,7 @@ pub fn git_listed_inventory(
             }
             if let Some(read) = &bytes {
                 if is_dirty {
-                    let sum = sha256_hex(read);
+                    let sum = prehashed.take().unwrap_or_else(|| sha256_hex(read));
                     cache_key = Some(format!("sha256:{sum}"));
                     digest = Some(sum);
                 } else if let Some(oid) = &oid {

@@ -896,3 +896,130 @@ fn runner_staging_is_a_runner_property() {
     let scanner = crate::Scanner::with_embedded_catalog(ctx);
     assert!(crate::NativeScanRunner(Arc::new(scanner)).staged());
 }
+
+// ---- Inventory hashing: bounded shared workers and reuse of unchanged inputs (#336). ----
+
+fn inventory_repo(label: &str) -> PathBuf {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "rk-ownership-inventory-{label}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::SeqCst)
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let status = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&dir)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    dir
+}
+
+fn write_aged(path: &std::path::Path, text: &str, age: Duration) -> std::time::SystemTime {
+    fs::write(path, text).unwrap();
+    let when = std::time::SystemTime::now() - age;
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+    fs::metadata(path).unwrap().modified().unwrap()
+}
+
+fn inventory_digest(dir: &std::path::Path, rel: &str) -> String {
+    let inventory = crate::inventory::git_listed_inventory(dir, &|_| true, &[], &|_| 1 << 20, dir);
+    inventory
+        .files
+        .iter()
+        .find(|f| f.rel == rel)
+        .and_then(|f| f.digest.clone())
+        .unwrap_or_else(|| panic!("{rel} has no digest: {:?}", inventory.coverage.len()))
+}
+
+#[test]
+fn inventory_hash_workers_are_bounded_and_shared() {
+    let limit = crate::inventory::inventory_worker_limit();
+    assert!((1..=4).contains(&limit));
+    let dir = inventory_repo("bounded");
+    for n in 0..24 {
+        fs::write(dir.join(format!("input-{n}.txt")), format!("input {n}\n")).unwrap();
+    }
+    let callers: Vec<_> = (0..3)
+        .map(|_| {
+            let dir = dir.clone();
+            thread::spawn(move || {
+                let inventory = crate::inventory::git_listed_inventory(
+                    &dir,
+                    &|_| true,
+                    &[],
+                    &|_| 1 << 20,
+                    &dir,
+                );
+                inventory.files.iter().filter(|f| f.digest.is_some()).count()
+            })
+        })
+        .collect();
+    for caller in callers {
+        assert_eq!(caller.join().unwrap(), 24);
+    }
+    assert!(crate::inventory::peak_hash_workers() <= limit);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn inventory_reuses_inputs_only_while_size_and_mtime_hold() {
+    let dir = inventory_repo("reuse");
+    let file = dir.join("settled.txt");
+    let mtime = write_aged(&file, "aaaa\n", Duration::from_secs(3600));
+    let first = inventory_digest(&dir, "settled.txt");
+
+    // Same size, same mtime: the verified copy is reused, so the new bytes are not read.
+    fs::write(&file, "bbbb\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    assert_eq!(inventory_digest(&dir, "settled.txt"), first);
+
+    // A moved mtime invalidates it.
+    write_aged(&file, "bbbb\n", Duration::from_secs(1800));
+    let second = inventory_digest(&dir, "settled.txt");
+    assert_ne!(second, first);
+
+    // A changed size invalidates it, even at the same mtime.
+    let mtime = write_aged(&file, "bbbb\n", Duration::from_secs(1800));
+    fs::write(&file, "longer content\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    assert_ne!(inventory_digest(&dir, "settled.txt"), second);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn inventory_never_keeps_a_file_modified_inside_the_racy_window() {
+    let dir = inventory_repo("racy");
+    let file = dir.join("fresh.txt");
+    let mtime = write_aged(&file, "aaaa\n", Duration::ZERO);
+    let first = inventory_digest(&dir, "fresh.txt");
+    fs::write(&file, "bbbb\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    assert_ne!(
+        inventory_digest(&dir, "fresh.txt"),
+        first,
+        "a same-size rewrite at a fresh mtime must be read again"
+    );
+    fs::remove_dir_all(&dir).ok();
+}
