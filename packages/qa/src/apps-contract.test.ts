@@ -39,7 +39,11 @@ describe('core app release-backdoor guards', () => {
   for (const app of apps) {
     // These guards read sibling app checkouts next to the RightKit repo; a clean
     // clone (release publish) has none, so the guard is skipped there, not failed.
-    it.skipIf(!fs.existsSync(path.join(app.root, 'package.json')))(`${app.name} keeps WebDriver debug-only and out of release scripts`, () => {
+    // The local publish gate sets RIGHTKIT_ISOLATED_CHECKOUT=1 for the same reason: a package
+    // publish is not blocked by a consumer's state. Each app's own release gate still enforces
+    // this contract (packages/release qa-contract.mjs / qa-control-scan.mjs).
+    const isolated = process.env.RIGHTKIT_ISOLATED_CHECKOUT === '1';
+    it.skipIf(isolated || !fs.existsSync(path.join(app.root, 'package.json')))(`${app.name} keeps WebDriver debug-only and out of release scripts`, () => {
       const packageJson = JSON.parse(fs.readFileSync(path.join(app.root, 'package.json'), 'utf8')) as {
         scripts?: Record<string, string>;
         dependencies?: Record<string, string>;
