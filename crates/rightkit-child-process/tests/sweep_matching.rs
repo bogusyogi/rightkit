@@ -116,7 +116,13 @@ fn the_executable_path_and_the_marker_must_both_hold() {
         }
         thread::sleep(Duration::from_millis(50));
     };
-    assert!(by_exe.iter().any(|found| found.pid() == child.id()));
+    assert!(
+        by_exe.iter().any(|found| found.pid() == child.id()),
+        "child {} exe {exe:?} not among {} exe matches: {:?}",
+        child.id(),
+        by_exe.len(),
+        by_exe.iter().map(|found| found.pid()).collect::<Vec<_>>()
+    );
     assert!(by_exe.iter().all(|found| found.pid() != std::process::id()));
 
     let wrong_exe = ProcessQuery::new()

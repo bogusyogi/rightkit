@@ -30,7 +30,7 @@ pub fn unzip(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
         let mut f = z.by_index(i).unwrap();
         let mut v = Vec::new();
         f.read_to_end(&mut v).unwrap();
-        out.insert(f.name().to_string(), v);
+        out.insert(f.name().expect("a readable entry name").to_string(), v);
     }
     out
 }

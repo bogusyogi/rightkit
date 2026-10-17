@@ -37,7 +37,12 @@ fn a_killed_stop_never_seals_complete_and_says_killed_in_the_bundle() {
 
     let manifest = read_manifest(&out);
     assert_eq!(manifest["status"], "partial_quarantined");
-    assert_eq!(manifest["reason"], "killed");
+    // The reason is the failure; the recovered media figures ride after it in the manifest.
+    let manifest_reason = manifest["reason"].as_str().unwrap();
+    assert!(
+        manifest_reason.starts_with("killed; recovered_media frames=30/3 duration_ms=990"),
+        "{manifest_reason}"
+    );
     assert_eq!(manifest["frames"]["count"], 3);
     assert!(rec
         .bundle_verify(&out, &VerifyOptions::default())

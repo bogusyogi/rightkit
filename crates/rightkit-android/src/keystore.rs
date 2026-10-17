@@ -90,9 +90,9 @@ fn invoke(
         method,
         jni_sig!("(Ljava/lang/String;[B[B)[B"),
         &[
-            JValue::Object(&*alias),
-            JValue::Object(&*data),
-            JValue::Object(&*aad),
+            JValue::Object(&alias),
+            JValue::Object(&data),
+            JValue::Object(&aad),
         ],
     );
     match result {
