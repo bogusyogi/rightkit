@@ -1,5 +1,7 @@
+import "./test-support/broker-guard.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -54,7 +56,7 @@ test("upload replay never rewrites publication state from a local verified recei
 
 test("build is tier-neutral and rejects a tier before touching a repository", () => {
   const result = spawnSync(process.execPath, [build, "--platform", "win", "--tier", "patch"], {
-    cwd: mkdtempSync(path.join(os.tmpdir(), "right-build-cli-")),
+    cwd: tempRoot("right-build-cli-"),
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);
@@ -81,7 +83,7 @@ test("upload enforces the same primary-checkout vault", () => {
 
 test("upload requires an explicit patch or update tier before reading a release", () => {
   const result = spawnSync(process.execPath, [upload, "--platform", "win", "--release", "fixture-1.0.0-deadbeef"], {
-    cwd: mkdtempSync(path.join(os.tmpdir(), "right-upload-cli-")),
+    cwd: tempRoot("right-upload-cli-"),
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);
@@ -153,7 +155,7 @@ test("upload accepts only explicit GitHub Releases product distribution", () => 
 test("github --release requires an explicit patch or update tier before reading a release", () => {
   for (const tierArgs of [[], ["--tier", "minor"], ["--tier="], ["--tier", ""]]) {
     const result = spawnSync(process.execPath, [githubRelease, "--release", "fixture-1.0.0-deadbeef", "--platform", "win", ...tierArgs], {
-      cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+      cwd: tempRoot("right-github-cli-"),
       encoding: "utf8",
     });
     assert.notEqual(result.status, 0, `accepted ${JSON.stringify(tierArgs)}`);
@@ -163,7 +165,7 @@ test("github --release requires an explicit patch or update tier before reading 
 
 test("github --release with a tier passes the tier gate and is stopped by a later local check, not by the network", () => {
   const result = spawnSync(process.execPath, [githubRelease, "--release", "fixture-1.0.0-deadbeef", "--platform", "win", "--tier=patch", "--dry-run"], {
-    cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+    cwd: tempRoot("right-github-cli-"),
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);
@@ -184,7 +186,7 @@ test("github --release authorizes through the upload gate before it plans or con
 
 test("github --addon refuses --tier and --config instead of ignoring them", () => {
   const result = spawnSync(process.execPath, [githubRelease, "--addon", "membrane.config.mjs", "--platform", "win", "--tier", "patch"], {
-    cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+    cwd: tempRoot("right-github-cli-"),
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);

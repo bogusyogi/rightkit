@@ -1,3 +1,5 @@
+import './test-support/broker-guard.mjs';
+import { tempRoot } from './test-support/temp-roots.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -14,7 +16,7 @@ const TOKEN = 'npm_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE';
 const results = await import(pathToFileURL(path.resolve(import.meta.dirname, '../../scripts/ci/test-results.mjs')).href);
 
 function workspace({ kind = 'npm', assetGated = false, gateConfig = {} } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-local-publish-test-'));
+  const root = tempRoot('rk-local-publish-test-');
   const dir = kind === 'npm' ? 'packages/demo' : 'crates/rightkit-demo';
   fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.mkdirSync(path.join(root, 'ci'), { recursive: true });

@@ -1,3 +1,5 @@
+import "./test-support/broker-guard.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -51,7 +53,7 @@ for (const evidenceSource of ["enrollment-pending-advisory", "committed-git-tree
 }
 
 test("general build dry-run is filesystem-pure and never starts its package command", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "right-build-dry-run-"));
+  const root = tempRoot("right-build-dry-run-");
   writeFileSync(path.join(root, "right-release.config.mjs"), "export default { app: 'fixture', version: '1.0.0', targets: { mac: { package: { cmd: 'false' } } } };\n");
   for (const args of [["init", "--initial-branch", "main"], ["config", "user.email", "test@example.com"], ["config", "user.name", "Test"], ["add", "."], ["commit", "-m", "init"]]) execFileSync("git", args, { cwd: root });
   const before = readdirSync(root).sort();
@@ -345,7 +347,7 @@ function androidPreSeal({ sources, aabSource, signingIdentity }) {
 }
 
 function androidFixture() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "right-build-android-"));
+  const dir = tempRoot("right-build-android-");
   const aabFile = path.join(dir, "app-release.aab");
   const bytes = Buffer.from("PK fake aab bytes for sealing");
   writeFileSync(aabFile, bytes);

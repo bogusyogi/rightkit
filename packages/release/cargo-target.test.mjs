@@ -1,5 +1,7 @@
+import "./test-support/broker-guard.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -13,8 +15,7 @@ const cli = path.join(here, "cargo-target.mjs");
 
 // CLI tests use a POSIX-shell rustright client fixture, never a live Cargo toolchain.
 function managedCliEnvironment(t) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-target-client-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const root = tempRoot("rightkit-target-client-");
   const client = path.join(root, "runtime-current", "rustright");
   mkdirSync(path.dirname(client), { recursive: true });
   writeFileSync(client, `#!/bin/sh
@@ -30,7 +31,7 @@ printf '{"target_directory":"%s/target"}' "$(dirname "$last")"
 }
 
 function fakeCargo() {
-  const bin = mkdtempSync(path.join(os.tmpdir(), "rightkit-fake-cargo-"));
+  const bin = tempRoot("rightkit-fake-cargo-");
   return {
     bin,
     execFileSync(_command, args) {
@@ -44,14 +45,14 @@ function fakeCargo() {
 
 test("resolveTargetRoot returns the absolute target_directory Cargo metadata reports", () => {
   const { bin, execFileSync } = fakeCargo();
-  const manifest = path.join(mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-")), "Cargo.toml");
+  const manifest = path.join(tempRoot("rightkit-cargo-target-fixture-"),"Cargo.toml");
   const result = resolveTargetRoot(manifest, { execFileSync });
   assert.equal(result, path.resolve(path.join(bin, "target")));
 });
 
 test("resolveTargetRoot fails closed, naming the manifest, when target_directory is not absolute", () => {
   const { execFileSync } = fakeCargo();
-  const manifest = path.join(mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-")), "bad-target-manifest-Cargo.toml");
+  const manifest = path.join(tempRoot("rightkit-cargo-target-fixture-"),"bad-target-manifest-Cargo.toml");
   assert.throws(
     () => resolveTargetRoot(manifest, { execFileSync }),
     new RegExp(`metadata for .*bad-target-manifest-Cargo\\.toml did not report an absolute target_directory`),
@@ -60,7 +61,7 @@ test("resolveTargetRoot fails closed, naming the manifest, when target_directory
 
 test("resolveTargetRoot fails closed, naming the manifest, when the metadata command exits non-zero", () => {
   const { execFileSync } = fakeCargo();
-  const manifest = path.join(mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-")), "fail-manifest-Cargo.toml");
+  const manifest = path.join(tempRoot("rightkit-cargo-target-fixture-"),"fail-manifest-Cargo.toml");
   assert.throws(
     () => resolveTargetRoot(manifest, { execFileSync }),
     new RegExp(`metadata failed for .*fail-manifest-Cargo\\.toml`),
@@ -73,7 +74,7 @@ test("resolveTargetRoot throws when no manifest path is given", () => {
 });
 
 test("CLI mode writes only the resolved path to stdout on success", { skip: process.platform === "win32" }, (t) => {
-  const manifestDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-"));
+  const manifestDir = tempRoot("rightkit-cargo-target-fixture-");
   const manifest = path.join(manifestDir, "Cargo.toml");
   mkdirSync(path.join(manifestDir, "src"));
   writeFileSync(path.join(manifestDir, "src", "lib.rs"), "");
@@ -84,7 +85,7 @@ test("CLI mode writes only the resolved path to stdout on success", { skip: proc
 });
 
 test("CLI mode writes a message to stderr and exits 1 on failure", { skip: process.platform === "win32" }, (t) => {
-  const manifestDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-"));
+  const manifestDir = tempRoot("rightkit-cargo-target-fixture-");
   const manifest = path.join(manifestDir, "fail-manifest-Cargo.toml");
   writeFileSync(manifest, "not valid toml");
   const result = spawnSync(process.execPath, [cli, manifest], { encoding: "utf8", env: managedCliEnvironment(t) });

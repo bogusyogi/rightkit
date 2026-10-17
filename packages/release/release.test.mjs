@@ -1,6 +1,7 @@
 import "./test-support/broker-guard.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
@@ -31,7 +32,7 @@ function withQaAdoption(pkg, qa = true) {
 }
 
 function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true, qa = true } = {}) {
-  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
+  const fixtureRoot = tempRoot("right-release-test-");
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
   const config = path.join(dir, "right-release.config.mjs");
@@ -138,7 +139,7 @@ test("release accepts a clean frontend dist and logs the web scan", () => {
 });
 
 function lockFixture() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "right-release-lock-test-"));
+  const dir = tempRoot("right-release-lock-test-");
   const config = path.join(dir, "right-release.config.mjs");
   writeFileSync(
     path.join(dir, "package.json"),

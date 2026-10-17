@@ -1,12 +1,13 @@
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveNativeArtifactPath, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 
 function fixture() {
-  return mkdtempSync(path.join(os.tmpdir(), "right-release-native-layout-"));
+  return tempRoot("right-release-native-layout-");
 }
 
 function write(root, relative, text) {

@@ -8,6 +8,8 @@
 //   - refuses every other launch of a broker-reaching command and any broker socket connect,
 //     throwing a RightKit broker guard error so the test fails loudly;
 //   - leaves temp-directory fixture clients alone (tests build those as POSIX shell stubs).
+//   - outside hosted CI (CI !== "true") treats every cargo, rustc, tauri and cargo-tauri launch as
+//     broker-reaching wherever PATH resolves it, so a local run never starts a real build or a new target root.
 // Opt-in for a real end-to-end run: RIGHTKIT_TEST_REAL_BROKER=1 (mirrors RIGHTKIT_TEST_REAL_DMG).
 // Child processes inherit the guard through NODE_OPTIONS, which installation appends to.
 // Not shipped: lives under test-support/, outside package.json "files".
@@ -147,10 +149,24 @@ function resolveOnPath(name) {
   return null;
 }
 
+// Hosted CI (GitHub Actions sets CI=true) is the one place a test may run the toolchain's own cargo.
+export function hostedCi() {
+  return process.env.CI === "true";
+}
+
+// Build tools whose launch from a test outside CI must never reach a real build: the compiler front
+// ends a build runs through (their wrappers on a managed host are not always under a managed segment).
+const BUILD_TOOLS = new Set(["cargo", "rustc", "tauri", "cargo-tauri"]);
+
 export function brokerLaunch(file) {
   const text = String(file ?? "");
-  const base = (text.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
+  const base = (text.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.(?:exe|cmd)$/, "");
   const bare = !/[\\/]/.test(text);
+  if (BUILD_TOOLS.has(base) && !hostedCi()) {
+    // Outside hosted CI a build tool is never run for real, wherever PATH resolves it
+    // (a managed shim, a rustup proxy or a RustRight wrapper). Fixture clients in the temp dir stay allowed.
+    return !insideTemp(text);
+  }
   const resolved = base === "cargo" && bare ? resolveOnPath("cargo") ?? "" : text;
   const reaches = base === "cargo" ? MANAGED_SEGMENT.test(resolved) : BROKER_BINARIES.has(base) || MANAGED_SEGMENT.test(text);
   return reaches && !insideTemp(text);
