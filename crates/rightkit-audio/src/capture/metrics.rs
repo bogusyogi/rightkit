@@ -56,6 +56,11 @@ impl CaptureErrorKind {
     }
 
     pub fn is_terminal(self) -> bool {
+        // An AAudio stream that lost its device is dead and must be reopened, so a
+        // device change is terminal on Android and advisory elsewhere.
+        if cfg!(target_os = "android") && matches!(self, Self::DeviceChanged) {
+            return true;
+        }
         !matches!(
             self,
             Self::DeviceChanged | Self::RealtimeDenied | Self::Xrun

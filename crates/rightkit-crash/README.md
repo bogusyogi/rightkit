@@ -41,6 +41,7 @@ fn main() {
 
 - macOS: `sample`-based native capture.
 - Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:296`); the crate records no Windows 11 run.
+- Android: no in-process handler. `record_android_exits` takes the OS exit history the Kotlin shell reads at launch (`getHistoricalProcessExitReasons`: crash, native crash tombstone, ANR), keeps header and backtrace text only, and records each death once through the normal redacted report path. Not yet run on a device (docs/design/android-minimum.md).
 - Other platforms: structured reports only.
 
 `capture_native(dir, kind)` takes the same native capture on demand, for hang, UI-stall or

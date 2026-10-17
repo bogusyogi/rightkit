@@ -12,6 +12,8 @@
 
 use std::fmt;
 
+#[cfg(target_os = "android")]
+pub mod android;
 mod device;
 mod downmix;
 mod metrics;

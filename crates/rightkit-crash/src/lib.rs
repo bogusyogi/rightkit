@@ -8,11 +8,15 @@
 //! * `bundle` builds a user-initiated support ZIP from already-redacted data
 //!   (feature `support-bundle`, on by default).
 //!
+//! * `record_android_exits` turns the Android exit history (native crash tombstones and ANRs the OS
+//!   already recorded) into the same redacted reports on the next launch.
+//!
 //! Merged from HeardRight `crash_dump.rs`, `crash_capture.rs`, `crash_report.rs`,
 //! `panic_redact.rs`, `diagnostics_archive.rs` and `heardright-dump-helper`.
 
 #![deny(unsafe_code)]
 
+mod android;
 #[cfg(feature = "support-bundle")]
 mod archive;
 #[cfg(feature = "support-bundle")]
@@ -25,6 +29,9 @@ mod retention;
 #[cfg(feature = "window-errors")]
 mod window;
 
+pub use android::{
+    record_android_exits, reduce_trace, unseen_exits, AndroidExit, AndroidExitReason,
+};
 #[cfg(feature = "support-bundle")]
 pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]

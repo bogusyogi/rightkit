@@ -71,7 +71,11 @@ pub fn capture_route_changed(
 /// Wrap an OS open error with a stable hint when it is a consent denial, so field
 /// logs distinguish a denied microphone from a missing/broken device.
 pub fn capture_open_error(detail: String) -> String {
-    if detail.contains("Access is denied")
+    if cfg!(target_os = "android")
+        && (detail.contains("PermissionDenied") || detail.contains("RECORD_AUDIO"))
+    {
+        format!("capture open: {detail} (the RECORD_AUDIO permission may not be granted)")
+    } else if detail.contains("Access is denied")
         || detail.contains("0x80070005")
         || detail.contains("-2147024891")
     {

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Android native-crash and ANR records (Orthic-Labs/rightkit#156): `record_android_exits`, `AndroidExit`, `AndroidExitReason`, `reduce_trace`, `unseen_exits`. The Kotlin shell passes the entries of `getHistoricalProcessExitReasons` (crash 4, native crash 5, ANR 6) at launch; each unseen one becomes a redacted report through `record_report`, with a cursor file so it is recorded once. Tombstone traces keep the header and backtrace only (stack contents, memory, registers, memory map, open files and logs are dropped). The OS detects the ANR, so no thread of ours runs and no `unsafe` signal handler exists. No new dependency; the logic is host-tested on every OS, the Android shell side is not built or run. The Windows dump helper and the `support-bundle` and `window-errors` features are not needed on Android (use `--no-default-features`).
+
 ## 0.3.1
 
 - Privacy fix (#227), macOS native sample: no unscrubbed byte is ever written to the crash folder, the folder a support bundle is built from. `sample` now writes to a private `0700` directory in the OS temp directory (refused if it would fall inside the crash folder) that is deleted on every path; the old hidden `.sample_raw_*.raw` file inside the crash folder is gone. When scrubbing fails (read error, scrubber panic, or a `redact_values` secret still present in the output) the sample is dropped and the `sample_*.txt` file holds only `sample withheld: scrub failed`, with `native_capture_note` set to `sample_scrub_failed` or `sample_read_failed`. If even that file cannot be written the capture returns `None` (`sample_publish_failed`). `prune` and the next capture also sweep stale raw directories from the temp directory and leftover `.sample_raw_*.raw` from 0.3.0 and earlier.

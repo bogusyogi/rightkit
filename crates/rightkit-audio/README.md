@@ -44,6 +44,7 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 ## Platform support
 
 - Capture is the default `capture` feature: the cpal capture module has no OS gate (`src/lib.rs:16-17`). Two parts are OS-specific: the CoreAudio transport probe is `cfg(target_os = "macos")` (`src/capture/device.rs:65`), and the endpoint and power lifecycle is `cfg(target_os = "windows")` (`src/lifecycle.rs:142-153`); the lifecycle registration returns `None` on every other OS.
+- Android: capture uses cpal's AAudio host (`cfg(target_os = "android")` module `capture::android` holds the permission name and Bluetooth SCO route helpers). The app must hold `RECORD_AUDIO` and have run `RightKit.init` first. Not yet built or run on a device (docs/design/android-minimum.md).
 - FFmpeg is required for measurement and rendering. It is resolved through `rightkit-ffmpeg`.
 - `tests/audio_e2e.rs` uses real files and FFmpeg, and a named loopback input device when one is available. No test routes audible audio to speakers; the one `playback` test that opens the default output device is `#[ignore]` and pushes only silence.
 - Playback (feature `playback`) uses cpal output on WASAPI, CoreAudio and ALSA, as capture does. The pure ring, gain and clock tests run on every host; the device test runs with `--features playback -- --ignored`.

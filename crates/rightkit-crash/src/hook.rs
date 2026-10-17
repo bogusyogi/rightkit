@@ -198,6 +198,9 @@ thread_local! {
 /// Test seam: the next sink thread spawn reports failure.
 #[cfg(test)]
 static FAIL_NEXT_SPAWN: AtomicBool = AtomicBool::new(false);
+/// The statics here are process-wide; every test that records or toggles recording takes this.
+#[cfg(test)]
+pub(crate) static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Runtime switch for [`record_report`]; reports are recorded unless this is `false`.
 static RECORDING: AtomicBool = AtomicBool::new(true);
 /// Test seam: the next report write panics once, so tests can prove the guard resets.
@@ -498,10 +501,7 @@ mod tests {
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
-    use std::sync::Mutex;
-
-    /// The statics above are process-wide; these tests take turns.
-    static SERIAL: Mutex<()> = Mutex::new(());
+    use super::TEST_SERIAL as SERIAL;
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
