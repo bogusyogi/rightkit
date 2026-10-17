@@ -354,12 +354,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const-oid"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
-
-[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,7 +616,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
- "const-oid",
  "crypto-common 0.2.2",
 ]
 
@@ -780,18 +773,6 @@ dependencies = [
  "serde_core",
  "typeid",
 ]
-
-[[package]]
-name = "fallible-iterator"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fallible-streaming-iterator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fastrand"
@@ -1788,17 +1769,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libsqlite3-sys"
-version = "0.38.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2601,36 +2571,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-control"
-version = "0.1.12"
+name = "rightkit-automation"
+version = "0.4.3"
 dependencies = [
- "rightkit-service",
- "serde_json",
- "tauri",
+ "windows 0.62.2",
 ]
 
 [[package]]
-name = "rightkit-db"
-version = "0.3.2"
+name = "rightkit-child-process"
+version = "0.4.3"
 dependencies = [
  "libc",
- "rightkit-fs",
- "rusqlite",
- "thiserror 2.0.18",
- "zeroize",
+ "windows 0.62.2",
 ]
 
 [[package]]
-name = "rightkit-framed-sidecar"
-version = "0.1.0"
+name = "rightkit-daemon"
+version = "0.2.6"
 dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-child-process",
+ "rightkit-fs",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
+ "subtle",
+ "windows 0.62.2",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.3.3"
+version = "0.4.3"
 dependencies = [
  "libc",
  "sha2 0.11.0",
@@ -2638,86 +2609,63 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-jobs"
-version = "0.2.7"
+name = "rightkit-job-queue"
+version = "0.3.2"
 dependencies = [
- "rightkit-db",
- "rightkit-framed-sidecar",
- "rightkit-fs",
- "rightkit-process",
- "rightkit-service",
+ "rightkit-child-process",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "rightkit-process"
-version = "0.3.3"
-dependencies = [
- "libc",
- "windows 0.62.2",
 ]
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.15"
+version = "0.6.4"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "png 0.18.1",
- "rightkit-control",
- "rightkit-framed-sidecar",
+ "rightkit-automation",
+ "rightkit-child-process",
+ "rightkit-daemon",
  "rightkit-fs",
- "rightkit-process",
- "rightkit-service",
+ "rightkit-sidecar",
  "serde",
  "serde_json",
- "toml 0.8.2",
+ "tauri",
+ "toml 0.9.12+spec-1.1.0",
+ "webview2-com 0.38.2",
+ "windows 0.61.1",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "rightkit-service"
-version = "0.1.4"
+name = "rightkit-sidecar"
+version = "0.2.1"
 dependencies = [
- "rightkit-framed-sidecar",
- "rightkit-fs",
+ "libc",
  "serde",
  "serde_json",
- "windows 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "rightkit-shell"
-version = "0.2.0"
+name = "rightkit-tauri-shell"
+version = "0.3.2"
 dependencies = [
  "block2",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-user-notifications",
- "rightkit-jobs",
- "rightkit-process",
- "rightkit-service",
+ "rightkit-child-process",
+ "rightkit-daemon",
+ "rightkit-job-queue",
  "serde",
  "serde_json",
  "tauri",
  "tauri-winrt-notification",
  "webview2-com 0.38.2",
  "windows 0.61.1",
-]
-
-[[package]]
-name = "rusqlite"
-version = "0.40.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
-dependencies = [
- "bitflags 2.13.0",
- "fallible-iterator",
- "fallible-streaming-iterator",
- "libsqlite3-sys",
- "smallvec",
 ]
 
 [[package]]
@@ -2838,9 +2786,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -2860,22 +2808,22 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
+checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.118",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -2891,9 +2839,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.150"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
@@ -3021,11 +2969,10 @@ dependencies = [
 name = "shell-example-app"
 version = "0.1.0"
 dependencies = [
- "rightkit-control",
- "rightkit-framed-sidecar",
- "rightkit-process",
+ "rightkit-child-process",
  "rightkit-qa",
- "rightkit-shell",
+ "rightkit-sidecar",
+ "rightkit-tauri-shell",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -3154,6 +3101,12 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "swift-rs"
@@ -3504,12 +3457,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-winrt-notification"
-version = "0.7.3"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade"
+checksum = "f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36"
 dependencies = [
  "thiserror 2.0.18",
- "windows 0.61.1",
+ "windows 0.62.2",
  "windows-version",
 ]
 
@@ -3649,6 +3602,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap 2.14.0",
+ "serde_core",
+ "serde_spanned 1.1.1",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
@@ -3669,6 +3637,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]
@@ -3877,12 +3854,6 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"
@@ -4567,6 +4538,12 @@ dependencies = [
 
 [[package]]
 name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+
+[[package]]
+name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
@@ -4701,12 +4678,6 @@ dependencies = [
  "syn 3.0.6",
  "synstructure",
 ]
-
-[[package]]
-name = "zeroize"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 
 [[package]]
 name = "zerotrie"
