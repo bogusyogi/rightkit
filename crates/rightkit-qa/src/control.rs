@@ -746,7 +746,7 @@ fn stage_bundle(spec: &LaunchSpec, _ws: &QaWorkspace, _id: &str) -> Result<PathB
         let file_name = source
             .file_name()
             .ok_or_else(|| Error("bundle has no file name".into()))?;
-        let dir = fixed_bundle_dir(&file_name.to_string_lossy().trim_end_matches(".app"))?;
+        let dir = fixed_bundle_dir(file_name.to_string_lossy().trim_end_matches(".app"))?;
         let bundle = dir.join(file_name);
         let staging = crate::inplace::staging_path(&bundle);
         let _ = fs::remove_dir_all(&staging);
