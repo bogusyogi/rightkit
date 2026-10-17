@@ -43,7 +43,7 @@ engine.request_full_replay_once("flag")
 | Trait | Responsibility | ScrapeRight implementer |
 |---|---|---|
 | `RecordMapper` | `record_type`, `header(item)`, `encode`, `decode`, optional `record_name`/`tombstone_keep_fields` | `TranscriptPayload` codec from `schema.rs` (title/text/md/timedJSON/source/kind/duration/origin/request ids; asset spill >200 KB) |
-| `LocalStore<T>` | `all`, `remove(id)`, `apply_remote(items)->Applied/Deferred` | adapter over `EngineBridge`: history rows, `delete_transcript`, `import_transcript` (Deferred when the engine RPC is unavailable) |
+| `LocalStore<T>` | `all`, optional `list_page(after, limit)` (ascending id order; lets a pass stream the store instead of materialising it), `remove(id)`, `apply_remote(items)->Applied/Deferred` | adapter over `EngineBridge`: history rows, `delete_transcript`, `import_transcript` (Deferred when the engine RPC is unavailable) |
 | `ConflictPolicy<T>` | `upload_local_over_remote`, `accept_remote_over_local` (default `LastWriterWins`) | default |
 | `Backend` | `prepare`, `fetch_changes` (one page), `fetch_record`, `save_records`, `max_batch` | `CloudKitBackend` (see 3) |
 | `AuthProvider` | `enabled`, `availability`, `generation`, `account_scope`, `bearer` | iCloud account status + toggle; generation bumps on account change |

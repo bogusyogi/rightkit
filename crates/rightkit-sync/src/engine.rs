@@ -1,7 +1,7 @@
 //! The sync pass. One `run_pass` mirrors the iOS `sync()` actor method and the
 //! desktop `Coordinator::sync_pass`; see API.md for the shared contract.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -156,6 +156,10 @@ struct Counters {
 }
 
 const MAX_CONFLICT_ROUNDS: usize = 4;
+/// Local items fetched per `LocalStore::list_page` call during a pass.
+const LOCAL_PAGE_SIZE: usize = 1000;
+/// Downloaded items decoded and handed to `LocalStore::apply_remote` per call.
+const APPLY_CHUNK: usize = 1000;
 
 enum Resolved {
     /// Re-saved on top of the server's version.
@@ -165,21 +169,23 @@ enum Resolved {
     Failed(String),
 }
 
-enum RemoteState<T> {
-    Live(T),
+enum RemoteState {
+    /// Header of the decoded record; the body is re-decoded from `record` when needed, so
+    /// decoded items are never held for the whole delta.
+    Live(ItemHeader),
     Tombstone,
 }
 
-struct RemoteEntry<T> {
+struct RemoteEntry {
     id: String,
     record_name: String,
     /// updatedAt for live records, deletedAt for tombstones.
     version_ms: i64,
-    state: RemoteState<T>,
+    state: RemoteState,
     record: RawRecord,
 }
 
-impl<T> RemoteEntry<T> {
+impl RemoteEntry {
     fn is_tombstone(&self) -> bool {
         matches!(self.state, RemoteState::Tombstone)
     }
@@ -209,6 +215,7 @@ pub struct SyncEngine<M: RecordMapper> {
     counters: Counters,
     /// Set by `bind_account` for the pass in flight when it stopped on a consent gate.
     gate: Option<ConsentRequest>,
+    local_page_size: usize,
 }
 
 pub struct SyncEngineBuilder<M: RecordMapper> {
@@ -222,6 +229,7 @@ pub struct SyncEngineBuilder<M: RecordMapper> {
     observer: Arc<dyn SyncObserver>,
     hooks: Arc<dyn PassHooks>,
     config: SyncConfig,
+    local_page_size: usize,
 }
 
 impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
@@ -245,7 +253,13 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             observer: Arc::new(NullObserver),
             hooks: Arc::new(NoHooks),
             config: SyncConfig::default(),
+            local_page_size: LOCAL_PAGE_SIZE,
         }
+    }
+    /// Items requested per `LocalStore::list_page` call during a pass (default 1000, minimum 1).
+    pub fn local_page_size(mut self, n: usize) -> Self {
+        self.local_page_size = n.max(1);
+        self
     }
     pub fn auth(mut self, v: Arc<dyn AuthProvider>) -> Self {
         self.auth = v;
@@ -291,6 +305,7 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             replay_flags: Vec::new(),
             counters: Counters::default(),
             gate: None,
+            local_page_size: self.local_page_size,
         })
     }
 }
@@ -340,12 +355,14 @@ where
         }
         let withheld: BTreeSet<String> = match choice {
             ConsentChoice::Merge => BTreeSet::new(),
-            ConsentChoice::StartFresh => self
-                .local
-                .all()?
-                .iter()
-                .map(|i| self.mapper.header(i).id)
-                .collect(),
+            ConsentChoice::StartFresh => {
+                let mut ids = BTreeSet::new();
+                self.scan_local(|i| {
+                    ids.insert(self.mapper.header(&i).id);
+                    Ok(())
+                })?;
+                ids
+            }
         };
         self.hooks.on_account_switch(&req.from, &req.to);
         let scope = req.to.clone();
@@ -363,6 +380,42 @@ where
             },
         );
         Ok(())
+    }
+
+    /// Visit every local item once, a page at a time through `LocalStore::list_page` (falling
+    /// back to one `all()` call for stores that do not page), so only one page is resident.
+    /// The visitor must not call back into the local store.
+    fn scan_local(&self, mut each: impl FnMut(M::Item) -> SyncResult<()>) -> SyncResult<()> {
+        let size = self.local_page_size.max(1);
+        let mut cursor: Option<String> = None;
+        loop {
+            let (page, last) = match self.local.list_page(cursor.as_deref(), size)? {
+                Some(p) => {
+                    let last = p.len() < size;
+                    (p, last)
+                }
+                None => (self.local.all()?, true),
+            };
+            let next = if last {
+                None
+            } else {
+                page.last().map(|i| self.mapper.header(i).id)
+            };
+            if let (Some(n), Some(c)) = (next.as_ref(), cursor.as_ref()) {
+                if n <= c {
+                    return Err(SyncError::Persistence(
+                        "LocalStore::list_page did not advance past its cursor".into(),
+                    ));
+                }
+            }
+            for item in page {
+                each(item)?;
+            }
+            match next {
+                Some(n) => cursor = Some(n),
+                None => return Ok(()),
+            }
+        }
     }
 
     /// Offline queue: record that `id` changed locally. Durable immediately.
@@ -713,7 +766,7 @@ where
 
         let fetched = self.fetch_all(generation)?;
         let mapper_type = self.mapper.record_type().to_string();
-        let mut entries: Vec<RemoteEntry<M::Item>> = Vec::new();
+        let mut entries: Vec<RemoteEntry> = Vec::new();
         let mut foreign: Vec<RawRecord> = Vec::new();
         for record in fetched.records {
             if record.record_type != mapper_type {
@@ -734,10 +787,10 @@ where
                 Ok(item) => {
                     let h = self.mapper.header(&item);
                     entries.push(RemoteEntry {
-                        id: h.id,
+                        id: h.id.clone(),
                         record_name: record.record_name.clone(),
                         version_ms: h.updated_at_ms,
-                        state: RemoteState::Live(item),
+                        state: RemoteState::Live(h),
                         record,
                     });
                 }
@@ -788,20 +841,17 @@ where
         }
 
         // Aliases: every record name ever seen for a logical id.
-        {
-            let seen: Vec<(String, String)> = entries
-                .iter()
-                .map(|e| (e.id.clone(), e.record_name.clone()))
-                .collect();
-            self.store.mutate(|l| {
-                for (id, name) in seen {
-                    l.aliases.entry(id).or_default().insert(name);
-                }
-            })?;
-        }
+        self.store.mutate(|l| {
+            for e in &entries {
+                l.aliases
+                    .entry(e.id.clone())
+                    .or_default()
+                    .insert(e.record_name.clone());
+            }
+        })?;
 
         // Reduce duplicate records of one logical id.
-        let mut canonical: BTreeMap<String, RemoteEntry<M::Item>> = BTreeMap::new();
+        let mut canonical: BTreeMap<String, RemoteEntry> = BTreeMap::new();
         for entry in entries {
             match canonical.get(&entry.id) {
                 Some(cur) if cur.rank() >= entry.rank() => {}
@@ -858,26 +908,119 @@ where
             Err(e) => return Err(e),
         }
 
-        // Inferred deletions (desktop): published item vanished locally.
-        let local_items = self.local.all()?;
-        let mut local_ids: HashSet<String> = HashSet::new();
-        let mut locals: Vec<(ItemHeader, M::Item)> = Vec::new();
-        for item in local_items {
-            let h = self.mapper.header(&item);
-            local_ids.insert(h.id.clone());
-            locals.push((h, item));
+        // ---- Local scan ----
+        // One paged pass over the local store feeds the inferred deletions, the stale-queue
+        // check, the upload plan and the download comparison, so at most one page of local
+        // items is resident; only items that must upload are kept, and only the headers of
+        // items that also have a live remote entry.
+        struct Upload<I> {
+            header: ItemHeader,
+            item: I,
+            base: Option<RawRecord>,
+            is_new: bool,
         }
-        if self.config.infer_local_deletions {
-            let gone: Vec<String> = self
-                .store
-                .ledger()
-                .remote_versions
+        let infer = self.config.infer_local_deletions;
+        let mut gone_candidates: HashSet<String> = if infer {
+            let l = self.store.ledger();
+            l.remote_versions
                 .keys()
-                .filter(|id| !local_ids.contains(*id))
-                .filter(|id| !self.store.ledger().tombstones.contains_key(*id))
-                .filter(|id| !self.store.ledger().pending_apply.contains_key(*id))
+                .filter(|id| !l.tombstones.contains_key(*id))
+                .filter(|id| !l.pending_apply.contains_key(*id))
                 .cloned()
-                .collect();
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let mut queued_unseen: HashSet<String> = self
+            .store
+            .ledger()
+            .pending_uploads
+            .iter()
+            .cloned()
+            .collect();
+        let mut matched: HashMap<String, ItemHeader> = HashMap::new();
+        let mut uploads: Vec<Upload<M::Item>> = Vec::new();
+        let mut failed_uploads = 0usize;
+        self.scan_local(|item| {
+            let header = self.mapper.header(&item);
+            if infer {
+                gone_candidates.remove(&header.id);
+            }
+            queued_unseen.remove(&header.id);
+            let canon = canonical.get(&header.id);
+            if let Some(RemoteEntry {
+                state: RemoteState::Live(_),
+                ..
+            }) = canon
+            {
+                matched
+                    .entry(header.id.clone())
+                    .or_insert_with(|| header.clone());
+            }
+            if self.store.ledger().tombstones.contains_key(&header.id) {
+                rep.blocked_reuploads += 1;
+                return Ok(());
+            }
+            if self.store.ledger().withheld.contains(&header.id) {
+                return Ok(());
+            }
+            let queued = self.store.ledger().pending_uploads.contains(&header.id);
+            match canon {
+                Some(RemoteEntry {
+                    state: RemoteState::Live(rh),
+                    record,
+                    ..
+                }) => {
+                    if let Ok(remote_item) = self.mapper.decode(record) {
+                        if self
+                            .policy
+                            .upload_local_over_remote(&header, &item, rh, &remote_item)
+                        {
+                            uploads.push(Upload {
+                                header,
+                                item,
+                                base: Some(record.clone()),
+                                is_new: false,
+                            });
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    if let Some(known) =
+                        self.store.ledger().remote_versions.get(&header.id).cloned()
+                    {
+                        // Cursor delta did not include it: unchanged remotely.
+                        if known.updated_at_ms < header.updated_at_ms || queued {
+                            match self.backend.fetch_record(&known.record_name) {
+                                Ok(base) => uploads.push(Upload {
+                                    header,
+                                    item,
+                                    base,
+                                    is_new: false,
+                                }),
+                                Err(e) => {
+                                    failed_uploads += 1;
+                                    self.observer.event("record_fetch_failed", &e.to_string());
+                                }
+                            }
+                        }
+                    } else {
+                        uploads.push(Upload {
+                            header,
+                            item,
+                            base: None,
+                            is_new: true,
+                        });
+                    }
+                }
+            }
+            Ok(())
+        })?;
+
+        // Inferred deletions (desktop): published item vanished locally.
+        if infer {
+            let gone: Vec<String> = gone_candidates.into_iter().collect();
             if !gone.is_empty() {
                 let now = self.clock.now_ms();
                 self.store.mutate(|l| {
@@ -893,15 +1036,10 @@ where
         }
 
         // ---- Uploads ----
-        let blocked: BTreeSet<String> = self.store.ledger().tombstones.keys().cloned().collect();
         // Drop queued ids whose item no longer exists locally.
-        let stale: Vec<String> = self
-            .store
-            .ledger()
-            .pending_uploads
-            .iter()
-            .filter(|id| !local_ids.contains(*id))
-            .cloned()
+        let stale: Vec<String> = queued_unseen
+            .into_iter()
+            .filter(|id| self.store.ledger().pending_uploads.contains(id))
             .collect();
         if !stale.is_empty() {
             self.store.mutate(|l| {
@@ -909,74 +1047,6 @@ where
                     l.pending_uploads.remove(&id);
                 }
             })?;
-        }
-
-        struct Upload<I> {
-            header: ItemHeader,
-            item: I,
-            base: Option<RawRecord>,
-            is_new: bool,
-        }
-        let mut uploads: Vec<Upload<M::Item>> = Vec::new();
-        let mut failed_uploads = 0usize;
-        for (header, item) in &locals {
-            if blocked.contains(&header.id) {
-                rep.blocked_reuploads += 1;
-                continue;
-            }
-            if self.store.ledger().withheld.contains(&header.id) {
-                continue;
-            }
-            let queued = self.store.ledger().pending_uploads.contains(&header.id);
-            match canonical.get(&header.id) {
-                Some(RemoteEntry {
-                    state: RemoteState::Live(remote_item),
-                    record,
-                    ..
-                }) => {
-                    let rh = self.mapper.header(remote_item);
-                    if self
-                        .policy
-                        .upload_local_over_remote(header, item, &rh, remote_item)
-                    {
-                        uploads.push(Upload {
-                            header: header.clone(),
-                            item: item.clone(),
-                            base: Some(record.clone()),
-                            is_new: false,
-                        });
-                    }
-                }
-                Some(_) => {}
-                None => {
-                    if let Some(known) =
-                        self.store.ledger().remote_versions.get(&header.id).cloned()
-                    {
-                        // Cursor delta did not include it: unchanged remotely.
-                        if known.updated_at_ms < header.updated_at_ms || queued {
-                            match self.backend.fetch_record(&known.record_name) {
-                                Ok(base) => uploads.push(Upload {
-                                    header: header.clone(),
-                                    item: item.clone(),
-                                    base,
-                                    is_new: false,
-                                }),
-                                Err(e) => {
-                                    failed_uploads += 1;
-                                    self.observer.event("record_fetch_failed", &e.to_string());
-                                }
-                            }
-                        }
-                    } else {
-                        uploads.push(Upload {
-                            header: header.clone(),
-                            item: item.clone(),
-                            base: None,
-                            is_new: true,
-                        });
-                    }
-                }
-            }
         }
         // Oldest origin first, ties by record name: deterministic history.
         uploads.sort_by(|a, b| {
@@ -1106,25 +1176,44 @@ where
         }
 
         // ---- Downloads ----
-        let mut downloads: Vec<(ItemHeader, M::Item, RawRecord)> = Vec::new();
-        let mut seen_ids: HashSet<String> = HashSet::new();
+        // Plan first with ids and sort keys only (the global (created, id) order is kept), then
+        // decode and apply a bounded chunk at a time so item bodies are never all resident.
+        enum Source {
+            Remote,
+            Stash(RawRecord),
+        }
+        struct Planned {
+            created: i64,
+            id: String,
+            source: Source,
+        }
+        let stash_ids: HashSet<String> =
+            self.store.ledger().pending_apply.keys().cloned().collect();
+        let mut taken_stash_ids: HashSet<String> = HashSet::new();
+        let mut plan: Vec<Planned> = Vec::new();
         for entry in canonical.values() {
-            let RemoteState::Live(item) = &entry.state else {
+            let RemoteState::Live(rh) = &entry.state else {
                 continue;
             };
             if self.store.ledger().tombstones.contains_key(&entry.id) {
                 continue;
             }
-            let rh = self.mapper.header(item);
-            let take = match locals.iter().find(|(h, _)| h.id == entry.id) {
+            let take = match matched.get(&entry.id) {
                 None => true,
-                Some((lh, _)) => self.policy.accept_remote_over_local(lh, &rh),
+                Some(lh) => self.policy.accept_remote_over_local(lh, rh),
             };
             if take {
-                seen_ids.insert(entry.id.clone());
-                downloads.push((rh, item.clone(), entry.record.clone()));
+                if stash_ids.contains(&entry.id) {
+                    taken_stash_ids.insert(entry.id.clone());
+                }
+                plan.push(Planned {
+                    created: rh.created_at_ms,
+                    id: entry.id.clone(),
+                    source: Source::Remote,
+                });
             }
         }
+        drop(matched);
         // Retry records whose local apply was deferred earlier.
         let stashed: Vec<(String, RawRecord)> = self
             .store
@@ -1134,83 +1223,109 @@ where
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         for (id, record) in stashed {
-            if seen_ids.contains(&id) || self.store.ledger().tombstones.contains_key(&id) {
+            if taken_stash_ids.contains(&id) || self.store.ledger().tombstones.contains_key(&id) {
                 continue;
             }
             if let Ok(item) = self.mapper.decode(&record) {
-                downloads.push((self.mapper.header(&item), item, record));
+                let h = self.mapper.header(&item);
+                plan.push(Planned {
+                    created: h.created_at_ms,
+                    id: h.id,
+                    source: Source::Stash(record),
+                });
             }
         }
-        downloads.sort_by(|a, b| {
-            (a.0.created_at_ms, a.0.id.as_str()).cmp(&(b.0.created_at_ms, b.0.id.as_str()))
-        });
-        if !downloads.is_empty() {
+        plan.sort_by(|a, b| (a.created, a.id.as_str()).cmp(&(b.created, b.id.as_str())));
+        let mut deferred = 0usize;
+        for chunk in plan.chunks(APPLY_CHUNK) {
             self.check_current(generation)?;
-            let items: Vec<M::Item> = downloads.iter().map(|d| d.1.clone()).collect();
+            let mut items: Vec<M::Item> = Vec::with_capacity(chunk.len());
+            let mut decoded_at: Vec<usize> = Vec::with_capacity(chunk.len());
+            for (i, p) in chunk.iter().enumerate() {
+                let decoded = match &p.source {
+                    Source::Remote => canonical.get(&p.id).map(|e| self.mapper.decode(&e.record)),
+                    Source::Stash(rec) => Some(self.mapper.decode(rec)),
+                };
+                if let Some(Ok(item)) = decoded {
+                    items.push(item);
+                    decoded_at.push(i);
+                }
+            }
+            if items.is_empty() {
+                continue;
+            }
             let outcomes = self.local.apply_remote(&items)?;
-            if outcomes.len() != downloads.len() {
+            if outcomes.len() != items.len() {
                 return Err(SyncError::Persistence(
                     "apply_remote returned wrong outcome count".into(),
                 ));
             }
-            let mut deferred = 0usize;
+            drop(items);
             let mut applied_ids: Vec<String> = Vec::new();
             let mut stash: Vec<(String, RawRecord)> = Vec::new();
-            for ((h, _, record), out) in downloads.into_iter().zip(outcomes) {
+            for (i, out) in decoded_at.into_iter().zip(outcomes) {
+                let p = &chunk[i];
                 match out {
                     ApplyOutcome::Applied => {
                         rep.downloaded += 1;
-                        applied_ids.push(h.id);
+                        applied_ids.push(p.id.clone());
                     }
                     ApplyOutcome::Deferred(why) => {
                         deferred += 1;
                         self.observer
-                            .event("apply_deferred", &format!("{}: {why}", h.id));
-                        stash.push((h.id, record));
+                            .event("apply_deferred", &format!("{}: {why}", p.id));
+                        let record = match &p.source {
+                            Source::Remote => canonical.get(&p.id).map(|e| e.record.clone()),
+                            Source::Stash(rec) => Some(rec.clone()),
+                        };
+                        if let Some(record) = record {
+                            stash.push((p.id.clone(), record));
+                        }
                     }
                 }
             }
-            self.store.mutate(|l| {
-                for id in applied_ids {
-                    l.pending_apply.remove(&id);
-                }
-                for (id, rec) in stash {
-                    l.pending_apply.insert(id, rec);
-                }
-            })?;
-            if deferred > 0 {
-                pending.push(format!("{deferred} download(s) deferred"));
+            let touches_ledger = !stash.is_empty()
+                || applied_ids
+                    .iter()
+                    .any(|id| self.store.ledger().pending_apply.contains_key(id));
+            if touches_ledger {
+                self.store.mutate(|l| {
+                    for id in applied_ids {
+                        l.pending_apply.remove(&id);
+                    }
+                    for (id, rec) in stash {
+                        l.pending_apply.insert(id, rec);
+                    }
+                })?;
             }
+        }
+        drop(plan);
+        if deferred > 0 {
+            pending.push(format!("{deferred} download(s) deferred"));
         }
 
         // Remote versions + advance the token: only now, after everything
         // above applied (or was durably queued).
-        let versions: Vec<(String, RemoteVersion)> = canonical
-            .values()
-            .map(|e| {
-                (
-                    e.id.clone(),
-                    RemoteVersion {
-                        record_name: e.record_name.clone(),
-                        updated_at_ms: e.version_ms,
-                    },
-                )
-            })
-            .collect();
         // Final guard: a pass whose account/enable generation changed during
         // I/O must not advance the cursor or mark the ledger synced.
         self.check_current(generation)?;
         let flags = std::mem::take(&mut self.replay_flags);
         let token = fetched.token;
         self.store.mutate(|l| {
-            for (id, v) in versions {
+            for e in canonical.values() {
                 // A local upload this pass may already hold a newer version.
                 let keep = l
                     .remote_versions
-                    .get(&id)
-                    .is_some_and(|k| k.updated_at_ms > v.updated_at_ms);
+                    .get(&e.id)
+                    .is_some_and(|k| k.updated_at_ms > e.version_ms);
                 if !keep {
-                    l.remote_versions.insert(id, v);
+                    l.remote_versions.insert(
+                        e.id.clone(),
+                        RemoteVersion {
+                            record_name: e.record_name.clone(),
+                            updated_at_ms: e.version_ms,
+                        },
+                    );
                 }
             }
             if token.is_some() {
@@ -1290,7 +1405,7 @@ where
     /// queue drained.
     fn flush_tombstones(
         &mut self,
-        canonical: &BTreeMap<String, RemoteEntry<M::Item>>,
+        canonical: &BTreeMap<String, RemoteEntry>,
         generation: u64,
         rep: &mut PassReport,
     ) -> SyncResult<bool> {

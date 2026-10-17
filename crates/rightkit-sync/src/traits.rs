@@ -50,6 +50,14 @@ pub enum ApplyOutcome {
 /// The app's local data. All calls are synchronous.
 pub trait LocalStore<T>: Send + Sync {
     fn all(&self) -> SyncResult<Vec<T>>;
+    /// Optional paged listing so a pass never materialises the whole store. Return up to
+    /// `limit` items whose `ItemHeader::id` is strictly greater (byte-wise) than `after`
+    /// (`None` = from the start), in ascending id order, with no item skipped or repeated across
+    /// consecutive calls over an unchanged store. `Ok(None)` (the default) means the store does
+    /// not page and the engine falls back to `all()`; it must answer the same way on every call.
+    fn list_page(&self, _after: Option<&str>, _limit: usize) -> SyncResult<Option<Vec<T>>> {
+        Ok(None)
+    }
     /// Remove a locally held item because of a tombstone. Idempotent.
     fn remove(&self, id: &str) -> SyncResult<()>;
     /// Upsert downloaded items; one outcome per input, in order. `Err`

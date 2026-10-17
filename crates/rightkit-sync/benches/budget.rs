@@ -18,7 +18,7 @@
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
 use rightkit_sync::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -74,11 +74,25 @@ impl RecordMapper for NoteMapper {
 }
 
 #[derive(Default, Clone)]
-struct Local(Arc<Mutex<HashMap<String, Note>>>);
+struct Local(Arc<Mutex<BTreeMap<String, Note>>>);
 
 impl LocalStore<Note> for Local {
     fn all(&self) -> SyncResult<Vec<Note>> {
         Ok(self.0.lock().unwrap().values().cloned().collect())
+    }
+    fn list_page(&self, after: Option<&str>, limit: usize) -> SyncResult<Option<Vec<Note>>> {
+        use std::ops::Bound;
+        let m = self.0.lock().unwrap();
+        let lower = match after {
+            Some(a) => Bound::Excluded(a.to_string()),
+            None => Bound::Unbounded,
+        };
+        Ok(Some(
+            m.range((lower, Bound::Unbounded))
+                .take(limit)
+                .map(|(_, n)| n.clone())
+                .collect(),
+        ))
     }
     fn remove(&self, id: &str) -> SyncResult<()> {
         self.0.lock().unwrap().remove(id);
