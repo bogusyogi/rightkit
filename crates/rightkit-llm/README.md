@@ -12,6 +12,8 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 - `pricing::PriceTable`: per-model prices.
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.
 - `credentials`: `CredentialSource`, with `StaticCredentials` and `SecretStoreCredentials`. `SecretStoreCredentials` takes any `SecretStore`. The source comment names `rightkit-credentials` as the production binding (`src/credentials.rs:10`), but `rightkit-credentials` has no `SecretStore` implementation in this repository.
+- `tools`: `ToolExecutor` runs the tool-use loop under a gate and a budget (`ToolGate`, `ToolBudget`) and sends results back in one user message; see the module docs for what is bounded and what is not.
+- `catalogue`: `PriceCatalogue`, versioned, dated and qualified price rows for LLM, transcriber, scraper, GenRight and platform-fee prices. Only the LLM rows are bundled; the host supplies the rest.
 - `image`: image and video-frame input. `ContentBlock::Image` carries an `ImageSource` (base64 bytes with a media type, or an http(s) URL); `Frame` adds a timestamp label; `Message::user_with_images` and `user_with_frames` build turns. Both HTTP providers map it to their wire format and reject a bad media type, bad base64, a non-http URL or an image outside a user message before sending. Command-line routes reject images. Video decoding and scene detection are the host's job.
 - `types`, `error`: `ChatRequest`, `Message`, `StreamEvent`, `LlmError`.
 - `raw`: opt-in capture of the provider's raw response bytes, status and request id for non-streaming calls (`RawExchange`, `RawHandle`). See "Raw response capture".

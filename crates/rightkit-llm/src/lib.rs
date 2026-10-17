@@ -3,6 +3,8 @@
 //! - [`anthropic::AnthropicProvider`] (Messages API) and
 //!   [`openai::OpenAiCompatProvider`] (chat completions: OpenAI, OpenRouter, Groq,
 //!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio).
+//! - [`tools::ToolExecutor`]: runs a model tool-use loop under a gate and a budget, with result
+//!   re-entry.
 //! - Image and video-frame input: [`ContentBlock::Image`], [`image::Frame`].
 //! - Streaming with cancellation, tool use, forced-tool structured output.
 //! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
@@ -31,6 +33,7 @@ pub mod presets;
 pub mod pricing;
 pub mod provider;
 pub mod raw;
+pub mod tools;
 pub mod types;
 
 pub use catalogue::{
@@ -44,6 +47,11 @@ pub use image::{Frame, ImageSource};
 pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;
 pub use raw::{RawExchange, RawHandle};
+pub use tools::{
+    AllowAll, AllowTools, GateDecision, StopCause, ToolBudget, ToolCallRecord, ToolExecutor,
+    ToolGate, ToolHandler, ToolInvocation, ToolLoopError, ToolLoopOutcome, ToolOutcome,
+    ToolRegistry, ToolSetupError, ToolTally,
+};
 /// The HTTP client this crate's providers are built on, re-exported so a host can build a
 /// [`Client`] (timeout, retry, proxy, redaction, address policy) without a direct
 /// `rightkit-http` dependency.
