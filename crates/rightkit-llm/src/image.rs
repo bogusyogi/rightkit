@@ -162,7 +162,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 
 fn is_standard_base64(s: &str) -> bool {
     let b = s.as_bytes();
-    if b.len() % 4 != 0 {
+    if !b.len().is_multiple_of(4) {
         return false;
     }
     let pad = b.iter().rev().take_while(|c| **c == b'=').count();

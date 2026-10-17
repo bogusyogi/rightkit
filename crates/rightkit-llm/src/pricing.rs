@@ -72,8 +72,8 @@ pub enum PriceError {
     /// A merge met a same-slug row with different values.
     Conflict {
         slug: String,
-        existing: ModelPrice,
-        incoming: ModelPrice,
+        existing: Box<ModelPrice>,
+        incoming: Box<ModelPrice>,
     },
     /// A table holds two rows whose normalized slugs are equal.
     Duplicate { slug: String },
@@ -189,8 +189,8 @@ impl PriceTable {
                 if existing != row {
                     return Err(PriceError::Conflict {
                         slug: row.slug.clone(),
-                        existing: existing.clone(),
-                        incoming: row.clone(),
+                        existing: Box::new(existing.clone()),
+                        incoming: Box::new(row.clone()),
                     });
                 }
             }
