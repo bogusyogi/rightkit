@@ -1473,14 +1473,14 @@ mod exception_tests {
         let mut aliased = entry();
         aliased.as_object_mut().unwrap().remove("package");
         aliased["crate"] = json!("rightkit-oauth");
-        assert_eq!(run(&[f.clone()], &[aliased]).covered.len(), 1);
+        assert_eq!(run(std::slice::from_ref(&f), &[aliased]).covered.len(), 1);
         let mut narrowed = entry();
         narrowed["fingerprint"] = json!("oauth.endpoint.github");
         narrowed["path"] = json!("engine/src");
-        assert_eq!(run(&[f.clone()], &[narrowed]).covered.len(), 1);
+        assert_eq!(run(std::slice::from_ref(&f), &[narrowed]).covered.len(), 1);
         let mut wrong_fingerprint = entry();
         wrong_fingerprint["fingerprint"] = json!("oauth.endpoint.google");
-        let result = run(&[f.clone()], &[wrong_fingerprint]);
+        let result = run(std::slice::from_ref(&f), &[wrong_fingerprint]);
         assert_eq!(
             (
                 result.covered.len(),
@@ -1529,7 +1529,7 @@ mod exception_tests {
         ] {
             let mut broken = entry();
             broken.as_object_mut().unwrap().remove(key);
-            let result = run(&[f.clone()], &[broken]);
+            let result = run(std::slice::from_ref(&f), &[broken]);
             assert_eq!(result.covered.len(), 0, "{key}");
             assert!(
                 result.problems[0].contains(expected),
@@ -1539,7 +1539,8 @@ mod exception_tests {
         }
         let mut bad_date = entry();
         bad_date["date"] = json!("2026-99-99");
-        assert!(run(&[f.clone()], &[bad_date]).problems[0].contains("date must be YYYY-MM-DD"));
+        let result = run(std::slice::from_ref(&f), &[bad_date]);
+        assert!(result.problems[0].contains("date must be YYYY-MM-DD"));
         let legacy = json!({"schema": 2, "payload": {"fingerprint": "oauth.endpoint.github"}, "signature": null, "index": 0});
         let result = run(&[f], &[legacy]);
         assert_eq!(result.covered.len(), 0);

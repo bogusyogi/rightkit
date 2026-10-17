@@ -732,21 +732,6 @@ pub fn validate_record(record: &Value) -> Vec<String> {
     p
 }
 
-/// Normalised key id: prefix stripped, lowercased.
-fn normalize_key_id(id: &Value) -> String {
-    match id.as_str() {
-        Some(text) => {
-            let lower = text.to_lowercase();
-            lower
-                .strip_prefix("win-")
-                .or_else(|| lower.strip_prefix("mac-"))
-                .unwrap_or(&lower)
-                .to_string()
-        }
-        None => String::new(),
-    }
-}
-
 /// Key id for a host key: `win-` or `mac-` plus the SPKI digest.
 pub fn key_id_for_public_key(host: &str, public_key_pem: &str) -> Result<String, String> {
     if !REQUIRED_HOSTS.contains(&host) {
