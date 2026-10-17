@@ -8,8 +8,8 @@ Catalog capability: `content-contracts`. Publishable on crates.io (wave 2.8); th
 
 | Contract | Schema file (in `rightkit/contracts/`) | Supported version |
 |---|---|---|
-| `content-brief` | `content-brief.v1.schema.json` | 1.1.0 |
-| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.1.0 |
+| `content-brief` | `content-brief.v1.schema.json` | 1.2.0 |
+| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.2.0 |
 | `record-session` | `record-session.v1.schema.json` | 1.2.0 |
 | `record-event` | `record-event.v1.schema.json` | 1.2.0 |
 | `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |

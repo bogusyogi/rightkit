@@ -54,6 +54,7 @@ fn content_brief_minimal() -> ContentBrief {
         revision: 1,
         supersedes: None,
         rule_revision: None,
+        rule_revision_ref: None,
         created_at: None,
         brief_type: brief::BriefType::TalkingHead,
         channel: brief::Channel {
@@ -84,6 +85,7 @@ fn content_brief_with_every_optional_set() -> ContentBrief {
         revision: 2,
         supersedes: Some(1),
         rule_revision: Some(4),
+        rule_revision_ref: Some("youtube_shorts:0123456789abcdef0123456789abcdef".into()),
         created_at: Some("2026-10-08T09:00:00Z".into()),
         brief_type: brief::BriefType::ProductDemo,
         channel: brief::Channel {
@@ -199,6 +201,7 @@ fn envelope_minimal() -> DeliveryEnvelope {
         content_revision: 1,
         policy_revision: 1,
         rule_revision: None,
+        rule_revision_ref: None,
         producer: envelope::Producer {
             engine: envelope::Engine::Cutright,
             engine_version: "1.4.0".into(),
@@ -217,6 +220,7 @@ fn envelope_with_every_optional_set() -> DeliveryEnvelope {
     DeliveryEnvelope {
         envelope_id: "env.all-optionals".into(),
         rule_revision: Some(4),
+        rule_revision_ref: Some("youtube_shorts:0123456789abcdef0123456789abcdef".into()),
         copy: Some(envelope::EnvelopeCopy {
             caption: Some("Export a finished cut in two clicks.".into()),
             hashtags: vec!["cutright".into()],

@@ -3,7 +3,7 @@
   "$id": "urn:rightkit:contract:delivery-envelope:v1",
   "title": "RightKit delivery envelope (v1)",
   "description": "Media-neutral hand-off from a producer (CutRight for edited video, GenRight for stills and carousels, PostRight for text) to the daemon. The daemon consumes only this envelope. The payload is discriminated by type: video, stills, carousel or text. Every media item is addressed by its blake3 hash, so the daemon can verify the upload it holds. contentRevision binds the envelope to the approved content revision. policyRevision is the review policy revision the envelope was approved under. ruleRevision, when present, is the platform rule revision the artifact was validated against; it is a separate number from policyRevision.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "contractVersion", "envelopeId", "briefId", "briefRevision", "contentRevision", "policyRevision", "producer", "platforms", "payload"],
@@ -16,6 +16,7 @@
     "contentRevision": { "type": "integer", "minimum": 1 },
     "policyRevision": { "type": "integer", "minimum": 1, "description": "Review policy revision the envelope was approved under. Not the platform rule revision; see ruleRevision." },
     "ruleRevision": { "type": "integer", "minimum": 1, "description": "Platform rule revision the artifact was validated against. Optional in 1.1.0; absent in 1.0.0 documents." },
+    "ruleRevisionRef": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[0-9a-f]{32}$", "description": "Platform rules revision the artifact was validated against, as <platform>:<hash>: the Display form of rightkit-platform-rules RuleRevision. Optional in 1.2.0. Separate from ruleRevision (an integer) and from policyRevision." },
     "producer": {
       "type": "object",
       "additionalProperties": false,

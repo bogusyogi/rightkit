@@ -4,8 +4,8 @@ JSON Schema (Draft 2020-12) files for the Right Suite content pipeline, recorder
 
 | File | Contract | Supported version |
 |---|---|---|
-| `content-brief.v1.schema.json` | content-brief | 1.1.0 |
-| `delivery-envelope.v1.schema.json` | delivery-envelope | 1.1.0 |
+| `content-brief.v1.schema.json` | content-brief | 1.2.0 |
+| `delivery-envelope.v1.schema.json` | delivery-envelope | 1.2.0 |
 | `record-session.v1.schema.json` | record-session | 1.2.0 |
 | `record-event.v1.schema.json` | record-event | 1.2.0 |
 | `demo-plan.v1.schema.json` | demo-plan | 1.0.0 |
@@ -24,6 +24,8 @@ JSON Schema (Draft 2020-12) files for the Right Suite content pipeline, recorder
 |---|---|---|
 | content-brief | 1.1.0 | Optional `ruleRevision` (platform rule revision). Fact `status` adds `withdrawn` and `superseded`; `superseded` requires `supersededBy`. Stage `id` and `dependsOn` add `acquisition`, `transcription`, `labelling` and `playbook`. |
 | delivery-envelope | 1.1.0 | Optional `ruleRevision`. `policyRevision` is the review policy revision, not the platform rule revision. |
+| content-brief | 1.2.0 | Optional `ruleRevisionRef` (`<platform>:<hash>`, the `Display` form of `rightkit-platform-rules` `RuleRevision`). `ruleRevision` stays an integer. |
+| delivery-envelope | 1.2.0 | Optional `ruleRevisionRef`, same form and meaning. |
 
 Field meanings:
 

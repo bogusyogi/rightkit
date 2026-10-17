@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+- **`content-brief` 1.2.0 and `delivery-envelope` 1.2.0 (minor, additive; Orthic-Labs/rightkit#335).** Both schemas gain an optional `ruleRevisionRef`, a string `<platform>:<hash>` (platform id, then 32 lowercase hex) matching the `Display` form of `rightkit-platform-rules` `RuleRevision`. The integer `ruleRevision` and `policyRevision` are unchanged and stay distinct. Documents at 1.0.0 and 1.1.0 remain valid; a 1.3.0 document is refused as a newer minor (the `minor-ahead` fixtures moved from 1.2.0 to 1.3.0).
+- **Rust.** `ContentBrief` and `DeliveryEnvelope` gain `rule_revision_ref: Option<String>` (omitted when `None`); struct literals need `rule_revision_ref: None`. `Contract::supported_version` returns 1.2.0 for both. The crate does not depend on `rightkit-platform-rules`; the field is the string form, and a consumer builds it with `RuleRevision::to_string()`.
+- **Tests.** New fixtures `valid/rule-revision-ref.json` and `invalid/rule-revision-ref-malformed.json` for each contract; `typed_roundtrip.rs` sets the field in the all-optionals values; `contracts.rs` reads it through the typed views and checks a 1.1.0 envelope has none.
+- Not compiled or run when written; verification is the CI run.
+
 ## 0.1.5
 
 - **Eyes gate defined (#312).** New `review` module: `EYES_APPROVAL_REQUIRED` (`"eyes_approval_required"`), `EyesGate` (`approved`, `auto_clean`, `not_required`) and `eyes_gate(mode, person_approved, clean_verdict)`. The `content-brief` `review.mode` schema description now defines `manual`, `auto_when_clean` (clean `rightkit-review` verdict on the exact assets under `policyRevision`, else treated as `manual`, fail closed) and `none`. Description-only schema change, no version bump.

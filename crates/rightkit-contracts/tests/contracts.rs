@@ -160,3 +160,42 @@ fn contract_1_0_documents_have_no_rule_revision() {
     let envelope: DeliveryEnvelope = parse(Contract::DeliveryEnvelope, &text).expect("typed");
     assert_eq!(envelope.rule_revision, None);
 }
+
+#[test]
+fn contract_1_2_rule_revision_ref_reaches_the_typed_views() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/fixtures");
+    let brief: ContentBrief = parse(
+        Contract::ContentBrief,
+        &std::fs::read_to_string(format!("{root}/content-brief/valid/rule-revision-ref.json"))
+            .expect("fixture"),
+    )
+    .expect("typed brief");
+    assert_eq!(brief.rule_revision, Some(4));
+    assert_eq!(
+        brief.rule_revision_ref.as_deref(),
+        Some("youtube_shorts:0123456789abcdef0123456789abcdef")
+    );
+
+    let envelope: DeliveryEnvelope = parse(
+        Contract::DeliveryEnvelope,
+        &std::fs::read_to_string(format!(
+            "{root}/delivery-envelope/valid/rule-revision-ref.json"
+        ))
+        .expect("fixture"),
+    )
+    .expect("typed envelope");
+    assert_eq!(envelope.rule_revision, Some(4));
+    assert_eq!(
+        envelope.rule_revision_ref.as_deref(),
+        Some("x:0123456789abcdef0123456789abcdef")
+    );
+
+    // A 1.1.0 document stays valid and carries no ref.
+    let old: DeliveryEnvelope = parse(
+        Contract::DeliveryEnvelope,
+        &std::fs::read_to_string(format!("{root}/delivery-envelope/valid/rule-revision.json"))
+            .expect("fixture"),
+    )
+    .expect("typed envelope");
+    assert_eq!(old.rule_revision_ref, None);
+}

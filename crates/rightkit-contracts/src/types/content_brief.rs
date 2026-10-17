@@ -17,6 +17,10 @@ pub struct ContentBrief {
     /// Separate from `review.policy_revision`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule_revision: Option<u64>,
+    /// Platform rules revision as `<platform>:<hash>`, the `Display` form of
+    /// `rightkit-platform-rules` `RuleRevision` (contract 1.2.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_revision_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub brief_type: BriefType,

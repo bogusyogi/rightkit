@@ -3,7 +3,7 @@
   "$id": "urn:rightkit:contract:content-brief:v1",
   "title": "RightKit content brief (v1)",
   "description": "A content brief authored by PostRight and consumed by GenRight and CutRight. Each revision is immutable; a correction is a new revision whose supersedes names the revision it replaces. ruleRevision names the platform rule revision the brief was validated against; review.policyRevision is the review policy revision and is a separate number. Stage input hashes and per-stage request ids let unchanged stages stay cached and stop changed inputs from reusing stale assets. A product_demo brief carries its recording scenario as data, and each step may carry narration text in say. Semantic rules that JSON Schema cannot express (unique step and target ids, unique stage ids, dependsOn resolving to declared stages, revision 1 superseding nothing) are enforced by rightkit-contracts.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "contractVersion", "briefId", "revision", "briefType", "channel", "platforms", "deliverables", "stages"],
@@ -14,6 +14,7 @@
     "revision": { "type": "integer", "minimum": 1 },
     "supersedes": { "type": ["integer", "null"], "minimum": 1 },
     "ruleRevision": { "type": "integer", "minimum": 1 },
+    "ruleRevisionRef": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[0-9a-f]{32}$", "description": "Platform rules revision the brief was validated against, as <platform>:<hash>: the Display form of rightkit-platform-rules RuleRevision. Optional in 1.2.0. Separate from ruleRevision (an integer) and from review.policyRevision." },
     "createdAt": { "$ref": "#/$defs/timestamp" },
     "briefType": {
       "enum": ["talking_head", "faceless_cartoon", "explainer", "carousel", "ugc_character_review", "product_pitch", "product_demo"]
