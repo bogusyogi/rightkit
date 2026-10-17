@@ -301,6 +301,27 @@ fn release_profile(guard: Option<ProfileGuard>) {
     }
 }
 
+fn lock_named_profile(root: &Path, name: &str) -> Result<(ProfileGuard, PathBuf, PathBuf)> {
+    validate_profile_name(name)?;
+    reject_real_browser_profile(root)?;
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join(".rightkit-browser.lock"))?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            return Err(BrowserError::ProfileInUse(name.to_string()));
+        }
+        Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+    }
+    let dl = dir.join("rightkit-downloads");
+    Ok((ProfileGuard::Named { _lock: lock }, dir, dl))
+}
+
 fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, PathBuf)> {
     match profile {
         ProfileSpec::Temporary => {
@@ -309,25 +330,13 @@ fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, Path
             let dl = p.join("downloads");
             Ok((ProfileGuard::Temp(t), p, dl))
         }
-        ProfileSpec::Named { root, name } => {
-            validate_profile_name(name)?;
-            reject_real_browser_profile(root)?;
-            let dir = root.join(name);
-            std::fs::create_dir_all(&dir)?;
-            let lock = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(false)
-                .open(dir.join(".rightkit-browser.lock"))?;
-            match lock.try_lock() {
-                Ok(()) => {}
-                Err(std::fs::TryLockError::WouldBlock) => {
-                    return Err(BrowserError::ProfileInUse(name.clone()));
-                }
-                Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
-            }
-            let dl = dir.join("rightkit-downloads");
-            Ok((ProfileGuard::Named { _lock: lock }, dir, dl))
+        ProfileSpec::Named { root, name } => lock_named_profile(root, name),
+        ProfileSpec::ImportedFrom { root, name, import } => {
+            // Consent is checked before any directory is created or browser data is read.
+            import.validate()?;
+            let locked = lock_named_profile(root, name)?;
+            crate::real_session::import_if_needed(import, &locked.1)?;
+            Ok(locked)
         }
         ProfileSpec::Directory(path) => {
             validate_profile_dir(path)?;
@@ -406,6 +415,83 @@ const BASE_CHROME_ARGS: &[&str] = &[
 impl BrowserSession {
     pub async fn launch(opts: LaunchOptions) -> Result<Self> {
         Self::launch_inner(opts, None).await
+    }
+
+    /// Start a visible session that reuses the user's own browser sign-ins, with consent.
+    ///
+    /// Chrome 136+ ignores a debugging port on the browser's default user-data directory and a
+    /// profile in use is locked, so the user's running browser is not driven in place: the
+    /// consented profile's sign-in files are copied into a private RightKit profile under `root`
+    /// and the same browser (same executable, so its sign-in key applies) is launched on that
+    /// copy over a debugging pipe. The consented domains confine every action, passwords are
+    /// refused, and `consent` is checked at launch and before each action.
+    ///
+    /// Chromium-family browsers only (Chrome, Edge, Brave, Chromium); Safari and Firefox return
+    /// [`BrowserError::Unsupported`]. `opts` supplies timeouts, network policy and the admission
+    /// hook (which runs after the consent check); its profile, executable and window mode are
+    /// replaced.
+    pub async fn attach_user_browser(
+        consent: crate::real_session::UserConsentReceipt,
+        root: impl Into<PathBuf>,
+        opts: LaunchOptions,
+    ) -> Result<Self> {
+        Self::attach_user_browser_revocable(
+            consent,
+            crate::real_session::ConsentRevocation::new(),
+            root,
+            opts,
+        )
+        .await
+    }
+
+    /// [`Self::attach_user_browser`] with a live [`crate::ConsentRevocation`]: revoking it
+    /// makes the session's next action fail.
+    pub async fn attach_user_browser_revocable(
+        consent: crate::real_session::UserConsentReceipt,
+        revocation: crate::real_session::ConsentRevocation,
+        root: impl Into<PathBuf>,
+        mut opts: LaunchOptions,
+    ) -> Result<Self> {
+        use crate::real_session::{
+            attach_profile_name, browser_executable, BrowserKind, BrowserSource, ImportSpec,
+        };
+        consent.check_active()?;
+        let source = match consent.browser {
+            BrowserKind::Chrome => BrowserSource::Chrome,
+            BrowserKind::Edge => BrowserSource::Edge,
+            BrowserKind::Safari | BrowserKind::Firefox => {
+                return Err(BrowserError::Unsupported(format!(
+                    "{} cannot be attached over CDP; drive it through rightkit-automation",
+                    consent.browser.name()
+                )));
+            }
+            other => {
+                return Err(BrowserError::Unsupported(format!(
+                    "attach supports Chrome and Edge; {} is not covered yet",
+                    other.name()
+                )));
+            }
+        };
+        let exe = browser_executable(consent.browser).ok_or(BrowserError::ChromeNotFound)?;
+        let name = attach_profile_name(&consent);
+        let import = ImportSpec {
+            browser: source,
+            source_profile: Some(consent.profile.clone()),
+            domains: consent.domains.clone(),
+            consent,
+            revocation,
+            reimport: false,
+        };
+        opts.chrome_path = Some(exe);
+        opts.use_system_chrome_only = false;
+        opts.allow_system_chrome = false;
+        opts.headless = false;
+        opts.profile = ProfileSpec::ImportedFrom {
+            root: root.into(),
+            name,
+            import,
+        };
+        Self::launch(opts).await
     }
 
     /// Launch the sealed source-only fixture browser. This private constructor fixes every
@@ -512,6 +598,14 @@ impl BrowserSession {
             }
         }
         let (profile, profile_dir, default_dl) = prepare_profile(&opts.profile)?;
+        // A consented real-session profile confines every action to the consented domains.
+        let admission = match &opts.profile {
+            ProfileSpec::ImportedFrom { import, .. } => Some(crate::real_session::scoped_admission(
+                import,
+                opts.admission.clone(),
+            )?),
+            _ => opts.admission.clone(),
+        };
         let mut profile_guard = Some(profile);
         let download_dir = opts.download_dir.clone().unwrap_or(default_dl);
         std::fs::create_dir_all(&download_dir)?;
@@ -519,7 +613,7 @@ impl BrowserSession {
         let id = format!("bs-{}", SESSION_SEQ.fetch_add(1, Ordering::Relaxed));
         let guard = Arc::new(Guard {
             session_id: id.clone(),
-            admission: opts.admission.clone(),
+            admission,
             network: opts.network.clone(),
             events: opts.on_event.clone(),
         });

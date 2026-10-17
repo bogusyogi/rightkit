@@ -14,6 +14,15 @@ pub enum ProfileSpec {
     /// Caller-owned, existing absolute user-data directory. Never created or deleted
     /// by the session; no named-profile validation or real-profile exclusion applies.
     Directory(PathBuf),
+    /// Named persistent profile at `<root>/<name>` seeded, with the user's consent, from the
+    /// sign-ins of a Chromium-family browser profile (see [`crate::ImportSpec`]). Locked like
+    /// [`Self::Named`]; the browser's own files are only read, never written. Every action of
+    /// the session is confined to the consented domains and stops when consent is revoked.
+    ImportedFrom {
+        root: PathBuf,
+        name: String,
+        import: crate::real_session::ImportSpec,
+    },
 }
 
 #[derive(Clone)]
@@ -149,6 +158,32 @@ impl LaunchOptions {
         self.profile = ProfileSpec::Named {
             root: root.into(),
             name: name.into(),
+        };
+        self
+    }
+    /// Show the browser window (`false` is the default headless mode). The action API is the
+    /// same in both modes.
+    pub fn headless(mut self, on: bool) -> Self {
+        self.headless = on;
+        self
+    }
+    /// Same as `headless(false)`.
+    pub fn visible(self) -> Self {
+        self.headless(false)
+    }
+    /// Seed a named persistent profile from the user's own browser, with consent. Pair with
+    /// the same browser's executable ([`crate::browser_executable`]) so its sign-in encryption
+    /// key applies; [`crate::BrowserSession::attach_user_browser`] does both.
+    pub fn imported_profile(
+        mut self,
+        root: impl Into<PathBuf>,
+        name: impl Into<String>,
+        import: crate::real_session::ImportSpec,
+    ) -> Self {
+        self.profile = ProfileSpec::ImportedFrom {
+            root: root.into(),
+            name: name.into(),
+            import,
         };
         self
     }

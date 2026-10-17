@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."

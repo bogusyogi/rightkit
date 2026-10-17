@@ -53,6 +53,12 @@ pub enum BrowserError {
     /// The network (SSRF/host) policy refused a URL before any request left the machine.
     #[error("blocked by network policy: {0}")]
     Blocked(crate::policy::PolicyDenial),
+    /// The user's consent receipt is missing, revoked, expired or does not cover the request.
+    #[error("consent: {0}")]
+    Consent(String),
+    /// The requested real-session mode does not exist for this browser.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }

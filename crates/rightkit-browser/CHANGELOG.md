@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.4
+
+Consented real-session mode (#286, #287). New items on a public enum (`ProfileSpec::ImportedFrom`, `BrowserError::Consent`, `BrowserError::Unsupported`): code that matches those enums exhaustively must add arms. Nothing else changed or removed.
+
+- `default_browser() -> BrowserKind`: default web browser on Windows (registry `UserChoice`), macOS (LaunchServices handlers; Safari when none is recorded) and Linux (`xdg-settings`). `BrowserKind` is Chrome, Edge, Chromium, Brave, Safari, Firefox or Unknown.
+- `UserConsentReceipt`: serde receipt the app persists and shows: id, browser, source profile, domains (`None` = all; each covers its subdomains), granted, expiry and revoked times. `revoke`, `is_active_at`, `permits_url`, `to_json` / `from_json`. `ConsentRevocation` is a live switch for a running session.
+- `ProfileSpec::ImportedFrom { root, name, import: ImportSpec }` (and `LaunchOptions::imported_profile`): a named, locked RightKit profile seeded from a Chromium-family profile. Consent, browser and profile match, and domain narrowing are checked before any browser data is read. The cookie database, local storage and `Local State` are copied; `Login Data`, `Web Data` and history never are. A marker file records the consent id, so a later launch does not copy again unless `ImportSpec::reimport()` is set (re-import on demand). `purge_imported_profile` deletes an imported profile when consent is revoked. `list_profiles`, `user_data_dir` and `browser_executable` serve the consent screen.
+- Every action of an imported session goes through a scope check ahead of the caller's admission hook: URLs outside the consented domains, non-http(s) pages, typing into a field whose target names a password, and any action after revocation or expiry are denied.
+- `BrowserSession::attach_user_browser(consent, root, opts)` and `attach_user_browser_revocable`: visible session on a private copy of the consented profile, launched from the SAME browser executable so its sign-in key applies (Chrome 136+ ignores a debugging port on the default user-data directory and a running profile is locked, so the live browser is not driven in place). Chrome and Edge. Safari and Firefox return `BrowserError::Unsupported` (Safari goes through rightkit-automation).
+- `LaunchOptions::headless(bool)` and `visible()`: headless or visible per session; the action API is identical.
+- Not implemented: per-domain cookie counts (`ImportReport::domain_counts` is `None`; counting needs the cookie database opened) and cookie filtering by domain at copy time (the database is copied whole; actions are confined to the consented domains). A browser-extension / native-messaging route for the user's live browser is not built.
+- Not compiled or run yet. Needs a live run: Windows Chrome 127+ binds cookies with app-bound encryption to the Chrome install and may not decrypt in a copied profile; macOS Chrome keeps its key in the keychain under the same name the copy's browser uses (same executable), which a live run must confirm.
+
 ## 0.3.3
 
 - Chrome for Testing lives at ONE fixed path: `<shared>/chrome-for-testing/current/`, with a single `current.previous` kept for rollback (Adrian's rule: no new id, no new folder, for every app). The resolver prefers `current`. An explicit path, RIGHTKIT_CHROME_FOR_TESTING and the Puppeteer/Playwright caches stay as dev fallbacks (#267).

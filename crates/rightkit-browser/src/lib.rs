@@ -17,6 +17,9 @@
 //!   every request after the network policy; [`BrowserPage::accessibility_tree`],
 //!   [`BrowserPage::exceptions`], [`BrowserPage::set_page_scale`] and
 //!   [`BrowserPage::set_download_behavior`] expose the matching CDP domains.
+//! * Real-session mode (consent-gated): [`default_browser`], [`UserConsentReceipt`],
+//!   [`ProfileSpec::ImportedFrom`] and [`BrowserSession::attach_user_browser`] reuse the user's
+//!   own sign-ins in a private copy, confined to the consented domains. See [`ImportSpec`].
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 mod cdp_ext;
 mod config;
@@ -33,6 +36,7 @@ mod pipe_transport;
 mod policy;
 mod proc;
 mod proxy;
+mod real_session;
 mod sandbox_access;
 mod session;
 
@@ -63,4 +67,9 @@ pub use policy::{
     NetworkPolicy, NetworkRequest, PolicyDecision, PolicyDenial, Resolver,
 };
 pub use proxy::PinnedConnection;
+pub use real_session::{
+    browser_executable, default_browser, list_profiles, purge_imported_profile, user_data_dir,
+    BrowserKind, BrowserSource, ConsentRevocation, ImportReport, ImportSpec, SourceProfile,
+    UserConsentReceipt, CONSENT_SCHEMA,
+};
 pub use session::BrowserSession;
