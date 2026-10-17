@@ -47,6 +47,13 @@ describe("@rightkit/settings-ui/core import graph", () => {
     const types = bareImports(join(root, "dist/core.d.ts"), [".d.ts"]);
     for (const peer of ["@rightkit/license", "@rightkit/theme", "@rightkit/logs", "@rightkit/app-update", "@rightkit/react-shell"]) expect(types.bare.has(peer)).toBe(false);
   });
+  it("the appearance entry reaches react-shell and theme but never @rightkit/license, logs or app-update", () => {
+    const app = bareImports(join(root, "src/appearance-entry.ts"), [".ts", ".tsx"]);
+    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/app-update"]) expect(app.bare.has(peer)).toBe(false);
+    for (const peer of ["@rightkit/react-shell/react", "@rightkit/theme"]) expect(app.bare.has(peer)).toBe(true);
+    expect(app.files).not.toContain("src/sections.tsx");
+    expect(app.files).not.toContain("src/hooks.ts");
+  });
   it("the root entry still re-exports the whole 0.3.x surface", async () => {
     const [root_, core, std] = await Promise.all([import("./index.js"), import("./core.js"), import("./standard-entry.js")]);
     for (const name of Object.keys(core)) expect(root_).toHaveProperty(name);
@@ -57,12 +64,12 @@ describe("@rightkit/settings-ui/core import graph", () => {
 
 describe("package.json", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: Record<string, unknown>; peerDependencies: Record<string, string>; peerDependenciesMeta: Record<string, { optional?: boolean }> };
-  it("exposes ., ./core, ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
-    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
+  it("exposes ., ./core, ./appearance (0.5.0), ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
+    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./appearance", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
   });
-  it("marks logs and updates optional peers; license and theme are required (sections.tsx and hooks.ts import them at runtime)", () => {
+  it("marks license, logs and updates optional peers (/core and /appearance need none of them; the root and /standard entries need license); theme stays required", () => {
     for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/app-update"]) expect(pkg.peerDependencies[peer]).toBeDefined();
-    for (const peer of ["@rightkit/logs", "@rightkit/app-update"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
-    for (const peer of ["@rightkit/license", "@rightkit/theme"]) expect(pkg.peerDependenciesMeta?.[peer]?.optional).not.toBe(true);
+    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/app-update"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
+    expect(pkg.peerDependenciesMeta?.["@rightkit/theme"]?.optional).not.toBe(true);
   });
 });

@@ -43,6 +43,8 @@ import "@rightkit/onboarding/onboarding.css";
 />
 ```
 
+Free or open-source apps without a legal gate pass `legalMode="none"` (no legal step, `legal` not needed, `appName` for the rail) or `legalMode="notice"` (no gate or acceptance; a first Notice step lists `legal.documents` as links). The default is `"gate"`.
+
 Acceptance is stored as `legalAcceptance: { version, documentsHash, acceptedAt, eligibilityBasis }`. An app that already keeps its own acceptance receipt can pass `legalReceipt` (`read()` and `write(record)`) and keep that store as the source of truth. Steps can set `canContinue(context)`.
 
 ## When the legal gate re-prompts

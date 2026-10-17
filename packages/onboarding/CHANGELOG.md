@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+Additive (Orthic-Labs/rightkit#285). The default (`legalMode="gate"`) is unchanged.
+
+- `legalMode`: `"gate"` (default), `"notice"` or `"none"`. `none` has no legal step at all; `notice` has no gate and no acceptance record, and a first "Notice" step lists the `legal` documents as links (free or open-source apps that still hold their notice). In both, the first app step is reachable and Back works from the second step on.
+- `legal` is optional unless `legalMode` is `gate` (a gate without `legal` throws). New `appName` prop for the step rail when there is no `legal`. New type `LegalMode`.
+- With no steps at all in `none` mode the component shows "Nothing to set up" and a Finish button.
+
 ## 0.4.0
 
 - Add `signInStep(backend)` and the `SignInBackend` / `SignInProvider` types (Orthic-Labs/rightkit#279). Buttons call the app's shared `rightkit-oauth` command, which opens the user's DEFAULT browser (never an in-app webview); the copy says "Opens your browser". Additive. Not built or run locally.

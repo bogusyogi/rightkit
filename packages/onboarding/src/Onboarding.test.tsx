@@ -404,3 +404,47 @@ describe("signInStep (Orthic-Labs/rightkit#279)", () => {
     await waitFor(() => expect(screen.getByText("a@example.com")).toBeInTheDocument());
   });
 });
+
+describe("legalMode (Orthic-Labs/rightkit#285)", () => {
+  const stepA = { id: "a", label: "A", title: "Step A", render: () => <p>A body</p> };
+  const stepB = { id: "b", label: "B", title: "Step B", render: () => <p>B body</p> };
+
+  it("none: no gate, no Agreement step, starts on the first app step and needs no `legal`", async () => {
+    const s = memorySettings({});
+    render(<Onboarding settings={s.backend} legalMode="none" appName="Ember" steps={[stepA, stepB]} onComplete={vi.fn()} />);
+    expect(await screen.findByText("A body")).toBeInTheDocument();
+    expect(screen.queryByTestId("onboarding-legal")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Agreement/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Ember")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("B body")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeEnabled();
+  });
+
+  it("none: completes through the last step", async () => {
+    const s = memorySettings({});
+    const onComplete = vi.fn();
+    render(<Onboarding settings={s.backend} legalMode="none" steps={[stepA]} onComplete={onComplete} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Finish setup" }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+  });
+
+  it("notice: no gate; the first step lists the documents as links", async () => {
+    const s = memorySettings({});
+    render(<Onboarding settings={s.backend} legal={legal} legalMode="notice" steps={[stepA]} onComplete={vi.fn()} />);
+    const link = await screen.findByRole("link", { name: "Terms" });
+    expect(link).toHaveAttribute("href", "https://example.test/terms");
+    expect(screen.queryByTestId("onboarding-legal")).not.toBeInTheDocument();
+    expect(screen.getByText("AcmeRight")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("A body")).toBeInTheDocument();
+  });
+
+  it("gate without `legal` is a programming error", () => {
+    const s = memorySettings({});
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => render(<Onboarding settings={s.backend} onComplete={vi.fn()} />)).toThrow(/legal/);
+    spy.mockRestore();
+  });
+});

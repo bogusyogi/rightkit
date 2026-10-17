@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+Additive (Orthic-Labs/rightkit#285). The root and `/standard` entries export what they did.
+
+- New entry `@rightkit/settings-ui/appearance` (`appearanceSection`, `AppearanceOptions`). It imports `@rightkit/react-shell` and `@rightkit/theme` but not `@rightkit/license`, `logs` or `app-update`, so an app without licensing uses `/core` plus `/appearance`. `appearanceSection` moved to `src/appearance.tsx`; `sections.tsx` re-exports it, so `/standard` and the root are unchanged.
+- `@rightkit/license` is now an optional peer. Only the root and `/standard` entries import it (the licence section and licence hooks); `/core` and `/appearance` never do.
+
 ## 0.4.5
 
 Additive (#174). Defaults equal 0.4.4: the default DOM and classes are unchanged.

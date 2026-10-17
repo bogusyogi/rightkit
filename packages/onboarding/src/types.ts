@@ -146,9 +146,22 @@ export interface LegalStepConfig extends Omit<LegalGateProps, "variant" | "onAgr
   onQuit?: () => void;
 }
 
+/**
+ * How legal documents take part in onboarding.
+ * - `gate` (default): the blocking agreement gate comes first and is recorded (needs `legal`).
+ * - `notice`: no gate and no acceptance. A first "Notice" step lists the `legal` documents as links; Continue moves on (free or open-source apps that still hold their notice).
+ * - `none`: no legal step at all; `legal` is not needed.
+ */
+export type LegalMode = "gate" | "notice" | "none";
+
 export interface OnboardingProps {
   settings: SettingsBackend;
-  legal: LegalStepConfig;
+  /** Required when `legalMode` is `gate` (default). Optional for `notice` (the documents shown) and `none`. */
+  legal?: LegalStepConfig;
+  /** Default `gate`. See `LegalMode`. */
+  legalMode?: LegalMode;
+  /** Name shown in the step rail. Default: `legal.appName`. */
+  appName?: string;
   /** App-specific steps are appended after built-in steps, in supplied order. */
   steps?: readonly OnboardingStep[];
   permissions?: PermissionsBackend;
