@@ -1,0 +1,11 @@
+{
+  "source": "in-repo fixtures (crates/rightkit-pdf/tests/fixtures); a larger corpus is pinned the same way, see README.md",
+  "commit": "in-repo",
+  "root": "..",
+  "files": [
+    { "path": "memo.pdf", "sha256": "ca74eb022feba7ce67e950089ef0f0e61b9b63c6020b102a43a946ec2b4fdb23" },
+    { "path": "proof-text-50page.pdf", "sha256": "babb547bc0fe17ce0d4e2d0c753c663dc166b759c8682937f014180bc62965c8" },
+    { "path": "report.pdf", "sha256": "ee71e35dc5ead39b59ac4b0a7c77f3cb6f1b0389ae3f0806547f70f3d3f79b5c" },
+    { "path": "source-correction-2page.pdf", "sha256": "764eb71960d674761e01adbdfc9d0bf5b7bd801b6cfae9e745f6bd09ff351124" }
+  ]
+}
