@@ -76,7 +76,7 @@ impl<'a> Package<'a> {
         let mut declared_total: u128 = 0;
         for i in 0..zip.len() {
             let f = zip.by_index_raw(i).map_err(map_zip)?;
-            let name = f.name().to_string();
+            let name = f.name().map_err(map_zip)?.into_owned();
             if f.encrypted() {
                 return Err(DocsError::Encrypted);
             }
@@ -197,7 +197,7 @@ impl<'a> Package<'a> {
         let mut out = ZipWriter::new(Cursor::new(Vec::new()));
         for i in 0..zip.len() {
             let f = zip.by_index_raw(i).map_err(map_zip)?;
-            let name = f.name().to_string();
+            let name = f.name().map_err(map_zip)?.into_owned();
             if remove.contains(&name) {
                 continue;
             }

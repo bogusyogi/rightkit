@@ -243,9 +243,10 @@ mod tests {
             let mut entry = archive.by_index(i).unwrap();
             let mut text = String::new();
             let _ = std::io::Read::read_to_string(&mut entry, &mut text);
-            assert!(!text.contains("adalovelace"), "{}: {text}", entry.name());
-            assert!(!text.contains("ada.lovelace@example.com"), "{}: {text}", entry.name());
-            found |= entry.name().contains("sample_old_1_2.txt");
+            let name = entry.name().expect("zip entry name").into_owned();
+            assert!(!text.contains("adalovelace"), "{name}: {text}");
+            assert!(!text.contains("ada.lovelace@example.com"), "{name}: {text}");
+            found |= name.contains("sample_old_1_2.txt");
         }
         assert!(found, "sample entry missing from the bundle");
         let _ = std::fs::remove_dir_all(&dir);

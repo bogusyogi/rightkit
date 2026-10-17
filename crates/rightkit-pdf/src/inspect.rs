@@ -3613,11 +3613,13 @@ mod tests {
         // output it has, never returning `Err`) — so a bogus `FlateDecode` payload doesn't error
         // either. lopdf's `decode_filters` DOES return a real `Err` for a filter name it has no
         // decoder for at all (`_ => Err(Error::Unimplemented("decompression algorithms"))`), so an
-        // unimplemented filter is what deterministically fails here.
+        // unimplemented filter is what deterministically fails here. lopdf 0.45 gained a
+        // RunLengthDecode decoder, so the fixture uses JBIG2Decode (image-only; lopdf has no
+        // decoder for it).
         let doc = one_page_pdf(PageFixture {
             content: Stream::new(
-                dictionary! { "Filter" => "RunLengthDecode" },
-                b"irrelevant: RunLengthDecode has no decoder in lopdf".to_vec(),
+                dictionary! { "Filter" => "JBIG2Decode" },
+                b"irrelevant: JBIG2Decode has no decoder in lopdf".to_vec(),
             ),
             helvetica_f1: false,
             ..PageFixture::for_content(b"")

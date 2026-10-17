@@ -259,7 +259,7 @@ fn support_bundle_is_a_redacted_zip_and_native_dumps_need_explicit_opt_in() {
     let mut names = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).unwrap();
-        names.push(entry.name().to_string());
+        names.push(entry.name().expect("zip entry name").into_owned());
         if entry.is_file() {
             let mut text = String::new();
             entry.read_to_string(&mut text).unwrap();

@@ -219,9 +219,14 @@ mod sample {
         if inside(base, crash_dir) {
             return Err(std::io::Error::other("raw directory would be inside the crash folder"));
         }
-        let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        let builder = {
+            let mut builder = std::fs::DirBuilder::new();
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder
+        };
+        #[cfg(not(unix))]
+        let builder = std::fs::DirBuilder::new();
         builder.create(&dir)?;
         let raw = dir.join(RAW_FILE);
         let mut options = std::fs::OpenOptions::new();

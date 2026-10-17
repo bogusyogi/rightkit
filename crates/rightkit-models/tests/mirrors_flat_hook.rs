@@ -339,8 +339,7 @@ fn the_loopback_test_hook_needs_a_test_run() {
     let tmp = tempfile::tempdir().unwrap();
     let err = Store::new(tmp.path().join("models"), "t")
         .with_loopback_for_tests(&release)
-        .err()
-        .expect("a release run is refused");
+        .expect_err("a release run is refused");
     assert_eq!(err.code, ErrorCode::InvalidSpec);
 
     // Without the hook, the default store still refuses loopback.

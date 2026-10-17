@@ -109,6 +109,7 @@ fn file(path: &str, url: String, data: &[u8]) -> FileSpec {
     FileSpec {
         path: path.into(),
         url,
+        mirrors: vec![],
         bytes: Some(data.len() as u64),
         sha256: Some(sha(data)),
         platforms: vec![],

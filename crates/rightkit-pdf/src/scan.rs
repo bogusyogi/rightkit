@@ -69,6 +69,9 @@ pub(crate) enum Event<'a> {
     /// `BI` inline image (not decoded).
     InlineImage,
     /// An image XObject painted with `ctm` (user space of the page, before the page matrix).
+    // The fields are consumed by the raster walker only; without the `raster` feature the
+    // classifier reads `ctm` alone, so rustc reports the rest as dead there (false positive).
+    #[cfg_attr(not(feature = "raster"), allow(dead_code))]
     Image {
         id: ObjectId,
         ctm: Matrix6,

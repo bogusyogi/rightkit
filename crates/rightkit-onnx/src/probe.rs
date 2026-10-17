@@ -1,8 +1,5 @@
 //! Execution-provider availability probe against the loaded runtime.
 
-#[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "android"))]
-use ort::ep::ExecutionProvider as _;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     DirectMl,
