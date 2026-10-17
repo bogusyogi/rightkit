@@ -150,7 +150,8 @@ function defaultGlobalRoots() {
 
 export function scheduleSpec({ platform = process.platform, nodePath = process.execPath, cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir(), hour = 3, minute = 30 } = {}) {
   if (platform === "darwin") {
-    const logDir = "/Volumes/D/claude/tmp/swept";
+    // launchd cannot open log files on an external volume for a background job (spawn fails with EX_CONFIG);
+    // `disk run` writes its own structured log to disk-hygiene.jsonl on the heavy volume.
     const file = path.join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -158,8 +159,8 @@ export function scheduleSpec({ platform = process.platform, nodePath = process.e
 <key>Label</key><string>${LAUNCHD_LABEL}</string>
 <key>ProgramArguments</key><array><string>${nodePath}</string><string>${cli}</string><string>disk</string><string>run</string></array>
 <key>StartCalendarInterval</key><dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>${minute}</integer></dict>
-<key>StandardOutPath</key><string>${logDir}/launchd.out.log</string>
-<key>StandardErrorPath</key><string>${logDir}/launchd.err.log</string>
+<key>StandardOutPath</key><string>/dev/null</string>
+<key>StandardErrorPath</key><string>/dev/null</string>
 <key>ProcessType</key><string>Background</string><key>LowPriorityIO</key><true/><key>Nice</key><integer>10</integer>
 </dict></plist>
 `;
