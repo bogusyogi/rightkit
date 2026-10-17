@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-10-17
+
+Additive (Orthic-Labs/rightkit#281). Existing manifests, receipts and digests are unchanged.
+
+- `profile?: "proprietary" | "oss"` on `LegalManifest`. `oss` (free or open-source apps) requires only `privacy_notice` and `third_party_notices`; the four agreement roles are optional and still validated when present. Omitted means `proprietary`, which still requires all six roles.
+- New browser-safe entry `@rightkit/legal/browser`: the manifest, receipt and `needsLegalAcceptance` API without `node:crypto`, plus `sha256HexAsync` and `materialAcceptanceDigestAsync` on WebCrypto. Output equals `sha256Hex` and `materialAcceptanceDigest` on the Node entry.
+- Internal: the pure logic moved to `core.ts`; the root entry re-exports it and keeps the synchronous Node hashing. The default policy renderers stay on the Node entry.
+- The 0.4.x and `@rightkit/legal-ui` 0.3.0 publish requested in #281 is a release step, not part of this commit.
+
 ## 0.4.1 — 2026-10-17
 
 - `supportEmail` now has a suite default, `hello@orthiclabs.com`, and is an optional per-app override (#266, decision D1).

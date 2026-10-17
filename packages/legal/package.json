@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/legal",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "packageManager": "pnpm@11.24.0",
   "description": "Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.",
   "license": "MIT OR Apache-2.0",
@@ -8,7 +8,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" }
   },
   "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
   "sideEffects": false,

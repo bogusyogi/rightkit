@@ -226,3 +226,22 @@ describe("materialAcceptanceDigest", () => {
     expect(materialAcceptanceDigest(rekeyed)).toBe(digest);
   });
 });
+
+describe("oss profile", () => {
+  it("requires only privacy_notice and third_party_notices", () => {
+    const m = manifest();
+    m.profile = "oss";
+    m.documents = m.documents.filter((d) => d.role === "privacy_notice" || d.role === "third_party_notices");
+    expect(() => assertLegalManifest(m)).not.toThrow();
+    m.documents = m.documents.filter((d) => d.role !== "privacy_notice");
+    expect(() => assertLegalManifest(m)).toThrow("missing required document role: privacy_notice");
+  });
+
+  it("keeps the proprietary default strict and rejects unknown profiles", () => {
+    const m = manifest();
+    m.documents = m.documents.filter((d) => d.role !== "eula");
+    expect(() => assertLegalManifest(m)).toThrow("missing required document role: eula");
+    m.profile = "free" as never;
+    expect(() => assertLegalManifest(m)).toThrow("profile");
+  });
+});

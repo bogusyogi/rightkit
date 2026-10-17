@@ -52,3 +52,7 @@ if (needsLegalAcceptance(manifest, storedReceipt)) {
 ## Known issues
 
 - None recorded in this repository.
+
+## OSS profile and browser entry
+
+Set `profile: "oss"` on the manifest for a free or open-source app: only `privacy_notice` and `third_party_notices` are required. Webviews import from `@rightkit/legal/browser`, which has no `node:crypto` and hashes with WebCrypto (`sha256HexAsync`, `materialAcceptanceDigestAsync`).

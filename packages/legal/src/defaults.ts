@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { LegalDocumentDescriptor, LegalDocumentRole } from "./index.js";
+import type { LegalDocumentDescriptor, LegalDocumentRole } from "./core.js";
 
 /**
  * Suite-wide company facts and default policy texts (issue Orthic-Labs/rightkit#266).
