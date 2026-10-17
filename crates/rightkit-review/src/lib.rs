@@ -20,11 +20,14 @@
 //!    change the disposition. No model is called in this crate.
 //! 6. [`VerdictRecord`] is the versioned audit record. It is refused when the
 //!    schema or version is not one this build reads.
+//!    A record carries a [`PolicyBinding`] (policy hash and per-rule check versions);
+//!    [`VerdictRecord::verify_current`] refuses a stored verdict once either changed.
 //! 7. [`ladder`] is the autonomy ladder (reviewed, review-light, autonomous) per
 //!    content type and platform, with overridable thresholds and a versioned state.
 
 #![forbid(unsafe_code)]
 
+mod binding;
 mod error;
 mod extension;
 mod judge;
@@ -36,6 +39,7 @@ mod subject;
 mod text;
 mod verdict;
 
+pub use binding::{check_version, PolicyBinding, BUILTIN_CHECK_VERSION, EXTENSION_CHECK_VERSION};
 pub use error::ReviewError;
 pub use extension::{ExtensionRule, RuleRegistry};
 pub use judge::{Judge, JudgeRecord, JudgeScore, NoJudge};

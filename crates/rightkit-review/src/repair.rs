@@ -141,6 +141,7 @@ pub fn run_repair_loop_with(
         rule_set_id: rules.id.clone(),
         rule_set_version: rules.version,
         artifact_id: candidate.artifact.artifact_id.clone(),
+        binding: Some(rules.policy_binding()?),
         attempts,
         disposition: final_disposition,
         stop,

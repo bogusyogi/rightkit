@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Version not bumped here (the lockfile is not touched); release owner: this is a breaking minor for 0.x consumers. NOT COMPILED OR RUN: CI is the compiler.
+
+- **Verdicts bound to the policy hash and the check versions (Orthic-Labs/rightkit#179, CutRight bogusyogi/CutRight#112).** A stored pass used to be reusable whenever the preset name matched, so tightening a policy under an unchanged name reused a stale pass. New `PolicyBinding { policy_hash, check_versions }`; `RuleSet::policy_binding()` / `policy_hash()` (SHA-256 over the canonical JSON of the whole rule set: id, version, every rule, `required`, thresholds, lists and extension params; map keys sorted); `check_version(&RuleKind)` with `BUILTIN_CHECK_VERSION` (1, bump when a built-in check changes how it measures) and `EXTENSION_CHECK_VERSION` (0: consumer-owned code, covered by the policy hash).
+  - `VerdictRecord` gains `binding: Option<PolicyBinding>` (the repair loop fills it) and `verify_current(&RuleSet)`, which returns `ReviewError::StaleVerdict` when the binding is missing or the rule set id or version, policy hash or any check version differs. Reuse a stored pass only after it returns `Ok`.
+  - Record version 1.1.0 (was 1.0.0). This build reads 1.0.0 and 1.1.0; a 1.0.0 record parses with no binding and is never current. A reader of 1.0.0 only refuses 1.1.0 records.
+  - Breaking for exhaustive users: `VerdictRecord` has a new public field and `ReviewError` a new variant `StaleVerdict`; neither is `#[non_exhaustive]`.
+  - Not done here: CutRight's silence and loudness checks. This crate has the black-frame (`det.black_frame`) and frozen-frame (`det.frozen_frame`) checks; silence and loudness need audio measurement types and CutRight's thresholds, which are not in this repository.
+  - Tests: `tests/policy_binding.rs`; the FIPS vectors for the local SHA-256 are in `src/binding.rs`. No new dependency.
+
 ## 0.3.0
 
 - Autonomy ladder (`ladder` module), ported from CutRight's `cutright-rules::ladder` (RightKit #236). Every (content type, platform) pairing starts at `Reviewed`.

@@ -280,10 +280,10 @@ fn verdict_record_round_trips_and_refuses_foreign_or_newer_versions() {
     let parsed = VerdictRecord::from_json(&json).unwrap();
     assert_eq!(parsed, outcome.record);
     assert_eq!(parsed.schema, "rightkit-review.verdict");
-    assert_eq!(parsed.version, "1.0.0");
+    assert_eq!(parsed.version, "1.1.0");
 
     let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
-    value["version"] = "1.1.0".into();
+    value["version"] = "1.2.0".into();
     assert!(matches!(
         VerdictRecord::from_json(&value.to_string()),
         Err(ReviewError::UnsupportedRecord { .. })

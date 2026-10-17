@@ -10,6 +10,7 @@ Shared review capability for the content pipeline: typed deterministic checks ov
 - Repair loop (`run_repair_loop`, `RepairCap`, `HARD_MAX_REPAIR_ATTEMPTS`). The cap never exceeds 5. When it is reached, the loop returns the last inspectable candidate.
 - Advisory judge (`Judge`, `NoJudge`). Judge scores are recorded beside the disposition and cannot change it. This crate calls no model.
 - Verdict records (`VerdictRecord`, `VERDICT_RECORD_SCHEMA`, `VERDICT_RECORD_VERSION`). A record is refused when its schema or version is not one this build reads.
+- Policy-bound verdicts (`PolicyBinding`, `RuleSet::policy_binding`, `VerdictRecord::verify_current`, `check_version`). A record stores the SHA-256 of the whole rule set and each rule's check version; a stored pass is reusable only while `verify_current` accepts it, so tightening a policy under an unchanged preset name invalidates it. Records from before 1.1.0 carry no binding and are never current.
 - Autonomy ladder (`ladder::Ladder`, `LadderKey`, `LadderPolicy`, `Level`, `Final`, `LADDER_SCHEMA`, `LADDER_VERSION`). Reviewed, review-light and autonomous per (content type, platform), with promotion and demotion, overridable thresholds (defaults 5 and 10) and a version-tagged serialised state.
 
 Catalog capability: `content-review`. The catalog entry is declaration-only (`rightkit-ownership.json`). Consumers (GenRight G6, CutRight C10, PostRight P4) own their review policy. This crate owns the checks and verdict semantics.

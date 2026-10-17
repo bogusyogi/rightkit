@@ -11,6 +11,9 @@ pub enum ReviewError {
     RepairCapOutOfRange { requested: u32, max: u32 },
     /// A verdict record names another schema or a newer version than this build reads.
     UnsupportedRecord { schema: String, version: String },
+    /// A stored verdict is not valid for the rule set in force now: it carries no policy binding,
+    /// or its policy hash, check versions, rule set id or version differ.
+    StaleVerdict(String),
     /// JSON did not parse into the expected shape.
     Json(serde_json::Error),
 }
@@ -26,6 +29,7 @@ impl fmt::Display for ReviewError {
             ReviewError::UnsupportedRecord { schema, version } => {
                 write!(f, "unsupported verdict record `{schema}` version {version}")
             }
+            ReviewError::StaleVerdict(reason) => write!(f, "stale verdict: {reason}"),
             ReviewError::Json(error) => write!(f, "verdict record JSON: {error}"),
         }
     }
