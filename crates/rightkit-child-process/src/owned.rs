@@ -357,9 +357,10 @@ impl OwnedCommand {
     /// started. On Unix this is identical to `spawn_uncontained_detached`.
     pub fn spawn_uncontained_detached_strict(self) -> io::Result<OwnedChild> {
         match self.spawn_inner_with(true, false, None, false) {
-            Err(error) if cfg!(windows) && is_denied_breakaway(&error) => {
-                Err(io::Error::new(io::ErrorKind::PermissionDenied, BreakawayDenied))
-            }
+            Err(error) if cfg!(windows) && is_denied_breakaway(&error) => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                BreakawayDenied,
+            )),
             other => other,
         }
     }
@@ -1429,10 +1430,8 @@ mod tests {
 
     #[test]
     fn breakaway_denied_is_a_typed_recoverable_error() {
-        let error = std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            super::BreakawayDenied,
-        );
+        let error =
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, super::BreakawayDenied);
         assert!(error
             .get_ref()
             .and_then(|source| source.downcast_ref::<super::BreakawayDenied>())

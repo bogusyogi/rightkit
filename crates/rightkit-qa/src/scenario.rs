@@ -332,6 +332,7 @@ impl<'a> Ctx<'a> {
             b.stop();
         }
         if let Some((mut c, mode)) = self.ui.take() {
+            let focused = c.focus_requested();
             match c.stop() {
                 Ok(r) => {
                     if !r.process_gone || !r.endpoint_closed {
@@ -340,7 +341,7 @@ impl<'a> Ctx<'a> {
                             r.pid, r.process_gone, r.endpoint_closed
                         ));
                     }
-                    if mode != Mode::Visible && !r.owned_never_frontmost {
+                    if mode != Mode::Visible && !focused && !r.owned_never_frontmost {
                         problems.push(format!(
                             "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
                             r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
@@ -771,15 +772,19 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 env.push((var.clone(), ctx.data_dir.to_string_lossy().into()));
             }
             env.extend(env_pairs(p));
+            let focus = pv(p, "focus")
+                .and_then(Value::as_bool)
+                .unwrap_or(ctx.cfg.ui.focus);
             let spec = LaunchSpec {
                 binary,
                 mode,
                 env,
                 startup_timeout: Duration::from_secs(ctx.cfg.ui.startup_timeout_s.unwrap_or(90)),
                 label: format!("{} app", ctx.cfg.app),
+                focus,
             };
             let c = control::launch(&spec, ctx.ws, ctx.tracker)?;
-            let out = json!({"pid": c.pid, "service": c.service, "mode": format!("{mode:?}").to_lowercase(), "health": c.health()?, "log": c.log_path.to_string_lossy()});
+            let out = json!({"pid": c.pid, "service": c.service, "focus": focus, "mode": format!("{mode:?}").to_lowercase(), "health": c.health()?, "log": c.log_path.to_string_lossy()});
             let log = c.log_path.clone();
             ctx.ui = Some((c, mode));
             ctx.artifact("app.log", log);
@@ -790,6 +795,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 .ui
                 .take()
                 .ok_or_else(|| Error("no UI app running".into()))?;
+            let focused = c.focus_requested();
             let r = c.stop()?;
             if !r.process_gone || !r.endpoint_closed {
                 return err(format!(
@@ -797,7 +803,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                     r.pid, r.process_gone, r.endpoint_closed
                 ));
             }
-            if mode != Mode::Visible && !r.owned_never_frontmost {
+            if mode != Mode::Visible && !focused && !r.owned_never_frontmost {
                 return err(format!(
                     "background proof failed: {} (states {:?}, owned frontmost pids {:?}, pid unreadable in {} sample(s))",
                     r.owned_never_frontmost_failure.as_deref().unwrap_or("unknown"),
@@ -1045,6 +1051,37 @@ input = { a = 1 }
         assert_eq!(s.steps[0].expect[0].gte, Some(2.0));
         assert_eq!(s.steps[1].params["input"], json!({"a": 1}));
         let _ = std::fs::remove_file(path);
+    }
+
+    /// `focus` on `ui_launch` is a plain boolean step parameter; absent means the default (off).
+    #[test]
+    fn ui_launch_focus_param_parses() {
+        let text = r#"
+name = "focus ring"
+target = "ui"
+[[step]]
+kind = "ui_launch"
+focus = true
+[[step]]
+kind = "ui_key"
+key = "Tab"
+[[step]]
+kind = "ui_stop"
+"#;
+        let path =
+            std::env::temp_dir().join(format!("rkqa-focus-{}.scenario.toml", util::new_id()));
+        std::fs::write(&path, text).unwrap();
+        let s = Scenario::load(&path);
+        let _ = std::fs::remove_file(&path);
+        let s = s.unwrap();
+        assert_eq!(
+            pv(&s.steps[0].params.clone().into_iter().collect(), "focus"),
+            Some(&json!(true))
+        );
+        assert!(!pb(
+            &s.steps[2].params.clone().into_iter().collect(),
+            "focus"
+        ));
     }
 
     #[test]

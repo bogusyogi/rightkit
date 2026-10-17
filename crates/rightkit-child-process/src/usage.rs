@@ -9,7 +9,7 @@
 //! | `resident_bytes` | `proc_pid_rusage` `ri_resident_size` | `WorkingSetSize` | `/proc/self/statm` |
 //! | `footprint_bytes` | `ri_phys_footprint` | `PrivateUsage` | same as resident |
 //! | `cpu_seconds` | `getrusage(RUSAGE_SELF)` user + system | `GetProcessTimes` user + kernel | `getrusage` |
-//! | `wakeups_total` | `ri_interrupt_wkups` (thread wake-ups from timer and other interrupts; `ri_pkg_idle_wkups` stays 0 whenever the machine is busy, so it cannot be used) | not available | not available |
+//! | `wakeups_total` | `ri_interrupt_wkups` (thread wake-ups from timer and other interrupts; `ri_pkg_idle_wkups` stays 0 whenever the machine is busy, so it cannot be used) | sum of `ContextSwitchCount` over the live threads of this process (`NtQuerySystemInformation(SystemProcessInformation)`); a thread is switched in once per wake. A thread that exits takes its count with it, so the sum can dip when threads end; 64-bit only | not available |
 //! | `disk_ops_total` | not available: `ru_inblock`/`ru_oublock` stay 0 on macOS and no per-process operation count exists; bytes are reported instead | `GetProcessIoCounters` read + write operation counts (all I/O, including pipes and sockets) | `ru_inblock + ru_oublock` |
 //!
 //! Other Unix targets compile, and `process_usage` returns `ErrorKind::Unsupported` there.
@@ -328,12 +328,18 @@ mod imp {
 mod imp {
     use super::ProcessUsage;
     use std::io;
-    use windows::Win32::Foundation::FILETIME;
+    use windows::Wdk::System::SystemInformation::{
+        NtQuerySystemInformation, SystemProcessInformation,
+    };
+    use windows::Win32::Foundation::{FILETIME, STATUS_INFO_LENGTH_MISMATCH};
     use windows::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
     };
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
+        GetCurrentProcess, GetCurrentProcessId, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
+    };
+    use windows::Win32::System::WindowsProgramming::{
+        SYSTEM_PROCESS_INFORMATION, SYSTEM_THREAD_INFORMATION,
     };
 
     fn os(error: windows::core::Error) -> io::Error {
@@ -342,6 +348,99 @@ mod imp {
 
     fn ticks(t: FILETIME) -> u64 {
         ((t.dwHighDateTime as u64) << 32) | t.dwLowDateTime as u64
+    }
+
+    /// Bytes from the start of a `SYSTEM_PROCESS_INFORMATION` entry to its first
+    /// `SYSTEM_THREAD_INFORMATION` (the Windows 10/11 x64 layout; the `windows` crate's public
+    /// struct is 8 bytes shorter than the real one, so `size_of` cannot be used).
+    #[cfg(target_pointer_width = "64")]
+    const THREADS_OFFSET: usize = 0x100;
+    /// Upper bound on the process-table buffer.
+    #[cfg(target_pointer_width = "64")]
+    const MAX_QUERY_BYTES: usize = 256 * 1024 * 1024;
+
+    /// Total context switches (switch-ins, one per thread wake) over every live thread of this
+    /// process. `ContextSwitchCount` is the `u32` the crate names `Reserved3` in
+    /// `SYSTEM_THREAD_INFORMATION` (offset 0x40, right after `BasePriority`). `None` on any
+    /// failure or unexpected layout; never panics.
+    #[cfg(target_pointer_width = "64")]
+    fn wakeups_total() -> Option<u64> {
+        // 8-byte aligned backing store; entry offsets are multiples of 8.
+        let mut words: Vec<u64> = vec![0; (1 << 20) / 8];
+        let mut length: u32 = 0;
+        let mut attempts = 0;
+        loop {
+            let capacity = words.len() * 8;
+            let status = unsafe {
+                NtQuerySystemInformation(
+                    SystemProcessInformation,
+                    words.as_mut_ptr().cast(),
+                    u32::try_from(capacity).ok()?,
+                    &mut length,
+                )
+            };
+            if status.0 >= 0 {
+                break;
+            }
+            attempts += 1;
+            if status != STATUS_INFO_LENGTH_MISMATCH || attempts > 8 {
+                return None;
+            }
+            // The process table can grow between calls: ask for a margin over the reported size.
+            let want = (length as usize).checked_add(256 * 1024)?;
+            if want <= capacity || want > MAX_QUERY_BYTES {
+                return None;
+            }
+            words = vec![0; want.div_ceil(8)];
+        }
+        let valid = (length as usize).min(words.len() * 8);
+        let base = words.as_ptr().cast::<u8>();
+        let pid = unsafe { GetCurrentProcessId() } as usize;
+        let thread_size = std::mem::size_of::<SYSTEM_THREAD_INFORMATION>();
+        let mut offset = 0usize;
+        loop {
+            if offset.checked_add(THREADS_OFFSET)? > valid {
+                return None;
+            }
+            // SAFETY: `offset + THREADS_OFFSET <= valid <= buffer size` covers the header read.
+            let entry = unsafe {
+                std::ptr::read_unaligned(base.add(offset).cast::<SYSTEM_PROCESS_INFORMATION>())
+            };
+            if entry.UniqueProcessId.0 as usize == pid {
+                let count = entry.NumberOfThreads as usize;
+                let first = offset + THREADS_OFFSET;
+                let end = first.checked_add(count.checked_mul(thread_size)?)?;
+                if end > valid {
+                    return None;
+                }
+                let mut total = 0u64;
+                for i in 0..count {
+                    // SAFETY: `first + (i + 1) * thread_size <= end <= valid`.
+                    let thread = unsafe {
+                        std::ptr::read_unaligned(
+                            base.add(first + i * thread_size)
+                                .cast::<SYSTEM_THREAD_INFORMATION>(),
+                        )
+                    };
+                    // Layout guard: every thread of this process names this process.
+                    if thread.ClientId.UniqueProcess.0 as usize != pid {
+                        return None;
+                    }
+                    total = total.checked_add(u64::from(thread.Reserved3))?;
+                }
+                return Some(total);
+            }
+            let next = entry.NextEntryOffset as usize;
+            if next == 0 {
+                return None;
+            }
+            offset = offset.checked_add(next)?;
+        }
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn wakeups_total() -> Option<u64> {
+        None
     }
 
     pub fn sample() -> io::Result<ProcessUsage> {
@@ -369,7 +468,7 @@ mod imp {
                 footprint_bytes: mem.PrivateUsage as u64,
                 // FILETIME ticks are 100 ns.
                 cpu_seconds: (ticks(kernel) + ticks(user)) as f64 / 1e7,
-                wakeups_total: None,
+                wakeups_total: wakeups_total(),
                 disk_ops_total: Some(
                     io_counters.ReadOperationCount + io_counters.WriteOperationCount,
                 ),
@@ -405,6 +504,56 @@ mod tests {
         assert!(second.cpu_seconds >= first.cpu_seconds);
         let rates = second.rates_since(&first, Duration::from_secs(1));
         assert!(rates.cpu_percent >= 0.0);
+    }
+
+    /// Windows reports wake-ups as summed thread context switches: present, and not decreasing
+    /// while the threads that did the waking are still alive.
+    #[cfg(all(windows, target_pointer_width = "64"))]
+    #[test]
+    fn windows_wakeups_count_thread_context_switches() {
+        use std::sync::{mpsc, Arc, Mutex};
+        let (tx, rx) = mpsc::channel::<()>();
+        let rx = Arc::new(Mutex::new(rx));
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let workers: Vec<_> = (0..3)
+            .map(|_| {
+                let rx = rx.clone();
+                let done = done_tx.clone();
+                std::thread::spawn(move || {
+                    // Each message wakes one worker.
+                    while rx.lock().map(|r| r.recv().is_ok()).unwrap_or(false) {
+                        let _ = done.send(());
+                    }
+                })
+            })
+            .collect();
+        // Other tests in this process may end threads between samples (their counts leave the
+        // sum), so allow a few attempts for a non-decreasing pair.
+        let mut ok = false;
+        for _ in 0..5 {
+            let first = process_usage()
+                .unwrap()
+                .wakeups_total
+                .expect("windows reports wake-ups");
+            for _ in 0..5 {
+                std::thread::sleep(Duration::from_millis(10));
+                tx.send(()).unwrap();
+                done_rx.recv().unwrap();
+            }
+            let second = process_usage()
+                .unwrap()
+                .wakeups_total
+                .expect("windows reports wake-ups");
+            if second >= first {
+                ok = true;
+                break;
+            }
+        }
+        drop(tx);
+        for worker in workers {
+            let _ = worker.join();
+        }
+        assert!(ok, "wake-up total decreased on every attempt");
     }
 
     /// Every other Unix target compiles and reports `Unsupported`, never a made-up sample.

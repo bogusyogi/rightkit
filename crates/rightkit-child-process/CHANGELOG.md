@@ -21,6 +21,13 @@ Issue #271. Written without compiling or running Cargo here; CI builds and runs 
   including all of Unix). **New: `OwnedCommand::spawn_uncontained_detached_strict()`** never falls back and returns a
   `PermissionDenied` `io::Error` wrapping the new `BreakawayDenied` type. Unix unchanged. Additive. Written without
   compiling or running Cargo; the version stays 0.4.3 because 0.4.3 is not yet published (crates.io has 0.4.1).
+- **New: Windows `wakeups_total` in `usage::process_usage`.** It is the sum of `ContextSwitchCount` over the live
+  threads of the current process, read with `NtQuerySystemInformation(SystemProcessInformation)` (buffer grown on
+  `STATUS_INFO_LENGTH_MISMATCH`, entries and thread array bounds-checked, `None` on any failure or layout mismatch,
+  64-bit only). A thread is switched in once per wake, which matches the macOS meaning, so `observe_idle` and the
+  `RESULT budget` line print a numeric `wakeups_per_s` on Windows and the release gate can record it. A thread that
+  exits takes its count with it, so a sample can dip when threads end. New Windows features
+  `Wdk_System_SystemInformation` and `Win32_System_WindowsProgramming`. Additive. Written without compiling or running Cargo.
 - **Item 4 of #271 (macOS parent-death tie) is already delivered** by 0.4.2: `kill_on_parent_exit(true)` arms a kqueue
   `NOTE_EXIT` watchdog on macOS. Nothing further was added for it.
 

@@ -107,6 +107,9 @@ mod native {
     ) -> Result<(), String> {
         Err(NO.into())
     }
+    pub fn focus_window<R: Runtime>(_: &WebviewWindow<R>) -> Result<String, String> {
+        Err(NO.into())
+    }
     pub fn mouse_batch<R: Runtime>(
         _: &WebviewWindow<R>,
         _: &[super::MouseEv],
@@ -427,6 +430,7 @@ pub const METHODS: &[&str] = &[
     "ax",
     "screenshot",
     "set_viewport",
+    "focus",
     "command",
     "wait",
     "batch",
@@ -442,7 +446,7 @@ pub fn effect_kind(method: &str) -> Option<EffectKind> {
         "click" | "move" | "drag" | "pointer" | "wheel" | "key" | "type" => Some(EffectKind::Input),
         "eval" | "wait" => Some(EffectKind::Script),
         "screenshot" => Some(EffectKind::Capture),
-        "command" | "set_viewport" => Some(EffectKind::Command),
+        "command" | "set_viewport" | "focus" => Some(EffectKind::Command),
         _ => None,
     }
 }
@@ -1059,6 +1063,12 @@ fn route<R: Runtime>(
             )?;
             Ok(Out::Json(outcome.to_json().to_string()))
         }
+        "focus" => {
+            let how = native::focus_window(win)?;
+            Ok(Out::Json(
+                serde_json::json!({"ok": true, "focused": true, "how": how}).to_string(),
+            ))
+        }
         "move" => {
             let flags = pointer_flags(params)?;
             let ev = MouseEv {
@@ -1407,6 +1417,8 @@ mod tests {
         assert_eq!(effect_kind("eval"), Some(EffectKind::Script));
         assert_eq!(effect_kind("screenshot"), Some(EffectKind::Capture));
         assert_eq!(effect_kind("set_viewport"), Some(EffectKind::Command));
+        assert!(METHODS.contains(&"focus"));
+        assert_eq!(effect_kind("focus"), Some(EffectKind::Command));
         assert_eq!(effect_kind("command"), Some(EffectKind::Command));
         for m in ["health", "dom", "ax", "lease_status", "lease_acquire"] {
             assert_eq!(effect_kind(m), None, "{m}");

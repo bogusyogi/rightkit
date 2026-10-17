@@ -469,6 +469,28 @@ fn on_view<R: Runtime, T: Send + 'static>(
         .map_err(|_| "webview call timed out".to_string())?
 }
 
+/// Make the window key and the webview first responder so `document.hasFocus()`, `:focus` and
+/// `:focus-visible` match. The window keeps whatever frame and alpha the app gave it (an
+/// off-screen or hidden-launch window stays off-screen). The app is activated, which can change
+/// the frontmost app: the caller must not claim the never-frontmost proof for this launch.
+pub fn focus_window<R: Runtime>(win: &WebviewWindow<R>) -> Result<String, String> {
+    on_view(win, |wk| unsafe {
+        let window = msg!(Id; wk, "window");
+        if window.is_null() {
+            return Err("webview has no window".to_string());
+        }
+        let app = msg!(Id; class("NSApplication"), "sharedApplication");
+        msg!((); app, "activateIgnoringOtherApps:", bool = true);
+        msg!((); window, "makeKeyAndOrderFront:", Id = std::ptr::null_mut());
+        let responder = msg!(bool; window, "makeFirstResponder:", Id = wk);
+        let key = msg!(bool; window, "isKeyWindow");
+        if !key {
+            return Err("window did not become key".to_string());
+        }
+        Ok(format!("key window, first responder set: {responder}"))
+    })?
+}
+
 /// One pointer event on the main thread.
 unsafe fn dispatch_mouse(wk: Id, viewport: Option<(f64, f64)>, e: &MouseEv) -> Result<(), String> {
     let window = msg!(Id; wk, "window");

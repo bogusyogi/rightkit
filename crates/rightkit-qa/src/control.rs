@@ -52,6 +52,13 @@ pub struct LaunchSpec {
     pub env: Vec<(String, String)>,
     pub startup_timeout: Duration,
     pub label: String,
+    /// Opt-in (default `false`): after the page is ready, make the window key and focused so
+    /// `document.hasFocus()`, `:focus` and `:focus-visible` match (keyboard and accessibility
+    /// scenarios). macOS activates the app and makes the window key (it may change the
+    /// frontmost app); Windows enables Chromium focus emulation and moves WebView2 focus into
+    /// the page, with no `SetForegroundWindow`. A focused launch cannot prove
+    /// `owned_never_frontmost`, so `ui_stop` skips that proof for it.
+    pub focus: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +117,8 @@ pub struct Control {
     /// Gap between native input events asked of the app (`paceMs`); 0 sends none.
     pace_ms: u64,
     stopped: bool,
+    /// The launch asked for a key/focused window (`LaunchSpec::focus`).
+    focus_requested: bool,
 }
 
 const APP: &str = "right-qa";
@@ -809,6 +818,10 @@ fn launch_env(
         if spec.mode == Mode::Hidden { "1" } else { "0" }.into(),
     );
     env.insert(
+        "RIGHTKIT_QA_FOCUS".into(),
+        if spec.focus { "1" } else { "0" }.into(),
+    );
+    env.insert(
         "RIGHTKIT_QA_BACKGROUND".into(),
         if spec.mode != Mode::Visible { "1" } else { "0" }.into(),
     );
@@ -961,6 +974,7 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(0),
         stopped: false,
+        focus_requested: spec.focus,
     };
     let mut last_error: String;
     loop {
@@ -1025,6 +1039,15 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             ));
         }
         sleep_ms(20);
+    }
+    if spec.focus {
+        if let Err(e) = control.focus_window() {
+            let _ = control.stop();
+            return err(format!(
+                "focus requested but the window could not be focused: {}",
+                e.0
+            ));
+        }
     }
     Ok(control)
 }
@@ -1317,6 +1340,14 @@ impl Control {
                 .ok_or_else(|| Error(format!("set_viewport returned invalid {key}")))
         };
         Ok((dimension("innerWidth")?, dimension("innerHeight")?))
+    }
+    /// Make the window key and focused (see `LaunchSpec::focus`). Opt-in; also callable mid-run.
+    pub fn focus_window(&self) -> Result<Value> {
+        self.json("focus", json!({}))
+    }
+    /// True when this launch asked for a key/focused window, so the never-frontmost proof does not apply.
+    pub fn focus_requested(&self) -> bool {
+        self.focus_requested
     }
     /// Prove the allowlist: an app that is not on it is refused at hello. Returns the error code.
     pub fn unlisted_app_probe(&self) -> Result<String> {
@@ -1702,6 +1733,7 @@ mod launch_path_tests {
             env: vec![],
             startup_timeout: Duration::from_secs(90),
             label: "fixture".into(),
+            focus: false,
         };
         (ws, spec)
     }
@@ -1741,6 +1773,21 @@ mod launch_path_tests {
         assert_eq!(env["RIGHTKIT_SUITE_ROOT"], suite.root().to_string_lossy());
         assert_eq!(env["RIGHTKIT_QA_HIDDEN"], "1");
         assert_eq!(env["RIGHTKIT_QA_BACKGROUND"], "1");
+        // Default launch is unchanged: no focus.
+        assert!(!spec.focus);
+        assert_eq!(env["RIGHTKIT_QA_FOCUS"], "0");
+        let focused = LaunchSpec {
+            focus: true,
+            ..spec.clone()
+        };
+        let focused_env: std::collections::BTreeMap<_, _> =
+            launch_env(&focused, &ws, &suite, "control-12345678")
+                .unwrap()
+                .into_iter()
+                .collect();
+        assert_eq!(focused_env["RIGHTKIT_QA_FOCUS"], "1");
+        // Focus does not turn a hidden launch into a visible one.
+        assert_eq!(focused_env["RIGHTKIT_QA_HIDDEN"], "1");
         // rightkit-daemon falls back to TMPDIR/rk-<suite-hash>-<service>.sock
         // when its runtime socket exceeds 100 bytes. App TMPDIR must fit too.
         #[cfg(target_os = "macos")]

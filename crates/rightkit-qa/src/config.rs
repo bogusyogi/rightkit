@@ -82,6 +82,9 @@ pub struct UiConfig {
     pub window_label: String,
     #[serde(default = "default_mode")]
     pub mode: String,
+    /// Default for `ui_launch` `focus`: make the window key and focused (off by default).
+    #[serde(default)]
+    pub focus: bool,
     #[serde(default = "default_feature")]
     pub feature: String,
     /// Build command for the app itself (a debug build with the control feature).
@@ -115,6 +118,7 @@ impl Default for UiConfig {
             binaries: PerPlatform::default(),
             window_label: default_label(),
             mode: default_mode(),
+            focus: false,
             feature: default_feature(),
             build: vec![],
             package: None,
@@ -360,6 +364,15 @@ mode = "background"
         );
         assert_eq!(c.ui.binaries.darwin.as_deref(), Some("a"));
         assert_eq!(c.default_tier, "fast");
+    }
+
+    #[test]
+    fn ui_focus_defaults_off_and_parses() {
+        let c = QaConfig::parse(SAMPLE, Path::new("/tmp/x/rightkit-qa.toml")).unwrap();
+        assert!(!c.ui.focus);
+        let on = SAMPLE.replace("mode = \"background\"", "mode = \"hidden\"\nfocus = true");
+        let c = QaConfig::parse(&on, Path::new("/tmp/x/rightkit-qa.toml")).unwrap();
+        assert!(c.ui.focus);
     }
 
     #[test]

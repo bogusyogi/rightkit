@@ -904,6 +904,31 @@ pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, Stri
     Ok(str_field(&r, "value").unwrap_or_default())
 }
 
+/// Make the page report focus without taking the user's foreground. Chromium's focus
+/// emulation (`Emulation.setFocusEmulationEnabled`) gives `document.hasFocus()`, `:focus` and
+/// `:focus-visible` the answers of a focused window while the host window stays where it is, so
+/// there is deliberately no `SetForegroundWindow`. WebView2 focus is then moved into the page.
+pub fn focus_window<R: Runtime>(win: &WebviewWindow<R>) -> Result<String, String> {
+    cdp(
+        win,
+        "Emulation.setFocusEmulationEnabled",
+        serde_json::json!({ "enabled": true }).to_string(),
+    )?;
+    let (tx, rx) = channel::<Result<(), String>>();
+    win.with_webview(move |pv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC;
+        let r = pv
+            .controller()
+            .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
+            .map_err(|e| e.to_string());
+        let _ = tx.send(r);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(10))
+        .map_err(|_| "webview focus call timed out".to_string())??;
+    Ok("focus emulation enabled, webview focused (no SetForegroundWindow)".into())
+}
+
 #[repr(C)]
 #[derive(Default)]
 struct Rect {

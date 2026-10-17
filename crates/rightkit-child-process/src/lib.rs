@@ -42,9 +42,8 @@ pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use no_window::{NoWindow, CREATE_NO_WINDOW};
 pub use owned::{
     AdoptedProcess, BreakawayDenied, JobAssignmentFailure, JobAssignmentMode, OwnedChild,
-    OwnedCommand, ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions,
-    TreeTermination, UnixContainment, WaitOutcome, DEFAULT_DROP_REAP_TIMEOUT,
-    DEFAULT_ENV_ALLOWLIST,
+    OwnedCommand, ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions, TreeTermination,
+    UnixContainment, WaitOutcome, DEFAULT_DROP_REAP_TIMEOUT, DEFAULT_ENV_ALLOWLIST,
 };
 pub use power::{PowerAssertion, PowerKind};
 pub use process_handle::ProcessHandle;

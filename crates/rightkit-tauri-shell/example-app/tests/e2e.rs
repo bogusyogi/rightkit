@@ -62,6 +62,7 @@ fn start_with(tracker: &Tracker, label: &str, state_dir: Option<PathBuf>, extra_
         env,
         startup_timeout: Duration::from_secs(60),
         label: label.into(),
+        focus: false,
     };
     let c = launch(&spec, &ws, tracker).expect("launch hidden app");
     Run { c, ws, open_log, stall_log, state_dir, home }
