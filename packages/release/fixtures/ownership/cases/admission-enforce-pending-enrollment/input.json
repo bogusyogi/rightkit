@@ -1,6 +1,6 @@
 {
   "kind": "admission",
-  "description": "enforce mode, scan returns a report whose verdict is a pending-enrollment report with ok:false (refused as report-failed); records classification, outcome and assertAdmitted result.",
+  "description": "enforce mode, scan returns a report whose verdict is pending-enrollment; records classification, outcome and assertAdmitted result.",
   "scenario": {
     "mode": "enforce",
     "scannerRoot": "/fixture/scanner",
