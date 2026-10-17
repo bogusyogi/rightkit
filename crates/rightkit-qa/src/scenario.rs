@@ -1266,7 +1266,7 @@ command = \"x\"
 
     #[test]
     fn parses_the_seed_and_accessibility_steps() {
-        let text = r#"
+        let text = r##"
 name = "settings a11y"
 target = "ui"
 kind = "visual"
@@ -1297,7 +1297,7 @@ screenshot = true
   [[step.expect]]
   path = "visible"
   eq = true
-"#;
+"##;
         let path = std::env::temp_dir().join(format!("rkqa-a11y-{}.scenario.toml", util::new_id()));
         std::fs::write(&path, text).unwrap();
         let s = Scenario::load(&path);

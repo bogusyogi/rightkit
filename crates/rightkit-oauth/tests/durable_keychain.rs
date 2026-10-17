@@ -140,7 +140,7 @@ fn refresh_persists_rotated_token_and_keeps_old_when_omitted() {
         .unwrap();
     assert_eq!(first.access_token(), "a1");
     let stored = store.get("acct", "test").unwrap().unwrap();
-    assert_eq!(stored.refresh_token.unwrap().expose(), "rotated-refresh");
+    assert_eq!(stored.refresh_token.as_ref().unwrap().expose(), "rotated-refresh");
     assert_eq!(stored.access_token(), "a1");
     clock.0.store(3500, Ordering::SeqCst);
     let second = f
@@ -248,7 +248,7 @@ fn bare_refresh_and_store_persists_rotation_atomically() {
         .unwrap();
     assert_eq!(out.refresh_token.as_ref().unwrap().expose(), "rotated");
     let stored = store.get("acct", "test").unwrap().unwrap();
-    assert_eq!(stored.refresh_token.unwrap().expose(), "rotated");
+    assert_eq!(stored.refresh_token.as_ref().unwrap().expose(), "rotated");
     assert_eq!(stored.access_token(), "a1");
 }
 

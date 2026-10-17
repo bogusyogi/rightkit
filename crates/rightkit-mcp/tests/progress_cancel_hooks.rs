@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use rightkit_mcp::*;
 use serde_json::{json, Value};
 
+type SeenReplies = Vec<(Option<String>, Value)>;
+
 /// A BufRead fed line by line from the test while the server is running.
 struct ChanReader {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -322,7 +324,7 @@ fn without_overrides_initialize_is_unchanged() {
 
 #[test]
 fn response_hook_fires_once_per_response_and_sees_it_unchanged() {
-    let seen: Arc<Mutex<Vec<(Option<String>, Value)>>> = Arc::default();
+    let seen: Arc<Mutex<SeenReplies>> = Arc::default();
     let sink = seen.clone();
     let host = ServerHost::new("ember", "9", Arc::new(Quiet)).with_response_hook(move |info| {
         sink.lock()

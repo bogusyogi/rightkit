@@ -263,7 +263,7 @@ fn timeout_error_and_panic_become_typed_results_with_exit_zero() {
 fn total_deadline_skips_the_rest() {
     let mods = [
         m("hog", |_, _| {
-            std::thread::sleep(Duration::from_millis(120));
+            std::thread::sleep(Duration::from_millis(2000));
             Ok(ModuleOutput::empty())
         }),
         m("late", |_, _| Ok(ModuleOutput::context("x"))),
