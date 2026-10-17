@@ -141,7 +141,7 @@ fn explicit_and_env_paths_win_and_missing_paths_fail_loudly() {
         .to_string();
     assert!(err.contains("does not exist"), "{err}");
     assert!(
-        err.contains("@puppeteer/browsers install chrome@stable"),
+        err.contains("ensure_chrome_for_testing"),
         "{err}"
     );
     assert!(err.contains("RIGHTKIT_CHROME_FOR_TESTING"), "{err}");

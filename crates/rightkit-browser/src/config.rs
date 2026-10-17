@@ -1026,8 +1026,18 @@ mod tests {
             ("PLAYWRIGHT_BROWSERS_PATH", Some(&playwright)),
         ]);
         let candidates = chrome_for_testing_candidates();
-        assert_eq!(&candidates[..3], &[newest.clone(), recent.clone(), older]);
-        assert!(candidates.iter().position(|p| p == &legacy).unwrap() >= 3);
+        // #267 layout: `current` and `current.previous` come first, then the legacy
+        // per-version folders, newest numeric version first.
+        let managed = ManagedRoot::at(&root);
+        assert_eq!(
+            &candidates[..2],
+            &[
+                executable_in(&managed.current()),
+                executable_in(&managed.previous())
+            ]
+        );
+        assert_eq!(&candidates[2..5], &[newest.clone(), recent.clone(), older]);
+        assert!(candidates.iter().position(|p| p == &legacy).unwrap() >= 5);
         assert_eq!(chrome_for_testing_path(None).unwrap(), newest);
         std::env::set_var(CHROME_FOR_TESTING_ENV, &legacy);
         assert_eq!(chrome_for_testing_path(None).unwrap(), legacy);
