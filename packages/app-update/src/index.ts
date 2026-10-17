@@ -170,22 +170,23 @@ export function updateTierFromManifest(rawJson: Record<string, unknown> | undefi
   return tier;
 }
 
+/** A check result held until it is downloaded, installed, or superseded by a newer check generation. */
+interface AvailableRecord {
+  update: RuntimeUpdate;
+  tier: UpdateTier;
+  checkHeaders?: UpdateHeaders;
+  generation: number;
+}
+
 export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpdateClient {
   const shouldAutoInstall = config.shouldAutoInstall ?? (() => false);
   const isEligible = config.isEligible ?? ((tier) => tier !== 'update');
   const deferReason = config.deferReason ?? (() => 'host_not_idle');
   let generation = 0;
-  let available:
-    | {
-        update: RuntimeUpdate;
-        tier: UpdateTier;
-        checkHeaders?: UpdateHeaders;
-        generation: number;
-      }
-    | null = null;
+  let available: AvailableRecord | null = null;
   let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
   const handleByRecord = new WeakMap<object, StagedUpdateHandle>();
-  const recordByHandle = new WeakMap<StagedUpdateHandle, NonNullable<typeof available>>();
+  const recordByHandle = new WeakMap<StagedUpdateHandle, AvailableRecord>();
 
   function emit(status: AutoUpdateStatus): AutoUpdateStatus {
     config.onStatus?.(status);
@@ -321,7 +322,7 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
     return claimed;
   }
 
-  async function install(claimed: NonNullable<typeof available>): Promise<AutoUpdateStatus> {
+  async function install(claimed: AvailableRecord): Promise<AutoUpdateStatus> {
     const { update, tier, checkHeaders, generation: installGeneration } = claimed;
     try {
       const safe = await config.canInstall?.() ?? true;

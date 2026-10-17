@@ -1,6 +1,6 @@
 //! Sending: `prepare-upload` to a peer, then each accepted file as an upload.
 
-use super::error::{peer_io, Error};
+use super::error::{Error, peer_io};
 use super::net::{self, Wire};
 use super::proto::{
     self, DeviceInfo, FileMeta, PrepareUploadRequest, PrepareUploadResponse, PulseExtra,
