@@ -846,10 +846,7 @@ fn read_request_line(
     }
 }
 
-fn read_callback(
-    mut stream: TcpStream,
-    read_budget: Duration,
-) -> Result<Callback, OAuthError> {
+fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callback, OAuthError> {
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     stream.set_nonblocking(false).ok();
     let first = read_request_line(&mut stream, std::time::Instant::now() + read_budget)?;

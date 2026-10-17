@@ -758,7 +758,9 @@ mod tests {
         // The compiled capability is off without the `test-mode` feature, so no `Mode::Test`
         // can exist here either.
         #[cfg(not(feature = "test-mode"))]
-        const { assert!(!rightkit_daemon::mode::TEST_CAPABILITY) };
+        const {
+            assert!(!rightkit_daemon::mode::TEST_CAPABILITY)
+        };
     }
 
     #[test]
