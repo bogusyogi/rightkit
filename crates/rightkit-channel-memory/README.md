@@ -16,6 +16,8 @@ Channel memory for the content pipeline: the `channel-memory.v1` schema with ser
 - Units (`Unit`). A built-in currency code, `percent`, `count`, `days` or `seconds`, or an open slug such as `views`, `subscribers`, `viewers_percent` or `shorts_per_week`. The reserved tokens are `_per_` and a trailing `_per`. A rate must end in `_per_day`, `_per_week`, `_per_month` or `_per_year`, and the part before it must be a plain base: no `_per_`, and not ending in `_per`. `x_per_hour` and `a_per_per_day` are refused.
 - Banned moves (`BannedMove::matches`). A move matches text that contains one of its `phrases`, ignoring case.
 
+The contract is documented in [docs/CONTRACT.md](docs/CONTRACT.md): fields, the four fact statuses (`collected`, `approved`, `withdrawn`, `superseded`), the conflict record, citation order and versioning.
+
 Catalog capability: `channel-memory`. The catalog entry is declaration-only (`rightkit-ownership.json`). The revisioned daemon storage and conflict handling belong to the daemon (RK10). This crate validates records only.
 
 The schema is still pending. The shared source lives in `rightkit/contracts-pending/channel-memory/` until RK6 is accepted into `contracts/`; the crate embeds its own copy from `schemas/` so `cargo package` ships it, and `tests/schema_copy.rs` fails if the two differ.

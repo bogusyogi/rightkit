@@ -8,26 +8,36 @@ contract's change history is visible. If the owner wants a published contract
 to start from this state, bump the major (`2.0.0`, file `channel-memory.v2`)
 at that point.
 
-## Unreleased: conflict record API (#327)
+## 0.2.0 (breaking: minor bump of 0.1.0, which is on crates.io)
+
+The breaking schema and model changes below (#329 structured `PermittedClaim`, #330 `validFrom` and `validUntil`, #331 exact `Decimal`, plus the status rename, `period`, units and conflicts) were first recorded under 0.1.0 in place. They are released as 0.2.0. The crate keeps its own `Scope` type and does not depend on rightkit-spend.
+
+### Published contract (#332)
+
+- `docs/CONTRACT.md` documents `channel-memory.v1` (fields, the four fact statuses, the conflict record, citation order, writes, error codes, versioning and registry status). It ships in the crate (`include` gains `docs/**`) and is linked from the README.
+- The crate is on crates.io; this release is the version PostRight pins. The schema is still copied from `contracts-pending/channel-memory/`. Listing `channel-memory` in `rightkit-contracts` and moving the schema to `contracts/` is a change in that crate and is not made here.
+- Tests: `tests/contract_doc.rs` fails when the doc stops naming a fact status, a conflict status or a top-level schema field.
+
+### Conflict record API (#327)
 
 - The conflict record type (`ConflictRecord`, `ConflictBody`, `ConflictStatus`, schema `conflicts`) has been in the schema and typed model since 0.1.0; PostRight's contract still listed it as a gap. This change adds the accessors a consumer needs. Additive, no schema change.
 - `ConflictStatus::as_str()`, `ConflictRecord::is_open()`, `ConflictRecord::chosen_body()` (the body of the chosen device of a resolved conflict) and `ConflictRecord::body_for(device)`.
 - `ChannelMemory::open_conflicts(proof_id)` and `ChannelMemory::has_open_conflict(proof_id)`. `cite_proof` uses the same check, so behaviour is unchanged (`E_PROOF_CONFLICT`).
 - Tests: `tests/conflict_record.rs` covers the open and resolved states, both bodies by device, the chosen-device rules, the two-body and two-device rules, and a serde round trip.
 
-## Unreleased: fact statuses as one list (#333)
+### Fact statuses as one list (#333)
 
 - The four fact statuses `collected`, `approved`, `withdrawn` and `superseded` have been in the schema and `ProofStatus` since 0.1.0 (`pending` was renamed `collected`). This change makes them a checkable surface for PostRight's pin. Additive, no schema change.
 - `ProofStatus::ALL` (lifecycle order), `ProofStatus::as_str()` (the wire name), `ProofStatus::from_wire(&str)` (`None` for `pending` or any other text) and `ProofStatus::is_terminal()` (withdrawn and superseded).
 - Tests: `tests/fact_statuses.rs` pins the schema enum, the serde names, the refusal of `pending`, and the terminal set.
 
-## Unreleased: review epoch and brief re-entry (#314)
+### Review epoch and brief re-entry (#314)
 
 - Additive, no schema change. `ChannelMemory::review_epoch(proof_ids)` returns the epoch of the facts a brief cites (`id@revision:status`, sorted by id, `;`-joined, `id@missing` for an absent proof). `ChannelMemory::brief_reentry(proof_ids, reviewed_epoch)` returns `BriefReentry::Current` or `BriefReentry::NeedsReview { changed, epoch }`, so a brief re-enters review when a cited fact is revised, withdrawn, superseded or removed. A brief stores the epoch when it passes review.
 
-## 0.1.0: proof semantics revision (contract p3-proof-semantics §2, §3, §5.3, §6, §9, §10)
+### Proof semantics revision (contract p3-proof-semantics §2, §3, §5.3, §6, §9, §10)
 
-### Breaking changes to the schema and typed model
+#### Breaking changes to the schema and typed model
 
 - Proof `value` is an exact decimal string matching `^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`.
   The Rust type is `Decimal`: it keeps the text, compares exactly and never
@@ -61,7 +71,7 @@ at that point.
   two devices, both at revision base + 1, and a `status` of `open` or
   `resolved` (with `chosenDevice`).
 
-### New rules
+#### New rules
 
 - Status transitions (`check_transition`): collected to collected, collected to
   approved, collected to withdrawn, approved to withdrawn, approved to
@@ -87,7 +97,7 @@ at that point.
   deserialise.
 - `BannedMove::matches` checks text against `phrases`, ignoring case.
 
-### Errors
+#### Errors
 
 - `MemoryError::Refused { code, detail }` replaces `UnknownProof`,
   `ProofNotApproved`, `ProofMismatch` and `ForeignScope`. `ReasonCode` holds the
@@ -97,7 +107,7 @@ at that point.
   `E_NUMBER_INVALID` and `E_UNIT_INVALID` were added in the typed-construction
   change; they are not in the contract either (see that section below).
 
-### Record-level entry points (before 0.1.0 is published)
+#### Record-level entry points (0.2.0)
 
 - `validate_proof(&Proof, &Scope) -> Result<(), MemoryError>` checks one proof
   record in isolation. It checks the scope ids against the schema `scope`
@@ -125,7 +135,7 @@ at that point.
   the record rules are shared helpers. `check_write` and `parse` call them.
   Behaviour is unchanged; the existing tests stay green.
 
-### Units
+#### Units
 
 - Proof `units` and permitted-claim `units` are the `Unit` type. A unit is an
   ISO 4217 currency code (three uppercase letters), one of `percent`, `count`,
@@ -164,7 +174,7 @@ at that point.
   `unit-x-per`. Valid `unit-per-capita-score`, `unit-super-fans`,
   `unit-upper-percentile` and `unit-viewers-percent`.
 
-### Typed construction and supersession (before 0.1.0 is published)
+#### Typed construction and supersession (0.2.0)
 
 - `Decimal::try_parse(&str) -> Result<Decimal, MemoryError>` and
   `Unit::try_parse(&str) -> Result<Unit, MemoryError>`. Both use the same
@@ -187,7 +197,7 @@ at that point.
   table of decimals and units. `tests/record_rules.rs` checks the supersession
   codes and that both paths return the same code for an unapproved successor.
 
-### Approved-scope conflicts (before 0.1.0 is published)
+#### Approved-scope conflicts (0.2.0)
 
 - `conflicts_with(a: &Proof, b: &Proof) -> bool` is the public form of the
   document rule that refuses two approved proofs for the same subject, period
@@ -207,7 +217,7 @@ at that point.
   document path agree on each row. It also checks that a proof does not
   conflict with itself.
 
-### Not in this crate
+#### Not in this crate
 
 Text-level steps of §5.3 (step 12, number grammar such as `1,240` and `1.24k`)
 belong to the PostRight claim-review gate. Parent-scope and daemon storage stay
