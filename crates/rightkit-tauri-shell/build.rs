@@ -1,4 +1,4 @@
-//! Test binaries that link Tauri need the Common Controls v6 side-by-side manifest on Windows.
+//! Test and bench binaries that link Tauri need the Common Controls v6 side-by-side manifest on Windows.
 //!
 //! Tauri's window stack (tao, wry, muda) imports `TaskDialogIndirect` from comctl32, which exists only
 //! in version 6. An application gets the manifest from `tauri-build`; a Cargo test binary has none, so
@@ -13,9 +13,13 @@ fn main() {
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|v| v == "windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|v| v == "msvc");
     if windows_msvc {
-        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
-        println!(
-            "cargo:rustc-link-arg-tests=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
-        );
+        // `tests` covers integration tests; `benches` covers the budget bench, which runs a real Wry
+        // event loop and so links the same comctl32 imports.
+        for target in ["tests", "benches"] {
+            println!("cargo:rustc-link-arg-{target}=/MANIFEST:EMBED");
+            println!(
+                "cargo:rustc-link-arg-{target}=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
+            );
+        }
     }
 }
