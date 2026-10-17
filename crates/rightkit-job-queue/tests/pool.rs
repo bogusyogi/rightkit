@@ -44,6 +44,7 @@ struct Rec {
     gated: AtomicBool,
     in_prepare: AtomicUsize,
     max_prepare: AtomicUsize,
+    warm: AtomicBool,
 }
 
 struct Chans {
@@ -64,6 +65,7 @@ fn rec(gated: bool, prep_gated: bool) -> (Arc<Rec>, Chans) {
         gated: AtomicBool::new(gated),
         in_prepare: AtomicUsize::new(0),
         max_prepare: AtomicUsize::new(0),
+        warm: AtomicBool::new(false),
     });
     (
         r,
@@ -150,6 +152,11 @@ impl StagedHandler for Rec {
     fn idle(&self, lane: &mut Lane) {
         assert_eq!(thread::current().id(), lane.id, "idle left the lane thread");
         self.send(Ev::Idle(lane.id));
+    }
+
+    fn warmed(&self, lane: &Lane) -> bool {
+        assert_eq!(thread::current().id(), lane.id, "warmed left the lane thread");
+        self.warm.load(Ordering::SeqCst)
     }
 }
 
@@ -475,6 +482,61 @@ fn idle_fires_once_not_between_back_to_back() {
     release(&ch.gate, 1);
     expect(&ch.ev, computing(&again));
     expect(&ch.ev, |e| matches!(e, Ev::Idle(_)));
+    pool.shutdown();
+}
+
+#[test]
+fn warmed_lane_idles_without_any_job() {
+    let env = env();
+    let (r, ch) = rec(false, false);
+    r.warm.store(true, Ordering::SeqCst);
+    let (pool, _outs) = start_pool(
+        &env,
+        &r,
+        || 1,
+        |c| c.idle_after(Duration::from_millis(200)),
+        |x| x,
+    );
+    // No job is ever submitted: the lane still idles, once per period.
+    expect(&ch.ev, |e| matches!(e, Ev::Idle(_)));
+    silent_for(&ch.ev, Duration::from_millis(800));
+    pool.shutdown();
+}
+
+#[test]
+fn unwarmed_unused_lane_never_idles() {
+    let env = env();
+    let (r, ch) = rec(false, false);
+    let (pool, _outs) = start_pool(
+        &env,
+        &r,
+        || 1,
+        |c| c.idle_after(Duration::from_millis(100)),
+        |x| x,
+    );
+    expect(&ch.ev, |e| matches!(e, Ev::NewLane(_)));
+    silent_for(&ch.ev, Duration::from_millis(800));
+    pool.shutdown();
+}
+
+#[test]
+fn warmed_lane_idles_again_after_a_job() {
+    let env = env();
+    let (r, ch) = rec(false, false);
+    r.warm.store(true, Ordering::SeqCst);
+    let (pool, mut outs) = start_pool(
+        &env,
+        &r,
+        || 1,
+        |c| c.idle_after(Duration::from_millis(200)),
+        |x| x,
+    );
+    expect(&ch.ev, |e| matches!(e, Ev::Idle(_)));
+    let id = submit(&env.store, json!({}));
+    pool.enqueue(&id).unwrap();
+    expect(&ch.ev, computing(&id));
+    expect(&ch.ev, |e| matches!(e, Ev::Idle(_)));
+    assert_eq!(outs.finished(&id).status, COMPLETE);
     pool.shutdown();
 }
 

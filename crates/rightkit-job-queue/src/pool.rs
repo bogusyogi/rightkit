@@ -89,6 +89,14 @@ pub trait StagedHandler: Send + Sync + 'static {
     }
     /// Called once per idle period, after `idle_after` with no work, on the lane thread.
     fn idle(&self, _lane: &mut Self::Lane) {}
+    /// Whether the lane holds something worth unloading as soon as it is built (a model loaded
+    /// in `new_lane`, a shared lease taken). Called once on the lane thread right after
+    /// `new_lane`; when it returns `true` the idle timer is armed from then on, so a warmed
+    /// lane that never runs a job still gets `idle` after `PoolConfig::idle_after`. Default
+    /// `false`: a lane that has not computed is never idled, as before. Needs `idle_after`.
+    fn warmed(&self, _lane: &Self::Lane) -> bool {
+        false
+    }
 }
 
 type LimitFn = Arc<dyn Fn() -> usize + Send + Sync>;
@@ -389,7 +397,8 @@ fn lane_main<H: StagedHandler>(
     idle_after: Option<Duration>,
 ) {
     let mut lane = h.new_lane();
-    let mut idle_pending = false;
+    // A warmed lane arms the idle timer before its first job, not only after one computed.
+    let mut idle_pending = catch_unwind(AssertUnwindSafe(|| h.warmed(&lane))).unwrap_or(false);
     loop {
         let msg = if idle_pending {
             match idle_after {
