@@ -2288,6 +2288,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     // Default-branch pushes are never cancelled by the workflow-level group: the `supersede` job decides
     // (queue mode: nobody cancels them). PR and dispatch runs keep cancelling superseded runs.
     CI_CANCEL_IN_PROGRESS: CI_CANCEL_MAIN_QUEUE_EXPRESSION,
+    // swift-check has no supersede job: it keeps cancelling superseded runs unless queue mode is set.
+    CI_SWIFT_CANCEL_IN_PROGRESS: manifest.concurrency?.mainPushes === "queue" ? CI_CANCEL_MAIN_QUEUE_EXPRESSION : "true",
     CI_CONCURRENCY_COMMENT: manifest.concurrency?.mainPushes === "queue"
       ? `# concurrency.mainPushes queue, recorded exception to one CI run per repo: ${manifest.concurrency.reason.trim()}\n`
       : "",

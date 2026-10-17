@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${CI_CANCEL_IN_PROGRESS}
+  cancel-in-progress: ${CI_SWIFT_CANCEL_IN_PROGRESS}
 jobs:
   private-repo-guard:
     runs-on: ubuntu-24.04

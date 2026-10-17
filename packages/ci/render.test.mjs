@@ -1182,7 +1182,7 @@ test("sign-existing verifies repository, run, artifact and head sha before it do
 
 test("sign-existing mirrors the dev-mac-sign secret and keychain handling and adds no new secret", () => {
   const sign = renderSignExisting(SIGN_EXISTING_MANIFEST);
-  assert.deepEqual([...new Set([...sign.matchAll(/secrets\.([A-Z_]+)/g)].map((match) => match[1]))].sort(), ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+  assert.deepEqual([...new Set([...sign.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]))].sort(), ["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
   const devMac = renderRustCi({ ...DEV_MANIFEST, devArtifact: PER_FILE_DEV }).split("  dev-mac-sign:")[1];
   const block = (text, from, to) => text.slice(text.indexOf(from), text.indexOf(to));
   assert.equal(block(sign, "      - name: Install Apple signing identity", "      - name: Developer ID sign"), block(devMac, "      - name: Install Apple signing identity", "      - name: Developer ID sign"));
@@ -1715,19 +1715,20 @@ const swRender = (manifest, lane, swift) => {
 };
 
 const SW_BASELINE = {
-  "node/ci": "4eee8dbd414921ac4bb34488c251c3b9641db2805d02989276218d4d1b73b7ad",
+  // 0.2.49 (#338): the three ci lanes render the supersede job and job-level concurrency (hashes from the Dell render; the other nine lanes match CI byte for byte).
+  "node/ci": "1e44d86e2d9c46f21992ca236da797a7f8751e8622902157fbaa87e28e9b3431",
   "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
   "node/package-smoke": "bc981ccb7248cc022cb8157c1fbdb7895c48f6a3fe4eeaf5a76eb5bba4206517",
   "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
   "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
-  "rust-hybrid/ci": "9652939dae20655f893694e6ef59b521c1c8805817a9048f1347e128ffa5cefb",
+  "rust-hybrid/ci": "c402bac02c72fbda2cab5b8ee5968bab9ed63a8770489c5749e6d7f2ba3d27d8",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
   "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
   "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
-  "rust-hybrid-chain/ci": "413071a268dfa3b72a5b483173551f5e56818ed60f0cd6b15cd5a730584d8a6e",
+  "rust-hybrid-chain/ci": "db27d518a4268dfa6481e943a11457348f5f34221e860ea1172b343eb7975068",
   // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
   "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
 };
@@ -1866,7 +1867,7 @@ test("every template's triggers are safe for the swift credential: none is pull_
     ...fs.readdirSync(templatesDir).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, f)),
     ...fs.readdirSync(path.join(templatesDir, "profiles", "rust-hybrid")).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, "profiles", "rust-hybrid", f)),
   ];
-  assert.equal(templates.length, 11);
+  assert.equal(templates.length, 12);
   for (const file of templates) {
     const onBlock = fs.readFileSync(file, "utf8").split("\njobs:")[0].split(/^on:/m)[1] ?? "";
     assert.doesNotMatch(onBlock.split(/^permissions:/m)[0], /pull_request_target|workflow_run/, path.relative(templatesDir, file));
