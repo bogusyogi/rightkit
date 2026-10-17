@@ -61,8 +61,11 @@ export function prepareSwapHelper({
   let targetDir;
   try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
   if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) fail("SWAP_HELPER_BUILD_FAILED", "cannot read the Cargo target directory to find rightkit-swap");
-  const built_ = path.join(targetDir, "release", "rightkit-swap");
-  if (!fs.existsSync(built_)) fail("SWAP_HELPER_BUILD_FAILED", `the build did not produce ${built_}`);
+  // The RustRight broker builds with an explicit --target triple (target/<triple>/release); plain cargo uses target/release.
+  const triple = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`;
+  const candidates = [path.join(targetDir, triple, "release", "rightkit-swap"), path.join(targetDir, "release", "rightkit-swap")];
+  const built_ = candidates.find((file) => fs.existsSync(file));
+  if (!built_) fail("SWAP_HELPER_BUILD_FAILED", `the build did not produce rightkit-swap (looked in ${candidates.join(", ")})`);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.rmSync(dest, { force: true });
   fs.copyFileSync(built_, dest);
