@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use rightkit_tauri_shell::broker::PathBroker;
 use rightkit_tauri_shell::site::{
-    grant_document_site, infer_site_root, percent_decode, serve_site_request, site_base_url,
-    site_mime, split_site_request, SitePolicy,
+    grant_document_site, infer_site_root, infer_site_root_report, percent_decode, serve_site_request, site_base_url,
+    site_mime, split_site_request, validate_chosen_site_root, SitePolicy,
 };
 use tauri::http::{header, Request, Response, StatusCode};
 
@@ -293,4 +293,42 @@ fn a_document_grant_needs_a_granted_document_and_covers_its_site() {
             format!("{SCHEME}://localhost/{}/", grant.token)
         }
     );
+}
+
+#[test]
+fn inference_reports_whether_a_marker_was_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("project");
+    write(&project, "package.json", b"{}");
+    write(&project, "a/page.html", b"<p/>");
+    let found = infer_site_root_report(&project.join("a/page.html"), &SitePolicy::default()).unwrap();
+    assert!(found.marker_found);
+    assert_eq!(found.root, std::fs::canonicalize(&project).unwrap());
+
+    let loose = dir.path().join("loose");
+    write(&loose, "page.html", b"<p/>");
+    let fallback = infer_site_root_report(&loose.join("page.html"), &SitePolicy::default()).unwrap();
+    assert!(!fallback.marker_found);
+    assert_eq!(fallback.root, std::fs::canonicalize(&loose).unwrap());
+}
+
+#[test]
+fn a_chosen_site_root_must_be_a_real_narrow_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let ok = dir.path().join("site");
+    std::fs::create_dir_all(&ok).unwrap();
+    assert_eq!(
+        validate_chosen_site_root(&ok).unwrap(),
+        std::fs::canonicalize(&ok).unwrap()
+    );
+    write(dir.path(), "file.txt", b"x");
+    assert!(validate_chosen_site_root(&dir.path().join("file.txt")).is_err());
+    assert!(validate_chosen_site_root(&dir.path().join("missing")).is_err());
+    let root = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .ancestors()
+        .last()
+        .unwrap()
+        .to_path_buf();
+    assert!(validate_chosen_site_root(&root).is_err());
 }

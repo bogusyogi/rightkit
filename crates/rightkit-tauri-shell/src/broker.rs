@@ -33,6 +33,8 @@ pub struct PathBroker {
     stream_tokens: Mutex<HashMap<String, PathBuf>>,
     site_roots: Mutex<HashMap<String, PathBuf>>,
     recent_writes: Mutex<VecDeque<PathBuf>>,
+    /// Name used in denial text ("through {name} first"); empty reads as "the app".
+    app_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,11 +63,13 @@ pub fn path_to_string(path: &Path) -> String {
 
 fn display_matches(path: &Path, display: &str) -> bool {
     let normalized = path_to_string(path);
-    #[cfg(windows)]
+    // Windows and macOS volumes are case-insensitive by default, so a differently-cased display
+    // string must still match (a deleted file cannot be re-resolved to its true case).
+    #[cfg(any(windows, target_os = "macos"))]
     {
         normalized.to_lowercase() == display.to_lowercase()
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         normalized == display
     }
@@ -181,6 +185,23 @@ impl PathBroker {
         Self::default()
     }
 
+    /// A broker whose denial text names the app ("open it through {app_name} first"), taken from
+    /// the shell's `app_name` config. An empty name reads as "the app".
+    pub fn with_app_name(app_name: &str) -> Self {
+        Self {
+            app_name: app_name.trim().to_owned(),
+            ..Self::default()
+        }
+    }
+
+    fn app(&self) -> &str {
+        if self.app_name.is_empty() {
+            "the app"
+        } else {
+            &self.app_name
+        }
+    }
+
     /// Grant an existing file the user chose. Returns the display path.
     pub fn grant_file(&self, path: impl AsRef<Path>) -> Result<String, ShellError> {
         let normalized = normalize_existing_file(path)?;
@@ -211,7 +232,7 @@ impl PathBroker {
             Ok(path_to_string(&normalized))
         } else {
             Err(ShellError::BrokerDenied(
-                "path is not authorized; open it through the app first".into(),
+                format!("path is not authorized; open it through {} first", self.app()),
             ))
         }
     }
@@ -222,7 +243,7 @@ impl PathBroker {
             Ok(path_to_string(&normalized))
         } else {
             Err(ShellError::BrokerDenied(
-                "path is not authorized; choose it through the app first".into(),
+                format!("path is not authorized; choose it through {} first", self.app()),
             ))
         }
     }
@@ -253,7 +274,10 @@ impl PathBroker {
         let normalized = normalize_write_target(path)?;
         if !self.was_recently_written(&normalized)? {
             return Err(ShellError::BrokerDenied(
-                "path was not just written by the app; save it through the app first".into(),
+                format!(
+                    "path was not just written by the app; save it through {} first",
+                    self.app()
+                ),
             ));
         }
         self.grant_normalized(normalized)
@@ -317,7 +341,7 @@ impl PathBroker {
         let allowed = self.allowed.lock().map_err(poisoned)?;
         if !allowed.contains(&normalized) {
             return Err(ShellError::BrokerDenied(
-                "path is not authorized; open it through the app first".into(),
+                format!("path is not authorized; open it through {} first", self.app()),
             ));
         }
         let mut streams = self.stream_tokens.lock().map_err(poisoned)?;

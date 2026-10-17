@@ -228,3 +228,32 @@ fn revoked_token_is_denied_even_if_path_reopens() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(response.body().is_empty());
 }
+
+#[test]
+fn denial_text_names_the_configured_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture(&dir, "named-app.txt", b"ok");
+    let default_msg = PathBroker::default()
+        .require_file(path.to_str().unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(default_msg.contains("through the app first"), "{default_msg}");
+    let named_msg = PathBroker::with_app_name("ViewRight")
+        .require_file(path.to_str().unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(named_msg.contains("through ViewRight first"), "{named_msg}");
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn revoke_ignores_case_on_case_insensitive_platforms() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture(&dir, "Case-Revoke.txt", b"ok");
+    let broker = PathBroker::default();
+    let display = broker.grant_file(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    broker.revoke_path(&display.to_uppercase()).unwrap();
+    let normalized = std::fs::canonicalize(dir.path()).unwrap().join("Case-Revoke.txt");
+    assert!(!broker.is_granted_normalized(&normalized).unwrap());
+}

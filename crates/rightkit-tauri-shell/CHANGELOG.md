@@ -5,6 +5,13 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## 0.3.2
 
+- Added (Orthic-Labs/rightkit#309; not built or run locally):
+  - `PathBroker::revoke_path` matches display paths case-insensitively on macOS as well as Windows (those volumes are case-insensitive), so a differently-cased path for a deleted file is revoked. Other Unix stays exact.
+  - `PathBroker::with_app_name(&str)`: denial text reads "through {app} first" instead of "through the app first". The shell builds its broker from `ShellConfig::app_name`; `PathBroker::new()` and `default()` keep "the app".
+  - `site::validate_chosen_site_root(&Path) -> Result<PathBuf, ShellError>` is public: the folder must exist, be a directory and not be a filesystem root or the home directory.
+  - `site::infer_site_root_report` returns `InferredSiteRoot { root, marker_found }` so an app can tell a marker hit from the document-folder fallback; `infer_site_root` is unchanged.
+  - Release note: 0.3.2 carries `clipboard::qa` and `frameless::button_frames` behind `qa-probes` (entries below), so apps can delete their local QA probe copies.
+
 - Added (Orthic-Labs/rightkit#247; additive and opt-in, not built or run locally): macOS 13+ launch at login through `SMAppService.mainApp`, so the app is a named item in System Settings > General > Login Items instead of a legacy LaunchAgent.
   - `AutostartOptions::macos_backend: MacosBackend { LaunchAgent (default, unchanged), ServiceManagement }`. With `ServiceManagement`, `autostart::set_enabled` registers or unregisters `SMAppService.mainApp` and removes the shell's old LaunchAgent plist; `autostart::migrate_launch_agent` (run at startup by the shell when the backend is on) registers and removes an existing plist; `migrate_plugin_entry` registers instead of writing a plist. It falls back to the LaunchAgent on macOS 12 and older, for an executable outside a `.app` bundle, and whenever `RIGHTKIT_SHELL_HOME` or `config_home` redirects the entry (so a sandboxed run never registers the real user's login item).
   - New `login_item` module: `LoginItemStatus { NotRegistered, Enabled, RequiresApproval, NotFound, Unknown(i64) }` with `login_item_status_from_raw`, `is_enabled`, `needs_approval`; `register`, `unregister`, `status`, `available`; `open_login_items_settings` (`SMAppService.openSystemSettingsLoginItems`); `set_background_io(bool)` (`setiopolicy_np` `IOPOL_THROTTLE`, the process-level equivalent of the plist's `LowPriorityIO`). `AutostartStatus` gains `login_item: Option<LoginItemStatus>` (omitted from JSON unless the backend is in use; `enabled` is true only for `Enabled`). New command `rk_shell_open_login_items_settings`, and `@rightkit/tauri-shell` types `LoginItemStatus` and `AutostartStatus.loginItem`.

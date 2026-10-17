@@ -175,6 +175,22 @@ fn has_root_marker(dir: &Path, policy: &SitePolicy) -> bool {
 /// [`is_too_broad`] rejects. Falls back to the document's own directory (the pre-existing
 /// behaviour), so a loose HTML file grants no more than before.
 pub fn infer_site_root(doc_path: &Path, policy: &SitePolicy) -> Option<PathBuf> {
+    infer_site_root_report(doc_path, policy).map(|found| found.root)
+}
+
+/// The result of [`infer_site_root_report`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InferredSiteRoot {
+    /// The inferred root (canonical).
+    pub root: PathBuf,
+    /// True when `root` is a directory that carries a project marker; false when inference found
+    /// none and fell back to the document's own folder.
+    pub marker_found: bool,
+}
+
+/// Like [`infer_site_root`], and also reports whether a project marker was found, so an app can
+/// ask the person to confirm a fallback folder (see [`validate_chosen_site_root`]).
+pub fn infer_site_root_report(doc_path: &Path, policy: &SitePolicy) -> Option<InferredSiteRoot> {
     let doc_dir = std::fs::canonicalize(doc_path.parent()?).ok()?;
     let mut candidate = doc_dir.as_path();
     for _ in 0..MAX_ROOT_DEPTH {
@@ -182,14 +198,37 @@ pub fn infer_site_root(doc_path: &Path, policy: &SitePolicy) -> Option<PathBuf> 
             break;
         }
         if has_root_marker(candidate, policy) {
-            return Some(candidate.to_path_buf());
+            return Some(InferredSiteRoot {
+                root: candidate.to_path_buf(),
+                marker_found: true,
+            });
         }
         match candidate.parent() {
             Some(parent) => candidate = parent,
             None => break,
         }
     }
-    Some(doc_dir)
+    Some(InferredSiteRoot {
+        root: doc_dir,
+        marker_found: false,
+    })
+}
+
+/// Validate a directory the person chose as a site root (for example from a folder dialog):
+/// it must exist, be a directory, and not be too broad (a filesystem or volume root, or the home
+/// directory). Returns the canonical path. This is the check the shell applies to a root it
+/// accepts; apps call it before [`PathBroker::grant_site_root`].
+pub fn validate_chosen_site_root(dir: &Path) -> Result<PathBuf, ShellError> {
+    let canonical = std::fs::canonicalize(dir)?;
+    if !canonical.is_dir() {
+        return Err(ShellError::Invalid("site root is not a directory".into()));
+    }
+    if is_too_broad(&canonical) {
+        return Err(ShellError::BrokerDenied(
+            "site root is too broad (a filesystem root or the home directory)".into(),
+        ));
+    }
+    Ok(canonical)
 }
 
 /// Split a request path `/<token>/<relative path>` into `(token, percent-decoded relative path)`.

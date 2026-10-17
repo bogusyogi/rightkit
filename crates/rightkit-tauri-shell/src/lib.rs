@@ -1065,7 +1065,7 @@ fn setup(
         engine: engine.clone(),
         hosted: Mutex::new(None),
         single_instance: Mutex::new(single),
-        broker: Arc::new(PathBroker::new()),
+        broker: Arc::new(PathBroker::with_app_name(&cfg.app_name)),
         notifications: notify::NotificationState::new(),
         presence,
         idle: cfg.idle_after.map(|d| {
