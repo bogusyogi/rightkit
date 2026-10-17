@@ -127,6 +127,10 @@ export class QaLaunchGuard {
   forbidden(resolved: string): { rule: UserDataRule; detail: string } | undefined {
     if (resolved.startsWith('\\\\') && !/^\\\\\?\\[A-Za-z]:/.test(resolved)) return { rule: 'external-volume', detail: 'a network (UNC) path' };
     const c = comps(resolved);
+    // A configured temp root or user home may itself sit on a /Volumes disk (the Mac build home is /Volumes/D);
+    // paths under them are judged by the home, temp and QA-root rules instead.
+    const onKnownRoot = [...this.tempRoots, ...this.userHomes].some((root) => isUnder(root, resolved));
+    if (!onKnownRoot && !/^[A-Za-z]:/.test(resolved) && resolved.startsWith('/') && c[0] === 'volumes') return { rule: 'external-volume', detail: 'an external or network volume under /Volumes' };
     for (let i = 0; i < c.length; i += 1) {
       const name = c[i];
       if (name.startsWith('onedrive') || name.startsWith('dropbox') || name.startsWith('google drive') || name === 'googledrive' || name === 'my drive'
@@ -146,8 +150,6 @@ export class QaLaunchGuard {
         if (hit) return hit;
       }
     }
-    // Checked last so a home or temp root that itself sits on a /Volumes disk reports the specific rule first.
-    if (!/^[A-Za-z]:/.test(resolved) && resolved.startsWith('/') && c[0] === 'volumes') return { rule: 'external-volume', detail: 'an external or network volume under /Volumes' };
     return undefined;
   }
 

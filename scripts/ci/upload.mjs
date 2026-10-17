@@ -23,7 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const REPOSITORY = "Orthic-Labs/rightkit";
+export const REPOSITORY = "bogusyogi/rightkit"; // moved 2026-10-17 (#342)
 export const REQUIRED_HOSTS = ["macos", "windows"];
 export const NPM_REGISTRY_URL = "https://registry.npmjs.org/";
 export const CRATES_PUBLISH_URL = "https://crates.io/api/v1/crates/new";

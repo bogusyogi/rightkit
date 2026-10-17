@@ -241,7 +241,7 @@ test("plan detects dependency cycles and npm workspace specifiers", async () => 
 
 // ---- npm provenance preconditions (finding 6) -------------------------------------------------
 
-test("every public npm package names Orthic-Labs/rightkit and its own directory", () => {
+test("every public npm package names bogusyogi/rightkit and its own directory", () => {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "..", "..");
   const workspace = readNpmWorkspace(root);
   assert.ok(workspace.size > 5);
@@ -253,12 +253,12 @@ test("every public npm package names Orthic-Labs/rightkit and its own directory"
 });
 
 test("repository problems name the missing, wrong-owner and wrong-directory cases", () => {
-  const ok = { name: "@rightkit/x", repository: { type: "git", url: "git+https://github.com/Orthic-Labs/rightkit.git", directory: "packages/x" } };
+  const ok = { name: "@rightkit/x", repository: { type: "git", url: "git+https://github.com/bogusyogi/rightkit.git", directory: "packages/x" } };
   assert.deepEqual(repositoryProblems(ok, "packages/x"), []);
-  assert.deepEqual(repositoryProblems({ ...ok, repository: { ...ok.repository, url: "https://github.com/Orthic-Labs/rightkit" } }, "packages/x"), []);
+  assert.deepEqual(repositoryProblems({ ...ok, repository: { ...ok.repository, url: "https://github.com/bogusyogi/rightkit" } }, "packages/x"), []);
   assert.match(repositoryProblems({ name: "@rightkit/x" }, "packages/x")[0], /repository must be an object/);
-  assert.match(repositoryProblems({ ...ok, repository: "github:Orthic-Labs/rightkit" }, "packages/x")[0], /repository must be an object/);
-  assert.match(repositoryProblems({ ...ok, repository: { ...ok.repository, url: "git+https://github.com/bogusyogi/rightkit.git" } }, "packages/x").join(), /must name https:\/\/github\.com\/Orthic-Labs\/rightkit/);
+  assert.match(repositoryProblems({ ...ok, repository: "github:bogusyogi/rightkit" }, "packages/x")[0], /repository must be an object/);
+  assert.match(repositoryProblems({ ...ok, repository: { ...ok.repository, url: "git+https://github.com/someone-else/rightkit.git" } }, "packages/x").join(), /must name https:\/\/github\.com\/bogusyogi\/rightkit/);
   assert.match(repositoryProblems({ ...ok, repository: { ...ok.repository, directory: "packages/y" } }, "packages/x").join(), /directory/);
 });
 
@@ -277,7 +277,7 @@ function makeTgz(out, rootName, files) {
   fs.rmSync(stage, { recursive: true, force: true });
 }
 
-const npmPackageJson = (name, dir, extra = {}) => ({ name, version: "0.1.0", main: "dist/index.js", exports: { ".": { import: "./dist/index.js" } }, repository: { type: "git", url: "git+https://github.com/Orthic-Labs/rightkit.git", directory: dir }, ...extra });
+const npmPackageJson = (name, dir, extra = {}) => ({ name, version: "0.1.0", main: "dist/index.js", exports: { ".": { import: "./dist/index.js" } }, repository: { type: "git", url: "git+https://github.com/bogusyogi/rightkit.git", directory: dir }, ...extra });
 
 function sealNpm({ units = [["@rightkit/a", "packages/a"]], packageJson = npmPackageJson, extraFiles = {} } = {}) {
   const dir = tmp("sealed");
@@ -337,7 +337,7 @@ function spy(fake = {}) {
   return { spawn, calls };
 }
 
-const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "Orthic-Labs/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
+const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
 const oidc = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.invalid/x", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-secret" };
 // A registry that does not hold a unit until it is asked a second time (the first request is upload.mjs's pre-publish
 // reconciliation); `already` names units that are on the registry from the start.
@@ -478,16 +478,16 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   const ok = receipts(sealed.dir, sealed.manifest);
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /not the dispatched commit/);
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /refs\/heads\/main only/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /in Orthic-Labs\/rightkit only/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /in bogusyogi\/rightkit only/);
   await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /differ from the planned units/);
 });
 
 test("upload re-checks provenance preconditions in the sealed tarball in both modes", async () => {
-  const wrong = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { repository: { type: "git", url: "git+https://github.com/bogusyogi/rightkit.git", directory: dir } }) });
+  const wrong = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { repository: { type: "git", url: "git+https://github.com/someone-else/rightkit.git", directory: dir } }) });
   const missing = sealNpm({ packageJson: (name, dir) => { const j = npmPackageJson(name, dir); delete j.repository; return j; } });
   const workspaceDep = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { dependencies: { "@rightkit/b": "workspace:*" } }) });
   const noEntry = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { main: "dist/missing.js" }) });
-  for (const [sealed, pattern] of [[wrong, /must name https:\/\/github\.com\/Orthic-Labs\/rightkit/], [missing, /repository must be an object/], [workspaceDep, /workspace:/], [noEntry, /dist\/missing\.js, which is not in the tarball/]]) {
+  for (const [sealed, pattern] of [[wrong, /must name https:\/\/github\.com\/bogusyogi\/rightkit/], [missing, /repository must be an object/], [workspaceDep, /workspace:/], [noEntry, /dist\/missing\.js, which is not in the tarball/]]) {
     for (const dryRun of [true, false]) {
       const env = dryRun ? actionsEnv() : actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
       await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun, spawn: spy().spawn, fetchImpl: async () => { throw new Error("no network"); } }), pattern);
@@ -700,7 +700,7 @@ test("the crates.io publish body is length-prefixed metadata then the crate", ()
 
 test("crate upload metadata comes from the packaged manifest as Cargo's NewCrate shape", () => {
   const meta = buildCrateUploadMetadata({
-    name: "rightkit-a", version: "0.1.0", authors: ["A"], description: "d", license: "MIT", repository: "https://github.com/Orthic-Labs/rightkit", readme: "README.md", keywords: ["k"], categories: [], rust_version: "1.80",
+    name: "rightkit-a", version: "0.1.0", authors: ["A"], description: "d", license: "MIT", repository: "https://github.com/bogusyogi/rightkit", readme: "README.md", keywords: ["k"], categories: [], rust_version: "1.80",
     features: { default: ["x"], x: [] },
     dependencies: [
       { name: "rightkit-b", req: "^0.2", kind: null, optional: false, uses_default_features: true, features: [], target: null, registry: null, rename: null },
@@ -730,7 +730,7 @@ test("pack (npm) runs pnpm pack per unit with no credential, seals the bytes, an
   const pnpm = (args) => {
     const unit = args[1].split("/").at(-1);
     const dest = args[args.indexOf("--pack-destination") + 1];
-    makeTgz(path.join(dest, `rightkit-${unit}-0.1.0.tgz`), "package", { "package.json": JSON.stringify(npmPackageJson(`@rightkit/${unit}`, `packages/${unit}`, badRepo ? { repository: { type: "git", url: "git+https://github.com/bogusyogi/rightkit.git", directory: `packages/${unit}` } } : {})), "dist/index.js": "x" });
+    makeTgz(path.join(dest, `rightkit-${unit}-0.1.0.tgz`), "package", { "package.json": JSON.stringify(npmPackageJson(`@rightkit/${unit}`, `packages/${unit}`, badRepo ? { repository: { type: "git", url: "git+https://github.com/someone-else/rightkit.git", directory: `packages/${unit}` } } : {})), "dist/index.js": "x" });
     return { status: 0 };
   };
   const { spawn, calls } = spy({ pnpm, git: () => ({ status: 0, stdout: `${SHA}\n` }) });
@@ -746,7 +746,7 @@ test("pack (npm) runs pnpm pack per unit with no credential, seals the bytes, an
   assert.throws(() => commandPack({ env: { ...env, ...oidc }, spawn, root }), /must not request id-token/);
   assert.throws(() => commandPack({ env: { ...env, GITHUB_REF: "refs/heads/x" }, spawn, root }), /refs\/heads\/main only/);
   badRepo = true;
-  assert.throws(() => commandPack({ env, spawn, root }), /must name https:\/\/github\.com\/Orthic-Labs\/rightkit/);
+  assert.throws(() => commandPack({ env, spawn, root }), /must name https:\/\/github\.com\/bogusyogi\/rightkit/);
 });
 
 test("pack (crates) runs one cargo package, reads the packaged manifest, and seals metadata beside the crate", () => {
