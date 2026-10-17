@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 - Android native-crash and ANR records (Orthic-Labs/rightkit#156): `record_android_exits`, `AndroidExit`, `AndroidExitReason`, `reduce_trace`, `unseen_exits`. The Kotlin shell passes the entries of `getHistoricalProcessExitReasons` (crash 4, native crash 5, ANR 6) at launch; each unseen one becomes a redacted report through `record_report`, with a cursor file so it is recorded once. Tombstone traces keep the header and backtrace only (stack contents, memory, registers, memory map, open files and logs are dropped). The OS detects the ANR, so no thread of ours runs and no `unsafe` signal handler exists. No new dependency; the logic is host-tested on every OS, the Android shell side is not built or run. The Windows dump helper and the `support-bundle` and `window-errors` features are not needed on Android (use `--no-default-features`).
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - Android capture (Orthic-Labs/rightkit#156): `capture` builds for `*-linux-android` on cpal 0.18's AAudio host with no Windows or Apple dependency pulled in (those are target-gated). New `capture::android` (`cfg(target_os = "android")`): `RECORD_AUDIO_PERMISSION`, `is_sco_route` and `sco_route_changed` for Bluetooth SCO route recovery. `CaptureErrorKind::DeviceChanged` is terminal on Android (a disconnected AAudio stream must be reopened). `capture_open_error` adds a `RECORD_AUDIO` hint on Android. Not built or run on a device.
 

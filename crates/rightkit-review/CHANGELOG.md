@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 Version not bumped here (the lockfile is not touched); release owner: this is a breaking minor for 0.x consumers. NOT COMPILED OR RUN: CI is the compiler.
 
