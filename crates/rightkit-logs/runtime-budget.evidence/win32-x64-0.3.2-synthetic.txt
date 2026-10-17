@@ -1,0 +1,42 @@
+rightkit: request aa4e3817-fcf2-465d-ae69-ffe78b1e8b19
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+   Compiling serde_core v1.0.229
+   Compiling regex-syntax v0.8.11
+   Compiling tracing-core v0.1.36
+   Compiling subtle v2.6.1
+   Compiling lazy_static v1.5.1
+   Compiling windows-sys v0.61.2
+   Compiling thread_local v1.1.10
+   Compiling windows v0.62.2
+   Compiling tracing v0.1.44
+   Compiling rustls v0.23.45
+   Compiling sharded-slab v0.1.7
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling tracing-serde v0.2.0
+   Compiling regex-automata v0.4.18
+   Compiling tempfile v3.27.0
+   Compiling rightkit-child-process v0.4.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling matchers v0.2.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling ureq v3.4.2
+   Compiling rightkit-logs v0.3.2 (D:\Claude\rightkit\crates\rightkit-logs)
+    Finished `release-iterate` profile [optimized] target(s) in 40.66s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-125009bfec8fd302.exe)
+warm-up: 200000 lines in 0.46 s (435685 lines/s), dropped 0, resident 9.6 MiB (before install 4.5 MiB)
+RESULT pending_lines_after_idle=0 lines
+RESULT dropped_lines=0 lines
+RESULT warm_resident_bytes=10104832 bytes
+RESULT idle_resident_bytes=11304960 bytes
+RESULT resident_memory_bytes=11304960 bytes
+RESULT footprint_bytes=5771264 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=0.000 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=200000 tracing lines written then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-logs version=0.3.2 resident_bytes=11304960 idle_cpu_percent=0.052 wakeups_per_s=0.000 disk_ops_per_s=0.000 scale_unit=lines scale_count=200000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 24/675
