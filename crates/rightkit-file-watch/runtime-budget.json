@@ -5,12 +5,13 @@
     "residentMemoryBytes": 13631488,
     "idleCpuPercent": 1,
     "wakeupsPerSecond": 1,
-    "diskOpsPerSecond": null
+    "diskOpsPerSecond": 1
   },
   "ceilingSources": {
     "residentMemoryBytes": "rule: 2x the larger measured resident set (6537216 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
-    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter"
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+    "diskOpsPerSecond": "design bound: an idle watcher is read-only and event-driven (README: do not use it to poll; events come from the OS backend), so it issues no disk operations of its own; 1 per second absolute, the same floor as the max(1, 2x measured) rule the sibling crates use. Windows measures it (GetProcessIoCounters); macOS exposes no per-process disk-operation counter"
   },
   "requiredScale": {
     "unit": "files",
@@ -29,5 +30,5 @@
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
   "measurements": [],
-  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. diskOpsPerSecond left null: no Windows measurement exists, and macOS exposes no per-process disk-operation counter."
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. diskOpsPerSecond is a design bound, not yet measured on Windows; macOS exposes no per-process disk-operation counter."
 }

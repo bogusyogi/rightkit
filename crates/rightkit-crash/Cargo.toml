@@ -50,4 +50,4 @@ rightkit-logs = { version = "0.3.0", path = "../rightkit-logs", features = ["tes
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; no thread-spawn, task-spawn, timer, listener or watcher (reviewed 2026-10-11)"
+continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; no thread-spawn, task-spawn, timer, listener or watcher (reviewed 2026-10-11); resident-static: IN_HOOK in src/hook.rs is a thread_local Cell<bool> re-entrancy flag, one bool per panicking thread, reset when the capture guard drops (reviewed 2026-10-17)"

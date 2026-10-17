@@ -13,3 +13,7 @@ include = ["src/**", "assets/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LI
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "versioned platform-rule catalog: serde types, bundled JSON parsed on demand and merged by the caller; spawns no continuous work, no pattern in the runtime-budgets.mjs set matches non-test src"

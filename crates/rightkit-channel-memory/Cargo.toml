@@ -22,4 +22,4 @@ jsonschema = { version = "0.58.6", default-features = false }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "schema types and validation: serde types, JSON Schema validators initialised once, per-call checks; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
+continuous_reason = "schema types and validation: serde types, JSON Schema validators initialised once, per-call checks; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs); resident-static: VALIDATOR, PROOF_RECORD and SCOPE_RECORD in src/schema.rs are OnceLocks of compiled JSON Schema validators, each built once on first use and fixed size (reviewed 2026-10-17)"

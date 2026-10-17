@@ -22,3 +22,13 @@ session = ["claude", "codex", "dep:rightkit-child-process"]
 rightkit-child-process = { version = "0.4.1", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Session::spawn"
+file = "src/session.rs"
+holds = ["child", "thread", "memory"]
+scale = "one vendor agent CLI child tree (owned: killed with the session) plus up to two reader threads (stdout reader, stderr reader) blocked on the child pipes and the pending-request tables; fixed per session, independent of conversation length"
+release = "Session::shutdown, or Drop of the Session (OwnedChild tears down the tree and the reader threads end when the pipes close)"

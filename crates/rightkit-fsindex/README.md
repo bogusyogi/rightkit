@@ -166,3 +166,16 @@ after 30 s idle. That is ~3 bytes/entry footprint and ~4 bytes/entry resident at
 Name search is name-only (no path tokens); a search touches clean mapped pages (transient resident spike, ~25 bytes/entry, released by the trim); hard-link
 and clone-group tables are resident (large pnpm-style hard-link stores grow them); the event-ID resume cannot detect a purged FSEvents history beyond the snapshot age limit; no
 daemon/IPC; Windows has the Windows Search backend only (no change feed, indexed locations only); MFT/USN path resolution is not done.
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 185.0 MiB.
+- CPU ceiling (idle, steady state): 5%.
+- Wake-ups ceiling: 3 per second.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 1,000,000 entries or more.
+- Required hosts: macOS only (rightkit-fsindex has no Windows backend (crates/rightkit-fsindex/README.md:25, :159 'no Windows backend'); the public APIs are macOS-only.).
+- Status exposure: `Index::status()` in `src/index.rs`; exposes resident memory, idle CPU.
+- Measured: not yet measured.

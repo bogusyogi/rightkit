@@ -229,4 +229,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: bounded retry delay for a transient rename or sharing violation (atomic.rs, RetryPolicy attempts) and lock acquisition poll bounded by LockOptions.timeout (lock.rs); no thread, task, timer, listener, watcher or growing memory (reviewed 2026-10-11)"
+continuous_reason = "sleep: bounded retry delay for a transient rename or sharing violation (atomic.rs, RetryPolicy attempts) and lock acquisition poll bounded by LockOptions.timeout (lock.rs); no thread, task, timer, listener, watcher or growing memory (reviewed 2026-10-11); resident-static: the thread_local cells in src/atomic.rs are per-thread fault-injection and sync-count seams inside the testing and test-seams features (testing refuses to compile in a release build, test-seams is off in production), each a fixed-size Cell or a short Vec of steps recorded only while a test arms it; the COUNTER there is a single AtomicU64 (reviewed 2026-10-17)"

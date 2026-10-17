@@ -50,3 +50,21 @@ libc = { version = "0.2", optional = true }
 name = "rightkit-tts-worker"
 path = "src/bin/rightkit-tts-worker.rs"
 required-features = ["engine"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "QtsClient::synthesize"
+file = "src/client.rs"
+holds = ["child", "thread", "memory"]
+scale = "at most one warm worker process (the loaded TTS model: GPU or RAM sized by the model files) with its stdin, a reply channel and one stdout reader thread; the client sleeps only inside one synthesis call while polling for a reply"
+release = "QtsClient Drop or the shutdown function; the worker also exits itself after its idle timeout"
+static_note = "WORKER is one OnceLock<Mutex<Option<Worker>>> slot holding at most one warm worker handle; CANCEL and REQ_ID are atomics; none is a collection and none grows"
+
+[[package.metadata.rightkit.resources]]
+api = "run"
+file = "src/worker.rs"
+holds = ["thread", "memory"]
+scale = "the worker process: one stdin reader thread and the loaded engine cache (model weights); blocks on a channel recv_timeout with the idle timeout and does no work between requests"
+release = "a Quit request or the idle timeout, both ending the process"

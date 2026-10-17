@@ -26,3 +26,77 @@ windows-sys = { version = "0.61.2", features = [
 name = "macos_e2e"
 path = "tests/macos_e2e.rs"
 harness = false
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "EventTap::spawn"
+file = "src/macos/tap.rs"
+holds = ["thread", "memory"]
+scale = "one CFRunLoop thread per tap with its event-tap port and run-loop source; blocked in CFRunLoopRun between events, no polling; the 2 ms sleep only runs inside Drop while it waits for the thread to exit"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "CFRunLoopRun"
+file = "src/macos/ffi.rs"
+holds = ["thread"]
+scale = "FFI declaration only; the run loop it enters is the EventTap thread above and no other"
+release = "Drop of the EventTap whose thread runs it"
+
+[[package.metadata.rightkit.resources]]
+api = "FnHotkeyTap::spawn"
+file = "src/macos/fn_hotkey.rs"
+holds = ["thread", "memory"]
+scale = "one EventTap, one ArmTimer thread and one shared state block of atomics; each toggle or push-to-talk callback runs on a one-shot std::thread::spawn that ends when the callback returns"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "MiddleMouseTap::spawn"
+file = "src/macos/middle_mouse.rs"
+holds = ["thread", "memory"]
+scale = "one EventTap plus one lookup worker thread blocked on a job channel; the worker ends when the tap, its only sender, is dropped"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "run_job"
+file = "src/middle_click.rs"
+holds = ["thread"]
+scale = "one short-lived thread per resolved middle-click toggle, so a slow toggle callback cannot hold up the next lookup; none exist while idle"
+release = "the toggle callback returns"
+
+[[package.metadata.rightkit.resources]]
+api = "ArmTimer::spawn"
+file = "src/ptt_timer.rs"
+holds = ["thread", "memory"]
+scale = "one worker thread blocked on a channel recv, or recv_timeout to the armed deadline; no polling and no wake-up while no deadline is armed"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "LowLevelKeyboardHook::install"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one hook thread running a message loop with one low-level keyboard hook; blocked in the OS message queue between events"
+release = "Drop"
+static_note = "HANDLER and MOUSE_HANDLER are OnceLock<Mutex<Option<..>>> slots holding at most one callback each, filled by install and cleared on Drop, so they are bounded and only populated while a hook value is alive; they hold no thread"
+
+[[package.metadata.rightkit.resources]]
+api = "LowLevelHooks::install"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one hook thread with optional keyboard and mouse low-level hooks and a thread-message handler; blocked in the OS message queue between events"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "GlobalHotkeys::new"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one RegisterHotKey message-loop thread with a command channel and the registered chord table; blocked in the OS message queue between hotkeys"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "HookHotkeys::install"
+file = "src/windows/mod.rs"
+holds = ["thread", "memory"]
+scale = "one LowLevelKeyboardHook (one thread) plus the bound-chord table; no thread of its own beyond the hook"
+release = "Drop"

@@ -29,6 +29,14 @@ scale = "feature advanced-http only: one multi-thread tokio runtime with one wor
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]
+api = "RawJson"
+file = "src/raw.rs"
+holds = "memory"
+scale = "one boxed raw JSON value per RawJson the caller builds, sized by that message and dropped with it; no thread, task or child"
+release = "Drop"
+static_note = "marker_key() holds a single OnceLock<String>, a 16-byte random key rendered to one fixed-length string, built once on first use and never grown; it is process-wide but fixed size and not tied to any McpClient"
+
+[[package.metadata.rightkit.resources]]
 api = "ConnectionPool"
 file = "src/pool.rs"
 holds = ["child", "thread", "memory"]

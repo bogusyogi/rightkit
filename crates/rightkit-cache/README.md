@@ -102,5 +102,5 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 100,000 entries or more.
 - Required hosts: macOS and Windows.
-- Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations. Wake-ups are macOS only and disk operations are Windows and Linux only (`runtime-budget.json`, `status.note`).
-- Measured: 0.2.0 on macOS arm64 (`runtime-budget.evidence/macos-arm64-0.2.0.txt`) and Windows x86_64 (`runtime-budget.evidence/windows-x86_64-0.2.0.txt`). `runtime-budget.json` lists no `measurements`, so the generator prints "not yet measured" until it does.
+- Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

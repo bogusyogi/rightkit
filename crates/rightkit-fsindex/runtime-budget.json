@@ -4,14 +4,16 @@
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "rightkit-fsindex has no Windows backend (crates/rightkit-fsindex/README.md:25, :159 'no Windows backend'); the public APIs are macOS-only.",
   "ceilings": {
-    "residentMemoryBytes": null,
+    "residentMemoryBytes": 193986560,
     "idleCpuPercent": 5,
     "wakeupsPerSecond": 3,
-    "diskOpsPerSecond": null
+    "diskOpsPerSecond": 1
   },
   "ceilingSources": {
     "idleCpuPercent": "declared 0.3.0 ceiling, process-wide, under dropped-event storms: crawl threads capped at 8 and shared per process (src/limits.rs MAX_CRAWL_THREADS), full rescans at most one per 30 s doubling to 10 min (RESCAN_COOLDOWN_BASE/MAX), subtree re-lists through a global bucket of 8 burst + 1 per 5 s (RELIST_BUDGET_*). Not yet measured.",
-    "wakeupsPerSecond": "declared 0.3.0 ceiling: FSEvents latency 500 ms (Config::watch_latency) gives at most 2 batches per second, plus one coalesce timer (Config::change_coalesce 1 s). Not yet measured."
+    "wakeupsPerSecond": "declared 0.3.0 ceiling: FSEvents latency 500 ms (Config::watch_latency) gives at most 2 batches per second, plus one coalesce timer (Config::change_coalesce 1 s). Not yet measured.",
+    "residentMemoryBytes": "declared 0.3.0 ceiling, 185 MiB: crates/rightkit-fsindex/README.md (Memory and on-disk layout) records 185 MB resident after a name search at 7.7M entries (about 25 bytes/entry transient spike, released by trim()) against about 22.6 MB at rest; the bench scale (1,000,000 entries) sits far below that, so the bound holds as an absolute ceiling at and above the required scale. Not yet measured by the gate.",
+    "diskOpsPerSecond": "declared 0.3.0 ceiling: an idle index writes nothing; commits (msync of every column, header clean) run only while changing, at most every 30 s (README Memory and on-disk layout, crash-safety paragraph), so 1 per second absolute, the sibling crates' floor. macOS exposes no per-process disk-operation counter. Not yet measured."
   },
   "caps": {
     "crawlThreadsMax": 8,
@@ -35,5 +37,5 @@
     "note": "Status carries index-only resident_bytes (mapped+heap), process-wide cpu_percent, dir_reads_per_s; no wake-up count."
   },
   "measurements": [],
-  "notes": "0.3.0 declares idle-CPU and wake-up ceilings from the new caps (see ceilingSources); they are declared, not measured. Resident-memory and disk-operation ceilings stay undeclared: no absolute figure is stated in docs or code, and a subtree re-list reads as many directories as the subtree holds. The gate refuses this crate until measurements are recorded. requiredScale is the bench's own default workload, cited in its source field."
+  "notes": "0.3.0 declares idle-CPU and wake-up ceilings from the new caps (see ceilingSources); they are declared, not measured. Resident-memory (185 MiB, from the README) and disk-operation (1 per second, idle) ceilings are declared from documented behaviour (see ceilingSources); a subtree re-list reads as many directories as the subtree holds. The gate refuses this crate until measurements are recorded. requiredScale is the bench's own default workload, cited in its source field."
 }

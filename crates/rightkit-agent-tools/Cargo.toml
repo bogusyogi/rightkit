@@ -34,3 +34,20 @@ tempfile = "3"
 [[bin]]
 name = "right-ctl"
 path = "src/bin/right-ctl.rs"
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "BrowserTools::new"
+file = "src/backends/web.rs"
+holds = ["task", "child", "memory"]
+scale = "one tokio multi-thread runtime with 2 worker threads (parked when idle) plus at most one browser session, a Chrome child opened by browser.open; fixed per BrowserTools instance"
+release = "Drop of BrowserTools (BrowserTools::shutdown closes the browser now)"
+
+[[package.metadata.rightkit.resources]]
+api = "speech_tools"
+file = "src/backends/speech.rs"
+holds = ["thread"]
+scale = "one cancellation-bridge thread per transcribe tool call, polling a flag every 50 ms while the call runs; none exist while idle"
+release = "the tool call returns (the thread is joined before Transcribe::call returns)"

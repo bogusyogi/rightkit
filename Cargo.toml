@@ -53,6 +53,19 @@ opt-level = 3
 [profile.test.package."*"]
 debug = false
 
+# Optimised local profile the build brokers allow (they build development profiles only, never `release`).
+# Runtime-budget benches run here: `rightkit cargo test --profile release-iterate -p <crate> --bench budget`.
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
 [profile.test.build-override]
 debug = false
 opt-level = 0

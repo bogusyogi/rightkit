@@ -291,7 +291,7 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Resident memory ceiling: 13.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
 - Wake-ups ceiling: 1 per second.
-- Disk operations ceiling: undeclared.
+- Disk operations ceiling: 1 operations per second.
 - Required scale: 50,000 files or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `TypedWatcher::status()` in `src/typed.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.

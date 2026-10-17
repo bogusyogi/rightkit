@@ -203,9 +203,9 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 
 - Resident memory ceiling: 22.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
-- Wake-ups ceiling: undeclared.
+- Wake-ups ceiling: 2 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 64 connections or more.
-- Required hosts: not declared in `runtime-budget.json`.
+- Required hosts: macOS and Windows.
 - Status exposure: `Hosted::status()` in `src/server.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.

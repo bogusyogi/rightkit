@@ -22,3 +22,7 @@ tempfile = "3"
 # The Windows named-pipe round-trip test (tests/windows_pipe.rs) hosts a raw pipe server.
 [target.'cfg(windows)'.dev-dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "speech service client driven by the caller; thread-spawn is the single reader thread of one connected SpeechClient (blocked on the socket, ends when the connection closes or the client drops), sleep is bounded back-off waiting for a handoff or a retry inside one transcribe call, and detached-child is start_installed_engine, which launches the installed engine app on the caller's request: that engine is a separate process with its own budget and this crate runs no continuous work of its own"

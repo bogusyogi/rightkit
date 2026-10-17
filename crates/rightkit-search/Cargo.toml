@@ -22,3 +22,7 @@ rusqlite = { version = "0.40.2", default-features = false, optional = true }
 [dev-dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure query lexer, parser, SQL compiler and bounded scan helpers over caller-supplied data; spawns no continuous work, no pattern in the runtime-budgets.mjs set matches non-test src"

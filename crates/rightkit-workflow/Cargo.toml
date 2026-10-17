@@ -24,3 +24,7 @@ serde_json = "1.0.154"
 [features]
 # Generic linear, resumable run over non-GUI steps (SequenceRun, Gate, ReplayPolicy).
 sequence = []
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "workflow state machine and sequence runner driven by the caller; sleep is SystemClock::sleep_ms, one bounded thread::sleep the caller asks for inside a step, and listener is net::bind, which returns a TcpListener the caller owns and accepts on (the crate runs no accept loop and no thread of its own); spawns no continuous work"

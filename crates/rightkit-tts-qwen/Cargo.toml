@@ -48,3 +48,49 @@ prost = "0.14"
 rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["tracing"] }
 
 
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "Qwen3TtsEngine::load"
+file = "src/lib.rs"
+holds = ["memory", "thread"]
+scale = "one loaded model: GGUF weights in ggml backend buffers, the vocoder ONNX session and the speaker encoder, sized by the model files; each synthesize call opens std::thread::scope threads (a vocoder worker beside the transformer) that are joined before the call returns"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "BackendSet::new"
+file = "src/pipeline/backend.rs"
+holds = ["memory"]
+scale = "one ggml backend (CPU or accelerator) with its graph allocators and buffers; fixed per engine"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "TtsTransformer"
+file = "src/pipeline/tts_transformer.rs"
+holds = ["memory"]
+scale = "talker and code-predictor weights in ggml buffers plus the KV cache, sized by the model; fixed per engine"
+release = "Drop of the owning Qwen3TtsEngine"
+
+[[package.metadata.rightkit.resources]]
+api = "Vocoder"
+file = "src/pipeline/vocoder.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX Runtime session with its intra-op threads (parked when idle), sized by the vocoder model; fixed per engine"
+release = "Drop of the owning Qwen3TtsEngine"
+
+[[package.metadata.rightkit.resources]]
+api = "TextTokenizer::load_from_gguf"
+file = "src/pipeline/tokenizer.rs"
+holds = ["memory"]
+scale = "one vocabulary and merge table read from the GGUF file, sized by the model; fixed per engine"
+release = "Drop of the owning Qwen3TtsEngine"
+static_note = "REVERSE is one OnceLock<HashMap<char, u8>> with at most 256 byte-to-char entries, built once; it holds no thread and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "TestGguf"
+file = "src/model/test_fixture.rs"
+holds = ["memory"]
+scale = "test-only fixture module, compiled under cfg(test); one 1 MiB ggml context and a temp GGUF file per test"
+release = "function return"

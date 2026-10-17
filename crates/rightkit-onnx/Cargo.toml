@@ -108,3 +108,29 @@ tempfile = "3"
 tar = "0.4"
 flate2 = "1"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "ort_environment"
+file = "src/environment.rs"
+holds = ["memory", "thread"]
+scale = "the one process-wide ONNX Runtime environment: the loaded runtime library and, when a shared pool is requested, one global intra and inter-op thread pool sized by the caller; built on first use, never rebuilt"
+release = "process exit (ONNX Runtime allows one environment per process and a dropped one cannot be rebuilt, so it is never dropped)"
+static_note = "ENVIRONMENT is one OnceLock holding the single ORT environment handle and PENDING is one Mutex<Option<options>> holding a small options struct until it is built: neither is a collection and neither grows; sessions built from the environment are released by their own Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "configured_runtime"
+file = "src/lib.rs"
+holds = ["memory"]
+scale = "one Option<PathBuf> naming the selected runtime library; a few hundred bytes"
+release = "process exit"
+static_note = "CONFIGURED_RUNTIME is one Mutex<Option<PathBuf>> set once when the runtime is selected; it holds no thread and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "SessionOptions::build_from_file"
+file = "src/session.rs"
+holds = ["memory", "thread"]
+scale = "one ONNX Runtime session per call: the model weights, execution-provider state and intra-op threads (the caller sets the count, or the shared pool is used); fixed by the model, independent of the number of inferences"
+release = "Drop of the returned ort Session"

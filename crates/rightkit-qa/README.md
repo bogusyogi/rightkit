@@ -275,7 +275,7 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 10,000 commands or more.
-- Required hosts: not declared in `runtime-budget.json`.
+- Required hosts: macOS and Windows.
 - Status exposure: `Sidecar::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.
 

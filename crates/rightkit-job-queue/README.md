@@ -284,6 +284,6 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 2 operations per second.
 - Required scale: 10,000 calls or more.
-- Required hosts: not declared in `runtime-budget.json`.
+- Required hosts: macOS and Windows.
 - Status exposure: `EngineSupervisor::status()` in `src/supervisor.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.

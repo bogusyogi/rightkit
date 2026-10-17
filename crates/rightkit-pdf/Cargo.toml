@@ -67,3 +67,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # Fault seam around the replace call (debug and test builds only; a release build with it fails to
 # compile): proves a failed publish leaves the original file. Same pattern as rightkit-app-settings.
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "PDF render and font listing per call; resident-static is FontCatalog::shared, one OnceLock font catalog built once per process (fontdb system-font metadata, sized by the installed fonts, never grown afterwards), and the crate spawns no thread, timer or other continuous work"

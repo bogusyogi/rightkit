@@ -1,6 +1,14 @@
 {
   "schema": 1,
   "heldResource": {
+    "rightkit-agent-tools": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-agents": {
+      "ceilings": null,
+      "requiredScale": null
+    },
     "rightkit-asr": {
       "ceilings": null,
       "requiredScale": null
@@ -17,6 +25,10 @@
       "ceilings": null,
       "requiredScale": null
     },
+    "rightkit-hotkeys": {
+      "ceilings": null,
+      "requiredScale": null
+    },
     "rightkit-mcp": {
       "ceilings": null,
       "requiredScale": null
@@ -25,11 +37,23 @@
       "ceilings": null,
       "requiredScale": null
     },
+    "rightkit-onnx": {
+      "ceilings": null,
+      "requiredScale": null
+    },
     "rightkit-record": {
       "ceilings": null,
       "requiredScale": null
     },
     "rightkit-sandbox": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-tts": {
+      "ceilings": null,
+      "requiredScale": null
+    },
+    "rightkit-tts-qwen": {
       "ceilings": null,
       "requiredScale": null
     },

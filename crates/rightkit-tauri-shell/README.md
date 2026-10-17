@@ -343,8 +343,8 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 
 - Resident memory ceiling: 119.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
-- Wake-ups ceiling: undeclared.
-- Disk operations ceiling: undeclared.
+- Wake-ups ceiling: 3 per second.
+- Disk operations ceiling: 1 operations per second.
 - Required scale: 1 watchdogs or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `status()` in `src/watchdog.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.

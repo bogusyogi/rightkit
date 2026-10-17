@@ -33,4 +33,4 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: 5 ms file-lock poll bounded by LOCK_WAIT inside one load or save (backend.rs); no thread, task, timer, listener or watcher, the store holds one settings value and its subscriber callbacks (reviewed 2026-10-11)"
+continuous_reason = "sleep: 5 ms file-lock poll bounded by LOCK_WAIT inside one load or save (backend.rs); no thread, task, timer, listener or watcher, the store holds one settings value and its subscriber callbacks (reviewed 2026-10-11); resident-static: PROCESS_WRITERS in src/backend.rs is a Mutex<()> that holds no data and only serialises writers inside one save (reviewed 2026-10-17)"
