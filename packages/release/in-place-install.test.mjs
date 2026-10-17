@@ -38,17 +38,33 @@ test("swapInPlace keeps exactly one .previous and restores it when verification 
   assert.deepEqual(fs.readdirSync(root), ["App"]);
 });
 
-test("replaceFileInPlace installs a file at one fixed path with a kept .previous", (t) => {
+test("swapInPlace with previous null replaces in place and keeps NO old copy, even when verification fails", (t) => {
+  const root = temp(t);
+  const dest = path.join(root, "App");
+  const write = (dir, text) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "marker"), text); };
+  write(dest, "v1");
+  write(previousPathOf(dest), "stale-previous");
+  write(stagingPathOf(dest), "v2");
+  assert.deepEqual(swapInPlace({ staging: stagingPathOf(dest), destination: dest, previous: null }), { destination: dest, previous: null });
+  assert.equal(fs.readFileSync(path.join(dest, "marker"), "utf8"), "v2");
+  assert.deepEqual(fs.readdirSync(root), ["App"], "no .previous (a stale one is removed) and no staging");
+  write(stagingPathOf(dest), "v3");
+  assert.throws(() => swapInPlace({ staging: stagingPathOf(dest), destination: dest, previous: null, verify: () => { throw new Error("bad build"); } }), /bad build/);
+  assert.deepEqual(fs.readdirSync(root), [], "the failed copy and staging are gone and the old copy is NOT restored");
+});
+
+test("replaceFileInPlace installs a file at one fixed path with NO .previous", (t) => {
   const root = temp(t);
   const dest = path.join(root, "bin", "tool");
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(`${dest}.previous`, "stale");
   for (const [n, text] of [[1, "one"], [2, "two"], [3, "three"]]) {
     const from = path.join(root, `build-${n}`);
     fs.writeFileSync(from, text);
     replaceFileInPlace(from, dest);
   }
   assert.equal(fs.readFileSync(dest, "utf8"), "three");
-  assert.equal(fs.readFileSync(`${dest}.previous`, "utf8"), "two");
-  assert.deepEqual(fs.readdirSync(path.dirname(dest)).sort(), ["tool", "tool.previous"]);
+  assert.deepEqual(fs.readdirSync(path.dirname(dest)), ["tool"]);
 });
 
 test("a staged dev or QA binary lives at one stable path whatever generation built it", (t) => {
@@ -64,7 +80,7 @@ test("a staged dev or QA binary lives at one stable path whatever generation bui
   assert.equal(first, second);
   assert.equal(first, stagedBinaryPath({ root, name: "myapp", triple: "aarch64-apple-darwin" }));
   assert.equal(fs.readFileSync(second, "utf8"), "gen2");
-  assert.equal(fs.readFileSync(`${second}.previous`, "utf8"), "gen1");
+  assert.equal(fs.existsSync(`${second}.previous`), false, "no backup of the old staged binary");
   assert.ok(!second.includes(`${path.sep}g${path.sep}`), "never a broker generation path");
   assert.throws(() => stagedBinaryPath({ root, name: "../escape" }), /bare file name/);
 });

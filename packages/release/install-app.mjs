@@ -22,11 +22,11 @@ export class InstallAppError extends Error {
   }
 }
 
-const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest", "--installer", "--exe"]);
+const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest", "--installer", "--exe", "--payload", "--payload-manifest"]);
 const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev", "--recover"]);
 
 export function parseArgs(argv) {
-  const opts = { dmg: null, zip: null, app: null, installer: null, exe: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
+  const opts = { dmg: null, zip: null, app: null, installer: null, exe: null, payload: [], payloadManifest: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (VALUE_FLAGS.has(flag)) {
@@ -40,6 +40,8 @@ export function parseArgs(argv) {
       else if (flag === "--bundle-id") opts.bundleId = value;
       else if (flag === "--installer") opts.installer = value;
       else if (flag === "--exe") opts.exe = value;
+      else if (flag === "--payload") opts.payload.push(value);
+      else if (flag === "--payload-manifest") opts.payloadManifest = value;
       else opts.dest = value;
     } else if (BOOL_FLAGS.has(flag)) {
       if (flag === "--json") opts.json = true;
@@ -51,11 +53,13 @@ export function parseArgs(argv) {
     }
   }
   if (opts.installer !== null) {
-    // Windows: run the sealed NSIS installer in place at one fixed folder, keeping <dest>.previous.
+    // Windows: run the sealed NSIS installer in place at one fixed folder; rollback is payload-only (--payload / --payload-manifest), never the whole folder.
     if (opts.dmg !== null || opts.zip !== null || opts.app !== null || opts.recover || opts.dev) throw new InstallAppError("usage", "--installer cannot be combined with --dmg, --zip, --app, --dev or --recover");
     if (!argv.includes("--dest") || opts.exe === null) throw new InstallAppError("usage", "--installer requires --dest <fixed install folder> and --exe <App.exe>");
+    if (opts.payloadManifest !== null) opts.payloadManifest = path.resolve(opts.payloadManifest);
     return opts;
   }
+  if (opts.payload.length > 0 || opts.payloadManifest !== null) throw new InstallAppError("usage", "--payload and --payload-manifest only apply to --installer (the Windows install)");
   if (argv.includes("--relaunch") && argv.includes("--no-relaunch")) throw new InstallAppError("usage", "--relaunch and --no-relaunch are mutually exclusive");
   const inputs = [opts.dmg, opts.zip, opts.app].filter((v) => v !== null).length;
   if (opts.recover) {
@@ -311,7 +315,8 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
           let ok = j.phase === "verified";
           if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
           if (ok) {
-            try { await keepPreviousBundle(run, fsImpl, j.staged, j.installed); action = "rolled-forward"; }
+            // A dev journal (from an older RightKit) never keeps the old bundle: the staged path is cleared below.
+            try { if (!j.dev) await keepPreviousBundle(run, fsImpl, j.staged, j.installed); action = "rolled-forward"; }
             catch { action = "rolled-forward-previous-pending"; keepJournal = true; keepStaged = true; }
           } else {
             swapBack(swapPaths, fsImpl, j.staged, j.installed); // staged now holds the bad new bundle
@@ -325,7 +330,7 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
         let ok = j.phase === "verified";
         if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
         if (ok) {
-          try { await keepPreviousBundle(run, fsImpl, j.backup, j.installed); action = "rolled-forward"; }
+          try { if (j.dev) rm(j.backup); else await keepPreviousBundle(run, fsImpl, j.backup, j.installed); action = "rolled-forward"; }
           catch { action = "rolled-forward-previous-pending"; keepJournal = true; }
         } else {
           rm(j.installed);
@@ -384,6 +389,7 @@ export async function installApp(opts, deps = {}) {
   let mountPoint = null;
   let failedStage = "start";
   let swap = null; // set once the journal exists; tracks which renames happened
+  let devOldRemoved = false; // a dev install removed the old bundle; nothing can put it back
 
   const removeQuiet = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
   // Undo an unfinished swap using renames only. Sync on purpose so a signal handler can run it.
@@ -507,7 +513,8 @@ export async function installApp(opts, deps = {}) {
     const base = appName.replace(/\.app$/, "");
     // Staging is never run from: it is verified, then renamed into place. The rollback copy is the fixed `<installed>.previous`.
     const staged = path.join(opts.dest, `.${base}.rightkit-install-${pid}.app`);
-    const backup = hadInstalled ? previousPathOf(installed) : null;
+    // Dev installs keep NO old copy of any kind (Orthic-Labs/rightkit#348): the old bundle is removed, never moved to `.previous`.
+    const backup = hadInstalled && !dev ? previousPathOf(installed) : null;
     const journal = journalPathFor(opts.dest, appName);
     const journalData = { schema: 1, appName, pid, phase: "staging", dev, installed, backup, staged, mount: mountPoint, mountRoot };
     removeQuiet(staged);
@@ -541,6 +548,17 @@ export async function installApp(opts, deps = {}) {
       swapMode = "rename"; // nothing to exchange: a single rename onto an absent name is atomic
       swap.mode = "two-rename";
       writeJournal(fsImpl, journal, { ...jd, phase: "swapping", swap: swapMode });
+      fsImpl.renameSync(staged, installed);
+      swap.stagedIn = true;
+    } else if (dev) {
+      // Dev: remove the old bundle, then rename the verified staged copy over the fixed path. No backup, no exchange (an exchange
+      // would park the old bundle at the staged path). A failure from here leaves the path absent or partial: reinstall from an older DMG.
+      swapMode = "replace";
+      swap.mode = "two-rename";
+      jd = { ...journalData, swap: "two-rename", backup: null };
+      writeJournal(fsImpl, journal, { ...jd, phase: "swapping" });
+      devOldRemoved = true;
+      fsImpl.rmSync(installed, { recursive: true, force: true });
       fsImpl.renameSync(staged, installed);
       swap.stagedIn = true;
     } else {
@@ -586,6 +604,8 @@ export async function installApp(opts, deps = {}) {
     }
     if (!oldBundle || kept !== previousPathOf(installed)) { if (!oldBundle) removeQuiet(journal); }
     else removeQuiet(journal);
+    // A stale `.previous` from an older RightKit must not survive a dev install either.
+    if (dev) removeQuiet(previousPathOf(installed));
     swap = null;
     event("replaced", { installed, previous: kept, swap: swapMode });
 
@@ -601,7 +621,11 @@ export async function installApp(opts, deps = {}) {
     return result;
   } catch (error) {
     rollbackSwap();
-    const reason = error instanceof InstallAppError ? error.message : errText(error);
+    let reason = error instanceof InstallAppError ? error.message : errText(error);
+    if (dev && devOldRemoved) {
+      reason = `${reason}; the dev install keeps no old copy, so the failed install was removed: reinstall from an older DMG`;
+      if (error instanceof InstallAppError) error.message = reason;
+    }
     event("failed", { stage: failedStage, code: error.code || "error", reason });
     if (!(error instanceof InstallAppError)) throw new InstallAppError("error", reason);
     throw error;
@@ -708,7 +732,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     stderr(`right-release install-app: ${error.message}`);
     stderr("usage: right-release install-app (--dmg <path.dmg> | --dev (--zip <path.zip> | --app <path.app> | --dmg <path.dmg>)) [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]");
     stderr("       right-release install-app --recover [--dest /Applications] [--app-name Pulse.app] [--json]");
-    stderr("       right-release install-app --installer <Setup.exe> --dest <fixed install folder> --exe <App.exe> [--json]   (Windows: in place, keeps <dest>.previous)");
+    stderr("       right-release install-app --installer <Setup.exe> --dest <fixed install folder> --exe <App.exe> [--payload <file>]... [--payload-manifest <json>] [--json]   (Windows: in place; payload-only rollback, never the whole folder)");
     stderr("  --dev installs a Developer ID-signed, NOT notarized build (skips spctl/stapler, clears quarantine on the new bundle).");
     return 2;
   }

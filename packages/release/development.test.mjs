@@ -250,30 +250,28 @@ function swapFixture({ installedExecutable = "signed-binary" } = {}) {
       else files.set("/Apps/Fixture.app/Contents/MacOS/Fixture", installedExecutable);
     }
   };
-  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", previous: "/Apps/Fixture.app.previous", executableName: "Fixture" } };
+  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", executableName: "Fixture" } };
 }
 
-test("macOS dev install keeps the previous app as <dest>.previous when the installed executable hash matches", { skip: WINDOWS_SKIP }, () => {
+test("macOS dev install replaces the app in place with NO backup when the installed executable hash matches", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture();
   files.set("/Apps/Fixture.app.previous/Contents/MacOS/Fixture", "older-binary");
   swapInstalledMacosBundle({ ...args, fs });
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "signed-binary");
-  assert.equal(files.get("/Apps/Fixture.app.previous/Contents/MacOS/Fixture"), "previous-binary");
-  assert.deepEqual([...files.keys()].filter((file) => !file.startsWith("/Apps/Fixture.app/") && !file.startsWith("/Apps/Fixture.app.previous/")), []);
+  assert.deepEqual([...files.keys()].filter((file) => !file.startsWith("/Apps/Fixture.app/")), [], "no .previous (a stale one is removed), no staging, no old copy anywhere");
+  assert.equal([...files.values()].includes("previous-binary"), false, "the old executable survives nowhere");
 });
 
-test("macOS dev install restores the previous app and throws a typed error on a hash mismatch", { skip: WINDOWS_SKIP }, () => {
+test("macOS dev install removes the failed copy, keeps NO old app, and throws a typed error on a hash mismatch", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture({ installedExecutable: "corrupted" });
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISMATCH" && /does not match/.test(error.message));
-  assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
-  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.previous) || file.startsWith(args.staging)), []);
+  assert.deepEqual([...files.keys()], [], "the new copy and staging are gone and the old app is not restored");
 });
 
-test("macOS dev install restores the previous app and throws a typed error when the installed executable is missing", { skip: WINDOWS_SKIP }, () => {
+test("macOS dev install removes the failed copy, keeps NO old app, and throws a typed error when the installed executable is missing", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture({ installedExecutable: null });
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISSING" && /missing/.test(error.message));
-  assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
-  assert.equal(files.get("/Apps/Fixture.app/Contents/Info.plist"), INFO);
+  assert.deepEqual([...files.keys()], []);
 });
 
 test("right-release dev uses Cargo's built-in dev profile, written to target/<triple>/debug", () => {

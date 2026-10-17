@@ -5,12 +5,17 @@
 // that script, driven by a `sidecars` list in right-release.config.mjs:
 //
 //   sidecars: [
-//     { kind: "cargo-bin", package: "mailright-engine", bin?, name?, profile?: "release" | { dev, release }, features?, manifestPath?, sha256?, platforms? },
+//     { kind: "cargo-bin", package: "mailright-engine", bin?, name?, profile?: "release" | { dev, release }, features?, manifestPath?, sha256?, dest?, clean?, platforms? },
 //     { kind: "ffmpeg", variant?, tools?, notices: { dir, sourceOfferContact }, catalog, stage?, bundleDir? },
 //     { kind: "onnxruntime", version, catalog, resourceDir?: "src-tauri/resources/runtime", as?, licenseDir?, cacheDir? },
-//     { kind: "resource", from, to, sha256?, machO?, platforms? },
-//     { kind: "command", name, cmd, args?, cwd?, output, externalBin: true, platforms? },
+//     { kind: "resource", from, to, sha256?, machO?, clean?, platforms? },   // `from` may be a directory (copied recursively, every file hashed)
+//     { kind: "command", name, cmd, args?, cwd?, output, externalBin: true | (false with dest), dest?, clean?, platforms? },
+//     { kind: "remote", name, url (https), sha256, dest | to, size?, clean?, platforms? },
 //   ]
+//
+// `dest` (cargo-bin, command, remote) is a contained app-relative path (never the app root, the stage dir, the receipt, the cache, .git, src, src-tauri, node_modules or package.json; outputs may not overlap) used instead of <stageDir>/<name>-<triple>; the file is
+// then not an externalBin. `clean: true` removes a stale file at the destination before staging. The wrapper key
+// `wipeStageDir: true` removes stale files named exactly `<name>-<current triple>[.exe]` for a declared name this run no longer produces.
 //
 // `catalog` is a relative path, an absolute path, { crate: "rightkit-ffmpeg", file? } (resolved through `rightkit cargo
 // metadata`) or { npm: "<pkg>/<file>" }. The wrapper form { sidecars, profiles: { dev, release } } sets the default cargo
@@ -24,6 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
+import { managedHost } from "./managed-cargo.mjs";
 import {
   planMediaSidecar, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
 } from "./media-sidecar.mjs";
@@ -46,7 +52,9 @@ export class StageSidecarError extends Error {
 const fail = (code, message, details) => { throw new StageSidecarError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const SHA256 = /^[0-9a-f]{64}$/;
-const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "resource", "command"]);
+const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "resource", "command", "remote"]);
+export const NESTED_BROKER_CODE = "STAGE_SIDECAR_NESTED_BROKER";
+export const REMOTE_CACHE_DIR = ".right-release/cache/remote";
 const UNIVERSAL = "universal-apple-darwin";
 const SLICES = Object.freeze(["aarch64-apple-darwin", "x86_64-apple-darwin"]);
 const MODES = new Set(["dev", "release"]);
@@ -54,11 +62,12 @@ const PROFILE = /^[a-z][a-z0-9_-]*$/;
 const PLATFORMS = new Set(["mac", "win", "linux"]);
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const KEYS = Object.freeze({
-  "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "manifestPath", "sha256", "platforms"],
+  "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "manifestPath", "sha256", "dest", "clean", "platforms"],
   ffmpeg: ["kind", "variant", "tools", "notices", "catalog", "stage", "bundleDir", "platforms"],
   onnxruntime: ["kind", "version", "catalog", "resourceDir", "as", "licenseDir", "cacheDir", "platforms"],
-  resource: ["kind", "from", "to", "sha256", "machO", "platforms"],
-  command: ["kind", "name", "cmd", "args", "cwd", "output", "externalBin", "platforms"],
+  resource: ["kind", "from", "to", "sha256", "machO", "clean", "platforms"],
+  command: ["kind", "name", "cmd", "args", "cwd", "output", "externalBin", "dest", "clean", "platforms"],
+  remote: ["kind", "name", "url", "sha256", "dest", "to", "size", "clean", "platforms"],
 });
 const TRIPLES = Object.freeze({
   "aarch64-apple-darwin": { platform: "mac", os: "macos", arch: "aarch64" },
@@ -87,11 +96,32 @@ export function resolveTargetTriple({ target, env = process.env, run = defaultRu
   return host;
 }
 
-function relativePath(value, label, errors) {
+function relativePath(value, label, errors, { allowRoot = false } = {}) {
   if (typeof value !== "string" || !value.trim()) { errors.push(`${label} must be a non-empty relative path`); return undefined; }
   const normalized = value.replaceAll("\\", "/");
   if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.split("/").includes("..")) { errors.push(`${label} must be relative and stay inside the app: ${value}`); return undefined; }
+  // "." and "./" name the app root itself: only a working directory may do that, never a destination or a directory to clean.
+  if (!normalized.split("/").some((segment) => segment !== "" && segment !== ".")) {
+    if (allowRoot) return ".";
+    errors.push(`${label} must name a path inside the app (at least one normal segment), not the app root: ${value}`);
+    return undefined;
+  }
   return normalized.replace(/\/+$/, "");
+}
+
+/** A relative output path in comparison form: no "." or empty segments, lower case (Windows and macOS are case-insensitive). */
+const canonicalOutput = (value) => String(value).replaceAll("\\", "/").split("/").filter((segment) => segment !== "" && segment !== ".").join("/").toLowerCase();
+/** `output` equals `protectedPath` or is an ancestor of it (so writing or cleaning `output` would reach it). */
+const reaches = (output, protectedPath) => output === protectedPath || protectedPath.startsWith(`${output}/`);
+
+/**
+ * Paths stage-sidecar never writes to or cleans, app-relative: the stage directory, the receipt, the remote cache and the
+ * `.right-release` state, onnxruntime cache directories, and the app's source and dependency roots. A destination that equals
+ * or contains one of these is refused (validation, and again just before any delete).
+ */
+function protectedOutputPaths({ stageDir, receiptPath, entries = [] }) {
+  const cacheDirs = entries.filter((entry) => entry.kind === "onnxruntime" && entry.cacheDir).map((entry) => entry.cacheDir);
+  return [stageDir, receiptPath, ".right-release", REMOTE_CACHE_DIR, ".git", "src", "src-tauri", "node_modules", "package.json", ...cacheDirs].filter(Boolean).map(canonicalOutput);
 }
 
 /** `<name>-<triple>[.exe]`, with `<name>-universal-apple-darwin` for the universal target. */
@@ -161,7 +191,8 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
   if (!MODES.has(mode)) fail("STAGE_SIDECAR_CONFIG_INVALID", `build mode must be dev or release, got ${JSON.stringify(mode)}`);
   const wrapper = Array.isArray(raw) ? { sidecars: raw } : raw;
   if (!isObject(wrapper)) fail("STAGE_SIDECAR_CONFIG_INVALID", "sidecars must be an array (or { sidecars, stageDir?, receiptPath?, profiles? })");
-  for (const key of Object.keys(wrapper)) if (!["sidecars", "stageDir", "receiptPath", "profiles"].includes(key)) errors.push(`unknown key ${JSON.stringify(key)}`);
+  for (const key of Object.keys(wrapper)) if (!["sidecars", "stageDir", "receiptPath", "profiles", "wipeStageDir"].includes(key)) errors.push(`unknown key ${JSON.stringify(key)}`);
+  if (wrapper.wipeStageDir !== undefined && typeof wrapper.wipeStageDir !== "boolean") errors.push("wipeStageDir must be a boolean");
   const defaultProfile = wrapper.profiles === undefined ? undefined : parseProfile(wrapper.profiles, "profiles", errors);
   if (typeof defaultProfile === "string") errors.push("profiles must be { dev, release }");
   if (!Array.isArray(wrapper.sidecars) || !wrapper.sidecars.length) errors.push("sidecars must be a non-empty array");
@@ -170,11 +201,13 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
     ? (stageDir ? `${stageDir}/${STAGE_SIDECAR_RECEIPT_NAME}` : undefined)
     : relativePath(wrapper.receiptPath, "receiptPath", errors);
   const entries = [];
-  const outputs = new Map();
+  const claimed = [];
   const claim = (output, label) => {
-    const key = output.toLowerCase();
-    if (outputs.has(key)) errors.push(`${label} writes ${output}, which ${outputs.get(key)} already writes`);
-    else outputs.set(key, label);
+    const key = canonicalOutput(output);
+    const clash = claimed.find((other) => other.key === key || other.key.startsWith(`${key}/`) || key.startsWith(`${other.key}/`));
+    if (clash?.key === key) errors.push(`${label} writes ${output}, which ${clash.label} already writes`);
+    else if (clash) errors.push(`${label} writes ${output}, which overlaps ${clash.output} that ${clash.label} writes (outputs may not be nested inside each other)`);
+    else claimed.push({ key, output, label });
   };
   for (const [index, item] of (Array.isArray(wrapper.sidecars) ? wrapper.sidecars : []).entries()) {
     const label = `sidecars[${index}]`;
@@ -191,6 +224,12 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (value !== undefined && !SHA256.test(value ?? "")) errors.push(`${where}: ${name} must be a lowercase 64-hex SHA-256`);
     };
     const entry = { kind: item.kind, index, skipped, ...(platforms ? { platforms } : {}) };
+    const destOf = (value, field = "dest") => (value === undefined ? undefined : relativePath(value, `${where}: ${field}`, errors));
+    const cleanOf = () => {
+      if (item.clean !== undefined && typeof item.clean !== "boolean") errors.push(`${where}: clean must be a boolean`);
+      return item.clean === true;
+    };
+    const stagedClaim = (name) => `${stageDir}/${stagedName(name, t)}`;
     if (item.kind === "cargo-bin") {
       if (typeof item.package !== "string" || !NAME.test(item.package)) errors.push(`${where}: package must be a Cargo package name`);
       const bin = item.bin ?? item.package;
@@ -203,8 +242,10 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (!Array.isArray(features) || features.some((f) => typeof f !== "string" || !/^[A-Za-z0-9_/-]+$/.test(f))) errors.push(`${where}: features must be a list of feature names (package/feature allowed)`);
       const manifestPath = item.manifestPath === undefined ? undefined : relativePath(item.manifestPath, `${where}: manifestPath`, errors);
       sha(item.sha256, "sha256");
-      if (typeof name === "string" && stageDir && !skipped) claim(stagedName(name, t), where);
-      Object.assign(entry, { package: item.package, bin, name, profile, features: [...features], ...(manifestPath ? { manifestPath } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}) });
+      const dest = destOf(item.dest);
+      const clean = cleanOf();
+      if (!skipped) { if (dest) claim(dest, where); else if (typeof name === "string" && stageDir) claim(stagedClaim(name), where); }
+      Object.assign(entry, { package: item.package, bin, name, profile, features: [...features], ...(manifestPath ? { manifestPath } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
     } else if (item.kind === "ffmpeg") {
       const { kind: _kind, platforms: _platforms, catalog: rawCatalog, ...rest } = item;
       if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "cargo") errors.push(`${where}: stage.cmd must not be bare cargo; use { cmd: "rightkit", args: ["cargo", ...] }`);
@@ -214,7 +255,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       else if (!skipped) {
         try {
           const config = validateMediaSidecarConfig({ ...rest, arch: t.arch, stageDir }, { platform: t.platform, hostArch: t.arch });
-          for (const tool of config.tools) claim(stagedFileName(tool, t.os, t.arch), where);
+          for (const tool of config.tools) claim(`${stageDir}/${stagedFileName(tool, t.os, t.arch)}`, where);
           entry.media = config;
         } catch (error) { errors.push(...String(error.message).split("\n").filter((line) => line.startsWith("- ")).map((line) => `${where}: ${line.slice(2)}`).concat(error.message.startsWith("invalid") ? [] : [`${where}: ${error.message}`])); }
       }
@@ -233,23 +274,44 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (typeof item.cmd !== "string" || !item.cmd.trim() || /\s/.test(item.cmd)) errors.push(`${where}: cmd must be one executable name or path with no spaces (arguments go in args; no shell is used)`);
       const args = item.args ?? [];
       if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) errors.push(`${where}: args must be a list of strings`);
-      const cwd = item.cwd === undefined ? undefined : relativePath(item.cwd, `${where}: cwd`, errors);
+      const cwd = item.cwd === undefined ? undefined : relativePath(item.cwd, `${where}: cwd`, errors, { allowRoot: true });
       const output = relativePath(item.output, `${where}: output`, errors);
-      if (item.externalBin !== true) errors.push(`${where}: externalBin must be true (the output is staged as <name>-<triple>)`);
-      if (typeof name === "string" && stageDir && !skipped) claim(stagedName(name, t), where);
-      Object.assign(entry, { name, cmd: item.cmd, args: Array.isArray(args) ? [...args] : [], ...(cwd ? { cwd } : {}), output });
+      const dest = destOf(item.dest);
+      const clean = cleanOf();
+      if (dest) { if (item.externalBin === true) errors.push(`${where}: externalBin must be false or omitted with dest (a dest file is not staged as <name>-<triple>)`); }
+      else if (item.externalBin !== true) errors.push(`${where}: externalBin must be true (the output is staged as <name>-<triple>)`);
+      if (!skipped) { if (dest) claim(dest, where); else if (typeof name === "string" && stageDir) claim(stagedClaim(name), where); }
+      Object.assign(entry, { name, cmd: item.cmd, args: Array.isArray(args) ? [...args] : [], ...(cwd ? { cwd } : {}), output, ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
+    } else if (item.kind === "remote") {
+      const name = item.name;
+      if (typeof name !== "string" || !NAME.test(name)) errors.push(`${where}: name must be a bare label`);
+      if (typeof item.url !== "string" || !/^https:\/\/[^\s/]+\/\S*$/.test(item.url)) errors.push(`${where}: url must be an https:// URL (no other scheme is fetched)`);
+      if (typeof item.sha256 !== "string" || !SHA256.test(item.sha256)) errors.push(`${where}: sha256 is required and must be a lowercase 64-hex SHA-256`);
+      if (item.dest !== undefined && item.to !== undefined) errors.push(`${where}: give dest or to, not both`);
+      if (item.dest === undefined && item.to === undefined) errors.push(`${where}: dest (or to) is required`);
+      const dest = destOf(item.dest ?? item.to, item.dest === undefined ? "to" : "dest");
+      if (item.size !== undefined && (!Number.isSafeInteger(item.size) || item.size <= 0)) errors.push(`${where}: size must be a positive integer (bytes)`);
+      const clean = cleanOf();
+      if (dest && !skipped) claim(dest, where);
+      Object.assign(entry, { name, url: item.url, sha256: item.sha256, dest, ...(item.size ? { size: item.size } : {}), ...(clean ? { clean } : {}) });
     } else {
       const from = relativePath(item.from, `${where}: from`, errors);
       const to = relativePath(item.to, `${where}: to`, errors);
       sha(item.sha256, "sha256");
       if (item.machO !== undefined && typeof item.machO !== "boolean") errors.push(`${where}: machO must be a boolean`);
+      const clean = cleanOf();
       if (to && !skipped) claim(to, where);
-      Object.assign(entry, { from, to, ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(item.machO ? { machO: true } : {}) });
+      Object.assign(entry, { from, to, ...(clean ? { clean } : {}),...(item.sha256 ? { sha256: item.sha256 } : {}), ...(item.machO ? { machO: true } : {}) });
     }
     entries.push(entry);
   }
+  const protectedPaths = protectedOutputPaths({ stageDir, receiptPath, entries });
+  for (const { key, output, label } of claimed) {
+    const hit = protectedPaths.find((protectedPath) => reaches(key, protectedPath));
+    if (hit) errors.push(`${label} writes ${output}, which is or contains ${hit}; stage-sidecar never overwrites or cleans the app's stage directory, receipt, cache, .git, src, src-tauri, node_modules or package.json`);
+  }
   if (errors.length) fail("STAGE_SIDECAR_CONFIG_INVALID", `invalid sidecars configuration:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { target: t, stageDir, receiptPath, entries };
+  return { target: t, stageDir, receiptPath, wipeStageDir: wrapper.wipeStageDir === true, entries };
 }
 
 const sha256Of = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -325,10 +387,50 @@ function artifactFromStream(stdout, bin) {
 }
 
 /** Candidate output paths, in lookup order: the explicit-target layout (broker) first, then the plain layout. */
-export function builtBinaryCandidates({ targetDir, triple, profile, bin, windows }) {
+export function builtBinaryCandidates({ targetDir, targetDirs, triple, profile, bin, windows }) {
   const file = windows ? `${bin}.exe` : bin;
   const dir = profileDirectory(profile);
-  return [path.join(targetDir, triple, dir, file), path.join(targetDir, dir, file)];
+  const roots = [...new Set([...(targetDirs ?? []), ...(targetDir ? [targetDir] : [])])];
+  return roots.flatMap((root) => [path.join(root, triple, dir, file), path.join(root, dir, file)]);
+}
+
+/**
+ * `clean: true` removes a stale file at the destination before staging. A directory is removed recursively only when the
+ * entry is a directory resource (`directory: true`); any other destination is removed non-recursively. Refused (typed,
+ * nothing deleted): the app root or anything outside it, a path equal to or containing a protected path (the stage
+ * directory, receipt, cache, .right-release, .git, src, src-tauri, node_modules, package.json), and a destination whose
+ * parent resolves (through a symlink) outside the app root or onto a protected path.
+ */
+function cleanDest(ctx, entry, dest, { directory = false } = {}) {
+  if (!entry.clean) return;
+  const refuse = (reason) => fail("STAGE_SIDECAR_CLEAN_REFUSED", `refusing to clean ${dest}: ${reason}`, { dest });
+  const protectedPaths = ctx.protectedPaths ?? [];
+  const insideApp = (root, file) => { const relative = path.relative(root, file); return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? relative : undefined; };
+  const check = (relative, what) => {
+    const key = canonicalOutput(relative.split(path.sep).join("/"));
+    const hit = protectedPaths.find((protectedPath) => reaches(key, protectedPath));
+    if (hit) refuse(`${what} is or contains the protected path ${hit}`);
+  };
+  const relative = insideApp(ctx.appRoot, dest);
+  if (!relative) refuse("it is the app root or outside the app");
+  check(relative, "it");
+  const realpath = ctx.fs.realpathSync;
+  if (typeof realpath === "function") {
+    const resolveExisting = (start) => {
+      for (let current = start; ; current = path.dirname(current)) {
+        try { return realpath(current); } catch { if (path.dirname(current) === current) return undefined; }
+      }
+    };
+    const realRoot = resolveExisting(ctx.appRoot);
+    const realParent = resolveExisting(path.dirname(dest));
+    if (!realRoot || !realParent) refuse("its parent directory cannot be resolved");
+    if (realParent !== realRoot && !insideApp(realRoot, realParent)) refuse("its parent directory resolves outside the app (a symlink)");
+    const realRelative = insideApp(realRoot, path.join(realParent, path.basename(dest)));
+    if (!realRelative) refuse("it resolves to the app root");
+    check(realRelative, "its resolved location");
+  }
+  ctx.log(`stage-sidecar: clean ${rel(ctx, dest)}`);
+  try { ctx.fs.rmSync(dest, { recursive: directory, force: true }); } catch (error) { fail("STAGE_SIDECAR_CLEAN_REFUSED", `cannot clean ${dest} (${error.message}); a directory is only removed for a directory resource`, { dest, cause: error }); }
 }
 
 function copyInto(ctx, source, dest, { executable }) {
@@ -342,7 +444,7 @@ function copyInto(ctx, source, dest, { executable }) {
     fs.copyFileSync(source, temporary);
     if (executable && !windows) fs.chmodSync(temporary, 0o755);
     fs.renameSync(temporary, dest);
-  }
+  } else if (executable && !windows) fs.chmodSync(dest, 0o755);
   const sha256 = sha256Of(fs.readFileSync(dest));
   if (sha256 !== sourceSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `staged ${dest} differs from its source ${source}`, { expected: sourceSha256, actual: sha256 });
   return { sha256, sizeBytes: fs.statSync(dest).size, changed };
@@ -363,11 +465,14 @@ function requireUniversalFile(ctx, file, label) {
   if (!(archs.includes("arm64") && archs.includes("x86_64"))) fail("STAGE_SIDECAR_NOT_UNIVERSAL", `${label} must contain arm64 and x86_64 for universal-apple-darwin, lipo -archs reports ${JSON.stringify(archs.join(" "))}`, { file, archs });
 }
 
+const destFor = (entry, ctx) => (entry.dest ? path.resolve(ctx.appRoot, entry.dest) : path.resolve(ctx.appRoot, ctx.stageDir, stagedName(entry.name, ctx.target)));
+
 function stageCargoBin(entry, ctx) {
-  if (ctx.target.arch !== "universal") return stageCargoSlice(entry, ctx, ctx.target.triple, { dest: path.resolve(ctx.appRoot, ctx.stageDir, stagedName(entry.name, ctx.target)) });
+  const dest = destFor(entry, ctx);
+  cleanDest(ctx, entry, dest);
+  if (ctx.target.arch !== "universal") return stageCargoSlice(entry, ctx, ctx.target.triple, { dest });
   const slices = SLICES.map((triple) => ({ triple, ...stageCargoBuild(entry, ctx, triple) }));
   const { fs, run, appRoot, env } = ctx;
-  const dest = path.resolve(appRoot, ctx.stageDir, stagedName(entry.name, ctx.target));
   const temporary = `${dest}.tmp-${ctx.pid}`;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const args = ["-create", "-output", temporary, ...slices.map((slice) => slice.source)];
@@ -380,14 +485,14 @@ function stageCargoBin(entry, ctx) {
   const changed = !(fs.existsSync(dest) && sha256Of(fs.readFileSync(dest)) === sha256);
   fs.chmodSync(temporary, 0o755);
   fs.renameSync(temporary, dest);
-  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), sha256, sizeBytes: fs.statSync(dest).size, changed, sourceSha256: sha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: true, slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.sourceSha256 })) }];
+  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), sha256, sizeBytes: fs.statSync(dest).size, changed, sourceSha256: sha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest, slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.sourceSha256 })) }];
 }
 
 function stageCargoSlice(entry, ctx, triple, { dest }) {
   const { source, sourceSha256 } = stageCargoBuild(entry, ctx, triple);
   if (entry.sha256 && entry.sha256 !== sourceSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.bin} built to ${sourceSha256}, expected ${entry.sha256}`, { expected: entry.sha256, actual: sourceSha256 });
   const copied = copyInto(ctx, source, dest, { executable: true });
-  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: true }];
+  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest }];
 }
 
 /** Build one slice through `rightkit cargo` and locate the executable. Returns { source, sourceSha256 }. */
@@ -404,8 +509,12 @@ function stageCargoBuild(entry, ctx, triple) {
     const meta = run("rightkit", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env });
     let targetDir;
     try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
-    if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and its target directory cannot be read`, { bin: entry.bin });
-    const candidates = builtBinaryCandidates({ targetDir, triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
+    if (meta?.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) targetDir = undefined;
+    // A managed target root: the broker/cargo metadata target_directory (which cargo derives from CARGO_TARGET_DIR) is
+    // authoritative; an explicit CARGO_TARGET_DIR in this environment is tried too, resolved against the app root.
+    const envDir = typeof env.CARGO_TARGET_DIR === "string" && env.CARGO_TARGET_DIR.trim() ? path.resolve(appRoot, env.CARGO_TARGET_DIR) : undefined;
+    if (!targetDir && !envDir) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and its target directory cannot be read`, { bin: entry.bin });
+    const candidates = builtBinaryCandidates({ targetDir, targetDirs: envDir ? [envDir] : [], triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
     source = candidates.find((file) => fs.existsSync(file));
     if (!source) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the build did not produce ${entry.bin} (looked in ${candidates.join(", ")})`, { bin: entry.bin, candidates });
   }
@@ -493,14 +602,46 @@ async function stageOnnxRuntime(entry, ctx) {
   return [{ kind: "onnxruntime", name: outName, path: rel(ctx, dest), sha256: row.sha256, sizeBytes: fs.statSync(dest).size, changed: null, catalogRow: row.id, version: row.version, archiveSha256: row.archive.sha256, license: row.licenseSpdx ?? null, notices: noticeOut, externalBin: false }];
 }
 
+/** Every file under `dir`, sorted, as paths relative to it (forward slashes). */
+function listFilesRecursive(fs, dir, prefix = "") {
+  const out = [];
+  for (const name of [...fs.readdirSync(path.join(dir, prefix))].sort()) {
+    const relative = prefix ? `${prefix}/${name}` : name;
+    const stat = fs.statSync(path.join(dir, relative));
+    if (stat.isDirectory()) out.push(...listFilesRecursive(fs, dir, relative));
+    else if (stat.isFile()) out.push(relative);
+  }
+  return out;
+}
+
+/** A directory resource: copy recursively, hash and verify every file, one receipt row per file. */
+function stageResourceDirectory(entry, ctx, source) {
+  const { appRoot, fs } = ctx;
+  if (entry.sha256) fail("STAGE_SIDECAR_CONFIG_INVALID", `resource ${entry.from} is a directory; sha256 pins one file, so drop it (every file is hashed into the receipt)`, { from: entry.from });
+  if (entry.machO) fail("STAGE_SIDECAR_CONFIG_INVALID", `resource ${entry.from} is a directory; machO applies to one file`, { from: entry.from });
+  const members = listFilesRecursive(fs, source);
+  if (!members.length) fail("STAGE_SIDECAR_RESOURCE_MISSING", `resource directory ${entry.from} contains no files`, { from: entry.from });
+  const destRoot = path.resolve(appRoot, entry.to);
+  cleanDest(ctx, entry, destRoot, { directory: true });
+  return members.map((member) => {
+    const from = path.join(source, ...member.split("/"));
+    const dest = path.join(destRoot, ...member.split("/"));
+    const sourceSha256 = sha256Of(fs.readFileSync(from));
+    const copied = copyInto(ctx, from, dest, { executable: false });
+    return { kind: "resource", name: path.posix.basename(member), path: rel(ctx, dest), ...copied, sourceSha256, from: `${entry.from}/${member}`, externalBin: false };
+  });
+}
+
 function stageResource(entry, ctx) {
   const { appRoot, fs } = ctx;
   const source = path.resolve(appRoot, entry.from);
-  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_RESOURCE_MISSING", `resource ${entry.from} is not a file (directories are not staged; list each file)`, { from: entry.from });
+  if (fs.existsSync(source) && fs.statSync(source).isDirectory()) return stageResourceDirectory(entry, ctx, source);
+  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_RESOURCE_MISSING", `resource ${entry.from} is neither a file nor a directory`, { from: entry.from });
   const actual = sha256Of(fs.readFileSync(source));
   if (entry.sha256 && entry.sha256 !== actual) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.from} is ${actual}, expected ${entry.sha256}`, { expected: entry.sha256, actual });
   if (entry.machO && ctx.target.arch === "universal") requireUniversalFile(ctx, source, `resource ${entry.from}`);
   const dest = path.resolve(appRoot, entry.to);
+  cleanDest(ctx, entry, dest);
   const copied = copyInto(ctx, source, dest, { executable: false });
   return [{ kind: "resource", name: path.basename(dest), path: rel(ctx, dest), ...copied, sourceSha256: actual, from: entry.from, externalBin: false }];
 }
@@ -509,6 +650,7 @@ function stageResource(entry, ctx) {
 function stageCommand(entry, ctx) {
   const { appRoot, fs, run, env } = ctx;
   const cwd = entry.cwd ? path.resolve(appRoot, entry.cwd) : appRoot;
+  cleanDest(ctx, entry, destFor(entry, ctx));
   ctx.log(`stage-sidecar: ${entry.cmd} ${entry.args.join(" ")}`);
   const built = run(entry.cmd, entry.args, { cwd, env });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `command ${entry.name} (${entry.cmd}) failed (${built?.error?.message ?? `exit ${built?.status}`})`, { name: entry.name, stderr: tail(built?.stderr) });
@@ -516,28 +658,133 @@ function stageCommand(entry, ctx) {
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `command ${entry.name} did not produce ${entry.output}`, { name: entry.name, output: entry.output });
   if (ctx.target.arch === "universal") requireUniversalFile(ctx, source, `command ${entry.name} output ${entry.output}`);
   const sourceSha256 = sha256Of(fs.readFileSync(source));
-  const dest = path.resolve(appRoot, ctx.stageDir, stagedName(entry.name, ctx.target));
+  const dest = destFor(entry, ctx);
   const copied = copyInto(ctx, source, dest, { executable: true });
-  return [{ kind: "command", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, output: entry.output, externalBin: true }];
+  return [{ kind: "command", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, output: entry.output, externalBin: !entry.dest }];
+}
+
+/**
+ * A pinned https download. The bytes are hashed before anything is moved into place: the content-addressed cache entry
+ * (`.right-release/cache/remote/<sha256>`) is written only from verified bytes, and `dest` is copied only from that
+ * cache entry. A mismatch (or a non-https redirect) fails closed with nothing staged.
+ */
+async function stageRemote(entry, ctx) {
+  const { appRoot, fs } = ctx;
+  const dest = path.resolve(appRoot, entry.dest);
+  const cached = path.resolve(appRoot, REMOTE_CACHE_DIR, entry.sha256);
+  let fromCache = false;
+  if (fs.existsSync(cached) && sha256Of(fs.readFileSync(cached)) === entry.sha256) fromCache = true;
+  else {
+    ctx.log(`stage-sidecar: GET ${entry.url}`);
+    let response;
+    try { response = await ctx.fetch(entry.url, { redirect: "follow" }); } catch (error) { fail("STAGE_SIDECAR_DOWNLOAD_FAILED", `GET ${entry.url} failed: ${error.message}`, { cause: error, url: entry.url }); }
+    if (!response?.ok) fail("STAGE_SIDECAR_DOWNLOAD_FAILED", `GET ${entry.url} failed with ${response?.status}`, { url: entry.url });
+    if (typeof response.url === "string" && response.url && !response.url.startsWith("https://")) fail("STAGE_SIDECAR_DOWNLOAD_FAILED", `${entry.url} redirected to a non-https URL: ${response.url}`, { url: entry.url });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (entry.size !== undefined && bytes.length !== entry.size) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.url} is ${bytes.length} bytes, expected ${entry.size}; nothing staged`, { expectedSize: entry.size, actualSize: bytes.length });
+    const actual = sha256Of(bytes);
+    if (actual !== entry.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.url} downloaded as ${actual}, expected ${entry.sha256}; nothing staged`, { expected: entry.sha256, actual });
+    fs.mkdirSync(path.dirname(cached), { recursive: true });
+    const temporary = `${cached}.tmp-${ctx.pid}`;
+    fs.writeFileSync(temporary, bytes);
+    fs.renameSync(temporary, cached);
+  }
+  // Download and verify first: a failed fetch or a hash mismatch must never leave a cleaned destination behind.
+  cleanDest(ctx, entry, dest);
+  const copied = copyInto(ctx, cached, dest, { executable: false });
+  if (copied.sha256 !== entry.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `staged ${entry.dest} is ${copied.sha256}, expected ${entry.sha256}`, { expected: entry.sha256, actual: copied.sha256 });
+  return [{ kind: "remote", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256: entry.sha256, url: entry.url, cached: fromCache, externalBin: false }];
+}
+
+/**
+ * `wipeStageDir`: remove top-level files in stageDir named exactly `<name>-<current triple>[.exe]` for a name this manifest
+ * declares (a cargo-bin, command or ffmpeg tool) that this run did not produce, such as an entry now skipped on this platform
+ * or now placed at `dest`. Never recursive; other triples, notices, directories, temporaries and unrelated files are left alone.
+ */
+function wipeStaleStageDir(ctx, plan, produced) {
+  const dir = path.resolve(ctx.appRoot, ctx.stageDir);
+  let listing;
+  try { listing = [...ctx.fs.readdirSync(dir)]; } catch { return []; }
+  const keep = new Set([...produced, path.resolve(ctx.appRoot, plan.receiptPath)].map((file) => path.resolve(file).toLowerCase()));
+  const names = plan.entries.flatMap((entry) => (entry.kind === "ffmpeg" ? (entry.media?.tools ?? []) : entry.kind === "cargo-bin" || entry.kind === "command" ? [entry.name] : []));
+  const exact = new Set(names.flatMap((name) => [`${name}-${ctx.target.triple}`, `${name}-${ctx.target.triple}.exe`]));
+  const removed = [];
+  for (const name of listing.sort()) {
+    const file = path.join(dir, name);
+    if (keep.has(file.toLowerCase()) || !exact.has(name)) continue;
+    let regular = false;
+    try { regular = ctx.fs.statSync(file).isFile(); } catch { regular = false; }
+    if (!regular) continue;
+    ctx.log(`stage-sidecar: wipe stale ${rel(ctx, file)}`);
+    ctx.fs.rmSync(file, { recursive: false, force: true });
+    removed.push(rel(ctx, file));
+  }
+  return removed;
+}
+
+/**
+ * Nested broker context: Tauri exports TAURI_ENV_* to beforeBuildCommand/beforeDevCommand, and on a managed host that
+ * command runs inside the outer broker build. A broker call from there exits 125. There is no lease or run-id a nested
+ * call can reuse (acquireManagedRunLease records a per-process lease file; no RK_* variable carries it to a child), so
+ * the only safe behaviour is to refuse early. RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED=1 opts out.
+ */
+export function isNestedBrokerContext(env = process.env) {
+  if (env?.RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED === "1") return false;
+  const insideTauri = Boolean(env?.TAURI_ENV_PLATFORM || env?.TAURI_ENV_TARGET_TRIPLE);
+  return insideTauri && (managedHost(env ?? {}) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
+}
+
+/** True when staging would call `rightkit cargo` for a non-skipped entry. */
+const needsBroker = (plan) => plan.entries.some((entry) => !entry.skipped && (entry.kind === "cargo-bin" || entry.catalogSpec?.via === "crate"));
+
+function assertNotNested(plan, env) {
+  if (needsBroker(plan) && isNestedBrokerContext(env)) {
+    fail(NESTED_BROKER_CODE, "stage-sidecar needs `rightkit cargo`, but it is running inside an outer broker build (a Tauri beforeBuildCommand/beforeDevCommand on a managed host), where a nested broker call exits 125. Run stage-sidecar in the recipe `prepare` step, before the Tauri build (or call it from your own script before `tauri build`), not from beforeBuildCommand.");
+  }
+}
+
+/**
+ * Dry plan for `stage-sidecar --check`: validates the manifest and describes what staging would write. No effects.
+ */
+export function planSidecarStaging({ manifest, target, env = process.env } = {}) {
+  const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
+  const t = plan.target;
+  const outputsOf = (entry) => {
+    if (entry.kind === "cargo-bin" || entry.kind === "command") return [entry.dest ?? `${plan.stageDir}/${stagedName(entry.name, t)}`];
+    if (entry.kind === "remote") return [entry.dest];
+    if (entry.kind === "resource") return [entry.to];
+    if (entry.kind === "onnxruntime") return [`${entry.resourceDir}/${entry.as ?? "<catalog artifactFileName>"}`];
+    return (entry.media?.tools ?? []).map((tool) => `${plan.stageDir}/${stagedFileName(tool, t.os, t.arch)}`);
+  };
+  const entries = plan.entries.map((entry) => ({
+    index: entry.index, kind: entry.kind, skipped: entry.skipped, ...(entry.platforms ? { platforms: entry.platforms } : {}),
+    ...(entry.skipped ? {} : { outputs: outputsOf(entry), externalBin: (entry.kind === "cargo-bin" || entry.kind === "command") ? !entry.dest : entry.kind === "ffmpeg" }),
+    ...(entry.kind === "cargo-bin" ? { package: entry.package, bin: entry.bin, profile: entry.profile } : {}),
+    ...(entry.kind === "remote" ? { url: entry.url } : {}),
+    ...(entry.clean ? { clean: true } : {}),
+  }));
+  return { target: t.triple, platform: t.platform, mode: resolveBuildMode(env), stageDir: plan.stageDir, receiptPath: plan.receiptPath, wipeStageDir: plan.wipeStageDir, nestedBrokerRisk: needsBroker(plan) && isNestedBrokerContext(env), entries };
 }
 
 /**
  * Stage every configured sidecar for `target` (a Rust triple) and write the staging receipt.
  * Returns { receipt, receiptPath, files, externalBinNames }. `deps` (all optional) injects every effect:
- * fs, run, fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log, env.
+ * fs (existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, chmodSync, statSync, readdirSync, rmSync), run, fetch (https downloads of `remote`), fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log, env.
  */
 export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("STAGE_SIDECAR_CONFIG_INVALID", "appRoot must be an absolute path");
   const env = deps.env ?? process.env;
   const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
+  assertNotNested(plan, env);
   const fs = deps.fs ?? nodeFs;
   const run = deps.run ?? defaultRun;
   const ctx = {
-    appRoot, target: plan.target, stageDir: plan.stageDir, fs, env, run,
+    appRoot, target: plan.target, stageDir: plan.stageDir, fs, env, run, protectedPaths: protectedOutputPaths(plan),
     windows: plan.target.os === "windows",
     pid: deps.pid ?? process.pid,
     log: deps.log ?? (() => {}),
     fetchBytes: deps.fetchBytes ?? defaultFetchBytes,
+    fetch: deps.fetch ?? ((...args) => globalThis.fetch(...args)),
     extractMember: deps.extractMember ?? ((args) => defaultExtractMember({ ...args, run })),
     loadMediaCatalog: deps.loadMediaCatalog ?? (() => undefined),
     loadNativeCatalog: deps.loadNativeCatalog ?? (() => undefined),
@@ -552,9 +799,11 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
       : entry.kind === "ffmpeg" ? await stageFfmpeg(entry, ctx)
         : entry.kind === "onnxruntime" ? await stageOnnxRuntime(entry, ctx)
           : entry.kind === "command" ? stageCommand(entry, ctx)
-            : stageResource(entry, ctx);
+            : entry.kind === "remote" ? await stageRemote(entry, ctx)
+              : stageResource(entry, ctx);
     files.push(...staged);
   }
+  const wiped = plan.wipeStageDir ? wipeStaleStageDir(ctx, plan, files.map((file) => path.resolve(appRoot, file.path))) : [];
   const receipt = {
     schema: 1,
     contract: STAGE_SIDECAR_CONTRACT,
@@ -564,6 +813,7 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
     stagedAt: (deps.now ?? (() => new Date().toISOString()))(),
     files,
     skipped,
+    ...(plan.wipeStageDir ? { wiped } : {}),
   };
   validateStageSidecarReceipt(receipt, { target: plan.target.triple });
   const receiptFile = path.resolve(appRoot, plan.receiptPath);
@@ -580,7 +830,7 @@ export function validateStageSidecarReceipt(receipt, expected = {}) {
   for (const file of receipt.files) {
     if (typeof file.name !== "string" || !file.name || typeof file.path !== "string" || !file.path) bad("file without a name or path");
     if (!SHA256.test(file.sha256 ?? "")) bad(`${file.name}.sha256 must be a SHA-256`);
-    if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes <= 0) bad(`${file.name}.sizeBytes must be positive`);
+    if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < (file.kind === "resource" ? 0 : 1)) bad(`${file.name}.sizeBytes must be positive`);
   }
   if (new Set(receipt.files.map((file) => file.path)).size !== receipt.files.length) bad("duplicate staged path");
   if (expected.target && receipt.target !== expected.target) bad(`target ${receipt.target} is not ${expected.target}`);
