@@ -124,6 +124,28 @@ The replacement is `rightkit_fs::AtomicWriter`: a temp sibling in the destinatio
 
 `merge::merge_pdfs` and `merge::select_pages` set on each page the attributes it inherits from its `/Pages` ancestors (`Resources`, `MediaBox`, `CropBox`, `Rotate`) before the old page tree is discarded. A value an ancestor holds directly (a `/Resources` dictionary, a box array) becomes **one** indirect object shared by every page below that ancestor, so the output holds one copy however many pages inherit it; a value that is already a reference, or a number, is copied as it is. A page's own value is left alone. Selecting a page from a large document materializes every page in memory but copies nothing per page.
 
+## Redaction
+
+Feature `redact` (off by default). `redact::apply_marks(bytes, &[RedactMark], &RedactOptions)` removes the content under marked rectangles (PDF user space, before `/Rotate`) and returns new bytes plus a `RedactReport`; `redact::verify_redacted` re-checks any file against the same marks. It removes, it does not only cover: glyphs under a mark are cut from `Tj`/`TJ`/`'`/`"` and replaced by a `TJ` number of the same advance (the text after them does not move), so extraction cannot return them; an overlapping image `Do` is removed whole (partly covered images are dropped, not pixel-cleared); overlapping vector paths and annotations are removed; `/ActualText`, `/Alt` and `/E` in inline `BDC` lists are stripped; the file is written whole (no earlier revision, unreferenced objects pruned); with `sanitize` (default) `/Info`, `/Metadata`, `/PieceInfo`, page `/Thumb`, the structure tree and the embedded-file and JavaScript name trees are removed. A black box is painted last (`RedactOptions::fill`).
+
+It fails closed with a typed `RedactError`: text it cannot position, a glyph whose advance cannot be written as a `TJ` number, a content stream that does not parse strictly or that two pages share, an inline image, a form XObject or a shading that overlaps a mark (`RedactOptions::remove_unsupported` removes the operator whole instead), an encrypted file, and any result whose second walk still finds content under a mark. Not covered: the insides of form XObjects (a form is cut whole or refused, never edited), content reached through `/Properties` names, and sub-glyph precision (a glyph goes when its bounding quad overlaps, not its ink). The full list is the module documentation of `src/redact.rs`. Stage the result through `save::stage_prepared_save` with no expected-text checks.
+
+## Page organise
+
+With feature `merge`, `organize::{delete_pages, reorder_pages, rotate_pages, insert_pages}` take bytes and return bytes (keep the input as the undo snapshot) and `organize::verify_structure` is the check each result passes: page count, one flat `/Pages` node over `/Page` objects, outline destinations that name a result page, readable page labels. Page objects keep their ids, so outline items and destinations to surviving pages stay valid; an outline item whose page was deleted loses only its destination. Page labels are rebuilt for the new order (`/St` adjusted so each page keeps its label); inserted pages carry their source's labels. Deleted pages and everything only they reached are pruned. See `src/organize.rs` for what is kept and dropped.
+
+## Forms
+
+Feature `forms` (off by default). `forms::list_fields` lists terminal fields (qualified name, kind, value, options, flags, button states); `forms::set_values` and `forms::reset_fields` return new bytes and a `FillOutcome`. Text and combo-box fields get a generated appearance stream (`/MK` colours and border, clipping, `/Q`, auto font size, wrapping); a field it cannot draw (embedded Type 0 font, rotated widget, list box, no `/DA`) keeps its value, is named in `without_appearance`, and `/AcroForm /NeedAppearances` is set. Refusals are typed (`FormError`): read-only, too long, not an option, a character the font cannot show (never replaced), password, file-select and comb fields, XFA and signed documents unless `FormOptions` allows. The written file is read back and compared. Detecting fields in unlabelled printed forms is not built.
+
+## Optimizing
+
+Feature `optimize` (off by default). `optimize::optimize(bytes, &OptimizeOptions::standard() | mobile())` (and `optimize_with_progress`, which can cancel) removes unused objects, Flate-compresses unfiltered streams and downsamples 8-bit Gray/RGB images to 150 (or 96) ppi **measured where pages draw them**, through the CTM and forms up to 12 deep; an image whose resolution is unknown (a mask, listed by a form no page paints, a pattern or Type 3 font) is never resampled, and the report names why. Input is returned unchanged when the result is not smaller. Not done: page-printer strip merging, JPEG re-encoding, colour conversion.
+
+## Extraction quality
+
+`tests/extract_quality.rs` (feature `extract`, ignored) scores `extract` against poppler `pdftotext` on a sha256-pinned corpus: word F1 and a reading-order score, with a column-aware-ordering verdict. No network; a missing `pdftotext` fails. The baseline is not recorded yet. See `tests/fixtures/extract-quality/README.md`.
+
 ## Measuring coverage
 
 `tests/corpus_coverage.rs` (ignored) rotates the first 5+ letter word of editable islands on page 1 of every PDF in `RIGHTKIT_PDF_CORPUS_DIR` and prints islands / editable / tried / ok / refusals per file, plus the `editBlocker` histogram of refused islands:

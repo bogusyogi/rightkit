@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8
+
+Fix, plus additive option (Orthic-Labs/rightkit#273). 0.1.7 above was never published; the published version is 0.1.6.
+
+- `findLiteralMatches` (and so `highlightSpan`) returned offsets that drifted after a character whose lower case has a different length (`"aİb".toLocaleLowerCase()` is 4 units, the source 3): every later match was shifted and the whole-word check read the wrong neighbours. Folding is now per character and each folded unit remembers its source character, so offsets always index the original text; a match never starts or ends inside a character that folds to two. Folding no longer depends on the locale (`toLowerCase`), and Greek final sigma folds with sigma. Behaviour change: results for text with such characters now point at the right place.
+- Runs of whitespace (spaces, tabs, line breaks, no-break spaces) in the text and in the query each count as one space, so `"red apple"` finds `"red  apple"`; the match covers the whole run. A query that is only whitespace matches nothing; leading and trailing whitespace of the query is ignored.
+- New option `joinHyphenated` (off by default): a hyphen between two letters that is followed by whitespace is ignored in the text, so `inter- national` matches `international`. New type exports `LiteralMatchOptions` and `TextMatch`. Tests in `test/search.test.ts`.
+
 ## 0.1.7
 
 Additive. Default markup is unchanged and every colour keeps its previous value when no variable is set.
