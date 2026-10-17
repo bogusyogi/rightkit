@@ -16,6 +16,7 @@ The first-run and re-acceptance legal gate screen for Right Suite desktop apps. 
 | Import | Contents |
 |---|---|
 | `@rightkit/legal-ui` | `LegalGate`; types `LegalGateAgreement`, `LegalGateDocument`, `LegalGateEligibilityLabels`, `LegalGateEligibilityBasis`, `LegalGateProps`, `LegalGateTheme`, `LegalGateVariant` |
+| `@rightkit/legal-ui` (defaults) | `policyGateDocuments(rendered, urls?)` maps the `@rightkit/legal` default policy texts to inline `LegalGate` documents |
 | `@rightkit/legal-ui/legal-ui.css` | Stylesheet. Import it under a strict CSP. |
 
 Peer dependency: `react` `>=18 <21`.

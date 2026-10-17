@@ -19,7 +19,19 @@ This package is infrastructure, not legal advice.
 |---|---|
 | `@rightkit/legal` | `RIGHT_SUITE_LEGAL_SCHEMA` (2), `assertLegalManifest`, `createAcceptanceReceipt`, `needsLegalAcceptance`, `materialAcceptanceDigest`; types `LegalManifest`, `LegalDocumentDescriptor`, `LegalAppendixDescriptor`, `AcceptedLegalDocument`, `LegalAcceptanceReceipt`, `LegalEligibilityBasis`, `LegalAcceptanceSurface`, `LegalDocumentTreatment`, `LegalDocumentRole` |
 
+| `@rightkit/legal` (defaults) | `RIGHT_SUITE_COMPANY_FACTS`, `DEFAULT_DATA_STATEMENT`, `resolveCompanyFacts`, `assertRefundPolicy`, `renderDefaultPolicy`, `renderDefaultPolicies`, `defaultPolicyDescriptors`, `DEFAULT_POLICY_ROLE`; types `CompanyFacts`, `RefundPolicy`, `DefaultPolicyInput`, `RenderedPolicyDocument` |
+
 Peer dependencies: none.
+
+## Shared company facts and default policies
+
+Apps never carry their own company facts. Pass only `appName`, `supportEmail` and `refundPolicy` (all required: none has a suite default); override a suite fact only where the app truly differs. Adoption steps: `docs/LEGAL-DEFAULTS.md`.
+
+```ts
+const input = { appName: "GenRight", supportEmail: "hello@example.app", refundPolicy: { kind: "none", trialDays: 30 } } as const;
+const documents = renderDefaultPolicies(input);
+const descriptors = defaultPolicyDescriptors(input, { version: "1", publicUrlBase: "https://example.app/legal/" });
+```
 
 ## Example
 

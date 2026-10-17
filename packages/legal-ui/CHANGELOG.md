@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-10-17
+
+Additive (Orthic-Labs/rightkit#266). `LegalGate` is unchanged.
+
+- `policyGateDocuments(documents, urls?)`: turns the default policy texts rendered by `@rightkit/legal` (`renderDefaultPolicies`) into `LegalGate` documents that render inline as Markdown. Structural input type `DefaultPolicyDocumentLike`; no dependency on `@rightkit/legal`.
+
 ## 0.2.3 — 2026-10-16
 
 Additive. Documents without `content` render identically, and the default legend is unchanged.

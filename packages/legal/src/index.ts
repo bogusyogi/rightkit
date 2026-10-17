@@ -228,3 +228,4 @@ export function materialAcceptanceDigest(manifest: LegalManifest): string {
     .map((document) => `${document.role}|${document.id}|${document.version}|${document.sha256.toLowerCase()}`);
   return createHash("sha256").update(lines.join("\n")).digest("hex");
 }
+export * from "./defaults.js";

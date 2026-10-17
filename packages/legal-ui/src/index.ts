@@ -8,3 +8,5 @@ export type {
   LegalGateTheme,
   LegalGateVariant,
 } from "./LegalGate.js";
+export { policyGateDocuments } from "./policyDocuments.js";
+export type { DefaultPolicyDocumentLike } from "./policyDocuments.js";
