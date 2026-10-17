@@ -156,6 +156,8 @@ function createEvidence(repoRoot, {
     problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : [])],
     rows: scans.flatMap(({ scanned, root: registered }) => (scanned.rows ?? []).map((row) => ({ ...row, root: registered }))),
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
+    // Stale plain exception entries (match no finding) are warnings, never blockers (Orthic-Labs/rightkit#262).
+    warnings: scans.flatMap(({ scanned, root: registered }) => (scanned.warnings ?? []).filter((w) => w.startsWith("exception #")).map((w) => (registered === "." ? w : `${registered}: ${w}`))),
     coverage: contentCoverage,
     metadata: {
       repositoryIdentity, commit, tree, catalogDigest, contentDigests, coverage: contentCoverage,

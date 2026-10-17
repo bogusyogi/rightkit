@@ -1,50 +1,16 @@
 #!/usr/bin/env node
-// Draft/import/verify utilities. Signing is intentionally absent; native prompts own signing.
-import { readFileSync, writeFileSync, realpathSync } from "node:fs";
+// `right-release ownership-approval` is retired (Orthic-Labs/rightkit#262), under the proportional-trust rule, like trust-sync.
+// Ownership exceptions are plain entries in the repository's .rightkit/ownership-exceptions.json, reviewed through git:
+// no drafts, signatures, Touch ID or native helper. The command is a no-op that says so and always succeeds.
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDraft, loadTrustedExternal, policyEntryDigest, validateRecord, verifyException } from "./ownership-approval.mjs";
-import { SCANNER_VERSION } from "./ownership.mjs";
-import manifest from "./rightkit-ownership.json" with { type: "json" };
 
-function arg(args, name) { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; }
-function json(file) { return JSON.parse(readFileSync(path.resolve(file), "utf8")); }
-export function createInstalledDraft(input, { catalog = manifest, scannerVersion = SCANNER_VERSION, now = new Date() } = {}) {
-  const draft = createDraft({ ...input, issued: now.toISOString().slice(0, 10), policyDigest: policyEntryDigest(catalog, input.fingerprint), minimumScannerVersion: scannerVersion, minimumCatalogVersion: catalog.version ?? String(catalog.schema) });
-  const problems = validateRecord(draft);
-  const duration = Date.parse(draft.payload.expires) - Date.parse(draft.payload.issued);
-  if (!(duration > 0 && duration <= 90 * 86400000)) problems.push("draft expiry must be after issued and within 90 days");
-  if (problems.length) throw new Error(problems.join("; "));
-  return draft;
-}
-export function main(args) {
-  if (args.includes("--draft")) {
-    const input = json(arg(args, "--draft"));
-    const draft = createInstalledDraft(input);
-    const out = arg(args, "--out");
-    const data = `${JSON.stringify(draft, null, 2)}\n`;
-    if (out) writeFileSync(path.resolve(out), data, { flag: "wx" }); else process.stdout.write(data);
-    return 0;
-  }
-  if (args.includes("--import")) {
-    const record = json(arg(args, "--import"));
-    const out = arg(args, "--out");
-    if (!out) throw new Error("--import requires --out");
-    writeFileSync(path.resolve(out), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
-    return 0;
-  }
-  if (args.includes("--verify")) {
-    const record = json(arg(args, "--verify"));
-    const context = json(arg(args, "--context"));
-    const loaded = loadTrustedExternal();
-    const result = verifyException(record, { ...context, trust: loaded.trust });
-    process.stdout.write(`${JSON.stringify({ ...result, pending: loaded.pending }, null, 2)}\n`);
-    return result.ok ? 0 : 1;
-  }
-  throw new Error("usage: node ownership-approval-command.mjs --draft input.json [--out draft.json] | --import signed.json --out record.json | --verify signed.json --context scan.json");
+export const OWNERSHIP_APPROVAL_RETIRED = "right-release ownership-approval is retired: signed ownership exceptions (draft, sign, Touch ID and native-helper paths) no longer exist. Edit .rightkit/ownership-exceptions.json directly, with plain entries {capability, package, reason, owner, date}, and review the change through git. `right-release ownership` marks a matching finding excepted and warns about stale entries.";
+
+export function main(_args = [], { print = (line) => process.stdout.write(`${line}\n`) } = {}) {
+  print(`[right-release] ${OWNERSHIP_APPROVAL_RETIRED}`);
+  return 0;
 }
 const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
-if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
-  try { process.exitCode = main(process.argv.slice(2)); }
-  catch (error) { console.error(`[right-release] ownership approval: ${error.message}`); process.exitCode = 1; }
-}
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) process.exitCode = main(process.argv.slice(2));

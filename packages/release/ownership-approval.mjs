@@ -110,7 +110,7 @@ export function occurrenceHash(finding) {
   return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, ecosystem, name: finding.name, alias: finding.alias, section: finding.section, requirement: finding.requirement,
     features: [...new Set(finding.features)].sort(), defaultFeatures: finding.defaultFeatures, source: finding.source, resolvedVersion: finding.resolvedVersion });
 }
-// Schema-v2 envelopes retain source/dependency kinds; lock routes are dependency occurrences.
+// Schema-v2 draft envelopes retain source/dependency kinds; lock routes are dependency occurrences.
 const exceptionOccurrenceKind = (f) => f.kind === "transitive-dependency" ? "dependency" : f.kind ?? (f.ecosystem ? "dependency" : "source");
 function nullableString(value) { return value === null || typeof value === "string" && value.length > 0; }
 function validFingerprint(value) { return typeof value === "string" && /^[a-z0-9][a-z0-9._-]{1,127}$/.test(value) && !HEX.test(value); }
@@ -415,44 +415,5 @@ function signatureProblems(record, trust) {
   }
 }
 
-/** Verify signature, protected enrollment, floor, and exact scan coverage. */
-export function verifyException(record, { repositoryIdentity, catalogDigest, policyDigest, findings, trust, today = new Date().toISOString().slice(0, 10), scannerVersion, catalogVersion } = {}) {
-  const problems = validateRecord(record);
-  if (problems.length) return { ok: false, problems };
-  const r = record.payload;
-  if (!validDate(today)) return { ok: false, problems: ["invalid verification date"] };
-  if (r.issued > today) problems.push("approval issued date is in the future");
-  const duration = Date.parse(`${r.expires}T00:00:00Z`) - Date.parse(`${r.issued}T00:00:00Z`);
-  if (duration <= 0 || duration > 90 * 86400000) problems.push("approval expiry must be after issued and within 90 days");
-  if (r.expires < today) problems.push(`approval expired ${r.expires}`);
-  if (problems.length) return { ok: false, problems };
-  if (!versionAtLeast(scannerVersion, r.minimumScannerVersion)) problems.push("scanner version missing, malformed, or below approval minimum");
-  if (!versionAtLeast(catalogVersion, r.minimumCatalogVersion)) problems.push("catalog version missing, malformed, or below approval minimum");
-  if (!trust) problems.push("pending: external ownership trust is not enrolled");
-  else problems.push(...validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest }).problems);
-  if (problems.length) return { ok: false, problems };
-  if (typeof policyDigest !== "string" || !HEX.test(policyDigest) || r.policyDigest !== policyDigest) return { ok: false, problems: ["ownership fingerprint policy digest missing or changed"] };
-  if (!Array.isArray(findings)) return { ok: false, problems: ["current findings missing or malformed"] };
-  let current;
-  try { current = findings.filter((f) => f.fingerprint === r.fingerprint).map((f) => ({ path: f.file, kind: exceptionOccurrenceKind(f), hash: occurrenceHash(f) })); }
-  catch (error) { return { ok: false, problems: [error.message] }; }
-  for (const item of r.occurrences) if (!current.some((f) => f.path === item.path && f.hash === item.hash && f.kind === item.kind)) problems.push(`baseline occurrence changed or missing: ${item.path} (${item.hash})`);
-  if (problems.length) return { ok: false, problems };
-  const trackingEvidence = sha256({ repositoryIdentity: r.repositoryIdentity, requestId: r.requestId, trackingRef: r.trackingRef });
-  if (!trust.verifiedTrackingEvidence?.includes(trackingEvidence)) problems.push("tracking reference lacks protected verification evidence");
-  let recordIdentity, currentIdentity;
-  try { recordIdentity = canonicalRepositoryIdentity(r.repositoryIdentity); currentIdentity = canonicalRepositoryIdentity(repositoryIdentity); }
-  catch { problems.push("invalid repository identity"); }
-  if (recordIdentity && recordIdentity !== r.repositoryIdentity) problems.push("approval repository identity is not canonical");
-  if (recordIdentity && currentIdentity && recordIdentity !== currentIdentity) problems.push("repository identity changed");
-  const registration = verifyRepositoryRegistration(trust, r.repositoryIdentity, { files: (findings ?? []).map((f) => f.file) });
-  problems.push(...registration.problems);
-  if (record.signature === null) problems.push("unsigned approval record");
-  else if (!problems.length) problems.push(...signatureProblems(record, trust));
-  return { ok: problems.length === 0, problems };
-}
-
-export function signPayloadForNative(record, { keyId, host, signature }) {
-  if (!record?.payload || !signature) throw new Error("native signer must return a signature over displayed approval payload");
-  return { schema: APPROVAL_SCHEMA, payload: record.payload, signature: { keyId, host, value: signature } };
-}
+// Exception records are plain, git-reviewed entries (Orthic-Labs/rightkit#262); verifyException and native signing are retired.
+// signatureProblems stays only as the enrolled-key signature check used by key-log tests.

@@ -109,7 +109,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
       : result.coverage.length
         ? { type: "ownership-coverage", message: `${result.coverage.length} ownership coverage gap(s)` }
         : undefined;
-    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), ...(blocked ? { blocked } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], ...(checked.warnings ? { warnings: checked.warnings } : {}), coverage: result.coverage, metadata: result.metadata }, null, 2));
+    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), ...(blocked ? { blocked } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], ...((checked.warnings?.length || result.warnings?.length) ? { warnings: [...(checked.warnings ?? []), ...(result.warnings ?? [])] } : {}), coverage: result.coverage, metadata: result.metadata }, null, 2));
   } else {
     print(`RightKit ownership: ${path.basename(app)}`);
     print(formatTable(result.rows));
@@ -118,7 +118,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
     }
     for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
     print(verdictLine(checked, result, blocked));
-    for (const warning of checked.warnings ?? []) print(`  WARNING ${warning}`);
+    for (const warning of [...(checked.warnings ?? []), ...(result.warnings ?? [])]) print(`  WARNING ${warning}`);
   }
   // CI lanes may pass `--advisory-when-pending`: before approval keys are enrolled the scan asserts
   // nothing, so findings print as diagnostics and the step exits 0. Release lanes never pass it.

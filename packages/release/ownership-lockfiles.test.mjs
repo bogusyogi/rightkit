@@ -163,18 +163,17 @@ test("cycles terminate & distinct dependency routes remain separate with shortes
     assert.equal(new Set(found.map(occurrenceHash)).size, 4); assert.equal(found[0].dependencyPath.length, 3);
   });
 });
-test("v2 signed exception for route A never covers B; name/version/source/path all bind hashes", () => {
+test("a plain exception entry covers the capability; route A and B hash differently (name/version/source/path bind hashes) (#262)", () => {
   fixture({ "package.json": npmManifest({ a: "1.0.0", b: "1.0.0" }), "package-lock.json": npmLock(["a", "b"]) }, (root) => {
     const found = transitive(root), [a, b] = found, identity = "https://github.com/test/transitive";
     assert.notEqual(occurrenceHash(a), occurrenceHash(b));
     for (const change of [{ resolvedVersion: "25.0.0" }, { source: "git+https://example.com/browser.git#rev" }, { name: "changed", dependencyPath: [...a.dependencyPath.slice(0, -1), "changed"] }]) assert.notEqual(occurrenceHash(a), occurrenceHash({ ...a, ...change }));
-    const record = createDraft({ repositoryIdentity: identity, fingerprint: a.fingerprint, policyDigest: policyEntryDigest(catalog, a.fingerprint), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: "1", findings: [a], issued: "2026-10-08", reason: "migration", owner: "app", requestId: "RK-001", trackingRef: { id: "1", url: `${identity}/issues/1`, verified: true } });
-    assert.equal(record.payload.occurrences[0].kind, "dependency");
+    const record = { capability: a.capability, package: a.package, fingerprint: a.fingerprint, path: a.file, reason: "migration", owner: "app", date: "2026-10-17", index: 0 };
     const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" }), mac = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-    record.signature = { host: "windows", keyId: keyIdForPublicKey("windows", pair.publicKey), value: sign("sha256", Buffer.from(canonicalJson(record.payload)), pair.privateKey).toString("base64") };
-    const trust = { schema: 1, minimumScannerVersion: "2", minimumCatalogVersion: "1", revokedKeyIds: [], provenance: [], repositories: [{ repositoryIdentity: identity, roots: ["."], visibility: "public" }], verifiedTrackingEvidence: [sha256({ repositoryIdentity: identity, requestId: record.payload.requestId, trackingRef: record.payload.trackingRef })], hosts: { windows: { keyId: record.signature.keyId, publicKeyPem: pair.publicKey.export({ type: "spki", format: "pem" }) }, macos: { keyId: keyIdForPublicKey("macos", mac.publicKey), publicKeyPem: mac.publicKey.export({ type: "spki", format: "pem" }) } } };
-    const options = { manifest: catalog, repositoryIdentity: identity, trust, today: "2026-10-08", scannerVersion: SCANNER_VERSION, catalogVersion: "1" };
-    const result = evaluate(found, [record], options); assert.deepEqual(result.problems, []); assert.deepEqual(result.covered.map((f) => f.dependencyPath), [a.dependencyPath]); assert.equal(result.violations.length, 1);
+    const trust = { schema: 1, minimumScannerVersion: "2", minimumCatalogVersion: "1", revokedKeyIds: [], provenance: [], repositories: [{ repositoryIdentity: identity, roots: ["."], visibility: "public" }], verifiedTrackingEvidence: [], hosts: { windows: { keyId: keyIdForPublicKey("windows", pair.publicKey), publicKeyPem: pair.publicKey.export({ type: "spki", format: "pem" }) }, macos: { keyId: keyIdForPublicKey("macos", mac.publicKey), publicKeyPem: mac.publicKey.export({ type: "spki", format: "pem" }) } } };
+    const options = { manifest: catalog, repositoryIdentity: identity, scannerVersion: SCANNER_VERSION, catalogVersion: "1" };
+    const result = evaluate(found, [record], options); assert.deepEqual(result.problems, []); assert.deepEqual(result.covered.map((f) => f.dependencyPath), found.filter((f) => f.fingerprint === a.fingerprint && f.file === a.file).map((f) => f.dependencyPath));
+    const narrowed = evaluate(found, [{ ...record, fingerprint: "unrelated.fingerprint" }], options); assert.equal(narrowed.covered.length, 0); assert.ok(narrowed.warnings.some((w) => /stale/.test(w)));
     const checked = JSON.parse(json(checkApp(root, catalog, { trust })));
     assert.equal(ownershipVerdict(checked, trust).code, "RK_OWNERSHIP_VIOLATION");
     writeFileSync(path.join(root, "package-lock.json"), "{");

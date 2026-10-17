@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { catalogDigest, checkAppForTest, scanApp, SCANNER_VERSION } from "./ownership.mjs";
 import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
-import { canonicalJson, createDraft, keyIdForPublicKey, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
+import { sha256 } from "./ownership-approval.mjs";
 import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 import { computePolicyBundle, runningPolicyBundle } from "./ownership-policy-bundle.mjs";
@@ -432,7 +432,7 @@ test("dirty forged worktree log cannot poison committed scan when checkout clean
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
-test("exception signed by a revoked key stays uncovered under pinned log", () => {
+test("plain exception entry covers a finding in committed evidence even when the pinned key log has a revoked root (#262: no signature to check)", () => {
   const fixture = pinnedFixture({ revokeRoot: true });
   try {
     const manifestPath = path.join(fixture.root, "catalog.json");
@@ -440,18 +440,15 @@ test("exception signed by a revoked key stays uncovered under pinned log", () =>
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const line = "fn main() { REVOKED_KEY_LOG_MARKER; }";
     writeFileSync(path.join(fixture.root, "source.rs"), `${line}\n`);
-    const trackingRef = { id: "RK-1", url: "https://github.com/test/repo/issues/1", verified: true };
-    const record = createDraft({ repositoryIdentity: "https://github.com/test/repo", policyDigest: policyEntryDigest(manifest, "marker"), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: manifest.version, issued: "2026-10-08", fingerprint: "marker", findings: scanApp(fixture.root, manifest, { trust: null }), reason: "test", owner: "test", expires: "2027-01-06", requestId: "RK-REVOKED-1", trackingRef });
-    record.signature = { keyId: keyIdForPublicKey("windows", fixture.rootKey.record.publicKeyPem), host: "windows", value: sign("sha256", Buffer.from(canonicalJson(record.payload)), fixture.rootKey.pair.privateKey).toString("base64") };
-    fixture.trust.verifiedTrackingEvidence = [sha256({ repositoryIdentity: "https://github.com/test/repo", requestId: record.payload.requestId, trackingRef })];
+    const record = { capability: "sample", package: "sample", reason: "test", owner: "test", date: "2026-10-17" };
     mkdirSync(path.join(fixture.root, ".rightkit"), { recursive: true });
     writeFileSync(path.join(fixture.root, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [record] }));
     git(fixture.root, "add", ".");
     git(fixture.root, "commit", "-qm", "revoked approval fixture");
     const checked = createCommittedOwnershipEvidenceForTest(fixture.root, { ...fixture.options, manifestPath });
-    assert.equal(checked.ok, false);
-    assert.ok(checked.result.problems.some((problem) => /signing key is revoked/.test(problem)), checked.result.problems.join("; "));
-    assert.equal(checked.result.covered.length, 0);
+    assert.equal(checked.result.covered.length, 1);
+    assert.equal(checked.result.violations.length, 0);
+    assert.ok(!checked.result.problems.some((problem) => /signing key|signature/.test(problem)), checked.result.problems.join("; "));
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
@@ -482,7 +479,7 @@ test("ordinary evidence uses committed key history and refuses pending enrollmen
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
-test("shared workspace authority approves nested product exceptions without copying its log", () => {
+test("plain product exceptions are read from the committed tree under a shared workspace authority without copying its log", () => {
   const authority = pinnedFixture();
   const product = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-product-repo-")));
   try {
@@ -496,10 +493,8 @@ test("shared workspace authority approves nested product exceptions without copy
     const line = "fn main() { SHARED_AUTHORITY_MARKER; }";
     writeFileSync(path.join(product, "source.rs"), `${line}\n`);
     mkdirSync(path.join(product, ".rightkit"), { recursive: true });
-    const trackingRef = { id: "RK-2", url: "https://github.com/test/product/issues/2", verified: true };
-    const record = createDraft({ repositoryIdentity: "https://github.com/test/product", policyDigest: policyEntryDigest(manifest, "marker"), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: manifest.version, issued: "2026-10-08", fingerprint: "marker", findings: scanApp(product, manifest, { trust: null }), reason: "test", owner: "test", expires: "2027-01-06", requestId: "RK-SHARED-2", trackingRef });
-    record.signature = { keyId: keyIdForPublicKey("macos", authority.deviceKey.record.publicKeyPem), host: "macos", value: sign("sha256", Buffer.from(canonicalJson(record.payload)), authority.deviceKey.pair.privateKey).toString("base64") };
-    const trust = { ...authority.trust, keyAuthority: { repositoryIdentity: "https://github.com/test/repo", checkoutPath: authority.root }, repositories: [{ repositoryIdentity: "https://github.com/test/product", roots: ["."], visibility: "private" }], verifiedTrackingEvidence: [sha256({ repositoryIdentity: "https://github.com/test/product", requestId: record.payload.requestId, trackingRef })] };
+    const record = { capability: "sample", package: "sample", reason: "test", owner: "test", date: "2026-10-17" };
+    const trust = { ...authority.trust, keyAuthority: { repositoryIdentity: "https://github.com/test/repo", checkoutPath: authority.root }, repositories: [{ repositoryIdentity: "https://github.com/test/product", roots: ["."], visibility: "private" }] };
     writeFileSync(path.join(product, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [record] }));
     git(product, "add", ".");
     git(product, "commit", "-qm", "product source with shared approval");
@@ -551,8 +546,8 @@ test("shared workspace authority approves nested product exceptions without copy
     advanceCheckpoint(authority);
     const revokedMac = checkAppForTest(product, manifest, { trust: trustLoader(), readAuthorityForTest });
     assert.equal(revokedMac.enrollmentPending, false);
-    assert.equal(revokedMac.covered.length, 0);
-    assert.equal(revokedMac.violations.length, 1);
+    assert.equal(revokedMac.covered.length, 1);  // plain entries do not depend on any enrolled key
+    assert.equal(revokedMac.violations.length, 0);
     const revokeRoot = signedEvent(authority.log, { operation: "revoke", subject: { keyId: authority.rootKey.record.keyId }, signerKeyId: authority.rootKey.record.keyId }, authority.rootKey);
     authority.log.events.push(revokeRoot);
     writeFileSync(path.join(authority.root, ".rightkit", "ownership-keys.json"), `${JSON.stringify(authority.log)}\n`);

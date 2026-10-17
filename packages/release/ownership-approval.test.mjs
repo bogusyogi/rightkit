@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, occurrenceHash, policyEntryDigest, provenanceContentDigest, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, occurrenceHash, policyEntryDigest, provenanceContentDigest, resolveKeyLogTrust, sha256, validateOwnershipFloor, validateRecord, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import * as approvalModule from "./ownership-approval.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 
 const finding = { fingerprint: "oauth.device", file: "src/auth.rs", line: 12, text: "device grant endpoint", lineText: "device grant endpoint", ordinal: 0 };
@@ -24,15 +25,17 @@ function signed(overrides = {}, signingHost = "windows") {
   return { ...draft, signature: { keyId: keys[signingHost].keyId, host: signingHost, value: sign("sha256", data, keys[signingHost].privateKey).toString("base64") } };
 }
 
-test("valid signed approval matches exact repo, catalog, path & occurrence baseline", () => {
-  assert.deepEqual(verifyException(signed(), { ...context, trust }), { ok: true, problems: [] });
+test("signature verification of exception records is retired (#262); the signing-key helper still verifies enrolled key signatures", () => {
+  assert.equal(approvalModule.verifyException, undefined);
+  assert.equal(approvalModule.signPayloadForNative, undefined);
+  assert.deepEqual(__testOnly.signatureProblems(signed(), trust), []);
   assert.equal(createDraft({ repositoryIdentity: "git@github.com:Orthic-Labs/Example.git", policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } }).payload.repositoryIdentity, context.repositoryIdentity);
 });
-test("unsigned, malformed, and payload-tampered records fail", () => {
+test("unsigned and payload-tampered records fail the signing-key helper", () => {
   const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "r", owner: "o", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://example.com/t/1", id: "1", verified: true } });
-  assert.match(verifyException(draft, { ...context, trust }).problems.join(" "), /unsigned/);
+  assert.match(__testOnly.signatureProblems(draft, trust).join(" "), /signature or protected trust is missing/);
   const changed = signed(); changed.payload.reason = "broadened";
-  assert.match(verifyException(changed, { ...context, trust }).problems.join(" "), /invalid signature/);
+  assert.match(__testOnly.signatureProblems(changed, trust).join(" "), /invalid signature/);
 });
 test("pinned key log resolves N-device keys and rejects forks and root substitution", () => {
   const rootPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -72,32 +75,22 @@ test("pinned Windows RSA approval accepts PSS & PKCS1 signatures", () => {
     const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } });
     const signature = sign("sha256", Buffer.from(canonicalJson(draft.payload)), { key: pair.privateKey, padding, ...(padding === constants.RSA_PKCS1_PSS_PADDING ? { saltLength: 32 } : {}) });
     const record = { ...draft, signature: { keyId: `win-${keyId}`, host: "windows", value: signature.toString("base64") } };
-    assert.equal(verifyException(record, { ...context, trust: trustPinned }).ok, true);
+    assert.deepEqual(__testOnly.signatureProblems(record, trustPinned), []);
   }
 });
-test("changed identity, catalog, path occurrence, expiry, or revoked key fail", () => {
+test("revoked key fails the signing-key helper", () => {
   const record = signed();
-  for (const change of [
-    { ...context, repositoryIdentity: "github.com/other/repo" },
-    { ...context, policyDigest: "c".repeat(64) },
-    { ...context, findings: [{ ...finding, file: "src/other.rs" }] },
-    { ...context, today: "2027-01-01" },
-  ]) assert.equal(verifyException(record, { ...change, trust }).ok, false);
-  assert.match(verifyException(record, { ...context, trust: { ...trust, revokedKeyIds: [keys.windows.keyId] } }).problems.join(" "), /revoked/);
-  assert.match(verifyException(record, { ...context, today: "2026-02-31", trust }).problems.join(" "), /verification date/);
-  assert.match(verifyException(signed({ expires: "2026-02-31" }), { ...context, trust }).problems.join(" "), /expiry date/);
+  assert.match(__testOnly.signatureProblems(record, { ...trust, revokedKeyIds: [keys.windows.keyId] }).join(" "), /revoked/);
 });
-test("glob paths, unverified tracking, and missing second-host enrollment fail", () => {
+test("glob paths and unverified tracking fail record validation; missing second-host enrollment and reused keys fail the signing-key helper", () => {
   const broad = signed(); broad.payload.occurrences[0].path = "src/**";
-  assert.match(verifyException(broad, { ...context, trust }).problems.join(" "), /exact/);
+  assert.match(validateRecord(broad).join(" "), /exact/);
   const tracking = signed({ trackingRef: { url: "https://example.com/1", id: "1", verified: false } });
-  assert.match(verifyException(tracking, { ...context, trust }).problems.join(" "), /verified/);
+  assert.match(validateRecord(tracking).join(" "), /verified/);
   const oneHost = { ...trust, hosts: { windows: trust.hosts.windows } };
-  assert.match(verifyException(signed(), { ...context, trust: oneHost }).problems.join(" "), /Windows and macOS/);
-  const unregistered = { ...trust, verifiedTrackingEvidence: [] };
-  assert.match(verifyException(signed(), { ...context, trust: unregistered }).problems.join(" "), /protected verification evidence/);
+  assert.match(__testOnly.signatureProblems(signed(), oneHost).join(" "), /Windows and macOS/);
   const reusedKey = { ...trust, hosts: { windows: trust.hosts.windows, macos: trust.hosts.windows } };
-  assert.match(verifyException(signed(), { ...context, trust: reusedKey }).problems.join(" "), /distinct/);
+  assert.match(__testOnly.signatureProblems(signed(), reusedKey).join(" "), /distinct/);
 });
 test("protected scanner and catalog floors reject downgrade and accept current versions", () => {
   assert.deepEqual(validateOwnershipFloor(trust, { scannerVersion: "2", catalogVersion: "4" }), { ok: true, problems: [], warnings: [] });
@@ -105,7 +98,6 @@ test("protected scanner and catalog floors reject downgrade and accept current v
   assert.equal(validateOwnershipFloor(trust, { scannerVersion: "2", catalogVersion: "2" }).ok, false);
   assert.match(validateOwnershipFloor(trust, { scannerVersion: "2" }).problems.join(" "), /catalog version missing/);
   assert.match(validateOwnershipFloor(trust, { catalogVersion: "4" }).problems.join(" "), /scanner version missing/);
-  assert.equal(verifyException(signed(), { ...context, scannerVersion: undefined, trust }).ok, false);
 });
 test("byte hashing uses raw SHA-256 bytes and public-key IDs use SPKI DER", () => {
   assert.equal(sha256(Buffer.from("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

@@ -65,14 +65,14 @@ test("cross-app report keeps dependency distinct from integration and hashes/ded
   } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
 });
 
-test("raw exception records become pending requests and are never treated as approved", () => {
+test("plain exception entries that match no finding are listed as stale and never treated as excepted", () => {
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), "rk-exception-feed-"));
   const appRoot = path.join(workspaceRoot, "app"); mkdirSync(path.join(appRoot, ".rightkit"), { recursive: true });
-  writeFileSync(path.join(appRoot, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [{ requestId: "RK-ABCDEF", fingerprint: "oauth.endpoint.github", paths: ["src/auth.rs"], reason: "migration", owner: "app" }] }));
+  writeFileSync(path.join(appRoot, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [{ capability: "oauth", package: "rightkit-oauth", reason: "migration", owner: "app", date: "2026-10-17" }] }));
   try {
     const report = buildOwnershipReport({ workspaceRoot, manifest, versions, apps: [{ key: "app", root: "app" }], scanner: () => ({ enrollmentPending: true, rows: [], findings: [], violations: [], covered: [], problems: [], coverage: [], metadata: {} }) });
     assert.equal(report.exceptionRequests.length, 1);
-    assert.equal(report.exceptionRequests[0].state, "request-pending-verification");
+    assert.equal(report.exceptionRequests[0].state, "stale-exception-entry");
     assert.deepEqual(report.apps[0].covered, []);
   } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
 });

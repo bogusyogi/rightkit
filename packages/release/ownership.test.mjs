@@ -385,28 +385,45 @@ test("symlink escapes and opaque build caches are explicit incomplete coverage",
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("unsigned, forged, broad, expired & stale exceptions never cover; valid signed exact baseline does", () => {
+test("plain exception entries (#262): a matching entry marks the finding excepted; malformed, legacy-signed and non-matching entries never cover; stale entries warn", () => {
   const findings = [{ fingerprint: "oauth.endpoint.github", capability: "oauth-sign-in", package: "rightkit-oauth", file: "engine/src/auth.rs", line: 1, lineText: SAMPLES["oauth.endpoint.github"], ordinal: 0, text: SAMPLES["oauth.endpoint.github"] }];
-  const metadata = { repositoryIdentity: "https://github.com/org/repo", catalogDigest: catalogDigest(shipped), scannerVersion: "2.0.0", catalogVersion: "1" };
-  let result = evaluate(findings, [{ fingerprint: findings[0].fingerprint, paths: [findings[0].file], approvedBy: "agent" }], { manifest: approvalCatalog, metadata, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.ok(result.problems.length);
-  const { record, trust } = signedException(findings, { root: metadata.repositoryIdentity, fingerprint: findings[0].fingerprint, file: findings[0].file });
-  result = evaluate(findings, [record], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 1); assert.equal(result.violations.length, 0); assert.deepEqual(result.problems, []);
-  result = evaluate(findings, [{ ...record, approvedBy: "agent" }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /approvedBy must be Adrian/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, approvedBy: "agent" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /approvedBy must be Adrian/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, occurrences: [{ ...record.payload.occurrences[0], path: "**" }] } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /exact repository-relative/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /missing expires/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "2026-99-99" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /invalid or expired expires/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, trackingRef: "issue RK-123456" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /tracking must be a verified/);
-  result = evaluate(findings, [record], { manifest: approvalCatalog, metadata, trust: undefined, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
+  const entry = { capability: "oauth-sign-in", package: "rightkit-oauth", reason: "bounded migration", owner: "CodeRight", date: "2026-10-17" };
+  const staleWarnings = (r) => r.warnings.filter((w) => /stale/.test(w));
+  // Matching entry: excepted, no signature, no trust, no approvedBy needed.
+  let result = evaluate(findings, [{ ...entry, index: 0 }], {});
+  assert.equal(result.covered.length, 1); assert.equal(result.violations.length, 0); assert.deepEqual(result.problems, []); assert.deepEqual(staleWarnings(result), []);
+  assert.equal(result.covered[0].exception.owner, "CodeRight");
+  // `crate` is an accepted alias for `package`; optional fingerprint and path narrow the match.
+  const { package: owner, ...withoutPackage } = entry;
+  assert.equal(evaluate(findings, [{ ...withoutPackage, crate: owner, index: 0 }], {}).covered.length, 1);
+  assert.equal(evaluate(findings, [{ ...entry, fingerprint: "oauth.endpoint.github", path: "engine/src", index: 0 }], {}).covered.length, 1);
+  result = evaluate(findings, [{ ...entry, fingerprint: "oauth.endpoint.google", index: 0 }], {});
+  assert.equal(result.covered.length, 0); assert.equal(result.violations.length, 1); assert.equal(staleWarnings(result).length, 1);
+  result = evaluate(findings, [{ ...entry, path: "apps/src", index: 0 }], {});
+  assert.equal(result.covered.length, 0); assert.equal(staleWarnings(result).length, 1);
+  // Stale entry (different capability/package): finding stays a violation, entry is a warning not a problem.
+  result = evaluate(findings, [{ ...entry, package: "rightkit-browser", index: 0 }], {});
+  assert.equal(result.covered.length, 0); assert.equal(result.violations.length, 1); assert.deepEqual(result.problems, []);
+  assert.match(staleWarnings(result)[0], /exception #0.*stale, matches no current finding/);
+  // A stale entry beside a live one reports only the stale one.
+  result = evaluate(findings, [{ ...entry, index: 0 }, { ...entry, capability: "gone", index: 1 }], {});
+  assert.equal(result.covered.length, 1); assert.equal(staleWarnings(result).length, 1); assert.match(staleWarnings(result)[0], /exception #1/);
+  // Two entries for one finding cover it once.
+  assert.equal(evaluate(findings, [{ ...entry, index: 0 }, { ...entry, index: 1 }], {}).covered.length, 1);
+  // Malformed entries are problems and never cover.
+  for (const [broken, pattern] of [
+    [{ ...entry, reason: "" }, /missing reason/], [{ ...entry, owner: undefined }, /missing owner/], [{ ...entry, capability: undefined }, /missing capability/],
+    [{ ...withoutPackage }, /missing package/], [{ ...entry, date: "2026-99-99" }, /date must be YYYY-MM-DD/], [{ ...entry, date: undefined }, /date must be YYYY-MM-DD/],
+  ]) {
+    result = evaluate(findings, [{ ...broken, index: 0 }], {});
+    assert.equal(result.covered.length, 0); assert.match(result.problems[0], pattern);
+  }
+  // Legacy signed records are refused with a pointer to the plain format.
+  result = evaluate(findings, [{ schema: 2, payload: { fingerprint: "oauth.endpoint.github" }, signature: null, index: 0 }], {});
+  assert.equal(result.covered.length, 0); assert.match(result.problems[0], /legacy signed exception record/);
+  // Enrollment state no longer affects whether an entry covers.
+  result = evaluate(findings, [{ ...entry, index: 0 }], { trust: undefined });
+  assert.equal(result.covered.length, 1);
 });
 
 test("sample source occurrence fails closed while enrollment is pending", () => {

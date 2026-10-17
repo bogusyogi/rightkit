@@ -7,7 +7,7 @@ import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { canonicalJson, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
 import { directDependencies, evaluate, scanApp, SCANNER_VERSION } from "./ownership.mjs";
-import { createInstalledDraft } from "./ownership-approval-command.mjs";
+import { main as approvalCommand, OWNERSHIP_APPROVAL_RETIRED } from "./ownership-approval-command.mjs";
 import { prepareMigrationDrafts } from "../../ownership-approval/migrations/prepare-migration-drafts.mjs";
 import "../../ownership-approval/migrations/validate-migration-drafts.mjs";
 
@@ -78,61 +78,29 @@ test("malformed adjacent lock emits specific incomplete coverage", () => {
   const dir = root({ "package.json": JSON.stringify({ dependencies: { puppeteer: "24" } }), "package-lock.json": "{}" });
   try { assert.match(directDependencies(dir).coverage[0].reason, /dependency-lock-resolution:npm lock resolution missing: puppeteer/); } finally { remove(dir); }
 });
-test("exception matching covers listed pairs and computes installed rule digest", () => {
-  const fingerprint = manifest.capabilities[0].fingerprints[0].id, identity = "https://github.com/orthic-labs/example";
+test("plain exception entry covers every finding of its capability and package; other capabilities stay violations (#262)", () => {
+  const fingerprint = manifest.capabilities[0].fingerprints[0].id;
   const finding = { fingerprint, capability: "browser", package: "rightkit-browser", kind: "source", file: "src/a.rs", lineText: "SendInput();", ordinal: 0 };
-  const findings = [finding, { ...finding, ordinal: 1 }, { ...finding, file: "src/b.rs" }];
-  const record = createDraft({ repositoryIdentity: identity, fingerprint, policyDigest: policyEntryDigest(manifest, fingerprint), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: "1", findings: [finding], issued: "2026-10-08", owner: "Example", reason: "migration", requestId: "RK-001", trackingRef: { id: "1", url: `${identity}/issues/1`, verified: true } });
-  const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" }), mac = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-  record.signature = { host: "windows", keyId: keyIdForPublicKey("windows", pair.publicKey), value: sign("sha256", Buffer.from(canonicalJson(record.payload)), pair.privateKey).toString("base64") };
-  const trust = { schema: 1, minimumScannerVersion: "2", minimumCatalogVersion: "1", revokedKeyIds: [], provenance: [], repositories: [{ repositoryIdentity: identity, roots: ["."], visibility: "public" }], verifiedTrackingEvidence: [sha256({ repositoryIdentity: identity, requestId: record.payload.requestId, trackingRef: record.payload.trackingRef })], hosts: { windows: { keyId: record.signature.keyId, publicKeyPem: pair.publicKey.export({ type: "spki", format: "pem" }) }, macos: { keyId: keyIdForPublicKey("macos", mac.publicKey), publicKeyPem: mac.publicKey.export({ type: "spki", format: "pem" }) } } };
-  const options = { manifest, repositoryIdentity: identity, trust, today: "2026-10-08", scannerVersion: SCANNER_VERSION, catalogVersion: "1" };
-  const result = evaluate(findings, [{ ...record, index: 0 }], options);
-  assert.deepEqual(result.problems, []); assert.equal(result.covered.length, 1); assert.equal(result.violations.length, 2);
-  const edited = structuredClone(manifest); edited.capabilities[0].fingerprints[1].name = "other";
-  assert.equal(evaluate(findings, [record], { ...options, manifest: edited }).covered.length, 1);
-  edited.capabilities[0].fingerprints[0].pattern = "OtherInput";
-  assert.match(evaluate(findings, [record], { ...options, manifest: edited }).problems.join(" "), /policy digest/);
+  const other = { ...finding, fingerprint: "other.fp", capability: "input", package: "rightkit-qa-driver", file: "src/c.rs" };
+  const findings = [finding, { ...finding, ordinal: 1 }, { ...finding, file: "src/b.rs" }, other];
+  const entry = { capability: "browser", package: "rightkit-browser", reason: "migration", owner: "Example", date: "2026-10-17", index: 0 };
+  const result = evaluate(findings, [entry], {});
+  assert.deepEqual(result.problems, []); assert.deepEqual(result.warnings.filter((w) => /stale/.test(w)), []);
+  assert.equal(result.covered.length, 3); assert.equal(result.violations.length, 1); assert.equal(result.violations[0].file, "src/c.rs");
+  const stale = evaluate([other], [entry], {});
+  assert.equal(stale.covered.length, 0); assert.equal(stale.violations.length, 1); assert.equal(stale.warnings.filter((w) => /stale/.test(w)).length, 1);
 });
 test("migration preparation emits a v2 set without signing", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-migration-v2-"));
   try { const result = prepareMigrationDrafts({ apps: [], outputDir: dir, now: new Date("2026-10-08T00:00:00Z") }); assert.equal(result.schema, 2); assert.equal(result.draftCount, 0); } finally { remove(dir); }
 });
-test("installed draft path replaces supplied dates, policy digest, and version floors", () => {
-  const fingerprint = manifest.capabilities[0].fingerprints[0].id;
-  const input = { repositoryIdentity: "https://github.com/orthic-labs/example", fingerprint, findings: [{ fingerprint, file: "src/a.rs", lineText: "SendInput();", ordinal: 0 }], reason: "migration", owner: "Example", requestId: "RK-001", trackingRef: { id: "1", url: "https://example.com/1", verified: true }, issued: "1900-01-01", policyDigest: "a".repeat(64), minimumScannerVersion: "0", minimumCatalogVersion: "0" };
-  const options = { catalog: manifest, scannerVersion: SCANNER_VERSION, now: new Date("2026-10-08T12:00:00Z") };
-  const record = createInstalledDraft(input, options);
-  assert.equal(record.schema, 2); assert.equal(record.payload.issued, "2026-10-08"); assert.equal(record.payload.expires, "2027-01-06");
-  assert.equal(record.payload.minimumScannerVersion, SCANNER_VERSION); assert.equal(record.payload.minimumCatalogVersion, manifest.version);
-  assert.equal(record.payload.policyDigest, policyEntryDigest(manifest, fingerprint));
-  assert.throws(() => createInstalledDraft({ ...input, expires: "2027-01-07" }, options), /within 90 days/);
-  assert.throws(() => createInstalledDraft({ ...input, requestId: undefined }, options), /invalid request id/);
-});
-test("draft CLI refuses missing installed tier rather than inventing policy", () => {
-  const dir = root({ "source.rs": "SendInput();\n" });
-  try {
-    const findings = scanApp(dir, manifest, { trust: null });
-    assert.equal(findings.length, 1);
-    const catalog = structuredClone(manifest), fingerprint = catalog.capabilities[0].fingerprints[0].id;
-    delete catalog.capabilities[0].tier;
-    const packageRoot = path.join(dir, "package");
-    mkdirSync(packageRoot);
-    for (const entry of readdirSync(import.meta.dirname, { withFileTypes: true })) {
-      if (entry.isFile() && /\.(?:mjs|json)$/.test(entry.name) && !entry.name.endsWith(".test.mjs")) cpSync(path.join(import.meta.dirname, entry.name), path.join(packageRoot, entry.name));
-    }
-    mkdirSync(path.join(packageRoot, "node_modules"));
-    cpSync(realpathSync(path.join(import.meta.dirname, "node_modules", "smol-toml")), path.join(packageRoot, "node_modules", "smol-toml"), { recursive: true });
-    writeFileSync(path.join(packageRoot, "rightkit-ownership.json"), JSON.stringify(catalog));
-    const file = path.join(dir, "input.json");
-    writeFileSync(file, JSON.stringify({ repositoryIdentity: "https://github.com/orthic-labs/example", fingerprint,
-      findings, reason: "migration", owner: "Example", requestId: "RK-001",
-      trackingRef: { id: "1", url: "https://example.com/1", verified: true } }));
-    const command = spawnSync(process.execPath, [path.join(packageRoot, "ownership-approval-command.mjs"), "--draft", file], { encoding: "utf8", windowsHide: true });
-    assert.equal(command.status, 1);
-    assert.match(command.stderr, /malformed catalog policy entry/);
-    assert.equal(command.stdout, "");
-  } finally { remove(dir); }
+test("ownership-approval is a retired no-op: it says so, exits 0 and touches nothing", () => {
+  const lines = [];
+  for (const args of [[], ["--draft", "input.json"], ["--draft", "input.json", "--out", "draft.json"], ["--verify", "signed.json", "--context", "scan.json"], ["--import", "signed.json", "--out", "record.json"]]) {
+    assert.equal(approvalCommand(args, { print: (line) => lines.push(line) }), 0);
+  }
+  assert.equal(lines.length, 5);
+  for (const line of lines) { assert.ok(line.includes(OWNERSHIP_APPROVAL_RETIRED)); assert.match(line, /retired/); assert.match(line, /ownership-exceptions\.json/); }
 });
 
 test("findings carry their fingerprint tier and banned policy; a missing tier defaults to block", async () => {

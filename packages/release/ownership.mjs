@@ -1,8 +1,7 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
 import { isBlockingFinding } from "./ownership-verdict.mjs";
 import { spawnSync } from "./background-process.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, policyEntryDigest, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
-import installedManifest from "./rightkit-ownership.json" with { type: "json" };
+import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import { parse as parseToml } from "smol-toml";
 import { sourceNonCode } from "./ownership-source.mjs";
 import { OWNERSHIP_LOCKFILES, transitiveDependencies } from "./ownership-lockfiles.mjs";
@@ -675,28 +674,39 @@ function enrollmentPending(trust, state) {
 function findingPolicy(c, f) {
   return { tier: f.tier ?? c.tier ?? "block", ...(f.policy ? { policy: f.policy } : {}) };
 }
+/**
+ * Plain exception entries (Orthic-Labs/rightkit#262), reviewed through git, no signatures:
+ * { capability, package (alias: crate), reason, owner, date }, optional narrowing { fingerprint, path }.
+ * An entry marks every finding of that capability/package (and fingerprint/path when given) `excepted`;
+ * an entry that matches no finding is reported as a stale warning; a malformed or legacy signed entry is a problem.
+ */
+export function validateExceptionEntry(entry) {
+  const problems = [];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return ["not an object"];
+  if (entry.payload || entry.signature !== undefined || entry.schema !== undefined) return ["legacy signed exception record; replace it with a plain entry {capability, package, reason, owner, date}"];
+  for (const key of ["capability", "reason", "owner"]) if (typeof entry[key] !== "string" || !entry[key].trim()) problems.push(`missing ${key}`);
+  const owner = entry.package ?? entry.crate;
+  if (typeof owner !== "string" || !owner.trim()) problems.push("missing package (crate or package)");
+  if (typeof entry.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || Number.isNaN(Date.parse(`${entry.date}T00:00:00Z`))) problems.push("date must be YYYY-MM-DD");
+  for (const key of ["fingerprint", "path"]) if (entry[key] !== undefined && (typeof entry[key] !== "string" || !entry[key])) problems.push(`${key} must be a non-empty string when present`);
+  return problems;
+}
+export function exceptionMatches(entry, finding) {
+  const owner = entry.package ?? entry.crate;
+  if (finding.capability !== entry.capability || finding.package !== owner) return false;
+  if (entry.fingerprint !== undefined && finding.fingerprint !== entry.fingerprint) return false;
+  if (entry.path !== undefined && !(finding.file === entry.path || finding.file?.startsWith(`${entry.path.replace(/\/$/, "")}/`))) return false;
+  return true;
+}
 export function evaluate(findings, exceptions, options = {}) {
-  const today = options.today ?? new Date().toISOString().slice(0, 10), problems = [], covered = [], violations = [], warnings = [];
-  const metadata = options.metadata ?? findings.metadata ?? {};
-  const catalogDigest = metadata.catalogDigest ?? options.catalogDigest ?? "";
-  const identity = options.repositoryIdentity ?? metadata.repositoryIdentity ?? "";
+  const problems = [], covered = [], violations = [], warnings = [];
   for (const e of exceptions) {
-    const p = e?.payload ?? e ?? {};
-    const where = `exception #${e?.index} (${p.fingerprint ?? "?"})`;
-    const missing = ["fingerprint", "occurrences", "policyDigest", "minimumScannerVersion", "minimumCatalogVersion", "issued", "reason", "owner", "expires", "requestId"].filter((k) => !p[k] || (Array.isArray(p[k]) && !p[k].length));
-    if (missing.length) { problems.push(`${where}: missing ${missing.join(", ")}`); continue; }
-    const approvedBy = e.approvedBy ?? p.approvedBy;
-    if (approvedBy !== undefined && approvedBy !== "Adrian") { problems.push(`${where}: approvedBy must be Adrian`); continue; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.expires) || Number.isNaN(Date.parse(`${p.expires}T00:00:00Z`)) || p.expires < today) { problems.push(`${where}: invalid or expired expires date`); continue; }
-    if (!p.trackingRef || typeof p.trackingRef !== "object" || !p.trackingRef.verified || !/^https:\/\//.test(p.trackingRef.url ?? "") || !p.trackingRef.id) { problems.push(`${where}: tracking must be a verified RightKit request reference`); continue; }
-    let policyDigest;
-    try { policyDigest = policyEntryDigest(options.manifest ?? installedManifest, p.fingerprint); } catch (error) { problems.push(`${where}: ${error.message}`); continue; }
-    const { index, ...record } = e;
-    const verification = verifyException(record, { repositoryIdentity: identity, catalogDigest, policyDigest, findings, trust: options.trust, today, scannerVersion: options.scannerVersion ?? metadata.scannerVersion ?? SCANNER_VERSION, catalogVersion: options.catalogVersion ?? metadata.catalogVersion });
-    if (!verification?.ok) { problems.push(`${where}: signature verification failed${verification?.problems?.length ? ` (${verification.problems.join("; ")})` : ""}`); continue; }
-    const matching = findings.filter((f) => f.fingerprint === p.fingerprint && p.occurrences.some((item) => item.path === f.file && item.hash === occurrenceHash(f)));
-    if (!matching.length) { problems.push(`${where}: stale, matches no signed occurrence`); continue; }
-    for (const f of matching) covered.push({ ...f, occurrenceHash: occurrenceHash(f), exception: e });
+    const where = `exception #${e?.index} (${e?.capability ?? "?"}/${e?.package ?? e?.crate ?? "?"})`;
+    const invalid = validateExceptionEntry(e);
+    if (invalid.length) { problems.push(`${where}: ${invalid.join("; ")}`); continue; }
+    const matching = findings.filter((f) => exceptionMatches(e, f));
+    if (!matching.length) { warnings.push(`${where}: stale, matches no current finding (remove it from the exceptions file)`); continue; }
+    for (const f of matching) if (!covered.some((x) => x.occurrenceHash === occurrenceHash(f))) covered.push({ ...f, occurrenceHash: occurrenceHash(f), exception: e });
   }
   const pending = enrollmentPending(options.trust, options.trustEnrollment);
   if (pending) warnings.push("approval enrollment pending; detected findings remain open backlog requests until distinct Windows & macOS keys are enrolled");

@@ -151,26 +151,21 @@ function inScopeFile(file, cwd) {
   return inScopeDirectory(dirname(isAbsolute(file) ? file : resolve(cwd, file)));
 }
 
-function isExceptionPath(value, cwd) {
-  const normalized = normalizedPath(value, cwd);
-  return Boolean(normalized && normalized.split('/').some((part, index, parts) =>
-    part === 'ownership-exceptions.json' && parts[index - 1] === '.rightkit'));
-}
-
 function isTrustPath(value, cwd) {
   const normalized = normalizedPath(value, cwd);
   return Boolean(normalized && normalized.includes('/orthic labs/rightkit/ownership/trust.json'));
 }
 
-function isProtectedPath(value, cwd) { return isExceptionPath(value, cwd) || isTrustPath(value, cwd); }
+// Exception entries are plain, git-reviewed records (Orthic-Labs/rightkit#262); only the protected trust file is blocked.
+function isProtectedPath(value, cwd) { return isTrustPath(value, cwd); }
 
 function writeTargetException(command, cwd) {
   if (typeof command !== 'string') return false;
   // This hook is advisory feedback. Any command naming the protected record is
   // denied; broker/build admission remains authoritative for opaque shell IO.
-  if (!/(?:ownership-exceptions\.json|(?:Orthic Labs[\\/]RightKit|RightKit[\\/]ownership)[\\/]trust\.json)/i.test(command)) return false;
+  if (!/(?:Orthic Labs[\\/]RightKit|RightKit[\\/]ownership)[\\/]trust\.json/i.test(command)) return false;
   const hasWriteIntent = /(?:>|\btee\b|\b(?:mv|cp|copy|move|del|rm|remove-item|set-content|add-content|out-file|apply_patch|sed\s+-i|perl\s+-i|createWriteStream)\b|\bfs(?:\.promises)?\.(?:writeFile|appendFile|rename|rm|unlink|open)|writeFileSync|writeFile\s*\()/i.test(command);
-  return hasWriteIntent && (isProtectedPath(command, cwd) || /\.rightkit[\\/]ownership-exceptions\.json/i.test(command) || /(?:Orthic Labs[\\/]RightKit|RightKit[\\/]ownership)[\\/]trust\.json/i.test(command));
+  return hasWriteIntent && (isProtectedPath(command, cwd) || /(?:Orthic Labs[\\/]RightKit|RightKit[\\/]ownership)[\\/]trust\.json/i.test(command));
 }
 
 function applyEdit(oldText, oldString, newString, replaceAll = false) {
@@ -299,7 +294,7 @@ function hasFingerprintIncrease(beforePath, before, after, cwd) {
 function fallbackPatchDecision(patch, cwd) {
   if (typeof patch !== 'string') return null;
   const paths = [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((match) => match[1]);
-  if (paths.some((path) => isProtectedPath(path, cwd))) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+  if (paths.some((path) => isProtectedPath(path, cwd))) return denial('Agent changes to the protected ownership trust record are blocked.');
   const added = patch.split(/\r?\n/).filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => line.slice(1)).join('\n');
   if (paths.some((path) => sourceExtensions.has(extname(resolve(cwd, path)).toLowerCase()))
     && paths.some((file) => fingerprints.some((entry) => occurrenceCount(added, entry, file)))) {
@@ -320,7 +315,7 @@ function occurrenceCount(text, entry, filePath) {
   return matches.filter((match) => !nonCode[match.index]).length;
 }
 
-function denial(reason, required = 'use the published RightKit capability; exception records require separate owner approval.') {
+function denial(reason, required = 'use the published RightKit capability, or record a plain entry in the repo ownership exceptions file.') {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:rightkit-ownership:block]\nWhy: ${reason}\nRequired: ${required}` } };
 }
 
@@ -494,7 +489,7 @@ function dependencyFeedback(dependencies) {
     .map((entry) => ({ ...entry, capability: capability.capability, package: capability.package })));
   if (!matches.length) return null;
   const block = matches.some((entry) => entry.tier === 'block' || entry.policy === 'banned');
-  const reason = matches.map((entry) => `Dependency ${entry.name} matches capability ${entry.capability}; RightKit owner: ${entry.package}. Use ${entry.package} instead or request a signed exception.`).join('\n');
+  const reason = matches.map((entry) => `Dependency ${entry.name} matches capability ${entry.capability}; RightKit owner: ${entry.package}. Use ${entry.package} instead or add a plain entry (capability, package, reason, owner, date) to the repo ownership exceptions file.`).join('\n');
   return block ? denial(reason) : advice(reason);
 }
 
@@ -622,7 +617,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
   const tool = input?.tool_name ?? input?.toolName ?? '';
   const data = input?.tool_input ?? input?.toolInput ?? {};
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
-  if (writeTargetException(command, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+  if (writeTargetException(command, cwd)) return denial('Agent changes to the protected ownership trust record are blocked.');
   if (['Bash', 'bash', 'shell', 'Shell', 'exec_command', 'shell_command'].includes(tool)) {
     const feedback = inScopeDirectory(cwd) ? dependencyDecision(commandDependencies(command), cwd) : null; if (feedback) return feedback;
   }
@@ -632,7 +627,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
     const files = patchFiles(patch);
     if (!files && typeof patch === 'string') {
       const paths = [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((match) => match[1]);
-      if (!paths.some((file) => inScopeFile(file, cwd))) return paths.some((file) => isProtectedPath(file, cwd)) ? denial('Agent changes to ownership exception or protected trust records are blocked.') : { decision: 'allow' };
+      if (!paths.some((file) => inScopeFile(file, cwd))) return paths.some((file) => isProtectedPath(file, cwd)) ? denial('Agent changes to the protected ownership trust record are blocked.') : { decision: 'allow' };
     }
     if (!files) return fallbackPatchDecision(patch, cwd) ?? (typeof patch === 'string' && [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].some((match) => isManifest(match[1])) ? manifestFailure('apply_patch') : { decision: 'allow' });
     let feedback = null; const manifests = new Set();
@@ -649,7 +644,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
     }
     for (const file of files) {
       const [oldPath, newPath] = file.path.split('\n');
-      if (isProtectedPath(oldPath, cwd) || (newPath && isProtectedPath(newPath, cwd))) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+      if (isProtectedPath(oldPath, cwd) || (newPath && isProtectedPath(newPath, cwd))) return denial('Agent changes to the protected ownership trust record are blocked.');
       if (manifests.has(file) || !inScopeFile(newPath ?? oldPath, cwd)) continue;
       const absolute = resolve(cwd, oldPath); let current = '';
       try { current = readFile(absolute, 'utf8'); } catch (error) { if (error?.code !== 'ENOENT') return { decision: 'allow' }; }
@@ -669,7 +664,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
     return feedback ?? { decision: 'allow' };
   }
   if (!['Write', 'Edit', 'MultiEdit'].includes(tool) || typeof path !== 'string') return { decision: 'allow' };
-  if (isProtectedPath(path, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+  if (isProtectedPath(path, cwd)) return denial('Agent changes to the protected ownership trust record are blocked.');
   const absolute = isAbsolute(path) ? path : resolve(cwd, path);
   if (!inScopeFile(path, cwd)) return { decision: 'allow' };
   let current = ''; let created = false;

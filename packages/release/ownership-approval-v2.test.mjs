@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canonicalJson, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, sha256, validateRecord, verifyException } from "./ownership-approval.mjs";
+import { canonicalJson, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, sha256, validateRecord } from "./ownership-approval.mjs";
+import * as approvalModule from "./ownership-approval.mjs";
 
 const vectors = JSON.parse(readFileSync(new URL("../../ownership-approval/conformance/v2-vectors.json", import.meta.url), "utf8"));
 const finding = { fingerprint: vectors.valid[0].record.payload.fingerprint, file: "src/browser.ts", kind: "source", lineText: "import puppeteer from 'puppeteer';", ordinal: 0 };
@@ -21,17 +22,17 @@ function signed(record) {
   const host = record.signature?.host ?? "windows", key = keys[host];
   return { ...record, signature: { host, keyId: key.keyId, value: sign("sha256", Buffer.from(canonicalJson(record.payload)), key.privateKey).toString("base64") } };
 }
-for (const [valid, entries] of [[true, vectors.valid], [false, vectors.invalid]]) for (const vector of entries) test(`schema v2 conformance: ${vector.name}`, () => {
+// Exception signatures are retired (#262): the v2 vectors now only exercise the record schema (validateRecord). Vectors that were
+// rejected by the removed verifyException (expiry window, future issue date, version floor) have no schema-level check and are skipped.
+const VERIFY_ONLY = new Set(["91-day-expiry", "future-issued", "invalid-floor"]);
+for (const [valid, entries] of [[true, vectors.valid], [false, vectors.invalid]]) for (const vector of entries) test(`schema v2 conformance: ${vector.name}`, { skip: !valid && VERIFY_ONLY.has(vector.name) }, () => {
   const problems = validateRecord(vector.record);
-  const result = problems.length ? { ok: false, problems } : verifyException(vector.record, { ...context, trust: null });
-  assert.equal(result.problems.length === 1 && result.problems[0] === "pending: external ownership trust is not enrolled", valid, result.problems.join("; "));
-  if (valid) {
-    assert.match(vector.keyId, /^(?:win|mac)-[a-f0-9]{64}$/);
-    assert.deepEqual(verifyException(signed(vector.record), { ...context, findings: vector.findings }), { ok: true, problems: [] });
-  }
+  assert.equal(problems.length === 0, valid, problems.join("; "));
+  if (valid) assert.match(vector.keyId, /^(?:win|mac)-[a-f0-9]{64}$/);
 });
-test("valid signed v2 record is accepted", () => {
-  assert.deepEqual(verifyException(signed(baseline), context), { ok: true, problems: [] });
+test("verifyException is retired; a signed v2 record still passes the envelope schema", () => {
+  assert.equal(approvalModule.verifyException, undefined);
+  assert.deepEqual(validateRecord(signed(baseline)), []);
 });
 
 test("draft defaults to issued + 90 days and carries exact occurrence triples", () => {
@@ -57,27 +58,16 @@ test("dependency declaration fields and resolved version bind identity", () => {
 });
 test("per-entry policy digest survives other fingerprint edits and rejects own policy edits", () => {
   const manifest = { capabilities: [{ capability: "input", package: "rightkit-qa-driver", tier: "block", fingerprints: [{ id: finding.fingerprint, type: "source", pattern: "SendInput" }, { id: "control.macos.cgevent", type: "source", pattern: "CGEvent" }] }] };
-  const digest = policyEntryDigest(manifest, finding.fingerprint), record = signed({ ...baseline, payload: { ...payload, policyDigest: digest } });
+  const digest = policyEntryDigest(manifest, finding.fingerprint);
   manifest.capabilities[0].fingerprints[1].pattern = "OtherEvent";
-  assert.deepEqual(verifyException(record, { ...context, policyDigest: policyEntryDigest(manifest, finding.fingerprint) }), { ok: true, problems: [] });
+  assert.equal(policyEntryDigest(manifest, finding.fingerprint), digest);
   manifest.capabilities[0].fingerprints[0].pattern = "OtherInput";
-  assert.match(verifyException(record, { ...context, policyDigest: policyEntryDigest(manifest, finding.fingerprint) }).problems.join(" "), /policy digest/);
+  assert.notEqual(policyEntryDigest(manifest, finding.fingerprint), digest);
   assert.throws(() => policyEntryDigest({ capabilities: [] }, finding.fingerprint), /catalog policy/);
 });
-test("approval floors precede policy, occurrences, and signature checks", () => {
-  const record = signed(baseline);
-  for (const change of [{ scannerVersion: "1.9.9" }, { catalogVersion: "1.3.9" }]) assert.match(verifyException(record, { ...context, policyDigest: undefined, ...change }).problems.join(" "), /below approval minimum/);
-  const altered = { ...record, signature: { ...record.signature, value: "AQ==" } };
-  assert.match(verifyException(altered, { ...context, findings: [{ ...finding, lineText: "changed" }] }).problems.join(" "), /occurrence changed/);
-});
-test("only listed path/hash pairs are covered; additional occurrences stay available", () => {
-  const record = signed(baseline);
-  assert.equal(verifyException(record, { ...context, findings: [finding, { ...finding, ordinal: 1 }] }).ok, true);
-  assert.equal(verifyException(record, { ...context, findings: [{ ...finding, file: "src/other.rs" }] }).ok, false);
-});
 test("malformed, missing, and unknown v2 fields fail closed", () => {
-  for (const record of [null, {}, { ...baseline, signature: undefined }, { ...baseline, payload: null }, { ...baseline, payload: { ...payload, occurrences: [{ ...payload.occurrences[0], kind: "unknown" }] } }, { ...baseline, payload: { ...payload, occurrences: Array(257).fill(payload.occurrences[0]) } }]) assert.equal(verifyException(record, context).ok, false);
+  for (const record of [null, {}, { ...baseline, signature: undefined }, { ...baseline, payload: null }, { ...baseline, payload: { ...payload, occurrences: [{ ...payload.occurrences[0], kind: "unknown" }] } }, { ...baseline, payload: { ...payload, occurrences: Array(257).fill(payload.occurrences[0]) } }]) assert.notDeepEqual(validateRecord(record), []);
   const mismatched = signed(baseline); mismatched.signature.keyId = `mac-${"a".repeat(64)}`;
-  assert.match(verifyException(mismatched, context).problems.join(" "), /signature envelope/);
+  assert.match(validateRecord(mismatched).join(" "), /signature envelope/);
   assert.throws(() => createDraft({ ...payload, findings: undefined }), /findings must be an array/);
 });

@@ -233,10 +233,7 @@ Commands:
   ownership trust-sync                               Advance this host's protected trust to the committed key log
   ownership trust-sync --check                       Read-only: say whether a sync would ask for approval, and for what (exit 3 if so)
   ownership trust-compare [--json]                   Print this host's protected-trust digest (Mac is the reference)
-  ownership-approval --draft <input.json> [--out <draft.json>]
-                                                      Draft an exception for native owner approval
-  ownership-approval --verify <signed.json> --context <scan.json>
-                                                      Verify exact signed exception coverage
+  ownership-approval                                 Retired no-op: exceptions are plain entries in the repo exceptions file, edited directly and reviewed through git
   ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
                                                       Report cross-app ownership & pending requests
   ownership-mandatory [--workspace <dir>] [--app <name>]... [--amendment v2.1] [--enforce] [--json]

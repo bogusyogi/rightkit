@@ -1,5 +1,7 @@
 # RightKit ownership approvals
 
+> **Retired for exceptions (Orthic-Labs/rightkit#262).** Ownership exceptions are plain entries in `.rightkit/ownership-exceptions.json`, reviewed through git; signing, drafts and `verifyException` no longer exist. See `OWNERSHIP-ENFORCEMENT.md`. The text below is historical, except the protected trust and key-log sections.
+
 Ownership exception signatures are verified by `packages/release/ownership-approval.mjs`. A signed record binds repository identity, ownership catalog digest, fingerprint, exact repository-relative paths, hashes of each baseline occurrence, reason, owner, expiry, request ID, and a verified HTTPS tracking reference. The verifier rejects unsigned records, wildcards, changed inputs, expired records, revoked keys, and host keys outside protected enrollment.
 
 ## Trust and rollout

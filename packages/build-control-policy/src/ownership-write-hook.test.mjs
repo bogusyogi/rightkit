@@ -86,7 +86,7 @@ test('Codex apply_patch parses embedded paths, multiple files, and protected ren
   const readFile = () => clean;
   const patch = `*** Begin Patch\n*** Update File: src/login.rs\n@@\n-${clean}\n+${github}\n*** Update File: src/other.rs\n@@\n-old\n+new\n*** End Patch`;
   assert.equal(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch } }, { readFile }).hookSpecificOutput.permissionDecision, undefined);
-  const protectedPatch = '*** Begin Patch\n*** Update File: .rightkit/old.json\n*** Move to: .rightkit/ownership-exceptions.json\n@@\n-a\n+b\n*** End Patch';
+  const protectedPatch = '*** Begin Patch\n*** Update File: .rightkit/old.json\n*** Move to: C:/ProgramData/Orthic Labs/RightKit/ownership/trust.json\n@@\n-a\n+b\n*** End Patch';
   assert.equal(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch: protectedPatch } }).hookSpecificOutput.permissionDecision, 'deny');
 });
 
@@ -119,11 +119,11 @@ test('provider requests honor code-only and extension scope in installed write h
   assert.equal(decide('src/provider.py', call).decision, 'allow');
 });
 
-test('normalized Claude paths and shell write targets protect exception records', () => {
-  assert.equal(ownershipWriteDecision({ tool_name: 'Write', cwd: 'C:/repo', tool_input: { file_path: '.\\.rightkit\\ownership-exceptions.json', content: '{}' } }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(ownershipWriteDecision({ tool_name: 'exec_command', cwd: 'C:/repo', tool_input: { cmd: 'Set-Content -Path .rightkit/ownership-exceptions.json -Value "{}"' } }).hookSpecificOutput.permissionDecision, 'deny');
+test('normalized Claude paths and shell write targets protect the trust record but allow plain exception entries (#262)', () => {
+  assert.equal(ownershipWriteDecision({ tool_name: 'Write', cwd: 'C:/repo', tool_input: { file_path: '.\\.rightkit\\ownership-exceptions.json', content: '{}' } }).decision, 'allow');
+  assert.equal(ownershipWriteDecision({ tool_name: 'exec_command', cwd: 'C:/repo', tool_input: { cmd: 'Set-Content -Path .rightkit/ownership-exceptions.json -Value "{}"' } }).decision, 'allow');
   assert.equal(ownershipWriteDecision({ tool_name: 'exec_command', cwd: 'C:/repo', tool_input: { cmd: 'Get-Content .rightkit/ownership-exceptions.json' } }).decision, 'allow');
-  assert.equal(ownershipWriteDecision({ tool_name: 'functions.exec', cwd: 'C:/repo', tool_input: { code: "await tools.exec_command({cmd: 'Set-Content .rightkit/ownership-exceptions.json {}'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(ownershipWriteDecision({ tool_name: 'exec_command', cwd: 'C:/repo', tool_input: { cmd: 'Set-Content "C:/ProgramData/Orthic Labs/RightKit/ownership/trust.json" {}' } }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: 'C:/ProgramData/Orthic Labs/RightKit/ownership/trust.json', content: '{}' } }).hookSpecificOutput.permissionDecision, 'deny');
 });
 
@@ -160,11 +160,11 @@ const assertAdvice = (result, pattern) => {
   assert.match(result.hookSpecificOutput.additionalContext, pattern);
 };
 
-test('package.json Edit adding blocked dependency denies & names capability, owner & signed exception', () => {
+test('package.json Edit adding blocked dependency denies & names capability, owner & plain exception entry', () => {
   const result = ownershipWriteDecision({ tool_name: 'Edit', tool_input: { file_path: 'package.json', old_string: '"dependencies": {}', new_string: '"dependencies": {"puppeteer":"24"}' } }, { readFile: () => '{"dependencies": {}}' });
   assert.equal(result.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(result.hookSpecificOutput.permissionDecisionReason, /browser-automation.*rightkit-browser/);
-  assert.match(result.hookSpecificOutput.permissionDecisionReason, /Use rightkit-browser instead or request a signed exception/);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /Use rightkit-browser instead or add a plain entry/);
 });
 
 test('Cargo.toml Edit adding reqwest advises with RightKit owner', () => {
@@ -369,12 +369,17 @@ test('scope: cargo add depends on the event cwd repository; git failure fails op
   assert.deepEqual(ownershipWriteDecision(bash('/r/mail')), { decision: 'allow' });
 });
 
-test('scope: protected records stay denied everywhere, including apply_patch', () => {
+test('scope: exception entries are editable everywhere (#262); the protected trust record stays denied, including apply_patch', () => {
   setScopeDependencies({ git: () => null, exists: () => true, roots: [] });
-  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: `/tmp/x/${exceptionFile}`, content: '{}' }, cwd: '/' })), true);
-  const patch = `*** Begin Patch\n*** Add File: /tmp/x/${exceptionFile}\n+{}\n*** End Patch`;
-  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch }, cwd: '/' })), true);
-  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command: `echo {} > ${exceptionFile}` }, cwd: '/tmp/x' })), true);
+  const trustFile = 'C:/ProgramData/Orthic Labs/RightKit/ownership/trust.json';
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: `/tmp/x/${exceptionFile}`, content: '{}' }, cwd: '/' })), false);
+  const exceptionPatch = `*** Begin Patch\n*** Add File: /tmp/x/${exceptionFile}\n+{}\n*** End Patch`;
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch: exceptionPatch }, cwd: '/' })), false);
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command: `echo {} > ${exceptionFile}` }, cwd: '/tmp/x' })), false);
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: trustFile, content: '{}' }, cwd: '/' })), true);
+  const trustPatch = `*** Begin Patch\n*** Add File: ${trustFile}\n+{}\n*** End Patch`;
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch: trustPatch }, cwd: '/' })), true);
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command: `echo {} > "${trustFile}"` }, cwd: '/tmp/x' })), true);
 });
 
 test('scope: Windows path forms resolve through git toplevel and canonical identity', () => {

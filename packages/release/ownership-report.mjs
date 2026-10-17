@@ -39,16 +39,15 @@ function statusFor(row, report) {
   return "not-detected";
 }
 
+// Plain exception entries (Orthic-Labs/rightkit#262) that matched no finding in this scan are stale and listed for cleanup.
 function exceptionRequests(root, app, report) {
   const file = path.join(root, EXCEPTIONS_FILE);
   if (!existsSync(file)) return [];
   let records;
   try { records = JSON.parse(readFileSync(file, "utf8")).exceptions ?? []; } catch { return []; }
-  const payload = (record) => record?.payload ?? record;
-  const confirmed = new Set((report.covered ?? []).map((finding) => payload(finding.exception)?.requestId).filter(Boolean));
-  return records.filter((record) => !confirmed.has(payload(record)?.requestId)).map((record) => {
-    const details = payload(record);
-    const request = { app, requestId: details.requestId ?? null, fingerprint: details.fingerprint ?? null, paths: details.paths ?? [], reason: details.reason ?? null, owner: details.owner ?? null, expires: details.expires ?? null, tracking: details.trackingRef ?? details.tracking ?? null, state: "request-pending-verification" };
+  const matched = new Set((report.covered ?? []).map((finding) => finding.exception).filter(Boolean).map((entry) => JSON.stringify([entry.capability, entry.package ?? entry.crate, entry.fingerprint ?? null, entry.path ?? null])));
+  return records.filter((record) => !matched.has(JSON.stringify([record?.capability, record?.package ?? record?.crate, record?.fingerprint ?? null, record?.path ?? null]))).map((record) => {
+    const request = { app, capability: record?.capability ?? null, package: record?.package ?? record?.crate ?? null, reason: record?.reason ?? null, owner: record?.owner ?? null, date: record?.date ?? null, state: "stale-exception-entry" };
     return { ...request, contentHash: sha256(canonicalJson(request)) };
   });
 }
@@ -148,7 +147,7 @@ export function renderOwnershipMarkdown(report) {
   }
   lines.push("", "## Capability status", "", "| App | Capability | Status | Detection | Availability |", "|---|---|---|---|---|");
   for (const app of report.apps) for (const row of app.rows) lines.push(`| ${app.app} | ${row.capability} | ${row.status} | ${row.detection} | ${row.available.map((x) => `${x.package}@${x.version} (${x.state})`).join(", ") || "none recorded"} |`);
-  lines.push("", `Blocks: ${report.blocks.length} · Exception requests awaiting verification: ${report.exceptionRequests.length}`, "", "Exception requests are unverified records; only scanner-validated signed exceptions are reported as excepted.", "");
+  lines.push("", `Blocks: ${report.blocks.length} · Stale exception entries: ${report.exceptionRequests.length}`, "", "Exception entries are plain records reviewed through git; an entry that matches no finding is stale and should be removed.", "");
   if (report.warnings?.length) {
     lines.splice(-2, 0, "## Warnings", "", ...report.warnings.map((warning) => `- ${warning.app}: WARNING: ${warning.message}; ${warning.findings.length} finding(s), ${warning.problems.length} problem(s) retained as diagnostics`), "");
   }

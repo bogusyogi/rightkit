@@ -39,17 +39,48 @@ Each capability row uses one of these states:
 | `not-detected` | No ownership fingerprint or dependency declaration was detected in scanned inputs. |
 | `declared-dependency` | App declares a RightKit dependency; this does not prove the capability is integrated or used. |
 | `verified-integration` | Integration evidence explicitly returned by the scanner. |
-| `excepted` | Scanner validated a signed exception against protected trust and current findings. |
-| `blocked` | Scanner found an unexcepted ownership finding or a blocking exception problem. |
+| `excepted` | A plain entry in the repo exceptions file matches the finding (capability and package). |
+| `blocked` | Scanner found an unexcepted ownership finding or a malformed exception entry. |
 | `unscanned` | Coverage is incomplete for this app or capability. |
 
 Reports carry host coverage, catalog version & digest, repository identity,
 commit, scan time & age, coverage gaps, and content digests. `contentDigestSource`
 identifies scanner input digests or, until those are available, finding-only
 occurrence hashes. `blocks` and
-`exceptionRequests` are deduplicated by content hash. Exception request feed
-entries are unverified requests; they do not indicate approval. Only scanner
-validated signed records may produce `excepted` status.
+`exceptionRequests` are deduplicated by content hash; `exceptionRequests` now
+lists stale exception entries (entries that match no current finding).
+
+## Exceptions
+
+Exceptions are plain entries in `.rightkit/ownership-exceptions.json`, reviewed
+through git like any other change (Orthic-Labs/rightkit#262; signed exceptions
+are retired under the proportional-trust rule, as trust-sync was). No signature,
+Touch ID prompt, native helper, protected trust or enrolled key is involved, and
+agents may edit the file directly.
+
+```json
+{ "exceptions": [
+  { "capability": "browser-automation", "package": "rightkit-browser",
+    "reason": "why the app keeps its own copy", "owner": "app or person",
+    "date": "2026-10-17" }
+] }
+```
+
+- `capability` and `package` (`crate` is accepted as an alias) must equal the
+  catalog capability and owner of the finding. Every finding of that capability
+  and package is `excepted`.
+- Optional `fingerprint` (a catalog fingerprint id) and `path` (an exact file or
+  directory prefix) narrow an entry to part of a capability.
+- `reason`, `owner` and `date` (`YYYY-MM-DD`) are required. A missing field or a
+  legacy signed record (`schema`/`payload`/`signature`) is a problem, so the scan
+  fails and names the entry.
+- An entry that matches no current finding is **stale**: it is reported as a
+  warning (`exception #N (...): stale, matches no current finding`), never a
+  block. Remove it.
+- `right-release ownership-approval` (draft, sign, verify, import) is a retired
+  no-op that prints this pointer. `verifyException` and the native signing path
+  are gone; the approval keys and key log remain only for the unrelated trust
+  machinery below.
 
 The local scan describes the checkout on the host that produced it. It does
 not establish coverage on another host; run the report on each required host
