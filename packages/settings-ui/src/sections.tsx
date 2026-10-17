@@ -133,6 +133,7 @@ function statusLine(s: AutoUpdateStatus): { tone: "ok" | "warn" | "bad" | "neutr
     case "available": return { tone: s.eligible ? "accent" : "warn", text: `Version ${s.version} is available${s.tier ? ` (${s.tier})` : ""}.` };
     case "deferred": return { tone: "warn", text: `Version ${s.version} will install later: ${s.reason.replace(/_/g, " ")}.` };
     case "downloading": return { tone: "accent", text: `Downloading ${s.version}… ${Math.round(s.pct)}%` };
+    case "staged": return { tone: "ok", text: `Version ${s.version} is downloaded and waiting for your go-ahead.` };
     case "ready": return { tone: "ok", text: `Version ${s.version} is ready to install.` };
     case "error": return { tone: "bad", text: s.message };
   }

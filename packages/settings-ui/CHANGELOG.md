@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 (2026-10-17)
+
+- Updates section: show the new @rightkit/app-update `staged` status (downloaded, waiting for the install go-ahead).
+
 ## 0.5.0
 
 Additive (Orthic-Labs/rightkit#285). The root and `/standard` entries export what they did.

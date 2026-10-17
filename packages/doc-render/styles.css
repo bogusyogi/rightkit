@@ -8,3 +8,8 @@
 .rk-doc-markdown code, .rk-doc-html code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 .rk-doc-markdown table, .rk-doc-html table { width:100%; border-collapse:collapse; margin:1rem 0; }
 .rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid #d5d5d5; text-align:left; vertical-align:top; }
+.rk-doc-markdown mark { background:#fff3a3; color:inherit; padding:0 .15em; border-radius:.15em; }
+.rk-doc-codeblock { margin:1rem 0; border:1px solid #d5d5d5; border-radius:.35rem; overflow:hidden; }
+.rk-doc-codeblock-bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem .6rem; background:#e9ecef; font-size:.8rem; }
+.rk-doc-codeblock-copy { display:inline-flex; align-items:center; gap:.3rem; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.rk-doc-codeblock > pre { margin:0; border-radius:0; max-height:var(--rk-doc-code-max-height, 24rem); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
