@@ -202,15 +202,104 @@ pub(crate) fn validate_profile_name(name: &str) -> Result<()> {
 /// Environment variable naming an explicit Chrome for Testing executable.
 pub const CHROME_FOR_TESTING_ENV: &str = "RIGHTKIT_CHROME_FOR_TESTING";
 
-/// Override the RightKit-managed Chrome for Testing version root.
+/// Override the RightKit-managed Chrome for Testing root (the folder that holds `current`).
 pub const CHROME_FOR_TESTING_ROOT_ENV: &str = "RIGHTKIT_CHROME_FOR_TESTING_ROOT";
 
+/// Folder name of the one managed install inside the managed root.
+pub const MANAGED_CURRENT_DIR: &str = "current";
+/// Folder name of the single rollback copy kept beside [`MANAGED_CURRENT_DIR`].
+pub const MANAGED_PREVIOUS_DIR: &str = "current.previous";
+/// Folder name the installer extracts into before swapping it into `current`.
+pub const MANAGED_STAGING_DIR: &str = "current.staging";
+
 /// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`].
-pub const CHROME_FOR_TESTING_INSTALL_HINT: &str = "Install Chrome for Testing (any one of):\n  \
-pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer\n  \
-pnpm exec playwright install chromium\n\
-or point RIGHTKIT_CHROME_FOR_TESTING at its executable. Regular Google Chrome is used only \
-with LaunchOptions::system_chrome(): on macOS each killed instance leaks a code-sign clone.";
+pub const CHROME_FOR_TESTING_INSTALL_HINT: &str = "Chrome for Testing is put in place by the app's installer or updater step, which calls \
+rightkit_browser::ensure_chrome_for_testing (cargo feature `install`; pinned version, SHA-256 checked) \
+into <app data>/Orthic Labs/shared/chrome-for-testing/current. For development, point \
+RIGHTKIT_CHROME_FOR_TESTING at an existing Chrome for Testing executable, or run \
+`rightkit-qa-chrome install` from @rightkit/qa-chrome. Regular Google Chrome is used only with \
+LaunchOptions::system_chrome(): on macOS each killed instance leaks a code-sign clone.";
+
+/// The RightKit-managed Chrome for Testing folder and its fixed layout: one `current`
+/// install, one `current.previous` rollback copy, and `current.staging` while an install runs.
+/// No per-version folders and no new id: every app resolves the same path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedRoot {
+    root: PathBuf,
+}
+
+impl ManagedRoot {
+    /// The suite-wide root (`<app data>/Orthic Labs/shared/chrome-for-testing`), or
+    /// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when set.
+    pub fn resolve() -> Self {
+        let home = home_dir().unwrap_or_default();
+        let env_path = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        Self {
+            root: managed_chrome_for_testing_root(&home, &env_path),
+        }
+    }
+
+    /// An explicit root (tests, relocated installs).
+    pub fn at(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    /// The root folder itself.
+    pub fn path(&self) -> &Path {
+        &self.root
+    }
+
+    /// `<root>/current`: the installed Chrome for Testing.
+    pub fn current(&self) -> PathBuf {
+        self.root.join(MANAGED_CURRENT_DIR)
+    }
+
+    /// `<root>/current.previous`: the one rollback copy.
+    pub fn previous(&self) -> PathBuf {
+        self.root.join(MANAGED_PREVIOUS_DIR)
+    }
+
+    /// `<root>/current.staging`: where an install extracts before it swaps into `current`.
+    pub fn staging(&self) -> PathBuf {
+        self.root.join(MANAGED_STAGING_DIR)
+    }
+
+    /// The Chrome executable inside `current` for this platform.
+    pub fn executable(&self) -> PathBuf {
+        executable_in(&self.current())
+    }
+}
+
+/// Chrome for Testing's platform key for this build, as Google names it.
+pub(crate) fn platform_key() -> &'static str {
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "mac-arm64"
+        } else {
+            "mac-x64"
+        }
+    } else if cfg!(target_os = "windows") {
+        "win64"
+    } else {
+        "linux64"
+    }
+}
+
+/// The Chrome executable inside one extracted Chrome for Testing folder, for this platform.
+pub(crate) fn executable_in(dir: &Path) -> PathBuf {
+    let sub = format!("chrome-{}", platform_key());
+    if cfg!(target_os = "macos") {
+        dir.join(sub).join(MAC_CFT_APP)
+    } else if cfg!(target_os = "windows") {
+        dir.join(sub).join("chrome.exe")
+    } else {
+        dir.join(sub).join("chrome")
+    }
+}
 
 const MAC_CFT_APP: &str = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
 
@@ -278,24 +367,21 @@ fn managed_version_dirs(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Managed candidates, best first: `current`, then `current.previous` (only reached when an
+/// interrupted swap left no `current`), then legacy per-version folders (qa-chrome before the
+/// fixed layout), newest first.
 fn managed_chrome_for_testing_candidates(root: &Path) -> Vec<PathBuf> {
-    managed_version_dirs(root)
-        .into_iter()
-        .map(|dir| {
-            if cfg!(target_os = "macos") {
-                let sub = if cfg!(target_arch = "aarch64") {
-                    "chrome-mac-arm64"
-                } else {
-                    "chrome-mac-x64"
-                };
-                dir.join(sub).join(MAC_CFT_APP)
-            } else if cfg!(target_os = "windows") {
-                dir.join("chrome-win64/chrome.exe")
-            } else {
-                dir.join("chrome-linux64/chrome")
-            }
-        })
-        .collect()
+    let managed = ManagedRoot::at(root);
+    let mut out = vec![
+        executable_in(&managed.current()),
+        executable_in(&managed.previous()),
+    ];
+    out.extend(
+        managed_version_dirs(root)
+            .into_iter()
+            .map(|dir| executable_in(&dir)),
+    );
+    out
 }
 
 /// Windows fixture only: `chrome-headless-shell` of the same Chrome for Testing version, which
@@ -307,14 +393,18 @@ const HEADLESS_SHELL_WIN64: &str = "chrome-headless-shell-win64/chrome-headless-
 
 /// Candidate `chrome-headless-shell.exe` paths for the Windows fixture, in resolution order: the
 /// sibling of the resolved Chrome (`<version>/chrome-win64/chrome.exe` ->
-/// `<version>/chrome-headless-shell-win64/`), then each RightKit-managed version, newest first
-/// (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root, as for Chrome).
+/// `<dir>/chrome-headless-shell-win64/`), then the managed `current` and `current.previous`, then
+/// each legacy managed version, newest first (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the
+/// root, as for Chrome).
 #[cfg(windows)]
 fn chrome_headless_shell_candidates(chrome: &Path, managed_root: &Path) -> Vec<PathBuf> {
+    let managed = ManagedRoot::at(managed_root);
     let mut out = Vec::new();
     if let Some(version_dir) = chrome.parent().and_then(Path::parent) {
         out.push(version_dir.join(HEADLESS_SHELL_WIN64));
     }
+    out.push(managed.current().join(HEADLESS_SHELL_WIN64));
+    out.push(managed.previous().join(HEADLESS_SHELL_WIN64));
     out.extend(
         managed_version_dirs(managed_root)
             .into_iter()
@@ -367,8 +457,9 @@ pub(crate) fn chrome_headless_shell_path(chrome: &Path) -> Result<PathBuf> {
     )))
 }
 
-/// Known Chrome for Testing install locations, in resolution order: RightKit-managed
-/// versions (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root), app installs, then
+/// Known Chrome for Testing install locations, in resolution order: the RightKit-managed
+/// `current` (then `current.previous`, then legacy per-version folders;
+/// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root), app installs, then
 /// Puppeteer's cache (`PUPPETEER_CACHE_DIR`), then Playwright's (`PLAYWRIGHT_BROWSERS_PATH`),
 /// newest version first within each cache.
 pub fn chrome_for_testing_candidates() -> Vec<PathBuf> {
@@ -709,10 +800,61 @@ mod tests {
             got,
             vec![
                 root.join("155.0.8059.39").join(shell),
+                root.join("current").join(shell),
+                root.join("current.previous").join(shell),
                 root.join("155.0.8059.39").join(shell),
                 root.join("154.0.1.1").join(shell),
             ]
         );
+    }
+
+    #[test]
+    fn managed_layout_is_one_current_one_previous_and_a_staging_folder() {
+        let root = ManagedRoot::at("/managed");
+        assert_eq!(root.current(), Path::new("/managed/current"));
+        assert_eq!(root.previous(), Path::new("/managed/current.previous"));
+        assert_eq!(root.staging(), Path::new("/managed/current.staging"));
+        assert!(root.executable().starts_with("/managed/current"));
+    }
+
+    #[test]
+    fn current_beats_previous_and_legacy_versions_and_the_env_override_still_wins() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("managed");
+        let playwright = temp.path().join("ms-playwright");
+        std::fs::create_dir(&playwright).unwrap();
+        let managed = ManagedRoot::at(&root);
+        let current = managed.executable();
+        let previous = executable_in(&managed.previous());
+        let legacy = managed_executable(&root, "999.0.0.0");
+        for path in [&current, &previous, &legacy] {
+            write_executable(path);
+        }
+        let explicit = temp.path().join("explicit CfT");
+        write_executable(&explicit);
+        let _env = EnvGuard::new(&[
+            (CHROME_FOR_TESTING_ROOT_ENV, Some(&root)),
+            (CHROME_FOR_TESTING_ENV, None),
+            ("PUPPETEER_CACHE_DIR", Some(&temp.path().join("no puppeteer"))),
+            ("PLAYWRIGHT_BROWSERS_PATH", Some(&playwright)),
+        ]);
+        assert_eq!(
+            &chrome_for_testing_candidates()[..3],
+            &[current.clone(), previous.clone(), legacy]
+        );
+        assert_eq!(chrome_for_testing_path(None).unwrap(), current);
+        std::fs::remove_file(&current).unwrap();
+        assert_eq!(chrome_for_testing_path(None).unwrap(), previous);
+        std::env::set_var(CHROME_FOR_TESTING_ENV, &explicit);
+        assert_eq!(chrome_for_testing_path(None).unwrap(), explicit);
+        std::env::remove_var(CHROME_FOR_TESTING_ENV);
+        assert_eq!(chrome_for_testing_path(Some(&explicit)).unwrap(), explicit);
+    }
+
+    #[test]
+    fn install_hint_names_the_installer_api_not_pnpm_dlx() {
+        assert!(CHROME_FOR_TESTING_INSTALL_HINT.contains("ensure_chrome_for_testing"));
+        assert!(!CHROME_FOR_TESTING_INSTALL_HINT.contains("pnpm dlx"));
     }
 
     #[test]

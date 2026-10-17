@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Chrome for Testing lives at ONE fixed path: `<shared>/chrome-for-testing/current/`, with a single `current.previous` kept for rollback (Adrian's rule: no new id, no new folder, for every app). The resolver prefers `current`. An explicit path, RIGHTKIT_CHROME_FOR_TESTING and the Puppeteer/Playwright caches stay as dev fallbacks (#267).
+- New `install` feature: `install::ensure_chrome_for_testing` for installer-time and updater-time delivery. It downloads through rightkit-models, checks the pinned SHA-256 before extracting, extracts to staging, swaps into `current` and keeps `current.previous`. Google does not publish digests for Chrome for Testing, so each pin is computed once when its version is pinned. Until then every pin is `Sha256Pin::Todo`, and the installer refuses to download with `DigestNotPinned`.
+- Not compiled or run yet.
+
 ## 0.3.2
 
 Additive: no existing item changed or removed. New items on `BrowserPage`, so a minor bump.

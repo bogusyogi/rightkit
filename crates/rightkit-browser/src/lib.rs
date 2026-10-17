@@ -24,6 +24,8 @@ mod error;
 mod fixture;
 mod fixture_protocol;
 mod fixture_server;
+#[cfg(feature = "install")]
+pub mod install;
 mod keys;
 mod page;
 #[cfg(windows)]
