@@ -4,15 +4,14 @@
 
 ## What is a suite default
 
-Company facts: legal entity, address, legal contact, governing law, venue, minimum age 18. Privacy data statement: "data we receive: update checks only".
+Company facts: legal entity, address, legal contact, support email (hello@orthiclabs.com), governing law, venue, minimum age 18. Privacy: not directed to anyone under 18; data statement: "data we receive: update checks only".
 
-## What each app supplies (required, no default)
+## What each app supplies (required)
 
 - `appName`
-- `supportEmail` (products differ: hello@heardright.app, hello@orthiclabs.com)
 - `refundPolicy`: `{ kind: "window", days: 14 }` (HeardRight) or `{ kind: "none", trialDays: 30 }` (GenRight, "no refunds except where the law requires")
 
-Optional overrides: `facts`, `dataStatement`, `append`, `replace`.
+Optional overrides: `supportEmail` (HeardRight: hello@heardright.app), `facts`, `dataStatement`, `append`, `replace`.
 
 ## Steps
 

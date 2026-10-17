@@ -51,12 +51,14 @@ describe("RIGHT_SUITE_COMPANY_FACTS", () => {
     expect(RIGHT_SUITE_COMPANY_FACTS.legalName).toBe("Damned Ventures LLC");
   });
 
-  it("has no default support email or refund policy", () => {
-    expect("supportEmail" in RIGHT_SUITE_COMPANY_FACTS).toBe(false);
+  it("defaults the support email and has no default refund policy", () => {
+    expect(RIGHT_SUITE_COMPANY_FACTS.supportEmail).toBe("hello@orthiclabs.com");
     expect("refundPolicy" in RIGHT_SUITE_COMPANY_FACTS).toBe(false);
   });
 
-  it("requires supportEmail", () => {
+  it("uses the default support email and accepts an override", () => {
+    expect(resolveCompanyFacts({}).supportEmail).toBe("hello@orthiclabs.com");
+    expect(resolveCompanyFacts({ supportEmail: "hello@heardright.app" }).supportEmail).toBe("hello@heardright.app");
     expect(() => resolveCompanyFacts({ supportEmail: " " })).toThrow(/supportEmail/);
   });
 });
@@ -70,6 +72,7 @@ describe("default policies", () => {
     expect(eula).toContain("at least 18 years old");
     expect(eula).toContain("169 Madison Ave");
     expect(docs[1]!.content).toContain(DEFAULT_DATA_STATEMENT);
+    expect(docs[1]!.content).toContain("not directed to anyone under 18");
   });
 
   it("renders the days-window refund text", () => {

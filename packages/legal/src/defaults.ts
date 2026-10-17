@@ -4,7 +4,7 @@ import type { LegalDocumentDescriptor, LegalDocumentRole } from "./index.js";
 /**
  * Suite-wide company facts and default policy texts (issue Orthic-Labs/rightkit#266).
  * Every fact below cites its source. A fact with no source is NOT defaulted: it is a
- * required per-app field (see `supportEmail`, `refundPolicy`). Never add an unsourced fact.
+ * required per-app field (see `refundPolicy`). Never add an unsourced fact.
  */
 
 export interface CompanyAddress {
@@ -17,18 +17,20 @@ export interface CompanyFacts {
   readonly address: CompanyAddress;
   /** Legal and rights-request contact for the company. */
   readonly contactEmail: string;
-  /** Per-product support address. Required override: products differ (hello@heardright.app, hello@orthiclabs.com). */
+  /** Support address. Suite default hello@orthiclabs.com; apps may override (HeardRight: hello@heardright.app). */
   readonly supportEmail: string;
   readonly governingLaw: string;
   readonly venue: string;
   readonly minimumAge: number;
 }
 
-/** The suite default. `supportEmail` has no suite default and must be supplied by each app. */
-export type SuiteCompanyFacts = Omit<CompanyFacts, "supportEmail">;
+/** The suite default fact set. */
+export type SuiteCompanyFacts = CompanyFacts;
 
 export const RIGHT_SUITE_COMPANY_FACTS: Readonly<SuiteCompanyFacts> = Object.freeze({
   // Source: D:\Claude\rightkit\legal\EULA.md line 5 ("Damned Ventures LLC, a Wyoming limited liability company").
+  // Source: RK3 Mac lead decision D1, 2026-10-17 (suite default hello@orthiclabs.com; D:\Claude\rightkit\legal\products\cutright\PRIVACY_NOTICE.md line 17).
+  supportEmail: "hello@orthiclabs.com",
   legalName: "Damned Ventures LLC",
   entityType: "Wyoming limited liability company",
   // Source: D:\Claude\rightkit\legal\EULA.md line 5 and section 18 (169 Madison Ave, New York, NY 10016, United States).
@@ -65,8 +67,8 @@ export const DEFAULT_DATA_STATEMENT = "data we receive: update checks only";
 
 export interface DefaultPolicyInput {
   readonly appName: string;
-  /** Required: no suite default. */
-  readonly supportEmail: string;
+  /** Optional override of the suite support email. */
+  readonly supportEmail?: string;
   /** Required: no suite default. */
   readonly refundPolicy: RefundPolicy;
   /** Overrides for suite facts, only where the app truly differs. */
@@ -88,12 +90,13 @@ export interface RenderedPolicyDocument {
 }
 
 export function resolveCompanyFacts(input: Pick<DefaultPolicyInput, "supportEmail" | "facts">): CompanyFacts {
-  if (typeof input.supportEmail !== "string" || !input.supportEmail.trim()) {
-    throw new Error("supportEmail is required: it has no suite default");
-  }
-  const facts: CompanyFacts = { ...RIGHT_SUITE_COMPANY_FACTS, ...input.facts, supportEmail: input.supportEmail.trim() };
+  const facts: CompanyFacts = {
+    ...RIGHT_SUITE_COMPANY_FACTS,
+    ...input.facts,
+    ...(input.supportEmail === undefined ? {} : { supportEmail: input.supportEmail.trim() }),
+  };
   if (!Number.isInteger(facts.minimumAge) || facts.minimumAge < 1) throw new Error("minimumAge must be a positive integer");
-  for (const key of ["legalName", "entityType", "contactEmail", "governingLaw", "venue"] as const) {
+  for (const key of ["legalName", "entityType", "contactEmail", "supportEmail", "governingLaw", "venue"] as const) {
     if (!facts[key].trim()) throw new Error(`${key} must be non-empty`);
   }
   if (facts.address.lines.length === 0) throw new Error("address must have at least one line");
@@ -161,6 +164,8 @@ function build(kind: DefaultPolicyKind, input: DefaultPolicyInput, facts: Compan
           `**${facts.legalName}** publishes ${app}.`,
           "## What we receive",
           input.dataStatement ?? DEFAULT_DATA_STATEMENT,
+          "## Children",
+          `${app} is not directed to anyone under ${facts.minimumAge}.`,
           "## Contact",
           `Questions or rights requests: ${facts.supportEmail}. Company contact: ${facts.contactEmail}.`,
         ].join("\n\n"),

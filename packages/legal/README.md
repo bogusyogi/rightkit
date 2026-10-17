@@ -25,10 +25,10 @@ Peer dependencies: none.
 
 ## Shared company facts and default policies
 
-Apps never carry their own company facts. Pass only `appName`, `supportEmail` and `refundPolicy` (all required: none has a suite default); override a suite fact only where the app truly differs. Adoption steps: `docs/LEGAL-DEFAULTS.md`.
+Apps never carry their own company facts. Pass `appName` and `refundPolicy` (required; refunds have no suite default); `supportEmail` defaults to hello@orthiclabs.com and may be overridden. Override a suite fact only where the app truly differs. Adoption steps: `docs/LEGAL-DEFAULTS.md`.
 
 ```ts
-const input = { appName: "GenRight", supportEmail: "hello@example.app", refundPolicy: { kind: "none", trialDays: 30 } } as const;
+const input = { appName: "GenRight", refundPolicy: { kind: "none", trialDays: 30 } } as const;
 const documents = renderDefaultPolicies(input);
 const descriptors = defaultPolicyDescriptors(input, { version: "1", publicUrlBase: "https://example.app/legal/" });
 ```
