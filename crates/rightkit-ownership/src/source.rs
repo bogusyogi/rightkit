@@ -23,6 +23,8 @@ pub struct SourceMatcher {
     policy: Option<String>,
     code_only: bool,
     extensions: Option<Vec<String>>,
+    /// `excludePaths`: exact files or directory prefixes this rule never matches in.
+    exclude_paths: Vec<String>,
     re: Regex,
 }
 
@@ -68,6 +70,10 @@ pub fn source_matchers(manifest: &Value) -> Res<Vec<SourceMatcher>> {
                 extensions: field(fingerprint, "extensions")
                     .as_array()
                     .map(|list| list.iter().map(|e| str_of(e).to_string()).collect()),
+                exclude_paths: field(fingerprint, "excludePaths")
+                    .as_array()
+                    .map(|list| list.iter().map(|e| str_of(e).to_string()).collect())
+                    .unwrap_or_default(),
                 re,
             });
         }
@@ -98,6 +104,12 @@ fn split_lines(text: &str) -> Vec<&str> {
     text.split('\n')
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
         .collect()
+}
+
+fn excluded(matcher: &SourceMatcher, rel: &str) -> bool {
+    matcher.exclude_paths.iter().any(|p| {
+        rel == p || rel.starts_with(&if p.ends_with('/') { p.clone() } else { format!("{p}/") })
+    })
 }
 
 pub fn source_findings(
@@ -136,6 +148,7 @@ pub fn source_findings(
     let applicable: Vec<&SourceMatcher> = matchers
         .iter()
         .filter(|m| m.extensions.as_ref().is_none_or(|list| list.contains(&ext)))
+        .filter(|m| !excluded(m, rel))
         .collect();
     let line_matchers: Vec<&&SourceMatcher> = applicable.iter().filter(|m| !m.code_only).collect();
     if !line_matchers.is_empty() {

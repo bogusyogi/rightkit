@@ -2009,6 +2009,7 @@
         },
         {
           "id": "oauth.webview.auth-url-load",
+          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
           "type": "source",
           "pattern": "\\b(?:WebviewWindowBuilder|WebviewUrl::External|WebviewBuilder|WebView2|WKWebView|loadRequest|loadUrl|load_url|\\.navigate|\\.eval)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
           "codeOnly": false,
@@ -2040,6 +2041,7 @@
         },
         {
           "id": "oauth.webview.on-navigation-intercept",
+          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
           "type": "source",
           "pattern": "\\bon_navigation\\b[^\\n]{0,400}(?:[?&]code=|redirect_uri|\\boauth|access_token|id_token)",
           "codeOnly": false,
@@ -2071,6 +2073,7 @@
         },
         {
           "id": "oauth.webview.bundled-chromium-login",
+          "excludePaths": ["crates/rightkit-ownership/tests/ownership_fixtures.rs", "packages/release/fixtures/ownership/source-fingerprint-samples.mjs"],
           "type": "source",
           "pattern": "\\b(?:chromiumoxide|headless_chrome|CefBrowser(?:Host)?|CefLifeSpanHandler)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
           "codeOnly": false,

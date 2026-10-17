@@ -39,10 +39,18 @@ function sourceMatchers(manifest) {
     const flags = [...new Set(`m${sources.map(({ re }) => re.flags.replace(/[gy]/g, "")).join("")}`)].join("");
     prefilter = new RegExp(sources.map(({ f }) => `(?:${f.pattern})`).join("|") || "(?!)", flags);
   } catch { prefilter = /[\s\S]/; }
-  const matchers = { digest, sources, prefilter };
+  // `excludePaths` (exact files or directory prefixes) keeps a source rule off the paths that
+  // hold its own positive samples, such as the scanner's fixtures.
+  const excluded = new Map(sources.filter(({ f }) => f.excludePaths?.length).map(({ f }) => [f.id, f.excludePaths]));
+  const matchers = { digest, sources, prefilter, excluded };
   catalogCache.set(digest, matchers);
   if (catalogCache.size > 8) catalogCache.delete(catalogCache.keys().next().value);
   return matchers;
+}
+
+function sourceExcluded(matchers, id, rel) {
+  const paths = matchers.excluded?.get(id);
+  return Boolean(paths?.some((p) => rel === p || rel.startsWith(p.endsWith("/") ? p : `${p}/`)));
 }
 
 function sourceFindings(file, matchers) {
@@ -578,7 +586,7 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
     }
     if (size > 2 * 1024 * 1024) { coverage.push({ path: rel, status: "unscanned", reason: "source-file-over-2MiB" }); continue; }
     contentDigests.push({ path: rel, digest: inputDigest(file) });
-    for (const finding of sourceFindings(file, matchers)) findings.push({ ...finding, file: rel });
+    for (const finding of sourceFindings(file, matchers)) if (!sourceExcluded(matchers, finding.fingerprint, rel)) findings.push({ ...finding, file: rel });
   }
   if (pathPrefix) {
     const prefix = (p) => p === "." ? pathPrefix.slice(0, -1) : `${pathPrefix}${p}`;
