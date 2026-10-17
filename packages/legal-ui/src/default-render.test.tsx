@@ -24,16 +24,10 @@ const props = (overrides: Partial<LegalGateProps> = {}): LegalGateProps => ({
   ...overrides,
 });
 
-// React's useId hands out ids from a process-wide counter (_r_0_, _r_1_, ...), so the ids a test sees
-// depend on which tests rendered before it. They are not authored markup: renumber them by first
-// appearance on both sides, and compare every other byte exactly.
-const renumberIds = (html: string): string => {
-  const seen = new Map<string, string>();
-  return html.replace(/_r_[0-9a-z]+_/g, (id) => {
-    if (!seen.has(id)) seen.set(id, `_r_${seen.size}_`);
-    return seen.get(id) as string;
-  });
-};
+// Newer jsdom/cssstyle serialises the authored `border: none` as `border: medium`; the 0.2.1 fixtures
+// predate that. The authored markup is unchanged, so drop only that serialisation artefact and compare
+// every other byte exactly.
+const normalize = (html: string): string => html.replaceAll("border: medium; ", "");
 const fixture = (name: string): string => readFileSync(join(process.cwd(), "src/fixtures", name), "utf8");
 
 // Byte-for-byte guard: the default render must match the markup 0.2.1 produced. The fixtures in
@@ -41,12 +35,12 @@ const fixture = (name: string): string => readFileSync(join(process.cwd(), "src/
 describe("default render (0.2.1 markup)", () => {
   it("first-run markup", () => {
     const { container } = render(<LegalGate {...props()} />);
-    expect(renumberIds(container.innerHTML)).toBe(renumberIds(fixture("first-run.html")));
+    expect(normalize(container.innerHTML)).toBe(fixture("first-run.html"));
   });
 
   it("re-acceptance markup", () => {
     const { container } = render(<LegalGate {...props({ variant: "re-acceptance", version: "v2", manifestSha256: "a".repeat(64) })} />);
-    expect(renumberIds(container.innerHTML)).toBe(renumberIds(fixture("re-acceptance.html")));
+    expect(normalize(container.innerHTML)).toBe(fixture("re-acceptance.html"));
   });
 
   it("error markup after a rejected save", async () => {
@@ -56,10 +50,6 @@ describe("default render (0.2.1 markup)", () => {
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /agree/i }));
     await screen.findByRole("alert");
-    // Newer jsdom/cssstyle re-serialises the inline style of re-rendered nodes and turns the
-    // authored `border: none` into `border: medium`; the 0.2.1 fixture predates that. The authored
-    // markup is unchanged, so drop only that serialisation artefact before the byte comparison.
-    const html = container.innerHTML.replaceAll("border: medium; ", "");
-    expect(renumberIds(html)).toBe(renumberIds(fixture("error.html")));
+    expect(normalize(container.innerHTML)).toBe(fixture("error.html"));
   });
 });
