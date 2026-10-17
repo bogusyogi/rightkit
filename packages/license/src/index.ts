@@ -119,8 +119,10 @@ export interface LicenseStorage {
 export interface LicenseConfig {
   /** appKey, e.g. 'coderight' — sent as `app` + matched server-side. */
   app: string;
-  /** Brand host, e.g. 'coderight.cc' → https://coderight.cc/v1/licenses/*. */
-  host: string;
+  /** Licence host, e.g. 'heardright.app' → https://heardright.app/v1/licenses/*.
+   *  Omit to use `SHARED_LICENSE_HOST`, the shared RightSites licence server;
+   *  apps should not register a per-app brand host. */
+  host?: string;
   appVersion: string;
   storage: LicenseStorage;
   /** Stable per-install device id (host derives from keyring/localStorage). */
@@ -148,6 +150,11 @@ interface ActivateResponse {
   licenseIssuedAt?: string;
   confirmationDueAt?: string | null;
 }
+
+/** The shared RightSites licence server every Right Suite app uses unless it
+ *  passes an explicit `host`. Mirrors `rightkit_license::SHARED_LICENSE_HOST`
+ *  (Orthic-Labs/rightkit#272). */
+export const SHARED_LICENSE_HOST = 'heardright.app';
 
 const endpoint = (host: string, path: string) => `https://${host}/v1/licenses/${path}`;
 const nowIso = () => new Date().toISOString();
@@ -181,7 +188,7 @@ export function createLicenseClient(cfg: LicenseConfig) {
     // explicit override > Tauri HTTP (in-app, bypasses the CORS preflight + CSP) >
     // global fetch.
     const doFetch = cfg.fetchImpl ?? (await resolveDefaultFetch()) ?? fetch;
-    const res = await doFetch(endpoint(cfg.host, path), {
+    const res = await doFetch(endpoint(cfg.host || SHARED_LICENSE_HOST, path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),

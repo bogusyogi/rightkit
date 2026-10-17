@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+Additive. Not compiled when written; verification is the CI run.
+
+- **`SHARED_LICENSE_HOST`** (`"heardright.app"`): the shared RightSites licence server host, so apps stop passing a brand host. genright.app is not registered, so GenRight and later apps use this (Orthic-Labs/rightkit#272). Pairs with `@rightkit/license` 0.2.1. The registration and signing-key questions in the issue are backend items, not code here.
+
 ## 0.2.2
 
 Additive, behind the new cargo feature `engine-gate` (off by default; implies `subject-entitlement`). With the feature off the crate builds and behaves exactly as 0.2.1. One small additive method on the existing `SubjectEntitlementSource`, available whenever `subject-entitlement` is on. Version is a patch bump on purpose: in 0.x a minor bump (0.3.0) would break the `rightkit-license = "0.2.0"` requirement in `rightkit-device`, and 0.2.1 added a feature the same way. Not compiled when written; verification is the CI run (`Cargo.lock` is regenerated there).
