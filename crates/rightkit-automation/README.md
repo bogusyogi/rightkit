@@ -17,6 +17,7 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 | Windows UIA tree walk, Invoke/Toggle/Select/Expand/Value/Scroll/Text patterns, window messages, SendInput, PrintWindow, clipboard | `src/win/` |
 | macOS system-wide AX element, hit test at a point, per-call AX timeout | `macos::ax` (`system_wide`, `element_at_position`, `AxOptions`) |
 | Windows raw `SendInput` batch (any VK incl. `0xE8`, scan codes, extended bit, Unicode, mouse, `dwExtraInfo` tag), modifier snapshot and restore | `win::input` (`send_input_batch`, `RawInput`, `ModifierSnapshot`) |
+| Media and system keys (play-pause, next, previous, volume up/down, mute), system-wide, macOS and Windows | `src/media_keys.rs` (`send_media_key`, `MediaKey`) |
 | Engine: ids, freshness guard, ladder, receipts | `src/engine.rs` |
 | Per-app control lease, epoch fencing, acknowledged input sequence (the engine's typed layer) | `src/lease.rs` |
 | Admission pre-action hook (typed, engine layer) | `src/admission.rs` |

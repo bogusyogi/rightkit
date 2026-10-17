@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+Additive; no existing API changed. Code-only: nothing in this section was compiled or run when written, so the CI run is the verification. Requested in Orthic-Labs/rightkit#290 (HeardRight, heardright#275).
+
+- **New: media and system keys.** `send_media_key(MediaKey)` and `MediaKey::{PlayPause, NextTrack, PreviousTrack, VolumeUp, VolumeDown, Mute}` (module `media_keys`, re-exported at the crate root). One press and release, system-wide, on macOS and Windows; other OS returns `Error::Unsupported`. macOS posts an `NSSystemDefined` subtype-8 event (`NX_KEYTYPE_PLAY` 16, `NEXT` 17, `PREVIOUS` 18, `SOUND_UP` 0, `SOUND_DOWN` 1, `MUTE` 7) built with `+[NSEvent otherEventWithType:...]` and posted with `CGEventPost` to the HID tap; Windows sends `VK_MEDIA_PLAY_PAUSE`, `VK_MEDIA_NEXT_TRACK`, `VK_MEDIA_PREV_TRACK`, `VK_VOLUME_UP`, `VK_VOLUME_DOWN`, `VK_VOLUME_MUTE` in one `SendInput` call. Like the raw Windows input path it checks no focus and writes no receipt; it refuses with `Error::Blocked` while the kill switch (`policy::kill`) is set, and the caller's event marker rides on the posted event. `MediaKey::mac_key_type()`, `windows_vk()` and `parse(name)` are public. The code tables, the `data1` layout and the name parser are pure and unit-tested on every OS; the posting itself needs a Mac and a Windows run (play-pause, volume) and is not tested yet. No Stop key: macOS has no aux key for it.
+
 ## 0.4.3
 
 Additive; no existing API changed. Code-only: nothing in this section was compiled or run when written, so the CI run is the verification. Requested in Orthic-Labs/rightkit#177 (CutRight, bogusyogi/CutRight#5).

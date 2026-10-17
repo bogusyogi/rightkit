@@ -47,6 +47,7 @@ pub mod json;
 pub mod keys;
 pub mod lease;
 pub mod marker;
+pub mod media_keys;
 pub mod mock;
 pub mod model;
 pub mod offscreen;
@@ -70,6 +71,7 @@ pub use engine::{ActOptions, ActOutcome, Automation, Guard};
 pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};
 pub use focus::{FocusReport, FocusWatch};
 pub use lease::{Fence, Lease, LeaseRequest, LeaseStatus};
+pub use media_keys::{send_media_key, MediaKey};
 pub use model::*;
 pub use platform::{ClipSnapshot, InputEvent, Platform};
 pub use policy::{

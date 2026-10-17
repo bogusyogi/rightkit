@@ -25,6 +25,56 @@ impl MacPlatform {
     }
 }
 
+/// Post one press and release of a system-defined aux key (`NX_KEYTYPE_*`, see
+/// [`crate::media_keys`]) to the HID tap: an `NSSystemDefined` event, subtype 8.
+pub(crate) fn post_media_key(key_type: i64) -> Result<()> {
+    type Ctor = unsafe extern "C" fn(
+        Id,
+        Sel,
+        u64,
+        CGPoint,
+        u64,
+        f64,
+        i64,
+        Id,
+        i16,
+        i64,
+        i64,
+    ) -> Id;
+    pool(|| unsafe {
+        let ctor: Ctor = std::mem::transmute(objc_msgSend as *const ());
+        for down in [true, false] {
+            let flags: u64 = if down { 0xA00 } else { 0xB00 };
+            let ev = ctor(
+                class(c"NSEvent"),
+                sel(c"otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:"),
+                14, // NSEventTypeSystemDefined
+                CGPoint { x: 0.0, y: 0.0 },
+                flags,
+                0.0,
+                0,
+                std::ptr::null(),
+                8, // aux control buttons
+                crate::media_keys::aux_data1(key_type, down),
+                -1,
+            );
+            if ev.is_null() {
+                return Err(Error::Unsupported("system-defined event"));
+            }
+            let cg = msg0(ev, c"CGEvent");
+            if cg.is_null() {
+                return Err(Error::Unsupported("system-defined CGEvent"));
+            }
+            let marker = crate::marker::event_marker();
+            if marker != 0 {
+                CGEventSetIntegerValueField(cg, 42, marker);
+            }
+            CGEventPost(0, cg);
+        }
+        Ok(())
+    })
+}
+
 /// All windows, front to back. `on_screen_only=false` includes minimized/other-Space windows.
 pub fn list_windows(on_screen_only: bool) -> Vec<WindowInfo> {
     let opt = if on_screen_only { 1 | 16 } else { 16 };
