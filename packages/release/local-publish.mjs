@@ -17,7 +17,7 @@ import { GATE_SCHEMA, defaultEvidencePath, enforcePublicationGate, publishGatedT
 import { runCargoPublish } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
-import { recordPublished } from "./rightkit-sync.mjs";
+import { recordPublished, stageSourceVersions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
@@ -202,6 +202,9 @@ export async function runLocalPublish(kind, argv, deps = {}) {
       packCommands.push(`rightkit cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
     }
     if (kind === "npm") {
+      // The feed a tarball ships must list the version it ships with (#319): stage it before packing.
+      const feedFile = path.join(workspaceRoot, "packages", "release", "rightkit-versions.json");
+      if (fs.existsSync(feedFile)) (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log });
       const args = ["--dir", dir, "pack", "--pack-destination", scratch];
       packCommands.push(`pnpm ${args.join(" ")}`);
       const packed = run("pnpm", args, { cwd: workspaceRoot, env });

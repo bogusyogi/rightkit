@@ -166,6 +166,32 @@ export async function syncRightkitVersions({ check = false, fetchImpl = fetch, f
   return { changes, unpublished, copies, written };
 }
 
+/** Stage source versions into the feed BEFORE packing, so the rightkit-versions.json a tarball ships lists
+ * the very version it ships with (the feed is otherwise written after publish and lags by one release).
+ * Synchronous and offline: a unit below its staged version is skipped (never lowered); published pins stay
+ * allowed through the same retainPublished rule as stageVersion. Refreshes the consumer copies. */
+export function stageSourceVersions(entries, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
+  const versions = JSON.parse(readFileSync(file, "utf8"));
+  const next = structuredClone(versions); const changes = [];
+  for (const { registry, name, version } of entries) {
+    const [stagedKey] = versionKeys(registry);
+    if (typeof name !== "string" || !name.trim()) throw new Error("stageSourceVersions requires a package or crate name");
+    if (typeof version !== "string" || !SEMVER.test(version)) throw new Error(`invalid semver: ${version}`);
+    const current = next[stagedKey]?.[name] ?? next[registry]?.[name] ?? null;
+    if (current && compareVersions(version, current) <= 0) continue;
+    retainPublished(next, { registry, name, version }, [current, next.registry?.[registry]?.[name]], undefined);
+    next[stagedKey] ??= {};
+    next[stagedKey][name] = version;
+    next[stagedKey] = Object.fromEntries(Object.entries(next[stagedKey]).sort(([a], [b]) => a.localeCompare(b)));
+    changes.push({ registry, name, from: current, to: version });
+  }
+  const written = JSON.stringify(next) !== JSON.stringify(versions);
+  if (written) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+  const copies = syncConsumerCopies(root);
+  for (const change of changes) log(`${change.registry} ${change.name}: ${change.from ?? "unlisted"} -> ${change.to} (staged before pack)`);
+  return { changes, copies, written };
+}
+
 /** Record one just-published version (the registry index can lag the upload) and refresh the copies.
  * Called by right-release after a verified cargo or npm publish; never fails the publish itself unless `strict` is set. */
 export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`), strict = false } = {}) {

@@ -22,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
+import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
@@ -466,6 +467,9 @@ export function buildCrateUploadMetadata(pkg, readmeText = null) {
 
 function packNpm({ units, root, outDir, env, spawn }) {
   const entries = [];
+  // The feed a tarball ships must list the version it ships with (#319): stage every unit of this publish first.
+  const versionsFile = path.join(root, "packages", "release", "rightkit-versions.json");
+  if (fs.existsSync(versionsFile)) stageSourceVersions(units.map((u) => ({ registry: "npm", name: u.name, version: u.version })), { file: versionsFile, root, log });
   for (const unit of units) {
     const result = spawn("pnpm", ["--dir", unit.dir, "pack", "--pack-destination", outDir], { cwd: root, stdio: "inherit", env });
     if (result.error || result.status !== 0) throw new Error(`pnpm pack failed for ${unit.name}`);
