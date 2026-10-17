@@ -124,6 +124,8 @@ pub struct OwnedCommand {
     unix_containment: UnixContainment,
     process_priority: ProcessPriority,
     kill_on_parent_exit: bool,
+    // Set by `spawn_suspended`: Windows leaves the child suspended until `OwnedChild::resume`.
+    hold_suspended: bool,
     // None preserves the existing unbounded partial-spawn reap.
     partial_spawn_cleanup_timeout: Option<Duration>,
     inherited_handles: Option<Vec<InheritedValue>>,
@@ -166,6 +168,7 @@ impl OwnedCommand {
             unix_containment: UnixContainment::ProcessGroup,
             process_priority: ProcessPriority::Normal,
             kill_on_parent_exit: false,
+            hold_suspended: false,
             partial_spawn_cleanup_timeout: None,
             inherited_handles: None,
             #[cfg(windows)]
@@ -317,6 +320,19 @@ impl OwnedCommand {
     pub fn spawn(self) -> io::Result<OwnedChild> {
         self.spawn_inner(false, false, None)
     }
+    /// Like [`OwnedCommand::spawn`], but on Windows the child is created suspended, assigned to
+    /// its Job Object, and held there: it executes no instruction until
+    /// [`OwnedChild::resume`] is called. A caller can persist the child's identity (pid and
+    /// start time) first, then release it. Dropping a child that was never resumed terminates it
+    /// like any owned child.
+    ///
+    /// Unix has no suspended creation: this is `spawn`, the child runs at once, and `resume` is
+    /// a no-op that returns `Ok`. A caller that needs a hold on Unix gates the child itself (for
+    /// example a pipe the child blocks reading).
+    pub fn spawn_suspended(mut self) -> io::Result<OwnedChild> {
+        self.hold_suspended = true;
+        self.spawn_inner(false, false, None)
+    }
     /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid;
     /// Windows requires breakaway and never falls back when escape is denied.
     /// Stdio follows Command: dropping piped stdin can still deliver EOF.
@@ -407,6 +423,9 @@ impl OwnedCommand {
         #[cfg(windows)]
         let _ = (self.unix_containment, self.kill_on_parent_exit);
         let spawned_at = SystemTime::now();
+        let hold_suspended = self.hold_suspended && !detached;
+        #[cfg(unix)]
+        let _ = hold_suspended;
         #[cfg(unix)]
         let child = {
             let mut child = crate::unix_child::UnixChild::new(self.command.spawn()?);
@@ -473,6 +492,7 @@ impl OwnedCommand {
                 drop_reap_timeout: DEFAULT_DROP_REAP_TIMEOUT,
                 tree_terminated: false,
                 assignment_failures: Vec::new(),
+                suspended: std::sync::atomic::AtomicBool::new(cfg!(windows) && hold_suspended),
                 #[cfg(windows)]
                 job: None,
             }),
@@ -496,7 +516,9 @@ impl OwnedCommand {
                 // Best effort: EcoQoS is a hint and older Windows builds lack it.
                 let _ = crate::process_windows::apply_efficiency(&*owned.child());
             }
-            owned.child().resume(detached)?;
+            if !hold_suspended {
+                owned.child().resume(detached)?;
+            }
         }
         if fail_after_spawn {
             return Err(io::Error::other("injected post-spawn wrapping failure"));
@@ -558,6 +580,8 @@ pub struct OwnedChild {
     drop_reap_timeout: Duration,
     tree_terminated: bool,
     assignment_failures: Vec<JobAssignmentFailure>,
+    // True from `spawn_suspended` (Windows) until `resume` releases the child.
+    suspended: std::sync::atomic::AtomicBool,
     // Shared so the owned-children registry can reach the job without keeping it open
     // (it holds a `Weak`): the kill-on-close job still closes with this child.
     #[cfg(windows)]
@@ -603,6 +627,25 @@ impl OwnedChild {
     /// `WaitForSingleObject` while holding the lock, as in 0.3.3.)
     pub fn child(&self) -> MutexGuard<'_, PlatformChild> {
         lock_child(&self.child)
+    }
+    /// Release a child created by [`OwnedCommand::spawn_suspended`]. It is already in its Job
+    /// Object; this lets it run. Returns `Ok` and does nothing for a child that is not held
+    /// (an ordinary spawn, a child already resumed, and every Unix child). On error the child
+    /// stays held and `resume` can be retried.
+    pub fn resume(&self) -> io::Result<()> {
+        if self.suspended.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            #[cfg(windows)]
+            if let Err(error) = self.child().resume(self.detached) {
+                self.suspended
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    /// True while a child from [`OwnedCommand::spawn_suspended`] has not been resumed.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.load(std::sync::atomic::Ordering::SeqCst)
     }
     /// Runs `act` with the leader's pid while the leader is proven to be this child and
     /// unreaped, holding the shared lock so no reap can fall between the proof and `act`.

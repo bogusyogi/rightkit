@@ -4,6 +4,7 @@
 
 Issue #271. Written without compiling or running Cargo here; CI builds and runs the tests.
 
+- **New: `OwnedCommand::spawn_suspended`, `OwnedChild::resume`, `OwnedChild::is_suspended`** (Orthic-Labs/rightkit#292, RustRight start gate). On Windows the child is created `CREATE_SUSPENDED`, assigned to its Job Object, and then held: it runs nothing until `resume()`, so a caller can persist its identity first. `resume` is idempotent, retryable after an error, and releases through the primary thread handle (or by thread enumeration for a std-spawned child). Dropping a never-resumed child terminates it. On Unix `spawn_suspended` is `spawn` and `resume` is a no-op returning `Ok`. Detached spawns are unaffected. Additive. Written without compiling or running Cargo.
 - **New: `PowerAssertion::acquire(reason, PowerKind)`**, a keep-awake guard released on drop. `PowerKind::System`
   prevents idle system sleep; `SystemAndDisplay` also keeps the display on. Windows: `SetThreadExecutionState` on a
   holder thread that lives as long as the guard (the state is per thread). macOS: an IOKit
