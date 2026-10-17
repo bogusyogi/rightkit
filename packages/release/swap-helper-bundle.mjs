@@ -13,7 +13,8 @@ import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 export const SWAP_HELPER_PACKAGE = "@rightkit/release";
 export const SWAP_HELPER_BIN = ["bin", "darwin", "rightkit-swap"];
 export const SWAP_HELPER_RECEIPT = ["bin", "darwin", "rightkit-swap.sign.json"];
-export const SWAP_HELPER_CARGO_ARGS = ["build", "--release", "-p", "rightkit-fs", "--bin", "rightkit-swap"];
+// rightkit-swap is gated on the crate feature "fs" (crates/rightkit-fs/Cargo.toml [[bin]] required-features).
+export const SWAP_HELPER_CARGO_ARGS = ["build", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"];
 
 /** Typed error. Codes: SWAP_HELPER_BUILD_FAILED, SWAP_HELPER_SIGN_FAILED, SWAP_HELPER_MISSING, SWAP_HELPER_UNSIGNED. */
 export class SwapHelperError extends Error {
