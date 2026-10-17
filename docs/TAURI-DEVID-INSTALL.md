@@ -1,6 +1,6 @@
 # Tauri Developer ID dev install (`install.kind: "tauri-devid"`)
 
-One fixed install path, one stable Developer ID, one `.previous` rollback copy. macOS keys privacy grants (TCC)
+One fixed install path, one stable Developer ID, NO backup copy (a dev install never creates `.previous`, bogusyogi/rightkit#348: reinstall from an older DMG). macOS keys privacy grants (TCC)
 and Keychain code requirements to the path and the code identity, so a dev build that keeps both never loses them.
 Implemented in `packages/release/install-tauri-devid.mjs`; tracked in bogusyogi/rightkit#345.
 
@@ -23,8 +23,9 @@ Implemented in `packages/release/install-tauri-devid.mjs`; tracked in bogusyogi/
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `productName`, `targetTriple`, `manifestPath`, `bundleDirectory` | yes / yes / no / no | Same as `kind: "tauri"`: locate the built `.app`. |
-| `destination` | yes | The one absolute install path, ending `.app`. Never per-version or per-pid. |
-| `bundleId` | no | Passed to the installer to refuse a bundle-id change; needed for `resetPrivacy`; the `<bundleId>` of `identifierTemplate`. Must equal the app's `CFBundleIdentifier`. |
+| `destination` | yes | The one absolute install path, ending `.app`. It must be exactly `/Applications/<productName>.app`, where `productName` is the `tauri.conf.json` `productName` (`install.productName` must equal it) and, when the release config declares `targets.mac.notarize.app`, the basename of that app must agree. There is no other accepted destination (the former `targets.mac.destination` escape hatch never existed in the config and is removed). Never per-version or per-pid. |
+| `bundleId` | no | Passed to the installer to refuse a bundle-id change; needed for `resetPrivacy`; the `<bundleId>` of `identifierTemplate`. Must equal the app's `CFBundleIdentifier` and the `identifier` in `tauri.conf.json`. |
+| `tauriConfig` | no | Relative `.json` path of the tauri config to read `identifier` and `productName` from, instead of `tauri.conf.json` beside `manifestPath`. A configured path that cannot be read is refused. |
 | `verifyBinaries` | no | Bundle-relative executables whose SHA-256 must equal the signed staging copy after install. |
 | `identifiers` | no | `{ "<path or glob>": "<identifier>" }`: `codesign --identifier` per binary. See below. |
 | `identifierTemplate` | no | Default identifier for the remaining plain Mach-O files, for example `"<bundleId>.runtime.<relpath>"`. |
@@ -32,7 +33,21 @@ Implemented in `packages/release/install-tauri-devid.mjs`; tracked in bogusyogi/
 | `timestamp` | no | `true` adds `--timestamp` (secure timestamp) to every dev signing call. Default: none. |
 | `assert` | no | `[{ "path", "identifier"?, "teamIdentifier"?, "authority"? }]`: identity assertions via `codesign -dvv`. |
 | `assertTeamSignedNested` | no | `true`: every Mach-O in the bundle (dylibs included) must carry the app's TeamIdentifier. |
-| `signing` | forbidden | Ad hoc signing resets grants every build; refused. |
+| `signing` | forbidden | Ad hoc signing (`"-"`) changes the code identity every build and resets grants; refused. Dev builds sign with the same Developer ID as release. |
+| `devIdentity`, `refuseSystemApplications` | forbidden | A separate dev identity or a refusal of `/Applications` is not supported; see the next section. |
+
+## Same identity as production (Adrian, 2026-10-17)
+
+> dev builds use the SAME install path and bundle id as production (else permission issues), replaced in place with no backup copy; no separate .dev identity (Android excepted).
+
+The installer enforces this and fails closed:
+
+1. The production identity must be knowable: the tauri config (`tauri.conf.json` beside the manifest, or `install.tauriConfig`) must be readable, or `install.bundleId` must be set; with neither, the install is refused before anything is copied (`TAURI_DEVID_CONFIG_INVALID`). `install.productName` must equal the tauri config `productName`; a mismatch such as `X Dev` is refused. The built `.app` `CFBundleIdentifier` (read with `/usr/bin/plutil`) must equal the `identifier` in the tauri config (and `install.bundleId` when set); a mismatch stops before anything is copied or signed (`TAURI_DEVID_BUNDLE_ID_MISMATCH`).
+2. `install.destination` must be exactly `/Applications/<productName>.app`.
+3. An existing bundle at the destination, production bundle id included, is replaced in place and NOT kept anywhere: no `<destination>.previous`, no backup of any kind (a stale `.previous` from an older RightKit is removed). Adrian: "when installing dev, old copy must never be backedup. we always have older dmgs to install."
+4. Ad hoc signing stays refused.
+
+ViewRight and PostRight: both asked for a separate dev identity or location (`app.viewright.dev` at a cache path, `~/Applications/PostRight Dev.app`, `signing: "-"`). Those requests are not supported; use the production destination and bundle id as above.
 
 Entitlements and provisioning profile come from `targets.mac.sign` and the Tauri config, exactly as in
 `development-signing.mjs`. Identity is Developer ID Application only (no Apple Development fallback).
@@ -66,7 +81,7 @@ for both, so their old dev signing passed `--timestamp`; set `"timestamp": true`
 ### Identity assertions
 
 After signing, `install.assert` is checked on the signed staging copy (before anything is installed) and again on the installed copy (a failure
-restores `.previous`, or removes a first install, and throws `TAURI_DEVID_VERIFY_FAILED`). `codesign -dvv` is read from stdout and stderr (codesign
+removes the failed install, keeps no old copy, and throws `TAURI_DEVID_VERIFY_FAILED`). `codesign -dvv` is read from stdout and stderr (codesign
 prints to stderr). `path` may be a glob; a glob that matches no file fails, so a typo cannot pass. `authority` must be one of the `Authority=` lines.
 `assertTeamSignedNested: true` additionally inspects every Mach-O in the bundle, including bundled dylibs such as
 `Contents/Frameworks/libonnxruntime*.dylib` or `Contents/Resources/runtime/*.dylib`; one that is ad hoc or signed by another team fails. Errors use
@@ -77,13 +92,13 @@ prints to stderr). `path` may be a glob; a glob that matches no file fails, so a
 1. Copy the built `.app` to a private staging copy named like the destination.
 2. `signMacosDevelopmentBundle`: nested code first (deepest first), then the app, with the stable Developer ID; strict deep verify; refuses an ad hoc or cdhash-bound designated requirement; runs the declared identity assertions.
 3. `assertStableDesignatedRequirement` against the installed copy; a mismatch stops with `DEV_MAC_SIGNING_REQUIREMENT_CHANGED` before anything changes.
-4. `installApp` in dev mode: verify, quit the running app, atomic swap, old copy kept as `<destination>.previous`.
-5. Verify the installed copy: `codesign --verify --strict --deep`, designated requirement equals the signed one, declared identity assertions, `verifyBinaries` digests match. Failure restores `.previous` (or removes a first install) and throws `TAURI_DEVID_VERIFY_FAILED` with `rolledBack`.
+4. `installApp` in dev mode: verify, quit the running app, remove the old app, rename the verified staged app into place. No exchange, no `.previous`.
+5. Verify the installed copy: `codesign --verify --strict --deep`, designated requirement equals the signed one, declared identity assertions, `verifyBinaries` digests match. Failure removes the failed install (the path is left absent, reinstall from an older DMG; no old copy is restored) and throws `TAURI_DEVID_VERIFY_FAILED` with `rolledBack: "removed-failed-install"`.
 
 ## Reset
 
-`resetTauriDevId({ appRoot, config, mode })`: `restore` (default) makes `.previous` the install again;
-`remove` deletes the install and `.previous` (add `resetPrivacy: true` to run `tccutil reset All <bundleId>`). Quit the app first.
+`resetTauriDevId({ appRoot, config, mode: "remove" })`: `mode` is required and only `remove` exists. There is no restore mode, because a dev install keeps no old copy;
+`remove` deletes the install and any stale `.previous` (add `resetPrivacy: true` to run `tccutil reset All <bundleId>`). Quit the app first.
 
 ## Injection
 

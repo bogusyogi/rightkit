@@ -1,23 +1,180 @@
-# macOS package recipe (`macPackage`)
+# macOS package recipe
 
-> **In `right-release.config.mjs` (what `right-release release --platform mac` runs).** `targets.mac.macPackage`
-> is expanded by `packages/release/package-recipe-targets.mjs` into the hook shape release.mjs already gates, so
-> every existing check (QA-control scans, Developer ID signing of the .app and nested code, app notarization and
-> stapling, the signed DMG and its notarization) runs unchanged. The release-target schema is:
->
-> ```js
-> mac: {
->   signed: true, signingContract: "macos-developer-id-notarized-portable-v1",
->   macPackage: { universal: true /* default */, tauriCwd: "." /* optional */, features: [] /* optional */ },
->   notarize: { app: "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app", file: "dist/App_universal.dmg", profile: "apple-dev-notary" },
->   dmg: { volname: "App", background: "assets/dmg.png" /* optional branding, as for SwiftPM */ },
->   sign: { nestedCode: { /* optional, as today */ } },   // prePackageFiles defaults to [notarize.app]
-> }
-> ```
->
-> Migration: delete `prePackage` and `package` (the mac-dmg.mjs hook) and add `macPackage`. Not yet in the
-> expansion: the updater tarball (keep `create-mac-updater` in `postSign` for now) and per-app native-helper
-> embedding (keep that in the Tauri build). The standalone `runMacPackageRecipe` below is for direct callers.
+Tracking: bogusyogi/rightkit#345 (every product builds through one RightKit entrypoint).
+
+There are two different schemas in this repository. They share a name and nothing else, so keep them apart:
+
+| | Release target `targets.mac.macPackage` | Standalone `runMacPackageRecipe` |
+| --- | --- | --- |
+| Run by | `right-release release --platform mac` | a direct caller importing `mac-package-recipe.mjs` |
+| Lives in | `right-release.config.mjs` | the caller's own config object |
+| Keys `dmg` / `notarize` / `updater` / `nested` / `entitlements` | **not** `macPackage` keys (see "Where each concern lives") | `macPackage.dmg`, `.notarize`, `.updater`, `.nested`, `.entitlements` |
+
+Everything from "Release target" down to "Standalone runMacPackageRecipe" is about the release target. If you are writing
+`right-release.config.mjs`, stop reading at that heading.
+
+## Release target: `targets.mac.macPackage`
+
+`targets.mac.macPackage` is expanded by `packages/release/package-recipe-targets.mjs` into the hook shape release.mjs already
+gates (`prePackage`, `sign`, `notarize`, `dmg`), so every existing check runs unchanged: QA-control and release-switch scans,
+Developer ID signing of the .app and its nested code, app notarization and stapling before packing, the signed DMG and its
+notarization.
+
+```js
+mac: {
+  signed: true, signingContract: "macos-developer-id-notarized-portable-v1",
+  macPackage: {
+    universal: true,                       // default; false = this host's arch (process.arch)
+    triple: "aarch64-apple-darwin",        // optional explicit arch, beats `universal`
+    tauriCwd: ".", features: [],           // optional
+    profile: "release", tauriConfig: "src-tauri/tauri.release.json",   // optional
+    prepare: [], postBuild: [],            // optional argv commands
+    cleanup: { staleApps: true, staleDmgVolumes: true, lsclean: true },// optional built-in pre-build cleanup
+    cargoTargetRoot: true,                 // optional, see "Managed Cargo target roots"
+  },
+  notarize: { app: "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app", file: "dist/App_universal.dmg", profile: "apple-dev-notary" },
+  dmg: { volname: "App", background: "assets/dmg.png" },          // DMG settings live HERE
+  sign: { nestedCode: {}, identifiers: {}, entitlements: {} },     // prePackageFiles defaults to [notarize.app]
+  externalBin: { /* sidecars, signed automatically */ },
+  postSign: { cmd: "right-release", args: ["create-mac-updater", /* ... */] },  // the updater lives HERE
+}
+```
+
+Unknown `macPackage` keys are refused (`universal, triple, tauriCwd, features, profile, tauriConfig, prepare, postBuild,
+cleanup, cargoTargetRoot`). `prePackage` and `package` must be absent, and `dmg: false` is refused: the target always
+builds a DMG.
+
+### Where each concern lives
+
+| Concern | Where | Notes |
+| --- | --- | --- |
+| Nested code to sign | `sign.nestedCode` | optional; `.framework`, `.xpc`, `.dylib` and Mach-O files under `Contents` are discovered automatically |
+| codesign `--identifier` | `sign.identifiers` (path or glob map) and `sign.identifierTemplate` | per-path, bundle-relative; the a59df383 behaviour |
+| Per-path entitlements | `sign.entitlements` as an object of bundle path/glob to plist | nested code stays unentitled unless a path is listed; a string value is the app's own entitlements |
+| `externalBin` sidecars | `externalBin` | nested-code signing is automatic: release.mjs merges `externalBinNestedCode` (each `<bundleDir>/<name>` with hardened runtime) into the signing config, then your own `sign.nestedCode` entries win. Nothing to declare |
+| DMG volume name, background, layout | `targets.mac.dmg` (`volname`, `background`, or `spec: "assets/dmg.json"`) | the standalone `macPackage.dmg` block does not apply here |
+| Updater tarball and signature | `postSign`: `create-mac-updater` (a single command or an array of commands) | the recipe does not create an updater |
+| Notarization | `notarize` (`app`, `file`, `profile`, `staple`) | `appBeforePackage` is set for you |
+| Raw .app signing set | `sign.prePackageFiles` | defaults to `[notarize.app]`; if set it must contain `notarize.app` |
+
+### Architecture
+
+`universal: true` (default) builds `--target universal-apple-darwin`, and Tauri lipos both slices itself. `universal: false` builds
+this host's arch (`process.arch`: `aarch64-apple-darwin` on arm64, else `x86_64-apple-darwin`). `triple` names an arch
+explicitly (`aarch64-apple-darwin` or `x86_64-apple-darwin`) and overrides `universal`; `notarize.app` must then sit under that
+triple's directory (a path under a different triple is refused).
+
+### Signing, `--no-sign` and the DMG
+
+The Tauri build runs with `--no-sign` and `signingIdentity: null`: Tauri never signs. release.mjs signs the .app and nested code
+after the build, so that its QA-control and release-switch scans run on unsigned bytes and the signing receipt is one set. Do not
+remove this.
+
+`notarize.file` is the DMG right-release builds from the stapled app. It is an app-relative path and may point anywhere inside
+the app (for example `dist/App_universal.dmg`). release.mjs also finds the file by basename in `RIGHT_RELEASE_ARTIFACT_DIR` when
+storage governance is on. A repo-root DMG mirror is not part of the recipe and is not needed: `mirror-root-artifact`
+(`right-release mirror-root-artifact --file <dmg> --package-root <app>`) only copies one regular file into
+`RIGHT_RELEASE_ARTIFACT_DIR` and refuses to write repository-root output. Use it only if a downstream step needs the DMG in the
+managed directory; do not reintroduce root mirrors.
+
+### Sign-only, identity override, resume
+
+- Identity: release.mjs has no `sign.identity` key. The Developer ID identity comes from `APPLE_DEVELOPER_ID` (the exact
+  `Developer ID Application: ...` string) when set, else the single Developer ID Application identity in the keychain. Several
+  identities and no `APPLE_DEVELOPER_ID` is an error. The notarytool credentials are `notarize.profile`, or
+  `APPLE_API_KEY_PATH` + `APPLE_API_KEY` + `APPLE_API_ISSUER`.
+- Sign-only / resume: `right-release release --platform mac --resume-from <phase>` with phase one of `prepackage`, `sign`,
+  `package`, `post-sign`, `harden`. `--resume-from sign` skips the `prePackage` (build and cleanup) step and signs the app that
+  is already on disk; later phases run as usual.
+- Icon verification: release.mjs has no icon check. Keep it in `postSign` or the app's own test.
+
+### Built-in cleanup (`macPackage.cleanup`)
+
+`cleanup: { staleApps, staleDmgVolumes, lsclean }` (booleans, all optional). When any is true, `prePackage` runs through
+`recipe-build`, which performs them as built-in steps before the build; there is no app script:
+
+| Key | Step |
+| --- | --- |
+| `staleDmgVolumes` | detach `/Volumes/<name>` and `/Volumes/<name> <N>` (the macOS duplicate suffix) for the product name (the `notarize.app` basename without `.app`) or `dmg.volname`, but only a volume that `hdiutil info -plist` reports as a mounted disk image; a plain `hdiutil detach` first, `-force` only on retry. A real disk, share or similarly named volume is never touched |
+| `lsclean` | `lsregister -u <path>` for every stale `*.app` in the bundle directory (the directory holding `notarize.app`); never `lsregister -kill` |
+| `staleApps` | delete every stale `*.app` in the bundle directory |
+
+When both `lsclean` and `staleApps` are set the app is unregistered first, then deleted. A detach or unregister that fails is
+logged and skipped; the build's own gates decide pass or fail. The volume and `lsregister` steps are skipped off macOS.
+
+### Profile, extra Tauri config, prepare and postBuild
+
+`macPackage` takes `profile` (the trailing `-- --profile <p>` form), `tauriConfig` (an app-relative `.json`) and `prepare`
+(same meaning as in WIN-PACKAGE-RECIPE.md) and `postBuild`: `[{ cmd, args?, cwd? }]` argv commands run after `tauri build` and
+before release.mjs signs, for example embedding a dylib with a symlink-preserving copy (`ditto`, or `cp -a`).
+
+```js
+macPackage: {
+  universal: true, profile: "release",
+  tauriConfig: "src-tauri/tauri.release.json",
+  prepare: [{ cmd: "node", args: ["scripts/stage-pdfium.mjs"] }, { cmd: "right-release", args: ["stage-sidecar", "--target", "universal-apple-darwin"] }],
+  postBuild: [{ cmd: "ditto", args: ["libpdfium.dylib", "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app/Contents/Frameworks/libpdfium.dylib"] }],
+}
+```
+
+With `prepare`, `postBuild` or `cleanup`, `prePackage` is `node recipe-build.mjs --plan <json>`: cleanup, prepare, the Tauri build,
+postBuild, in order, failing closed on the first non-zero exit. Without them it is the plain `pnpm exec tauri build`.
+
+### Managed Cargo target roots
+
+Artifact paths in the target are the paths you declare (`notarize.app`, `sign.prePackageFiles`), normally under
+`src-tauri/target/<triple>/...`. With `cargoTargetRoot: true` (manifest `<tauriCwd>/src-tauri/Cargo.toml`) or
+`cargoTargetRoot: "<app-relative Cargo.toml>"`, the expansion asks `cargo metadata` for `target_directory` and moves every declared
+path that begins with `<manifest dir>/target/` there. When `CARGO_TARGET_DIR` is set and `<tauriCwd>/src-tauri/Cargo.toml`
+exists, the same lookup runs without the key. What works:
+
+- target directory inside the app (for example `CARGO_TARGET_DIR=.cargo-target`): paths are rewritten, and the build, signing
+  set, cleanup bundle dir and `notarize.app` all agree;
+- target directory outside the app (a broker-managed directory): fails closed with a clear message, because release.mjs resolves
+  declared paths from the app root and signing and `lsregister` entries are app-relative. Paths you wrote outside the default
+  `target/` prefix are never touched;
+- `RIGHT_RELEASE_ARTIFACT_DIR` is a separate mechanism: release.mjs falls back to a file's basename there only when the declared
+  path does not exist. It is not a build output location.
+
+Your own `prepare` and `postBuild` commands are not rewritten; point them at the real directory.
+
+### Scans that run for you
+
+Before signing, release.mjs scans the macOS signing set (and the staged app before it is packed into the DMG) with
+`assertNoQaControlBinaries`: the QA-control marker, the wdio webdriver plugin, the shell dev-inspect marker, remote-debugging
+switches and Tauri devtools (allow-listed apps only) in every Mach-O, then the D4 release-switch binary layer
+(`assertNoReleaseSwitches`: the test-mode marker and registered S1-S4 selector names, plus `config.releaseSwitches.forbid`).
+`config.releaseSwitches` additionally drives the source layer (feature closure through `cargo tree`, and the `switches.json`
+inventory), and the frontend `dist` is scanned for browser-QA mocks. That is the whole release-switch and QA-control gate; an
+app's own `check-release-test-switches` script is redundant for what these cover. What it does not cover: a compressed DMG after
+packing (the raw app is scanned before), symlinks, browser JS (source layer only) and any app-specific string rule that is not in
+`switches.json` or `releaseSwitches.forbid`.
+
+The recipes never touch `development.targets.mac.build` (the development lane in `development.mjs` does not call
+`expandPackageRecipeTarget`; only release.mjs does). `--features dev-control` there is unaffected.
+
+### Other release.mjs keys
+
+- Post-sign smoke: `targets.mac.postSign` (`{ cmd, args }`, or an array), run after signing and before notarization of the DMG
+  (for example `verify-macos-release-artifacts.mjs`).
+- DMG layout: `targets.mac.dmg: { spec: "assets/dmg.json" }`, an appdmg-style JSON read by `dmg-spec.mjs`: `title`, `icon`,
+  `background`, `icon-size`, `window.size {width,height}`, `window.position {x,y}`, and `contents` with the `.app` position and
+  one `/Applications` link. Extra files, licences and other formats are refused by that parser.
+- notarytool variants: `notarize.profile` selects a Keychain profile (`--keychain-profile`); without it `notary-auth.mjs`
+  uses `APPLE_API_KEY_PATH` + `APPLE_API_KEY` + `APPLE_API_ISSUER` together (`--key --key-id --issuer`), else the default
+  `apple-dev-notary` profile. `notarize.staple: false` and `notarize.appBeforePackage` exist. There is no key to
+  pass arbitrary notarytool flags.
+
+Migration: delete `prePackage` and `package` (the mac-dmg.mjs hook), add `macPackage`, move DMG branding to `targets.mac.dmg`,
+keep `create-mac-updater` in `postSign`, and keep per-app native-helper embedding in the Tauri build or `postBuild`.
+
+---
+
+## Standalone runMacPackageRecipe
+
+Everything below is for **direct callers** of `runMacPackageRecipe` (`packages/release/mac-package-recipe.mjs`). Its `macPackage`
+object has different keys (`dmg`, `notarize`, `updater`, `nested`, `entitlements`) from the release target above; do not copy them
+into `right-release.config.mjs`.
 
 One RightKit entrypoint packages every macOS app (bogusyogi/rightkit#345). A mac target that declares `macPackage` and
 has no `prePackage` / `package` hook scripts is signed, packed, notarized and given an updater by
@@ -27,7 +184,7 @@ has no `prePackage` / `package` hook scripts is signed, packed, notarized and gi
 The recipe starts from a built `.app`. Building it (Tauri, SwiftPM, the engine) stays the app's own build step; the recipe
 owns everything after that.
 
-## Config schema
+### Config schema
 
 ```js
 targets: {
@@ -67,7 +224,7 @@ Other error codes: `MAC_PACKAGE_HOST_UNSUPPORTED` (not macOS), `MAC_PACKAGE_INPU
 `MAC_PACKAGE_UNIVERSAL_FAILED`, `MAC_PACKAGE_SIGN_FAILED`, `MAC_PACKAGE_DMG_FAILED`, `MAC_PACKAGE_NOTARIZE_FAILED`,
 `MAC_PACKAGE_UPDATER_FAILED`.
 
-## Step order
+### Step order
 
 | # | Step | Does | Skipped when |
 | - | ---- | ---- | ------------ |
@@ -90,9 +247,9 @@ Signing and notarization route through the existing session logic (`macos-signin
 GUI signing agent and the keychain profile as before. The notarization receipt is written to
 `$RIGHT_RELEASE_STATE_ROOT/receipts/<app>-mac-notarization.json`, or `<appRoot>/.right-release/receipts/` when unset.
 
-## Migrating an app
+### Migrating an app to the standalone recipe
 
-1. Delete `targets.mac.prePackage` and `targets.mac.package` from `right-release.config.mjs`.
+1. Delete `targets.mac.prePackage` and `targets.mac.package` from the config.
 2. Delete `targets.mac.dmg` if present; its options move to `macPackage.dmg`.
 3. Add `macPackage` as above. Copy the DMG volume name, background, window size and icon positions from the old hook
    (`brandedDmg` / `bundle_dmg.sh` arguments), and set `notarize` and `updater` to what the hook did on a release build.
@@ -104,34 +261,4 @@ GUI signing agent and the keychain profile as before. The notarization receipt i
    provisioning profiles) belongs in the app's build step that produces the `.app`, not in the recipe.
 7. Run the release on the Mac and compare the signing records and receipt with the last hook-built release.
 
-## Profile, extra Tauri config, prepare and postBuild (`right-release release`, bogusyogi/rightkit#345)
-
-`macPackage` also takes `profile`, `tauriConfig` and `prepare` (same meaning as in WIN-PACKAGE-RECIPE.md; the profile is the
-trailing `-- --profile <p>` form) and `postBuild`: `[{ cmd, args?, cwd? }]` argv commands run after `tauri build` and before
-release.mjs signs, for example embedding a dylib with a symlink-preserving copy (`ditto`, or `cp -a`).
-
-```js
-macPackage: {
-  universal: true, profile: "release",
-  tauriConfig: "src-tauri/tauri.release.json",
-  prepare: [{ cmd: "node", args: ["scripts/stage-pdfium.mjs"] }, { cmd: "right-release", args: ["stage-sidecar", "--target", "universal-apple-darwin"] }],
-  postBuild: [{ cmd: "ditto", args: ["libpdfium.dylib", "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app/Contents/Frameworks/libpdfium.dylib"] }],
-}
-```
-
-With `prepare` or `postBuild`, `prePackage` is `node recipe-build.mjs --plan <json>`: prepare, the Tauri build, postBuild, in
-order, failing closed on the first non-zero exit. release.mjs then signs the (now complete) app.
-
-### Remaining ScrapeRight asks map to existing release.mjs keys (verified in release.mjs)
-
-- Release-switch scan between build and sign: automatic on the macOS signing set and the staged app before signing; extra
-  paths go in `target.qaControlScan`. Source/feature-closure scans use `config.releaseSwitches`.
-- Post-sign smoke: `targets.mac.postSign` (`{ cmd, args }`), run after signing and before notarization of the DMG
-  (for example `verify-macos-release-artifacts.mjs`).
-- DMG layout: `targets.mac.dmg: { spec: "assets/dmg.json" }`, an appdmg-style JSON read by `dmg-spec.mjs`: `title`, `icon`,
-  `background`, `icon-size`, `window.size {width,height}`, `window.position {x,y}`, and `contents` with the `.app` position and
-  one `/Applications` link. Extra files, licences and other formats are refused by that parser.
-- notarytool variants: `notarize.profile` selects a Keychain profile (`--keychain-profile`); without it `notary-auth.mjs`
-  uses `APPLE_API_KEY_PATH` + `APPLE_API_KEY` + `APPLE_API_ISSUER` together (`--key --key-id --issuer`), else the default
-  `apple-dev-notary` profile. `notarize.staple: false` and `notarize.appBeforePackage` exist. There is no key to
-  pass arbitrary notarytool flags.
+For a `right-release.config.mjs` target, use the release target schema at the top of this document instead.

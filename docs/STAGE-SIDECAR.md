@@ -36,7 +36,8 @@ paths, non-hex digests, two entries writing the same file, and bare `cargo` in a
 | `cargo-bin` | `rightkit cargo build --locked -p <package> --bin <bin> --target <triple> --profile <profile> [--features a,b]`. Copies the executable to `<stageDir>/<name>-<triple>[.exe]`. `bin` and `name` default to `package`; `profile` defaults to `release`. Optional `sha256` pins the built binary (only meaningful for reproducible builds). |
 | `ffmpeg` | Uses `media-sidecar.mjs`: picks the approved catalog row per tool, runs the optional `stage` command, copies the notice set and the LGPL source offer, checks the staged file against the row's `contentSha256`. Same keys as `mediaSidecar` plus `platforms`. |
 | `onnxruntime` | Picks the `approved` or `pinned` row of `native-libraries.json` for `version` and the target os/arch, downloads the pinned archive (digest checked before use), extracts the library (digest checked), writes it to `resourceDir` (default `src-tauri/resources/runtime`, name `as` or the catalog `artifactFileName`) and the notices to `licenseDir` (default `<resourceDir>/LICENSES`). Not an externalBin. Archives are cached in `.cache/onnxruntime`. |
-| `resource` | Copies one file `from` to `to` (both inside the app) and verifies the optional `sha256`. Directories are refused; list each file. |
+| `resource` | Copies one file `from` to `to` (both inside the app) and verifies the optional `sha256`. `from` may also be a directory: it is copied recursively into `to` and every file is hashed into the receipt (one row per file; `sha256` and `machO` are refused for a directory). |
+| `remote` | `{ name, url, sha256, dest \| to, size? }`: an https download pinned by digest. See "Placement, remote files" below. |
 
 ### Build output layout
 
@@ -95,7 +96,7 @@ from `beforeBuildCommand` instead of their own scripts.
 
 ## Not covered
 
-Directory resources, signing, and running
+Signing and running
 `tauri build`. The apps' dev-mode QA flags (such as mailright's `--test-mode`) map to `profile: "dev"` plus `features`
 in a dev-specific manifest; selecting between manifests is the caller's job.
 
@@ -129,3 +130,57 @@ recorded in the receipt (`kind: "command"`). A missing output or a non-zero exit
 (`lipo -archs` showing `arm64` and `x86_64`), and a `resource` with `machO: true` is checked the same way. `ffmpeg` and
 `onnxruntime` have no universal catalog row and are refused for this target: stage a lipo-merged file with `command`
 or `resource`.
+
+## Placement, remote files, nested calls, target roots and `--check` (bogusyogi/rightkit#345)
+
+**`dest`.** `cargo-bin`, `command` and `remote` entries accept `dest`, a contained app-relative path such as
+`resources/coderight-engine/coderight.exe`. It replaces `<stageDir>/<name>-<triple>`; no `.exe` is added (write it in
+`dest`), the file is not an externalBin (`externalBin: false` in the receipt, absent from `externalBinNames`; a `command`
+with `dest` must omit `externalBin` or set it `false`), and executables get `0o755` on POSIX every run, even when the
+file is unchanged. A `dest` or `to` needs at least one normal path segment (`.` and `./` are refused) and may not equal
+or contain the app root, the stage directory, the receipt, `.right-release` (and the remote cache), an onnxruntime
+`cacheDir`, `.git`, `src`, `src-tauri`, `node_modules` or `package.json`. Two entries may not write the same path, and
+their outputs may not be nested inside each other (case-insensitive). `clean: true` (any entry kind with a destination)
+removes a stale file before staging, and for a directory `resource` the stale directory, so a failed build never leaves
+the old binary behind. A directory is removed recursively only for a directory `resource`; any other destination is removed
+non-recursively. Just before the delete the destination's parent is resolved with `realpath`, and a parent that escapes the
+app root through a symlink, or lands on a protected path, is refused (`STAGE_SIDECAR_CLEAN_REFUSED`). For a `remote` entry the
+download is verified before the destination is cleaned. The wrapper key `wipeStageDir: true` removes, after staging, only
+top-level regular files in `stageDir` named exactly `<name>-<current triple>[.exe]` for a cargo-bin, command or ffmpeg tool
+name the manifest declares (including entries skipped on this platform or placed at `dest`) that this run did not produce. It
+never recurses and never touches other triples, notices, temporaries or unrelated files. The receipt lists them under `wiped`. Opt-in only.
+
+**Remote files (`kind: "remote"`).** `{ name, url, sha256, dest | to, size? }`. Only `https://` URLs are accepted
+(validation refuses anything else, and a redirect to a non-https URL fails). The download goes through `deps.fetch`
+(default global `fetch`). The bytes are hashed, and `size` checked when given, before anything is written: the verified
+bytes land in the content-addressed cache `<app>/.right-release/cache/remote/<sha256>` (add it to `.gitignore`), and
+`dest` is copied from the cache entry only. A digest or size mismatch is `STAGE_SIDECAR_HASH_MISMATCH`, an HTTP failure
+`STAGE_SIDECAR_DOWNLOAD_FAILED`; nothing is cached or placed. A later run with a valid cache entry does not fetch; a
+corrupt cache entry is re-downloaded. Committed files (for example the Windows `onnxruntime.dll` and `DirectML.dll`) use
+`resource`, pointing `from` at the committed directory.
+
+**Build profile per mode.** The a59df383 `profile: { dev, release }` (or wrapper `profiles`) covers "release for
+`tauri build`, dev for `right-release dev`". `right-release dev` runs every build command with `RIGHTKIT_BUILD_MODE=dev`
+(and `RIGHTKIT_CARGO_PROFILE=dev`) via `developmentEnvironment` in `development.mjs`; a plain `tauri build`, a recipe
+build or CI leaves it unset, which means `release`. Nothing else is required of the app. A `beforeBuildCommand` that
+runs under `right-release dev` inherits the dev mode. Set `RIGHTKIT_BUILD_MODE` yourself only outside those commands.
+
+**Nested broker calls.** A `beforeBuildCommand` (or `beforeDevCommand`) that calls `stage-sidecar` runs inside the outer
+broker build, and its `rightkit` build call exited 125. There is no way to reuse the outer lease: `acquireManagedRunLease`
+records a per-process lease file under the managed data root and passes nothing to children (no RK_* run-id variable).
+So `stage-sidecar` detects the context (Tauri's `TAURI_ENV_PLATFORM` or `TAURI_ENV_TARGET_TRIPLE` present, on a managed
+host: `RIGHTKIT_BUILD_BROKER_SOCKET` or the agent-bin PATH, or `RIGHTSUITE_HEAVY_WORK_OWNER=1`) and, when a non-skipped
+`cargo-bin` (or a `{ crate }` catalog) would call the broker, fails fast with `STAGE_SIDECAR_NESTED_BROKER`: run
+stage-sidecar in recipe `prepare`, before the Tauri build. Manifests with only `resource`, `remote`, `command` and path
+catalogs are unaffected. `RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED=1` skips the check.
+
+**Managed target roots.** The build output directory is resolved through `rightkit cargo metadata --format-version 1
+--no-deps` (`target_directory`, which cargo derives from `CARGO_TARGET_DIR` or the broker's managed root) when the
+build's own artifact stream names no executable. Candidates are, in order: the explicit `CARGO_TARGET_DIR` of the calling
+environment (resolved against the app root) and then `target_directory`, each as `<root>/<triple>/<profile>/<bin>` then
+`<root>/<profile>/<bin>`. A failed metadata query is only fatal when `CARGO_TARGET_DIR` is also unset.
+
+**`right-release stage-sidecar --check`.** Validates the manifest (all errors at once, exit 1) and prints the plan: target,
+build mode, stageDir, and per entry the output paths, externalBin, clean and url. It builds, downloads, copies and
+deletes nothing and spawns no process; without `--target` it uses `TAURI_ENV_TARGET_TRIPLE` or the Node host triple.
+`--json` prints the plan as JSON. An app's template check can call it to gate the manifest shape.

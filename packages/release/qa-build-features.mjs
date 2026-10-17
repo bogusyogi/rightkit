@@ -10,6 +10,7 @@
 // Dev builds are unaffected: `development.mjs` never calls this.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 
 export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native", "dev-inspect",
   // Per-app test-automation features (M20 owner gap): HeardRight `qa-shot`/`qa-tools`, ViewRight `dev-control`/`bench-native`.
@@ -206,7 +207,12 @@ export function buildFeatureIssues({ root, commands, devtools, cargoManifest, ma
   let scripts = {};
   try { scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
   const issues = [];
-  for (const { label, command } of commands) if (command) issues.push(...commandFeatureIssues(command, { label, scripts, allowDevtools }));
+  for (const { label, command } of commands) {
+    if (!command) continue;
+    // A `node recipe-build.mjs --plan <JSON>` wrapper hides every step's flags in one argument: scan each step too.
+    const expanded = expandRecipeBuildCommands(command, { root });
+    expanded.forEach((part, index) => issues.push(...commandFeatureIssues(part, { label: index === 0 ? label : `${label} -> recipe-build step ${index}`, scripts, allowDevtools })));
+  }
   const { rel } = resolveCargoManifestPath({ root, cargoManifest, manifest });
   if (rel) issues.push(...cargoManifestIssues(readFileSync(path.join(root, rel), "utf8"), rel, { allowDevtools }));
   return issues;

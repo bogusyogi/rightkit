@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
 import {
-  StageSidecarError, builtBinaryCandidates, parseTargetTriple, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, isNestedBrokerContext, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
+import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const APP = path.resolve("/rk-fake-app");
@@ -14,10 +15,16 @@ const WIN = "x86_64-pc-windows-msvc";
 
 function fakeFs(initial = {}) {
   const files = new Map(Object.entries(initial).map(([file, bytes]) => [path.resolve(file), Buffer.from(bytes)]));
-  const log = { copies: [], chmods: [], writes: [] };
+  const log = { copies: [], chmods: [], writes: [], removed: [] };
+  const isDir = (dir) => [...files.keys()].some((key) => key.startsWith(path.resolve(dir) + path.sep));
   const fs = {
-    existsSync: (file) => files.has(path.resolve(file)),
+    existsSync: (file) => files.has(path.resolve(file)) || isDir(file),
     mkdirSync: () => {},
+    readdirSync: (dir) => [...new Set([...files.keys()].filter((key) => key.startsWith(path.resolve(dir) + path.sep)).map((key) => key.slice(path.resolve(dir).length + 1).split(path.sep)[0]))],
+    rmSync: (target) => {
+      const root = path.resolve(target);
+      for (const key of [...files.keys()]) if (key === root || key.startsWith(root + path.sep)) { files.delete(key); log.removed.push(key); }
+    },
     readFileSync: (file) => {
       if (!files.has(path.resolve(file))) throw Object.assign(new Error(`ENOENT ${file}`), { code: "ENOENT" });
       return files.get(path.resolve(file));
@@ -26,7 +33,7 @@ function fakeFs(initial = {}) {
     copyFileSync: (from, to) => { log.copies.push(path.resolve(to)); files.set(path.resolve(to), files.get(path.resolve(from))); },
     renameSync: (from, to) => { files.set(path.resolve(to), files.get(path.resolve(from))); files.delete(path.resolve(from)); },
     chmodSync: (file, mode) => { log.chmods.push([path.resolve(file), mode]); },
-    statSync: (file) => ({ isFile: () => files.has(path.resolve(file)), size: files.get(path.resolve(file))?.length ?? 0 }),
+    statSync: (file) => ({ isFile: () => files.has(path.resolve(file)), isDirectory: () => !files.has(path.resolve(file)) && isDir(file), size: files.get(path.resolve(file))?.length ?? 0 }),
   };
   return { fs, files, log };
 }
@@ -469,4 +476,254 @@ test("universal: command output and machO resources must already carry both arch
   }
   assert.throws(() => validateSidecarManifest([{ kind: "onnxruntime", version: "1.24.4" }], { target: UNIVERSAL }), /no universal row/);
   assert.throws(() => validateSidecarManifest([{ kind: "ffmpeg", notices: { dir: "n", sourceOfferContact: "a@b.co" } }], { target: UNIVERSAL }), /no universal row/);
+});
+
+// ---- dest, clean, wipeStageDir, remote, directory resources, nested broker, target roots, --check (bogusyogi/rightkit#345) ----
+
+test("dest places a cargo-bin at a contained path, is not an externalBin, sets the exec bit and cleans a stale file first", async () => {
+  const dest = "src-tauri/resources/coderight-engine/coderight.exe";
+  const { fs, files, log } = fakeFs({ [at(...dest.split("/"))]: "stale" });
+  const exe = path.resolve("/rk-fake-target", MAC, "release", "coderight");
+  const { run } = fakeRun({ onBuild: () => { files.set(exe, Buffer.from("engine-v2")); return { stdout: stream("coderight", exe) }; } });
+  const manifest = [{ kind: "cargo-bin", package: "coderight", dest, clean: true }];
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run }) });
+  assert.equal(fs.readFileSync(at(...dest.split("/"))).toString(), "engine-v2");
+  assert.equal(fs.existsSync(at("src-tauri", "binaries", `coderight-${MAC}`)), false);
+  assert.ok(log.removed.includes(at(...dest.split("/"))));
+  assert.deepEqual(result.externalBinNames, []);
+  assert.equal(result.files[0].externalBin, false);
+  assert.equal(result.files[0].path, dest);
+  assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
+  // An unchanged file still gets its exec bit re-applied on POSIX.
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "cargo-bin", package: "coderight", dest }], deps: deps({ fs, run }) });
+  assert.equal(log.chmods.length, 2);
+  for (const bad of ["../x/y", "/abs/y", "C:/y"]) assert.throws(() => validateSidecarManifest([{ kind: "cargo-bin", package: "e", dest: bad }], { target: MAC }), /dest must be relative/);
+  assert.throws(() => validateSidecarManifest([{ kind: "cargo-bin", package: "e", dest: "a/b" }, { kind: "cargo-bin", package: "f", dest: "a/b" }], { target: MAC }), /already writes/);
+  assert.throws(() => validateSidecarManifest([{ kind: "cargo-bin", package: "e", clean: "yes" }], { target: MAC }), /clean must be a boolean/);
+});
+
+test("command with dest allows externalBin false, refuses true, and stages at dest", async () => {
+  const { fs, files } = fakeFs();
+  const run = () => { files.set(at("out", "tool"), Buffer.from("t")); return { status: 0, stdout: "", stderr: "" }; };
+  const manifest = [{ kind: "command", name: "tool", cmd: "make", output: "out/tool", externalBin: false, dest: "resources/tool" }];
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run }) });
+  assert.equal(fs.readFileSync(at("resources", "tool")).toString(), "t");
+  assert.deepEqual(result.externalBinNames, []);
+  assert.throws(() => validateSidecarManifest([{ ...manifest[0], externalBin: true }], { target: MAC }), /externalBin must be false or omitted with dest/);
+});
+
+test("F6: wipeStageDir removes only <name>-<current triple>[.exe] files of declared names this run did not produce", async () => {
+  const stale = [`gone-${MAC}`, `gone-${MAC}.exe`];
+  const keepers = ["README.md", "unrelated.bin", `eng-${WIN}.exe`, `gone-${WIN}.exe`, "eng-old.tmp-9", `undeclared-${MAC}`, "notices/LICENSE.txt", `eng-${MAC}.bak`];
+  const initial = Object.fromEntries([...stale, ...keepers].map((name) => [at("src-tauri", "binaries", ...name.split("/")), "x"]));
+  const { fs, files } = fakeFs(initial);
+  const exe = path.resolve("/rk-fake-target", MAC, "release", "eng");
+  const { run } = fakeRun({ onBuild: () => { files.set(exe, Buffer.from("eng")); return { stdout: stream("eng", exe) }; } });
+  // `gone` is declared but skipped on this platform, so its staged name for the current triple is stale.
+  const manifest = { sidecars: [{ kind: "cargo-bin", package: "eng" }, { kind: "cargo-bin", package: "gone", platforms: ["win"] }], wipeStageDir: true };
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run }) });
+  for (const name of stale) assert.equal(fs.existsSync(at("src-tauri", "binaries", name)), false, name);
+  assert.equal(fs.readFileSync(at("src-tauri", "binaries", `eng-${MAC}`)).toString(), "eng", "the file produced this run survives");
+  assert.equal(fs.existsSync(result.receiptPath), true, "the receipt survives");
+  for (const name of keepers) assert.equal(fs.existsSync(at("src-tauri", "binaries", ...name.split("/"))), true, name);
+  assert.deepEqual([...result.receipt.wiped].sort(), stale.map((name) => `src-tauri/binaries/${name}`).sort());
+  assert.throws(() => validateSidecarManifest({ sidecars: [{ kind: "cargo-bin", package: "eng" }], wipeStageDir: "yes" }, { target: MAC }), /wipeStageDir must be a boolean/);
+});
+
+test("F3: a dest or to naming the app root, or a path that is or contains a protected path, is refused at validation", () => {
+  const refuse = (item) => assert.throws(() => validateSidecarManifest([{ kind: "cargo-bin", package: "e", ...item }], { target: MAC }), /at least one normal segment|is or contains/, JSON.stringify(item));
+  for (const dest of [".", "./", ".//", "./.", "src-tauri", "src-tauri/", "src-tauri/binaries", "src-tauri/binaries/stage-sidecar.json", ".right-release", ".right-release/cache", ".right-release/cache/remote", ".git", "SRC", "node_modules", "package.json"]) refuse({ dest });
+  assert.throws(() => validateSidecarManifest([{ kind: "resource", from: "a", to: "." }], { target: MAC }), /at least one normal segment/);
+  assert.throws(() => validateSidecarManifest([{ kind: "remote", name: "r", url: "https://x.example.com/a", sha256: sha("a"), to: "./" }], { target: MAC }), /at least one normal segment/);
+  assert.throws(() => validateSidecarManifest({ sidecars: [{ kind: "resource", from: "a", to: "b" }], stageDir: "." }, { target: MAC }), /at least one normal segment/);
+  // The cache directory an onnxruntime entry declares is protected too.
+  assert.throws(() => validateSidecarManifest([{ kind: "onnxruntime", version: "1.2.3", catalog: "c.json", cacheDir: "cache/ort" }, { kind: "resource", from: "a", to: "cache" }], { target: MAC }), /is or contains/);
+  // A command's cwd may still be the app root, and a normal nested destination is accepted.
+  validateSidecarManifest([{ kind: "command", name: "t", cmd: "make", cwd: ".", output: "o", externalBin: true }, { kind: "cargo-bin", package: "e", dest: "resources/e/e.exe" }], { target: MAC });
+});
+
+test("F3: two entries whose outputs are nested inside each other are refused", () => {
+  const manifest = (a, b) => [{ kind: "resource", from: "a", to: a }, { kind: "cargo-bin", package: "e", dest: b }];
+  for (const [a, b] of [["res", "res/e"], ["res/e", "res"], ["Res/Models", "res/models/x.bin"]]) assert.throws(() => validateSidecarManifest(manifest(a, b), { target: MAC }), /overlaps/, `${a} ${b}`);
+  assert.throws(() => validateSidecarManifest(manifest("res/a", "./res/a"), { target: MAC }), /already writes/);
+  validateSidecarManifest(manifest("res/a", "res/b"), { target: MAC });
+});
+
+test("F3: clean never reaches the app root or a protected path, removes a file non-recursively, and refuses a symlinked parent", async () => {
+  const run = () => ({ status: 0, stdout: "", stderr: "" });
+  const { fs, files } = fakeFs({ [at("package.json")]: "{}", [at("a.bin")]: "a" });
+  const removals = [];
+  const rmSync = fs.rmSync;
+  fs.rmSync = (target, options) => { removals.push({ target: path.resolve(target), options }); return rmSync(target, options); };
+  for (const to of [".", "./", "package.json"]) {
+    await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to, clean: true }], deps: deps({ fs, run }) }), { code: "STAGE_SIDECAR_CONFIG_INVALID" }, to);
+  }
+  assert.deepEqual(removals, []);
+  assert.ok(files.has(at("package.json")));
+  // A file destination is removed with recursive: false.
+  const fileRun = await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin", clean: true }], deps: deps({ fs, run }) });
+  assert.equal(fileRun.files.length, 1);
+  assert.deepEqual(removals.map((call) => call.options.recursive), [false]);
+  // A destination that is a directory is not removed by a file entry (non-recursive rm; the fake refuses it like Node).
+  const { fs: dirFs } = fakeFs({ [at("a.bin")]: "a", [at("out", "a.bin", "nested.txt")]: "n" });
+  dirFs.rmSync = (target, options) => { if (options?.recursive !== true) throw Object.assign(new Error("EISDIR"), { code: "ERR_FS_EISDIR" }); };
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin", clean: true }], deps: deps({ fs: dirFs, run }) }), { code: "STAGE_SIDECAR_CLEAN_REFUSED" });
+  // A parent that resolves outside the app through a symlink is refused before any delete.
+  const outside = path.resolve("/rk-outside-the-app");
+  const deleted = [];
+  const { fs: linkFs } = fakeFs({ [at("a.bin")]: "a" });
+  linkFs.rmSync = (target) => { deleted.push(target); };
+  linkFs.realpathSync = (target) => { const resolved = path.resolve(target); return resolved === at("out") ? path.join(outside, "out") : resolved; };
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin", clean: true }], deps: deps({ fs: linkFs, run }) }), { code: "STAGE_SIDECAR_CLEAN_REFUSED", message: /outside the app/ });
+  assert.deepEqual(deleted, []);
+  // A symlinked parent that lands on a protected path inside the app is refused too.
+  const { fs: aliasFs } = fakeFs({ [at("a.bin")]: "a" });
+  aliasFs.rmSync = (target) => { deleted.push(target); };
+  aliasFs.realpathSync = (target) => { const resolved = path.resolve(target); return resolved === at("out") ? at("src-tauri") : resolved; };
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/binaries", clean: true }], deps: deps({ fs: aliasFs, run }) }), { code: "STAGE_SIDECAR_CLEAN_REFUSED", message: /protected path/ });
+  assert.deepEqual(deleted, []);
+});
+
+const REMOTE = { kind: "remote", name: "r2-model", url: "https://models.example.com/r2.onnx", sha256: sha("model-bytes"), dest: "src-tauri/resources/models/r2.onnx" };
+const fetchOf = (body, extra = {}) => {
+  const calls = [];
+  const fetch = async (url) => { calls.push(url); return { ok: true, status: 200, arrayBuffer: async () => Buffer.from(body), ...extra }; };
+  return { fetch, calls };
+};
+
+test("remote downloads over https, verifies sha256 before placing, caches by content address and reuses the cache", async () => {
+  const { fs, files } = fakeFs();
+  const { fetch, calls } = fetchOf("model-bytes");
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...REMOTE, size: 11 }], deps: deps({ fs, fetch }) });
+  assert.equal(fs.readFileSync(at("src-tauri", "resources", "models", "r2.onnx")).toString(), "model-bytes");
+  assert.ok(files.has(at(".right-release", "cache", "remote", sha("model-bytes"))), "content-addressed cache entry");
+  assert.equal(result.files[0].kind, "remote");
+  assert.equal(result.files[0].cached, false);
+  assert.equal(result.files[0].sha256, sha("model-bytes"));
+  assert.deepEqual(calls, [REMOTE.url]);
+  // Destination removed, then staged again with `to` instead of `dest`: served from the cache, no second fetch.
+  files.delete(at("src-tauri", "resources", "models", "r2.onnx"));
+  const { dest, ...rest } = REMOTE;
+  const reused = await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...rest, to: dest }], deps: deps({ fs, fetch }) });
+  assert.equal(calls.length, 1);
+  assert.equal(reused.files[0].cached, true);
+});
+
+test("remote fails closed: bad digest, wrong size, http failure and a non-https redirect stage nothing; bad config is refused", async () => {
+  const attempt = async (entry, body, extra) => {
+    const { fs, files } = fakeFs();
+    const { fetch } = fetchOf(body, extra);
+    const error = await stageSidecars({ appRoot: APP, target: MAC, manifest: [entry], deps: deps({ fs, fetch }) }).catch((caught) => caught);
+    assert.equal(fs.existsSync(at("src-tauri", "resources", "models", "r2.onnx")), false, "nothing placed");
+    assert.equal(files.has(at(".right-release", "cache", "remote", REMOTE.sha256)), false, "nothing cached");
+    return error;
+  };
+  const mismatch = await attempt(REMOTE, "tampered");
+  assert.equal(mismatch.code, "STAGE_SIDECAR_HASH_MISMATCH");
+  assert.equal(mismatch.details.actual, sha("tampered"));
+  assert.equal((await attempt({ ...REMOTE, size: 3 }, "model-bytes")).code, "STAGE_SIDECAR_HASH_MISMATCH");
+  assert.equal((await attempt(REMOTE, "x", { ok: false, status: 404 })).code, "STAGE_SIDECAR_DOWNLOAD_FAILED");
+  assert.equal((await attempt(REMOTE, "model-bytes", { url: "http://evil.example.com/r2.onnx" })).code, "STAGE_SIDECAR_DOWNLOAD_FAILED");
+  for (const bad of [{ url: "http://x.example.com/a" }, { url: "file:///etc/passwd" }, { sha256: undefined }, { sha256: "abc" }, { dest: undefined }, { to: "also/dest" }, { size: -1 }]) {
+    assert.throws(() => validateSidecarManifest([{ ...REMOTE, ...bad }], { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" }, JSON.stringify(bad));
+  }
+});
+
+test("a corrupt cache entry is ignored and re-downloaded", async () => {
+  const { fs, files } = fakeFs({ [at(".right-release", "cache", "remote", sha("model-bytes"))]: "corrupt" });
+  const { fetch, calls } = fetchOf("model-bytes");
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [REMOTE], deps: deps({ fs, fetch }) });
+  assert.equal(calls.length, 1);
+  assert.equal(files.get(at(".right-release", "cache", "remote", sha("model-bytes"))).toString(), "model-bytes");
+});
+
+test("a resource directory is copied recursively and every file is hashed into the receipt", async () => {
+  const { fs } = fakeFs({ [at("native", "win", "onnxruntime.dll")]: "ort", [at("native", "win", "sub", "DirectML.dll")]: "dml" });
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest: [{ kind: "resource", from: "native/win", to: "src-tauri/resources/runtime", clean: true }], deps: deps({ fs }) });
+  assert.equal(fs.readFileSync(at("src-tauri", "resources", "runtime", "onnxruntime.dll")).toString(), "ort");
+  assert.equal(fs.readFileSync(at("src-tauri", "resources", "runtime", "sub", "DirectML.dll")).toString(), "dml");
+  assert.deepEqual(result.files.map((file) => [file.path, file.sha256]).sort(), [
+    ["src-tauri/resources/runtime/onnxruntime.dll", sha("ort")], ["src-tauri/resources/runtime/sub/DirectML.dll", sha("dml")],
+  ]);
+  validateStageSidecarReceipt(result.receipt, { target: WIN });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ kind: "resource", from: "native/win", to: "out", sha256: sha("x") }], deps: deps({ fs }) }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ kind: "resource", from: "nope", to: "out" }], deps: deps({ fs }) }), { code: "STAGE_SIDECAR_RESOURCE_MISSING" });
+});
+
+test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async () => {
+  const nested = { TAURI_ENV_PLATFORM: "darwin", TAURI_ENV_TARGET_TRIPLE: MAC, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" };
+  assert.equal(isNestedBrokerContext(nested), true);
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }), true);
+  assert.equal(isNestedBrokerContext({ RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" }), false, "not inside a Tauri hook");
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin" }), false, "not a managed host");
+  assert.equal(isNestedBrokerContext({ ...nested, RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED: "1" }), false);
+  const { fs, files } = fakeFs({ [at("a.bin")]: "a" });
+  const calls = [];
+  const run = (...args) => { calls.push(args); return { status: 0, stdout: "" }; };
+  const error = await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs, run, env: nested }) }).catch((caught) => caught);
+  assert.equal(error.code, "STAGE_SIDECAR_NESTED_BROKER");
+  assert.match(error.message, /recipe `prepare` step, before the Tauri build/);
+  assert.equal(calls.length, 0, "no broker call was attempted");
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs, env: nested }) });
+  assert.ok(files.has(at("out", "a.bin")));
+});
+
+test("managed target roots: CARGO_TARGET_DIR and the metadata target_directory are both searched, triple layout then plain", async () => {
+  const envDir = path.resolve("/rk-managed-root");
+  for (const layout of ["triple", "plain"]) {
+    const { fs, files } = fakeFs();
+    const dir = layout === "triple" ? path.join(envDir, MAC, "release") : path.join(envDir, "release");
+    const { run, calls } = fakeRun({ onBuild: () => { files.set(path.join(dir, "eng"), Buffer.from(layout)); return { stdout: "" }; } });
+    await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs, run, env: { CARGO_TARGET_DIR: envDir } }) });
+    assert.equal(fs.readFileSync(at("src-tauri", "binaries", `eng-${MAC}`)).toString(), layout);
+    assert.equal(calls.filter((call) => call.args[1] === "metadata").length, 1, "asked the broker for target_directory");
+  }
+  assert.deepEqual(builtBinaryCandidates({ targetDir: "/m", targetDirs: ["/e"], triple: MAC, profile: "release", bin: "eng", windows: false }),
+    [path.join("/e", MAC, "release", "eng"), path.join("/e", "release", "eng"), path.join("/m", MAC, "release", "eng"), path.join("/m", "release", "eng")]);
+  // A failed metadata query is not fatal when CARGO_TARGET_DIR names the root; with neither it still is.
+  const { fs, files } = fakeFs();
+  const run = (command, args) => (args[1] === "build" ? (files.set(path.join(envDir, "release", "eng"), Buffer.from("e")), { status: 0, stdout: "" }) : { status: 1, stdout: "" });
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs, run, env: { CARGO_TARGET_DIR: envDir } }) });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs: fakeFs().fs, run, env: {} }) }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+});
+
+test("--check: planSidecarStaging validates and describes without any effect; the CLI parses --check", () => {
+  assert.equal(parseStageSidecarArgs(["--check", "--target", MAC]).check, true);
+  assert.equal(parseStageSidecarArgs([]).check, false);
+  assert.equal(nodeHostTriple("win32", "x64"), WIN);
+  assert.equal(nodeHostTriple("darwin", "arm64"), MAC);
+  assert.throws(() => nodeHostTriple("freebsd", "x64"), /pass --target/);
+  const manifest = { wipeStageDir: true, sidecars: [
+    { kind: "cargo-bin", package: "coderight", dest: "resources/coderight-engine/coderight.exe", clean: true, platforms: ["win"] },
+    { kind: "cargo-bin", package: "mailright-engine", profile: { dev: "dev", release: "release" } },
+    { kind: "remote", name: "m", url: "https://x.example.com/m.onnx", sha256: sha("m"), dest: "resources/m.onnx" },
+    { kind: "resource", from: "native", to: "resources/runtime" },
+  ] };
+  const plan = planSidecarStaging({ manifest, target: WIN, env: {} });
+  assert.equal(plan.wipeStageDir, true);
+  assert.deepEqual(plan.entries[0].outputs, ["resources/coderight-engine/coderight.exe"]);
+  assert.equal(plan.entries[0].externalBin, false);
+  assert.deepEqual(plan.entries[1].outputs, [`src-tauri/binaries/mailright-engine-${WIN}.exe`]);
+  assert.equal(plan.entries[1].externalBin, true);
+  assert.equal(plan.entries[2].url, "https://x.example.com/m.onnx");
+  const mac = planSidecarStaging({ manifest, target: MAC, env: { RIGHTKIT_BUILD_MODE: "dev" } });
+  assert.equal(mac.entries[0].skipped, true);
+  assert.equal(mac.entries[1].profile, "dev");
+  assert.ok(formatSidecarPlan(mac).some((line) => line.includes("skipped")));
+  assert.throws(() => planSidecarStaging({ manifest: [{ kind: "remote", name: "x", url: "http://x/", sha256: "z" }], target: MAC, env: {} }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+});
+
+test("F6: a failed remote fetch or hash mismatch leaves a clean:true destination in place; success replaces it", async () => {
+  const dest = at("src-tauri", "resources", "models", "r2.onnx");
+  for (const [body, extra] of [["tampered", {}], ["x", { ok: false, status: 503 }]]) {
+    const { fs, files, log } = fakeFs({ [dest]: "previous-good" });
+    const { fetch } = fetchOf(body, extra);
+    await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...REMOTE, clean: true }], deps: deps({ fs, fetch }) }), { code: /STAGE_SIDECAR_(HASH_MISMATCH|DOWNLOAD_FAILED)/ });
+    assert.equal(files.get(dest)?.toString(), "previous-good", "the destination was not removed");
+    assert.deepEqual(log.removed, []);
+  }
+  const { fs, files } = fakeFs({ [dest]: "previous-good" });
+  const { fetch } = fetchOf("model-bytes");
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...REMOTE, clean: true }], deps: deps({ fs, fetch }) });
+  assert.equal(files.get(dest).toString(), "model-bytes");
 });

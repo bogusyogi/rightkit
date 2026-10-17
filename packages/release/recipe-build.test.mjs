@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { parseRecipeBuildArgs, RecipeBuildError, resolveLaunch, runRecipeBuild, validateRecipePlan } from "./recipe-build.mjs";
+import { diskImageMountPoints, parseRecipeBuildArgs, RecipeBuildError, resolveLaunch, runRecipeBuild, runRecipeCleanup, validateRecipePlan, waitForStableArtifacts } from "./recipe-build.mjs";
 
 const APP = path.resolve("/rk-recipe-app");
 const plan = (extra = []) => ({
@@ -82,4 +82,139 @@ test("recipe-build CLI arguments", () => {
   assert.throws(() => parseRecipeBuildArgs(["--plan", "{}", "--plan-file", "x"]), /exactly one/);
   assert.throws(() => parseRecipeBuildArgs(["--plan"]), /needs a value/);
   assert.throws(() => parseRecipeBuildArgs(["--bogus"]), /unknown/);
+});
+
+// ---- built-in cleanup and artifact stability (bogusyogi/rightkit#345 gap reports) ----
+
+/** An in-memory fake of the fs surface recipe-build uses; `tree` maps absolute paths to true (file or dir). */
+const imagePlist = (mounts) => `<?xml version="1.0"?><plist version="1.0"><dict><key>images</key><array>${mounts.map((mount, index) => `<dict><key>image-path</key><string>/tmp/image${index}.dmg</string><key>system-entities</key><array><dict><key>dev-entry</key><string>/dev/disk${index}s1</string><key>mount-point</key><string>${mount}</string></dict></array></dict>`).join("")}</array></dict></plist>`;
+function fakeFs(tree, volumes = []) {
+  const present = new Set(tree);
+  const removed = [];
+  return {
+    removed,
+    fs: {
+      existsSync: (file) => present.has(file),
+      readdirSync: (dir) => (dir === "/Volumes" ? volumes : [...present].filter((entry) => path.dirname(entry) === dir).map((entry) => path.basename(entry))),
+      rmSync: (file) => { present.delete(file); removed.push(file); },
+    },
+  };
+}
+
+test("plan cleanup and stability are validated strictly", () => {
+  let error;
+  try {
+    validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x" }], cleanup: { remove: ["../x", 1], apps: { dir: "/abs", remove: "y", nope: 1 }, dmgVolumes: ["a/b"], extra: 1 }, stability: { files: [], intervalMs: 0 } });
+  } catch (caught) { error = caught; }
+  assert.equal(error.code, "RECIPE_BUILD_PLAN_INVALID");
+  for (const needle of ["cleanup: unknown key \"extra\"", "cleanup.remove[0] must be relative", "cleanup.remove[1] must be a non-empty", "cleanup.apps.dir must be relative", "cleanup.apps.remove must be a boolean", "cleanup.apps: unknown key \"nope\"", "cleanup.dmgVolumes must be a list", "stability.files must be a non-empty", "stability.intervalMs must be a positive integer"]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+  const ok = validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x" }], cleanup: { remove: ["a/b.exe"], apps: { dir: "bundle/macos", unregister: true }, dmgVolumes: ["App"] }, stability: { files: ["a/b.exe"], checks: 3 } });
+  assert.deepEqual(ok.cleanup, { remove: ["a/b.exe"], apps: { dir: "bundle/macos", remove: false, unregister: true }, dmgVolumes: ["App"] });
+  assert.deepEqual(ok.stability, { files: ["a/b.exe"], checks: 3 });
+});
+
+test("plan paths reject the app root and its ancestors, and cleanup refuses a notarize.app at the app root", () => {
+  for (const bad of [".", "./", "", "a/..", "./a/../.", "x/../.."]) {
+    assert.throws(() => validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x" }], cleanup: { remove: [bad] } }), (error) => error.code === "RECIPE_BUILD_PLAN_INVALID", JSON.stringify(bad));
+  }
+  // A step may run at the app root; only paths that are removed, wiped or polled must be strictly inside it.
+  assert.doesNotThrow(() => validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x", cwd: "." }] }));
+  assert.throws(() => validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x" }], stability: { files: ["./"] } }), (error) => error.code === "RECIPE_BUILD_PLAN_INVALID");
+  assert.throws(() => validateRecipePlan({ version: 1, steps: [{ phase: "build", cmd: "x" }], cleanup: { apps: { dir: ".", remove: true } } }), (error) => error.code === "RECIPE_BUILD_PLAN_INVALID");
+  // Called directly, a notarize.app sitting at the app root is refused and nothing is removed.
+  const stale = path.join(APP, "notarize.app");
+  const { fs, removed } = fakeFs([stale]);
+  assert.throws(() => runRecipeCleanup({ apps: { dir: ".", remove: true, unregister: false } }, { appRoot: APP, platform: "linux", fs }), (error) => error.code === "RECIPE_BUILD_CLEANUP_UNSAFE");
+  assert.deepEqual(removed, []);
+});
+
+test("cleanup detaches stale DMG volumes, unregisters then removes stale apps, and removes stale files, all before the build", () => {
+  const dir = path.join(APP, "bundle", "macos");
+  const stale = path.join(dir, "Old.app");
+  const rawExe = path.join(APP, "out", "demo.exe");
+  const { fs, removed } = fakeFs([stale, path.join(dir, "notes.txt"), rawExe], ["App", "App 1", "App 2", "App Backup", "Other", "AppleSeed"]);
+  const { spawnSync, calls } = fakeSpawn();
+  const order = [];
+  const tracking = (command, args, options) => { order.push(args[0] === "-u" || command === "hdiutil" ? "cleanup" : "step"); const run = spawnSync(command, args, options); return command === "hdiutil" && args[0] === "info" ? { ...run, stdout: imagePlist(["/Volumes/App", "/Volumes/App 1"]) } : run; };
+  const result = runRecipeBuild({ ...plan(), cleanup: { dmgVolumes: ["App"], apps: { dir: "bundle/macos", remove: true, unregister: true }, remove: ["out/demo.exe", "out/missing.exe"] } }, { appRoot: APP, platform: "darwin", env: {}, spawnSync: tracking, fs });
+  const cleanups = calls.filter((call) => call.command === "hdiutil" || call.args[0] === "-u");
+  assert.deepEqual(cleanups.filter((call) => call.command === "hdiutil" && call.args[0] === "detach").map((call) => call.args), [["detach", "/Volumes/App"], ["detach", "/Volumes/App 1"]]);
+  assert.deepEqual(calls.find((call) => call.command === "hdiutil").args, ["info", "-plist"]);
+  const lsregister = cleanups.find((call) => call.args[0] === "-u");
+  assert.ok(lsregister.command.endsWith("/lsregister"));
+  assert.deepEqual(lsregister.args, ["-u", stale]);
+  assert.deepEqual(removed, [stale, rawExe]);
+  assert.deepEqual(result.cleaned.removed, [stale, rawExe]);
+  assert.deepEqual(result.cleaned.unregistered, [stale]);
+  assert.deepEqual(order.slice(0, 5), ["cleanup", "cleanup", "cleanup", "cleanup", "step"]);
+});
+
+test("cleanup skips the macOS-only parts elsewhere, keeps going when a detach fails, and never invokes a shell", () => {
+  const { fs } = fakeFs([], ["App"]);
+  const logs = [];
+  const { spawnSync, calls } = fakeSpawn();
+  runRecipeBuild({ ...plan(), cleanup: { dmgVolumes: ["App"], apps: { dir: "b", unregister: true } } }, { appRoot: APP, platform: "win32", env: { npm_execpath: "/pnpm.cjs" }, spawnSync, fs, log: (line) => logs.push(line) });
+  assert.ok(!calls.some((call) => call.command === "hdiutil"));
+  assert.ok(logs.some((line) => line.includes("dmgVolumes skipped")));
+  const calls2 = [];
+  const spawn2 = (command, args) => { calls2.push({ command, args }); return command === "hdiutil" && args[0] === "info" ? { status: 0, stdout: imagePlist(["/Volumes/App"]) } : { status: command === "hdiutil" ? 1 : 0 }; };
+  const result = runRecipeBuild({ ...plan(), cleanup: { dmgVolumes: ["App"] } }, { appRoot: APP, platform: "darwin", env: {}, spawnSync: spawn2, fs, log: (line) => logs.push(line) });
+  assert.deepEqual(result.cleaned.detached, []);
+  assert.ok(logs.some((line) => line.includes("did not succeed")));
+  // F2: plain detach first, -force only on the retry of a confirmed image mount.
+  assert.deepEqual(calls2.filter((call) => call.command === "hdiutil" && call.args[0] === "detach").map((call) => call.args), [["detach", "/Volumes/App"], ["detach", "-force", "/Volumes/App"]]);
+  assert.ok(calls2.length > 1, "the build still ran");
+});
+
+
+test("F2: only the exact volume name or '<name> <N>' that hdiutil reports as a disk image is detached; a real volume or lookalike is never touched", () => {
+  const { fs } = fakeFs([], ["App", "App 2", "App Backup", "AppleSeed", "App 1x", "Macintosh HD"]);
+  const calls = [];
+  const logs = [];
+  // App is a real (non-image) volume; App 2 is an image mount. hdiutil lists only image mounts, including an unrelated one.
+  const spawn = (command, args) => { calls.push({ command, args }); return command === "hdiutil" && args[0] === "info" ? { status: 0, stdout: imagePlist(["/Volumes/App 2", "/Volumes/Other Image", "/Volumes/App Backup"]) } : { status: 0 }; };
+  const result = runRecipeBuild({ ...plan(), cleanup: { dmgVolumes: ["App"] } }, { appRoot: APP, platform: "darwin", env: {}, spawnSync: spawn, fs, log: (line) => logs.push(line) });
+  assert.deepEqual(calls.filter((call) => call.args[0] === "detach").map((call) => call.args), [["detach", "/Volumes/App 2"]]);
+  assert.deepEqual(result.cleaned.detached, ["App 2"]);
+  assert.ok(logs.some((line) => line.includes("/Volumes/App (not a mounted disk image)") || line.includes("leaves /Volumes/App ")));
+  // hdiutil info failing detaches nothing.
+  const none = [];
+  const spawnFail = (command, args) => { none.push(args[0]); return { status: command === "hdiutil" && args[0] === "info" ? 1 : 0 }; };
+  assert.deepEqual(runRecipeBuild({ ...plan(), cleanup: { dmgVolumes: ["App"] } }, { appRoot: APP, platform: "darwin", env: {}, spawnSync: spawnFail, fs }).cleaned.detached, []);
+  assert.ok(!none.includes("detach"));
+  assert.deepEqual([...diskImageMountPoints("<key>mount-point</key><string>/Volumes/Orphan</string>")], []);
+});
+
+test("artifact stability polling: waits for a stable size and mtime over two checks, one second apart", () => {
+  const file = path.join(APP, "out", "demo.exe");
+  const samples = [{ size: 10, mtimeMs: 1 }, { size: 20, mtimeMs: 2 }, { size: 30, mtimeMs: 3 }, { size: 30, mtimeMs: 3 }, { size: 30, mtimeMs: 3 }];
+  let read = 0;
+  const sleeps = [];
+  const statSync = () => samples[Math.min(read++, samples.length - 1)];
+  const logs = [];
+  const files = waitForStableArtifacts({ files: ["out/demo.exe"] }, { appRoot: APP, statSync, sleep: (ms) => sleeps.push(ms), now: () => 0, log: (line) => logs.push(line) });
+  assert.deepEqual(files, [file]);
+  assert.deepEqual(sleeps, [1000, 1000, 1000, 1000]);
+  assert.equal(logs.length, 1);
+
+  const clock = { t: 0 };
+  assert.throws(() => waitForStableArtifacts({ files: ["out/demo.exe"], timeoutMs: 5000 }, { appRoot: APP, statSync: () => { throw new Error("ENOENT"); }, sleep: (ms) => { clock.t += ms; }, now: () => clock.t }), { code: "RECIPE_BUILD_ARTIFACT_UNSTABLE" });
+  let counter = 0;
+  clock.t = 0;
+  assert.throws(() => waitForStableArtifacts({ files: ["out/demo.exe"], timeoutMs: 5000 }, { appRoot: APP, statSync: () => ({ size: counter++, mtimeMs: 1 }), sleep: (ms) => { clock.t += ms; }, now: () => clock.t }), { code: "RECIPE_BUILD_ARTIFACT_UNSTABLE" });
+  assert.deepEqual(waitForStableArtifacts(undefined, { appRoot: APP }), []);
+});
+
+test("stability runs right after the build step and before postBuild; an unstable artifact stops the run", () => {
+  const { spawnSync, calls } = fakeSpawn();
+  const stat = { size: 5, mtimeMs: 7 };
+  const result = runRecipeBuild({ ...plan([{ phase: "postBuild", cmd: "ditto" }]), stability: { files: ["out/demo.exe"] } }, { appRoot: APP, platform: "linux", env: {}, spawnSync, statSync: () => stat, sleep: () => { calls.push({ command: "sleep" }); } });
+  assert.deepEqual(calls.map((call) => call.command), ["node", "right-release", "pnpm", "sleep", "sleep", "ditto"]);
+  assert.deepEqual(result.stable, [path.join(APP, "out", "demo.exe")]);
+  const clock = { t: 0 };
+  const { spawnSync: spawn3, calls: calls3 } = fakeSpawn();
+  assert.throws(() => runRecipeBuild({ ...plan([{ phase: "postBuild", cmd: "ditto" }]), stability: { files: ["out/demo.exe"], timeoutMs: 100 } }, { appRoot: APP, platform: "linux", env: {}, spawnSync: spawn3, statSync: () => { throw new Error("gone"); }, sleep: (ms) => { clock.t += ms; }, now: () => clock.t }), { code: "RECIPE_BUILD_ARTIFACT_UNSTABLE" });
+  assert.ok(!calls3.some((call) => call.command === "ditto"));
 });

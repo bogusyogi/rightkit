@@ -225,6 +225,8 @@ test("--dev zip install: skips spctl/stapler, clears quarantine on the new bundl
   assert.equal(r.ok, true);
   assert.equal(r.dev, true);
   assert.equal(h.marker(), "new");
+  assert.equal(r.previous, null, "a dev install keeps no old copy");
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"], "no .previous, no staging, no journal beside the dev install");
   assert.ok(!h.calls.some((c) => c[0].endsWith("spctl")));
   assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun")));
   assert.ok(!h.calls.some((c) => c[0].endsWith("hdiutil")), "zip input never mounts");
@@ -420,7 +422,7 @@ test("reverify failure rolls back to the old bundle without trashing it; mount d
   assert.ok(h.calls.some((x) => x[0].endsWith("hdiutil") && x[1] === "detach"));
 });
 
-test("SIGTERM mid-install rolls back, detaches, and exits 143", async () => {
+test("dev: SIGTERM mid-install removes the new copy, keeps NO old copy, detaches, and exits 143", async () => {
   const h = harness();
   const sig = new EventEmitter();
   let exitCode = null;
@@ -436,8 +438,7 @@ test("SIGTERM mid-install rolls back, detaches, and exits 143", async () => {
   const p = installApp(h.opts, h.deps).catch(() => {});
   await exited;
   assert.equal(exitCode, 143);
-  assert.equal(h.marker(), "old");
-  assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), []);
+  assert.deepEqual(fs.readdirSync(h.dest), [], "the path is absent: no new copy, no .previous, no staging, no old copy");
   await p;
   assert.equal(sig.listenerCount("SIGTERM"), 0, "handlers removed");
 });
@@ -590,12 +591,12 @@ test("atomic: SIGTERM after the exchange swaps back and exits 143", async () => 
   const exited = new Promise((resolve) => { h.deps.exit = (c) => { exitCode = c; resolve(); }; });
   h.deps.swapPaths = h.fakeSwap;
   const inner = h.deps.execFile;
+  // Release mode (dev never exchanges: it keeps no old copy): the signal lands during the re-verify of the exchanged-in bundle.
   h.deps.execFile = async (cmd, args) => {
-    if (cmd.endsWith("xattr")) { sig.emit("SIGTERM"); await exited; }
+    if (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Pulse.app")) { sig.emit("SIGTERM"); await exited; }
     return inner(cmd, args);
   };
   h.deps.signalTarget = sig;
-  h.opts.dev = true; h.opts.dmg = null; h.opts.app = path.join(h.mount, "Pulse.app");
   const p = installApp(h.opts, h.deps).catch(() => {});
   await exited;
   assert.equal(exitCode, 143);
@@ -694,4 +695,85 @@ test("createSwapPaths maps helper exit codes: 0 ok, 3 ENOTSUP, missing helper EN
   assert.throws(() => createSwapPaths({ resolve: () => null, execFileSync: exec(0) })("/a", "/b"), { code: "ENOHELPER" });
   const enoent = () => { const e = new Error("spawn"); e.code = "ENOENT"; throw e; };
   assert.throws(() => createSwapPaths({ resolve, execFileSync: enoent })("/a", "/b"), { code: "ENOHELPER" });
+});
+
+// ---- data safety and no dev backup (Orthic-Labs/rightkit#348) ----
+
+const DATA_FILES = [["coderight.db", "db-bytes"], ["coderight.db-wal", "wal-bytes"], [path.join("models", "x.bin"), "model-bytes"]];
+const seedData = (h) => { for (const [name, text] of DATA_FILES) { fs.mkdirSync(path.dirname(path.join(h.dest, name)), { recursive: true }); fs.writeFileSync(path.join(h.dest, name), text); } };
+const readData = (h) => DATA_FILES.map(([name]) => [name, fs.readFileSync(path.join(h.dest, name), "utf8")]);
+// The only thing the macOS install ever copies is the app bundle: every ditto names the source app or the staged bundle, never a data file.
+const assertOnlyBundleCopied = (h) => {
+  for (const call of h.calls.filter((c) => c[0].endsWith("ditto"))) {
+    assert.ok(call.slice(1).every((arg) => !/coderight|models/.test(arg)), `ditto touched a data path: ${call.join(" ")}`);
+  }
+};
+
+for (const dev of [false, true]) {
+  const mode = dev ? "dev" : "release";
+  test(`${mode}: data files beside the app are untouched and never copied, on a successful install`, { skip: WINDOWS_SKIP }, async () => {
+    const h = harness();
+    seedData(h);
+    if (dev) h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+    const before = readData(h);
+    await installApp(h.opts, h.deps);
+    assert.deepEqual(readData(h), before);
+    assertOnlyBundleCopied(h);
+    assert.equal(h.marker(), "new");
+    const names = fs.readdirSync(h.dest).sort();
+    assert.deepEqual(names, dev ? ["Pulse.app", "coderight.db", "coderight.db-wal", "models"] : ["Pulse.app", "Pulse.app.previous", "coderight.db", "coderight.db-wal", "models"]);
+  });
+
+  test(`${mode}: data files beside the app are untouched and never copied, on a failed install`, { skip: WINDOWS_SKIP }, async () => {
+    const h = harness({ fail: { reverify: "bad after swap" } });
+    seedData(h);
+    if (dev) h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+    const before = readData(h);
+    await assert.rejects(installApp(h.opts, h.deps), /codesign-verify/);
+    assert.deepEqual(readData(h), before);
+    assertOnlyBundleCopied(h);
+    if (dev) {
+      assert.equal(fs.existsSync(path.join(h.dest, "Pulse.app")), false, "dev: the failed copy is removed and the old app is NOT restored");
+      assert.deepEqual(fs.readdirSync(h.dest).sort(), ["coderight.db", "coderight.db-wal", "models"], "no .previous or backup of any kind");
+    } else {
+      assert.equal(h.marker(), "old", "release: the old bundle is renamed back");
+    }
+  });
+}
+
+test("dev: a stale .previous left by an older RightKit is removed, and a failed dev install says to reinstall from an older DMG", { skip: WINDOWS_SKIP }, async () => {
+  const h = harness();
+  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "ancient");
+  h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+  await installApp(h.opts, h.deps);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+
+  const f = harness({ fail: { reverify: "bad after swap" } });
+  f.opts = { ...f.opts, dmg: null, zip: path.join(f.root, "p.zip"), dev: true };
+  await assert.rejects(installApp(f.opts, f.deps), /reinstall from an older DMG/);
+});
+
+test("dev never swaps atomically: no exchange helper call, no old bundle parked at the staged path", { skip: WINDOWS_SKIP }, async () => {
+  const h = harness();
+  let exchanged = 0;
+  h.deps.swapPaths = (a, b) => { exchanged += 1; h.fakeSwap(a, b); };
+  h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+  const r = await installApp(h.opts, h.deps);
+  assert.equal(exchanged, 0);
+  assert.equal(r.swap, "replace");
+  assert.equal(r.previous, null);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+});
+
+test("recovery of a dev journal from an older RightKit never keeps the old bundle as .previous", { skip: WINDOWS_SKIP }, async () => {
+  const h = harness();
+  const installed = path.join(h.dest, "Pulse.app");
+  const backup = `${installed}.previous`;
+  fs.mkdirSync(path.join(backup, "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(backup, "Contents", "marker"), "old-parked");
+  fs.writeFileSync(journalPathFor(h.dest, "Pulse.app"), JSON.stringify({ schema: 1, appName: "Pulse.app", pid: 1, phase: "verified", dev: true, installed, backup, staged: path.join(h.dest, ".Pulse.rightkit-install-1.app"), mount: null, mountRoot: null }));
+  const results = await recoverInstalls({ dest: h.dest, appName: "Pulse.app", run: h.deps.execFile, fsImpl: fs, home: h.home, now: () => new Date(), event: () => {}, sleep: async () => {}, isAlive: () => false, selfPid: 2, swapPaths: h.deps.swapPaths });
+  assert.equal(results[0].action, "rolled-forward");
+  assert.equal(fs.existsSync(backup), false);
 });

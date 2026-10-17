@@ -105,7 +105,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
     for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
-    // Dev and QA binaries run from one stable staged path, copied in place (<name>.previous kept), never from the
+    // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
@@ -114,7 +114,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       // installTauriDevId is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
       const built = resolveTauriArtifact(target.install, { root, platform, env: childEnv });
       releaseLease = false;
-      return installTauriDevId({ appRoot: root, config: target.install, built, env: childEnv })
+      return installTauriDevId({ appRoot: root, config: target.install, releaseConfig: config, built, env: childEnv })
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
         .finally(() => lease.release());
     }
@@ -140,9 +140,10 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null,
     // was running, pass /R so the installer relaunches it as the user (RunAsUser, outside this process tree).
     const running = isWindowsProcessRunning(path.basename(descriptor.expectedInstalledPath), { run });
     if (running) console.log(`right-release dev: ${descriptor.productName} is running; the installer will close it and relaunch it`);
-    // The silent installer updates the fixed path in place. Keep the copy it replaces once, as <exe>.previous (never run).
+    // The silent installer updates the fixed path in place. NO backup of the old copy (Orthic-Labs/rightkit#348): a stale
+    // <exe>.previous left by an older RightKit is removed, nothing is copied, and a failed install is reinstalled from an older build.
     const installedBefore = path.resolve(root, descriptor.expectedInstalledPath);
-    if (existsSync(installedBefore) && statSync(installedBefore).isFile()) copyFileSync(installedBefore, previousPathOf(installedBefore));
+    rmSync(previousPathOf(installedBefore), { recursive: true, force: true });
     const result = run(app, windowsInstallerArguments({ running }), { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
     if (result.status !== 0) throw new Error(`development installer failed (${result.status}): ${app}`);
     const installed = path.resolve(root, descriptor.expectedInstalledPath);
@@ -156,7 +157,6 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null,
   mkdirSync(path.dirname(destination), { recursive: true });
   // Fixed staging name (not per-pid): the copy is signed and verified here, then renamed into place. Nothing runs from it.
   const staging = stagingPathOf(destination);
-  const previous = previousPathOf(destination);
   rmSync(staging, { recursive: true, force: true });
   cpSync(app, staging, { recursive: true, verbatimSymlinks: true });
   let signing;
@@ -167,7 +167,7 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null,
     if (!signing.adhoc && existsSync(destination)) assertStableDesignatedRequirement({ root, installed: destination, expected: signing.designatedRequirement, env, run });
     executableName = readBundleExecutable(staging, { root, env, run });
   } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
-  swapInstalledMacosBundle({ staging, destination, previous, executableName });
+  swapInstalledMacosBundle({ staging, destination, executableName });
   if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
   if (signing.adhoc) console.log(`right-release dev: installed ${destination}; signing=ci-adhoc (ad hoc signed on a CI runner; NOT a release artifact); signature=adhoc; TeamIdentifier=none`);
   else console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}; designated=${signing.designatedRequirement}`);
@@ -181,12 +181,13 @@ export class DevelopmentInstallError extends Error {
 const NODE_FS = { existsSync, lstatSync, mkdirSync, copyFileSync, readFileSync, renameSync, rmSync, statSync };
 
 /**
- * Move the signed staging bundle into place, keeping the previous app as `<destination>.previous`, and verify it: Info.plist exists and
+ * Move the signed staging bundle into place IN PLACE with NO backup (Orthic-Labs/rightkit#348: the old app is removed,
+ * never kept as `<destination>.previous`; a stale `.previous` is removed too), and verify it: Info.plist exists and
  * the installed main executable (`executableName`, the staged CFBundleExecutable read through plutil by the caller) exists with the same SHA-256 as the staged one. Any failure removes the
- * new install, renames `.previous` back and throws a DevelopmentInstallError (code DEV_INSTALL_VERIFICATION_FAILED,
+ * new (absent or partial) install, does NOT restore the old app (reinstall from an older DMG), and throws a DevelopmentInstallError (code DEV_INSTALL_VERIFICATION_FAILED,
  * DEV_INSTALL_EXECUTABLE_MISSING or DEV_INSTALL_EXECUTABLE_MISMATCH). `fs` is the file-system seam (tests inject it).
  */
-export function swapInstalledMacosBundle({ staging, destination, previous = previousPathOf(destination), executableName, fs = NODE_FS }) {
+export function swapInstalledMacosBundle({ staging, destination, executableName, fs = NODE_FS }) {
   if (typeof executableName !== "string" || !executableName) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", "swapInstalledMacosBundle requires the staged CFBundleExecutable name");
   const executable = path.join("Contents", "MacOS", executableName);
   const digest = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -196,9 +197,9 @@ export function swapInstalledMacosBundle({ staging, destination, previous = prev
     fs.rmSync(staging, { recursive: true, force: true });
     throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISSING", `staged app has no main executable ${executable}: ${staging} (${error.message})`);
   }
-  // The old app becomes `<destination>.previous` (replacing any older one) and stays there for rollback; any failure renames it back.
+  // The old app is removed and the staged one renamed over it; no old copy survives, even on failure.
   swapInPlace({
-    staging, destination, previous, fs,
+    staging, destination, previous: null, fs,
     verify: () => {
       if (!fs.existsSync(path.join(destination, "Contents", "Info.plist"))) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", `installed app verification failed: ${destination}`);
       const installed = path.join(destination, executable);

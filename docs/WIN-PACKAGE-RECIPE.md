@@ -16,7 +16,11 @@ A Windows target that declares `winPackage` and no `package` script is packaged 
 `packages/release/win-package-recipe.mjs` (`runWinPackageRecipe`). It replaces the app-local
 `build-windows-nsis.mjs`, `win-nsis.mjs` and `build-beta-installer.ps1` two-phase hook scripts.
 
-## Schema
+> Everything from here to "Profile, extra Tauri config and prepare steps" describes the **standalone `runWinPackageRecipe`**
+> (direct callers). The release target keys (including `profile`, `jobs`, `timeoutMs`, `cleanStale`, `cargoTargetRoot`) are in
+> the sections after it. `sidecars` is standalone-only; a release target uses `externalBin` / `mediaSidecar`.
+
+## Standalone runWinPackageRecipe: schema
 
 ```js
 targets: {
@@ -94,8 +98,8 @@ receipt records the phases run, the signed digests, the marker result and the up
 - App-specific staging (HeardRight's DirectML and Whisper runtimes), legal-fact gates, notice
   generation, QA-control and release-switch scans (release.mjs still runs these around the package step).
 - MSIX, portable and the PowerShell beta installer (`mailright`) which use other signing contracts.
-- Hung-Tauri-process recovery (artifact stability polling and process-tree kill) that heardright and
-  viewright carry; the recipe relies on `spawn` returning.
+- The standalone `runWinPackageRecipe` has no hung-Tauri-process recovery; it relies on `spawn` returning. The release
+  target does: see `timeoutMs` and the artifact stability poll below.
 
 ## Profile, extra Tauri config and prepare steps (`right-release release`, bogusyogi/rightkit#345)
 
@@ -107,10 +111,47 @@ between the build and the bundle):
 | `profile` | A Cargo profile name, passed as `tauri build ... -- --profile <p>` and the same trailing form on `tauri bundle`. The raw EXE path moves with the profile, so keep `sign.prePackageFiles` pointing at it. |
 | `tauriConfig` | App-relative `.json`, passed as `--config <file>` (relative to the Tauri cwd) before RightKit's own override, for resource mappings and `signCommand: null`. |
 | `prepare` | `[{ cmd, args?, cwd? }]` argv commands (no shell, `cwd` inside the app) run before the Tauri build. |
+| `jobs`, `timeoutMs`, `cleanStale`, `cargoTargetRoot` | see the sections below. |
 
-With `prepare`, `prePackage` becomes `node recipe-build.mjs --plan <json>`, which runs prepare, then the build, in order
-and stops at the first non-zero exit (`right-release recipe-build`). Without it, `prePackage` is the plain `pnpm exec tauri
-build` as before.
+`prePackage` is always `node recipe-build.mjs --plan <json>` (`right-release recipe-build`): the built-in stale cleanup, `prepare`,
+the Tauri build, then the artifact stability poll, in order, stopping at the first non-zero exit.
+
+### Build keys for hung or slow builds (CodeRight, PostRight, ViewRight reports)
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `jobs` | unset | positive integer, passed to Cargo as `--jobs N` after `--` on `tauri build` (with `profile`: `-- --profile p --jobs N`) |
+| `timeoutMs` | `1200000` (20 min) | positive integer set on the generated `prePackage` and `package` command objects. release.mjs `runCommand` honours `command.timeoutMs`. On expiry its `run()` calls `killProcessTree`, which is `taskkill /PID <pid> /T /F` on Windows (and a process-group SIGTERM then SIGKILL elsewhere), so the whole tree (pnpm, tauri, cargo, rustc, and a hung NSIS step) dies, then the release exits 1. The timer covers the entire `prePackage` command, including `prepare` and the stability poll |
+| `cleanStale` | `true` | recipe-build deletes the stale raw EXE and installer (`sign.prePackageFiles` / `sign.files`) before anything else, so an old file can never be signed as this build's output. `false` keeps them |
+| (always on) | | after the build, recipe-build waits until the raw EXE exists and its size and mtime are unchanged over 2 checks 1 s apart (120 s limit, then `RECIPE_BUILD_ARTIFACT_UNSTABLE`) so a hung or still-writing Tauri process cannot hand a half-written EXE to signing |
+
+### Managed Cargo target roots (`cargoTargetRoot`)
+
+The raw EXE and installer are the paths you declare, normally `src-tauri/target/<triple>/release/...`. With
+`cargoTargetRoot: true` (manifest `<tauriCwd>/src-tauri/Cargo.toml`) or `cargoTargetRoot: "<app-relative Cargo.toml>"`, the
+expansion asks `cargo metadata` for `target_directory` and moves every declared path beginning with `<manifest dir>/target/` there.
+`CARGO_TARGET_DIR` set in the environment triggers the same lookup when `<tauriCwd>/src-tauri/Cargo.toml` exists. What works:
+
+- a target directory inside the app (for example `CARGO_TARGET_DIR=.cargo-target`): `sign.prePackageFiles`, `sign.files`, the
+  cleanup and the stability poll all use the moved paths;
+- a target directory outside the app (a broker-managed directory): fails closed with a message, because release.mjs and the
+  raw-EXE-to-installer embedding check address declared paths from the app root. Declare the paths yourself or point the target
+  directory inside the app. Paths outside the default `target/` prefix are never changed;
+- `RIGHT_RELEASE_ARTIFACT_DIR` is not a build output location: release.mjs only falls back to a declared file's basename there
+  when the declared path is missing.
+
+### Scans that run for you
+
+Before the raw EXE and sidecars are signed, release.mjs runs `assertNoQaControlBinaries` on them (QA-control marker, wdio
+webdriver plugin, shell dev-inspect marker, remote-debugging switches, Tauri devtools for allow-listed apps) and, on the same
+files, the D4 release-switch binary layer (`assertNoReleaseSwitches`: test-mode marker, registered S1-S4 names, and
+`config.releaseSwitches.forbid`). `config.releaseSwitches` also drives the source layer (feature closure, the `switches.json`
+inventory) and the frontend `dist` is scanned for browser-QA mocks. That replaces an app's own `check-release-test-switches` for
+everything those layers cover; it does not read the packed NSIS payload (the raw payload was scanned before packing) and does not
+know app-specific string rules absent from `switches.json` or `releaseSwitches.forbid`.
+
+`development.targets.win.build` is never touched by the recipes (the development lane does not call the expansion), so a dev build
+keeps its own features such as `--features dev-control`.
 
 ### Remaining ScrapeRight asks map to existing release.mjs keys (verified in release.mjs)
 

@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
+import { stagingPathOf, swapInPlace } from "./in-place-install.mjs";
 
 const CHUNK_BYTES = 1024 * 1024;
 
 /**
  * Install an unsigned development payload in place at the fixed path `<installRoot>/current` (a real directory).
- * No versions/ folder, no digest folder, no symlink or junction. The previous copy is kept once, as
- * `<installRoot>/current.previous` (rename it back to roll back); nothing ever runs from it. A legacy `current`
- * symlink or junction from the old layout is moved aside to `.previous` the same way.
+ * No versions/ folder, no digest folder, no symlink or junction. NO old copy is kept (Orthic-Labs/rightkit#348): the
+ * old `current` is removed and the verified staging copy is renamed over it, and a stale `current.previous` left by an
+ * older RightKit is removed. A failed install leaves `current` absent or partial; reinstall from an older build. A
+ * legacy `current` symlink or junction from the old layout is removed the same way.
  */
 export function installPortableDevelopment(descriptor, { root, platform = process.platform, env = process.env } = {}) {
   const emit = (event, fields = {}) => process.stdout.write(`${JSON.stringify({ event: `DEV_INSTALL_${event}`, ...fields })}
@@ -33,7 +34,6 @@ export function installPortableDevelopment(descriptor, { root, platform = proces
     digest = digestTree(source);
     current = path.join(installRoot, "current");
     const staging = stagingPathOf(current);
-    const previous = previousPathOf(current);
     emit("STAGE", { sourceDirectory: source, current, staging, digest });
     if (exists(current) && !fs.lstatSync(current).isDirectory() && !fs.lstatSync(current).isSymbolicLink()) throw new Error(`development current is not a directory; refusing to replace: ${current}`);
 
@@ -49,15 +49,15 @@ export function installPortableDevelopment(descriptor, { root, platform = proces
     const sourceEntryDigest = hashFile(sourceEntrypoint);
     let entryDigest;
     swapInPlace({
-      staging, destination: current, previous,
+      staging, destination: current, previous: null,
       verify: (destination) => {
         entryDigest = hashFile(resolveContained(destination, descriptor.entrypoint, "entrypoint"));
         if (entryDigest !== sourceEntryDigest) throw new Error("development entrypoint readback did not match source");
       },
     });
-    emit("ACTIVATE", { current, previous });
-    emit("SUCCEEDED", { installRoot, current, previous, digest, entrypoint: descriptor.entrypoint, entrypointDigest: entryDigest });
-    return { installRoot, current, previous, versionRoot: current, digest, entrypoint: path.join(current, descriptor.entrypoint), entrypointDigest: entryDigest };
+    emit("ACTIVATE", { current });
+    emit("SUCCEEDED", { installRoot, current, digest, entrypoint: descriptor.entrypoint, entrypointDigest: entryDigest });
+    return { installRoot, current, versionRoot: current, digest, entrypoint: path.join(current, descriptor.entrypoint), entrypointDigest: entryDigest };
   } catch (error) {
     emit("FAILED", { installRoot: descriptor?.installRoot, current, digest, message: error?.message ?? String(error) });
     throw error;

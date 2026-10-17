@@ -9,7 +9,7 @@ import { resolveTargetRoot } from "./cargo-target.mjs";
  * The build broker writes Cargo output to per-generation folders (`<managed>/rightkit-build-control/ws/<hash>/g/<gen>/...`)
  * and `cargo-guard` uses a hashed `dev-targets/<project>-<hash>` folder. Those are build output only: their path is not
  * stable, so NOTHING may run from them. macOS ties privacy grants to the path an app runs from, so a dev or QA binary is
- * copied in place to `<root>/.rightkit-dev-bin/<triple-or-host>/<name>` (keeping `<name>.previous`) and run from there.
+ * copied in place to `<root>/.rightkit-dev-bin/<triple-or-host>/<name>` (replaced in place, no `.previous` kept) and run from there.
  */
 export const DEV_STAGE_DIRECTORY = ".rightkit-dev-bin";
 

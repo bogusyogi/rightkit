@@ -35,20 +35,43 @@ test("installs in place at the fixed current directory with no versions folder",
   assert.deepEqual(fs.readdirSync(fx.installRoot), ["current"]);
 });
 
-test("a second install keeps exactly one current.previous and the same path", (t) => {
+test("a second install replaces current in place and keeps NO current.previous (a stale one is removed)", (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   const first = installPortableDevelopment(fx.descriptor, { root: fx.root });
+  fs.mkdirSync(path.join(fx.installRoot, "current.previous"), { recursive: true });
+  fs.writeFileSync(path.join(fx.installRoot, "current.previous", "coderight.exe"), "stale\n");
   fs.writeFileSync(path.join(fx.source, "coderight.exe"), "second\n");
   const second = installPortableDevelopment(fx.descriptor, { root: fx.root });
   assert.equal(second.current, first.current);
+  assert.equal("previous" in second, false);
   fs.writeFileSync(path.join(fx.source, "coderight.exe"), "third\n");
   installPortableDevelopment(fx.descriptor, { root: fx.root });
-  assert.deepEqual(fs.readdirSync(fx.installRoot).sort(), ["current", "current.previous"]);
+  assert.deepEqual(fs.readdirSync(fx.installRoot), ["current"]);
   assert.equal(read(fx.installRoot, "current", "coderight.exe"), "third\n");
-  assert.equal(read(fx.installRoot, "current.previous", "coderight.exe"), "second\n");
 });
 
-test("moves a legacy current junction aside to current.previous without touching its target", (t) => {
+test("user data beside current (coderight.db, WAL, models) is never copied, moved or changed, on success and on a failed install", (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  installPortableDevelopment(fx.descriptor, { root: fx.root });
+  const data = new Map([["coderight.db", "db-bytes"], ["coderight.db-wal", "wal-bytes"], [path.join("models", "x.bin"), "model-bytes"]]);
+  for (const [name, text] of data) { fs.mkdirSync(path.dirname(path.join(fx.installRoot, name)), { recursive: true }); fs.writeFileSync(path.join(fx.installRoot, name), text); }
+  const snapshot = () => [...data.keys()].map((name) => [name, read(fx.installRoot, name)]);
+  const before = snapshot();
+  installPortableDevelopment(fx.descriptor, { root: fx.root });
+  assert.deepEqual(snapshot(), before);
+  assert.deepEqual(fs.readdirSync(fx.installRoot).sort(), ["coderight.db", "coderight.db-wal", "current", "models"], "no .previous or backup beside the data");
+  const current = path.join(fx.installRoot, "current");
+  const originalRename = fs.renameSync;
+  t.mock.method(fs, "renameSync", function (from, to) {
+    if (to === current) throw new Error("injected swap failure");
+    return originalRename.call(fs, from, to);
+  });
+  assert.throws(() => installPortableDevelopment(fx.descriptor, { root: fx.root }), /injected swap failure/);
+  assert.deepEqual(snapshot(), before);
+  assert.deepEqual(fs.readdirSync(fx.installRoot).sort(), ["coderight.db", "coderight.db-wal", "models"], "the failed install left current absent and kept no old copy");
+});
+
+test("removes a legacy current junction without touching its target and keeps no .previous", (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   const legacy = path.join(fx.installRoot, "versions", "0.1.115-releasehash");
   fs.mkdirSync(legacy, { recursive: true });
@@ -57,6 +80,7 @@ test("moves a legacy current junction aside to current.previous without touching
   const result = installPortableDevelopment(fx.descriptor, { root: fx.root });
   assert.equal(fs.lstatSync(result.current).isSymbolicLink(), false);
   assert.equal(read(legacy, "coderight.exe"), "release binary\n");
+  assert.equal(fs.existsSync(path.join(fx.installRoot, "current.previous")), false);
 });
 
 test("rejects a missing source entrypoint before touching current", (t) => {
@@ -84,7 +108,7 @@ test("rejects source symlinks that escape the payload", (t) => {
   assert.equal(fs.existsSync(fx.installRoot), false);
 });
 
-test("restores the installed copy when the swap fails", (t) => {
+test("a failed swap leaves current absent and keeps NO old copy", (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   installPortableDevelopment(fx.descriptor, { root: fx.root });
   fs.writeFileSync(path.join(fx.source, "coderight.exe"), "next-dev-binary\n");
@@ -96,8 +120,8 @@ test("restores the installed copy when the swap fails", (t) => {
     return originalRename.call(fs, from, to);
   });
   assert.throws(() => installPortableDevelopment(fx.descriptor, { root: fx.root }), /injected swap failure/);
-  assert.equal(read(current, "coderight.exe"), "dev-binary\n");
-  assert.deepEqual(fs.readdirSync(fx.installRoot), ["current"]);
+  assert.equal(fs.existsSync(current), false, "reinstall from an older build");
+  assert.deepEqual(fs.readdirSync(fx.installRoot), []);
 });
 
 test("rejects filesystem roots and absolute payload paths", (t) => {

@@ -46,6 +46,7 @@ import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRep
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
+import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
@@ -356,7 +357,7 @@ try {
     { label: "target.package", command: target.package },
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
     { label: "nativeAssembly.finalizer", command: nativeFinalizer },
-    { label: "target.postSign", command: target.postSign },
+    ...commandList(target.postSign).map((command, index) => ({ label: Array.isArray(target.postSign) ? `target.postSign[${index}]` : "target.postSign", command })),
     { label: "target.gradle", command: target.gradle },
   ] });
 } catch (error) { fail(error.message); }
@@ -370,6 +371,9 @@ try {
 const releaseSwitchInventoryPath = path.resolve(root, config.releaseSwitches?.inventory ?? "switches.json");
 const releaseSwitchInventoryText = existsSync(releaseSwitchInventoryPath) ? readFileSync(releaseSwitchInventoryPath, "utf8") : null;
 try {
+  // A `node recipe-build.mjs --plan <JSON>` prePackage hides each step's `--features` in one argument: the closure and the
+  // command token scan see every prepare / build / postBuild step (a plan that cannot be read or validated fails closed).
+  const closureCommands = [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, ...commandList(target.postSign), target.gradle].filter(Boolean).flatMap((c) => expandRecipeBuildCommands(c, { root }));
   let treeText;
   try {
     const closure = resolveFeatureClosure({
@@ -379,7 +383,7 @@ try {
       rust: config.releaseSwitches?.rust,
       features: config.releaseSwitches?.features ?? [],
       triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
-      commandTexts: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign, target.gradle],
+      commandTexts: closureCommands,
     });
     if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
     else treeText = closure.treeText;
@@ -388,7 +392,7 @@ try {
     console.log(`right-release: dry run: ${error.message}`);
   }
   // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
-  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, target.postSign, target.gradle].filter(Boolean).map((c) => commandTokens(c)) };
+  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: closureCommands.map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
   } else if (treeText != null || closureInput.commands.length) {
@@ -563,14 +567,14 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   // and still installs a binary Windows rejects.
   await verifyWindowsEmbedding({ root, target, files, markers: bundleMarkerReceipts });
   await signWindows(files, "installer", root);
-  if (target.postSign) await runCommand(target.postSign, root);
+  if (target.postSign) await runCommands(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
   await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...(target.updater?.keyFile ? ["--key-file", String(target.updater.keyFile)] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
-  await runCommand(target.postSign, root);
+  await runCommands(target.postSign, root);
 }
 
 if (opts.platform === "mac") {
@@ -931,6 +935,17 @@ async function runInstall(pm, cwd) {
 async function runPackageScript(pm, script, cwd) {
   if (script === false) return;
   await run(pm, ["run", script], cwd);
+}
+
+// A hook may be one command object or an ordered array of them (e.g. create-mac-updater then lsclean).
+function commandList(value) {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+// Runs in order; run() exits the process on the first failure, so the chain fails closed.
+async function runCommands(value, root, options) {
+  for (const command of commandList(value)) await runCommand(command, root, options);
 }
 
 async function runCommand(command, root, { env = {}, captureStdout = false } = {}) {

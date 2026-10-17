@@ -1713,3 +1713,26 @@ test("swift-check rejects private credential outside shared steps and on arbitra
   const extraJob = workflows["swift-check.yml"] + "\n  other:\n    runs-on: macos-15\n    steps:\n      - name: Configure private Swift package access\n        env:\n          RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n        run: true\n";
   assertRefused(SWIFT_CHECK_ONLY, { "swift-check.yml": extraJob }, /job 'other'/, "wrong job");
 });
+
+test("postSign accepts one command or an ordered array, scanned and run fail-closed", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /function commandList\(value\) \{\s*if \(value == null\) return \[\];\s*return Array\.isArray\(value\) \? value : \[value\];/);
+  assert.match(source, /async function runCommands\(value, root, options\) \{\s*for \(const command of commandList\(value\)\) await runCommand\(command, root, options\);/);
+  // Every execution site uses the chain runner; none runs a raw postSign value.
+  assert.doesNotMatch(source, /runCommand\(target\.postSign/);
+  assert.equal((source.match(/runCommands\(target\.postSign, root\)/g) ?? []).length, 2);
+  // Scanner inputs (forbidden features, feature closure texts, closure commands) expand every entry.
+  assert.match(source, /\.\.\.commandList\(target\.postSign\)\.map\(/);
+  // One closureCommands list (recipe-build plans unwrapped, #345 F1) feeds both the cargo-tree closure and the token scan.
+  assert.match(source, /const closureCommands = \[[^\n]*\.\.\.commandList\(target\.postSign\), target\.gradle\][^\n]*expandRecipeBuildCommands/);
+  assert.doesNotMatch(source, /nativeFinalizer, target\.postSign, target\.gradle/);
+});
+
+test("run() timeout kills the whole process tree through background-process spawn and taskkill /T /F", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /import \{ spawn, spawnSync \} from "\.\/background-process\.mjs"/);
+  assert.doesNotMatch(source, new RegExp(`from "node:${"child"}_process"`));
+  assert.match(source, /setTimeout\(\(\) => \{\s*killProcessTree\(child\.pid\);/);
+  const heavy = readFileSync(path.join(path.dirname(release), "heavy-command.mjs"), "utf8");
+  assert.match(heavy, /"\/PID", String\(pid\), "\/T", "\/F"/);
+});
