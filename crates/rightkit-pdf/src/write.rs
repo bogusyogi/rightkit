@@ -943,7 +943,12 @@ mod tests {
         let media = page.get(b"MediaBox").unwrap().as_array().unwrap();
         assert_eq!(media[2].as_i64().unwrap(), 595);
         let content = loaded.get_page_content(first);
-        assert_eq!(content, b"q 595 0 0 842 0 0 cm /Im0 Do Q\n");
+        // The writer's stream is exactly `q ... Q\n`; lopdf's `get_page_content` may append a
+        // separator newline after each stream, so compare without trailing whitespace.
+        assert_eq!(content.trim_ascii_end(), b"q 595 0 0 842 0 0 cm /Im0 Do Q");
+        let contents = page.get(b"Contents").unwrap().as_reference().unwrap();
+        let raw = loaded.get_object(contents).unwrap().as_stream().unwrap();
+        assert_eq!(raw.content, b"q 595 0 0 842 0 0 cm /Im0 Do Q\n");
         assert!(text.contains("/XObject << /Im0 "));
     }
 
