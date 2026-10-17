@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, Badge } from "@rightkit/react-shell/react";
-import type { LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
+import type { SignInBackend, SignInProvider, LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   const pct = Math.max(0, Math.min(1, value));
@@ -159,4 +159,27 @@ function LicenseBody({ backend }: { backend: LicenseBackend }) {
 
 export function licenseStep(backend: LicenseBackend, options: { label?: string; title?: string; description?: string } = {}): OnboardingStep {
   return { id: "license", label: options.label ?? "Licence", title: options.title ?? "Choose how you’ll use this app", description: options.description ?? "Activate a licence, start a trial, or continue with the free plan.", skippable: true, render: () => <LicenseBody backend={backend} /> };
+}
+
+function SignInBody({ backend }: { backend: SignInBackend }) {
+  const [account, setAccount] = useState<{ signedIn: boolean; account?: string }>({ signedIn: false });
+  const [busy, setBusy] = useState<SignInProvider | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { let live = true; backend.load().then((a) => { if (live) setAccount(a); }, () => undefined); return () => { live = false; }; }, [backend]);
+  const start = async (provider: SignInProvider) => {
+    setBusy(provider);
+    setError(null);
+    try { setAccount(await backend.start(provider)); } catch (e) { setError(e instanceof Error ? e.message : "Sign-in did not finish."); } finally { setBusy(null); }
+  };
+  return <div className="rk-onboarding__signin">
+    {account.signedIn ? <p>Signed in{account.account ? <> as <strong>{account.account}</strong></> : null}.</p> : null}
+    <div className="rk-onboarding__row-actions">{backend.providers.map((p) => <Button key={p.id} size="sm" variant="secondary" disabled={busy !== null} onClick={() => void start(p.id)}>{busy === p.id ? "Waiting for your browser…" : p.label ?? `Sign in with ${p.id === "google" ? "Google" : p.id === "apple" ? "Apple" : "your account"}`}</Button>)}</div>
+    <p className="rk-onboarding__hint"><small>Opens your browser. You stay signed in to the accounts you already use there.</small></p>
+    {error ? <p role="alert">{error}</p> : null}
+  </div>;
+}
+
+/** Sign-in step. Every button hands off to the shared owner and opens the user's default browser; no in-app webview. */
+export function signInStep(backend: SignInBackend, options: { label?: string; title?: string; description?: string } = {}): OnboardingStep {
+  return { id: "sign-in", label: options.label ?? "Sign in", title: options.title ?? "Sign in", description: options.description ?? "Sign-in opens your default browser, so you stay signed in to the accounts you already use there.", skippable: true, render: () => <SignInBody backend={backend} /> };
 }

@@ -543,7 +543,7 @@ impl GoogleSession {
     }
 
     /// Desktop (macOS, Windows) sign-in: loopback + PKCE S256 + `nonce`. `open_browser`
-    /// receives the authorization URL (the host opens it; this crate opens nothing). Nothing is
+    /// receives the authorization URL. Prefer [`Self::sign_in_default_browser`] (opens the OS default browser). Nothing is
     /// stored unless the ID token verifies and the grant is complete.
     pub fn sign_in_loopback(
         &self,
@@ -555,6 +555,24 @@ impl GoogleSession {
         let flow = client.begin_loopback_with(&[("nonce", nonce.as_str())])?;
         open_browser(&flow.request.authorization_url);
         let tokens = client.finish_loopback(flow, timeout)?;
+        self.accept(tokens, &nonce)
+    }
+
+    /// [`Self::sign_in_loopback`] through a [`crate::browser::BrowserOpener`]; use
+    /// [`crate::browser::SystemBrowser`] so the user's default browser (and its existing Google
+    /// session) is used. An embedded-webview opener is refused with
+    /// [`OAuthError::EmbeddedWebviewRefused`].
+    pub fn sign_in_default_browser(
+        &self,
+        opener: &dyn crate::browser::BrowserOpener,
+        timeout: Duration,
+    ) -> Result<GoogleIdentity, OAuthError> {
+        let nonce = crate::random_urlsafe(32)?;
+        let tokens = self.resolver.client().sign_in_with_browser_extra(
+            opener,
+            timeout,
+            &[("nonce", nonce.as_str())],
+        )?;
         self.accept(tokens, &nonce)
     }
 

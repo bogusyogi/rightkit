@@ -755,3 +755,43 @@ fn fixtures_scan() {
     .output();
     run_group("scan", 38, scan_case);
 }
+
+/// Orthic-Labs/rightkit#279: the default-browser sign-in rules are in the shipped catalog and
+/// match an app rendering an auth URL in its own webview, and not the shared owner's flow.
+#[test]
+fn oauth_webview_rules() {
+    let catalog: Value =
+        serde_json::from_str(include_str!("../catalog/ownership-catalog.json")).unwrap();
+    let fingerprints: Vec<&Value> = catalog["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["fingerprints"].as_array().unwrap().iter())
+        .filter(|f| f["id"].as_str().is_some_and(|id| id.starts_with("oauth.webview.")))
+        .collect();
+    assert_eq!(fingerprints.len(), 3);
+    let matches = |id: &str, line: &str| {
+        let f = fingerprints.iter().find(|f| f["id"] == id).unwrap();
+        assert_eq!(f["tier"], "block");
+        fancy_regex::Regex::new(f["pattern"].as_str().unwrap())
+            .unwrap()
+            .is_match(line)
+            .unwrap()
+    };
+    assert!(matches(
+        "oauth.webview.auth-url-load",
+        r#"WebviewWindowBuilder::new(&app, "login", WebviewUrl::External("https://accounts.google.com/o/oauth2/v2/auth".parse().unwrap()))"#
+    ));
+    assert!(matches(
+        "oauth.webview.on-navigation-intercept",
+        r#"builder.on_navigation(move |url| url.as_str().contains("?code="))"#
+    ));
+    assert!(matches(
+        "oauth.webview.bundled-chromium-login",
+        r#"chromiumoxide::Browser::launch(cfg).await?.new_page("https://appleid.apple.com/auth/authorize")"#
+    ));
+    assert!(!matches(
+        "oauth.webview.auth-url-load",
+        "SystemBrowser.open(&flow.request.authorization_url)?;"
+    ));
+}

@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Onboarding, isLegalAccepted } from "./Onboarding.js";
+import { signInStep } from "./steps.js";
 import type { LegalAcceptanceRecord, LegalReceiptPort, ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
 
 afterEach(() => cleanup());
@@ -388,5 +389,18 @@ describe("isLegalAccepted", () => {
 
   it("compares nothing new when no required hash is given", () => {
     expect(isLegalAccepted(stored("2026-09", "sha256:old"), "2026-09")).toBe(true);
+  });
+});
+
+describe("signInStep (Orthic-Labs/rightkit#279)", () => {
+  it("says it opens the browser and calls the shared owner per provider", async () => {
+    const user = userEvent.setup();
+    const start = vi.fn(async () => ({ signedIn: true, account: "a@example.com" }));
+    const step = signInStep({ providers: [{ id: "google" }, { id: "apple" }], load: async () => ({ signedIn: false }), start });
+    render(<>{step.render({} as never)}</>);
+    expect(screen.getByText(/Opens your browser/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    await waitFor(() => expect(start).toHaveBeenCalledWith("google"));
+    await waitFor(() => expect(screen.getByText("a@example.com")).toBeInTheDocument());
   });
 });

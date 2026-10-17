@@ -4,7 +4,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 **Use it** for sign-in and token refresh in a Right Suite app or daemon, when the provider fits one of the descriptors or can be described by an `OAuthConfig`.
 
-**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. Desktop sign-in binds a loopback callback listener on `127.0.0.1` (`src/lib.rs:370`); the crate starts no other server, opens no browser, and schedules no background work.
+**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. Desktop sign-in binds a loopback callback listener on `127.0.0.1` (`src/lib.rs:370`); the crate starts no other server and schedules no background work. It opens a browser only through `browser::SystemBrowser` (the OS default handler) and refuses embedded webviews.
 
 ## Features
 
@@ -17,6 +17,16 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 | `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
 
 `rightkit-http` is always a dependency. It is used for every token request.
+
+## Sign-in opens the default browser (Orthic-Labs/rightkit#279)
+
+Every Google, Apple or OAuth sign-in in every app opens the user's default browser, never an in-app webview, so users keep their existing browser sessions.
+
+- Desktop: `client.sign_in_with_browser(&SystemBrowser, timeout)` (or `GoogleSession::sign_in_default_browser`). OS handler: `/usr/bin/open`, `rundll32 url.dll,FileProtocolHandler` (the ShellExecute default-browser path), `xdg-open`; argv only. Redirect: RFC 8252 loopback on `127.0.0.1`, ephemeral port, exact path, constant-time `state` check, single use, bounded timeout, PKCE `S256` only. A custom-scheme deep link (registered by the app; delivered by `rightkit-tauri-shell` `open_url`) is the alternative: check `state`, then `exchange_code`.
+- Refused: `SignInSurface::EmbeddedWebview` returns `OAuthError::EmbeddedWebviewRefused`; URLs that are not https (or loopback http) return `UnsafeAuthorizationUrl`.
+- Sign in with Apple, macOS: the default-browser web flow. Apple's native `AuthenticationServices` sheet only where Apple requires it (iOS apps offering other third-party sign-ins, Guideline 4.8). Apple's `form_post` redirect cannot reach loopback: use the app's HTTPS relay handing off to a deep link.
+- Mobile: Android Chrome Custom Tabs (`SignInSurface::CustomTab`) and iOS `ASWebAuthenticationSession` (`SignInSurface::AuthSession`, shares Safari state only) are the only allowed surfaces. This crate has no mobile UI code; the host implements `BrowserOpener`.
+- Enforcement: the ownership scanner rule `oauth.webview.auth-url` flags apps that render an auth URL in their own webview.
 
 ## Durable server-mode pieces (PostRight engine)
 

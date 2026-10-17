@@ -354,3 +354,81 @@ fn provider_errors_do_not_echo_the_submitted_refresh_token() {
         assert!(text.contains("[redacted]"), "HTTP {status}: {text}");
     }
 }
+
+/// Orthic-Labs/rightkit#279: a stray request on another path does not end the flow; the exact
+/// path with the right state completes it; an embedded-webview opener is refused unopened.
+#[test]
+fn default_browser_sign_in_ignores_other_paths_and_refuses_webviews() {
+    use rightkit_oauth::browser::{BrowserOpener, SignInSurface};
+
+    struct Webview;
+    impl BrowserOpener for Webview {
+        fn surface(&self) -> SignInSurface {
+            SignInSurface::EmbeddedWebview
+        }
+        fn open(&self, _url: &str) -> Result<(), OAuthError> {
+            panic!("a webview opener must never be called");
+        }
+    }
+
+    let oauth = OAuthClient::new(OAuthConfig::google("client", ["openid"]), client()).unwrap();
+    assert!(matches!(
+        oauth.sign_in_with_browser(&Webview, Duration::from_millis(200)),
+        Err(OAuthError::EmbeddedWebviewRefused)
+    ));
+
+    // Non-https authorization URLs never reach the OS handler.
+    let http_provider = OAuthClient::new(
+        OAuthConfig::new("c", "http://example.com/authorize", "http://example.com/token"),
+        client(),
+    )
+    .unwrap();
+    let opened = std::sync::atomic::AtomicBool::new(false);
+    let err = http_provider
+        .sign_in_with_browser(
+            &|_: &str| {
+                opened.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            },
+            Duration::from_millis(200),
+        )
+        .unwrap_err();
+    assert!(matches!(err, OAuthError::UnsafeAuthorizationUrl(_)), "{err:?}");
+    assert!(!opened.load(std::sync::atomic::Ordering::SeqCst));
+
+    // Wrong path is ignored, then the exact path with a bad state is a state mismatch.
+    let err = oauth
+        .sign_in_with_browser(
+            &|url: &str| {
+                let redirect = url
+                    .split("redirect_uri=")
+                    .nth(1)
+                    .and_then(|r| r.split('&').next())
+                    .unwrap()
+                    .replace("%3A", ":")
+                    .replace("%2F", "/");
+                let port: u16 = redirect
+                    .split(':')
+                    .nth(2)
+                    .and_then(|p| p.split('/').next())
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                std::thread::spawn(move || {
+                    for target in ["/favicon.ico", "/oauth/callback?code=x&state=wrong"] {
+                        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
+                            let _ = s.write_all(
+                                format!("GET {target} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+                            );
+                            let mut sink = Vec::new();
+                            let _ = s.read_to_end(&mut sink);
+                        }
+                    }
+                });
+                Ok(())
+            },
+            Duration::from_secs(3),
+        )
+        .unwrap_err();
+    assert!(matches!(err, OAuthError::StateMismatch), "{err:?}");
+}

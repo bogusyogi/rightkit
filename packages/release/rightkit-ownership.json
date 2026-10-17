@@ -1930,7 +1930,7 @@
     {
       "package": "rightkit-oauth",
       "capability": "oauth-sign-in",
-      "summary": "OAuth sign-in: loopback PKCE, device flow, provider endpoints, refresh",
+      "summary": "OAuth sign-in: loopback PKCE, device flow, provider endpoints, refresh; default-browser sign-in only",
       "fingerprints": [
         {
           "id": "oauth.cargo.oauth2",
@@ -2006,6 +2006,99 @@
             "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
           },
           "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "oauth.webview.auth-url-load",
+          "type": "source",
+          "pattern": "\\b(?:WebviewWindowBuilder|WebviewUrl::External|WebviewBuilder|WebView2|WKWebView|loadRequest|loadUrl|load_url|\\.navigate|\\.eval)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
+          "codeOnly": false,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".mjs",
+            ".swift",
+            ".m",
+            ".mm",
+            ".kt",
+            ".java",
+            ".cs"
+          ],
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Source text (the auth URL sits in a string literal); an app loading an authorization URL in its own webview"
+          },
+          "tierReason": "Banned by owner policy; sign-in opens the user's default browser through rightkit-oauth (browser::SystemBrowser), never an in-app webview",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-17: every Google, Apple or OAuth sign-in opens the default browser, never an in-app webview (Orthic-Labs/rightkit#279)"
+        },
+        {
+          "id": "oauth.webview.on-navigation-intercept",
+          "type": "source",
+          "pattern": "\\bon_navigation\\b[^\\n]{0,400}(?:[?&]code=|redirect_uri|\\boauth|access_token|id_token)",
+          "codeOnly": false,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".mjs",
+            ".swift",
+            ".m",
+            ".mm",
+            ".kt",
+            ".java",
+            ".cs"
+          ],
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Source text (the auth URL sits in a string literal); an on_navigation callback intercepting an OAuth redirect"
+          },
+          "tierReason": "Banned by owner policy; sign-in opens the user's default browser through rightkit-oauth (browser::SystemBrowser), never an in-app webview",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-17: every Google, Apple or OAuth sign-in opens the default browser, never an in-app webview (Orthic-Labs/rightkit#279)"
+        },
+        {
+          "id": "oauth.webview.bundled-chromium-login",
+          "type": "source",
+          "pattern": "\\b(?:chromiumoxide|headless_chrome|CefBrowser(?:Host)?|CefLifeSpanHandler)\\b[^\\n]{0,300}(?:accounts\\.google\\.com|appleid\\.apple\\.com|/oauth2?/authorize|/o/oauth2/(?:v2/)?auth)",
+          "codeOnly": false,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".mjs",
+            ".swift",
+            ".m",
+            ".mm",
+            ".kt",
+            ".java",
+            ".cs"
+          ],
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Source text (the auth URL sits in a string literal); bundled Chromium used to run a sign-in"
+          },
+          "tierReason": "Banned by owner policy; sign-in opens the user's default browser through rightkit-oauth (browser::SystemBrowser), never an in-app webview",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-17: every Google, Apple or OAuth sign-in opens the default browser, never an in-app webview (Orthic-Labs/rightkit#279)"
         }
       ],
       "detection": "fingerprinted",

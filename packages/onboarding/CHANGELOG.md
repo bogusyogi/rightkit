@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Add `signInStep(backend)` and the `SignInBackend` / `SignInProvider` types (Orthic-Labs/rightkit#279). Buttons call the app's shared `rightkit-oauth` command, which opens the user's DEFAULT browser (never an in-app webview); the copy says "Opens your browser". Additive. Not built or run locally.
+
 ## 0.3.3
 
 Republish. 0.3.2 is on npm without the change below; a consumer on 0.3.2 cannot reach it.

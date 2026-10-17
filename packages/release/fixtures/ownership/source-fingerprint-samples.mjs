@@ -363,5 +363,30 @@ export const FINGERPRINT_SAMPLES = {
       "execFileSync('xcrun', ['simctl', 'list']);",
       "const note = 'notarytool is run by right-release';"
     ]
+  },
+  "oauth.webview.auth-url-load": {
+    "positive": [
+      "let w = WebviewWindowBuilder::new(&app, \"login\", WebviewUrl::External(\"https://accounts.google.com/o/oauth2/v2/auth?x=1\".parse().unwrap())).build()?;"
+    ],
+    "negative": [
+      "let w = WebviewWindowBuilder::new(&app, \"main\", WebviewUrl::App(\"index.html\".into())).build()?;",
+      "SystemBrowser.open(&flow.request.authorization_url)?;"
+    ]
+  },
+  "oauth.webview.on-navigation-intercept": {
+    "positive": [
+      "builder.on_navigation(move |url| url.as_str().contains(\"?code=\") || url.as_str().contains(\"redirect_uri\"))"
+    ],
+    "negative": [
+      "builder.on_navigation(|url| url.scheme() == \"https\")"
+    ]
+  },
+  "oauth.webview.bundled-chromium-login": {
+    "positive": [
+      "let page = chromiumoxide::Browser::launch(cfg).await?.new_page(\"https://accounts.google.com/o/oauth2/v2/auth\").await?;"
+    ],
+    "negative": [
+      "let page = chromiumoxide::Browser::launch(cfg).await?.new_page(\"https://example.com/report\").await?;"
+    ]
   }
 };

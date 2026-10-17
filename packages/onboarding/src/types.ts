@@ -66,6 +66,21 @@ export interface LicenseBackend {
   openExternal?: (url: string) => void | Promise<void>;
 }
 
+export type SignInProvider = "google" | "apple" | "oauth";
+
+/**
+ * Sign-in owned by `rightkit-oauth`. Every provider opens the user's DEFAULT browser (never an in-app webview, so existing
+ * browser sessions are kept); `start` must call the shared owner (`OAuthClient::sign_in_with_browser` through the app's
+ * command), not open a window of its own. Orthic-Labs/rightkit#279.
+ */
+export interface SignInBackend {
+  providers: readonly { id: SignInProvider; label?: string }[];
+  /** Account already signed in, if any. */
+  load(): Promise<{ signedIn: boolean; account?: string }>;
+  /** Open the default browser for `provider` and resolve when the sign-in finishes (or reject / throw on failure or cancel). */
+  start(provider: SignInProvider): Promise<{ signedIn: boolean; account?: string }>;
+}
+
 export type EligibilityBasis = "individual" | "enterprise";
 
 /** Full record of one legal acceptance, persisted so version changes can re-prompt. */
@@ -107,6 +122,7 @@ export interface OnboardingStepContext {
   permissions?: PermissionsBackend;
   models?: ModelsBackend;
   license?: LicenseBackend;
+  signIn?: SignInBackend;
   /** Readiness reported by steps via `setReady`, keyed by step id. */
   ready: Readonly<Record<string, boolean>>;
   /** Reports whether the active step is ready (used by `canContinue`). Stable per step. */

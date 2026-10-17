@@ -20,7 +20,7 @@ function repo(files) {
 
 test("every sampled source fingerprint is advisory, code-only and owned by its declaring package", () => {
   assert.ok(sampled.length >= 30, `expected the added source fingerprints, found ${sampled.length}`);
-  for (const f of sampled) { assert.equal(f.tier, "advise", f.id); assert.equal(f.codeOnly, true, f.id); assert.ok(f.extensions.length, f.id); }
+  for (const f of sampled) { const webview = f.id.startsWith("oauth.webview."); assert.equal(f.tier, webview ? "block" : "advise", f.id); assert.equal(f.codeOnly, !webview, f.id); assert.ok(f.extensions.length, f.id); }
   assert.deepEqual(Object.keys(FINGERPRINT_SAMPLES).filter((id) => !sampled.some((f) => f.id === id)), [], "sample without a catalog fingerprint");
 });
 

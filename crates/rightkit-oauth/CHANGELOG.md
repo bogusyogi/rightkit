@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (unpublished)
+
+Orthic-Labs/rightkit#279: sign-in always opens the user's default browser, never an in-app webview. Not built or run locally.
+
+- Add `browser` module: `BrowserOpener`, `SystemBrowser` (OS default handler, argv only), `SignInSurface` (default browser, Android Custom Tab, iOS `ASWebAuthenticationSession`, embedded webview), `check_authorization_url` (https, or loopback http; no whitespace/control/quote characters). Docs cover Sign in with Apple and the mobile surfaces.
+- Add `OAuthClient::sign_in_with_browser` and `GoogleSession::sign_in_default_browser`.
+- Add `OAuthError::EmbeddedWebviewRefused` and `OAuthError::UnsafeAuthorizationUrl` (the enum is `#[non_exhaustive]`).
+- `finish_loopback` now accepts only a request on the exact redirect path (other paths get 404 and are ignored until the deadline), and compares `state` in constant time.
+
 ## 0.7.0 (unpublished)
 
 Orthic-Labs/rightkit#194: what the PostRight engine needs for Mastodon and X OAuth with refresh. All additions are under the `server` feature; nothing existing changed except two new `ServerAuthError` variants (`RegistrationFailure`, `StoreNotDurable`) (the enum is `#[non_exhaustive]`). `rightkit-daemon` moves its pin to `0.7.0`.

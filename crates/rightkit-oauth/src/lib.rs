@@ -19,6 +19,7 @@
 //! Token values never appear in `Debug` or `Display` output.
 //! Daemons opt into the `server` module/feature for public HTTPS callbacks.
 
+pub mod browser;
 pub mod callback;
 #[cfg(feature = "secrets")]
 pub mod credentials;
@@ -85,6 +86,13 @@ pub enum OAuthError {
     Cancelled,
     /// The OS credential store failed (never carries credential bytes).
     Storage(String),
+    /// An embedded webview (or any in-app surface) was asked to show a sign-in page. Sign-in
+    /// opens the user's default browser (or Android Custom Tabs / iOS
+    /// `ASWebAuthenticationSession`) so existing browser sessions are kept. See [`browser`].
+    EmbeddedWebviewRefused,
+    /// The authorization URL is not one the default browser may be handed (not https, or it
+    /// carries whitespace/control/quote characters).
+    UnsafeAuthorizationUrl(String),
 }
 
 impl fmt::Display for OAuthError {
@@ -114,6 +122,12 @@ impl fmt::Display for OAuthError {
             Self::AccessDenied => f.write_str("sign-in was declined"),
             Self::Cancelled => f.write_str("sign-in was cancelled"),
             Self::Storage(m) => write!(f, "credential storage error: {m}"),
+            Self::EmbeddedWebviewRefused => f.write_str(
+                "sign-in must open the default browser, never an embedded webview",
+            ),
+            Self::UnsafeAuthorizationUrl(m) => {
+                write!(f, "authorization URL refused: {m}")
+            }
         }
     }
 }
@@ -474,14 +488,18 @@ impl OAuthClient {
             .set_nonblocking(true)
             .map_err(|e| OAuthError::Callback(e.to_string()))?;
         let started = std::time::Instant::now();
-        let (stream, _) = loop {
-            match flow.listener.accept() {
-                Ok(pair) => break pair,
+        // Single use: the first request on the exact redirect path ends the flow. Requests on
+        // other paths (favicon, probes) and stalled or malformed connections are answered and
+        // ignored until the deadline, so none of them can end the flow.
+        let callback = loop {
+            let stream = match flow.listener.accept() {
+                Ok((stream, _)) => stream,
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
                         && started.elapsed() < timeout =>
                 {
                     std::thread::sleep(Duration::from_millis(10));
+                    continue;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     return Err(OAuthError::Callback(
@@ -489,14 +507,26 @@ impl OAuthClient {
                     ));
                 }
                 Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
+            };
+            // One absolute deadline for the whole request line, never per read.
+            let remaining = timeout
+                .saturating_sub(started.elapsed())
+                .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
+            match read_callback(stream, remaining, &self.config.redirect.path) {
+                Ok(cb) if cb.path == self.config.redirect.path => break cb,
+                Ok(_) if started.elapsed() < timeout => continue,
+                Ok(_) => {
+                    return Err(OAuthError::Callback(
+                        "timed out waiting for browser callback".into(),
+                    ))
+                }
+                Err(e) => return Err(e),
             }
         };
-        // One absolute deadline for the whole request line, never per read.
-        let remaining = timeout
-            .saturating_sub(started.elapsed())
-            .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
-        let callback = read_callback(stream, remaining)?;
-        if callback.state.as_deref() != Some(flow.request.state.as_str()) {
+        let state_ok = callback.state.as_deref().is_some_and(|s| {
+            pkce::constant_time_eq(s.as_bytes(), flow.request.state.as_bytes())
+        });
+        if !state_ok {
             return Err(OAuthError::StateMismatch);
         }
         if let Some(e) = callback.error {
@@ -509,6 +539,31 @@ impl OAuthClient {
             .code
             .ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))?;
         self.exchange_code(&flow.request, &code)
+    }
+
+    /// Desktop sign-in through the user's default browser: bind the loopback listener, open the
+    /// authorization URL (PKCE `S256`, `state`) with `opener`, wait for the single redirect,
+    /// exchange the code. An opener on an embedded webview is refused before anything is
+    /// bound or opened. Use [`browser::SystemBrowser`] for the OS default handler.
+    pub fn sign_in_with_browser(
+        &self,
+        opener: &dyn browser::BrowserOpener,
+        timeout: Duration,
+    ) -> Result<TokenSet, OAuthError> {
+        self.sign_in_with_browser_extra(opener, timeout, &[])
+    }
+
+    pub(crate) fn sign_in_with_browser_extra(
+        &self,
+        opener: &dyn browser::BrowserOpener,
+        timeout: Duration,
+        extra: &[(&str, &str)],
+    ) -> Result<TokenSet, OAuthError> {
+        opener.surface().require_allowed()?;
+        let flow = self.begin_loopback_with(extra)?;
+        browser::check_authorization_url(&flow.request.authorization_url)?;
+        opener.open(&flow.request.authorization_url)?;
+        self.finish_loopback(flow, timeout)
     }
 
     pub fn exchange_code(
@@ -724,6 +779,8 @@ pub(crate) fn parse_tokens(
 }
 
 struct Callback {
+    /// Request path without the query.
+    path: String,
     code: Option<String>,
     state: Option<String>,
     error: Option<String>,
@@ -788,7 +845,11 @@ fn read_request_line(
     }
 }
 
-fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callback, OAuthError> {
+fn read_callback(
+    mut stream: TcpStream,
+    read_budget: Duration,
+    expected_path: &str,
+) -> Result<Callback, OAuthError> {
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     stream.set_nonblocking(false).ok();
     let first = read_request_line(&mut stream, std::time::Instant::now() + read_budget)?;
@@ -798,6 +859,7 @@ fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callbac
         .ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
     let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
     let mut callback = Callback {
+        path: target.split_once('?').map(|(p, _)| p).unwrap_or(target).to_owned(),
         code: None,
         state: None,
         error: None,
