@@ -9,6 +9,7 @@ use serde_json::{json, Map, Value};
 use crate::cache::{estimate_tokens, plan_breakpoints, CacheableBlock, MAX_BREAKPOINTS};
 use crate::credentials::CredentialSource;
 use crate::error::LlmError;
+use crate::image::ImageSource;
 use crate::provider::Provider;
 use crate::raw::RawHandle;
 use crate::types::*;
@@ -84,6 +85,7 @@ impl AnthropicProvider {
         stream: bool,
     ) -> Result<(Request, Option<String>, Value), LlmError> {
         check_empty_messages(req)?;
+        req.check_images()?;
         let credential = self
             .credentials
             .credential(&self.id)?
@@ -214,11 +216,16 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
     Value::Object(body)
 }
 
+/// Rough token weight of one image for cache-breakpoint planning.
+const IMAGE_TOKEN_ESTIMATE: u32 = 1_600;
+
 fn block_tokens(b: &ContentBlock) -> u32 {
     match b {
         ContentBlock::Text { text } => estimate_tokens(text),
         ContentBlock::ToolResult { content, .. } => estimate_tokens(content),
         ContentBlock::ToolUse { input, .. } => estimate_tokens(&input.to_string()),
+        // Cache planning only; the provider counts image tokens from pixels.
+        ContentBlock::Image { .. } => IMAGE_TOKEN_ESTIMATE,
     }
 }
 
@@ -231,6 +238,15 @@ fn message_json(m: &Message) -> Value {
             ContentBlock::ToolUse { id, name, input } => {
                 json!({"type": "tool_use", "id": id, "name": name, "input": input})
             }
+            ContentBlock::Image { source } => match source {
+                ImageSource::Base64 { media_type, data } => json!({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data}
+                }),
+                ImageSource::Url { url } => {
+                    json!({"type": "image", "source": {"type": "url", "url": url}})
+                }
+            },
             ContentBlock::ToolResult {
                 tool_use_id,
                 content,

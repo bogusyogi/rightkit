@@ -1085,6 +1085,11 @@ fn render_prompt(req: &ChatRequest) -> Result<String, CliError> {
         for b in &m.content {
             match b {
                 ContentBlock::Text { text } => parts.push(text),
+                ContentBlock::Image { .. } => {
+                    return Err(CliError::Unsupported(
+                        "image input (text completion only)".into(),
+                    ))
+                }
                 _ => {
                     return Err(CliError::Unsupported(
                         "tool-use or tool-result content (text completion only)".into(),

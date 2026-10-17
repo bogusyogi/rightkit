@@ -3,6 +3,7 @@
 //! - [`anthropic::AnthropicProvider`] (Messages API) and
 //!   [`openai::OpenAiCompatProvider`] (chat completions: OpenAI, OpenRouter, Groq,
 //!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio).
+//! - Image and video-frame input: [`ContentBlock::Image`], [`image::Frame`].
 //! - Streaming with cancellation, tool use, forced-tool structured output.
 //! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
 //!   with [`failover::FailoverOn`]), first-token timeout, circuit breaker.
@@ -24,6 +25,7 @@ pub mod catalogue;
 pub mod credentials;
 pub mod error;
 pub mod failover;
+pub mod image;
 pub mod openai;
 pub mod presets;
 pub mod pricing;
@@ -38,6 +40,7 @@ pub use catalogue::{
 pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredentials};
 pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};
+pub use image::{Frame, ImageSource};
 pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;
 pub use raw::{RawExchange, RawHandle};

@@ -91,6 +91,7 @@ impl OpenAiCompatProvider {
         req: &ChatRequest,
         stream: bool,
     ) -> Result<(Request, Option<String>, Value), LlmError> {
+        req.check_images()?;
         let mut body = build_body(req, stream, self.max_tokens_field);
         req.extra_body.merge_into(&mut body)?;
         // Replay after 429/5xx is safe: a chat completion has no server-side effect and
@@ -251,10 +252,24 @@ fn push_message(out: &mut Vec<Value>, m: &Message, keep_empty: bool) {
     match m.role {
         Role::User => {
             let mut text = String::new();
+            // In order, for a message that carries images (content becomes an array of parts).
+            let mut parts: Vec<Value> = Vec::new();
+            let mut has_image = false;
             let mut sent_tool_result = false;
             for b in &m.content {
                 match b {
-                    ContentBlock::Text { text: t } => text.push_str(t),
+                    ContentBlock::Text { text: t } => {
+                        text.push_str(t);
+                        if !t.is_empty() {
+                            parts.push(json!({"type": "text", "text": t}));
+                        }
+                    }
+                    ContentBlock::Image { source } => {
+                        has_image = true;
+                        parts.push(
+                            json!({"type": "image_url", "image_url": {"url": source.openai_url()}}),
+                        );
+                    }
                     ContentBlock::ToolResult {
                         tool_use_id,
                         content,
@@ -266,7 +281,9 @@ fn push_message(out: &mut Vec<Value>, m: &Message, keep_empty: bool) {
                     ContentBlock::ToolUse { .. } => {}
                 }
             }
-            if !text.is_empty() {
+            if has_image {
+                out.push(json!({"role": "user", "content": parts}));
+            } else if !text.is_empty() {
                 out.push(json!({"role": "user", "content": text}));
             } else if keep_empty && !sent_tool_result {
                 out.push(json!({"role": "user", "content": ""}));
@@ -281,7 +298,7 @@ fn push_message(out: &mut Vec<Value>, m: &Message, keep_empty: bool) {
                     ContentBlock::ToolUse { id, name, input } => calls.push(json!({
                         "id": id, "type": "function",
                         "function": {"name": name, "arguments": input.to_string()}})),
-                    ContentBlock::ToolResult { .. } => {}
+                    ContentBlock::ToolResult { .. } | ContentBlock::Image { .. } => {}
                 }
             }
             let mut msg = json!({"role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) }});

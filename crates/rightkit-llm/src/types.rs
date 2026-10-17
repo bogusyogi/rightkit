@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::error::LlmError;
+use crate::image::{Frame, ImageSource};
 use crate::raw::RawHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,11 +33,28 @@ pub enum ContentBlock {
         #[serde(default)]
         is_error: bool,
     },
+    /// An image or video frame, valid in a user message. See [`crate::image`].
+    Image {
+        source: ImageSource,
+    },
 }
 
 impl ContentBlock {
     pub fn text(t: impl Into<String>) -> Self {
         ContentBlock::Text { text: t.into() }
+    }
+    /// An image from raw bytes (base64-encoded here). `media_type` is one of
+    /// [`crate::image::SUPPORTED_MEDIA_TYPES`].
+    pub fn image_bytes(media_type: impl Into<String>, bytes: &[u8]) -> Self {
+        ContentBlock::Image {
+            source: ImageSource::from_bytes(media_type, bytes),
+        }
+    }
+    /// An image the provider fetches from an `http` or `https` URL.
+    pub fn image_url(url: impl Into<String>) -> Self {
+        ContentBlock::Image {
+            source: ImageSource::url(url),
+        }
     }
 }
 
@@ -57,6 +75,34 @@ impl Message {
         Self {
             role: Role::Assistant,
             content: vec![ContentBlock::text(text)],
+        }
+    }
+    /// A user turn from explicit blocks (text and images in the order given).
+    pub fn user_blocks(content: Vec<ContentBlock>) -> Self {
+        Self {
+            role: Role::User,
+            content,
+        }
+    }
+    /// A user turn with a text prompt followed by images.
+    pub fn user_with_images(text: impl Into<String>, images: Vec<ImageSource>) -> Self {
+        let mut content = vec![ContentBlock::text(text)];
+        content.extend(images.into_iter().map(|source| ContentBlock::Image { source }));
+        Self {
+            role: Role::User,
+            content,
+        }
+    }
+    /// A user turn with a text prompt, then each frame preceded by its timestamp label
+    /// (`Frame at 1.500 s:`), in the order given.
+    pub fn user_with_frames(text: impl Into<String>, frames: &[Frame]) -> Self {
+        let mut content = vec![ContentBlock::text(text)];
+        for f in frames {
+            content.extend(f.blocks());
+        }
+        Self {
+            role: Role::User,
+            content,
         }
     }
     pub fn tool_result(id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
@@ -180,6 +226,30 @@ impl ChatRequest {
             keep_empty_messages: false,
             report_failed_usage: false,
         }
+    }
+    /// True when any message carries an image block.
+    pub fn has_images(&self) -> bool {
+        self.messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .any(|b| matches!(b, ContentBlock::Image { .. }))
+    }
+    /// Check every image block locally ([`ImageSource::validate`]). Both HTTP providers call
+    /// this before building a request; images outside user messages are rejected too.
+    pub(crate) fn check_images(&self) -> Result<(), LlmError> {
+        for m in &self.messages {
+            for b in &m.content {
+                if let ContentBlock::Image { source } = b {
+                    if m.role != Role::User {
+                        return Err(LlmError::InvalidRequest(
+                            "image blocks are valid only in user messages".into(),
+                        ));
+                    }
+                    source.validate()?;
+                }
+            }
+        }
+        Ok(())
     }
     /// One system prompt plus one user turn.
     pub fn simple(model: impl Into<String>, system: &str, user: &str) -> Self {
