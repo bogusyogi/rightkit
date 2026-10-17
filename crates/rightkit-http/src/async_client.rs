@@ -392,13 +392,13 @@ impl AsyncClient {
                 Ok(raw) => {
                     let retryable = policy.is_retryable_status(raw.status)
                         && (req.method.is_idempotent() || req.retry_unsafe_statuses);
-                    if !retryable || attempt >= max {
+                    let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
+                    if !retryable || attempt >= max || policy.defers(ra) {
                         return Ok(Raw {
                             attempts: attempt,
                             ..raw
                         });
                     }
-                    let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
                     if deadline_passes(deadline, policy.delay(attempt, ra)) {
                         return Ok(Raw {
                             attempts: attempt,

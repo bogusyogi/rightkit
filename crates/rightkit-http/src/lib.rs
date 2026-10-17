@@ -21,6 +21,7 @@ pub mod client;
 pub mod error;
 pub mod multipart;
 pub mod netpolicy;
+pub mod quota;
 mod idle;
 mod redirect;
 pub mod retry;
@@ -46,7 +47,8 @@ pub use multipart::Multipart;
 pub use netpolicy::{
     parse_host_ip, parse_legacy_ipv4, AddressClass, AddressPolicy, HostIpKind, IpNet, ParsedHostIp,
 };
-pub use retry::{parse_retry_after, RetryPolicy};
+pub use quota::QuotaSchedule;
+pub use retry::{parse_retry_after, parse_retry_after_at, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};
 #[cfg(feature = "untrusted")]

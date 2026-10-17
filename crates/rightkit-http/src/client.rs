@@ -1270,7 +1270,13 @@ impl Client {
         // through a proxy are vetted by name and literal in `once_hop` instead.
         let agent = ureq::Agent::with_parts(
             builder.build(),
-            ureq::unversioned::transport::DefaultConnector::default(),
+            ureq::unversioned::transport::Connector::chain(
+                ureq::unversioned::transport::Connector::chain(
+                    ConnectStart,
+                    ureq::unversioned::transport::DefaultConnector::default(),
+                ),
+                ConnectDone,
+            ),
             VettingResolver {
                 policy: Arc::new(config.address_policy.clone()),
                 proxies,
@@ -1516,7 +1522,7 @@ impl Client {
                         && (req.method.is_idempotent() || req.retry_unsafe_statuses);
                     let retry_after =
                         header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
-                    if !retryable || attempt >= max {
+                    if !retryable || attempt >= max || policy.defers(retry_after) {
                         return Ok(Raw {
                             attempts: attempt,
                             ..raw
@@ -1744,7 +1750,18 @@ impl Client {
             .timeout_recv_response(self.config.response_timeout)
             .timeout_recv_body(self.config.recv_body_timeout)
             .build();
-        let response = self.agent.run(configured).map_err(map_ureq_error)?;
+        CONNECT_STATE.with(|c| c.set(ConnectState::Idle));
+        let response = self.agent.run(configured).map_err(|err| {
+            // A fresh connection was being made and never finished: nothing was sent, so a
+            // reset (or any other failure that names no phase) belongs to the connect phase.
+            // A reused pooled connection never starts a connect, so its failures keep the
+            // Headers default (the request may already have reached the server).
+            let default = match CONNECT_STATE.with(|c| c.get()) {
+                ConnectState::Started => Phase::Connect,
+                _ => Phase::Headers,
+            };
+            map_ureq_error_in(err, default)
+        })?;
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -1892,6 +1909,56 @@ impl Read for GuardReader {
                 io::Error::new(e.kind(), scrubbed)
             }
         })
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConnectState {
+    /// No connect has started in this hop (or a pooled connection is being reused).
+    Idle,
+    /// A new connection (TCP, proxy tunnel, TLS) is being made and is not finished.
+    Started,
+    /// The connection is ready; anything after this may have reached the server.
+    Done,
+}
+
+thread_local! {
+    /// Connect progress of the blocking call running on this thread (ureq runs on the caller's
+    /// thread), so run_hop can tell a failure before the connection existed from one after.
+    static CONNECT_STATE: std::cell::Cell<ConnectState> = const { std::cell::Cell::new(ConnectState::Idle) };
+}
+
+/// First link of the connector chain: marks that a new connection is being made.
+#[derive(Debug)]
+struct ConnectStart;
+
+impl ureq::unversioned::transport::Connector<()> for ConnectStart {
+    type Out = ();
+    fn connect(
+        &self,
+        _details: &ureq::unversioned::transport::ConnectionDetails,
+        chained: Option<()>,
+    ) -> Result<Option<()>, ureq::Error> {
+        CONNECT_STATE.with(|c| c.set(ConnectState::Started));
+        Ok(chained)
+    }
+}
+
+/// Last link: the connection (including any proxy tunnel and TLS) is ready.
+#[derive(Debug)]
+struct ConnectDone;
+
+impl ureq::unversioned::transport::Connector<Box<dyn ureq::unversioned::transport::Transport>>
+    for ConnectDone
+{
+    type Out = Box<dyn ureq::unversioned::transport::Transport>;
+    fn connect(
+        &self,
+        _details: &ureq::unversioned::transport::ConnectionDetails,
+        chained: Option<Self::Out>,
+    ) -> Result<Option<Self::Out>, ureq::Error> {
+        CONNECT_STATE.with(|c| c.set(ConnectState::Done));
+        Ok(chained)
     }
 }
 
