@@ -31,7 +31,7 @@ pub mod types;
 pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredentials};
 pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};
-pub use pricing::{ModelPrice, PriceTable};
+pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;
 pub use raw::{RawExchange, RawHandle};
 /// The HTTP client this crate's providers are built on, re-exported so a host can build a
