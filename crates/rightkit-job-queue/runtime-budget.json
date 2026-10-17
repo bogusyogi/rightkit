@@ -29,6 +29,34 @@
     ],
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.3.2",
+      "commit": "64b21fbe7d24e674cd3347be327b675bf81af464",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-job-queue/benches/budget.rs)",
+        "unit": "calls",
+        "count": 10000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-job-queue --features supervisor --bench budget",
+      "observed": {
+        "residentMemoryBytes": 7344128,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 4.296,
+        "diskOpsPerSecond": 0.933
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.3.2-synthetic.txt",
+        "sha256": "163851b26495c3c24ada60d517064d63a3c5104c0525bf86fdfb843b7e396c52"
+      }
+    }
+  ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. The 0.2.9 staged pool (pool::StagedPool) adds a continuous dispatcher thread and a compute lane thread while it runs; its resident memory, idle CPU, wake-ups and disk operations are not yet measured, so the ceilings above do not yet cover it and no numbers are declared for it."
 }

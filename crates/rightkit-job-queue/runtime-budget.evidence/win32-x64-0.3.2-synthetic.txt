@@ -1,0 +1,41 @@
+rightkit: broker runtime update in progress; waiting to submit
+rightkit: request de0ea1ee-83a9-4930-8d1b-22e8310c360b
+[rightkit] target warm-candidate at start (4 entries, generation 3)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling windows-sys v0.61.2
+   Compiling time v0.3.55
+   Compiling syn v2.0.118
+   Compiling syn v3.0.6
+   Compiling tempfile v3.27.0
+   Compiling serde_derive v1.0.229
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling windows-core v0.62.2
+   Compiling serde v1.0.229
+   Compiling rightkit-sidecar v0.2.1 (D:\Claude\rightkit\crates\rightkit-sidecar)
+   Compiling windows-numerics v0.3.1
+   Compiling windows-future v0.3.2
+   Compiling windows-collections v0.3.2
+   Compiling windows v0.62.2
+   Compiling rightkit-child-process v0.4.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling rightkit-job-queue v0.3.2 (D:\Claude\rightkit\crates\rightkit-job-queue)
+    Finished `release-iterate` profile [optimized] target(s) in 1m 10s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-eb9fc66da9c20870.exe)
+warm-up: 10000 calls in 0.19 s (51408 calls/s), lifecycle Ready, resident 6.7 MiB (before start 5.5 MiB)
+RESULT restarts=0 restarts
+RESULT event_subscribers=100 subscribers
+RESULT warm_resident_bytes=7012352 bytes
+RESULT idle_resident_bytes=7344128 bytes
+RESULT resident_memory_bytes=7344128 bytes
+RESULT footprint_bytes=1511424 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=4.296 per_second
+RESULT disk_ops_per_second=0.933 per_second
+RESULT disk_read_bytes_per_second=29.842 bytes_per_second
+RESULT disk_write_bytes_per_second=27.044 bytes_per_second
+RESULT scale=10000 echo calls to a live engine with 100 event subscribers and a 2 s health ping, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-job-queue version=0.3.2 resident_bytes=7344128 idle_cpu_percent=0.052 wakeups_per_s=4.296 disk_ops_per_s=0.933 scale_unit=calls scale_count=10000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 24/701
