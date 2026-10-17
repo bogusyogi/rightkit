@@ -163,10 +163,29 @@ fn temp_path(target: &Path) -> Result<PathBuf> {
 }
 
 fn remove_with_sidecars(path: &Path) {
-    let _ = std::fs::remove_file(path);
+    let _ = remove_database_files(path);
+}
+
+/// Delete a database file and its `-wal`, `-shm` and `-journal` sidecars.
+///
+/// A file that does not exist is not an error. Every file is attempted even if an earlier one
+/// fails; the first real failure is returned. On Windows a file still open by a connection
+/// cannot be deleted, so drop the writer connection and close the read pool first
+/// (`ReadPool::close_and_wait` releases every pooled reader).
+pub fn remove_database_files(path: &Path) -> std::io::Result<()> {
+    let mut first_error = None;
+    let mut remove = |p: &Path| {
+        if let Err(e) = std::fs::remove_file(p) {
+            if e.kind() != std::io::ErrorKind::NotFound && first_error.is_none() {
+                first_error = Some(e);
+            }
+        }
+    };
+    remove(path);
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut name = path.as_os_str().to_os_string();
         name.push(suffix);
-        let _ = std::fs::remove_file(PathBuf::from(name));
+        remove(&PathBuf::from(name));
     }
+    first_error.map_or(Ok(()), Err)
 }

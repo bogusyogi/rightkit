@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Additive: public `remove_database_files(&Path) -> io::Result<()>`, the former private `remove_with_sidecars` (Orthic-Labs/rightkit#199). Deletes a database and its `-wal`, `-shm` and `-journal` sidecars; a missing file is not an error, every file is attempted and the first real failure is returned. Backup's internal cleanup still ignores errors. For releasing connections first, `ReadPool::close` / `close_and_wait` already exist (the crate has no `JobStore`; a store type in an app or in rightkit-jobs closes its own writer and pool before calling this). Not compiled when written.
+
 ## 0.4.1
 
 - Additive: `ReadPool::get_timeout(Duration) -> Result<Option<PooledReadConnection>>`, a checkout with a bounded wait (Orthic-Labs/rightkit#173). `Ok(Some(reader))` as soon as a reader is idle, can be opened under the cap, or is returned inside the duration; `Ok(None)` when none frees up in time; `Err(DbError::ReadPoolClosed)` when the pool is closed or closes while waiting (it wins over a timeout). A zero duration never waits. `get()` is unchanged and still waits without a bound. Tests in `tests/read_pool.rs`. Not compiled when written.
