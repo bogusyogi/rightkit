@@ -31,6 +31,8 @@ pub mod journal;
 pub mod machine;
 pub mod net;
 pub mod protocol;
+#[cfg(feature = "sequence")]
+pub mod sequence;
 pub mod transport;
 pub mod wire;
 pub mod worker;
@@ -49,3 +51,8 @@ pub use transport::{
     WorkerIdentity, WorkerTransport,
 };
 pub use worker::WorkerEndpoint;
+#[cfg(feature = "sequence")]
+pub use sequence::{
+    Gate, GateDecision, NoGate, ReplayPolicy, Sequence, SequenceConfig, SequenceOutcome,
+    SequenceRun, StopReason,
+};

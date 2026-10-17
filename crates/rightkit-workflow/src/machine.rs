@@ -133,6 +133,19 @@ impl<C: Clock> Run<C> {
         self.steps.get(step).and_then(|s| s.note.as_deref())
     }
 
+    /// Take numbers that have any journal state for `step_id`, ascending.
+    #[cfg(feature = "sequence")]
+    pub(crate) fn takes_of(&self, step_id: &str) -> Vec<u32> {
+        let mut takes: Vec<u32> = self
+            .steps
+            .keys()
+            .filter(|s| s.step == step_id)
+            .map(|s| s.take)
+            .collect();
+        takes.sort_unstable();
+        takes
+    }
+
     /// The first unused take number.
     pub fn next_take(&self) -> u32 {
         self.steps.keys().map(|s| s.take).max().map_or(0, |t| t + 1)
