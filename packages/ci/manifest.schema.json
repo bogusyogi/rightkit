@@ -259,14 +259,37 @@
     "concurrency": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Requires lane 'ci'. Sets the ci workflow's concurrency.",
+      "description": "Requires lane 'ci'. Sets the ci workflow's concurrency: one CI run in progress per repository unless mainPushes is 'queue' with a recorded reason.",
       "properties": {
         "mainPushes": {
           "enum": ["cancel", "queue"],
           "default": "cancel",
-          "description": "'cancel' (default) cancels a superseded push to the default branch. 'queue' lets default-branch pushes run to completion; PR runs still cancel superseded runs."
+          "description": "'cancel' (default) renders the supersede job: a newer push to the default branch cancels an older run that only just started or is failing, and waits for one that is nearly done. 'queue' lets default-branch pushes run to completion, renders no supersede job and requires 'reason'; PR runs still cancel superseded runs."
+        },
+        "graceFraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Not with mainPushes 'queue'. An older default-branch run is cancelled by a newer push while its elapsed time is under this fraction of the median duration of the last medianWindow successful runs (or when any of its jobs has failed). Past it, the run is left to finish and the new run waits."
+        },
+        "medianWindow": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Not with mainPushes 'queue'. How many recent successful push runs of the workflow the median duration is taken over. With fewer than 3 such runs nothing is cancelled for being young; only runs that never started and runs with a failed job are."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\r\\n\\u0085\\u2028\\u2029]+$",
+          "description": "Required, non-empty, single line, when mainPushes is 'queue': why default-branch pushes must not cancel each other. Rendered as a YAML comment above the ci workflow's concurrency block."
         }
-      }
+      },
+      "if": { "properties": { "mainPushes": { "const": "queue" } }, "required": ["mainPushes"] },
+      "then": { "required": ["reason"] },
+      "else": { "not": { "required": ["reason"] } }
     },
     "devArtifact": {
       "type": "object",

@@ -56,8 +56,8 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /version: 11\.24\.0/);
   assert.match(content, /components: rustfmt, clippy/);
   assert.doesNotMatch(content, /toolchain:/);
-  assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
-  assert.match(content, /cancel-in-progress: true/);
+  assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'push'[^\n]*github\.run_id \|\| github\.ref \}\}/);
+  assert.match(content, /cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /name: Detect Rust-affecting changes\n        id: rust-changes/);
   assert.match(content, /RIGHT_GIT_DIFF_BASE: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| '' \}\}/);
@@ -97,10 +97,10 @@ test("every generated workflow profile runs ownership scanning independent of op
   for (const [lane, content] of Object.entries(withoutRoots)) assert.match(content, /right-release ownership --app \./, lane);
 });
 
-test("ordinary CI templates cancel superseded runs on the same ref", () => {
+test("ordinary CI templates cancel superseded pull-request runs on the same ref", () => {
   const generic = renderAllLanes(FULL_MANIFEST, "/repos/widgets").ci;
-  assert.match(generic, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
-  assert.match(generic, /cancel-in-progress: true/);
+  assert.match(generic, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'push'[^\n]*github\.run_id \|\| github\.ref \}\}/);
+  assert.match(generic, /cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}/);
 });
 
 test("ownership revision expression matches each lane trigger contract", () => {
@@ -1278,7 +1278,7 @@ test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
       "ci-parallel-unsigned-dispatch.yml": {
         ...INCREMENTAL_BASE,
         rustCache: { workspaces: ["engine"], keySuffix: "v2" },
-        concurrency: { mainPushes: "queue" },
+        concurrency: { mainPushes: "queue", reason: "actionlint sample of the queue opt-out" },
         devArtifact: { mac: "unsigned", windows: "unsigned", dispatch: true, parallel: true, buildScript: "build:dev", macAppPath: "a/B.app", windowsGlob: "dist/*.exe" },
       },
     };
@@ -1354,33 +1354,76 @@ test("rustCache.keySuffix: unset adds no key; set renders a lane-scoped key in e
   assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci"], rustCache: { workspaces: ["engine"], keySuffix: "v2" } }).valid, false, "rustCache stays rust-hybrid only");
 });
 
-// concurrency.mainPushes: default and "cancel" keep cancel-in-progress true. "queue" cancels only
-// runs that are not default-branch pushes; PR runs keep cancelling superseded runs.
-test("concurrency.mainPushes: 'queue' stops default-branch pushes cancelling each other and leaves PR runs cancelling", () => {
+// One CI run per repo (#338). Default: a `supersede` job cancels older default-branch runs that only just started
+// or are failing; an older run past the grace fraction is kept and the new run's ci job waits for it through a
+// job-level group with cancel-in-progress false. "queue" (with a required reason) restores the old per-ref group
+// and renders no supersede job. Render outputs are compared structurally here, never by baseline hash: no hashed
+// baseline (SW_BASELINE) renders a rust-hybrid or node ci lane, so no hash changed.
+const MAIN_PUSH_EXPRESSION = "${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}";
+const QUEUE_REASON = "deploy ordering needs every main commit built in turn";
+const renderGenericCi = (manifest) => renderTemplate(fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"), buildRenderContext({ ...FULL_MANIFEST, lanes: ["ci"], ...manifest }, "/repos/widgets", "ci"));
+
+test("default ci renders the supersede job and a job-level wait group instead of cancelling main pushes", () => {
   const unset = renderRustCi(INCREMENTAL_BASE);
-  assert.match(unset, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true\n/m);
   assert.equal(renderRustCi({ ...INCREMENTAL_BASE, concurrency: { mainPushes: "cancel" } }), unset);
   assert.equal(renderRustCi({ ...INCREMENTAL_BASE, concurrency: {} }), unset);
+  for (const content of [unset, renderGenericCi({})]) {
+    assert.match(content, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch && github\.run_id \|\| github\.ref \}\}\n/m, "a main push has its own workflow group, so its supersede job always runs");
+    assert.ok(content.includes(`  cancel-in-progress: ${MAIN_PUSH_EXPRESSION}\n`), "PR runs still cancel superseded runs, main pushes are never cancelled by the workflow group");
+    assert.match(content, /\n  supersede:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: ubuntu-24\.04\n    timeout-minutes: 5\n    permissions:\n      contents: read\n      actions: write\n    steps:\n/);
+    assert.equal((content.match(/actions: write/g) ?? []).length, 1, "actions: write only in supersede");
+    assert.match(content, /RIGHT_GIT_GRACE_FRACTION: "0\.7"\n          RIGHT_GIT_MEDIAN_WINDOW: "10"\n/);
+    assert.match(content, /cat > "\$RUNNER_TEMP\/supersede\.mjs" <<'RIGHT_GIT_SUPERSEDE_EOF'\n/);
+    assert.match(content, /\n          RIGHT_GIT_SUPERSEDE_EOF\n          node "\$RUNNER_TEMP\/supersede\.mjs"\n/);
+    assert.match(content, /\n    concurrency:\n      group: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch && format\('\{0\}-main-\{1\}-\{2\}', github\.workflow, matrix\.os, matrix\.node\) \|\| format\('\{0\}-\{1\}-\{2\}-\{3\}-\{4\}', github\.workflow, github\.run_id, github\.run_attempt, matrix\.os, matrix\.node\) \}\}\n      cancel-in-progress: false\n/);
+    assert.doesNotMatch(content, /concurrency\.mainPushes queue/);
+  }
+  // The embedded script is the shipped file, verbatim.
+  const script = fs.readFileSync(new URL("./supersede.mjs", import.meta.url), "utf8").replace(/\n+$/, "");
+  assert.ok(unset.includes(script.split("\n").map((line) => (line === "" ? "" : `          ${line}`)).join("\n")));
+});
 
-  const queue = renderRustCi({ ...INCREMENTAL_BASE, concurrency: { mainPushes: "queue" } });
-  assert.match(queue, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}\n/m);
-  assert.equal(queue.replace(/  cancel-in-progress: .*\n/, "  cancel-in-progress: true\n"), unset, "the concurrency line is the only difference");
+test("concurrency.graceFraction and medianWindow reach the supersede job and are validated", () => {
+  const custom = renderRustCi({ ...INCREMENTAL_BASE, concurrency: { graceFraction: 0.5, medianWindow: 5 } });
+  assert.match(custom, /RIGHT_GIT_GRACE_FRACTION: "0\.5"\n          RIGHT_GIT_MEDIAN_WINDOW: "5"\n/);
+  for (const bad of [{ graceFraction: 0 }, { graceFraction: 1.5 }, { graceFraction: "0.7" }, { medianWindow: 0 }, { medianWindow: 101 }, { medianWindow: 2.5 }]) {
+    assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: bad }).valid, false, JSON.stringify(bad));
+  }
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { graceFraction: 1, medianWindow: 100 } }).valid, true);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: QUEUE_REASON, graceFraction: 0.5 } }).valid, false, "queue renders no supersede job");
+});
 
-  const generic = renderTemplate(fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"), buildRenderContext({ ...FULL_MANIFEST, lanes: ["ci"], concurrency: { mainPushes: "queue" } }, "/repos/widgets", "ci"));
-  assert.match(generic, /  cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}\n/);
-  assert.match(renderTemplate(fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"), buildRenderContext({ ...FULL_MANIFEST, lanes: ["ci"] }, "/repos/widgets", "ci")), /  cancel-in-progress: true\n/);
+test("concurrency.mainPushes: 'queue' with a reason keeps the per-ref group, renders no supersede job and records the reason", () => {
+  const unset = renderRustCi(INCREMENTAL_BASE);
+  const queue = renderRustCi({ ...INCREMENTAL_BASE, concurrency: { mainPushes: "queue", reason: QUEUE_REASON } });
+  assert.match(queue, new RegExp(`^# concurrency\\.mainPushes queue, recorded exception to one CI run per repo: ${QUEUE_REASON}\\nconcurrency:\\n  group: \\$\\{\\{ github\\.workflow \\}\\}-\\$\\{\\{ github\\.ref \\}\\}\\n`, "m"));
+  assert.ok(queue.includes(`  cancel-in-progress: ${MAIN_PUSH_EXPRESSION}\n`));
+  assert.doesNotMatch(queue, /supersede|actions: write|\n    concurrency:/);
+  assert.notEqual(queue, unset);
+
+  const generic = renderGenericCi({ concurrency: { mainPushes: "queue", reason: QUEUE_REASON } });
+  assert.match(generic, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n/m);
+  assert.doesNotMatch(generic, /supersede|actions: write/);
+  assert.match(generic, /^# concurrency\.mainPushes queue, recorded exception/m);
 
   const regenerate = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/regenerate.yml"), "utf8"),
-    buildRenderContext({ ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" }, concurrency: { mainPushes: "queue" } }, "/repos/pulse", "regenerate"),
+    buildRenderContext({ ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" }, concurrency: { mainPushes: "queue", reason: QUEUE_REASON } }, "/repos/pulse", "regenerate"),
   );
   assert.match(regenerate, /  cancel-in-progress: false\n/, "the regenerate lane is never cancelled");
 
-  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue" } }).valid, true);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: QUEUE_REASON } }).valid, true);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue" } }).valid, false, "queue needs a reason");
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: "" } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: "   " } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: 5 } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: "two\nlines" } }).valid, false, "the reason is one YAML comment line");
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "cancel", reason: QUEUE_REASON } }).valid, false, "a reason only goes with queue");
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { reason: QUEUE_REASON } }).valid, false);
   assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "bogus" } }).valid, false);
-  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", extra: true } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", reason: QUEUE_REASON, extra: true } }).valid, false);
   assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: "queue" }).valid, false);
-  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["package-smoke"], regenerate: undefined, concurrency: { mainPushes: "queue" } }).valid, false, "concurrency needs lane ci");
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["package-smoke"], regenerate: undefined, concurrency: { mainPushes: "queue", reason: QUEUE_REASON } }).valid, false, "concurrency needs lane ci");
 });
 
 // devArtifact.parallel: each platform builds and stages the dev app in its own job beside the gate.

@@ -125,13 +125,14 @@ For a public repository whose signing must run on protected CI, but whose artifa
 Both keys are opt-in; unset, the rendered workflows are byte-identical.
 
 - `rustCache.keySuffix` (1 to 64 characters: letters, digits, `.`, `_`, `-`; starts with a letter or digit) renders `key: <lane>-<suffix>` into every Swatinem/rust-cache step: `ci`, `regenerate`, `release-candidate`. Each lane therefore keeps its own cache entry. The dev-artifact jobs use `<lane>-dev-artifact-<platform>-<suffix>`. Swatinem/rust-cache does not re-save a cache on an exact key hit (third-party behavior, not verified in this repository). To rotate the cache, change the suffix, which gives it a new key.
-- `concurrency.mainPushes: "queue"` (requires lane `ci`; both profiles) renders the ci workflow's `cancel-in-progress` as an expression that is false only for pushes to the default branch. Default-branch pushes queue and each one runs to completion; PR runs still cancel superseded runs. `"cancel"` is the default and renders the current `cancel-in-progress: true`.
+- `concurrency` (requires lane `ci`; both profiles). The rule is one CI run in progress per repository. By default (`mainPushes: "cancel"`) the ci workflow renders a `supersede` job, the only job with `actions: write`, which runs `supersede.mjs`: a newer push to the default branch cancels an older run of the workflow that never started, has a failed job, or is younger than `graceFraction` (default 0.7) of the median duration of the last `medianWindow` (default 10) successful runs. An older run past that point is left to finish, and the new run's `ci` job waits for it through a job-level group with `cancel-in-progress: false`. PR runs still cancel superseded runs.
+- `concurrency.mainPushes: "queue"` is the opt-out: default-branch pushes each run to completion, no `supersede` job is rendered, and a non-empty single-line `concurrency.reason` is required (the manifest is invalid without one). The reason is rendered as a YAML comment above the `concurrency` block. `graceFraction` and `medianWindow` are not allowed with `queue`. The publish workflow never cancels.
 
 ```json
 {
   "profile": "rust-hybrid",
   "rustCache": { "workspaces": ["engine"], "keySuffix": "2026-10" },
-  "concurrency": { "mainPushes": "queue" },
+  "concurrency": { "mainPushes": "queue", "reason": "deploys must see every main commit built in turn" },
   "devArtifact": {
     "mac": "unsigned",
     "windows": "unsigned",

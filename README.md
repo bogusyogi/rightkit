@@ -74,7 +74,7 @@ Wrong or missing public manifest policy fails validation. `right-release` also e
 
 RightKit is itself such a repository: `.rightgit.json` declares `"compile": "github-actions-only"`, so its crate, package, and Swift builds and tests run in GitHub Actions. See [docs/CI.md](docs/CI.md).
 
-Fast Rust templates cancel superseded jobs (pull-request runs always; a push to the default branch too, unless `.rightgit.json` sets `concurrency.mainPushes` to `"queue"`, as RightKit's does), check out full history for change-aware gates, share Cargo caches, run `sccache`, & set `cache-on-failure: true`. Keep LTO & `codegen-units=1` out of fast-build policy. Current coverage is RightKit, Legion, Membrane, Citadel, ScreenRight, & static `orthic-labs.github.io`; static repositories add no compile workflow until dynamic work exists. Policy automatically covers future public `Orthic-Labs` repos.
+Fast Rust templates cancel superseded jobs (pull-request runs always; a push to the default branch cancels an older run that only just started or is failing, and waits for one that is nearly done, unless `.rightgit.json` sets `concurrency.mainPushes` to `"queue"` with a recorded `concurrency.reason`, as RightKit's does), check out full history for change-aware gates, share Cargo caches, run `sccache`, & set `cache-on-failure: true`. Keep LTO & `codegen-units=1` out of fast-build policy. Current coverage is RightKit, Legion, Membrane, Citadel, ScreenRight, & static `orthic-labs.github.io`; static repositories add no compile workflow until dynamic work exists. Policy automatically covers future public `Orthic-Labs` repos.
 
 Private repositories use no GitHub Actions. They build, test, package, sign, qualify, & release locally on native hosts through RightKit.
 

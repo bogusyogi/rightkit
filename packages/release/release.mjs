@@ -1103,6 +1103,9 @@ function signExistingRefusal(source) {
   return null;
 }
 
+// Head of the managed `supersede` job (the span starts at the preceding newline, before the job key line).
+const SUPERSEDE_JOB_HEAD = /^\n  supersede:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: ubuntu-[0-9.]+\n    timeout-minutes: \d+\n    permissions:\n      contents: read\n      actions: write\n    steps:\n/;
+
 async function validateHostedWorkflows(root, appName, workflows, policy) {
   if (policy !== "right-git-ci-only") {
     fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")}`);
@@ -1192,6 +1195,16 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       && /git push origin "HEAD:refs\/heads\/\$branch"\n/.test(regenerateSource)
       && !/git push(?![^\n]*"HEAD:refs\/heads\/\$branch")/.test(regenerateSource);
     const allowedRegeneratePermissions = new Set(["contents", "pull-requests"]);
+    // @rightkit/ci `supersede` job (one CI run per repo, #338): `actions: write` is accepted only for the
+    // job whose head matches the managed shape exactly (push to the default branch only, needs only
+    // private-repo-guard, contents: read plus actions: write, no action `uses:`), and only in ci.yml when
+    // the manifest has not opted into `concurrency.mainPushes: "queue"` (which renders no such job).
+    const supersedeSpan = workflow === "ci.yml" ? jobSpan("supersede") : null;
+    const supersedeSource = supersedeSpan ? source.slice(supersedeSpan.start, supersedeSpan.end) : "";
+    const protectedSupersede = workflow === "ci.yml"
+      && manifest?.concurrency?.mainPushes !== "queue"
+      && SUPERSEDE_JOB_HEAD.test(supersedeSource)
+      && !/^\s*-?\s*uses:/m.test(supersedeSource);
     const devMacSpan = workflow === "ci.yml" ? jobSpan("dev-mac-sign") : null;
     const devMacSource = devMacSpan ? source.slice(devMacSpan.start, devMacSpan.end) : "";
     // `mac: "notarize"` additionally allows the notary API key secrets; the
@@ -1240,6 +1253,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
       || writePermissions.some(({ name, index }) => {
         if (protectedRegenerate && inside(index, regenerateSpan) && allowedRegeneratePermissions.has(name)) return false;
+        if (protectedSupersede && inside(index, supersedeSpan) && name === "actions") return false;
         return name === "id-token"
           ? !(protectedWindowsSigning && inside(index, windowsSpan))
           : name !== "contents" || !protectedReleasePublish || !inside(index, publishSpan);

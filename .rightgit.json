@@ -30,6 +30,7 @@
   "ciAllOs": true,
   "ciIncremental": true,
   "concurrency": {
-    "mainPushes": "queue"
+    "mainPushes": "queue",
+    "reason": "every main commit keeps its own full gate result until the supersede rule of Orthic-Labs/rightkit#338 is adopted here"
   }
 }

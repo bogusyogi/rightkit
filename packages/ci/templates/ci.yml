@@ -7,8 +7,8 @@ on:
     branches: [${DEFAULT_BRANCH}]
 permissions:
   contents: read
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+${CI_CONCURRENCY_COMMENT}concurrency:
+  group: ${CI_CONCURRENCY_GROUP}
   cancel-in-progress: ${CI_CANCEL_IN_PROGRESS}
 # F5 fix: `private-repo-guard` carries no job-level `if`, so it always runs.
 # Its one step's own `if` fires only when the repo is private, and `exit 1`
@@ -27,7 +27,7 @@ jobs:
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
-  test:
+${CI_SUPERSEDE_JOB}  test:
     needs: [private-repo-guard]
     strategy:
       fail-fast: false
@@ -35,7 +35,7 @@ jobs:
         os: ${OS_MATRIX}
         node: ${NODE_MATRIX}
     runs-on: ${{ matrix.os }}
-    steps:
+${CI_JOB_CONCURRENCY}    steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:

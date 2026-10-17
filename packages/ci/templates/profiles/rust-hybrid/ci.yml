@@ -7,8 +7,8 @@ on:
     branches: [${DEFAULT_BRANCH}]
 ${CI_DISPATCH_TRIGGER}permissions:
   contents: read
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+${CI_CONCURRENCY_COMMENT}concurrency:
+  group: ${CI_CONCURRENCY_GROUP}
   cancel-in-progress: ${CI_CANCEL_IN_PROGRESS}
 jobs:
   private-repo-guard:
@@ -17,7 +17,7 @@ jobs:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
-  ci:
+${CI_SUPERSEDE_JOB}  ci:
     needs: [private-repo-guard]
     strategy:
       fail-fast: false
@@ -25,7 +25,7 @@ jobs:
 ${CI_MATRIX_OS}
         node: ${NODE_MATRIX}
     runs-on: ${{ matrix.os }}
-    steps:
+${CI_JOB_CONCURRENCY}    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

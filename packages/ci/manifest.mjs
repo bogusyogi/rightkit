@@ -832,6 +832,63 @@ const DEV_PUSH_CONDITION = "github.event_name == 'push' && github.ref_name == gi
 // PR runs keep cancel-in-progress true, so superseded PR runs still cancel.
 const CONCURRENCY_MAIN_PUSHES = ["cancel", "queue"];
 const CI_CANCEL_MAIN_QUEUE_EXPRESSION = "${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}";
+const CI_GROUP_PER_REF = "${{ github.workflow }}-${{ github.ref }}";
+// A default-branch push gets a group of its own (never queued or cancelled at workflow level, so its
+// `supersede` job always runs); every other event keeps one group per ref.
+const CI_GROUP_SUPERSEDE = "${{ github.workflow }}-${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && github.run_id || github.ref }}";
+const SUPERSEDE_SCRIPT_PATH = new URL("./supersede.mjs", import.meta.url);
+const SUPERSEDE_HEREDOC_END = "RIGHT_GIT_SUPERSEDE_EOF";
+
+/**
+ * The `ci` (rust-hybrid) / `test` (node) job's own concurrency group. Default-branch pushes share one
+ * group per matrix leg with cancel-in-progress false, so a newer run waits for an older run that
+ * `supersede` chose to keep: never two runs in progress. Every other event gets a group unique to the
+ * run, so pull requests are not serialised against main.
+ */
+function ciJobConcurrency() {
+  return [
+    "    concurrency:",
+    "      group: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && format('{0}-main-{1}-{2}', github.workflow, matrix.os, matrix.node) || format('{0}-{1}-{2}-{3}-{4}', github.workflow, github.run_id, github.run_attempt, matrix.os, matrix.node) }}",
+    "      cancel-in-progress: false",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The `supersede` job: the only job in a managed workflow with `actions: write`. It runs the shipped
+ * supersede.mjs (embedded verbatim; pure decision function tested in supersede.test.mjs) and cancels
+ * older runs of this workflow on the default branch that only just started or are already failing.
+ * `right-git-ci-only` in @rightkit/release accepts `actions: write` only in this exact job shape.
+ */
+function supersedeJob(manifest) {
+  const concurrency = manifest.concurrency ?? {};
+  const script = fs.readFileSync(SUPERSEDE_SCRIPT_PATH, "utf8").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+  const indent = (text) => text.split("\n").map((line) => (line === "" ? "" : `          ${line}`)).join("\n");
+  return [
+    "  supersede:",
+    "    needs: [private-repo-guard]",
+    "    if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}",
+    "    runs-on: ubuntu-24.04",
+    "    timeout-minutes: 5",
+    "    permissions:",
+    "      contents: read",
+    "      actions: write",
+    "    steps:",
+    "      - name: Cancel superseded runs that only just started or are failing",
+    "        shell: bash",
+    "        env:",
+    "          GH_TOKEN: ${{ github.token }}",
+    `          RIGHT_GIT_GRACE_FRACTION: "${concurrency.graceFraction ?? 0.7}"`,
+    `          RIGHT_GIT_MEDIAN_WINDOW: "${concurrency.medianWindow ?? 10}"`,
+    "        run: |",
+    "          set -euo pipefail",
+    `          cat > "$RUNNER_TEMP/supersede.mjs" <<'${SUPERSEDE_HEREDOC_END}'`,
+    indent(script),
+    `          ${SUPERSEDE_HEREDOC_END}`,
+    '          node "$RUNNER_TEMP/supersede.mjs"',
+    "",
+  ].join("\n");
+}
 // rustCache.keySuffix: charset-checked before it reaches the rendered `key` input.
 const RUST_CACHE_KEY_SUFFIX_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -842,10 +899,30 @@ function validateConcurrency(manifest, lanes, errors) {
     return;
   }
   for (const key of Object.keys(concurrency)) {
-    if (key !== "mainPushes") errors.push(`unknown concurrency field: ${key}`);
+    if (!["mainPushes", "reason", "graceFraction", "medianWindow"].includes(key)) errors.push(`unknown concurrency field: ${key}`);
+  }
+  if (concurrency.graceFraction !== undefined
+    && !(typeof concurrency.graceFraction === "number" && concurrency.graceFraction > 0 && concurrency.graceFraction <= 1)) {
+    errors.push("concurrency.graceFraction must be a number above 0 and at most 1");
+  }
+  if (concurrency.medianWindow !== undefined
+    && !(Number.isInteger(concurrency.medianWindow) && concurrency.medianWindow >= 1 && concurrency.medianWindow <= 100)) {
+    errors.push("concurrency.medianWindow must be an integer from 1 to 100");
+  }
+  if (concurrency.mainPushes === "queue" && (concurrency.graceFraction !== undefined || concurrency.medianWindow !== undefined)) {
+    errors.push("concurrency.graceFraction and concurrency.medianWindow apply only to the default supersede rule, not mainPushes 'queue'");
   }
   if (concurrency.mainPushes !== undefined && !CONCURRENCY_MAIN_PUSHES.includes(concurrency.mainPushes)) {
     errors.push("concurrency.mainPushes must be 'cancel' or 'queue'");
+  }
+  if (concurrency.mainPushes === "queue") {
+    if (typeof concurrency.reason !== "string" || concurrency.reason.trim() === "") {
+      errors.push("concurrency.mainPushes 'queue' requires a non-empty concurrency.reason");
+    } else if (/[\r\n\u0085  ]/.test(concurrency.reason)) {
+      errors.push("concurrency.reason must be a single line");
+    }
+  } else if (concurrency.reason !== undefined) {
+    errors.push("concurrency.reason is only allowed with concurrency.mainPushes 'queue'");
   }
   if (!Array.isArray(lanes) || !lanes.includes("ci")) {
     errors.push("concurrency requires lane 'ci' (it sets the ci workflow's concurrency)");
@@ -2208,7 +2285,15 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     // sccache refuses CARGO_INCREMENTAL=1; incremental CI relies on the rust-cache target dir instead.
     CI_RUSTC_WRAPPER: manifest.ciIncremental === true ? '""' : "${{ steps.rust-changes.outputs.required == 'true' && 'sccache' || '' }}",
     CI_DERIVED_DATA_STEP: derivedDataStep(manifest),
-    CI_CANCEL_IN_PROGRESS: manifest.concurrency?.mainPushes === "queue" ? CI_CANCEL_MAIN_QUEUE_EXPRESSION : "true",
+    // Default-branch pushes are never cancelled by the workflow-level group: the `supersede` job decides
+    // (queue mode: nobody cancels them). PR and dispatch runs keep cancelling superseded runs.
+    CI_CANCEL_IN_PROGRESS: CI_CANCEL_MAIN_QUEUE_EXPRESSION,
+    CI_CONCURRENCY_COMMENT: manifest.concurrency?.mainPushes === "queue"
+      ? `# concurrency.mainPushes queue, recorded exception to one CI run per repo: ${manifest.concurrency.reason.trim()}\n`
+      : "",
+    CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
+    CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
+    CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(),
     RUST_CACHE_KEY: cacheKeyLine ? `${cacheKeyLine}\n` : "",
   };
 
