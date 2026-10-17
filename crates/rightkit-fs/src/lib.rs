@@ -10,6 +10,7 @@
 //! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
 //!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
 //! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
+//! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`replaced`]: [`open_replaced`] / [`read_replaced`], readers that retry, on Windows, an open a concurrent
 //!   replace refused (access denied, sharing violation).
@@ -46,6 +47,7 @@ pub mod identity;
 pub mod lock;
 #[cfg(feature = "fs")]
 pub mod netfs;
+pub mod plain;
 #[cfg(feature = "fs")]
 pub mod private;
 #[cfg(feature = "fs")]
@@ -87,6 +89,7 @@ pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
 pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
 #[cfg(feature = "fs")]
 pub use netfs::is_network_filesystem;
+pub use plain::{canonicalize_plain, plain_path};
 #[cfg(feature = "fs")]
 pub use private::{
     create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only,
