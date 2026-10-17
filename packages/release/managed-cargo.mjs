@@ -1,5 +1,6 @@
 import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -10,6 +11,11 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
   // runtime-current ships the native `rustright` client.
   for (const root of roots) {
     const client = paths.join(root, "runtime-current", platform === 'win32' ? "rustright.exe" : "rustright");
+    if (exists(client)) return client;
+  }
+  // RustRight's own install (2026-10-17 cutover): the Mac agent-bin shims exec this client directly.
+  if (platform === 'darwin') {
+    const client = path.posix.join(env.HOME || homedir(), 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
     if (exists(client)) return client;
   }
   return undefined;
