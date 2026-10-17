@@ -238,6 +238,5 @@ export function materialDigestInput(manifest: LegalManifest): string {
     .slice()
     .sort((a, b) => a.role.localeCompare(b.role))
     .map((document) => `${document.role}|${document.id}|${document.version}|${document.sha256.toLowerCase()}`)
-    .join("
-");
+    .join("\n");
 }
