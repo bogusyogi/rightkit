@@ -363,11 +363,12 @@ fn read_chunk(
     Ok(result)
 }
 
-const MANIFEST_NAMES: [&str; 9] = [
+const MANIFEST_NAMES: [&str; 10] = [
     "Cargo.toml",
     "package.json",
     "Package.swift",
     "ownership-exceptions.json",
+    "pnpm-workspace.yaml",
     "Cargo.lock",
     "pnpm-lock.yaml",
     "package-lock.json",

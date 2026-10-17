@@ -201,7 +201,7 @@ function fileInventory(appRoot, trust, pathPrefix = "", repositoryRoot = appRoot
   const inventory = gitListedInventory(appRoot, {
     repositoryRoot,
     protectedPaths: [...protectedPaths],
-    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
+    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "pnpm-workspace.yaml", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
     maxFileBytes: (rel) => CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || protectedPaths.has(rel) ? 2 * 1024 * 1024 : 64 * 1024 * 1024,
   });
   for (const item of inventory.coverage) if (item.reason === "file-over-size-limit") item.reason = protectedPaths.has(item.path) ? "protected-provenance-file-over-2MiB" : CODE_EXT.has(path.posix.extname(item.path).toLowerCase()) ? "source-file-over-2MiB" : "manifest-file-over-64MiB";
@@ -221,7 +221,7 @@ function committedFileInventory(appRoot, trust, pathPrefix, committed) {
     if (entry.mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "committed-symlink" }); continue; }
     if (entry.mode === "160000" || entry.type === "commit") { coverage.push({ path: rel, status: "unscanned", reason: "committed-gitlink" }); continue; }
     if (entry.type !== "blob") { coverage.push({ path: rel, status: "unscanned", reason: "committed-unsupported-entry" }); continue; }
-    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "ownership-exceptions.json", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
+    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "ownership-exceptions.json", "pnpm-workspace.yaml", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
     const bytes = relevant ? entry.bytes : undefined;
     if (relevant && !bytes) coverage.push({ path: rel, status: "unscanned", reason: "committed-blob-unavailable" });
     const isExceptionFile = path.posix.basename(rel) === "ownership-exceptions.json";

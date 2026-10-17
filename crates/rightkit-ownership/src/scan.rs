@@ -100,7 +100,7 @@ fn has_code_ext(rel: &str) -> bool {
 
 fn is_manifest_or_lock(rel: &str) -> bool {
     let base = posix_basename(rel);
-    ["Cargo.toml", "package.json", "Package.swift"].contains(&base)
+    ["Cargo.toml", "package.json", "Package.swift", "pnpm-workspace.yaml"].contains(&base)
         || OWNERSHIP_LOCKFILES.contains(&base)
 }
 
