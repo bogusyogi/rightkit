@@ -755,16 +755,18 @@ export function appRuntimeBudgetAdoptionCheck({ appRoot, app, version, cargoLock
   const used = Object.keys(classes).filter((name) => locked.has(name));
   if (used.length === 0) return null;
   const problems = [];
+  // A crate whose ceilings or scale RightKit has not declared yet cannot be measured against anything, so it
+  // never blocks an app: it is reported as pending (warn) until the crate declares its budget.
+  const pending = used.filter((name) => !classes[name].ceilings || !classes[name].requiredScale);
+  const measurable = used.filter((name) => !pending.includes(name));
   const adoptionPath = path.join(appRoot, APP_ADOPTION_FILE);
   let records = [];
-  if (!exists(adoptionPath)) problems.push(`${APP_ADOPTION_FILE} is missing`);
+  if (!exists(adoptionPath)) { if (measurable.length) problems.push(`${APP_ADOPTION_FILE} is missing`); }
   else {
     try { records = JSON.parse(readFile(adoptionPath, "utf8")).measurements ?? []; } catch (error) { problems.push(`${APP_ADOPTION_FILE} is not valid JSON: ${error.message}`); }
   }
-  for (const crate of used) {
+  for (const crate of measurable) {
     const { ceilings, requiredScale } = classes[crate];
-    if (!ceilings) { problems.push(`${crate}: ceilings undeclared (declare them in its runtime-budget.json and regenerate ${CLASSES_FILE})`); continue; }
-    if (!requiredScale) { problems.push(`${crate}: requiredScale undeclared`); continue; }
     const mine = records.map((m, index) => ({ m, index })).filter(({ m }) => m?.crate === crate && m.scope === "installed" && locked.get(crate).has(m.crateVersion));
     if (mine.length === 0) { problems.push(`${crate} ${[...locked.get(crate)].join("/")}: no installed-scope measurement of ${app}`); continue; }
     const good = mine.filter(({ m, index }) => {
@@ -781,9 +783,14 @@ export function appRuntimeBudgetAdoptionCheck({ appRoot, app, version, cargoLock
     });
     if (good.length === 0 && !problems.some((p) => p.startsWith(`${crate}`))) problems.push(`${crate}: no qualifying measurement`);
   }
-  return problems.length
-    ? { name: RUNTIME_BUDGET_CHECK, status: "fail", detail: `${app} uses held-resource crate(s) ${used.join(", ")}: ${problems.join("; ")}`, fix: `record an installed measurement of ${app} for each crate in ${APP_ADOPTION_FILE} (docs/RUNTIME-BUDGETS.md)` }
-    : { name: RUNTIME_BUDGET_CHECK, status: "ok", detail: `${app} has installed measurements for ${used.join(", ")}` };
+  const pendingNote = pending.length ? `; pending RightKit budget declaration (not blocking): ${pending.join(", ")}` : "";
+  if (problems.length) {
+    return { name: RUNTIME_BUDGET_CHECK, status: "fail", detail: `${app} uses held-resource crate(s) ${measurable.join(", ")}: ${problems.join("; ")}${pendingNote}`, fix: `record an installed measurement of ${app} for each crate in ${APP_ADOPTION_FILE} (docs/RUNTIME-BUDGETS.md)` };
+  }
+  if (pending.length) {
+    return { name: RUNTIME_BUDGET_CHECK, status: "warn", detail: `${app} uses held-resource crate(s) whose RightKit ceilings are not declared yet: ${pending.join(", ")}${measurable.length ? `; measured: ${measurable.join(", ")}` : ""}`, fix: "RightKit declares the crate ceilings; then record installed measurements (docs/RUNTIME-BUDGETS.md)" };
+  }
+  return { name: RUNTIME_BUDGET_CHECK, status: "ok", detail: `${app} has installed measurements for ${used.join(", ")}` };
 }
 
 // ---------------------------------------------------------------- record (measurement provenance)

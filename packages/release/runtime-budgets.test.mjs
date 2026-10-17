@@ -771,8 +771,13 @@ test("app qualification: a missing adoption file, undeclared ceilings or scale, 
   assert.equal(undeclared(CLASSES), null, "no lock path, no dependency");
   const root = appFixture(t, { records: [appRecord()] });
   const withClasses = (c) => appRuntimeBudgetAdoptionCheck({ appRoot: root, app: "HeardRight", version: "2.0.0", cargoLockPaths: [path.join(root, "Cargo.lock")] }, { classes: c });
-  assert.match(withClasses({ "rightkit-held": { ceilings: null, requiredScale: CLASSES["rightkit-held"].requiredScale } }).detail, /ceilings undeclared/);
-  assert.match(withClasses({ "rightkit-held": { ceilings: CEILINGS, requiredScale: null } }).detail, /requiredScale undeclared/);
+  // A crate whose RightKit budget is undeclared never blocks the app: it warns as pending.
+  const noCeilings = withClasses({ "rightkit-held": { ceilings: null, requiredScale: CLASSES["rightkit-held"].requiredScale } });
+  assert.equal(noCeilings.status, "warn");
+  assert.match(noCeilings.detail, /ceilings are not declared yet: rightkit-held/);
+  assert.equal(withClasses({ "rightkit-held": { ceilings: CEILINGS, requiredScale: null } }).status, "warn");
+  const pendingOnly = appRuntimeBudgetAdoptionCheck({ appRoot: appFixture(t), app: "HeardRight", version: "2.0.0", cargoLockPaths: [path.join(appFixture(t), "Cargo.lock")] }, { classes: { "rightkit-held": { ceilings: null, requiredScale: null } } });
+  assert.ok(pendingOnly === null || pendingOnly.status === "warn", "a missing adoption file with only undeclared crates does not fail");
   assert.match(appCheck(appFixture(t, { records: [] })).detail, /no installed-scope measurement of HeardRight/);
 });
 
