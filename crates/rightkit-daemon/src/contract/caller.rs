@@ -4,6 +4,37 @@ use std::collections::BTreeSet;
 /// A capability a device holds (from enrolment). A plain label compared for equality.
 pub type Scope = String;
 
+/// A scope that names a role instead of a capability: `role:<name>`, for example `role:operator`.
+///
+/// A device's role is whatever its enrolment granted. Scopes are stored with the device record
+/// when it enrols (by an enrolment code or a pairing window the owner issued) and read back after
+/// the request's signature verified, so a role taken from [`Caller::role`] is the role of the
+/// signing device: no environment variable, header or request field can set it. Gate a method on
+/// a role by naming the role scope in its [`MethodPolicy`](crate::contract::MethodPolicy):
+/// `MethodPolicy::remote(["role:operator"])`.
+pub const ROLE_SCOPE_PREFIX: &str = "role:";
+
+/// The scope that grants `role`.
+pub fn role_scope(role: &str) -> Scope {
+    format!("{ROLE_SCOPE_PREFIX}{role}")
+}
+
+/// The one role among `scopes`: `Some` only when exactly one scope is a role scope with a
+/// non-empty name. Two roles, or none, give `None`, so an ambiguous device never gets a role by
+/// the luck of an iteration order.
+pub fn role_of<'a>(scopes: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let mut found = None;
+    for scope in scopes {
+        if let Some(name) = scope.strip_prefix(ROLE_SCOPE_PREFIX) {
+            if name.is_empty() || found.is_some() {
+                return None;
+            }
+            found = Some(name);
+        }
+    }
+    found
+}
+
 /// Who is making a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
@@ -38,6 +69,15 @@ impl Caller {
         match self {
             Caller::LocalApp { peer, .. } => Some(peer),
             Caller::Device { .. } => None,
+        }
+    }
+
+    /// The role of a device caller (see [`ROLE_SCOPE_PREFIX`]); `None` for a local app, for a
+    /// device with no role scope and for one with more than one.
+    pub fn role(&self) -> Option<&str> {
+        match self {
+            Caller::LocalApp { .. } => None,
+            Caller::Device { scopes, .. } => role_of(scopes.iter().map(String::as_str)),
         }
     }
 

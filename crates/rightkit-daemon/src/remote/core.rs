@@ -20,6 +20,7 @@ mod pairing;
 mod tasks;
 
 pub use self::link::{Accepted, FrameOutcome, LinkSession, Out};
+pub use crate::remote::events::EventsPage;
 pub use self::pairing::{PairedDevice, PairingError, PairingInfo, PairingOptions, PairingStage};
 pub use self::tasks::{TaskInfo, TaskSpec};
 
@@ -103,6 +104,21 @@ pub trait OAuthCallbackHandler: Send + Sync {
         state: Option<String>,
         error: Option<String>,
     ) -> OAuthOutcome;
+}
+
+/// One enrolled device as [`Daemon::list_devices`] reports it. Never carries the public key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub device_id: String,
+    pub label: Option<String>,
+    pub scopes: Vec<String>,
+    /// The single `role:<name>` scope's name, when the device has exactly one.
+    pub role: Option<String>,
+    /// Second the device enrolled.
+    pub enrolled_at: u64,
+    pub revoked: bool,
+    /// The device has a live, ready `rk-link/1` connection right now.
+    pub linked: bool,
 }
 
 /// Runtime figures of a daemon, computed on call by [`Daemon::status`].
@@ -507,6 +523,56 @@ impl Daemon {
 
     pub fn device_ids(&self) -> Vec<String> {
         self.lock().state.devices.keys().cloned().collect()
+    }
+
+    /// Every enrolled device, revoked ones included (a screen shows both), oldest enrolment
+    /// first and by id within a second. Reads state and live links; changes nothing. A device
+    /// is `linked` only while its link is open and past the handshake.
+    pub fn list_devices(&self) -> Vec<DeviceInfo> {
+        let linked: std::collections::BTreeSet<String> =
+            self.linked_devices().into_iter().collect();
+        let g = self.lock();
+        let mut out: Vec<DeviceInfo> = g
+            .state
+            .devices
+            .iter()
+            .map(|(id, d)| DeviceInfo {
+                device_id: id.clone(),
+                label: d.label.clone(),
+                scopes: d.scopes.clone(),
+                role: crate::contract::role_of(d.scopes.iter().map(String::as_str))
+                    .map(str::to_string),
+                enrolled_at: d.enrolled_at,
+                revoked: d.revoked,
+                linked: linked.contains(id),
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            a.enrolled_at
+                .cmp(&b.enrolled_at)
+                .then_with(|| a.device_id.cmp(&b.device_id))
+        });
+        out
+    }
+
+    /// Retained lifecycle events after a cursor, the live-update primitive for an operator
+    /// screen: keep the `next` of the last page and ask again with it. See
+    /// [`EventLog::since`](crate::remote::EventLog::since) for the cursor rules (a cursor from
+    /// another run comes back with `reset: true`).
+    pub fn events_since(&self, epoch: Option<&str>, after: u64, limit: usize) -> EventsPage {
+        self.events.since(epoch, after, limit)
+    }
+
+    /// [`events_since`](Self::events_since) that waits up to `timeout` (at most 60 s) for
+    /// something newer than the cursor. Blocks the calling thread.
+    pub fn wait_events(
+        &self,
+        epoch: Option<&str>,
+        after: u64,
+        limit: usize,
+        timeout: std::time::Duration,
+    ) -> EventsPage {
+        self.events.wait_since(epoch, after, limit, timeout)
     }
 
     /// Take accepted webhook deliveries for processing: `(id, provider, body)`.

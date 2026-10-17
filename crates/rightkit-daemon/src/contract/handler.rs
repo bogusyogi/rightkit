@@ -42,6 +42,11 @@ impl CallContext {
     pub fn origin(&self) -> &Caller {
         &self.caller
     }
+    /// The role of a device caller, from the scopes its enrolment granted (see
+    /// [`ROLE_SCOPE_PREFIX`](crate::contract::ROLE_SCOPE_PREFIX)). `None` for a local app.
+    pub fn role(&self) -> Option<&str> {
+        self.caller.role()
+    }
     /// The app label the client declared in `hello` (already allowlisted); for a device caller,
     /// the device id.
     ///

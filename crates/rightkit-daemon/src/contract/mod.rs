@@ -17,7 +17,7 @@ mod handler;
 mod method;
 mod status;
 
-pub use caller::{Caller, Scope};
+pub use caller::{role_of, role_scope, Caller, Scope, ROLE_SCOPE_PREFIX};
 pub use handler::{CallContext, Emit, Handler};
 pub use method::{validate_method_id, MethodPolicy, MethodTable, TableError, Transport};
 pub use status::{status_for_code, status_for_error};

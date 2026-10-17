@@ -10,6 +10,8 @@ pub const STATUS_TABLE: &[(&str, u16)] = &[
     (ERROR_NOT_ALLOWED, 403),
     (ERROR_REVISION_CONFLICT, 409),
     (ERROR_RESPONSE_TOO_LARGE, 502),
+    (ERROR_REQUEST_TOO_LARGE, 413),
+    (ERROR_BAD_CHUNK, 400),
     (ERROR_CONNECTION_CLOSED, 502),
     (ERROR_HOST_HANDOFF, 503),
     (ERROR_UNAVAILABLE, 503),
@@ -41,6 +43,8 @@ mod tests {
         assert_eq!(status_for_code("forbidden"), Some(403));
         assert_eq!(status_for_code("revision_conflict"), Some(409));
         assert_eq!(status_for_code(ERROR_NOT_ALLOWED), Some(403));
+        assert_eq!(status_for_code(ERROR_REQUEST_TOO_LARGE), Some(413));
+        assert_eq!(status_for_code(ERROR_BAD_CHUNK), Some(400));
         assert_eq!(status_for_code("nope"), None);
         assert_eq!(status_for_error(&ServiceError::new("nope", "x")), 500);
         assert_eq!(status_for_error(&ServiceError::retryable("nope", "x")), 503);

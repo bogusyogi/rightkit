@@ -50,7 +50,8 @@ pub use self::call::DeviceCalls;
 pub use self::config::{DaemonConfig, UploadLimits};
 #[cfg(feature = "remote")]
 pub use self::core::{
-    Accepted, Daemon, DaemonMetrics, DaemonStatus, ForgetDeviceError, FrameOutcome, LinkSession,
+    Accepted, Daemon, DaemonMetrics, DaemonStatus, DeviceInfo, EventsPage, ForgetDeviceError,
+    FrameOutcome, LinkSession,
     OAuthCallbackHandler, OAuthOutcome, Out, PairedDevice, PairingError, PairingInfo,
     PairingOptions, PairingStage, Request, Response, TaskInfo, TaskSpec,
 };

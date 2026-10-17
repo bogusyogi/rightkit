@@ -171,6 +171,18 @@ For an app that runs its own engine as a child that only it may call (MailRight'
 
 The protocol pieces for devices that cannot reach each other directly: a relay that stores and forwards sealed bytes it cannot read, and the device side that talks to it. `relay::RelayCore` is the relay's state machine (challenge and ticket authentication, queues, caps, quota; no sockets or clock), `relay::RelaySession` is a device's side, and the cipher between devices is a `Sealer` the caller supplies. What the relay learns: mailbox and circle pseudonyms, who talks to whom, when, and how much. See the 0.2.6 changelog for what is not built yet (the cipher, a socket adapter, direct paths, push-wake, durable queues).
 
+## Supervising a daemon-pipe child (`supervisor`)
+
+`supervisor::supervise` watches a `PrivateChild` (an engine the app started and talks to over the daemon pipe) on one thread: it polls for exit, probes with a closure you give it (`ping_probe` connects with the child's own secret, verifies the host and calls `ping`), feeds the `rightkit-child-process` `HealthTracker`, stops an unhealthy or never-ready child (stdin closed, then the tree killed after a grace) and lets `RestartTracker` decide: relaunch after its backoff, wait for `SupervisorHandle::restart_now`, or give up (`Exhausted`). See the module docs for the choices that are easy to get wrong.
+
+## Messages above one frame (`chunk`)
+
+The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends a larger request in pieces through the reserved `rk.upload` method, which the host assembles under a separate `HostOptions::max_message` bound (256 MiB by default, 0 turns it off), and a client that calls through it gets an oversized result back in pieces (`rk.fetch`) instead of `response_too_large`. A plain `Client::call` is unchanged. Events keep the frame limit. A shared-file handoff is not built; see the 0.2.7 changelog.
+
+## Operator surface (`remote` feature)
+
+`Daemon::list_devices` (every device, revoked ones marked, `linked` while a link is open, never the key), device roles (`role:<name>` scopes granted at enrolment; `Caller::role`, `CallContext::role`, and `MethodPolicy::remote(["role:operator"])` to gate a method), and an event cursor for live screens (`Daemon::events_since`, `wait_events`; every event now carries a `seq`). See the 0.2.7 changelog for what issue #306 asks for that is not built.
+
 ## Threat model
 
 **Defended against:** another local user (or a service running as one) connecting to the endpoint to call the service; another local user squatting on the endpoint name or path so a client sends its `hello` and requests to an impostor; a remote client (Windows pipes reject remote clients); a server that tries to impersonate the calling user through the pipe (clients open with `SECURITY_IDENTIFICATION`); connection floods growing the host without bound (Windows: `max_pipe_instances`).
