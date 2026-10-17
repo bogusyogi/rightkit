@@ -1,7 +1,8 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
 
 // The scheduled disk job must never bind to a pnpm store, a pnpm global hash directory or a checkout: those move or vanish
 // on upgrade. `disk schedule install` copies the installed package into this per-user root and binds the job to it.
@@ -64,8 +65,8 @@ export function collectDependencies(pkgRoot) {
 }
 
 /** Copy the installed @rightkit/release package (and its dependencies) into the stable root. The new tree is built and
- * smoke-tested in a staging directory next to `current`, then swapped in by rename; a failed swap restores the previous
- * `current`. Returns `{ stable, cli, version, replaced, unchanged }`. */
+ * built in the fixed `current.staging`, swapped in by rename (the old copy stays as `current.previous`), then smoke-tested at
+ * `current`; a failed swap or smoke run renames `current.previous` back. Returns `{ stable, cli, version, replaced, unchanged }`. */
 export function installStableRoot({ cli, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), nodePath = process.execPath, smoke = true } = {}) {
   const stable = stableRootPath({ platform, env, home });
   const stableCli = stableCliPath(stable, platform);
@@ -81,10 +82,13 @@ export function installStableRoot({ cli, platform = process.platform, env = proc
 
   const parent = path.dirname(stable);
   mkdirSync(parent, { recursive: true });
+  // Legacy per-pid names from earlier versions; the fixed names are `current.staging` and `current.previous`.
   for (const name of readdirSync(parent)) {
     if (/^current\.(staging|prev)-/.test(name)) try { rmSync(path.join(parent, name), { recursive: true, force: true }); } catch { /* in use: leave it */ }
   }
-  const staging = path.join(parent, `current.staging-${process.pid}-${now}`);
+  const staging = stagingPathOf(stable);
+  const previous = previousPathOf(stable);
+  rmSync(staging, { recursive: true, force: true });
   const copy = (from, to, filter) => cpSync(from, to, { recursive: true, dereference: true, force: true, filter });
   try {
     const target = path.join(staging, "node_modules", "@rightkit", "release");
@@ -98,29 +102,28 @@ export function installStableRoot({ cli, platform = process.platform, env = proc
     writeFileSync(path.join(staging, "install.json"), `${JSON.stringify({ package: pkg.name, version: pkg.version, source: pkgRoot, installedAt: new Date(now).toISOString(), node: nodePath }, null, 2)}\n`);
     const stagedCli = stableCliPath(staging, platform);
     if (!existsSync(stagedCli)) throw new Error("disk: the copied package has no cli/right-release.mjs");
-    if (smoke) {
-      const r = spawnSync(nodePath, [stagedCli, "--version"], { encoding: "utf8" });
-      if (r.status !== 0) throw new Error(`disk: the staged copy does not run: ${r.stderr || r.stdout || r.error?.message}`);
-    }
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
   }
+  // Swap first, then smoke-run at the fixed `current` path (never from the staging path). A failed run renames
+  // `current.previous` back. Exactly one `.previous` is kept.
   let replaced = false;
-  let prev;
   try {
-    if (existsSync(stable) || isLink(stable)) { prev = path.join(parent, `current.prev-${process.pid}-${now}`); renameSync(stable, prev); replaced = true; }
-    renameSync(staging, stable);
+    const result = swapInPlace({
+      staging, destination: stable, previous,
+      verify: () => {
+        if (!smoke) return;
+        const r = spawnSync(nodePath, [stableCli, "--version"], { encoding: "utf8" });
+        if (r.status !== 0) throw new Error(`the installed copy does not run: ${r.stderr || r.stdout || r.error?.message}`);
+      },
+    });
+    replaced = result.previous !== null;
   } catch (error) {
-    if (prev && !existsSync(stable)) try { renameSync(prev, stable); } catch { /* reported below */ }
-    rmSync(staging, { recursive: true, force: true });
     throw new Error(`disk: could not replace ${stable}: ${error.message}`);
   }
-  if (prev) try { rmSync(prev, { recursive: true, force: true }); } catch { /* a later install removes it */ }
   return { stable, cli: stableCli, version: pkg.version, replaced, unchanged: false };
 }
-
-function isLink(p) { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } }
 
 /** Registered schedule target: the CLI path the launchd job or Windows task runs, or null when none is registered. */
 export function readScheduleBinding({ platform = process.platform, home = os.homedir(), file, run = spawnSync, label = "RightKit Disk Hygiene", plistFile } = {}) {

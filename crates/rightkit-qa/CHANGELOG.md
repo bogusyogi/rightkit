@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-Version 0.6.3. Not built or run locally; CI is the compiler.
+Version 0.6.4. Not built or run locally; CI is the compiler.
+
+- **Launch from one fixed path, install in place with `.previous` (Orthic-Labs/rightkit#252, #255; "No new id, no new folder, for every app").** macOS keys privacy grants to the path and identity an app runs from.
+  - `binary::resolve_stashed` (used by `QaConfig::resolve_ui_binary` and the suite) always returns the fixed stash `<app root>/.rightkit-qa-bin/<triple>/<bin>`, whichever source found the build (env, pointer file, broker target, `ui.binaries`, an explicit `--ui-binary`), so a QA launch never runs from a broker generation path (`ws/<hash>/g/<gen>/...`) or `target/`. The stash copy is made in place (staging copy, rename) and keeps `<bin>.previous`; identical bytes do not rotate it. `QaConfig::resolve_ui_binary_with` stays discovery-only. The 0.6.3 installed-app refusal is unchanged. New `inplace` module (`swap_in_place`, `replace_file_in_place`, `previous_path`).
+  - macOS QA bundles (`control.rs`): fixed path `<home base>/rightkit-qa-apps/<app>/<name>.app` and fixed bundle id `app.rightkit.qa.<name>` (was `<ws.home>/apps/<run id>/` and `app.rightkit.qa.<run id>`, new on every run). Replaced in place via a staging bundle, keeping `<name>.app.previous`; a build whose executable and Info.plist already match is reused. Two simultaneous runs of one app share that path, so QA runs of one app stay serialised by the native lock.
 
 - **Installed apps are refused (Orthic-Labs/rightkit#235).** New `installed` module. `control::launch`, `Harness::with_identity_file` and `binary::validate` refuse any app bundle or executable under an installed-apps location: `/Applications` and `~/Applications` on macOS; `ProgramFiles`, `ProgramFiles(x86)`, `ProgramW6432` and `%LOCALAPPDATA%\Programs` on Windows (read from the environment, as rightkit-fs `AppDirs` reads its bases). The path is canonicalised first (symlinks, `..`, verbatim prefix) and compared case-insensitively. The opt-in is the installed-QA signal `right-release qa --stage installed` already sets, `RIGHT_RELEASE_QA_STAGE=installed` (`installed::STAGE_ENV`); there is no second switch. The refusal names the path, the matching location and that signal. Tests: `installed::tests` (classification on both OSes with injected roots, unset and relative values, the mode signal, refusal and opt-in).
 

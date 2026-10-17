@@ -250,21 +250,23 @@ function swapFixture({ installedExecutable = "signed-binary" } = {}) {
       else files.set("/Apps/Fixture.app/Contents/MacOS/Fixture", installedExecutable);
     }
   };
-  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", backup: "/Apps/Fixture.app.backup", executableName: "Fixture" } };
+  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", previous: "/Apps/Fixture.app.previous", executableName: "Fixture" } };
 }
 
-test("macOS dev install removes the backup when the installed executable hash matches the staged one", { skip: WINDOWS_SKIP }, () => {
+test("macOS dev install keeps the previous app as <dest>.previous when the installed executable hash matches", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture();
+  files.set("/Apps/Fixture.app.previous/Contents/MacOS/Fixture", "older-binary");
   swapInstalledMacosBundle({ ...args, fs });
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "signed-binary");
-  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup)), []);
+  assert.equal(files.get("/Apps/Fixture.app.previous/Contents/MacOS/Fixture"), "previous-binary");
+  assert.deepEqual([...files.keys()].filter((file) => !file.startsWith("/Apps/Fixture.app/") && !file.startsWith("/Apps/Fixture.app.previous/")), []);
 });
 
 test("macOS dev install restores the previous app and throws a typed error on a hash mismatch", { skip: WINDOWS_SKIP }, () => {
   const { files, fs, args } = swapFixture({ installedExecutable: "corrupted" });
   assert.throws(() => swapInstalledMacosBundle({ ...args, fs }), (error) => error.code === "DEV_INSTALL_EXECUTABLE_MISMATCH" && /does not match/.test(error.message));
   assert.equal(files.get("/Apps/Fixture.app/Contents/MacOS/Fixture"), "previous-binary");
-  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.backup) || file.startsWith(args.staging)), []);
+  assert.deepEqual([...files.keys()].filter((file) => file.startsWith(args.previous) || file.startsWith(args.staging)), []);
 });
 
 test("macOS dev install restores the previous app and throws a typed error when the installed executable is missing", { skip: WINDOWS_SKIP }, () => {

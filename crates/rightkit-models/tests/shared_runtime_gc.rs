@@ -150,3 +150,41 @@ fn local(store: Store) -> Store {
                 .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
         )
 }
+
+#[test]
+fn activate_installs_in_place_at_current_and_keeps_one_previous() {
+    let (_tmp, store) = fixture();
+    let tools = store.tools_root();
+    let v1 = runtime(&tools, "onnxruntime", "1.20.1");
+    let v2 = runtime(&tools, "onnxruntime", "1.21.0");
+    fs::write(v2.join("onnxruntime.dll"), b"dll-2").unwrap();
+    let current = paths::shared_runtime_current_dir_at(&tools, "onnxruntime").unwrap();
+    assert_eq!(current, tools.join("onnxruntime").join("current"));
+
+    assert_eq!(
+        store.activate_shared_runtime("onnxruntime", "1.20.1").unwrap(),
+        current
+    );
+    assert_eq!(fs::read(current.join("onnxruntime.dll")).unwrap(), b"dll");
+    // Idempotent: nothing is moved aside when the files already match.
+    store.activate_shared_runtime("onnxruntime", "1.20.1").unwrap();
+    assert!(!tools.join("onnxruntime").join("current.previous").exists());
+
+    // An update replaces `current` in place and keeps exactly one `.previous`.
+    store.activate_shared_runtime("onnxruntime", "1.21.0").unwrap();
+    assert_eq!(fs::read(current.join("onnxruntime.dll")).unwrap(), b"dll-2");
+    assert_eq!(
+        fs::read(tools.join("onnxruntime/current.previous/onnxruntime.dll")).unwrap(),
+        b"dll"
+    );
+    assert!(!tools.join("onnxruntime").join("current.staging").exists());
+    assert!(v1.exists() && v2.exists(), "version directories are untouched");
+
+    // The fixed names are not versions: they cannot be registered and GC never removes them.
+    assert!(store
+        .register_shared("heardright", "onnxruntime", "current")
+        .is_err());
+    assert!(store.gc_shared(&["onnxruntime"]).unwrap().len() == 2);
+    assert!(current.join("onnxruntime.dll").exists());
+    assert!(tools.join("onnxruntime/current.previous").exists());
+}

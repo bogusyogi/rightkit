@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."

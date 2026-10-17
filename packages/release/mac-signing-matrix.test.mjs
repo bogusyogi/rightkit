@@ -247,3 +247,21 @@ test("manifest parsing validates entries", () => {
   assert.throws(() => parseSignManifest(JSON.stringify({ schema: 1, entries: [{ file: "rel" }] })), /absolute path/);
   assert.throws(() => parseSignManifest(JSON.stringify({ schema: 1, entries: [{ file: "/a", options: ["--sign"] }] })), /codesign option names/);
 });
+
+test("a per-file identifier is validated, carried through the plan and checked against the receipt", (t) => {
+  const f = pulseFixture(t);
+  f.put("dist/legion-hook");
+  const sign = { prePackageFiles: [{ file: "dist/legion-hook", identifier: "com.orthic.legion-hook" }, { file: "dist/Pulse.app", entitlements: "release/entitlements.plist" }],
+    nestedCode: { "Contents/Helpers/PulseHelper": { identifier: "com.orthic.pulse.helper" } } };
+  const { entries, nestedCode } = validateMacSigningConfig(sign, { root: f.root });
+  assert.equal(entries[0].identifier, "com.orthic.legion-hook");
+  assert.equal(hasNonDefaultSettings(entries[0]), true, "an identifier alone is a non-default setting, so it goes in the manifest");
+  assert.equal(nestedCode[0].identifier, "com.orthic.pulse.helper");
+  const abs = entries.map((entry) => ({ ...entry, file: path.join(f.root, entry.file) }));
+  const { nested } = planMacSigning({ entries: abs, nestedCode });
+  assert.equal(nested.find((item) => item.file.endsWith("PulseHelper")).identifier, "com.orthic.pulse.helper");
+  const receipt = [{ file: abs[0].file, codesignOptions: "runtime", identifier: "com.orthic.legion-hook" }, { file: abs[1].file, codesignOptions: "runtime", entitlements: { sha256: "h" } }];
+  assert.deepEqual(matrixReceiptProblems(receipt, abs, () => "h"), []);
+  assert.match(matrixReceiptProblems([{ ...receipt[0], identifier: "legion-hook-5f3c" }, receipt[1]], abs, () => "h").join("\n"), /signed with identifier legion-hook-5f3c, expected com\.orthic\.legion-hook/);
+  bad(t, { prePackageFiles: [{ file: "dist/tool", identifier: "has space" }] }, /identifier must be 1-255 characters/);
+});

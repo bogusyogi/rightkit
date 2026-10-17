@@ -185,6 +185,8 @@ export function cargoCacheEnvironment(args, {
   const projectRoot = cargoProjectRoot(args, { cwd, platform, exists });
   const projectName = paths.basename(projectRoot).replace(/[^A-Za-z0-9._-]+/g, "-") || "cargo";
   const projectHash = createHash("sha256").update(platform === "win32" || platform === "win" ? projectRoot.toLowerCase() : projectRoot).digest("hex").slice(0, 12);
+  // Build output only (hashed per project path): nothing runs from here. Dev and QA binaries run from the fixed
+  // staged path (`stage-binary.mjs`), not from this folder or the broker's `ws/<hash>/g/<gen>` target.
   const defaultTarget = paths.join(cacheRoot, "dev-targets", `${projectName}-${projectHash}`);
   const defaultSccache = paths.join(cacheRoot, "sccache");
   const targetOption = args.find((value) => value.startsWith("--target-dir="));

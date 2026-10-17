@@ -350,7 +350,7 @@ const bundles = (h) => fs.readdirSync(h.dest).filter((n) => n.endsWith(".app"));
 const recoverDeps = (h) => ({ dest: h.dest, appName: "Pulse.app", run: (c, a) => h.deps.execFile(c, a), fsImpl: fs, home: h.home, now: () => new Date("2026-10-09T00:00:00Z"), event: (n, d) => h.events.push({ event: n, ...d }), sleep: async () => {}, isAlive: () => false });
 
 for (const [name, at, expectMarker] of [
-  ["after backup rename, before staged rename", (from, to) => (to.includes(".rightkit-backup-") ? "after" : null), "old"],
+  ["after backup rename, before staged rename", (from, to) => (to.endsWith(".app.previous") ? "after" : null), "old"],
   ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null), "new"],
 ]) {
   test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, { skip: WINDOWS_SKIP }, async () => {
@@ -382,7 +382,7 @@ test("kill after staged rename with a bad new bundle rolls back to the backup", 
 
 test("kill after backup rename with the destination absent restores the backup (the R7 finding)", async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app")));
   const code = await main(["--recover", "--dest", h.dest, "--app-name", "Pulse.app", "--json"], { stdout: () => {}, stderr: () => {}, deps: { ...h.deps, fsImpl: fs } });
@@ -392,7 +392,7 @@ test("kill after backup rename with the destination absent restores the backup (
 
 test("running install recovers a prior interrupted install first, then installs", async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   const r = await installApp(h.opts, { ...h.deps, isAlive: () => false });
   assert.equal(r.ok, true);
@@ -403,7 +403,7 @@ test("running install recovers a prior interrupted install first, then installs"
 
 test("recovery skips a journal whose installer is still alive", async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
   const r = await recoverInstalls({ ...recoverDeps(h), isAlive: () => true, selfPid: j.pid + 1 });
@@ -460,10 +460,15 @@ test("SIGINT during DMG staging detaches the mount before exit", async () => {
   assert.equal(h.marker(), "old");
 });
 
-test("normal path leaves no journal, staging, or backup, and trashes the old bundle last", async () => {
+test("normal path leaves no journal or staging, and keeps the old bundle as Pulse.app.previous (never the Trash)", async () => {
   const h = harness();
   const r = await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
+  assert.equal(r.previous, path.join(h.dest, "Pulse.app.previous"));
+  assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
+  // A second install replaces the single .previous in place.
+  await installApp(h.opts, h.deps);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
   assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
 });
 
@@ -520,7 +525,7 @@ test("atomic swap: installed is never absent, old bundle trashed last, event rec
   assert.equal(h.marker(), "new");
   assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
   assert.equal(h.events.find((e) => e.event === "replaced").swap, "atomic");
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
   assert.deepEqual(h.events.map((e) => e.event).filter((n) => n === "swap-fallback"), []);
 });
 
@@ -633,7 +638,7 @@ test("atomic: kill after the exchange with a bad new bundle rolls back by swappi
   assert.deepEqual(dotfiles(h), []);
 });
 
-test("atomic: verified journal with the Trash unavailable keeps the old bundle for the next recovery", async () => {
+test("atomic: a verified journal rolls forward by keeping the old bundle as .previous, idempotently", async () => {
   const h = harness();
   h.deps.swapPaths = h.fakeSwap;
   const c = crashing(h, { swapAt: "after" });
@@ -641,21 +646,19 @@ test("atomic: verified journal with the Trash unavailable keeps the old bundle f
   const journal = journalPathFor(h.dest, "Pulse.app");
   const j = JSON.parse(fs.readFileSync(journal, "utf8"));
   fs.writeFileSync(journal, JSON.stringify({ ...j, phase: "verified" }));
-  fs.mkdirSync(h.home, { recursive: true });
-  fs.writeFileSync(path.join(h.home, ".Trash"), "a file, so mkdir -p fails");
+  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous"));
+  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "older"), "an older previous");
   const r1 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
-  assert.equal(r1[0].action, "rolled-forward-trash-pending");
-  assert.ok(fs.existsSync(j.staged), "old bundle preserved");
-  assert.ok(fs.existsSync(journal));
-  fs.rmSync(path.join(h.home, ".Trash"));
-  const r2 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
-  assert.equal(r2[0].action, "rolled-forward");
+  assert.equal(r1[0].action, "rolled-forward");
+  assert.equal(fs.readFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "utf8"), "old");
+  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous", "older")), "only one .previous is kept");
   assert.deepEqual(dotfiles(h), []);
+  assert.deepEqual(await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap }), []);
 });
 
 test("mixed-mode recovery: a two-rename journal still recovers when a helper is available", async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
   assert.equal(j.swap, "two-rename");

@@ -151,12 +151,24 @@ pub fn explicit_ui_binary(path: &Path) -> Result<PathBuf> {
     Ok(path.to_path_buf())
 }
 
+/// An explicitly named UI binary, launched from the fixed stash like every other source (macOS keys privacy
+/// grants to the launch path, so the path must not follow the file the caller happened to name). The
+/// control-marker check stays skipped for it, and an app bundle (`.app`) is staged at its fixed path by
+/// `control::launch`.
+fn stashed_explicit_ui_binary(cfg: &QaConfig, path: &Path) -> Result<PathBuf> {
+    let named = explicit_ui_binary(path)?;
+    if named.is_dir() || crate::binary::is_stashed(&named, &cfg.app_root) {
+        return Ok(named);
+    }
+    crate::binary::stash_binary(&named, &cfg.app_root, None, false)
+}
+
 fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<Option<PathBuf>> {
     if let Some(p) = &opts.ui_binary {
-        return explicit_ui_binary(p).map(Some);
+        return stashed_explicit_ui_binary(cfg, p).map(Some);
     }
     if let Ok(p) = std::env::var("RIGHTKIT_QA_UI_BINARY") {
-        return explicit_ui_binary(Path::new(&p)).map(Some);
+        return stashed_explicit_ui_binary(cfg, Path::new(&p)).map(Some);
     }
     if opts.build_ui {
         if cfg.ui.build.is_empty() {
@@ -191,7 +203,11 @@ fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<O
         Err(err) if err.0.contains("test-mode/control build") => Err(err),
         Err(err) => {
             eprintln!("[qa] dev-build resolver: {err}; falling back to ui.binaries");
-            cfg.ui_binary()
+            // Same rule as every other source: launch from the fixed stash, not from `target/`.
+            match cfg.ui_binary()? {
+                Some(p) => stashed_explicit_ui_binary(cfg, &p).map(Some),
+                None => Ok(None),
+            }
         }
     }
 }

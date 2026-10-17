@@ -6057,7 +6057,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -6196,7 +6196,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "getrandom 0.4.3",
  "png 0.18.1",

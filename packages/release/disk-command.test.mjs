@@ -858,18 +858,19 @@ test("install copies the package and its dependencies into the stable root; rein
   assert.equal(second.replaced, true);
   assert.equal(spawnSync(process.execPath, [second.cli, "--version"], { encoding: "utf8" }).stdout.trim(), "1.1.0");
   assert.match(readFileSync(path.join(second.stable, "node_modules", "smol-toml", "index.js"), "utf8"), /1\.1\.0/);
-  assert.deepEqual(readdirSync(path.dirname(second.stable)), ["current"], "no staging or previous dirs are left");
+  assert.deepEqual(readdirSync(path.dirname(second.stable)).sort(), ["current", "current.previous"], "exactly one current.previous is kept, no staging dir");
+  assert.equal(JSON.parse(readFileSync(path.join(path.dirname(second.stable), "current.previous", "install.json"), "utf8")).version, "1.0.0");
   // installing from the stable copy itself changes nothing
   assert.equal(installStableRoot({ cli: second.cli, platform: "darwin", home }).unchanged, true);
 });
 
-test("a staged copy that does not run never replaces a working current", () => {
+test("a copy that does not run at the fixed current path is rolled back from current.previous", () => {
   const base = mkdtempSync(path.join(os.tmpdir(), "rk-stable-"));
   const home = path.join(base, "home");
   const good = installStableRoot({ cli: fakeInstalled(base, "1.0.0"), platform: "darwin", home });
   assert.throws(() => installStableRoot({ cli: fakeInstalled(base, "2.0.0", { exitCode: 1 }), platform: "darwin", home }), /does not run/);
   assert.equal(spawnSync(process.execPath, [good.cli, "--version"], { encoding: "utf8" }).stdout.trim(), "1.0.0");
-  assert.deepEqual(readdirSync(path.dirname(good.stable)), ["current"]);
+  assert.deepEqual(readdirSync(path.dirname(good.stable)), ["current"], "a failed smoke run at current rolls back from .previous");
   // a checkout or a foreign package is refused
   const foreign = path.join(base, "foreign", "cli", "right-release.mjs");
   mkdirSync(path.dirname(foreign), { recursive: true }); writeFileSync(foreign, ""); writeFileSync(path.join(base, "foreign", "package.json"), JSON.stringify({ name: "other" }));

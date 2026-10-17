@@ -54,6 +54,7 @@ pub mod http;
 /// Tier-2 `InApp` client for the embedded control server (`control` feature only).
 #[cfg(feature = "control")]
 pub mod in_app;
+pub mod inplace;
 pub mod installed;
 /// Run a journey in the logged-on user's interactive session from a session-0 (SSH) process.
 pub mod interactive;

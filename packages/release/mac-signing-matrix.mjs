@@ -1,8 +1,9 @@
 // Per-file macOS signing matrix for `sign.prePackageFiles[]` object entries and `sign.nestedCode`.
 //
 //   sign: {
-//     prePackageFiles: ["dist/tool", { file: "dist/App.app", entitlements: "release/app.entitlements.plist" }],
-//     nestedCode: { "Contents/Helpers/Helper": { options: ["library"] },
+//     prePackageFiles: ["dist/tool", { file: "dist/App.app", entitlements: "release/app.entitlements.plist" },
+//                       { file: "dist/legion-hook", identifier: "com.example.legion-hook" }],
+//     nestedCode: { "Contents/Helpers/Helper": { options: ["library"], identifier: "com.example.helper" },
 //                   "Contents/PlugIns/Ext.appex": { entitlements: "release/ext.entitlements.plist" } },
 //   }
 //
@@ -16,8 +17,12 @@ const invalid = (message) => Object.assign(new Error(message), { code: "MAC_SIGN
 
 /** codesign `--options` names accepted in `options[]` (man codesign, OPTION FLAGS). `runtime` is always on. */
 export const CODESIGN_OPTION_FLAGS = Object.freeze(["expires", "hard", "host", "kill", "library", "runtime"]);
-const ENTRY_KEYS = new Set(["file", "entitlements", "hardenedRuntime", "options"]);
-const SETTING_KEYS = new Set(["entitlements", "hardenedRuntime", "options"]);
+const ENTRY_KEYS = new Set(["file", "entitlements", "hardenedRuntime", "options", "identifier"]);
+const SETTING_KEYS = new Set(["entitlements", "hardenedRuntime", "options", "identifier"]);
+// A stable per-file code identity: codesign `--identifier`. A loose tool otherwise gets an identifier derived from its file
+// name or cdhash, and macOS keys privacy grants (TCC) to the code identity, so it must not change between builds.
+// Same pattern as mac-sign-core.mjs (not imported: that module imports this one).
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/;
 
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -33,7 +38,11 @@ function looksLikePlist(file) {
 }
 
 function validateSettings(settings, label, { root, errors, isFile }) {
-  const out = { entitlements: undefined, hardenedRuntime: true, options: [] };
+  const out = { entitlements: undefined, hardenedRuntime: true, options: [], identifier: undefined };
+  if (settings.identifier !== undefined) {
+    if (typeof settings.identifier !== "string" || !IDENTIFIER_PATTERN.test(settings.identifier)) errors.push(`${label}.identifier must be 1-255 characters of letters, digits, '.' and '-', starting with a letter or digit`);
+    else out.identifier = settings.identifier;
+  }
   if (settings.entitlements !== undefined) {
     const value = settings.entitlements;
     if (typeof value !== "string" || !value.trim()) errors.push(`${label}.entitlements must be a non-empty path string`);
@@ -79,8 +88,8 @@ function validateNestedKey(key) {
 /**
  * Validate and normalize `sign` for a macOS target. Collects every problem, then throws one
  * MAC_SIGN_CONFIG_INVALID error. Returns { entries, nestedCode } where
- *   entries:    [{ file, entitlements?: absolute, options: [] }]   (file stays as declared)
- *   nestedCode: [{ key, entitlements?: absolute, options: [] }]
+ *   entries:    [{ file, identifier?, entitlements?: absolute, options: [] }]   (file stays as declared)
+ *   nestedCode: [{ key, identifier?, entitlements?: absolute, options: [] }]
  * Injectable: isFile.
  */
 export function validateMacSigningConfig(sign, { root, isFile = (file) => existsSync(file) && statSync(file).isFile() } = {}) {
@@ -106,7 +115,7 @@ export function validateMacSigningConfig(sign, { root, isFile = (file) => exists
       if (seen.has(file)) errors.push(`${label}: duplicate signing entry ${file}`);
       seen.add(file);
       const normalized = validateSettings(settings, label, context);
-      entries.push({ file, ...(normalized.entitlements ? { entitlements: normalized.entitlements } : {}), options: normalized.options });
+      entries.push({ file, ...(normalized.identifier ? { identifier: normalized.identifier } : {}), ...(normalized.entitlements ? { entitlements: normalized.entitlements } : {}), options: normalized.options });
     });
   }
   if (sign.nestedCode !== undefined) {
@@ -119,7 +128,7 @@ export function validateMacSigningConfig(sign, { root, isFile = (file) => exists
         if (!isPlainObject(settings)) { errors.push(`${label} must be an object { entitlements?, hardenedRuntime?, options? }`); continue; }
         for (const name of Object.keys(settings)) if (!SETTING_KEYS.has(name)) errors.push(`${label}: unknown key ${JSON.stringify(name)} (allowed: ${[...SETTING_KEYS].join(", ")})`);
         const normalized = validateSettings(settings, label, context);
-        nestedCode.push({ key, ...(normalized.entitlements ? { entitlements: normalized.entitlements } : {}), options: normalized.options });
+        nestedCode.push({ key, ...(normalized.identifier ? { identifier: normalized.identifier } : {}), ...(normalized.entitlements ? { entitlements: normalized.entitlements } : {}), options: normalized.options });
       }
       if (nestedCode.length) {
         const apps = entries.filter((entry) => /\.app\/?$/.test(entry.file));
@@ -132,7 +141,7 @@ export function validateMacSigningConfig(sign, { root, isFile = (file) => exists
 }
 
 /** True when an entry or nested item carries anything beyond the default (hardened runtime, no entitlements). */
-export const hasNonDefaultSettings = (item) => Boolean(item.entitlements) || (item.options?.length ?? 0) > 0;
+export const hasNonDefaultSettings = (item) => Boolean(item.entitlements) || Boolean(item.identifier) || (item.options?.length ?? 0) > 0;
 
 const depth = (file) => file.split(path.sep).length;
 
@@ -162,7 +171,7 @@ export function planMacSigning({ entries, nestedCode = [], expand = expandMacSig
       const real = realpath(file);
       if (real !== appReal && !real.startsWith(appReal + path.sep)) throw invalid(`${label}: resolves outside the bundle`);
       if (real === mainReal) throw invalid(`${label}: the main executable is signed with the bundle; set entitlements on its sign.prePackageFiles entry`);
-      byPath.set(file, { file, ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options });
+      byPath.set(file, { file, ...(item.identifier ? { identifier: item.identifier } : {}), ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options });
     }
   }
   const nested = [...byPath.values()].sort((a, b) => depth(b.file) - depth(a.file) || a.file.localeCompare(b.file));
@@ -178,6 +187,9 @@ export function matrixReceiptProblems(evidenceFiles, entries, hashFile) {
     if (!item) { problems.push(`missing receipt entry for ${entry.file}`); continue; }
     const wantOptions = ["runtime", ...(entry.options ?? [])].join(",");
     if ((item.codesignOptions ?? "runtime") !== wantOptions) problems.push(`${entry.file}: signed with options ${item.codesignOptions ?? "runtime"}, expected ${wantOptions}`);
+    if (entry.identifier) {
+      if (item.identifier !== entry.identifier) problems.push(`${entry.file}: signed with identifier ${item.identifier ?? "(none recorded)"}, expected ${entry.identifier}`);
+    } else if (item.identifier) problems.push(`${entry.file}: signed with identifier ${item.identifier} the plan did not declare`);
     if (entry.entitlements) {
       if (item.entitlements?.sha256 !== hashFile(entry.entitlements)) problems.push(`${entry.file}: receipt entitlements digest does not match ${entry.entitlements}`);
     } else if (item.entitlements) problems.push(`${entry.file}: signed with entitlements the plan did not declare`);

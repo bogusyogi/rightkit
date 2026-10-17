@@ -288,13 +288,14 @@ export function renderPowerShellBootstrap({
     "$Contract = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(" + psQuote(contractB64) + ")) | ConvertFrom-Json",
     "$AcceptedSigners = @{}; $Contract.acceptedManifestSigners.PSObject.Properties | ForEach-Object { $AcceptedSigners[$_.Name] = $_.Value }",
     "$InstallRoot = Join-Path $env:LOCALAPPDATA " + psQuote(installRootSubdir),
-    "$VersionsRoot = Join-Path $InstallRoot 'versions'",
+    // In place at one fixed path: no versions/ folder, no per-version, per-digest or per-run directory, no junction.
+    // `current` is the real install; `current.staging` is written and verified but never run; `current.previous` is the one rollback copy.
     "$Current = Join-Path $InstallRoot 'current'",
-    "$PreviousLink = Join-Path $InstallRoot '.current-previous'",
-    "$NextLink = Join-Path $InstallRoot '.current-next'",
+    "$Staging = Join-Path $InstallRoot 'current.staging'",
+    "$Previous = Join-Path $InstallRoot 'current.previous'",
     "$Journal = Join-Path $InstallRoot 'integration-journal.json'",
     "function Expand-BootstrapArgs($Values, $ActiveVersionRoot, $ActiveVersion) { foreach ($Value in $Values) { ([string]$Value).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot).Replace('{versionRoot}', $ActiveVersionRoot).Replace('{version}', $ActiveVersion) } }",
-    "function Remove-StableJunction([string]$Path) { $Item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -eq $Item) { return }; if ($Item.LinkType -ne 'Junction') { throw ('Stable pointer path is not a junction: ' + $Path) }; [IO.Directory]::Delete($Path) }",
+    "function Remove-Retired([string]$Path) { $Item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -eq $Item) { return }; if ($Item.LinkType -eq 'Junction') { [IO.Directory]::Delete($Path) } else { Remove-Item -LiteralPath $Path -Recurse -Force } }",
     "function Resolve-HealthPath($Value, [string]$JsonPath) { $CurrentValue = $Value; foreach ($Segment in $JsonPath.Split('.')) { if ($Segment -match '^\\d+$') { $Index = [int]$Segment; if ($null -eq $CurrentValue -or $Index -ge @($CurrentValue).Count) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = @($CurrentValue)[$Index] } else { $Property = $CurrentValue.PSObject.Properties[$Segment]; if ($null -eq $Property) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = $Property.Value } }; return $CurrentValue }",
     "function Assert-Health($Health, [string]$ActiveVersion) { foreach ($Assertion in $Contract.healthAssertions) { $Actual = Resolve-HealthPath $Health ([string]$Assertion.path); if ($Assertion.PSObject.Properties.Name -contains 'equals') { $Expected = $Assertion.equals; if ($Expected -is [string]) { $Expected = $Expected.Replace('{version}', $ActiveVersion).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot) }; if ($Actual -ne $Expected) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif ($Assertion.nonempty -eq $true) { if ($null -eq $Actual -or ([string]$Actual).Trim().Length -eq 0) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif (@($Actual).Count -lt [int]$Assertion.minCount) { throw ('Health assertion failed: ' + $Assertion.path) } } }",
     "function Resolve-PriorVersion($PriorExePath, $PriorLeaf) { if ($PriorExePath -and (Test-Path -LiteralPath $PriorExePath -PathType Leaf)) { $Info = (Get-Item -LiteralPath $PriorExePath).VersionInfo; $Candidate = [string]$Info.ProductVersion; if ([string]::IsNullOrWhiteSpace($Candidate)) { $Candidate = [string]$Info.FileVersion }; $Match = [regex]::Match($Candidate, '(\\d+\\.\\d+\\.\\d+)'); if ($Match.Success) { return $Match.Groups[1].Value } }; if ($PriorLeaf) { $LeafMatch = [regex]::Match([string]$PriorLeaf, '^(\\d+\\.\\d+\\.\\d+)(?:-|$)'); if ($LeafMatch.Success) { return $LeafMatch.Groups[1].Value } }; return $null }",
@@ -347,7 +348,7 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
   return $Stdout
 }`,
     ...(allowLocalReleaseRoot ? [
-      "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
+      "New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null",
       "$LocalReleaseRoot = $null; if ($ReleaseRoot) { $LocalReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot); if (-not (Test-Path -LiteralPath $LocalReleaseRoot -PathType Container)) { throw 'Local release root is missing' } }",
       "if (-not $Version -and -not $LocalReleaseRoot) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
       "if ($Version -and $Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
@@ -363,11 +364,11 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
       "Receive-ReleaseFile 'release-manifest.json' $ManifestPath",
       "Receive-ReleaseFile 'release-manifest.cat' $SignaturePath",
     ] : [
-      "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
+      "New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null",
       "if (-not $Version) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
       "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
-      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
-      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") (Split-Path ([string]$PriorTarget) -Leaf) } else { $null }",
+      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = $Current }",
+      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") $null } else { $null }",
       "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
       "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
       "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
@@ -392,8 +393,8 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
       "if (-not $Version) { $Version = [string]$Manifest.version }",
       "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
       "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
-      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
-      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") (Split-Path ([string]$PriorTarget) -Leaf) } else { $null }",
+      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = $Current }",
+      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") $null } else { $null }",
       "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
     ] : []),
     "if ($Manifest.signingKeyId -ne $VerifiedKeyId -or $Manifest.signatureAlgorithm -ne 'authenticode-catalog-sha256' -or $Manifest.signatureProvider -ne 'windows-authenticode-catalog' -or $Manifest.signatureProviderVersion -ne 1) { throw 'Release manifest signer identity mismatch' }",
@@ -421,8 +422,8 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
     "$Stage = Join-Path $Work 'stage'; New-Item -ItemType Directory -Force -Path $Stage | Out-Null",
     "Add-Type -AssemblyName System.IO.Compression.FileSystem; $Zip = [IO.Compression.ZipFile]::OpenRead($Archive); try { foreach ($Entry in $Zip.Entries) { $Dest = [IO.Path]::GetFullPath((Join-Path $Stage $Entry.FullName)); if (-not $Dest.StartsWith(([IO.Path]::GetFullPath($Stage) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) { throw 'Archive path escapes staging root' } } } finally { $Zip.Dispose() }",
     "Expand-Archive -Path $Archive -DestinationPath $Stage -Force",
-    "$VersionRoot = Join-Path $VersionsRoot ($Version + '-' + $Asset.sha256.Substring(0,12) + '-' + [guid]::NewGuid()); Move-Item $Stage $VersionRoot",
-    "$VersionExe = Join-Path $VersionRoot ($Asset.executablePath -replace '/', [IO.Path]::DirectorySeparatorChar); if (-not (Test-Path $VersionExe)) { throw 'Release executable missing' }",
+    "Remove-Retired $Staging; Move-Item $Stage $Staging; $VersionRoot = $Current",
+    "$VersionExe = Join-Path $Staging ($Asset.executablePath -replace '/', [IO.Path]::DirectorySeparatorChar); if (-not (Test-Path $VersionExe)) { throw 'Release executable missing' }",
     "$Authenticode = Get-AuthenticodeSignature $VersionExe; if ($Asset.nativeSignaturePolicy -eq 'authenticode-valid' -and $Authenticode.Status -ne 'Valid') { throw 'Native signature invalid' }",
     "$ActivationArgsTemplate = " + psArray(activationArgs),
     "$StatusArgsTemplate = " + psArray(statusArgs),
@@ -435,44 +436,28 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
     "$PriorCliCapable = $true; if ($Contract.priorExecutableMinVersion) { $PriorCliCapable = ($null -ne $PriorVersion -and ([version]$PriorVersion -ge [version]$Contract.priorExecutableMinVersion)) }",
     "$PriorStatus = $null; if ($PriorTarget -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); try { $PriorStatus = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 60) | Out-String).Trim() } catch {} }",
     "@{ schemaVersion=1; priorTarget=$PriorTarget; priorVersion=$PriorVersion; targetVersion=$Version; priorStatus=$PriorStatus } | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Journal",
-    "if ($PreflightArgs.Count) { Invoke-BoundedExe $VersionExe $PreflightArgs 120 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Activation preflight failed' } }",
-    "Remove-StableJunction $NextLink; Remove-StableJunction $PreviousLink",
-    "New-Item -ItemType Junction -Path $NextLink -Target $VersionRoot | Out-Null",
+    "$PriorWasJunction = $false; $CurrentItem = Get-Item -LiteralPath $Current -Force -ErrorAction SilentlyContinue; if ($CurrentItem -and $CurrentItem.LinkType -eq 'Junction') { $PriorWasJunction = $true }",
+    "Remove-Retired $Previous",
     "$Switched = $false; $PriorDetached = $false",
     "try {",
-    "  if (Test-Path $Current) { Rename-Item -LiteralPath $Current -NewName (Split-Path -Leaf $PreviousLink); $PriorDetached = $true }; Rename-Item -LiteralPath $NextLink -NewName (Split-Path -Leaf $Current); $Switched = $true",
+    "  if (Test-Path $Current) { Rename-Item -LiteralPath $Current -NewName (Split-Path -Leaf $Previous); $PriorDetached = $true }; Rename-Item -LiteralPath $Staging -NewName (Split-Path -Leaf $Current); $Switched = $true",
     "  $StableExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")),
+    // Nothing runs from a new path: the preflight, activation and health probes all run at the fixed `current` path, and a failure renames `current.previous` back.
+    "  if ($PreflightArgs.Count) { Invoke-BoundedExe $StableExe $PreflightArgs 120 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Activation preflight failed' } }",
     "  $ActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate $VersionRoot $Version); $StatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate $VersionRoot $Version)",
     "  Invoke-BoundedExe $StableExe $ActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Activation failed' }",
     "  $HealthText = ((Invoke-BoundedExe $StableExe $StatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Health command failed' }; $Health = $HealthText | ConvertFrom-Json",
     "  Assert-Health $Health $Version",
     "  $StableBin = Split-Path $StableExe -Parent; $InstallRootResolved = [IO.Path]::GetFullPath($InstallRoot).TrimEnd([IO.Path]::DirectorySeparatorChar); $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); $Kept = @($UserPath -split ';' | Where-Object { $Entry = $_.Trim(); $Entry -ne '' -and -not ($Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).StartsWith(($InstallRootResolved + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -and -not $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($StableBin.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) }); $NewPath = ((@($StableBin) + $Kept) -join ';'); if ($NewPath -ne $UserPath) { [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User') }",
-    // Journal cleanup must succeed before discarding the prior pointer. If
-    // cleanup fails, catch still has a rollback anchor to restore.
-    // Version directories are compared by NAME, never by full path, here and in the rollback below.
-    // A junction's stored target and the paths this script builds can spell one directory two ways
-    // (a Windows short name such as RUNNER~1, another junction on the way, a different root form),
-    // and a full-path comparison that misses would prune the prior version, skip the rollback
-    // activation, or remove the version the stable pointer is still on. Every version lives
-    // directly under the versions root, so its name identifies it.
-    // Retention: after a healthy activation keep only the new version and the prior target (the
-    // app's first-start probation may still roll back to it, then deletes it). Every other version
-    // is removed; one a running process still holds fails the rename and is retried next install.
-    "  $KeepVersions = @([IO.Path]::GetFileName(([string]$VersionRoot).TrimEnd([IO.Path]::DirectorySeparatorChar))); if ($PriorTarget) { $KeepVersions += [IO.Path]::GetFileName(([string]$PriorTarget).TrimEnd([IO.Path]::DirectorySeparatorChar)) }; Get-ChildItem -LiteralPath $VersionsRoot -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $Candidate = $_.Name; -not ($KeepVersions | Where-Object { $_.Equals($Candidate, [StringComparison]::OrdinalIgnoreCase) }) } | ForEach-Object { try { $Doomed = Join-Path $VersionsRoot ('.prune-' + [guid]::NewGuid()); Rename-Item -LiteralPath $_.FullName -NewName (Split-Path -Leaf $Doomed) -ErrorAction Stop; Remove-Item -LiteralPath $Doomed -Recurse -Force -ErrorAction SilentlyContinue } catch { } }",
-    "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
+    // Legacy cleanup only: the old layout's versions/ folder and its pointer junctions are removed once nothing needs them
+    // (a legacy `current` junction that was just moved to current.previous keeps its versions/ target until the next install).
+    "  $LegacyVersions = Join-Path $InstallRoot 'versions'; if (-not $PriorWasJunction -and (Test-Path -LiteralPath $LegacyVersions)) { try { Remove-Item -LiteralPath $LegacyVersions -Recurse -Force -ErrorAction SilentlyContinue } catch { } }; foreach ($Legacy in @('.current-previous', '.current-next')) { try { Remove-Retired (Join-Path $InstallRoot $Legacy) } catch { } }",
+    "  Remove-Item -Force $Journal; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
     "  $InstallError = $_; $RollbackErrors = New-Object 'System.Collections.Generic.List[string]'",
-    "  try { if ($Switched -or $PriorDetached) { Remove-StableJunction $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { Rename-Item -LiteralPath $PreviousLink -NewName (Split-Path -Leaf $Current) } } catch { $RollbackErrors.Add($_.Exception.Message) }",
-    "  try { if ($PriorTarget -and (Test-Path $Current) -and $PriorCliCapable -and ([IO.Path]::GetFileName(([string](Get-Item -LiteralPath $Current).Target).TrimEnd([IO.Path]::DirectorySeparatorChar)) -eq [IO.Path]::GetFileName(([string]$PriorTarget).TrimEnd([IO.Path]::DirectorySeparatorChar)))) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw ('Prior health was not restored: ' + $_.Exception.Message) } } } catch { $RollbackErrors.Add($_.Exception.Message) }",
-    String.raw`  try {
-    $CandidatePath = [IO.Path]::GetFullPath($VersionRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
-    $VersionsPrefix = [IO.Path]::GetFullPath($VersionsRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-    $ActiveTarget = if (Test-Path -LiteralPath $Current) { [string](Get-Item -LiteralPath $Current).Target } else { $null }
-    if ($ActiveTarget -and -not [IO.Path]::IsPathRooted($ActiveTarget)) { $ActiveTarget = Join-Path (Split-Path -Parent $Current) $ActiveTarget }
-    if (-not $CandidatePath.StartsWith($VersionsPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Failed version cleanup escapes versions root' }
-    if ($ActiveTarget -and [IO.Path]::GetFileName([IO.Path]::GetFullPath($ActiveTarget).TrimEnd([IO.Path]::DirectorySeparatorChar)).Equals([IO.Path]::GetFileName($CandidatePath), [StringComparison]::OrdinalIgnoreCase)) { throw 'Failed version is still active; preserved for recovery' }
-    if (Test-Path -LiteralPath $CandidatePath) { Remove-Item -LiteralPath $CandidatePath -Recurse -Force }
-  } catch { $RollbackErrors.Add($_.Exception.Message) }
+    "  try { if ($Switched) { Remove-Retired $Current }; if ($PriorDetached -and (Test-Path -LiteralPath $Previous)) { Rename-Item -LiteralPath $Previous -NewName (Split-Path -Leaf $Current) } } catch { $RollbackErrors.Add($_.Exception.Message) }",
+    "  try { if ($PriorTarget -and $PriorDetached -and (Test-Path -LiteralPath $Current) -and -not (Test-Path -LiteralPath $Previous) -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw ('Prior health was not restored: ' + $_.Exception.Message) } } } catch { $RollbackErrors.Add($_.Exception.Message) }",
+    String.raw`  try { if (Test-Path -LiteralPath $Staging) { Remove-Retired $Staging } } catch { $RollbackErrors.Add($_.Exception.Message) }
   if ($RollbackErrors.Count) {
     $InstallError.Exception.Data['RollbackErrors'] = $RollbackErrors.ToArray()
     Write-Warning ('Rollback/cleanup also failed: ' + ($RollbackErrors -join '; '))
@@ -495,7 +480,7 @@ export function validatePowerShellBootstrap(script, expected = {}) {
     "checksums.json is not manifest-bound",
     "Provenance checksum mismatch",
     "SBOM checksum mismatch",
-    "New-Item -ItemType Junction",
+    "current.previous",
     "integration-journal.json",
     "Rollback activation failed",
     "Prior health was not restored",

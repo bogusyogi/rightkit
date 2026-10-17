@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBootProbation, type BootProbationRecord } from './probation.js';
+import { createBootProbation, previousInstallPath, type BootProbationRecord } from './probation.js';
 
 function memory() {
   let record: BootProbationRecord | null = null;
@@ -49,5 +49,27 @@ describe('boot probation', () => {
   });
   it('rejects an invalid attempt limit', () => {
     expect(() => createBootProbation({ storage: memory(), maxBootAttempts: 0 })).toThrow(/positive integer/);
+  });
+  it('defines the rollback copy as <install>.previous beside the fixed path', () => {
+    expect(previousInstallPath('/Applications/Mail.app')).toBe('/Applications/Mail.app.previous');
+    expect(previousInstallPath('/Applications/Mail.app/')).toBe('/Applications/Mail.app.previous');
+    expect(previousInstallPath('C:\\Apps\\Mail')).toBe('C:\\Apps\\Mail.previous');
+    expect(() => previousInstallPath('')).toThrow(/non-empty/);
+    expect(() => previousInstallPath('/')).toThrow(/filesystem root/);
+    expect(() => previousInstallPath('/Applications/Mail.app.previous')).toThrow(/fixed install path/);
+  });
+  it('a rollback names <install>.previous as the copy to rename back over the install path', async () => {
+    const storage = memory();
+    const onRollback = vi.fn();
+    const p = createBootProbation({ storage, maxBootAttempts: 1, onRollback });
+    await p.begin('1.0.0', '1.1.0', { installPath: '/Applications/Mail.app' });
+    expect(storage.peek()).toMatchObject({ installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous' });
+    await p.evaluateBoot('1.1.0');
+    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
+      kind: 'rollback', installPath: '/Applications/Mail.app', restorePath: '/Applications/Mail.app.previous',
+    });
+    expect(onRollback).toHaveBeenCalledWith({
+      fromVersion: '1.0.0', toVersion: '1.1.0', installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous',
+    });
   });
 });

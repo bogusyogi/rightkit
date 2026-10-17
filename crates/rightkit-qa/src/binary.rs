@@ -23,6 +23,14 @@
 //! ([`stash_qa_build`]) and points `.rightkit-qa-app-binary` at it. Both that pointer file and the
 //! `<target>/rightkit-qa/` copy are build output: git-ignore them.
 //!
+//! # One fixed launch path
+//!
+//! macOS ties privacy grants to the path an app runs from, and the broker's target folders change per
+//! generation (`ws/<hash>/g/<gen>/...`). [`resolve_stashed`] (what `QaConfig::resolve_ui_binary` and the suite
+//! use) therefore ALWAYS returns the fixed stash copy under the app root, copied in place with a kept
+//! `<bin>.previous`, whichever source found the build. A QA launch never runs from a broker generation path
+//! or from `.previous`.
+//!
 //! Every candidate must exist, be a regular file, be named `<bin>` (or `<bin>.exe`) and must not sit in a
 //! `release` profile directory. A shipping or release-tier artifact is never picked.
 //!
@@ -373,12 +381,57 @@ fn broker_candidates(ws: &Path, bin: &str) -> Vec<PathBuf> {
     out
 }
 
+/// True when `path` already sits under the fixed stash `<app_root>/<STASH_DIR>`.
+pub fn is_stashed(path: &Path, app_root: &Path) -> bool {
+    let stash = app_root.join(STASH_DIR);
+    path.starts_with(&stash)
+        || match (path.canonicalize(), stash.canonicalize()) {
+            (Ok(p), Ok(s)) => p.starts_with(s),
+            _ => false,
+        }
+}
+
+/// [`resolve`], then ALWAYS the fixed stash: whichever source wins (env, pointer, broker target or an
+/// app-root path), the returned path is the stash copy `<app_root>/.rightkit-qa-bin/<triple>/<bin>`, copied
+/// in place with a kept `<bin>.previous` ([`stash_qa_build`]). A QA launch therefore never runs from a
+/// broker generation path (`ws/<hash>/g/<gen>/...`, a new folder on every generation) or from
+/// `target/debug`, so macOS privacy grants keep one path. `source` still names where the build was
+/// found. The pointer file is not rewritten (a fresh build is picked up on the next run); the stash
+/// copy of the same bytes does not rotate `.previous`.
+pub fn resolve_stashed(q: &BinaryQuery) -> Result<ResolvedBinary> {
+    let found = resolve(q)?;
+    if is_stashed(&found.path, q.app_root) {
+        return Ok(found);
+    }
+    let path = stash_binary(&found.path, q.app_root, None, true)?;
+    Ok(ResolvedBinary {
+        path,
+        source: found.source,
+    })
+}
+
 /// After a successful `--build-ui`: copy the built QA executable (and a sibling `.pdb`) to
-/// `<app_root>/<STASH_DIR>/<triple-or-host>/<name>` (temp file, then rename), and point
-/// `<app_root>/.rightkit-qa-app-binary` (or `pointer_file`) at the copy. A later plain dev build that
-/// overwrites `debug/<bin>` then cannot displace it. The built file must carry the control marker.
+/// `<app_root>/<STASH_DIR>/<triple-or-host>/<name>` in place (staging copy, then rename, keeping
+/// `<name>.previous`), and point `<app_root>/.rightkit-qa-app-binary` (or `pointer_file`) at the copy.
+/// A later plain dev build that overwrites `debug/<bin>` then cannot displace it. The built file must
+/// carry the control marker.
 pub fn stash_qa_build(exe: &Path, app_root: &Path, pointer_file: Option<&str>) -> Result<PathBuf> {
-    require_qa(exe)?;
+    let dest = stash_binary(exe, app_root, Some(pointer_file), true)?;
+    Ok(dest)
+}
+
+/// The stash copy itself. `pointer` is `Some(<pointer file override>)` to write the pointer file, `None` to leave
+/// it alone; `require_marker` keeps the QA control-marker check (an explicitly named UI binary skips it, as
+/// before, and passes `false`). The caller has already refused installed apps.
+pub fn stash_binary(
+    exe: &Path,
+    app_root: &Path,
+    pointer: Option<Option<&str>>,
+    require_marker: bool,
+) -> Result<PathBuf> {
+    if require_marker {
+        require_qa(exe)?;
+    }
     let name = exe
         .file_name()
         .ok_or_else(|| Error(format!("{} has no file name", exe.display())))?;
@@ -396,39 +449,28 @@ pub fn stash_qa_build(exe: &Path, app_root: &Path, pointer_file: Option<&str>) -
     } else {
         "host"
     };
-    // Under the app root, not the cargo target dir: the broker's target tree is garbage-collected.
+    // Under the app root, not the cargo target dir: the broker's target tree is garbage-collected and
+    // its generation folder changes, so nothing may run from it.
     let dir = app_root.join(STASH_DIR).join(triple);
     std::fs::create_dir_all(&dir)
         .map_err(|e| Error(format!("cannot create {}: {e}", dir.display())))?;
     let dest = dir.join(name);
-    atomic_copy(exe, &dest)?;
+    crate::inplace::replace_file_in_place(exe, &dest)?;
     let stem = exe.file_stem().and_then(|n| n.to_str()).unwrap_or("");
     for pdb in [stem.to_string(), stem.replace('-', "_")] {
         let from = profile.join(format!("{pdb}.pdb"));
         if from.is_file() {
-            atomic_copy(&from, &dir.join(format!("{pdb}.pdb")))?;
+            crate::inplace::replace_file_in_place(&from, &dir.join(format!("{pdb}.pdb")))?;
         }
     }
-    let pointer = absolute(app_root, pointer_file.unwrap_or(POINTER_FILE));
-    let tmp = pointer.with_extension(format!("tmp-{}", crate::util::new_id()));
-    std::fs::write(&tmp, format!("{}\n", dest.display()))
-        .and_then(|_| std::fs::rename(&tmp, &pointer))
-        .map_err(|e| Error(format!("cannot write {}: {e}", pointer.display())))?;
+    if let Some(pointer_file) = pointer {
+        let pointer = absolute(app_root, pointer_file.unwrap_or(POINTER_FILE));
+        let tmp = pointer.with_extension(format!("tmp-{}", crate::util::new_id()));
+        std::fs::write(&tmp, format!("{}\n", dest.display()))
+            .and_then(|_| std::fs::rename(&tmp, &pointer))
+            .map_err(|e| Error(format!("cannot write {}: {e}", pointer.display())))?;
+    }
     Ok(dest)
-}
-
-fn atomic_copy(from: &Path, to: &Path) -> Result<()> {
-    let tmp = to.with_extension(format!("tmp-{}", crate::util::new_id()));
-    std::fs::copy(from, &tmp)
-        .and_then(|_| std::fs::rename(&tmp, to))
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            Error(format!(
-                "cannot copy {} to {}: {e}",
-                from.display(),
-                to.display()
-            ))
-        })
 }
 
 #[cfg(test)]
@@ -714,6 +756,45 @@ mod tests {
     }
 
     #[test]
+    fn resolve_stashed_never_returns_a_broker_generation_path() {
+        let base = tmp("stashed");
+        let app = base.join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        let ws = broker(&base, &app);
+        let gen1 = ws.join("g/001/t/debug").join(exe("myapp"));
+        touch(&gen1, 10);
+        let env = |_: &str| None;
+        let b = Some(base.join("rightkit-build-control"));
+        let q = query("myapp", &app, b.clone(), &env);
+        assert!(matches!(resolve(&q).unwrap().source, BinarySource::BrokerTarget(_)));
+        let got = resolve_stashed(&q).unwrap();
+        assert!(matches!(got.source, BinarySource::BrokerTarget(_)));
+        assert!(is_stashed(&got.path, &app));
+        assert!(got.path.starts_with(app.join(STASH_DIR)));
+        assert!(!got.path.starts_with(&ws));
+        // A new generation lands in a new folder; the launch path stays the same, `.previous` keeps the old copy.
+        let gen2 = ws.join("g/002/t/debug").join(exe("myapp"));
+        std::fs::create_dir_all(gen2.parent().unwrap()).unwrap();
+        std::fs::write(&gen2, [b"MZ-gen2".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat())
+            .unwrap();
+        let later = resolve_stashed(&query("myapp", &app, b, &env)).unwrap();
+        assert_eq!(later.path, got.path);
+        assert!(crate::inplace::previous_path(&got.path).is_file());
+        // The app-root source is stashed too, and an env override is no exception.
+        let rel = app.join("target/debug/myapp");
+        touch(&rel, 5);
+        let envd = base.join("envd").join(exe("myapp"));
+        touch(&envd, 5);
+        let p = envd.to_string_lossy().into_owned();
+        let env2 = move |k: &str| (k == "MYAPP_APP_BINARY").then(|| p.clone());
+        let from_env = resolve_stashed(&query("myapp", &app, None, &env2)).unwrap();
+        assert!(from_env.path.starts_with(app.join(STASH_DIR)));
+        assert_eq!(from_env.source, BinarySource::Env("MYAPP_APP_BINARY".into()));
+        // The installed-app refusal from 0.6.3 still applies to the resolved source.
+        assert!(is_stashed(&from_env.path, &app) && !is_stashed(&envd, &app));
+    }
+
+    #[test]
     fn stash_copies_atomically_and_writes_the_pointer() {
         let base = tmp("stash");
         let app = base.join("app");
@@ -731,6 +812,15 @@ mod tests {
         );
         assert!(has_qa_marker(&got).unwrap());
         assert!(got.with_extension("pdb").is_file());
+        // Stashing a different build replaces it in place and keeps exactly one `.previous`.
+        write_exe(&built, 3, true);
+        std::fs::write(&built, [b"MZ-second".as_slice(), QA_CONTROL_MARKER.as_bytes()].concat())
+            .unwrap();
+        let again = stash_qa_build(&built, &app, None).unwrap();
+        assert_eq!(again, got);
+        let prev = crate::inplace::previous_path(&got);
+        assert!(prev.is_file(), "the earlier stash is kept as .previous");
+        assert!(!has_qa_marker(&prev).is_err());
         // A later plain dev build overwrites the original; the stashed copy and pointer still win.
         write_exe(&built, 1, false);
         let none = |_: &str| None;

@@ -256,9 +256,12 @@ impl QaConfig {
     }
 
     /// The dev executable for this app: env override, pointer file, the broker's target root, then
-    /// the `ui.binaries` path. See [`crate::binary`]. Errors when none of them holds a valid file.
+    /// the `ui.binaries` path (see [`crate::binary`]), always returned as the fixed stash copy
+    /// (`<app root>/.rightkit-qa-bin/...`, copied in place with a kept `.previous`), never a broker
+    /// generation path. `source` names where the build was found. Errors when none of them holds a
+    /// valid file.
     pub fn resolve_ui_binary(&self) -> Result<crate::binary::ResolvedBinary> {
-        self.resolve_ui_binary_with(
+        self.resolve_ui_binary_stashed_with(
             Some(crate::binary::broker_root_of(
                 &crate::storage::managed_root(None),
             )),
@@ -267,10 +270,29 @@ impl QaConfig {
     }
 
     /// [`Self::resolve_ui_binary`] with the broker root and env supplied (tests, odd layouts).
+    pub fn resolve_ui_binary_stashed_with(
+        &self,
+        broker_root: Option<PathBuf>,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<crate::binary::ResolvedBinary> {
+        self.with_binary_query(broker_root, env, crate::binary::resolve_stashed)
+    }
+
+    /// Discovery only, without the stash copy: where the build is now (which may be a broker
+    /// generation path). Launches use [`Self::resolve_ui_binary`], never this path.
     pub fn resolve_ui_binary_with(
         &self,
         broker_root: Option<PathBuf>,
         env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<crate::binary::ResolvedBinary> {
+        self.with_binary_query(broker_root, env, crate::binary::resolve)
+    }
+
+    fn with_binary_query(
+        &self,
+        broker_root: Option<PathBuf>,
+        env: &dyn Fn(&str) -> Option<String>,
+        f: impl FnOnce(&crate::binary::BinaryQuery) -> Result<crate::binary::ResolvedBinary>,
     ) -> Result<crate::binary::ResolvedBinary> {
         let rel = self.ui.binaries.for_current()?;
         let bin = self
@@ -289,7 +311,7 @@ impl QaConfig {
             Some(w) => vec![self.app_root.join(w)],
             None => vec![self.app_root.join("src-tauri"), self.app_root.clone()],
         };
-        crate::binary::resolve(&crate::binary::BinaryQuery {
+        f(&crate::binary::BinaryQuery {
             bin: &bin,
             app_root: &self.app_root,
             workspace_roots,

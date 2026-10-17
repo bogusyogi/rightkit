@@ -4,6 +4,8 @@
 // Never uses a shell, osascript, AppleEvents, or foreground activation.
 import { execFile as nodeExecFile, execFileSync as nodeExecFileSync } from "./background-process.mjs";
 import { detachWithRetry } from "./hdiutil-detach.mjs";
+import { previousPathOf } from "./in-place-install.mjs";
+import { installAppWindows, InstallAppWindowsError } from "./install-app-windows.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,11 +21,11 @@ export class InstallAppError extends Error {
   }
 }
 
-const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest"]);
+const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest", "--installer", "--exe"]);
 const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev", "--recover"]);
 
 export function parseArgs(argv) {
-  const opts = { dmg: null, zip: null, app: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
+  const opts = { dmg: null, zip: null, app: null, installer: null, exe: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (VALUE_FLAGS.has(flag)) {
@@ -35,6 +37,8 @@ export function parseArgs(argv) {
       else if (flag === "--app") opts.app = value;
       else if (flag === "--app-name") opts.appName = value;
       else if (flag === "--bundle-id") opts.bundleId = value;
+      else if (flag === "--installer") opts.installer = value;
+      else if (flag === "--exe") opts.exe = value;
       else opts.dest = value;
     } else if (BOOL_FLAGS.has(flag)) {
       if (flag === "--json") opts.json = true;
@@ -44,6 +48,12 @@ export function parseArgs(argv) {
     } else {
       throw new InstallAppError("usage", `unknown argument: ${flag}`);
     }
+  }
+  if (opts.installer !== null) {
+    // Windows: run the sealed NSIS installer in place at one fixed folder, keeping <dest>.previous.
+    if (opts.dmg !== null || opts.zip !== null || opts.app !== null || opts.recover || opts.dev) throw new InstallAppError("usage", "--installer cannot be combined with --dmg, --zip, --app, --dev or --recover");
+    if (!argv.includes("--dest") || opts.exe === null) throw new InstallAppError("usage", "--installer requires --dest <fixed install folder> and --exe <App.exe>");
+    return opts;
   }
   if (argv.includes("--relaunch") && argv.includes("--no-relaunch")) throw new InstallAppError("usage", "--relaunch and --no-relaunch are mutually exclusive");
   const inputs = [opts.dmg, opts.zip, opts.app].filter((v) => v !== null).length;
@@ -251,12 +261,15 @@ const defaultIsAlive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 };
 
-async function trashBundle(run, fsImpl, home, now, bundle, appName) {
-  const trashDir = path.join(home, ".Trash");
-  fsImpl.mkdirSync(trashDir, { recursive: true });
-  const trashed = path.join(trashDir, trashName(appName, now()));
-  await moveAside(run, fsImpl, bundle, trashed);
-  return trashed;
+// Keep the bundle it replaced as `<installed>.previous` beside the fixed path (replacing any older one), by rename.
+// Rollback is renaming it back; nothing ever runs from it. It is never sent to the Trash: a Trash copy is a second
+// path macOS can resolve for the same bundle id.
+async function keepPreviousBundle(run, fsImpl, bundle, installed) {
+  const previous = previousPathOf(installed);
+  if (bundle === previous) return previous;
+  fsImpl.rmSync(previous, { recursive: true, force: true });
+  await moveAside(run, fsImpl, bundle, previous);
+  return previous;
 }
 
 // Deterministic roll-forward/back of any interrupted install journal in `dest`. Idempotent.
@@ -292,8 +305,8 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
           let ok = j.phase === "verified";
           if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
           if (ok) {
-            try { await trashBundle(run, fsImpl, home, now, j.staged, path.basename(j.installed)); action = "rolled-forward"; }
-            catch { action = "rolled-forward-trash-pending"; keepJournal = true; keepStaged = true; }
+            try { await keepPreviousBundle(run, fsImpl, j.staged, j.installed); action = "rolled-forward"; }
+            catch { action = "rolled-forward-previous-pending"; keepJournal = true; keepStaged = true; }
           } else {
             swapBack(swapPaths, fsImpl, j.staged, j.installed); // staged now holds the bad new bundle
             action = "rolled-back";
@@ -306,8 +319,8 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
         let ok = j.phase === "verified";
         if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
         if (ok) {
-          try { await trashBundle(run, fsImpl, home, now, j.backup, path.basename(j.installed)); action = "rolled-forward"; }
-          catch { action = "rolled-forward-trash-pending"; keepJournal = true; }
+          try { await keepPreviousBundle(run, fsImpl, j.backup, j.installed); action = "rolled-forward"; }
+          catch { action = "rolled-forward-previous-pending"; keepJournal = true; }
         } else {
           rm(j.installed);
           fsImpl.renameSync(j.backup, j.installed);
@@ -376,7 +389,7 @@ export async function installApp(opts, deps = {}) {
       if (s.mode === "atomic") {
         // installed was never absent. Before the exchange only the staged copy needs removing; after it,
         // exchange back (installed = old again, staged = the new copy) and drop the new copy. Once final,
-        // staged holds the verified-old bundle awaiting the Trash, so it must not be touched.
+        // staged holds the verified-old bundle awaiting retirement to .previous, so it must not be touched.
         if (!s.final) {
           if (s.swapped) swapBack(swapPaths, fsImpl, s.staged, s.installed);
           removeQuiet(s.staged);
@@ -486,8 +499,9 @@ export async function installApp(opts, deps = {}) {
     // Stage a verified copy on the destination volume so the swap is rename(2) only.
     failedStage = "stage";
     const base = appName.replace(/\.app$/, "");
+    // Staging is never run from: it is verified, then renamed into place. The rollback copy is the fixed `<installed>.previous`.
     const staged = path.join(opts.dest, `.${base}.rightkit-install-${pid}.app`);
-    const backup = hadInstalled ? path.join(opts.dest, `.${base}.rightkit-backup-${pid}.app`) : null;
+    const backup = hadInstalled ? previousPathOf(installed) : null;
     const journal = journalPathFor(opts.dest, appName);
     const journalData = { schema: 1, appName, pid, phase: "staging", dev, installed, backup, staged, mount: mountPoint, mountRoot };
     removeQuiet(staged);
@@ -512,7 +526,7 @@ export async function installApp(opts, deps = {}) {
 
     // Swap. Preferred: one atomic exchange (renamex_np RENAME_SWAP), so `installed` is never absent even
     // under SIGKILL; the old bundle then sits at the staged path. Fallback (no helper, or a volume without
-    // RENAME_SWAP): old -> backup, staged -> installed, journaled. The old bundle is never trashed before
+    // RENAME_SWAP): old -> backup, staged -> installed, journaled. The old bundle is never retired before
     // the new one is verified.
     failedStage = "replace";
     let jd = journalData;
@@ -535,6 +549,7 @@ export async function installApp(opts, deps = {}) {
         swap.mode = "two-rename";
         jd = { ...journalData, swap: "two-rename" };
         writeJournal(fsImpl, journal, { ...jd, phase: "swapping" });
+        removeQuiet(backup); // an older .previous; the one kept copy is the bundle moving aside now
         fsImpl.renameSync(installed, backup); swap.backedUp = true;
         fsImpl.renameSync(staged, installed);
         swap.stagedIn = true;
@@ -555,16 +570,18 @@ export async function installApp(opts, deps = {}) {
     writeJournal(fsImpl, journal, { ...jd, phase: "verified", mount: null, mountRoot: null });
     swap.final = true;
 
-    // Only now does the old bundle go to the Trash.
-    let trashed = null;
+    // Only now is the old bundle retired, to <installed>.previous (never the Trash).
+    let kept = null;
+    let keepFailed = false;
     const oldBundle = swapMode === "atomic" ? staged : backup; // atomic: the exchange left the old bundle at the staged path
     if (hadInstalled && oldBundle) {
-      try { trashed = await trashBundle(run, fsImpl, home, now, oldBundle, appName); }
-      catch (error) { event("backup-trash-failed", { backup: oldBundle, reason: errText(error) }); trashed = oldBundle; }
+      try { kept = await keepPreviousBundle(run, fsImpl, oldBundle, installed); }
+      catch (error) { event("previous-keep-failed", { backup: oldBundle, reason: errText(error) }); kept = oldBundle; }
     }
-    if (!oldBundle || trashed !== oldBundle) removeQuiet(journal);
+    if (!oldBundle || kept !== previousPathOf(installed)) { if (!oldBundle) removeQuiet(journal); }
+    else removeQuiet(journal);
     swap = null;
-    event("replaced", { installed, previous: trashed, swap: swapMode });
+    event("replaced", { installed, previous: kept, swap: swapMode });
 
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
@@ -573,7 +590,7 @@ export async function installApp(opts, deps = {}) {
       await run("/usr/bin/open", ["-g", "-j", "-b", bundleId]);
       event("relaunched", { bundleId });
     }
-    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: trashed, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
+    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: kept, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
     event("done", result);
     return result;
   } catch (error) {
@@ -685,6 +702,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     stderr(`right-release install-app: ${error.message}`);
     stderr("usage: right-release install-app (--dmg <path.dmg> | --dev (--zip <path.zip> | --app <path.app> | --dmg <path.dmg>)) [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]");
     stderr("       right-release install-app --recover [--dest /Applications] [--app-name Pulse.app] [--json]");
+    stderr("       right-release install-app --installer <Setup.exe> --dest <fixed install folder> --exe <App.exe> [--json]   (Windows: in place, keeps <dest>.previous)");
     stderr("  --dev installs a Developer ID-signed, NOT notarized build (skips spctl/stapler, clears quarantine on the new bundle).");
     return 2;
   }
@@ -696,10 +714,16 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     else stdout(`install-app: ${event}${Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : ""}`);
   };
   try {
+    if (opts.installer !== null) {
+      installAppWindows(opts, { ...io.deps, event: (name, data = {}) => emit({ event: name, ...data }) });
+      emit({ event: "done", dest: opts.dest });
+      return 0;
+    }
     if (opts.recover) await recoverApp(opts, { ...io.deps, emit });
     else await installApp(opts, { ...io.deps, emit });
     return 0;
   } catch (error) {
+    if (error instanceof InstallAppWindowsError) { stderr(`install-app: ${error.code}: ${error.message}`); return error.code === "unsupported" ? 3 : 1; }
     return error.code === "unsupported" ? 3 : 1;
   }
 }

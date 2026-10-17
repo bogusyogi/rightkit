@@ -246,7 +246,8 @@ test("dev signing failure leaves installed app intact and cleans staging", { ski
   const config = { development: { targets: { mac: { build: [{ cmd: "mock-build" }], install: { kind: "tauri", productName: "Fixture", bundleDirectory: "bundle", destination, targetTriple: "aarch64-apple-darwin" } } } } };
   assert.throws(() => runDevelopment({ ...f, platform: "mac", config, codesignEnvironment: (env) => env }), (error) => error.code === "DEV_MAC_SIGNING_KEY_UNAVAILABLE");
   assert.equal(readFileSync(path.join(destination, "Contents/Info.plist"), "utf8"), "previous app");
-  assert.equal(existsSync(`${destination}.rightkit-dev-${process.pid}`), false);
+  assert.equal(existsSync(`${destination}.staging`), false);
+  assert.equal(existsSync(`${destination}.previous`), false);
 });
 
 test("nested helper and sidecar use existing named entitlement variants", (t) => {

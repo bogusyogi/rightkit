@@ -1279,13 +1279,13 @@ function windowsReceiptPath(root, phase) {
   return signingReceiptPath({ appRoot: root, target, platform: "win", phase, stateRoot: process.env.RIGHT_RELEASE_STATE_ROOT });
 }
 
-// A signing step with per-file settings (entitlements, codesign options) goes to sign-macos.mjs as a manifest;
+// A signing step with per-file settings (entitlements, codesign options, a stable identifier) goes to sign-macos.mjs as a manifest;
 // a step with only defaults keeps the historical positional invocation.
 function macSignInvocation(items, receiptPath, extra = []) {
   if (opts.dryRun || !items.some(hasNonDefaultSettings)) return [SIGN_MACOS, ...extra, "--receipt", receiptPath, ...items.map((item) => item.file)];
   const manifest = path.resolve(path.dirname(receiptPath), `${path.basename(receiptPath, ".json")}.manifest.json`);
   mkdirSync(path.dirname(manifest), { recursive: true });
-  writeFileSync(manifest, `${JSON.stringify({ schema: 1, entries: items.map((item) => ({ file: item.file, ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options ?? [] })) }, null, 2)}\n`);
+  writeFileSync(manifest, `${JSON.stringify({ schema: 1, entries: items.map((item) => ({ file: item.file, ...(item.identifier ? { identifier: item.identifier } : {}), ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options ?? [] })) }, null, 2)}\n`);
   return [SIGN_MACOS, ...extra, "--receipt", receiptPath, "--manifest", manifest];
 }
 

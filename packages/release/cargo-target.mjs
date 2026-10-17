@@ -9,6 +9,14 @@
 // (see cargo-contract.mjs) remains a separate, cache-policy-only decision:
 // whether Cache V2's lease/slot/prune/floor machinery should run at all, not
 // where the target directory lives.
+//
+// NOT A STABLE PATH. On a broker-managed host the directory this reports is
+// `<managed>/rightkit-build-control/ws/<hash>/g/<generation>/target`, and the generation
+// changes over time; `cargo-guard` uses a hashed `dev-targets/<project>-<hash>` folder.
+// Both are build output only. Nothing may run from them: macOS ties privacy grants to the
+// path an app runs from. Dev and QA binaries are copied in place to a fixed staged path
+// (`development.targets.<platform>.stage`, `stage-binary.mjs`; rightkit-qa's
+// `.rightkit-qa-bin` stash) and run from there.
 import { realpathSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";

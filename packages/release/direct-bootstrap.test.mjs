@@ -99,13 +99,15 @@ test("generated PowerShell owns signed-manifest install, health, and rollback co
   assert.deepEqual(validatePowerShellBootstrap(script, { product: "legion", acceptedSignerIds: [RIGHTRELEASE_MANIFEST_SIGNER.id] }), { valid: true, errors: [] });
   assert.match(script, /Get-AuthenticodeSignature/);
   assert.match(script, /SignerFingerprint/);
-  assert.match(script, /\.current-previous/);
+  assert.match(script, /current\.previous/);
+  // In place at one fixed path: no versions/ folder, no per-version, per-digest or per-run directory, no junction.
+  assert.doesNotMatch(script, /\$VersionsRoot|\.current-next|New-Item -ItemType Junction|\[guid\]::NewGuid\(\)\); Move-Item/);
   assert.match(script, /Expand-BootstrapArgs/);
   // Installer temp work never outlives the run: early failures trap-clean it, stale dirs are swept.
   assert.match(script, /trap \{ try \{ if \(\$Work -and \(Test-Path -LiteralPath \$Work\)\) \{ Remove-Item -LiteralPath \$Work -Recurse -Force/);
   assert.match(script, /-Filter 'legion-install-\*'.*AddDays\(-1\)/);
-  // Versions are never kept indefinitely: a healthy activation keeps only the new and prior targets.
-  assert.match(script, /\$KeepVersions = @\(.*\$VersionRoot.*if \(\$PriorTarget\) \{ \$KeepVersions \+=.*\.prune-/);
+  // The prior copy is kept once, as current.previous, and renamed back on failure.
+  assert.match(script, /Rename-Item -LiteralPath \$Current -NewName \(Split-Path -Leaf \$Previous\)/);
   const scriptPath = join(mkdtempSync(join(tmpdir(), "rightrelease-ps-")), "install.ps1");
   writeFileSync(scriptPath, script);
   const escapedScriptPath = scriptPath.replaceAll("'", "''");
@@ -136,20 +138,19 @@ test("generated bootstrap supports current-path activation and product-specific 
   const contract = JSON.parse(Buffer.from(encoded, "base64").toString());
   assert.equal(contract.healthAssertions[2].path, "service.serviceId");
   assert.match(script, /Replace\('\{current\}', \$Current\)/);
-  assert.match(script, /Rename-Item -LiteralPath \$NextLink -NewName \(Split-Path -Leaf \$Current\)/);
-  assert.match(script, /Rename-Item -LiteralPath \$PreviousLink -NewName \(Split-Path -Leaf \$Current\)/);
-  assert.match(script, /function Remove-StableJunction/);
+  assert.match(script, /Rename-Item -LiteralPath \$Staging -NewName \(Split-Path -Leaf \$Current\)/);
+  assert.match(script, /Rename-Item -LiteralPath \$Previous -NewName \(Split-Path -Leaf \$Current\)/);
+  assert.match(script, /function Remove-Retired/);
   assert.match(script, /\[IO\.Directory\]::Delete\(\$Path\)/);
-  assert.doesNotMatch(script, /Move-Item \$(?:NextLink|PreviousLink|Current)/);
-  assert.doesNotMatch(script, /Remove-Item -Force \$(?:NextLink|PreviousLink|Current)/);
+  assert.doesNotMatch(script, /Move-Item \$(?:Previous|Current) /);
+  assert.doesNotMatch(script, /Remove-Item -Force \$(?:Previous|Current)/);
   assert.doesNotMatch(script, /\[IO\.Directory\]::Move/);
 });
 
-test("generated Windows junction cutover preserves stable current path", { skip: process.platform !== "win32" }, () => {
-  const root = mkdtempSync(join(tmpdir(), "rightrelease junction cutover-"));
-  const versionRoot = join(root, "versions", "0.1.0-test");
-  const next = join(root, ".current-next");
+test("generated Windows in-place cutover keeps the fixed current path and one current.previous", { skip: process.platform !== "win32" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "rightrelease in place cutover-"));
   const current = join(root, "current");
+  const staging = join(root, "current.staging");
   const script = renderPowerShellBootstrap({
     product: "membrane",
     repository: "Orthic-Labs/membrane",
@@ -161,21 +162,24 @@ test("generated Windows junction cutover preserves stable current path", { skip:
     statusArgs: ["activate", "--install-root", "{current}", "--dry-run"],
     expectedStatusKind: "membrane-status",
   });
-  const cutover = script.split(/\r?\n/).find((line) => line.includes("Rename-Item -LiteralPath $NextLink"));
-  assert.ok(cutover, "generated bootstrap must contain native junction rename");
+  const cutover = script.split(/\r?\n/).find((line) => line.includes("Rename-Item -LiteralPath $Staging"));
+  assert.ok(cutover, "generated bootstrap must contain the in-place rename");
   try {
+    const q = (value) => `'${value.replaceAll("'", "''")}'`;
     const command = [
-      `$VersionRoot='${versionRoot.replaceAll("'", "''")}'`,
-      `$NextLink='${next.replaceAll("'", "''")}'`,
-      `$Current='${current.replaceAll("'", "''")}'`,
-      "$PreviousLink=Join-Path (Split-Path -Parent $Current) '.current-previous'",
+      `$Current=${q(current)}`,
+      `$Staging=${q(staging)}`,
+      "$Previous=Join-Path (Split-Path -Parent $Current) 'current.previous'",
       "$PriorDetached=$false; $Switched=$false",
-      "New-Item -ItemType Directory -Force -Path $VersionRoot | Out-Null",
-      "Set-Content -LiteralPath (Join-Path $VersionRoot 'probe.txt') -Value 'ok'",
-      "New-Item -ItemType Junction -Path $NextLink -Target $VersionRoot | Out-Null",
+      "New-Item -ItemType Directory -Force -Path $Current | Out-Null",
+      "Set-Content -LiteralPath (Join-Path $Current 'probe.txt') -Value 'old'",
+      "New-Item -ItemType Directory -Force -Path $Staging | Out-Null",
+      "Set-Content -LiteralPath (Join-Path $Staging 'probe.txt') -Value 'new'",
       cutover,
-      "if ((Get-Item -Force -LiteralPath $Current).LinkType -ne 'Junction') { exit 2 }",
-      "if ((Get-Content -Raw -LiteralPath (Join-Path $Current 'probe.txt')).Trim() -ne 'ok') { exit 3 }",
+      "if ((Get-Item -Force -LiteralPath $Current).LinkType) { exit 2 }",
+      "if ((Get-Content -Raw -LiteralPath (Join-Path $Current 'probe.txt')).Trim() -ne 'new') { exit 3 }",
+      "if ((Get-Content -Raw -LiteralPath (Join-Path $Previous 'probe.txt')).Trim() -ne 'old') { exit 4 }",
+      "if (Test-Path -LiteralPath $Staging) { exit 5 }",
     ].join("; ");
     const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", command], { encoding: "utf8", windowsHide: true });
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -217,9 +221,11 @@ test("opt-in local release root reuses verified install transaction without netw
   assert.equal((script.match(/Invoke-WebRequest/g) ?? []).length, 1);
   assert.ok(script.indexOf("Test-FileCatalog") < script.indexOf("$Manifest ="));
   assert.ok(script.indexOf("$Manifest =") < script.indexOf("if (-not $Version) { $Version = [string]$Manifest.version }"));
-  assert.ok(script.indexOf("Archive checksum mismatch") < script.indexOf("New-Item -ItemType Junction"));
-  assert.ok(script.indexOf("SBOM checksum mismatch") < script.indexOf("New-Item -ItemType Junction"));
-  assert.ok(script.indexOf("New-Item -ItemType Junction") < script.indexOf("Activation failed"));
+  assert.ok(script.indexOf("Archive checksum mismatch") < script.indexOf("Move-Item $Stage $Staging"));
+  assert.ok(script.indexOf("SBOM checksum mismatch") < script.indexOf("Move-Item $Stage $Staging"));
+  assert.ok(script.indexOf("Move-Item $Stage $Staging") < script.indexOf("Activation failed"));
+  // Nothing runs from the staging path: the preflight runs at the fixed current path, after the swap.
+  assert.ok(script.indexOf("Rename-Item -LiteralPath $Staging") < script.indexOf("Activation preflight failed"));
   assert.ok(script.indexOf("Activation failed") < script.indexOf("Prior health was not restored"));
   const scriptPath = join(mkdtempSync(join(tmpdir(), "rightrelease-local-ps-")), "install.ps1");
   writeFileSync(scriptPath, script);

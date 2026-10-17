@@ -613,6 +613,55 @@ impl Store {
             .collect())
     }
 
+    /// Install shared runtime `kind` at `version` IN PLACE at the one fixed path
+    /// `<tools root>/<kind>/current` (see [`crate::suite::paths::shared_runtime_current_dir_at`]) and
+    /// return it; load the runtime from there, never from `<kind>/<version>`. The version's files are
+    /// copied to `current.staging` (nothing runs from it), the old `current` is renamed to the single
+    /// kept `current.previous` (replacing any older one; rename it back to roll back), and the staging
+    /// copy is renamed into place. A failure renames `current.previous` back. Idempotent: when
+    /// `current` already holds identical files nothing is touched. The version directory must exist
+    /// (installed by [`Store::install`] and friends). A platform that still has the runtime loaded
+    /// from `current` can refuse the rename; that is returned as `Io` with `current` unchanged.
+    pub fn activate_shared_runtime(&self, kind: &str, version: &str) -> Result<PathBuf> {
+        let (kind, version) = crate::suite::paths::parse_shared_runtime(kind, version)?;
+        let tools = self.tools_root();
+        let source = crate::suite::paths::tool_dir_at(&tools, &kind, &version);
+        if !fs::symlink_metadata(&source).is_ok_and(|m| m.file_type().is_dir()) {
+            return Err(Error::new(
+                ErrorCode::NotFound,
+                format!(
+                    "shared runtime {kind}@{version} is not installed at {}",
+                    source.display()
+                ),
+            ));
+        }
+        let kind_dir = tools.join(&kind);
+        let current = kind_dir.join(crate::suite::paths::SHARED_RUNTIME_CURRENT);
+        let previous = kind_dir.join(crate::suite::paths::SHARED_RUNTIME_PREVIOUS);
+        let staging = kind_dir.join(crate::suite::paths::SHARED_RUNTIME_STAGING);
+        if dirs_identical(&source, &current)? {
+            return Ok(current);
+        }
+        remove_tree(&staging)?;
+        copy_tree(&source, &staging)?;
+        let moved_aside = fs::symlink_metadata(&current).is_ok();
+        let swapped = (|| -> Result<()> {
+            if moved_aside {
+                remove_tree(&previous)?;
+                fs::rename(&current, &previous).map_err(|e| Error::io(current.display(), e))?;
+            }
+            fs::rename(&staging, &current).map_err(|e| Error::io(current.display(), e))
+        })();
+        if let Err(error) = swapped {
+            if moved_aside && fs::symlink_metadata(&current).is_err() && previous.exists() {
+                let _ = fs::rename(&previous, &current);
+            }
+            let _ = remove_tree(&staging);
+            return Err(error);
+        }
+        Ok(current)
+    }
+
     /// Remove `<tools root>/<kind>/<version>` directories that no app
     /// references, considering only the listed `kinds` (a tool kind never
     /// registered, such as one installed by an app that does not use refs, is
@@ -657,7 +706,8 @@ impl Store {
                 else {
                     continue;
                 };
-                if ModelId::parse(&version).is_err()
+                if crate::suite::paths::is_shared_runtime_fixed_name(&version)
+                    || ModelId::parse(&version).is_err()
                     || !real_dir(&version_dir)
                     || referenced.contains(&format!("{kind}@{version}"))
                 {
@@ -1019,6 +1069,69 @@ pub(crate) fn is_link(p: &Path) -> bool {
 /// Delete `path` without ever following a symlink: a link (at the root of the
 /// removal) is unlinked; real trees go through `remove_dir_all`, which does
 /// not traverse links either. Missing paths are fine.
+/// Copy a directory tree (regular files and directories only; anything else is refused).
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to).map_err(|e| Error::io(to.display(), e))?;
+    for entry in fs::read_dir(from).map_err(|e| Error::io(from.display(), e))? {
+        let entry = entry.map_err(|e| Error::io(from.display(), e))?;
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        let kind = entry.file_type().map_err(|e| Error::io(src.display(), e))?;
+        if kind.is_dir() {
+            copy_tree(&src, &dst)?;
+        } else if kind.is_file() {
+            fs::copy(&src, &dst).map_err(|e| Error::io(src.display(), e))?;
+        } else {
+            return Err(Error::new(
+                ErrorCode::InvalidSpec,
+                format!(
+                    "shared runtime tree holds a non-regular entry: {}",
+                    src.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// True when `b` is a real directory holding exactly the entries of `a` with identical bytes.
+fn dirs_identical(a: &Path, b: &Path) -> Result<bool> {
+    if !fs::symlink_metadata(b).is_ok_and(|m| m.file_type().is_dir()) {
+        return Ok(false);
+    }
+    let entries = |dir: &Path| -> Result<BTreeMap<std::ffi::OsString, bool>> {
+        let mut out = BTreeMap::new();
+        for entry in fs::read_dir(dir).map_err(|e| Error::io(dir.display(), e))? {
+            let entry = entry.map_err(|e| Error::io(dir.display(), e))?;
+            let is_dir = entry
+                .file_type()
+                .map_err(|e| Error::io(dir.display(), e))?
+                .is_dir();
+            out.insert(entry.file_name(), is_dir);
+        }
+        Ok(out)
+    };
+    let (left, right) = (entries(a)?, entries(b)?);
+    if left != right {
+        return Ok(false);
+    }
+    for (name, is_dir) in left {
+        let (x, y) = (a.join(&name), b.join(&name));
+        let same = if is_dir {
+            dirs_identical(&x, &y)?
+        } else {
+            match (sha256_file(&x), sha256_file(&y)) {
+                (Ok(h1), Ok(h2)) => h1 == h2,
+                _ => false,
+            }
+        };
+        if !same {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub(crate) fn remove_tree(path: &Path) -> Result<()> {
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,

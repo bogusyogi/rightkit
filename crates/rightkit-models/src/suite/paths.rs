@@ -262,12 +262,49 @@ pub fn shared_runtime_dir_at(
     Ok(tool_dir_at(tools_root, &kind, &version))
 }
 
+/// Names under `<tools>/<kind>/` that belong to the fixed in-place runtime path, never to a version.
+pub const SHARED_RUNTIME_CURRENT: &str = "current";
+pub const SHARED_RUNTIME_PREVIOUS: &str = "current.previous";
+pub const SHARED_RUNTIME_STAGING: &str = "current.staging";
+
+/// True for the fixed in-place runtime names (`current`, `current.previous`, `current.staging`).
+pub fn is_shared_runtime_fixed_name(name: &str) -> bool {
+    matches!(
+        name,
+        SHARED_RUNTIME_CURRENT | SHARED_RUNTIME_PREVIOUS | SHARED_RUNTIME_STAGING
+    )
+}
+
+/// The ONE path a shared runtime is loaded from: `<tools root>/<kind>/current`. A runtime library
+/// (for example the ONNX Runtime dylib) must be loaded from here, never from
+/// `<kind>/<version>`: macOS and Windows tie privacy grants to the path the code runs from, and a
+/// per-version folder is a new path on every update. Use [`crate::Store::activate_shared_runtime`]
+/// to install a version here in place.
+pub fn shared_runtime_current_dir_at(
+    tools_root: &Path,
+    kind: &str,
+) -> crate::error::Result<PathBuf> {
+    let kind = crate::spec::parse_shared_kind(kind)?;
+    Ok(tools_root.join(kind).join(SHARED_RUNTIME_CURRENT))
+}
+
+/// As [`shared_runtime_current_dir_at`], under the suite tools root.
+pub fn shared_runtime_current_dir(kind: &str) -> crate::error::Result<PathBuf> {
+    shared_runtime_current_dir_at(&tools_root(), kind)
+}
+
 /// Validate a shared-runtime `(kind, version)` pair as safe path segments.
 pub(crate) fn parse_shared_runtime(
     kind: &str,
     version: &str,
 ) -> crate::error::Result<(String, String)> {
     let kind = crate::spec::parse_shared_kind(kind)?;
+    if is_shared_runtime_fixed_name(version) {
+        return Err(crate::error::Error::new(
+            crate::error::ErrorCode::InvalidSpec,
+            format!("shared-runtime version {version:?} is reserved for the fixed in-place path"),
+        ));
+    }
     let version = crate::ids::ModelId::parse(version).map_err(|_| {
         crate::error::Error::new(
             crate::error::ErrorCode::InvalidSpec,

@@ -1,7 +1,7 @@
 import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
@@ -9,7 +9,9 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
-import { readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
+import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
+import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.mjs";
+import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
@@ -71,6 +73,7 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
   } else if (target.install?.kind === "adb") {
     if (platform !== "android") throw new Error("the adb development installer is for --platform android");
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
+  validateStageEntries(target.stage, `development.targets.${platform}.stage`);
   if (platform === "android") return { ...target, ...validateAndroidDevelopment(target, { root }) };
   return target;
 }
@@ -96,9 +99,13 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
     for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
-    if (buildOnly || !target.install) return { built: true, installed: false };
+    // Dev and QA binaries run from one stable staged path, copied in place (<name>.previous kept), never from the
+    // broker's per-generation target folder or a hashed dev-targets folder.
+    const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
+    for (const file of staged) console.log(`right-release dev: staged ${file}`);
+    if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
     const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs, serial });
-    return { built: true, installed: true, ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
+    return { built: true, installed: true, ...(staged.length ? { staged } : {}), ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
   } finally { lease.release(); }
 }
 
@@ -119,6 +126,9 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null,
     // was running, pass /R so the installer relaunches it as the user (RunAsUser, outside this process tree).
     const running = isWindowsProcessRunning(path.basename(descriptor.expectedInstalledPath), { run });
     if (running) console.log(`right-release dev: ${descriptor.productName} is running; the installer will close it and relaunch it`);
+    // The silent installer updates the fixed path in place. Keep the copy it replaces once, as <exe>.previous (never run).
+    const installedBefore = path.resolve(root, descriptor.expectedInstalledPath);
+    if (existsSync(installedBefore) && statSync(installedBefore).isFile()) copyFileSync(installedBefore, previousPathOf(installedBefore));
     const result = run(app, windowsInstallerArguments({ running }), { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
     if (result.status !== 0) throw new Error(`development installer failed (${result.status}): ${app}`);
     const installed = path.resolve(root, descriptor.expectedInstalledPath);
@@ -126,21 +136,24 @@ function install(descriptor, { root, platform, config, env, run, sinceMs = null,
     return;
   }
   const app = resolveTauriArtifact(descriptor, { root, platform, env });
-  const destination = path.resolve(descriptor.destination ?? path.join("/Applications", path.basename(app)));
-  const destinationRoot = path.dirname(destination);
-  mkdirSync(destinationRoot, { recursive: true });
-  const staging = `${destination}.rightkit-dev-${process.pid}`;
-  const backup = `${destination}.rightkit-backup-${process.pid}`;
+  // One fixed install path per app: macOS keys privacy grants to it. No /Applications/<name> guess.
+  if (!descriptor.destination) throw new DevelopmentInstallError("DEV_INSTALL_DESTINATION_REQUIRED", "development.targets.mac.install.destination is required: the one fixed path this app installs to (for example /Applications/<Product>.app)");
+  const destination = path.resolve(descriptor.destination);
+  mkdirSync(path.dirname(destination), { recursive: true });
+  // Fixed staging name (not per-pid): the copy is signed and verified here, then renamed into place. Nothing runs from it.
+  const staging = stagingPathOf(destination);
+  const previous = previousPathOf(destination);
   rmSync(staging, { recursive: true, force: true });
-  rmSync(backup, { recursive: true, force: true });
   cpSync(app, staging, { recursive: true, verbatimSymlinks: true });
   let signing;
   let executableName;
   try {
     signing = signMacosDevelopmentBundle({ root, bundle: staging, descriptor, config, env, run });
+    // Same identity as the installed copy, or fail: a changed designated requirement resets every privacy grant.
+    if (!signing.adhoc && existsSync(destination)) assertStableDesignatedRequirement({ root, installed: destination, expected: signing.designatedRequirement, env, run });
     executableName = readBundleExecutable(staging, { root, env, run });
   } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
-  swapInstalledMacosBundle({ staging, destination, backup, executableName });
+  swapInstalledMacosBundle({ staging, destination, previous, executableName });
   if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
   if (signing.adhoc) console.log(`right-release dev: installed ${destination}; signing=ci-adhoc (ad hoc signed on a CI runner; NOT a release artifact); signature=adhoc; TeamIdentifier=none`);
   else console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}; designated=${signing.designatedRequirement}`);
@@ -151,15 +164,15 @@ export class DevelopmentInstallError extends Error {
   constructor(code, message) { super(message); this.name = "DevelopmentInstallError"; this.code = code; }
 }
 
-const NODE_FS = { existsSync, readFileSync, renameSync, rmSync, statSync };
+const NODE_FS = { existsSync, lstatSync, mkdirSync, copyFileSync, readFileSync, renameSync, rmSync, statSync };
 
 /**
- * Move the signed staging bundle into place and verify it before the previous app's backup is removed: Info.plist exists and
+ * Move the signed staging bundle into place, keeping the previous app as `<destination>.previous`, and verify it: Info.plist exists and
  * the installed main executable (`executableName`, the staged CFBundleExecutable read through plutil by the caller) exists with the same SHA-256 as the staged one. Any failure removes the
- * new install, restores the backup and throws a DevelopmentInstallError (code DEV_INSTALL_VERIFICATION_FAILED,
+ * new install, renames `.previous` back and throws a DevelopmentInstallError (code DEV_INSTALL_VERIFICATION_FAILED,
  * DEV_INSTALL_EXECUTABLE_MISSING or DEV_INSTALL_EXECUTABLE_MISMATCH). `fs` is the file-system seam (tests inject it).
  */
-export function swapInstalledMacosBundle({ staging, destination, backup, executableName, fs = NODE_FS }) {
+export function swapInstalledMacosBundle({ staging, destination, previous = previousPathOf(destination), executableName, fs = NODE_FS }) {
   if (typeof executableName !== "string" || !executableName) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", "swapInstalledMacosBundle requires the staged CFBundleExecutable name");
   const executable = path.join("Contents", "MacOS", executableName);
   const digest = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -169,23 +182,18 @@ export function swapInstalledMacosBundle({ staging, destination, backup, executa
     fs.rmSync(staging, { recursive: true, force: true });
     throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISSING", `staged app has no main executable ${executable}: ${staging} (${error.message})`);
   }
-  let backedUp = false;
-  try {
-    if (fs.existsSync(destination)) { fs.renameSync(destination, backup); backedUp = true; }
-    fs.renameSync(staging, destination);
-    if (!fs.existsSync(path.join(destination, "Contents", "Info.plist"))) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", `installed app verification failed: ${destination}`);
-    const installed = path.join(destination, executable);
-    let actual;
-    try { actual = digest(installed); }
-    catch { throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISSING", `installed app verification failed: main executable ${executable} is missing in ${destination}`); }
-    if (actual !== expected) throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISMATCH", `installed app verification failed: ${executable} SHA-256 ${actual} does not match the staged ${expected}`);
-    if (backedUp) fs.rmSync(backup, { recursive: true, force: true });
-  } catch (error) {
-    fs.rmSync(destination, { recursive: true, force: true });
-    if (backedUp && fs.existsSync(backup)) fs.renameSync(backup, destination);
-    fs.rmSync(staging, { recursive: true, force: true });
-    throw error;
-  }
+  // The old app becomes `<destination>.previous` (replacing any older one) and stays there for rollback; any failure renames it back.
+  swapInPlace({
+    staging, destination, previous, fs,
+    verify: () => {
+      if (!fs.existsSync(path.join(destination, "Contents", "Info.plist"))) throw new DevelopmentInstallError("DEV_INSTALL_VERIFICATION_FAILED", `installed app verification failed: ${destination}`);
+      const installed = path.join(destination, executable);
+      let actual;
+      try { actual = digest(installed); }
+      catch { throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISSING", `installed app verification failed: main executable ${executable} is missing in ${destination}`); }
+      if (actual !== expected) throw new DevelopmentInstallError("DEV_INSTALL_EXECUTABLE_MISMATCH", `installed app verification failed: ${executable} SHA-256 ${actual} does not match the staged ${expected}`);
+    },
+  });
 }
 
 export function resolveTauriArtifact(descriptor, { root, platform, env = process.env, runCargo = runCargoSync }) {

@@ -46,7 +46,7 @@ impl Mode {
 
 #[derive(Debug, Clone)]
 pub struct LaunchSpec {
-    /// A `.app` bundle, or a plain executable (wrapped into a throwaway bundle on macOS).
+    /// A `.app` bundle, or a plain executable (wrapped into a bundle at a fixed per-app path on macOS, replaced in place with `.previous` kept).
     pub binary: PathBuf,
     pub mode: Mode,
     pub env: Vec<(String, String)>,
@@ -653,6 +653,31 @@ pub fn resolve_bundle_executable(bundle: &Path) -> Option<String> {
     Some(exe.to_string_lossy().into_owned())
 }
 
+/// Fixed bundle id suffix for a raw QA binary: one id per app, the same on every run
+/// (`app.rightkit.qa.<name>`). macOS keys privacy grants to the bundle id and path, so neither may change
+/// per run or per build.
+#[cfg(target_os = "macos")]
+fn qa_bundle_suffix(exe: &str) -> String {
+    exe.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect()
+}
+
+/// The fixed per-app folder QA bundles are staged in: `<home base>/rightkit-qa-apps/<app>/`, outside the
+/// per-run home (which is deleted with the run) and outside the swept `rightkit-qa` homes. The same path
+/// on every run; bundles are replaced in place there and keep `<name>.app.previous`.
+#[cfg(target_os = "macos")]
+fn fixed_bundle_dir(name: &str) -> Result<PathBuf> {
+    let dir = crate::storage::home_base()
+        .join("rightkit-qa-apps")
+        .join(qa_bundle_suffix(name));
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Build the bundle for a raw binary at its fixed path `<dir>/<exe>.app` with the fixed id. Written to a
+/// staging bundle first (nothing runs from it) and renamed in place, keeping `<exe>.app.previous`; a build
+/// whose executable and Info.plist already match is reused untouched.
 #[cfg(target_os = "macos")]
 fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<PathBuf> {
     let exe = binary
@@ -660,14 +685,8 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
         .and_then(|n| n.to_str())
         .ok_or_else(|| Error("binary has no file name".into()))?;
     let app = dir.join(format!("{exe}.app"));
-    let macos = app.join("Contents").join("MacOS");
-    fs::create_dir_all(&macos)?;
-    let target = macos.join(exe);
-    let _ = fs::remove_file(&target);
     let abs = fs::canonicalize(binary)
         .map_err(|e| Error(format!("app binary not found: {}: {e}", binary.display())))?;
-    // Copy into internal storage; never launch a link back to the build volume.
-    fs::copy(&abs, &target)?;
     // Background fixtures must be non-activating before AppKit creates any window.
     let ui_element = if background {
         "<key>LSUIElement</key><true/>\n"
@@ -677,34 +696,62 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
     let plist = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleExecutable</key><string>{exe}</string>\n<key>CFBundleIdentifier</key><string>app.rightkit.qa.{id}</string>\n<key>CFBundleName</key><string>{exe}</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleVersion</key><string>1</string>\n{ui_element}</dict></plist>\n"
     );
-    fs::write(app.join("Contents").join("Info.plist"), plist)?;
+    let installed_exe = app.join("Contents").join("MacOS").join(exe);
+    let installed_plist = app.join("Contents").join("Info.plist");
+    if crate::inplace::same_bytes(&abs, &installed_exe)
+        && fs::read_to_string(&installed_plist).is_ok_and(|p| p == plist)
+    {
+        return Ok(app);
+    }
+    let staging = crate::inplace::staging_path(&app);
+    let _ = fs::remove_dir_all(&staging);
+    let macos = staging.join("Contents").join("MacOS");
+    fs::create_dir_all(&macos)?;
+    // Copy into internal storage; never launch a link back to the build volume.
+    fs::copy(&abs, macos.join(exe))?;
+    fs::write(staging.join("Contents").join("Info.plist"), plist)?;
+    crate::inplace::swap_in_place(&staging, &app)?;
     Ok(app)
 }
 
+/// Stage the app bundle at its FIXED per-app path (never a per-run folder, never a per-run bundle id) and
+/// return it. Replaced in place with `<name>.app.previous` kept; nothing is ever launched from `.previous`.
 #[cfg(target_os = "macos")]
-fn stage_bundle(spec: &LaunchSpec, ws: &QaWorkspace, id: &str) -> Result<PathBuf> {
-    let dir = ws.home.join("apps").join(id);
-    fs::create_dir_all(&dir)?;
+fn stage_bundle(spec: &LaunchSpec, _ws: &QaWorkspace, _id: &str) -> Result<PathBuf> {
     if spec.binary.extension().is_some_and(|e| e == "app") {
         let source = fs::canonicalize(&spec.binary)?;
-        let bundle = dir.join(
-            source
-                .file_name()
-                .ok_or_else(|| Error("bundle has no file name".into()))?,
-        );
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| Error("bundle has no file name".into()))?;
+        let dir = fixed_bundle_dir(&file_name.to_string_lossy().trim_end_matches(".app"))?;
+        let bundle = dir.join(file_name);
+        let staging = crate::inplace::staging_path(&bundle);
+        let _ = fs::remove_dir_all(&staging);
         // Preserve bundle resources, framework links, permissions & signatures.
         let status = crate::process::status_bounded(
-            Command::new("/usr/bin/ditto").arg(&source).arg(&bundle),
+            Command::new("/usr/bin/ditto").arg(&source).arg(&staging),
             Duration::from_secs(300),
         )?
         .ok_or_else(|| Error("app bundle staging (ditto) did not finish within 300s".into()))?;
         if !status.success() {
+            let _ = fs::remove_dir_all(&staging);
             return err(format!("app bundle staging failed: {status}"));
         }
-        check_bundle_links(&bundle, &bundle)?;
+        if let Err(e) = check_bundle_links(&staging, &staging) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+        crate::inplace::swap_in_place(&staging, &bundle)?;
         Ok(bundle)
     } else {
-        make_bundle(&dir, &spec.binary, &id[..8], spec.mode != Mode::Visible)
+        let exe = spec
+            .binary
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| Error("binary has no file name".into()))?;
+        let suffix = qa_bundle_suffix(exe);
+        let dir = fixed_bundle_dir(exe)?;
+        make_bundle(&dir, &spec.binary, &suffix, spec.mode != Mode::Visible)
     }
 }
 
@@ -1708,12 +1755,37 @@ mod launch_path_tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn raw_binary_and_supplied_bundle_are_staged_inside_app_home_before_open() {
+    fn raw_binary_and_supplied_bundle_are_staged_at_a_fixed_path_before_open() {
         let (ws, mut spec) = fixture();
         let id = "1234567890abcdef";
         let bundle = stage_bundle(&spec, &ws, id).unwrap();
-        assert!(bundle.starts_with(ws.home.join("apps")));
-        assert!(!bundle.starts_with(&ws.root));
+        // One fixed path and one fixed bundle id per app, never a per-run folder or id.
+        assert_eq!(
+            bundle,
+            crate::storage::home_base()
+                .join("rightkit-qa-apps/control-test-app/control-test-app.app")
+        );
+        assert!(!bundle.starts_with(&ws.home) && !bundle.starts_with(&ws.root));
+        let again = stage_bundle(&spec, &ws, "fedcba0987654321").unwrap();
+        assert_eq!(again, bundle);
+        let plist_text = fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap();
+        assert!(plist_text.contains("<string>app.rightkit.qa.control-test-app</string>"));
+        assert!(!bundle.with_file_name("control-test-app.app.previous").exists());
+        // A different build replaces the bundle in place and keeps exactly one `.previous`.
+        fs::write(&spec.binary, "second build").unwrap();
+        let next = stage_bundle(&spec, &ws, "0123456789abcdef").unwrap();
+        assert_eq!(next, bundle);
+        assert_eq!(
+            fs::read(bundle.join("Contents/MacOS/control-test-app")).unwrap(),
+            b"second build"
+        );
+        let previous = bundle.with_file_name("control-test-app.app.previous");
+        assert_eq!(
+            fs::read(previous.join("Contents/MacOS/control-test-app")).unwrap(),
+            b"fixture binary"
+        );
+        fs::write(&spec.binary, "fixture binary").unwrap();
+        let bundle = stage_bundle(&spec, &ws, id).unwrap();
         assert_eq!(
             fs::read(bundle.join("Contents/MacOS/control-test-app")).unwrap(),
             b"fixture binary"
@@ -1752,7 +1824,7 @@ mod launch_path_tests {
         )
         .unwrap();
         let supplied = stage_bundle(&spec, &ws, "fedcba0987654321").unwrap();
-        assert!(supplied.starts_with(&ws.home));
+        assert!(!supplied.starts_with(&ws.home));
         assert_ne!(supplied, spec.binary);
         assert_eq!(
             fs::read_to_string(supplied.join("Contents/Resources/fixture.txt")).unwrap(),
@@ -1767,6 +1839,9 @@ mod launch_path_tests {
             .unwrap_err()
             .0
             .contains("escapes internal bundle"));
+        let _ = fs::remove_dir_all(
+            crate::storage::home_base().join("rightkit-qa-apps/control-test-app"),
+        );
         cleanup(&ws);
     }
 }

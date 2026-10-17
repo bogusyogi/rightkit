@@ -92,39 +92,34 @@ catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=$_.Exce
     assert.equal(result.data.TimedOut, true);
   });
 
-  // `aliased`: the junctions were made through another spelling of the versions root, so their stored
-  // targets and the script's own paths name the same directories with different text (as a Windows
-  // short name does). The outcome must not change.
-  for (const aliased of [false, true]) for (const preserveActive of [false, true]) {
-  test(`${shell}: failed rollback preserves primary error and ${preserveActive ? "keeps active" : "cleans inactive"} candidate${aliased ? " (junction targets spelled another way)" : ""}`, options, () => {
+  // In place: `current` is the real install, `current.previous` the one rollback copy. A failed activation removes the new
+  // `current`, renames `current.previous` back, and still reports the original error.
+  test(`${shell}: failed activation rolls back from current.previous and preserves the primary error`, options, () => {
     const result = runProbe(shell, `
-$InstallRoot = $Root; $VersionsRoot = Join-Path $Root 'versions'
-$PriorTarget = Join-Path $VersionsRoot '1.0.0'; $VersionRoot = Join-Path $VersionsRoot '1.0.1'
-$Current = Join-Path $Root 'current'; $PreviousLink = Join-Path $Root '.current-previous'; $NextLink = Join-Path $Root '.current-next'
+$InstallRoot = $Root; $PriorTarget = Join-Path $Root 'current'
+$Current = Join-Path $Root 'current'; $Staging = Join-Path $Root 'current.staging'; $Previous = Join-Path $Root 'current.previous'
 $Work = Join-Path $Root 'work'; $Journal = Join-Path $Root 'integration-journal.json'
-New-Item -ItemType Directory -Path $PriorTarget,$VersionRoot,$Work -Force | Out-Null
-Set-Content -LiteralPath (Join-Path $PriorTarget 'keep.txt') -Value 'prior data'
+$VersionRoot = $Current
+New-Item -ItemType Directory -Path $Current,$Staging,$Work -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $Current 'keep.txt') -Value 'prior data'
+Set-Content -LiteralPath (Join-Path $Staging 'new.txt') -Value 'new data'
 Set-Content -LiteralPath $Journal -Value '{}'
-$Spelled = $VersionsRoot
-${aliased ? "$Spelled = Join-Path $Root 'versions-alias'; New-Item -ItemType Junction -Path $Spelled -Target $VersionsRoot | Out-Null" : ""}
-New-Item -ItemType Junction -Path $Current -Target (Join-Path $Spelled '1.0.0') | Out-Null
-New-Item -ItemType Junction -Path $NextLink -Target (Join-Path $Spelled '1.0.1') | Out-Null
 $Version = '1.0.1'; $PriorVersion = '1.0.0'; $PriorCliCapable = $true
+$PreflightArgs = @(); $StableExe = Join-Path $Current 'probe.exe'
 $ActivationArgsTemplate = @('activate'); $StatusArgsTemplate = @('status')
-$Switched = $false; $PriorDetached = $false; $script:Calls = 0
+$PriorWasJunction = $false; $Switched = $false; $PriorDetached = $false; $script:Calls = 0
 function Invoke-BoundedExe { $script:Calls++; if ($script:Calls -eq 1) { $Failure = New-Object System.Exception 'original activation failure'; $Failure.Data['ExitCode'] = 7; throw $Failure }; throw 'secondary rollback failure' }
-${preserveActive ? "function Remove-StableJunction { throw 'pointer restoration failure' }" : ""}
 $Transaction = $Ast.Find({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Body.Extent.Text.Contains('$StableExe =') }, $false)
 try { . ([scriptblock]::Create($Transaction.Extent.Text)); throw 'installation unexpectedly succeeded' }
-catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=@{ ExitCode=$_.Exception.Data['ExitCode']; RollbackErrors=$_.Exception.Data['RollbackErrors'] }; priorRestored=((Split-Path -Leaf ([string](Get-Item $Current).Target)) -eq '1.0.0'); priorData=([IO.File]::ReadAllText((Join-Path $PriorTarget 'keep.txt')).Trim()); candidateExists=(Test-Path $VersionRoot); workExists=(Test-Path $Work) } | ConvertTo-Json -Depth 8 -Compress)) }
+catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=@{ ExitCode=$_.Exception.Data['ExitCode']; RollbackErrors=$_.Exception.Data['RollbackErrors'] }; priorData=([IO.File]::ReadAllText((Join-Path $Current 'keep.txt')).Trim()); newDataGone=(-not (Test-Path (Join-Path $Current 'new.txt'))); previousGone=(-not (Test-Path $Previous)); stagingGone=(-not (Test-Path $Staging)); workExists=(Test-Path $Work) } | ConvertTo-Json -Depth 8 -Compress)) }
 `);
     assert.equal(result.message, "original activation failure");
     assert.equal(result.data.ExitCode, 7);
-    assert.match(JSON.stringify(result.data.RollbackErrors), preserveActive ? /pointer restoration failure.*still active/ : /secondary rollback failure/);
-    assert.equal(result.priorRestored, !preserveActive);
+    assert.match(JSON.stringify(result.data.RollbackErrors), /secondary rollback failure/);
     assert.equal(result.priorData, "prior data");
-    assert.equal(result.candidateExists, preserveActive);
+    assert.equal(result.newDataGone, true);
+    assert.equal(result.previousGone, true);
+    assert.equal(result.stagingGone, true);
     assert.equal(result.workExists, false);
   });
-  }
 }

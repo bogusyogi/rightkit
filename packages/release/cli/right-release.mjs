@@ -184,6 +184,9 @@ Commands:
   install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id <id>] [--dest /Applications]
               [--relaunch|--no-relaunch] [--json]
                                                       Verify a signed DMG, quit, replace & relaunch hidden; no UI, no osascript (macOS)
+                                                      The replaced app stays beside the fixed path as <App>.app.previous
+  install-app --installer <Setup.exe> --dest <fixed install folder> --exe <App.exe> [--json]
+                                                      Windows: run the installer in place at the fixed folder, keep <dest>.previous
   build [--platform mac|win] [--skip-checks] [--resume-from <phase>]
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]

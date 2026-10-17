@@ -248,3 +248,18 @@ export function signMacosDevelopmentBundle(options) {
     return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", designatedRequirement: designated, signedTargets: ordered.length };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
+
+/**
+ * One stable designated requirement across dev installs. macOS keys privacy grants (TCC) to the code identity, so a dev
+ * build whose designated requirement differs from the installed copy's would silently drop every grant. Fails with
+ * DEV_MAC_SIGNING_REQUIREMENT_CHANGED. An installed copy that is unsigned, ad hoc or cdhash-bound has no stable
+ * grants to keep, so it does not block the move to the stable identity.
+ */
+export function assertStableDesignatedRequirement({ root, installed, expected, env = process.env, run = spawnSync }) {
+  const result = run("codesign", ["--display", "-r-", installed], captureOptions(root, env));
+  if (result.error || result.status !== 0) return null;
+  const current = /^designated => (.+)$/m.exec(output(result))?.[1]?.trim();
+  if (!current || /cdhash/.test(current)) return null;
+  if (current !== expected) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_REQUIREMENT_CHANGED", `Installed ${installed} has designated requirement ${JSON.stringify(current)} but this dev build is signed with ${JSON.stringify(expected)}. Installing it would reset the app's macOS privacy grants. Sign with the same identity as the installed copy (the one stable Developer ID) or remove the installed app deliberately.`, { designatedRequirement: expected, installedRequirement: current });
+  return current;
+}

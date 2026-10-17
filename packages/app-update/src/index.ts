@@ -336,6 +336,8 @@ export {
 export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
 export {
   createBootProbation,
+  previousInstallPath,
+  PREVIOUS_SUFFIX,
   type BootProbation,
   type BootProbationConfig,
   type BootProbationDecision,

@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameS
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { swapInPlace } from "./in-place-install.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { addonManifestSha256, addonRoutes, canonicalAddonManifest, createAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
@@ -147,7 +148,7 @@ async function adopt(options) {
   if (!immutableAddonManifestUrl(manifest, entry.manifestUrl, entry.manifestSha256)) fail("add-on lock manifestUrl is not immutable");
   const output = path.resolve(options.output);
   const destination = path.join(output, manifest.addon);
-  const stage = `${destination}.tmp-${process.pid}`;
+  const stage = `${destination}.staging`;
   const adoptedFiles = [];
   rmSync(stage, { recursive: true, force: true }); mkdirSync(stage, { recursive: true });
   for (const file of manifest.files) {
@@ -171,19 +172,11 @@ async function adopt(options) {
     }
   }
   copyFileSync(path.join(source, "addon-manifest.json"), path.join(stage, "addon-manifest.json"));
-  // Directory rename is atomic on one filesystem. Move any previous add-on
-  // aside first, restore it if replacement fails, then clean it only after the
-  // new verified tree is in place.
-  const previous = `${destination}.previous-${process.pid}`;
+  // Directory rename is atomic on one filesystem. The previous add-on stays beside the fixed path as
+  // `<destination>.previous` (one copy, rename it back to roll back; never run from it) and is restored if
+  // replacement fails.
   mkdirSync(output, { recursive: true });
-  if (existsSync(destination)) renameSync(destination, previous);
-  try {
-    renameSync(stage, destination);
-  } catch (error) {
-    if (existsSync(previous)) renameSync(previous, destination);
-    throw error;
-  }
-  rmSync(previous, { recursive: true, force: true });
+  swapInPlace({ staging: stage, destination });
   if (temporary) rmSync(temporary, { recursive: true, force: true });
   const repoRoot = git(path.dirname(lockPath), ["rev-parse", "--show-toplevel"]);
   const receipt = path.join(repoRoot, ".right-release", "addons", "adoptions", `${manifest.addon}-${manifest.platform}.json`);
