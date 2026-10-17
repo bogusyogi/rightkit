@@ -652,7 +652,10 @@ impl Client {
         let text = serde_json::to_string(&params)
             .map_err(|e| ServiceError::new("bad_request", e.to_string()))?;
         let single_max = if max_message == 0 {
-            frame_limit.saturating_sub(64 * 1024)
+            // Leave room for the request envelope, but never more than half the frame: a host
+            // with a small frame limit still takes small calls (the margin was a flat 64 KiB,
+            // which made every call over a frame under 64 KiB `request_too_large`).
+            frame_limit - (64 * 1024).min(frame_limit / 2)
         } else {
             frame_limit / 2
         };
