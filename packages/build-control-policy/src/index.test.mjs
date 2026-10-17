@@ -347,3 +347,45 @@ test("denial message names RustRight and never RightKit's build tool", () => {
   assert.match(reason, /RustRight/);
   assert.doesNotMatch(reason, /RightKit's build tool/i);
 });
+
+// Rename: `rustright` is the sanctioned managed form; `rightkit` stays admitted during the shim transition.
+const sanctionedForms = [
+  'rustright cargo test --manifest-path /workspace/Cargo.toml', 'rustright rustc --version', 'rustright rustdoc --version',
+  'rustright.cmd cargo check', 'pnpm exec rustright cargo fmt --check', 'cd /workspace && rustright cargo check',
+  'rustright cargo test 2>&1 | tail -20', 'env PATH=/d/.rightkit-managed/agent-bin /d/.rightkit-managed/agent-bin/rustright.cmd cargo test',
+  'rightkit cargo test', 'rightkit.cmd cargo check', 'rustright remote windows cargo test', 'rustright remote mac cargo test',
+  '/d/.rightkit-managed/agent-bin/rightkit.cmd cargo check', '/d/.rightkit-managed/agent-bin/rustright.cmd cargo check',
+  '/Users/a/Library/RightKitManagedAgent/agent-bin/rustright cargo test',
+];
+const rejectedForms = [
+  'rustright cargo -- test && cargo test', 'rustright cargo -- $(cargo test)', 'rustright cargo test | rustdoc x.rs',
+  'env PATH=/tmp rustright cargo test', 'rustright remote linux cargo test', 'cargo test',
+];
+test('rustright and rightkit are both sanctioned managed forms', () => {
+  for (const command of sanctionedForms) assert.equal(managedBuildViolation(command), null, command);
+  for (const command of rejectedForms) assert.ok(managedBuildViolation(command), command);
+  assert.equal(claudeHookDecision({ platform: 'darwin', environment: { GITHUB_ACTIONS: 'true' }, tool_input: { command: 'rustright cargo -- test' } }).decision, 'allow');
+});
+
+test('hook messages say RustRight and suggest rustright cargo', () => {
+  const reason = claudeHookDecision({ platform: 'darwin', tool_input: { command: 'cargo build' } }).hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /rustright cargo/);
+  assert.doesNotMatch(reason, /rightkit/i);
+});
+
+// githubActionsOnlyViolation also follows the host gate: off the Mac and Dell, plain builds are the intended path.
+test('public-repo rule is skipped off the Mac and Dell, kept on them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-host-'));
+  try {
+    await setOrigin(root);
+    await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}');
+    for (const command of ['pnpm test', 'pnpm run build', 'node scripts/build.mjs']) {
+      for (const platform of ['darwin', 'win32']) {
+        assert.equal(claudeHookDecision({ platform, cwd: root, environment: {}, tool_input: { command } }).hookSpecificOutput?.permissionDecision, 'deny', `${platform} ${command}`);
+        assert.equal(clineHookDecision({ platform, cwd: root, environment: {}, command }).cancel, true, `${platform} ${command}`);
+      }
+      assert.equal(claudeHookDecision({ platform: 'linux', cwd: root, environment: {}, tool_input: { command } }).decision, 'allow', `linux ${command}`);
+      assert.equal(clineHookDecision({ platform: 'linux', cwd: root, environment: {}, command }).cancel, false, `linux ${command}`);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

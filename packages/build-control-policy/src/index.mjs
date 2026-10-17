@@ -7,7 +7,12 @@ import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from './local-de
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
 const githubActionsOnly = 'github-actions-only';
 const dynamicOperation = /(?:^|[:_-])(?:compile|test|build|package|pack|sign|qualif(?:y|ication)|smoke|release|candidate|finalize)(?:$|[:_-])/i;
+// `rustright` is the build CLI and broker; `rightkit` stays admitted as the shim during the rename.
+const managedCli = new Set(['rustright', 'rightkit']);
 const basename = (value) => value.replace(/\\/g, '/').split('/').pop().replace(/\.(?:exe|cmd)$/i, '').toLowerCase();
+// The bare entrypoint name, or the same binary inside the trusted agent-bin directory.
+const entrypointName = /^(?:rustright|rightkit)(?:\.(?:cmd|exe))?$/i;
+const managedEntrypoint = (word) => entrypointName.test(word) || entrypointName.test(word.replace(/^.*[\\/]/, '')) && trustedAgentPath(word);
 const trustedAgentPath = (value) => /(?:\.rightkit-managed|rightkitmanagedagent)[\\/]agent-bin/i.test(value);
 
 function heredocOpeners(line) {
@@ -249,7 +254,7 @@ function dynamicInvocation(argv) {
   const name = basename(argv[0] ?? '');
   if (toolName(name)) return name;
   if (name === 'rustup') return rustupTool(argv) ? 'rustup' : null;
-  if (name === 'rightkit') {
+  if (managedCli.has(name)) {
     const args = argv[1] === 'remote' ? argv.slice(3) : argv.slice(1);
     return toolName(args[0]);
   }
@@ -373,7 +378,7 @@ export function githubActionsOnlyViolation(command, { cwd = process.cwd(), envir
     if (resolve(cwd) === policy.root && /^pnpm(?:\.cmd)? --dir apps[\\/]membrane-hub run release:build:win:unsigned$/.test(text)) return null;
     if (resolve(cwd) === hub && (/^pnpm(?:\.cmd)? run release:build:win:unsigned$/.test(text)
       || /^node scripts[\\/]release-build-windows\.mjs --unsigned$/.test(text))) return null;
-    const managed = /^(?:pnpm(?:\.cmd)? exec )?rightkit(?:\.cmd)? (cargo|rustc|rustdoc) (.+)$/.exec(text);
+    const managed = /^(?:pnpm(?:\.cmd)? exec )?(?:rustright|rightkit)(?:\.cmd)? (cargo|rustc|rustdoc) (.+)$/.exec(text);
     if (managed) {
       const argv = managed[2].match(/"[^"]*"|'[^']*'|[^\s]+/g)?.map((arg) => arg.replace(/^["']|["']$/g, '')) ?? [];
       if (localDevelopmentCargoAllowed({ root: policy.root, workspace: cwd, operation: managed[1], argv, platform })) return null;
@@ -390,10 +395,10 @@ export function managedBuildViolation(command) {
     if (toolName(name)) return name;
     if (name === 'rustup' && rustupTool(argv)) return 'rustup-run';
     if (name === 'alias' && argv.slice(1).some((arg) => toolName(arg.slice(arg.indexOf('=') + 1).split(/\s/)[0]))) return 'alias';
-    if (name === 'rightkit') {
+    if (managedCli.has(name)) {
       const remote = argv[1] === 'remote';
       const tool = toolName(argv[remote ? 3 : 1]);
-      if (tool && (pathRedirect || !/^rightkit(?:\.cmd)?$/i.test(argv[0]) || remote && !['windows', 'mac', 'macos'].includes(argv[2]))) return tool;
+      if (tool && (pathRedirect || !managedEntrypoint(argv[0]) || remote && !['windows', 'mac', 'macos'].includes(argv[2]))) return tool;
       if (tool) continue;
     }
     // Package-manager Cargo children inherit managed shims. Only an actual
@@ -416,9 +421,9 @@ export function rustRightManagedHost({ platform = process.platform } = {}) {
 
 function denialMessage(blocked) {
   if (blocked.startsWith('github-actions-only:')) {
-    return `[HOOK:rightkit-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions.`;
+    return `[HOOK:rustright-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions (RustRight does not run public-repository builds locally).`;
   }
-  return `[HOOK:rightkit-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight (the exact rightkit entrypoint). Cargo or rustup on another host over ssh is allowed.`;
+  return `[HOOK:rustright-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight (`rustright cargo ...`, `rustright rustc ...` or `rustright rustdoc ...`). Cargo or rustup on another host over ssh is allowed.`;
 }
 
 export function claudeHookDecision(input) {
@@ -433,19 +438,22 @@ export function claudeHookDecision(input) {
     : '';
   const inspectedCommand = composed ? composedCommands : command;
   if (desktopIntrusionViolation(inspectedCommand ?? '')) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:desktop-intrusion:block]\nWhy: ${DESKTOP_INTRUSION_REASON}` } };
-  const blocked = githubActionsOnlyViolation(inspectedCommand ?? '', {
+  const managedHost = rustRightManagedHost({ platform: input?.platform });
+  const blocked = !managedHost ? null : githubActionsOnlyViolation(inspectedCommand ?? '', {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
-  }) ?? (rustRightManagedHost({ platform: input?.platform }) ? managedBuildViolation(inspectedCommand ?? '') : null);
+    ...(input?.platform ? { platform: input.platform } : {}),
+  }) ?? managedBuildViolation(inspectedCommand ?? '');
   return blocked ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: denialMessage(blocked) } } : { decision: 'allow' };
 }
 
 export function clineHookDecision(input) {
   const command = input?.preToolUse?.parameters?.command ?? input?.tool_input?.command ?? input?.command;
-  const blocked = githubActionsOnlyViolation(command ?? '', {
+  const blocked = !rustRightManagedHost({ platform: input?.platform }) ? null : githubActionsOnlyViolation(command ?? '', {
     cwd: input?.cwd ?? input?.preToolUse?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
-  }) ?? (rustRightManagedHost({ platform: input?.platform }) ? managedBuildViolation(command ?? '') : null);
+    ...(input?.platform ? { platform: input.platform } : {}),
+  }) ?? managedBuildViolation(command ?? '');
   return blocked
     ? { cancel: true, errorMessage: denialMessage(blocked) }
     : { cancel: false };
