@@ -140,10 +140,7 @@ fn explicit_and_env_paths_win_and_missing_paths_fail_loudly() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("does not exist"), "{err}");
-    assert!(
-        err.contains("ensure_chrome_for_testing"),
-        "{err}"
-    );
+    assert!(err.contains("ensure_chrome_for_testing"), "{err}");
     assert!(err.contains("RIGHTKIT_CHROME_FOR_TESTING"), "{err}");
     assert!(rightkit_browser::chrome_for_testing_candidates()
         .iter()

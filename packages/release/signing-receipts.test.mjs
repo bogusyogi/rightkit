@@ -36,7 +36,8 @@ test("MailRight config seals current build receipts despite stale legacy & other
   fs.writeFileSync(path.join(stateRoot, "macos-signing.json"), JSON.stringify({ schema: 1, signingContract: target.signingContract, files: [{ file: path.join(root, dmg) }] }));
   const run = (cmd, args) => cmd === "/bin/launchctl" ? { status: 0, stdout: "Aqua" }
     : args[0] === "notarytool" ? { status: 0, stdout: JSON.stringify({ status: "Accepted", id: "current-build" }) } : { status: 0 };
-  notarizeMacosArtifact({ archive: path.join(root, dmg), receiptPath: path.join(stateRoot, "macos-notarization.json"), authArgs: [], run });
+  // env: {} so a host SSH session cannot route this through the live signing agent; `run` fakes the Aqua session.
+  notarizeMacosArtifact({ archive: path.join(root, dmg), receiptPath: path.join(stateRoot, "macos-notarization.json"), authArgs: [], run, env: {} });
   for (const staleRoot of [path.join(vaultRoot, "receipts"), path.join(vaultRoot, "state", "mailright-0.2.130-deadbeef", "mac")]) {
     fs.mkdirSync(staleRoot, { recursive: true });
     for (const phase of ["signing", "notarization"]) fs.writeFileSync(path.join(staleRoot, `macos-${phase}.json`), "stale receipt");

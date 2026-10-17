@@ -660,7 +660,10 @@ fn grant_sandbox_access(directory: &Path, executable: &Path) -> Result<(), Insta
     let icacls = std::env::var_os("SystemRoot")
         .map(|r| PathBuf::from(r).join("System32").join("icacls.exe"))
         .unwrap_or_else(|| PathBuf::from("icacls.exe"));
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW: icacls is a console tool; never flash a window from a GUI app.
     let status = std::process::Command::new(icacls)
+        .creation_flags(0x0800_0000)
         .arg(directory)
         .arg("/grant")
         .arg(format!("*{ALL_APPLICATION_PACKAGES}:(OI)(CI)(RX)"))
