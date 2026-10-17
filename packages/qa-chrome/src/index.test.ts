@@ -47,7 +47,8 @@ describe('resolveChromeForTesting', () => {
     touch(path.join(pup, 'mac_arm-99.0.1.2', 'chrome-mac-arm64', macExe));
     const newest = touch(path.join(pup, 'mac_arm-152.0.7977.75', 'chrome-mac-arm64', macExe));
     touch(path.join(home, 'Library', 'Caches', 'ms-playwright', 'chromium-1243', 'chrome-mac-arm64', macExe));
-    const candidates = chromeForTestingCandidates(base);
+    // The managed fixed-layout folders (current, current.previous) always lead; app installs come next.
+    const candidates = chromeForTestingCandidates(base).filter((c) => !c.includes(path.join('Orthic Labs', 'shared', 'chrome-for-testing')));
     expect(candidates.slice(0, 2)).toEqual([path.join('/Applications', macExe), path.join(home, 'Applications', macExe)]);
     expect(candidates.indexOf(newest)).toBeLessThan(candidates.findIndex((c) => c.includes('ms-playwright')));
     if (!existsSync(candidates[0])) expect(resolveChromeForTesting(base)).toBe(newest);
@@ -55,14 +56,17 @@ describe('resolveChromeForTesting', () => {
 
   it('the RightKit-managed folder wins, newest version first, over app installs and caches', () => {
     const managed = path.join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'chrome-for-testing');
-    touch(path.join(managed, '153.0.1.1', 'chrome-mac-arm64', macExe));
+    const older = touch(path.join(managed, '153.0.1.1', 'chrome-mac-arm64', macExe));
     const current = touch(path.join(managed, '155.0.8059.39', 'chrome-mac-arm64', macExe));
     const candidates = chromeForTestingCandidates(base);
-    expect(candidates[0]).toBe(current);
+    // Fixed layout first (current, current.previous), then legacy version folders newest first.
+    expect(candidates.slice(0, 4)).toEqual([
+      path.join(managed, 'current', 'chrome-mac-arm64', macExe), path.join(managed, 'current.previous', 'chrome-mac-arm64', macExe), current, older,
+    ]);
     expect(resolveChromeForTesting(base)).toBe(current);
     const custom = path.join(scratch, 'custom-root');
     const pinned = touch(path.join(custom, '154.0.1.2', 'chrome-mac-arm64', macExe));
-    expect(chromeForTestingCandidates({ ...base, env: { RIGHTKIT_CHROME_FOR_TESTING_ROOT: custom } })[0]).toBe(pinned);
+    expect(chromeForTestingCandidates({ ...base, env: { RIGHTKIT_CHROME_FOR_TESTING_ROOT: custom } })[2]).toBe(pinned);
   });
 
   it('never resolves regular Google Chrome and explains how to install', () => {
