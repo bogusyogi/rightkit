@@ -53,7 +53,7 @@ fn only_withdrawn_and_superseded_are_terminal() {
 fn every_status_appears_in_a_valid_fixture_or_is_refused_with_its_name() {
     // The superseded fixture parses, so `superseded` is accepted on the wire.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures/valid")
+        .join("../../contracts/fixtures/channel-memory/valid")
         .join("proof-bank-rev3-superseded.json");
     let text = std::fs::read_to_string(path).expect("fixture");
     let memory = parse(&text).expect("valid");

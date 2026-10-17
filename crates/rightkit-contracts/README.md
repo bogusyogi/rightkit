@@ -1,8 +1,8 @@
 # rightkit-contracts
 
-Versioned contracts for the Right Suite content pipeline (CutRight, GenRight, PostRight), the recorder, and the daemon. The crate embeds six JSON Schema (Draft 2020-12) files, validates documents against them, runs the semantic checks a schema cannot express, deserializes into typed structs, and negotiates major and minor versions.
+Versioned contracts for the Right Suite content pipeline (CutRight, GenRight, PostRight), the recorder, and the daemon. The crate embeds seven JSON Schema (Draft 2020-12) files, validates documents against them, runs the semantic checks a schema cannot express, deserializes into typed structs, and negotiates major and minor versions.
 
-Catalog capability: `content-contracts`. Publishable on crates.io (wave 2.8); the six schemas ship inside the crate under `schemas/`.
+Catalog capability: `content-contracts`. Publishable on crates.io (wave 2.8); the seven schemas ship inside the crate under `schemas/`.
 
 ## What it owns
 
@@ -14,6 +14,7 @@ Catalog capability: `content-contracts`. Publishable on crates.io (wave 2.8); th
 | `record-event` | `record-event.v1.schema.json` | 1.2.0 |
 | `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |
 | `daemon-api` | `daemon-api.v1.schema.json` | 1.0.0 |
+| `channel-memory` | `channel-memory.v1.schema.json` | 1.0.0 |
 
 The schemas are embedded with `include_str!`, so every installed engine validates against the same bytes. The crate's own schema and fixture tests check that each embedded schema is Draft 2020-12, has its `$id` and declares a version.
 

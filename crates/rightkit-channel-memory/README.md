@@ -20,7 +20,7 @@ The contract is documented in [docs/CONTRACT.md](docs/CONTRACT.md): fields, the 
 
 Catalog capability: `channel-memory`. The catalog entry is declaration-only (`rightkit-ownership.json`). The revisioned daemon storage and conflict handling belong to the daemon (RK10). This crate validates records only.
 
-The schema is still pending. The shared source lives in `rightkit/contracts-pending/channel-memory/` until RK6 is accepted into `contracts/`; the crate embeds its own copy from `schemas/` so `cargo package` ships it, and `tests/schema_copy.rs` fails if the two differ.
+The shared source lives in `rightkit/contracts/channel-memory.v1.schema.json` and is registered in `rightkit-contracts` (schema validation and version negotiation; the semantic rules stay here). The crate embeds its own copy from `schemas/` so `cargo package` ships it, and `tests/schema_copy.rs` fails if the two differ.
 
 ## When to use it
 
@@ -67,7 +67,7 @@ fn check(text: &str) -> Result<(), MemoryError> {
 }
 ```
 
-The examples in `tests/` run against `contracts-pending/channel-memory/fixtures/`. A lookup for `kids-cartoon` returns `ForeignScope`, a citation of `1420.00` returns `E_NUMBER_MISMATCH`, and a withdrawn proof returns `E_PROOF_WITHDRAWN`.
+The examples in `tests/` run against `contracts/fixtures/channel-memory/`. A lookup for `kids-cartoon` returns `ForeignScope`, a citation of `1420.00` returns `E_NUMBER_MISMATCH`, and a withdrawn proof returns `E_PROOF_WITHDRAWN`.
 
 ## Tests
 

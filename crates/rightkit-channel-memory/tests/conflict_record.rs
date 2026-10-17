@@ -13,7 +13,7 @@ const PROOF: &str = "proof.receipt-launch-week-v2";
 
 fn fixture_json() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures/valid")
+        .join("../../contracts/fixtures/channel-memory/valid")
         .join("proof-conflict-open-rev3.json");
     serde_json::from_str(&fs::read_to_string(path).expect("read fixture")).expect("fixture is JSON")
 }

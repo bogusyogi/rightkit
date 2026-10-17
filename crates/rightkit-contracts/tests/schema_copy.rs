@@ -13,6 +13,7 @@ fn embedded_schemas_equal_repository_contracts() {
         "record-event",
         "demo-plan",
         "daemon-api",
+        "channel-memory",
     ] {
         let file = format!("{name}.v1.schema.json");
         let copy = std::fs::read(root.join("schemas").join(&file)).expect("crate schema copy");

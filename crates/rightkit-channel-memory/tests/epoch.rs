@@ -9,7 +9,7 @@ const LAUNCH: &str = "proof.receipt-launch-week";
 
 fn load() -> ChannelMemory {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures/valid")
+        .join("../../contracts/fixtures/channel-memory/valid")
         .join("proof-bank-rev2.json");
     let text = fs::read_to_string(path).expect("read fixture");
     parse(&text).expect("valid fixture")

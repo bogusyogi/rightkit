@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{Contract, ContractError};
 
-static VALIDATORS: [OnceLock<Validator>; 6] = [const { OnceLock::new() }; 6];
+static VALIDATORS: [OnceLock<Validator>; 7] = [const { OnceLock::new() }; 7];
 
 /// Compiles the embedded schema once. The schemas are part of this crate's
 /// build inputs, and the test suite compiles every one, so a failure here is

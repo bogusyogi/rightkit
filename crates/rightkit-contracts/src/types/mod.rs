@@ -11,6 +11,14 @@ pub mod demo_plan;
 pub mod record_event;
 pub mod record_session;
 
+/// `channel-memory` v1 as the contracts crate sees it: the schema-validated document, untyped.
+/// The typed model and the semantic rules (proof, conflict and supersession rules) live in
+/// `rightkit-channel-memory`; this view exists so the document can be validated and negotiated
+/// here without a dependency on that crate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ChannelMemory(pub serde_json::Value);
+
 pub use content_brief::ContentBrief;
 pub use daemon_api::DaemonApi;
 pub use delivery_envelope::DeliveryEnvelope;

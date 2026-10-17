@@ -50,6 +50,9 @@ pub fn check_tree(root: &Path) -> io::Result<FixtureReport> {
     }
     for contract in Contract::ALL {
         for category in CATEGORIES {
+            if category == "semantic-invalid" && !contract.has_semantic_rules() {
+                continue;
+            }
             let directory = root.join(contract.name()).join(category);
             let mut files: Vec<_> = match fs::read_dir(&directory) {
                 Ok(entries) => entries

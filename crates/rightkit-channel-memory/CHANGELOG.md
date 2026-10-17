@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- **Schema moved to `contracts/` (#332).** The shared source is now `contracts/channel-memory.v1.schema.json` (was `contracts-pending/channel-memory/`), and the fixtures are `contracts/fixtures/channel-memory/`. `schemas/channel-memory.v1.schema.json` in this crate is byte-identical; `tests/schema_copy.rs` compares against the new path. `rightkit-contracts` 0.1.7 registers the contract. No code or schema change; the contract stays `1.0.0`.
+- Not compiled or run when written; verification is the CI run.
+
 Publishable (wave 2.8): `publish = false` is removed; the schema is copied into the crate (`schemas/`, checked by `tests/schema_copy.rs`) and embedded from there; the manifest gains `readme`, `keywords`, `categories` and `include`. The schema is pending in
 `contracts-pending/channel-memory/` and its contract version stays `1.0.0`
 under the `v1` file name and `$id`. Nothing outside this repository reads it,

@@ -19,7 +19,7 @@ const REFUND: &str = "proof.refund-rate-withdrawn";
 
 fn fixture_text(name: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures")
+        .join("../../contracts/fixtures/channel-memory")
         .join(name);
     fs::read_to_string(path).expect("read fixture")
 }

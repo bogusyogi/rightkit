@@ -40,7 +40,7 @@ pub use error::ContractError;
 pub use review::{eyes_gate, EyesGate, EYES_APPROVAL_REQUIRED};
 pub use version::{negotiate, Version};
 
-/// The six contracts defined in `rightkit/contracts/`.
+/// The seven contracts defined in `rightkit/contracts/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Contract {
     ContentBrief,
@@ -49,17 +49,21 @@ pub enum Contract {
     RecordEvent,
     DemoPlan,
     DaemonApi,
+    /// Schema and version negotiation only here; the semantic rules and typed model are in
+    /// `rightkit-channel-memory`.
+    ChannelMemory,
 }
 
 impl Contract {
     /// Every contract, in a fixed order.
-    pub const ALL: [Contract; 6] = [
+    pub const ALL: [Contract; 7] = [
         Contract::ContentBrief,
         Contract::DeliveryEnvelope,
         Contract::RecordSession,
         Contract::RecordEvent,
         Contract::DemoPlan,
         Contract::DaemonApi,
+        Contract::ChannelMemory,
     ];
 
     /// The name used in documents' `contract` field and on the command line.
@@ -71,6 +75,7 @@ impl Contract {
             Contract::RecordEvent => "record-event",
             Contract::DemoPlan => "demo-plan",
             Contract::DaemonApi => "daemon-api",
+            Contract::ChannelMemory => "channel-memory",
         }
     }
 
@@ -92,6 +97,13 @@ impl Contract {
         }
     }
 
+    /// True when this crate runs the contract's cross-field rules. `ChannelMemory` is false: its
+    /// rules run in `rightkit-channel-memory`, so its `semantic-invalid/` fixtures are checked
+    /// there and `check_tree` does not apply the semantic expectation to them.
+    pub fn has_semantic_rules(self) -> bool {
+        !matches!(self, Contract::ChannelMemory)
+    }
+
     /// The `$id` declared inside the schema file.
     pub fn schema_id(self) -> &'static str {
         match self {
@@ -101,6 +113,7 @@ impl Contract {
             Contract::RecordEvent => "urn:rightkit:contract:record-event:v1",
             Contract::DemoPlan => "urn:rightkit:contract:demo-plan:v1",
             Contract::DaemonApi => "urn:rightkit:contract:daemon-api:v1",
+            Contract::ChannelMemory => "urn:rightkit:contract:channel-memory:v1",
         }
     }
 
@@ -119,6 +132,9 @@ impl Contract {
             Contract::RecordEvent => include_str!("../schemas/record-event.v1.schema.json"),
             Contract::DemoPlan => include_str!("../schemas/demo-plan.v1.schema.json"),
             Contract::DaemonApi => include_str!("../schemas/daemon-api.v1.schema.json"),
+            Contract::ChannelMemory => {
+                include_str!("../schemas/channel-memory.v1.schema.json")
+            }
         }
     }
 
@@ -177,6 +193,7 @@ pub fn check_typed(contract: Contract, text: &str) -> Result<(), ContractError> 
         Contract::RecordEvent => parse::<types::RecordEvent>(contract, text).map(drop),
         Contract::DemoPlan => parse::<types::DemoPlan>(contract, text).map(drop),
         Contract::DaemonApi => parse::<types::DaemonApi>(contract, text).map(drop),
+        Contract::ChannelMemory => parse::<types::ChannelMemory>(contract, text).map(drop),
     }
 }
 

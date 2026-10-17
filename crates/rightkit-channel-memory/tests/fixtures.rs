@@ -1,4 +1,4 @@
-//! Every fixture under contracts-pending/channel-memory lands in the stage its
+//! Every fixture under contracts/fixtures/channel-memory lands in the stage its
 //! name promises: valid fixtures parse, schema breaks fail the schema pass,
 //! semantic breaks pass the schema and fail the semantic pass, and version
 //! breaks are refused before any schema work.
@@ -10,7 +10,7 @@ use rightkit_channel_memory::{parse, MemoryError};
 
 fn fixture_dir(category: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures")
+        .join("../../contracts/fixtures/channel-memory")
         .join(category)
 }
 

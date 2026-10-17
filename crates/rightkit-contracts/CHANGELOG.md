@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7
+
+- **`channel-memory` registered (#332).** New `Contract::ChannelMemory` (name `channel-memory`, `$id` `urn:rightkit:contract:channel-memory:v1`, supported version 1.0.0), listed in `Contract::ALL`, with the schema copied into `schemas/` (moved from `contracts-pending/channel-memory/` to `contracts/`) and checked by `tests/schema_copy.rs`. A downstream exhaustive `match` on `Contract` needs the new arm.
+- Scope of the registration: schema validation and version negotiation only. `types::ChannelMemory` is an untyped wrapper over the JSON value; the typed model and the semantic rules (proof, conflict and supersession rules) stay in `rightkit-channel-memory`. New `Contract::has_semantic_rules()` is false for it, and `fixtures::check_tree` skips its `semantic-invalid/` category (those fixtures are run by `rightkit-channel-memory/tests/fixtures.rs`).
+- Fixtures moved to `contracts/fixtures/channel-memory/`. The schema has no `examples`, so `every_schema_declares_examples_and_they_validate` skips it.
+- Tests: `channel_memory_is_registered_with_schema_and_negotiation` in `tests/contracts.rs`; the shared fixture tests now cover the valid, invalid and version-rejected channel-memory fixtures.
+- Not compiled or run when written; verification is the CI run.
+
 ## 0.1.6
 
 - **`content-brief` 1.2.0 and `delivery-envelope` 1.2.0 (minor, additive; Orthic-Labs/rightkit#335).** Both schemas gain an optional `ruleRevisionRef`, a string `<platform>:<hash>` (platform id, then 32 lowercase hex) matching the `Display` form of `rightkit-platform-rules` `RuleRevision`. The integer `ruleRevision` and `policyRevision` are unchanged and stay distinct. Documents at 1.0.0 and 1.1.0 remain valid; a 1.3.0 document is refused as a newer minor (the `minor-ahead` fixtures moved from 1.2.0 to 1.3.0).

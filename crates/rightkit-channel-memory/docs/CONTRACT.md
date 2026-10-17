@@ -1,8 +1,8 @@
 # channel-memory contract (v1)
 
-This is the published contract for `channel-memory.v1`. The schema is `schemas/channel-memory.v1.schema.json` in this crate (`SCHEMA_SOURCE` in code). Contract name `channel-memory`, contract version `1.0.0`. A consumer pins the crate version and reads the schema from the crate; it does not read `contracts-pending/`.
+This is the published contract for `channel-memory.v1`. The schema is `schemas/channel-memory.v1.schema.json` in this crate (`SCHEMA_SOURCE` in code). Contract name `channel-memory`, contract version `1.0.0`. A consumer pins the crate version and reads the schema from the crate; it does not read the repository `contracts/` directory.
 
-The shared repository copy is `contracts-pending/channel-memory/` until the contracts crate lists `channel-memory` (see Registry status). `tests/schema_copy.rs` fails when the two differ.
+The shared repository copy is `contracts/channel-memory.v1.schema.json`, which `rightkit-contracts` also lists (see Registry status). `tests/schema_copy.rs` fails when the two differ.
 
 ## What one document is
 
@@ -51,7 +51,7 @@ Codes come from `ReasonCode`. Codes beyond the PostRight contract section 5.4 ar
 ## Registry status
 
 - The crate is published on crates.io as `rightkit-channel-memory`. Pin the version listed in `CHANGELOG.md` that adds what you need.
-- The contracts crate (`rightkit-contracts`) does not yet list `channel-memory` among its contracts. Moving the schema from `contracts-pending/` into `contracts/` and registering it there is that crate's change and is tracked outside this crate.
+- `rightkit-contracts` 0.1.7 lists `channel-memory` as `Contract::ChannelMemory`: schema, `$id`, version 1.0.0 and negotiation. It does not run this crate's semantic rules or typed model; use this crate for those. The schema moved from `contracts-pending/` to `contracts/` (#332).
 
 ## Versioning
 

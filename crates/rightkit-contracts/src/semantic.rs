@@ -18,6 +18,8 @@ pub(crate) fn check(contract: Contract, document: &Value) -> Result<(), Contract
         Contract::RecordEvent => record_event(document),
         Contract::DemoPlan => demo_plan(document),
         Contract::DaemonApi => daemon_api(document),
+        // The semantic rules of channel-memory live in rightkit-channel-memory.
+        Contract::ChannelMemory => Ok(()),
     };
     outcome.map_err(|rule| ContractError::Semantic { contract, rule })
 }

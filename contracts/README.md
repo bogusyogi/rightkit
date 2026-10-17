@@ -10,6 +10,7 @@ JSON Schema (Draft 2020-12) files for the Right Suite content pipeline, recorder
 | `record-event.v1.schema.json` | record-event | 1.2.0 |
 | `demo-plan.v1.schema.json` | demo-plan | 1.0.0 |
 | `daemon-api.v1.schema.json` | daemon-api | 1.0.0 |
+| `channel-memory.v1.schema.json` | channel-memory | 1.0.0 |
 
 ## Versioning
 

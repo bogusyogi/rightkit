@@ -13,7 +13,7 @@ const B: &str = "proof.pair-b";
 
 fn fixture_value(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts-pending/channel-memory/fixtures/valid")
+        .join("../../contracts/fixtures/channel-memory/valid")
         .join(name);
     serde_json::from_str(&fs::read_to_string(path).expect("read fixture")).expect("fixture is JSON")
 }
