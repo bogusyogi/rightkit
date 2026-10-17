@@ -45,6 +45,9 @@ use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
 
 pub use rightkit_db::rusqlite;
 
+mod scope;
+pub use scope::{Scope, ScopeError};
+
 pub type Result<T> = std::result::Result<T, SpendError>;
 
 /// A ledger failure. The messages carry the amounts so a caller can show them.
