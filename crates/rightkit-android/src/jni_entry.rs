@@ -43,7 +43,7 @@ pub extern "system" fn Java_com_orthiclabs_rightkit_android_RightKitNative_nativ
                 &files_dir,
                 &cache_dir,
                 &native_library_dir,
-                debug_logging != 0,
+                debug_logging,
             );
             // Never hand a pending exception back to Kotlin: nativeInit reports through its code.
             if env.exception_check() {

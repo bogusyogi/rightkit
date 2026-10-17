@@ -56,13 +56,13 @@ mod tests {
     #[test]
     fn set_marker_is_recognised_and_clearable() {
         let _g = GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        set_event_marker(0x5055_4C53_45);
-        assert_eq!(event_marker(), 0x5055_4C53_45);
-        assert!(is_own_event(0x5055_4C53_45));
-        assert!(!is_own_event(0x5055_4C53_46));
+        set_event_marker(0x0050_554C_5345);
+        assert_eq!(event_marker(), 0x0050_554C_5345);
+        assert!(is_own_event(0x0050_554C_5345));
+        assert!(!is_own_event(0x0050_554C_5346));
         assert!(!is_own_event(0));
         set_event_marker(0);
-        assert!(!is_own_event(0x5055_4C53_45));
+        assert!(!is_own_event(0x0050_554C_5345));
     }
 
     #[test]

@@ -33,7 +33,7 @@ fn a_killed_stop_never_seals_complete_and_says_killed_in_the_bundle() {
     assert_eq!(outcome.status, BundleStatus::PartialQuarantined, "{outcome:?}");
     assert_eq!(outcome.reason.as_deref(), Some("killed"));
     assert_eq!(rec.backend().stops, 1, "the media is still finished through the helper");
-    assert_eq!(rec.status().unwrap().phase, Phase::Quarantined);
+    assert_eq!(rec.record_status().unwrap().phase, Phase::Quarantined);
 
     let manifest = read_manifest(&out);
     assert_eq!(manifest["status"], "partial_quarantined");

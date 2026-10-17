@@ -222,8 +222,8 @@ unsafe fn ax_value_from_cf(v: CFTypeRef) -> Option<AttrValue> {
             };
             (AXValueGetValue(v, 4, &mut r as *mut _ as *mut c_void) != 0).then_some(
                 AttrValue::Range {
-                    location: r.location as i64,
-                    length: r.length as i64,
+                    location: r.location,
+                    length: r.length,
                 },
             )
         }

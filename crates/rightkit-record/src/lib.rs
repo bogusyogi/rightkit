@@ -17,9 +17,10 @@
 //! manifest. The bundle is read-only after stop.
 
 // Unsafe code is forbidden in the platform-neutral core. The Windows capture
-// module talks to COM, Direct3D and Media Foundation, so it alone allows it.
-#![cfg_attr(not(windows), forbid(unsafe_code))]
-#![cfg_attr(windows, deny(unsafe_code))]
+// module talks to COM, Direct3D and Media Foundation, and the macOS module reads one
+// libSystem clock, so those two alone allow it.
+#![cfg_attr(not(any(windows, target_os = "macos")), forbid(unsafe_code))]
+#![cfg_attr(any(windows, target_os = "macos"), deny(unsafe_code))]
 
 pub mod backend;
 mod bundle;
@@ -51,6 +52,7 @@ pub mod windows;
 /// ScreenCaptureKit backend, the macOS side of the [`Backend`] seam. The capture runs in a Swift
 /// helper (`helpers/macos`); this module launches it and speaks the helper protocol.
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 pub mod macos;
 
 pub use backend::{
