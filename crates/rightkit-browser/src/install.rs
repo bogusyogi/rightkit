@@ -118,6 +118,15 @@ macro_rules! cft_chrome {
             sha256: Sha256Pin::Todo,
         }
     };
+    // Digest recorded by `scripts/chrome-pins.mjs --apply` from the real download (#267).
+    ($version:literal, $platform:literal, $sha:literal) => {
+        PinnedDownload {
+            platform: $platform,
+            kind: DownloadKind::Chrome,
+            url: cft_url!($version, $platform, "chrome"),
+            sha256: Sha256Pin::Pinned($sha),
+        }
+    };
 }
 
 /// The Chrome for Testing build this crate version installs.

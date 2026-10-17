@@ -41,12 +41,19 @@ export interface PinnedChrome {
   downloads: PinnedDownload[];
 }
 
+// TODO(#267): Google publishes no digests for Chrome for Testing. They are computed from the real archives by
+// the chrome-pins workflow and written here AND into rightkit-browser's PINNED_CHROME_FOR_TESTING by
+// `node scripts/chrome-pins.mjs --apply chrome-pins.json`. A platform with no entry here has no digest, and the
+// install refuses it. Keep the begin/end markers: the script rewrites the lines between them.
+const CHROME_SHA256: Record<string, string | undefined> = {
+  // chrome-pins:begin
+  // chrome-pins:end
+};
+
 const cft = (version: string, platform: string): PinnedDownload => ({
   platform,
   url: `https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}/chrome-${platform}.zip`,
-  // TODO(#267): Google publishes no digests for Chrome for Testing. Compute each from the archive served
-  // at `url`, record it here AND in rightkit-browser's PINNED_CHROME_FOR_TESTING, and review the change.
-  sha256: undefined,
+  sha256: CHROME_SHA256[platform],
 });
 
 /** The build this package installs; the same version and URLs as rightkit-browser's pin. */
