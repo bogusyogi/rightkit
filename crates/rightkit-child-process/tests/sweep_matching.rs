@@ -98,21 +98,23 @@ fn a_marker_finds_exactly_the_marked_child_without_signalling_it() {
 fn the_executable_path_and_the_marker_must_both_hold() {
     let marker = marker();
     let child = spawn_marked(&marker);
-    let exe = identity(&child).exe().expect("an executable path").to_owned();
-
-    let both = ProcessQuery::new().exe(&exe).arg_containing(marker.clone());
-    let found = find_processes(&both).unwrap();
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].pid(), child.id());
-
-    // The right executable alone is a broad query: only ever a dry run. It finds the child.
-    // The scan walks a live process table, so a single pass can miss a process caught mid-change
-    // on a busy host; the child is long-lived, so it must appear within a bounded wait.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let by_exe = loop {
+    // The executable path is compared as the OS reports it, and a launcher such as the macOS
+    // `/bin/sh` may re-exec after spawn, so a path read once at spawn can go stale. Each pass
+    // re-reads the child's path and queries with that, so both sides come from the same moment;
+    // the child is long-lived, so the pair must agree within a bounded wait.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (exe, by_exe) = loop {
+        let exe = identity(&child).exe().expect("an executable path").to_owned();
+        let both = ProcessQuery::new().exe(&exe).arg_containing(marker.clone());
+        let found = find_processes(&both).unwrap();
         let by_exe = find_processes(&ProcessQuery::new().exe(&exe)).unwrap();
-        if by_exe.iter().any(|found| found.pid() == child.id()) || Instant::now() >= deadline {
-            break by_exe;
+        let ok = found.len() == 1
+            && found[0].pid() == child.id()
+            && by_exe.iter().any(|found| found.pid() == child.id());
+        if ok || Instant::now() >= deadline {
+            assert_eq!(found.len(), 1, "{found:?}");
+            assert_eq!(found[0].pid(), child.id());
+            break (exe, by_exe);
         }
         thread::sleep(Duration::from_millis(50));
     };
