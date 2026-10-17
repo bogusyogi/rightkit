@@ -1,0 +1,3 @@
+# Generated at local publish time (swap-helper-bundle.mjs); never committed.
+bin/darwin/rightkit-swap
+bin/darwin/rightkit-swap.sign.json
