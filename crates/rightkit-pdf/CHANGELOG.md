@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+Additive; no existing item changes. Not compiled or run when written, so the CI run is the verification; `Cargo.lock` needs its `rightkit-pdf` entry moved to 0.3.2 (CI patch). Requested in Orthic-Labs/rightkit#282 (Ember #240).
+
+- **Document writer for new PDFs (`write`, always built).** `write::{Document, PageId, IccId, JpegInfo, WriteError, MAX_PAGE_SIDE_PT}`. `Document::new(version)` (1.0 to 1.7; 1.4 supported), `add_icc_profile`, `add_page(width_pt, height_pt)`, `place_jpeg`, `add_jpeg_page`, `finish() -> Vec<u8>`, and (feature `edit`) `write_to(path)` through `commit::write_atomic`. Full-page JPEG placement: DCTDecode, 8 bits per component, DeviceRGB, DeviceGray or `[/ICCBased n 0 R]` with an embedded profile stream (written once, shared by pages), drawn with `q w 0 0 h 0 0 cm /Im0 Do Q`. Deterministic bytes: insertion-order object numbers, classic xref table, no dates or `/Info`, `/ID` is the SHA-256 of the body. `JpegInfo::parse` reads the SOF header (baseline, extended-sequential and progressive Huffman; 1 or 3 components); CMYK, 12-bit, lossless and arithmetic JPEGs, a profile whose component count differs from the JPEG's, and ICC under PDF 1.2 or earlier are typed refusals. Streams are stored uncompressed. Not done: item 3 of the issue, vector text with an embedded subset font (Identity-H CID, ToUnicode), which stays open; `font::subset_for_pdf` and `font::build_to_unicode_cmap` are the parts to build it on. The acceptance (Ember's print, slideshow and book PDF tests green with the engine's `Pdf` swapped) is Ember's to run; this crate's own tests read the output back with `lopdf`.
+
 ## 0.3.1
 
 Additive: five features and one page-organise module, no existing item changes. 0.3.1 is the next published version. None of it has been compiled or run yet (see "Verification" in the README); `Cargo.lock` needs its `rightkit-pdf` entry moved to 0.3.1 (CI patch).

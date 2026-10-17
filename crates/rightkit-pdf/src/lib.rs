@@ -22,6 +22,7 @@
 //! | `redact`  | (feature `redact`) remove content under marks, fail closed        |
 //! | `forms`   | (feature `forms`) AcroForm fields, set values, appearances        |
 //! | `optimize`| (feature `optimize`) unused objects, measured image downsampling  |
+//! | `write`   | build a new PDF: JPEG pages, ICC profiles, page sizes (`write_to` needs `edit`) |
 
 #[cfg(feature = "edit")]
 pub mod commit;
@@ -48,5 +49,6 @@ pub mod redact;
 #[cfg(feature = "edit")]
 pub mod save;
 pub mod scan;
+pub mod write;
 #[cfg(test)]
 mod test_fixtures;
