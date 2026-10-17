@@ -128,7 +128,7 @@ export function signDevArtifact({
   // contain the refreshed files (the wrapper bundle) sign over them. Without a refresh this is one signing pass, as before.
   const signingOptions = { identity, signOne, inspect, evidence: evidenceOf, bundle: root };
   const signed = plan.before.length ? signMacosEntries(plan.before, signingOptions) : [];
-  const refreshed = refreshPlan.operations.length ? applyRefresh(refreshPlan.operations, refreshPlan.root) : [];
+  const refreshOps = refreshPlan.operations.length ? applyRefresh(refreshPlan.operations, refreshPlan.root) : [];
   if (plan.after.length) signed.push(...signMacosEntries(plan.after, signingOptions));
   const files = signed.map((record) => {
     const rel = toPosix(path.relative(root, record.file));
@@ -144,11 +144,11 @@ export function signDevArtifact({
   });
 
   // Refresh the payload metadata: every recorded hash is recomputed (a signed bundle changes its tree digest too).
-  const refreshed = before.metadata.files.map((item) => {
+  const payloadFiles = before.metadata.files.map((item) => {
     const evidence = evidenceOf(contained(root, item.path, "payload metadata path"));
     return { ...item, sha256: evidence.sha256, ...(item.sizeBytes !== undefined ? { sizeBytes: evidence.sizeBytes } : {}) };
   });
-  const metadata = { ...before.metadata, files: refreshed, signing: { contract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, teamIdentifier, signedPaths: files.map((file) => file.path) } };
+  const metadata = { ...before.metadata, files: payloadFiles, signing: { contract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, teamIdentifier, signedPaths: files.map((file) => file.path) } };
   const metadataBefore = evidenceOf(metadataFile).sha256;
   const staging = `${metadataFile}.signing`;
   writeFileSync(staging, `${JSON.stringify(metadata, null, 2)}\n`);
@@ -158,7 +158,7 @@ export function signDevArtifact({
   const result = {
     schema: DEV_ARTIFACT_EVIDENCE_SCHEMA, signingContract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, teamIdentifier, notarized: false, built: false, published: false,
     artifact: root, metadata: { path: toPosix(path.relative(root, metadataFile)), sha256Before: metadataBefore, sha256After: evidenceOf(metadataFile).sha256 }, files,
-    ...(refreshed.length ? { refresh: refreshed } : {}),
+    ...(refreshOps.length ? { refresh: refreshOps } : {}),
   };
   const absoluteEvidence = path.resolve(evidencePath);
   mkdirSync(path.dirname(absoluteEvidence), { recursive: true });
