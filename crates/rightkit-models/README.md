@@ -189,6 +189,10 @@ and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `
 - **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
   none was sourced for this bundle.
 
+## EmbeddingGemma 2 E43 archive (route defined, pins required)
+
+E43 (int8 token table, batched ingest graphs; read by `rightkit-embed` 0.6.0) ships as one worker-served `.tar.gz` at `EMBEDDINGGEMMA2_E43_DML_URL`, verified against a whole-archive SHA-256 and size before extraction. The real digest and the per-file pins are not recorded in this repository, so `EMBEDDINGGEMMA2_E43_DML_PINS` is `None` and `embedding_gemma2_e43_dml_spec()` returns `Err(MissingE43Pins)`: nothing downloads an unpinned archive. Once the owner of the built archive supplies the pins, record them in `EMBEDDINGGEMMA2_E43_DML_PINS` (or build the spec with `embedding_gemma2_e43_dml_spec_with(EmbeddingGemma2E43Pins { .. })`). See Orthic-Labs/rightkit#224.
+
 ## EmbeddingGemma 2 accelerator bundles (Core ML on macOS, E40 on Windows)
 
 The suite embedding model is EmbeddingGemma 2. Two platform bundles are described, both per-file, pinned by size and SHA-256, and reached only by their own functions (not in `base_catalog()`, `add_ons()` or `all_models()`). The pin tables exist on every platform; `embedding_gemma2_platform_specs()` returns the one for this platform.

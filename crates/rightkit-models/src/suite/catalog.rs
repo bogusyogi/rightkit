@@ -915,6 +915,125 @@ pub fn embedding_gemma2_e40_dml_spec() -> ModelSpec {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EmbeddingGemma 2 E43 (int8 token table, batched ingest graphs) as ONE worker-served archive
+// (Orthic-Labs/rightkit#224). The model choice is E43 with the int8 table (H01/H02, #288);
+// `rightkit-embed` 0.6.0 reads this layout (`recipe: "E43"` manifest, see its `e40.rs`).
+//
+// The bundle is a single `.tar.gz`, so the grant and the download verify ONE whole-archive
+// SHA-256 before any byte is extracted. That digest, the archive size and the per-file pins
+// of the real E43 export are NOT in this repository: they are the typed required field
+// [`EmbeddingGemma2E43Pins`], `None` in [`EMBEDDINGGEMMA2_E43_DML_PINS`] until the owner of
+// the built archive supplies them. Nothing here invents a digest.
+// ---------------------------------------------------------------------------
+
+/// Store id and entry dir name of the E43 DirectML bundle. Equal to the id `rightkit-embed`
+/// uses for the Windows bundle's entry dir (no dependency on rightkit-embed).
+pub const EMBEDDINGGEMMA2_E43_DML_ID: &str = "embeddinggemma2-e43-dml";
+
+/// Revision label of the E43 export in the route path and the manifest version. Only the
+/// recipe name: the upstream source commit is not recorded in the repository for E43, so none
+/// is claimed here.
+pub const EMBEDDINGGEMMA2_E43_DML_REVISION: &str = "e43";
+
+/// Worker route of the archive, following the Parakeet layout
+/// (`<MODEL_DOWNLOAD_BASE>/<model>/<revision>/<archive>`). Public-read like the E40 and OCR
+/// files (no bearer, so no grant is requested); the worker's `MODEL_SPECS` entry and the upload
+/// are the worker owner's part of #224 and are not served by this crate.
+pub const EMBEDDINGGEMMA2_E43_DML_ROUTE: &str =
+    "/embeddinggemma2-e43-dml/e43/embeddinggemma2-e43-dml.tar.gz";
+
+/// Full archive URL: [`MODEL_DOWNLOAD_BASE`] plus [`EMBEDDINGGEMMA2_E43_DML_ROUTE`].
+pub const EMBEDDINGGEMMA2_E43_DML_URL: &str = concat!(
+    "https://heardright-models.adrdsouza.workers.dev",
+    "/embeddinggemma2-e43-dml/e43/embeddinggemma2-e43-dml.tar.gz"
+);
+
+/// Every pin the E43 archive spec needs, all required. There is deliberately no `Default`
+/// and no optional field: a partial pin cannot be built.
+#[derive(Debug, Clone, Copy)]
+pub struct EmbeddingGemma2E43Pins {
+    /// Lowercase-hex SHA-256 of the whole `.tar.gz` (the bytes the worker serves).
+    pub archive_sha256: &'static str,
+    /// Size of the whole `.tar.gz` in bytes.
+    pub archive_size: u64,
+    /// Per-file size and SHA-256 of the extracted bundle: the query graphs, the batch-4 and
+    /// batch-8 ingest graphs, `model.onnx_data`, `embed_tokens.i8.npy`, `embed_scales.f16.npy`
+    /// and `tokenizer.json`. Each entry must carry both pins.
+    pub files: &'static [SpecFile],
+    /// Installed size in bytes (sum of `files`), for "downloads X MB" copy.
+    pub installed_size_bytes: u64,
+}
+
+/// The pins of the real E43 archive. `None` until the built archive's digest, size and file
+/// table exist in the repository: REQUIRED INPUT, see #224. [`embedding_gemma2_e43_dml_spec`]
+/// returns [`MissingE43Pins`] while this is `None`.
+pub const EMBEDDINGGEMMA2_E43_DML_PINS: Option<EmbeddingGemma2E43Pins> = None;
+
+/// The E43 archive pins are not in the repository yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingE43Pins;
+
+impl std::fmt::Display for MissingE43Pins {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "the EmbeddingGemma 2 E43 archive SHA-256, size and file pins are not recorded (Orthic-Labs/rightkit#224)",
+        )
+    }
+}
+
+impl std::error::Error for MissingE43Pins {}
+
+fn pins_are_well_formed(pins: &EmbeddingGemma2E43Pins) -> bool {
+    let hex = |s: &str| s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    hex(pins.archive_sha256)
+        && pins.archive_size > 0
+        && !pins.files.is_empty()
+        && pins
+            .files
+            .iter()
+            .all(|f| f.sha256.is_some_and(hex) && f.size.is_some_and(|n| n > 0))
+}
+
+/// The E43 DirectML shared-store spec built from explicit pins: one archive, whole-archive
+/// SHA-256 and size checked by the download before extraction, public-read. Returns
+/// [`MissingE43Pins`] when the pins are malformed (not 64 lowercase hex, a zero size, a file
+/// without both pins). Not in [`base_catalog`] or [`add_ons`].
+pub fn embedding_gemma2_e43_dml_spec_with(
+    pins: EmbeddingGemma2E43Pins,
+) -> Result<ModelSpec, MissingE43Pins> {
+    if !pins_are_well_formed(&pins) {
+        return Err(MissingE43Pins);
+    }
+    Ok(ModelSpec {
+        id: EMBEDDINGGEMMA2_E43_DML_ID,
+        label: "EmbeddingGemma 2 DirectML embedding model",
+        tier: ModelTier::AddOn,
+        entitlement: false,
+        version: EMBEDDINGGEMMA2_E43_DML_REVISION,
+        size_hint_bytes: pins.installed_size_bytes,
+        files: pins.files,
+        source: SpecSource::Archive {
+            url: Some(EMBEDDINGGEMMA2_E43_DML_URL),
+            sha256: Some(pins.archive_sha256),
+            size: Some(pins.archive_size),
+            requires_auth: false,
+        },
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: &[],
+    })
+}
+
+/// The E43 DirectML spec from [`EMBEDDINGGEMMA2_E43_DML_PINS`]. `Err(MissingE43Pins)` until
+/// those pins are recorded, so no caller can download an unpinned archive.
+pub fn embedding_gemma2_e43_dml_spec() -> Result<ModelSpec, MissingE43Pins> {
+    match EMBEDDINGGEMMA2_E43_DML_PINS {
+        Some(pins) => embedding_gemma2_e43_dml_spec_with(pins),
+        None => Err(MissingE43Pins),
+    }
+}
+
 /// The EmbeddingGemma 2 accelerator-bundle specs this platform can hold: the Core ML build on
 /// macOS, the E40 DirectML export on Windows, none elsewhere.
 #[cfg(target_os = "macos")]
