@@ -1,0 +1,25 @@
+[package]
+name = "rightkit-identity"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Installation identity with clone detection and startup claim, device pairing with signed-transcript confirmation and owner approval, per-device bearer tokens with a per-IP rate limit, and shared build identity."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["identity", "pairing", "bearer-token", "build-info"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+getrandom = "0.4"
+rightkit-fs = { version = "0.4.3", path = "../rightkit-fs", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "identity primitives: pure functions and in-memory state machines the caller drives with an explicit clock; spawns no thread, timer, listener or watcher, and the only file write is a caller-invoked atomic write"

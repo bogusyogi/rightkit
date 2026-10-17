@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added (rightkit#156, bounded piece): `crash` module. `install_panic_recorder(dir)` chains a panic hook that writes one report per panic (bridge version, time, thread, source location; never the panic message), keeps the newest 8, and `pending_reports`, `read_report` (name-validated, size-bounded) and `clear_reports` serve the next launch. `AppPaths::crash_dir()` is `<files_dir>/crashes`. Still deferred: native signal crash capture and the Java `UncaughtExceptionHandler`, and AAudio capture (needs `libaaudio` linking and a device pass). Not compiled or run here.
+
 ## 0.2.0
 
 - `jni` 0.21.1 to 0.22.4, together with `rustls-platform-verifier` 0.7.x (its `platform-verifier` feature; 0.7 depends on `jni` 0.22, so the `Env` and `JObject` handed to `init_with_env` are the verifier's own types). Exported JNI symbol names and signatures are unchanged: `Java_com_orthiclabs_rightkit_android_RightKitNative_nativeInit` takes `(EnvUnowned, JClass, JObject, JString, JString, JString, jboolean)`, the same native signature as before, and the Kotlin side and the `RightKitKeystore` contract did not change.

@@ -251,7 +251,7 @@ impl JobStore {
                 args.len()
             ));
         }
-        let mut sql = format!("SELECT {}, rowid FROM jobs", self.select);
+        let mut sql = format!("SELECT {}, rowid FROM {}", self.table.select(), self.jt());
         if !conds.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&conds.join(" AND "));

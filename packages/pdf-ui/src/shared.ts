@@ -1,6 +1,6 @@
 // Shared viewer primitives: zoom bounds, find-highlight colors, DPR bounding, rotation math, the
 // text-layer highlighter, and the thumbnail width.
-import { findLiteralMatches } from "./searchUtils.js";
+import { findLiteralMatches, findRegexMatches } from "./searchUtils.js";
 
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 5;
@@ -56,6 +56,8 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, message: s
 export interface HighlightSpanOptions {
   matchCase?: boolean;
   wholeWord?: boolean;
+  /** Read the query as a regular expression (see `findRegexMatches`). Default false: literal. */
+  regex?: boolean;
   /** Background for matches. Default `MARK_BG`. */
   markBg?: string;
   /** Background for the match at `activeOccurrence`. Default `MARK_ACTIVE_BG`. */
@@ -74,7 +76,7 @@ export function highlightSpan(
   options?: HighlightSpanOptions,
 ): void {
   const text = span.textContent ?? "";
-  const matches = findLiteralMatches(text, q, options);
+  const matches = options?.regex ? findRegexMatches(text, q, options) : findLiteralMatches(text, q, options);
   if (matches.length === 0) {
     if (span.childElementCount > 0) span.replaceChildren(document.createTextNode(text));
     return;

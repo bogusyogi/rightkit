@@ -17,7 +17,7 @@ default = []
 # The persistent job layer: `JobStore`, `Runner`, `StagedPool`, the scheduler gate, `StoreConfig`,
 # locks, recovery, pruning and the `rusqlite`/`db` re-exports (gates `rightkit-db`, `rightkit-fs`,
 # `uuid`). Without it the crate is only the engine supervision and wire layers: `JobError`,
-# and with `supervisor` the `EngineSupervisor` / `EngineClient`.
+# `InlineCancelRegistry`, and with `supervisor` the `EngineSupervisor` / `EngineClient`.
 store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
 # The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
 # (gates `rightkit-sidecar`).
@@ -27,8 +27,11 @@ protocol = ["dep:rightkit-sidecar"]
 contract = ["store", "protocol"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
 # `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
-# database. A consumer that also serves or speaks the dispatcher contract adds `contract`.
-supervisor = ["protocol", "dep:rightkit-child-process"]
+# database. Includes the store-free `doctor` probe. A consumer that also serves or speaks the
+# dispatcher contract adds `contract`.
+supervisor = ["protocol", "doctor"]
+# Client-side bounded doctor probes with capability caching; no store or wire dependency.
+doctor = ["dep:rightkit-child-process"]
 # `DispatcherHandler`: serve a `Dispatcher` over `rightkit-daemon` (gates `rightkit-daemon`).
 # Implies `contract`.
 service = ["contract", "dep:rightkit-daemon"]
@@ -213,3 +216,11 @@ required-features = ["store"]
 [[test]]
 name = "work_root"
 required-features = ["store"]
+
+[[test]]
+name = "job_table"
+required-features = ["store"]
+
+[[test]]
+name = "doctor_probe"
+required-features = ["doctor"]

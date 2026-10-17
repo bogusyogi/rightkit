@@ -32,6 +32,8 @@ extern "C" {
     fn objc_getClass(name: *const c_char) -> Id;
     fn sel_registerName(name: *const c_char) -> Sel;
     fn objc_msgSend();
+    fn objc_getAssociatedObject(obj: Id, key: *const c_void) -> Id;
+    fn objc_setAssociatedObject(obj: Id, key: *const c_void, value: Id, policy: usize);
     fn class_getClassMethod(class: Id, name: Sel) -> Id;
     fn class_getInstanceMethod(class: Id, name: Sel) -> Id;
     fn method_getImplementation(method: Id) -> *const c_void;
@@ -302,11 +304,37 @@ thread_local! {
 /// (Method, original IMP) for every `constrainFrameRect:toScreen:` implementation swizzled so far.
 static CONSTRAIN_ORIGINALS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 
+// Association follows the NSWindow lifetime; no raw-window registry or isa swap.
+static HIDDEN_VIEWPORT: u8 = 0;
+
+unsafe fn retain_hidden_viewport_constraint(window: Id) {
+    let marker = if !msg!(bool; window, "isVisible") {
+        msg!(Id; class("NSNumber"), "numberWithBool:", bool = true)
+    } else {
+        std::ptr::null_mut()
+    };
+    // OBJC_ASSOCIATION_RETAIN_NONATOMIC: all window work runs on AppKit's main thread.
+    objc_setAssociatedObject(
+        window,
+        &HIDDEN_VIEWPORT as *const u8 as *const c_void,
+        marker,
+        1,
+    );
+}
+
 extern "C" fn constrain_frame(obj: Id, selector: Sel, rect: NSRect, screen: Id) -> NSRect {
     if UNCONSTRAINED.try_with(Cell::get).ok() == Some(obj) {
         return rect;
     }
     unsafe {
+        // AppKit can constrain again during deferred layout, after setFrame returned.
+        // Only QA-sized hidden windows keep the override. Showing one immediately
+        // restores AppKit's constraint, without waiting for another viewport request.
+        if !objc_getAssociatedObject(obj, &HIDDEN_VIEWPORT as *const u8 as *const c_void).is_null()
+            && !msg!(bool; obj, "isVisible")
+        {
+            return rect;
+        }
         // Walk up from the object's class to the first swizzled Method: a subclass override
         // that calls `super` reaches this IMP with its own (unswizzled) Method first.
         let imp = CONSTRAIN_ORIGINALS.lock().ok().and_then(|v| {
@@ -333,9 +361,9 @@ extern "C" fn constrain_frame(obj: Id, selector: Sel, rect: NSRect, screen: Id) 
 
 /// Lifts AppKit's visible-screen clamp for ONE window while it is being resized. The
 /// replacement `constrainFrameRect:toScreen:` returns the requested rect only when `self` is
-/// this scope's window on this thread and otherwise calls the original. Nothing about the
-/// window changes: no isa swap (swapping a live Tao window's class zeroed its frame, which
-/// then counts as fully occluded and suspends the page's animations), no focus, no ordering.
+/// this scope's window on this thread, or a QA-sized hidden window, otherwise calling
+/// original implementation. No isa swap: swapping a live Tao window's class zeroed
+/// its frame, making it fully occluded & suspending page animations. No focus or ordering.
 struct UnconstrainedWindow(Id);
 impl UnconstrainedWindow {
     unsafe fn enter(window: Id) -> Result<Self, String> {
@@ -375,6 +403,17 @@ pub fn read_viewport<R: Runtime>(
     parse_css_viewport(&eval_with_timeout(win, CSS_VIEWPORT, timeout)?)
 }
 
+/// Hidden QA windows must reach their requested size rather than accept a display clamp.
+pub fn requires_exact_size<R: Runtime>(win: &WebviewWindow<R>) -> Result<bool, String> {
+    on_view(win, |wk| unsafe {
+        let window = msg!(Id; wk, "window");
+        if window.is_null() {
+            return Err("webview has no window".to_string());
+        }
+        Ok(!msg!(bool; window, "isVisible"))
+    })?
+}
+
 /// Set native content size without visible-screen clamping. Does not wait for or
 /// report the resulting size: the caller reads it back. `setFrame:display:NO` never
 /// shows, orders or focuses the window, so this is safe for hidden windows.
@@ -412,6 +451,7 @@ pub fn apply_viewport<R: Runtime>(
         let frame = msg!(NSRect; window, "frameRectForContentRect:", NSRect = content);
         {
             let _scope = UnconstrainedWindow::enter(window)?;
+            retain_hidden_viewport_constraint(window);
             // display:NO never orders, activates, or makes the window key.
             msg!((); window, "setFrame:display:", NSRect = frame, bool = false);
         }
@@ -969,6 +1009,12 @@ mod tests {
             rect.size.height = 789.0;
             rect
         }
+        static VISIBLE: u8 = 0;
+        extern "C" fn visible(obj: Id, _: Sel) -> bool {
+            unsafe {
+                !objc_getAssociatedObject(obj, &VISIBLE as *const u8 as *const c_void).is_null()
+            }
+        }
         unsafe {
             let selector = sel("constrainFrameRect:toScreen:");
             let base = objc_allocateClassPair(class("NSObject"), c"RightKitResizeTest".as_ptr(), 0);
@@ -980,6 +1026,12 @@ mod tests {
                 selector,
                 constrained as *const c_void,
                 method_getTypeEncoding(method)
+            ));
+            assert!(class_addMethod(
+                base,
+                sel("isVisible"),
+                visible as *const c_void,
+                c"B@:".as_ptr()
             ));
             objc_registerClassPair(base);
             let first = msg!(Id; base, "new");
@@ -1013,6 +1065,36 @@ mod tests {
             assert_eq!(object_getClass(first), base);
             assert_eq!(read(first).size.height, 789.0);
             assert!(UNCONSTRAINED.with(Cell::get).is_null());
+            // Deferred layout runs after the thread-local resize scope has ended.
+            retain_hidden_viewport_constraint(first);
+            assert_eq!(
+                read(first).size.height,
+                1000.0,
+                "hidden override survives scope"
+            );
+            assert_eq!(
+                read(second).size.height,
+                789.0,
+                "other window stays constrained"
+            );
+            assert_eq!(
+                object_getClass(first),
+                base,
+                "hidden override keeps window class"
+            );
+            let marker = msg!(Id; class("NSNumber"), "numberWithBool:", bool = true);
+            objc_setAssociatedObject(first, &VISIBLE as *const u8 as *const c_void, marker, 1);
+            assert_eq!(
+                read(first).size.height,
+                789.0,
+                "shown window uses original constraint"
+            );
+            retain_hidden_viewport_constraint(first);
+            assert!(objc_getAssociatedObject(
+                first,
+                &HIDDEN_VIEWPORT as *const u8 as *const c_void
+            )
+            .is_null());
             msg!((); first, "release");
             msg!((); second, "release");
         }

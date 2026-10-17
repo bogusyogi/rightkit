@@ -263,6 +263,10 @@ if let Some(plugin) = rightkit_qa::embedded::Control::<tauri::Wry>::new().build_
 - Every `200` reply to `GET`/`HEAD` honours a single HTTP `Range` (`bytes=a-b`, `a-`, suffix `-n`): `206` with `Content-Range`, `416` when unsatisfiable, the full `200` when `Range` is absent, malformed, multi-range or its `If-Range` does not match the reply's `ETag`. `Reply::ignore_range()` models a server without resume; `Reply::cut_after(n)` drops the connection after `n` body bytes.
 - `loudness`: pure-Rust ITU-R BS.1770-4 integrated loudness, EBU loudness range, sample peak and true peak. It is checked against ffmpeg `ebur128` to within 0.2 LU.
 - `media`: WAV decode and stats, PNG non-trivial (pure Rust), and decoded-frame non-uniformity. ffmpeg is only needed to decode compressed audio and video, and its binary path is always passed in.
+- `media` interval detectors (pure Rust, no ffmpeg): `silence_intervals` (ffmpeg `silencedetect`-style), `clipped_runs`, `black_intervals` and `freeze_intervals` over decoded RGB24 frames. Loudness intervals are not provided.
+- `mock::MockServer::start_opts(MockOptions, handler)`: a chosen port, `431`/`413`/`501` request limits, a `503` connection cap, linger on close, `Reply::drop_connection()` (no response), a per-request `on_request` log hook and a `shutdown_handle()`. `MockServer::start_with` keeps its old behaviour (no limits). A standalone `serve` process that stops on stdin close is not provided here.
+- `frametrace` (Windows PresentMon, caller-supplied path): `start`, `confirm_running`, `stop` returning `FrameStats` (p50/p95/p99, drops). Targets PresentMon 1.x flags; not wired to a CLI subcommand.
+- `tart` (macOS clean-machine VMs through the `tart` CLI): `CleanVm::clone_from`, `run`, `ssh`, `copy_in`, `copy_out`, `destroy`. Not wired to a CLI subcommand and not written to evidence receipts.
 
 The browser target reaches a local dev server only through `browser::allow_loopback_origin` / `BrowserTarget::launch_for_origins`. That allowance is scoped to one scheme, host and port.
 
@@ -293,3 +297,16 @@ A refusal says which product's homes it counted, the total, the largest homes, a
 **Setting limits in code.** A test run under `rightkit cargo` does not receive the environment variables, so set them on the harness: `Harness::new(..)?.with_root_cap_bytes(8_000_000_000).with_root_ceiling_bytes(0)` (`0` disables a limit), or `workspace::create_with_limits(.., storage::RootLimits::default().with_cap_bytes(..))`. A value set in code wins over the environment variable; a limit left unset falls back to the variable, then the default. The harness sweeps when it is built and checks its limits once, at the first scenario that runs (a skipped scenario does not check), so the setters take effect when chained after `new`. A refused scenario writes a failed evidence record, removes its own home and panics with the refusal.
 
 **The sweep removes more.** `storage::clean_homes` (run at every start, and by `rightkit-qa clean`) removes a home that has no `.rightkit-home.json` owner marker (written before it existed, or missing a file) when all of these hold: it is a plain directory directly inside `rightkit-qa` (never a symlink, never outside it); its name is `<label>-<16 lowercase hex>` or `<label>-<6 letters or digits>` (the two runners' patterns); no pid its records name is alive (the `ownerPid` of the run record its binding points at, and the pid of a home marker that has no binding); and nothing in it, the directory included, was modified within `RIGHTKIT_QA_HOME_MAX_AGE_SECS` (default 2 hours). Not checked: which processes have the home as working directory or an open file (there is no process-table walk), and the run record's lease (a 24 hour timer, not evidence of a live process; it is what kept cancelled runs counted). An app that holds a home and writes nothing for two hours, or a recorded pid that is reused by an unrelated live process, is the residual risk: the first is removed, the second is kept. Homes with an owner marker keep the earlier rule (pid dead and run older than the window).
+
+## Suite hooks: app-defined steps, setup and teardown
+
+```rust
+use rightkit_qa::suite::{run_suite, SuiteHooks, SuiteOptions};
+let hooks = SuiteHooks::default()
+    .setup(|ctx, _scenario| { ctx.vars.insert("mock_url".into(), "http://127.0.0.1:9".into()); Ok(()) })
+    .step("mock_admin", |ctx, params| Ok(serde_json::json!({"url": ctx.vars["mock_url"], "action": params.get("action")})))
+    .teardown(|_ctx, _scenario| Ok(()));
+let report = run_suite(&cfg, &SuiteOptions { hooks, ..Default::default() })?;
+```
+
+A custom step's return value feeds `[[step.expect]]` and `save` like a built-in's. `util::hmac_sha256` and `util::secret_forms` (with base64 at all three stream alignments) are available to mocks and secret-absence steps.

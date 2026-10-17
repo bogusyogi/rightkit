@@ -4,7 +4,8 @@
 //! - [`store::Store`]: revisioned on-disk layout, verify, rollback, uninstall.
 //! - [`install`]: preflight, resumable verified download, extraction, atomic activation,
 //!   pause/resume vs cancel, adoption of existing installs ([`Store::adopt`]), progress events.
-//! - [`hardware`]: host probe and measured-vs-estimated fit.
+//! - [`hardware`]: host probe and measured-vs-estimated fit, plus tiered RAM/VRAM verdicts.
+//! - [`probe`]: injectable child-process probes ([`probe::ProbeRunner`]) for confined callers.
 //! - [`android`]: Android device facts and the injected files directory (unverified on a device).
 //!
 //! - [`suite`]: the flat on-disk contract shared by ScrapeRight, HeardRight and CutRight
@@ -30,6 +31,7 @@ pub mod ids;
 pub mod install;
 pub mod lock;
 pub mod platform;
+pub mod probe;
 pub mod spec;
 pub mod store;
 pub mod suite;
@@ -39,12 +41,13 @@ pub use android::{
 };
 pub use error::{Error, ErrorCode, Result};
 pub use hardware::{
-    Fit, FitKind, Gpu, Hardware, HardwareOverride, Measurement, ProfileAlias, RemoteRoute,
-    Requirements,
+    Fit, FitConfidence, FitKind, FitVerdict, Gpu, Hardware, HardwareOverride, Measurement,
+    ProfileAlias, RemoteRoute, Requirements, TieredFit, TieredRequirements,
 };
 pub use ids::{encode_revision_key, ModelId, RevisionKey};
 pub use install::{CrashPoint, Event, InstallOptions, InstallOutcome};
 pub use platform::Platform;
+pub use probe::{detect_inference_runtimes, InferenceRuntime, ProbeFuture, ProbeRunner};
 pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec, MAX_MIRROR_URLS};
 pub use store::{
     AliasStatus, AliasSync, FileRecord, PausedInstall, ResolvedRevision, RevisionRecord, State,

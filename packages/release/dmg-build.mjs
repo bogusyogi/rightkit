@@ -7,6 +7,10 @@ import { readDmgSpec } from "./dmg-spec.mjs";
 import { detachWithRetrySync } from "./hdiutil-detach.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { assertNoQaControl } from "./qa-control-scan.mjs";
+import { signMacosEntries, validateCodesignIdentifier } from "./mac-sign-core.mjs";
+import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
+import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
+import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const pair = (value, label, positive = false) => {
@@ -25,12 +29,44 @@ export function resolveDmgOptions(input = {}) {
   return spec ? { ...readDmgSpec(spec, { app: explicit.app }), ...definedOnly(explicit) } : explicit;
 }
 
+/**
+ * Developer ID sign a finished disk image (#646): secure timestamp, no hardened runtime (a disk image has none), an
+ * optional stable `--identifier`, strict verification, and an optional signing receipt (the sign-macos.mjs shape) so a
+ * later notarize step can bind to it. It never notarizes or uploads. Developer ID only: no ad hoc or Apple Development fallback.
+ */
+export function signBuiltDmg({ file, identifier, receipt }) {
+  const identity = resolveMacosDeveloperIdIdentity();
+  const files = signMacosEntries([{ file, hardenedRuntime: false, options: [], ...(identifier ? { identifier } : {}) }], {
+    identity,
+    signOne: (codesignArgs) => runMacCodesignCommands([codesignArgs])[0],
+    inspect: (tool, args) => {
+      const result = spawnSync(tool, args, { encoding: "utf8" });
+      const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+      if (result.status !== 0) throw new Error(`${tool} ${args.join(" ")} failed: ${output.trim()}`);
+      return output;
+    },
+  });
+  if (receipt) {
+    mkdirSync(path.dirname(receipt), { recursive: true });
+    writeFileSync(receipt, `${JSON.stringify({ schema: 1, signingContract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, files }, null, 2)}\n`);
+  }
+  return files;
+}
+
+/**
+ * Build the branded DMG; with `sign: true` (CLI `--sign`) it is then Developer ID signed (`identifier`, `signReceipt`
+ * optional) and a signing failure removes the unsigned image so nothing downstream can pick it up. `signDmg` is injectable.
+ */
 export function buildDmg(input = {},
 { platform = process.platform, run = spawnSync, makeAlias = backgroundAlias,
-  log = (event) => console.error(JSON.stringify(event)), sleep } = {}) {
+  log = (event) => console.error(JSON.stringify(event)), sleep, signDmg = signBuiltDmg } = {}) {
   if (platform !== "darwin") throw fail("DMG_NATIVE_HOST_REQUIRED", "DMG creation requires macOS");
   let { app, out, volname, background, iconSize = 128, appPosition = [158, 231],
-    applicationsPosition = [492, 231], window = [660, 400], windowPosition = [100, 100], volumeIcon } = resolveDmgOptions(input);
+    applicationsPosition = [492, 231], window = [660, 400], windowPosition = [100, 100], volumeIcon,
+    sign = false, identifier, signReceipt } = resolveDmgOptions(input);
+  if (identifier !== undefined && !sign) throw fail("DMG_INVALID_OPTIONS", "--identifier needs --sign");
+  if (signReceipt !== undefined && !sign) throw fail("DMG_INVALID_OPTIONS", "--receipt needs --sign");
+  if (identifier !== undefined) { try { validateCodesignIdentifier(identifier, "--identifier"); } catch (error) { throw fail("DMG_INVALID_OPTIONS", error.message); } }
   if (!app || !out || !volname) throw fail("DMG_INVALID_OPTIONS", "--app, --out & --volname are required");
   app = path.resolve(app); out = path.resolve(out);
   if (!app.endsWith(".app") || !statSync(app).isDirectory() || !existsSync(path.join(app, "Contents", "Info.plist"))) {
@@ -103,8 +139,18 @@ export function buildDmg(input = {},
     command("/usr/bin/hdiutil", ["convert", rw, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", compressed]);
     command("/usr/bin/hdiutil", ["verify", compressed]);
     renameSync(compressed, out);
-    log({ event: "dmg-build-completed", out, format: "UDZO" });
-    return { out, format: "UDZO" };
+    let signed;
+    if (sign) {
+      // Developer ID sign the finished image. A failure removes the unsigned image: nothing downstream may pick it up.
+      try { signed = signDmg({ file: out, ...(identifier ? { identifier } : {}), ...(signReceipt ? { receipt: path.resolve(signReceipt) } : {}) }); }
+      catch (error) {
+        rmSync(out, { force: true });
+        throw fail("DMG_SIGN_FAILED", `signing ${out} failed (the unsigned image was removed): ${error.message}`);
+      }
+      log({ event: "dmg-signed", out, ...(identifier ? { identifier } : {}) });
+    }
+    log({ event: "dmg-build-completed", out, format: "UDZO", signed: Boolean(sign) });
+    return { out, format: "UDZO", ...(sign ? { signed: true, signing: signed } : {}) };
   } catch (error) {
     log({ event: "dmg-build-failed", out, code: error.code ?? "DMG_BUILD_FAILED", message: error.message });
     throw error;
@@ -122,8 +168,11 @@ export function parseDmgArguments(args) {
   if (args[0] !== "build") throw fail("DMG_INVALID_OPTIONS", "expected dmg build");
   const flags = new Map([["--app", "app"], ["--out", "out"], ["--volname", "volname"], ["--background", "background"],
     ["--icon-size", "iconSize"], ["--app-position", "appPosition"], ["--applications-position", "applicationsPosition"], ["--window", "window"], ["--window-position", "windowPosition"], ["--volume-icon", "volumeIcon"], ["--spec", "spec"]]);
+  flags.set("--identifier", "identifier"); flags.set("--receipt", "signReceipt");
   const options = {};
   for (let i = 1; i < args.length; i += 2) {
+    // `--sign` is the one value-less flag: Developer ID sign the finished image (#646).
+    if (args[i] === "--sign") { if (options.sign !== undefined) throw fail("DMG_INVALID_OPTIONS", "invalid option: --sign"); options.sign = true; i -= 1; continue; }
     const key = flags.get(args[i]);
     if (!key || options[key] !== undefined || !args[i + 1] || args[i + 1].startsWith("--")) throw fail("DMG_INVALID_OPTIONS", `invalid option: ${args[i]}`);
     options[key] = args[i + 1];

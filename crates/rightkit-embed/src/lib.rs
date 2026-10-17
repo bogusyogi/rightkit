@@ -11,8 +11,11 @@ mod coreml_units;
 mod e40;
 #[cfg(feature = "inference")]
 mod embedder;
+mod fusion;
 #[cfg(feature = "inference")]
 mod parity_cache;
+#[cfg(feature = "vector")]
+mod resident;
 #[cfg(feature = "vector")]
 mod vector;
 
@@ -25,13 +28,16 @@ pub use coreml_units::{
 pub use e40::{E40SessionProfile, RunSplit};
 #[cfg(feature = "inference")]
 pub use embedder::{
-    truncate_and_normalize, AcceleratorParity, EmbedError, Embedder, EmbedderConfig,
-    ExecutionProvider, LoadTimings, ParityCacheOutcome, SessionCreate,
+    bundle_files, installed_model_dir, truncate_and_normalize, AcceleratorParity, EmbedError,
+    Embedder, EmbedderConfig, ExecutionProvider, LoadTimings, ParityCacheOutcome, SessionCreate,
     ACCELERATOR_PARITY_MIN_COSINE, DEFAULT_INGEST_BATCH, DEFAULT_MAX_BATCH,
     EMBEDDINGGEMMA2_COREML_MODEL_ID, EMBEDDINGGEMMA2_E40_MODEL_ID, EMBEDDINGGEMMA2_MODEL_ID,
     EMBEDDINGGEMMA_MODEL_ID,
 };
 #[cfg(feature = "bench-internals")]
 pub use embedder::{BenchEmbedSplit, BenchTokens};
+pub use fusion::{reciprocal_rank_fusion, RRF_K};
+#[cfg(feature = "vector")]
+pub use resident::ResidentIndex;
 #[cfg(feature = "vector")]
 pub use vector::{cosine_similarity, Nearest, VectorError, VectorStore, DEFAULT_VECTOR_DIM};

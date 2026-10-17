@@ -142,7 +142,21 @@ export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = 
   };
 }
 
-function LicenseBody({ backend }: { backend: LicenseBackend }) {
+/** Copy overrides for the licence step. Each key defaults to the English text. */
+export interface LicenseStepCopy {
+  /** Key field label and placeholder. Default "Licence key". */
+  keyLabel?: string;
+  /** Submit button. Default "Activate". */
+  activateLabel?: string;
+  /** Trial button. Default "Start trial". */
+  trialLabel?: string;
+  /** Plans link. Default "View plans". */
+  plansLabel?: string;
+  /** Status text when no licence is active. Default "You can continue without a licence.". */
+  noLicenceDetail?: string;
+}
+
+function LicenseBody({ backend, copy }: { backend: LicenseBackend; copy: Required<LicenseStepCopy> }) {
   const [state, setState] = useState<LicenseState>({ status: "none" });
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -150,15 +164,21 @@ function LicenseBody({ backend }: { backend: LicenseBackend }) {
   useEffect(() => void backend.load().then(setState, (e) => setError(e instanceof Error ? e.message : String(e))), [backend]);
   const run = (fn: () => Promise<LicenseState>) => { setBusy(true); setError(null); void fn().then(setState, (e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(false)); };
   return <div className="rk-onboarding__card" data-testid="onboarding-license">
-    <div className="rk-onboarding__license-state"><Badge tone={state.status === "active" || state.status === "trial" ? "ok" : state.status === "expired" || state.status === "invalid" ? "bad" : "neutral"}>{state.label ?? state.status}</Badge><span>{state.detail ?? "You can continue without a licence."}</span></div>
+    <div className="rk-onboarding__license-state"><Badge tone={state.status === "active" || state.status === "trial" ? "ok" : state.status === "expired" || state.status === "invalid" ? "bad" : "neutral"}>{state.label ?? state.status}</Badge><span>{state.detail ?? copy.noLicenceDetail}</span></div>
     {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
-    {backend.activate ? <form className="rk-onboarding__form" onSubmit={(e) => { e.preventDefault(); if (key.trim()) run(() => backend.activate!(key.trim())); }}><Input aria-label="Licence key" placeholder="Licence key" value={key} onChange={(e) => setKey(e.target.value)} disabled={busy} /><Button size="sm" variant="primary" type="submit" disabled={busy || !key.trim()}>Activate</Button></form> : null}
-    <div className="rk-onboarding__row-actions">{backend.startTrial ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => backend.startTrial!())}>Start trial</Button> : null}{backend.purchaseUrl ? <Button size="sm" variant="ghost" onClick={() => void backend.openExternal?.(backend.purchaseUrl!)}>View plans</Button> : null}</div>
+    {backend.activate ? <form className="rk-onboarding__form" onSubmit={(e) => { e.preventDefault(); if (key.trim()) run(() => backend.activate!(key.trim())); }}><Input aria-label={copy.keyLabel} placeholder={copy.keyLabel} value={key} onChange={(e) => setKey(e.target.value)} disabled={busy} /><Button size="sm" variant="primary" type="submit" disabled={busy || !key.trim()}>{copy.activateLabel}</Button></form> : null}
+    <div className="rk-onboarding__row-actions">{backend.startTrial ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => backend.startTrial!())}>{copy.trialLabel}</Button> : null}{backend.purchaseUrl ? <Button size="sm" variant="ghost" onClick={() => void backend.openExternal?.(backend.purchaseUrl!)}>{copy.plansLabel}</Button> : null}</div>
   </div>;
 }
 
-export function licenseStep(backend: LicenseBackend, options: { label?: string; title?: string; description?: string } = {}): OnboardingStep {
-  return { id: "license", label: options.label ?? "Licence", title: options.title ?? "Choose how you’ll use this app", description: options.description ?? "Activate a licence, start a trial, or continue with the free plan.", skippable: true, render: () => <LicenseBody backend={backend} /> };
+export interface LicenseStepOptions { label?: string; title?: string; description?: string; copy?: LicenseStepCopy }
+
+export function licenseStep(backend: LicenseBackend, options: LicenseStepOptions = {}): OnboardingStep {
+  const copy: Required<LicenseStepCopy> = {
+    keyLabel: "Licence key", activateLabel: "Activate", trialLabel: "Start trial", plansLabel: "View plans",
+    noLicenceDetail: "You can continue without a licence.", ...options.copy,
+  };
+  return { id: "license", label: options.label ?? "Licence", title: options.title ?? "Choose how you’ll use this app", description: options.description ?? "Activate a licence, start a trial, or continue with the free plan.", skippable: true, render: () => <LicenseBody backend={backend} copy={copy} /> };
 }
 
 function SignInBody({ backend }: { backend: SignInBackend }) {

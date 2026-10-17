@@ -19,11 +19,13 @@
 //! # Ok::<(), rightkit_audio::AudioError>(())
 //! ```
 
+mod oneshot;
 mod render;
 mod ring;
 mod session;
 mod state;
 
+pub use oneshot::play_once;
 pub use session::{
     list_output_devices, OutputControl, OutputDeviceInfo, OutputFormat, OutputSession,
     DEFAULT_RING_DURATION,

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Add `qa` product report model: Pass/Fail/NotApplicable, Error/Warning, severity-aware blocking
+  & generic persisted `qa::VerdictRecord` preserving CutRight report fields. Validated JSON checks
+  schema, unique ids, nonzero `check_version` & aggregate status. Missing `check_version` reads as 1.
+- Add `qa::policy_hash` (SHA-256 of the canonical JSON of a consumer policy) so product QA reports
+  can be bound to the policy and check version that produced them (#179). Callers reuse a stored
+  report only when both match.
+- Add per-check allowed windows with `qa::unexpected_intervals`: whole-span containment inside one
+  window of the same check id, explicit slack, required reasons, no merging of adjacent windows &
+  overflow-safe signed timestamp arithmetic (#356).
+- Add `delivery` checks: full-stream decode evidence (`DecodeIntegrity`), required streams,
+  inclusive two-sided duration tolerance, codec/pixel-format allowlists, frame-rate tolerance,
+  stream start/duration drift and caption timing, text safe zone, reading speed & tail coverage
+  (#357). `delivery::DELIVERY_CHECK_VERSION` = 1.
+- Add unit boundary/error tests & `tests/product_qa.rs` for public API adoption, persisted report
+  compatibility & existing review behavior.
+- Additive APIs only. Existing public structs, enum variants, standard rules, rule-set versions,
+  check versions, content verdict record schema & behavior stay intact. No new dependencies.
+  Version bump, registry ledger & publication remain release-owned.
+
 ## 0.4.0
 
 Version not bumped here (the lockfile is not touched); release owner: this is a breaking minor for 0.x consumers. NOT COMPILED OR RUN: CI is the compiler.

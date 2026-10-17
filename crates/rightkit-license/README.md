@@ -13,6 +13,9 @@ Catalog capability: `licensing`. crates.io has 0.1.3; the source is 0.2.2, which
 - `LicenseRequirement`: tier and feature requirements (`pro()`, `all_features`, `any_feature`).
 - `LicenseKind`, `EntitlementStage`: optional fields carried by the entitlement.
 
+- `verify_token_any_device(token, pubkey, app, &[device ids], now_unix)` / `authenticate_token_any_device`: verify once against several acceptable device ids (raw and hashed). An empty list is `DeviceMismatch`.
+- `RevokedIds`, `verify_token_not_revoked(...)`: a caller-supplied denylist of entitlement ids, checked on the authenticated id before expiry (`RevocationError::{Verify, Revoked}`).
+- `peek_unverified_claims(token)`: `id`, `app`, `tier`, `iat`, `exp` read WITHOUT any signature check, for pre-verification decisions only. Never grants access.
 - `authenticate_token(...)`: the signature, app and device checks of `verify_token` without any time check, for reading the authenticated claims of an expired token. It never grants access by itself.
 - `Lifecycle`, `Entitlement::lifecycle`, `evaluate_lifecycle`: the license state the UI keys on (`Trial`, `ExpiredTrial`, `Active`, `Grace`, `Expired`, `LifetimeProvisional`, `VerificationRequired`, `Lifetime`, `ClockRepairRequired`, `MigrationRequired`, `Revoked`, `Unlicensed`, `Invalid`), computed from an authenticated entitlement and a trusted clock.
 - `AntiRollbackClock`, `ClockStore`, `reconcile_clock`, `TrustedClock`: a persisted high-water mark of trusted time that refuses to extend validity on a rolled-back clock.

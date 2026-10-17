@@ -64,10 +64,40 @@ fn request(method: &str, params: Value) -> Value {
     json!({"jsonrpc":"2.0","id":1,"method":method,"params":params})
 }
 
+/// Compares one reply semantically: both sides parse to `serde_json::Value`, so key order and
+/// whitespace do not matter (serde_json's `preserve_order` feature changes the former).
 fn assert_wire(reply: Option<Value>, expected: &str) {
+    let expected: Value = serde_json::from_str(expected)
+        .unwrap_or_else(|e| panic!("fixture is not valid JSON: {e}: {expected}"));
     assert_eq!(
-        serde_json::to_vec(&reply.expect("response")).unwrap(),
-        expected.as_bytes()
+        reply.expect("response"),
+        expected,
+        "JSON-RPC reply differs semantically from fixture"
+    );
+}
+
+/// Compares stdio output as newline-delimited frames: each line parses to one `Value` and is
+/// compared in order. Byte-level framing (newline count and termination) is checked on the raw
+/// output, so an extra or missing newline still fails.
+fn assert_frames(out: &[u8], expected: &[&str]) {
+    let newlines = out.iter().filter(|&&b| b == b'\n').count();
+    assert_eq!(newlines, expected.len(), "one newline per frame");
+    assert!(
+        out.is_empty() || out.ends_with(b"\n"),
+        "last frame must be newline-terminated"
+    );
+    let text = std::str::from_utf8(out).expect("stdio output is UTF-8");
+    let actual: Vec<Value> = text
+        .split_terminator('\n')
+        .map(|line| serde_json::from_str(line).expect("each line is one JSON frame"))
+        .collect();
+    let expected: Vec<Value> = expected
+        .iter()
+        .map(|frame| serde_json::from_str(frame).expect("fixture is valid JSON"))
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "stdio frames differ semantically from fixture"
     );
 }
 
@@ -590,8 +620,13 @@ fn stdio_fail_fast_preserves_parse_source_and_emits_no_error_reply() {
         .unwrap()
         .downcast_ref::<serde_json::Error>()
         .is_some());
-    assert_eq!(stdio(&host(), input),
-        b"{\"error\":{\"code\":-32700,\"message\":\"parse error: EOF while parsing an object at line 1 column 1\"},\"id\":null,\"jsonrpc\":\"2.0\"}\n{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n");
+    assert_frames(
+        &stdio(&host(), input),
+        &[
+            r#"{"error":{"code":-32700,"message":"parse error: EOF while parsing an object at line 1 column 1"},"id":null,"jsonrpc":"2.0"}"#,
+            r#"{"id":1,"jsonrpc":"2.0","result":{}}"#,
+        ],
+    );
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
     let selected = selected.on_event(move |e| captured.lock().unwrap().push(e.kind));
@@ -604,9 +639,9 @@ fn stdio_fail_fast_preserves_parse_source_and_emits_no_error_reply() {
         vec![LifecycleKind::Start, LifecycleKind::Crash]
     );
     let valid = "  \n{\"id\":1,\"method\":\"ping\"}\n\n";
-    assert_eq!(
-        stdio(&selected, valid),
-        b"{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n"
+    assert_frames(
+        &stdio(&selected, valid),
+        &[r#"{"id":1,"jsonrpc":"2.0","result":{}}"#],
     );
 }
 

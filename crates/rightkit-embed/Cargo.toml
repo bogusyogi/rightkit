@@ -22,7 +22,7 @@ bench-internals = ["inference"]
 [dependencies]
 rightkit-db = { version = "0.4", path = "../rightkit-db", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
-rightkit-onnx = { version = "0.2.2", path = "../rightkit-onnx", features = ["half"], optional = true }
+rightkit-onnx = { version = "0.2.6", path = "../rightkit-onnx", features = ["half"], optional = true }
 rusqlite = { version = "0.40.2", default-features = false, optional = true }
 serde_json = { version = "1.0.154", optional = true }
 thiserror = "2"

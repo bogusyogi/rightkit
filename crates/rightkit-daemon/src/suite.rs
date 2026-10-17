@@ -434,6 +434,37 @@ pub(crate) fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
 /// The longest service name `host` accepts, in bytes.
 pub const MAX_SERVICE_NAME_LEN: usize = 48;
 
+/// Environment variables the build tool sets on the processes it starts (`run` and `test`). Their
+/// presence means the process is a development run, not an installed app.
+const BUILD_TOOL_ENV: &[&str] = &["CARGO", "CARGO_MANIFEST_DIR"];
+
+/// Refuse a development run that the build tool started against the real suite root (issue #384).
+///
+/// Call it at the start of a test or a dev run that reaches a service. When the build tool's
+/// environment is present and `suite` is neither a [`Suite::per_run_temp`] suite nor under the
+/// system temporary directory, it returns [`SuiteError::Insecure`] and the caller must not
+/// proceed; the fix is an isolated suite (`Suite::per_run_temp` or `RIGHTKIT_SUITE_ROOT` pointing
+/// at a temporary directory). An unresolvable root is already an error from [`Suite::resolve`].
+/// It does nothing for an installed app, which the build tool does not start.
+pub fn refuse_build_tool_real_data(suite: &Suite) -> Result<(), SuiteError> {
+    if !BUILD_TOOL_ENV.iter().any(|k| std::env::var_os(k).is_some()) {
+        return Ok(());
+    }
+    if suite._temp.is_some() {
+        return Ok(());
+    }
+    let temp = std::env::temp_dir();
+    let temp = std::fs::canonicalize(&temp).unwrap_or(temp);
+    let root = std::fs::canonicalize(&suite.root).unwrap_or_else(|_| suite.root.clone());
+    if root.starts_with(&temp) {
+        return Ok(());
+    }
+    Err(SuiteError::Insecure(format!(
+        "a build-tool run may not use the real suite root {}; use Suite::per_run_temp or an isolated RIGHTKIT_SUITE_ROOT",
+        suite.root.display()
+    )))
+}
+
 /// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
 /// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.
 pub fn valid_service_name(s: &str) -> bool {

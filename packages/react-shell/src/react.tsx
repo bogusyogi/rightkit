@@ -6,5 +6,7 @@ export * from "./react/overlays.js";
 export * from "./react/contextmenu.js";
 export * from "./react/toasts.js";
 export * from "./react/palette.js";
+export * from "./react/popover.js";
+export * from "./react/recorder.js";
 export * from "./react/provider.js";
 export * from "./react/layout.js";

@@ -128,7 +128,9 @@ fn host_ffmpeg_and_ffprobe_verify_and_stage_as_tauri_external_bins() {
             staged.path,
             binaries.join(format!("{}-{triple}{exe}", tool.stem()))
         );
-        assert_eq!(Some(staged.sha256.clone()), artifact.sha256.clone());
+        // `StagedBinary::sha256` is the signature-independent content digest, not the
+        // whole-file hash, so it must match the catalog's `contentSha256`.
+        assert_eq!(staged.sha256, artifact.approved_content_sha256().unwrap());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

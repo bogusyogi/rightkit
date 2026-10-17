@@ -6848,6 +6848,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-crypto"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-daemon"
 version = "0.2.7"
 dependencies = [
@@ -6978,6 +6986,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-google-identity"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-credentials",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "rightkit-hooks"
 version = "0.1.0"
 dependencies = [
@@ -7010,6 +7029,18 @@ dependencies = [
  "tokio",
  "ureq",
  "webpki-roots",
+]
+
+[[package]]
+name = "rightkit-identity"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
 ]
 
 [[package]]
@@ -7421,6 +7452,10 @@ dependencies = [
  "windows 0.61.1",
  "windows 0.62.2",
 ]
+
+[[package]]
+name = "rightkit-time"
+version = "0.1.0"
 
 [[package]]
 name = "rightkit-transcript"

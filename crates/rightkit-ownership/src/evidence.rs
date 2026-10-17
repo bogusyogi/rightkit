@@ -337,6 +337,15 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
                 .collect::<Vec<_>>()
         })
         .collect();
+    let coverage_notes: Vec<Value> = scans
+        .iter()
+        .flat_map(|s| {
+            items(field(field(&s.scanned, "metadata"), "coverageNotes"))
+                .iter()
+                .map(|e| rebase(e, &s.prefix))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     let mut content_digests: Vec<Value> = scans
         .iter()
         .flat_map(|s| {
@@ -453,6 +462,10 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
     });
     if !warnings.is_empty() {
         result["warnings"] = Value::Array(warnings);
+    }
+    if !coverage_notes.is_empty() {
+        result["coverageNotes"] = Value::Array(coverage_notes.clone());
+        result["metadata"]["coverageNotes"] = Value::Array(coverage_notes);
     }
     let mut evidence = Map::new();
     evidence.insert("schema".into(), json!(1));

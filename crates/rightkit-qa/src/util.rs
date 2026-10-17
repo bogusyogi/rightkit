@@ -356,5 +356,346 @@ mod base64_tests {
             assert_eq!(base64_decode(i).unwrap(), o.as_bytes());
         }
         assert!(base64_decode("Zm9v!").is_none());
+        // padding optional, whitespace ignored
+        assert_eq!(base64_decode("Zm8").unwrap(), b"fo");
+        assert_eq!(base64_decode("Zm9v\nYmFy ").unwrap(), b"foobar");
+    }
+}
+
+// ---------------------------------------------------------------------------------- secret forms
+
+/// One encoded form a leaked secret could take: `name` is the form, `text` the needle to search for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretForm {
+    pub name: &'static str,
+    pub text: String,
+}
+
+/// Standard base64 of `bytes`, with `=` padding.
+pub fn base64_encode(bytes: &[u8]) -> String {
+    b64(bytes, false, true)
+}
+
+/// URL-safe base64 (RFC 4648 section 5) of `bytes`, no padding: the JWT / webhook-signature form.
+pub fn base64url_encode(bytes: &[u8]) -> String {
+    b64(bytes, true, false)
+}
+
+/// Padded base64 of `bytes` in the standard (`+/`) or URL-safe (`-_`) alphabet.
+fn b64_padded(bytes: &[u8], url: bool) -> String {
+    const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let alpha = if url { URL } else { STD };
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
+        let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(alpha[((n >> 18) & 63) as usize] as char);
+        out.push(alpha[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            alpha[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            alpha[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// The four spellings of base64 (standard or URL-safe alphabet, padded or not).
+fn b64(bytes: &[u8], url: bool, pad: bool) -> String {
+    let mut out = b64_padded(bytes, url);
+    if !pad {
+        out.truncate(out.trim_end_matches('=').len());
+    }
+    out
+}
+
+const STREAM_NAMES: [(&str, &str); 3] = [
+    ("base64_at0", "base64url_at0"),
+    ("base64_at1", "base64url_at1"),
+    ("base64_at2", "base64url_at2"),
+];
+
+/// The part of base64(`prefix`-byte-offset `k` ++ `bytes` ++ anything) that depends on `bytes` alone, no
+/// padding: the leading chars that mix in the `k` preceding bytes and the trailing char that mixes in the
+/// following byte are dropped. `None` when under 4 chars remain (too short to search for).
+fn b64_stream(bytes: &[u8], k: usize, url: bool) -> Option<String> {
+    let mut buf = vec![0u8; k];
+    buf.extend_from_slice(bytes);
+    let full = b64(&buf, url, false);
+    let lead = [0, 2, 3][k];
+    let trail = usize::from(!buf.len().is_multiple_of(3));
+    let end = full.len().checked_sub(trail)?;
+    let text = full.get(lead..end)?;
+    (text.len() >= 4).then(|| text.to_string())
+}
+
+/// HMAC-SHA256 of `message` under `key` (RFC 2104), the raw 32-byte tag, for mocks that verify or
+/// sign webhook-style payloads. Built on `rightkit_fs::digest::Sha256Hasher`.
+pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let mut h = rightkit_fs::digest::Sha256Hasher::new();
+        h.update(key);
+        k[..32].copy_from_slice(&h.finalize_bytes());
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = rightkit_fs::digest::Sha256Hasher::new();
+    let ipad: Vec<u8> = k.iter().map(|b| b ^ 0x36).collect();
+    inner.update(&ipad);
+    inner.update(message);
+    let inner_digest = inner.finalize_bytes();
+    let mut outer = rightkit_fs::digest::Sha256Hasher::new();
+    let opad: Vec<u8> = k.iter().map(|b| b ^ 0x5c).collect();
+    outer.update(&opad);
+    outer.update(&inner_digest);
+    outer.finalize_bytes()
+}
+
+/// Lowercase hex of [`hmac_sha256`].
+pub fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
+    rightkit_fs::digest::hex(&hmac_sha256(key, message))
+}
+
+/// Percent-encode every byte but the RFC 3986 unreserved set. `form` encodes a space as `+` (form
+/// encoding); otherwise it is `%20`. `upper` selects the hex-digit case of each escape.
+fn pct(text: &str, upper: bool, form: bool) -> String {
+    let mut out = String::new();
+    for &b in text.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else if form && b == b' ' {
+            out.push('+');
+        } else if upper {
+            out.push_str(&format!("%{b:02X}"));
+        } else {
+            out.push_str(&format!("%{b:02x}"));
+        }
+    }
+    out
+}
+
+/// Every encoded form a leak of `secret` could take, for secret-absence checks. Names and forms:
+/// `raw`; `hex_lower`, `hex_upper`; `base64` (standard alphabet, padded and unpadded); `base64url` (URL-safe
+/// alphabet, padded and unpadded); `percent_lower`, `percent_upper` (every non-unreserved byte escaped, a
+/// space as `%20`); `form_lower`, `form_upper` (as percent, a space as `+`). A form identical to one already
+/// listed is omitted. `base64_at0`, `base64_at1`, `base64_at2` (and `base64url_at*`) are the unpadded base64 of the
+/// secret as it appears inside a longer base64 stream at byte offset 0, 1 or 2 (mod 3), with the edge chars
+/// that depend on neighbouring bytes trimmed (none at offset 0 when the length is a multiple of 3); one shorter
+/// than 4 chars is omitted. A form identical to one already
+/// listed is omitted, so a secret with no special characters yields no percent or form copy. An empty secret
+/// yields nothing. Split or re-wrapped copies are not covered.
+pub fn secret_forms(secret: &str) -> Vec<SecretForm> {
+    let mut out: Vec<SecretForm> = Vec::new();
+    if secret.is_empty() {
+        return out;
+    }
+    let bytes = secret.as_bytes();
+    let hex = rightkit_fs::digest::hex(bytes);
+    let mut add = |name: &'static str, text: String| {
+        if !out.iter().any(|f| f.text == text) {
+            out.push(SecretForm { name, text });
+        }
+    };
+    add("raw", secret.to_string());
+    add("hex_lower", hex.to_ascii_lowercase());
+    add("hex_upper", hex.to_ascii_uppercase());
+    add("base64", b64(bytes, false, true));
+    add("base64", b64(bytes, false, false));
+    add("base64url", b64(bytes, true, true));
+    add("base64url", b64(bytes, true, false));
+    // Base64 of the secret inside a larger stream: at byte offset 0, 1 or 2 mod 3 the encoder's
+    // grouping differs, and the chars that mix in neighbouring bytes cannot be matched.
+    for (k, names) in STREAM_NAMES.iter().enumerate() {
+        for (url, name) in [(false, names.0), (true, names.1)] {
+            if let Some(t) = b64_stream(bytes, k, url) {
+                add(name, t);
+            }
+        }
+    }
+    add("percent_lower", pct(secret, false, false));
+    add("percent_upper", pct(secret, true, false));
+    add("form_lower", pct(secret, false, true));
+    add("form_upper", pct(secret, true, true));
+    out
+}
+
+/// Names of the forms of `secret` found in `haystack` (empty means the secret did not leak). Names only, never
+/// the secret. A name repeats when several of its spellings match.
+pub fn secret_leaks(haystack: &[u8], secret: &str) -> Vec<&'static str> {
+    secret_forms(secret)
+        .into_iter()
+        .filter(|f| {
+            haystack
+                .windows(f.text.len())
+                .any(|w| w == f.text.as_bytes())
+        })
+        .map(|f| f.name)
+        .collect()
+}
+
+#[cfg(test)]
+mod base64_encode_tests {
+    use super::*;
+
+    #[test]
+    fn public_encoders_match_rfc4648_and_round_trip() {
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64url_encode(b"fo"), "Zm8");
+        assert_eq!(base64url_encode(&[0xfb, 0xff, 0xfe]), "-__-");
+        assert_eq!(base64_encode(&[0xfb, 0xff, 0xfe]), "+//+");
+        assert_eq!(base64url_encode(b""), "");
+        let data: Vec<u8> = (0..=255).collect();
+        assert_eq!(base64_decode(&base64_encode(&data)).unwrap(), data);
+    }
+}
+
+#[cfg(test)]
+mod secret_form_tests {
+    use super::*;
+
+    fn text(forms: &[SecretForm], name: &str) -> Vec<String> {
+        forms
+            .iter()
+            .filter(|f| f.name == name)
+            .map(|f| f.text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn plain_secret_yields_raw_hex_and_base64_only() {
+        let f = secret_forms("foobar");
+        assert_eq!(text(&f, "raw"), vec!["foobar"]);
+        assert_eq!(text(&f, "hex_lower"), vec!["666f6f626172"]);
+        assert_eq!(text(&f, "hex_upper"), vec!["666F6F626172"]);
+        assert_eq!(text(&f, "base64"), vec!["Zm9vYmFy"]);
+        assert!(text(&f, "percent_lower").is_empty() && text(&f, "form_upper").is_empty());
+    }
+
+    #[test]
+    fn base64_matches_rfc4648_padding_and_url_alphabet() {
+        let f = secret_forms("fo");
+        assert_eq!(text(&f, "base64"), vec!["Zm8=", "Zm8"]);
+        assert!(text(&f, "base64url").is_empty());
+        let f = secret_forms("a?>b~");
+        assert_eq!(base64_decode(&text(&f, "base64")[0]).unwrap(), b"a?>b~");
+        assert!(text(&f, "base64")[0].contains(['+', '/']));
+        assert!(text(&f, "base64url")[0].contains(['-', '_']));
+        assert!(!text(&f, "base64url")[0].contains(['+', '/']));
+        assert_eq!(text(&f, "base64url").len(), 2);
+    }
+
+    #[test]
+    fn percent_and_form_cases_and_space() {
+        let f = secret_forms("a b/c+é");
+        assert_eq!(text(&f, "percent_lower"), vec!["a%20b%2fc%2b%c3%a9"]);
+        assert_eq!(text(&f, "percent_upper"), vec!["a%20b%2Fc%2B%C3%A9"]);
+        assert_eq!(text(&f, "form_lower"), vec!["a+b%2fc%2b%c3%a9"]);
+        assert_eq!(text(&f, "form_upper"), vec!["a+b%2Fc%2B%C3%A9"]);
+        let f = secret_forms("a/b");
+        assert_eq!(text(&f, "percent_upper"), vec!["a%2Fb"]);
+        assert!(text(&f, "form_upper").is_empty());
+    }
+
+    #[test]
+    fn empty_secret_yields_nothing_and_leaks_are_named() {
+        assert!(secret_forms("").is_empty());
+        let secret = "tok en/1";
+        let hay = format!("x={} y", pct(secret, true, true));
+        assert_eq!(secret_leaks(hay.as_bytes(), secret), vec!["form_upper"]);
+        assert!(secret_leaks(b"clean", secret).is_empty());
+        assert_eq!(secret_leaks(b"has tok en/1 inside", secret), vec!["raw"]);
+    }
+
+    #[test]
+    fn base64_stream_forms_cover_all_three_alignments() {
+        // The secret carries sextets 62 and 63 in every alignment, so the url-safe copies differ from the
+        // standard copies and survive de-duplication under their `base64url*` names.
+        let secret = "sk_live_abc~def>123?";
+        let forms = secret_forms(secret);
+        for (pre, post) in [
+            ("", ""),
+            ("A", "Z"),
+            ("AB", "YZ"),
+            ("ABC", "XYZ"),
+            ("x", ""),
+            ("xy", "!"),
+        ] {
+            let mut stream = pre.as_bytes().to_vec();
+            stream.extend_from_slice(secret.as_bytes());
+            stream.extend_from_slice(post.as_bytes());
+            let enc = b64(&stream, false, true);
+            assert!(
+                forms
+                    .iter()
+                    .any(|f| enc.contains(&f.text) && f.name.starts_with("base64")),
+                "no form found the secret at offset {} in {enc}",
+                pre.len()
+            );
+            let url = b64(&stream, true, false);
+            assert!(forms
+                .iter()
+                .any(|f| f.name.starts_with("base64url") && url.contains(&f.text)));
+            assert!(
+                !secret_leaks(enc.as_bytes(), secret).is_empty(),
+                "offset {}",
+                pre.len()
+            );
+        }
+    }
+
+    #[test]
+    fn base64_stream_forms_trim_the_edges() {
+        // "foobar" (6 bytes): offset 0 is the whole, unpadded form; offset 1 drops 2 leading chars
+        // and the last; offset 2 drops 3 leading chars and the last.
+        assert_eq!(b64_stream(b"foobar", 0, false).unwrap(), "Zm9vYmFy");
+        assert_eq!(
+            b64_stream(b"foobar", 1, false).unwrap(),
+            b64(b"\0foobar", false, false)[2..9]
+        );
+        assert_eq!(
+            b64_stream(b"foobar", 2, false).unwrap(),
+            b64(b"\0\0foobar", false, false)[3..10]
+        );
+        assert!(b64_stream(b"fo", 1, false).is_none());
+        // Offset forms are real, distinct search terms.
+        let f = secret_forms("foobar-secret");
+        assert!(
+            f.iter().any(|x| x.name == "base64_at1") && f.iter().any(|x| x.name == "base64_at2")
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc4231() {
+        let long = [0xaau8; 131];
+        assert_eq!(
+            hmac_sha256_hex(&[0x0b; 20], b"Hi There"),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+        assert_eq!(
+            hmac_sha256_hex(b"Jefe", b"what do ya want for nothing?"),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        assert_eq!(
+            hmac_sha256_hex(&[0xaa; 20], &[0xdd; 50]),
+            "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"
+        );
+        assert_eq!(
+            hmac_sha256_hex(
+                &long,
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            ),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+        assert_eq!(hmac_sha256(b"k", b"m").len(), 32);
     }
 }

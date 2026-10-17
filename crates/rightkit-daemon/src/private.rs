@@ -224,17 +224,39 @@ impl PrivateChild {
     }
 
     /// [`spawn`](Self::spawn) with a secret the caller made.
-    pub fn spawn_with(mut command: OwnedCommand, secret: PrivateSecret) -> io::Result<Self> {
+    pub fn spawn_with(command: OwnedCommand, secret: PrivateSecret) -> io::Result<Self> {
+        Self::spawn_with_extra(command, secret, None)
+    }
+
+    /// [`spawn_with`](Self::spawn_with) for a child whose handshake is more than the secret: the
+    /// secret line, then `extra_line` (for example a path or a second key), both written before
+    /// this returns. `extra_line` must not contain a newline; a line that does is refused with
+    /// `InvalidInput` before the child starts.
+    pub fn spawn_with_extra(
+        mut command: OwnedCommand,
+        secret: PrivateSecret,
+        extra_line: Option<&str>,
+    ) -> io::Result<Self> {
+        if let Some(line) = extra_line {
+            check_line(line)?;
+        }
         command.command_mut().stdin(Stdio::piped());
         let mut child = command.spawn()?;
         let Some(mut stdin) = child.take_stdin() else {
             let _ = child.terminate_tree();
             return Err(io::Error::other("the child's stdin was not piped"));
         };
-        let written = stdin
+        let mut written = stdin
             .write_all(secret.expose().as_bytes())
-            .and_then(|()| stdin.write_all(b"\n"))
-            .and_then(|()| stdin.flush());
+            .and_then(|()| stdin.write_all(b"\n"));
+        if let Some(line) = extra_line {
+            if written.is_ok() {
+                written = stdin
+                    .write_all(line.as_bytes())
+                    .and_then(|()| stdin.write_all(b"\n"));
+            }
+        }
+        let written = written.and_then(|()| stdin.flush());
         if let Err(error) = written {
             let _ = child.terminate_tree();
             return Err(error);
@@ -244,6 +266,21 @@ impl PrivateChild {
             secret,
             child,
         })
+    }
+
+    /// Write one more line to the child's stdin after the handshake and flush it. Fails with
+    /// `BrokenPipe` once the stdin is closed. `line` must not contain a newline.
+    pub fn write_line(&mut self, line: &str) -> io::Result<()> {
+        check_line(line)?;
+        let Some(stdin) = self.stdin.as_mut() else {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the child's stdin is closed",
+            ));
+        };
+        stdin.write_all(line.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()
     }
 
     /// The secret to give a [`ClientConfig`](crate::ClientConfig).
@@ -265,6 +302,17 @@ impl PrivateChild {
     pub fn close_stdin(&mut self) {
         drop(self.stdin.take());
     }
+}
+
+/// A line sent on stdin must hold no newline: a newline would split one handshake line in two.
+fn check_line(line: &str) -> io::Result<()> {
+    if line.contains('\n') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a stdin line cannot contain a newline",
+        ));
+    }
+    Ok(())
 }
 
 impl Drop for PrivateChild {

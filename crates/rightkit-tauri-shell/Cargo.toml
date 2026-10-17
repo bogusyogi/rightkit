@@ -39,8 +39,10 @@ dev-inspect = ["tauri/devtools", "tauri/unstable"]
 dev-overrides = []
 # DEVELOPMENT/QA BUILDS ONLY. Compiles the QA control-command helpers an app registers on its `rightkit-qa`
 # control server: `clipboard::qa` (named-pasteboard paste and staging, which can only address a private
-# board and refuse the `Apple CFPasteboard ...` system names). Off by default and never a default
-# feature; an app selects it from its own QA/dev feature.
+# board and refuse the `Apple CFPasteboard ...` system names) and `frameless::button_frames` (the read-only
+# macOS traffic-light probe). Off by default and never a default
+# feature; an app selects it from its own QA/dev feature. Compiled only with debug_assertions: a release build that
+# enables it fails with compile_error!.
 qa-probes = []
 
 [dependencies]
@@ -89,3 +91,8 @@ harness = false
 [dev-dependencies]
 tempfile = "3"
 tauri = { version = "2", features = ["test"] }
+
+[[example]]
+name = "shell_engine_fixture"
+path = "tests/support/shell_engine_fixture.rs"
+required-features = ["engine"]

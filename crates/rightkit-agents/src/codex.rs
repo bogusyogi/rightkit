@@ -3,9 +3,10 @@
 //! Lifted and adapted from CodeRight (`engine/crates/driver_host/src/codex.rs` and
 //! `cli_runtime/transports/codex_app_server.rs`). Kept: the response / server-request /
 //! notification split of an incoming line, the set of server requests treated as approvals,
-//! `thread/start` and `turn/start` request shapes. Dropped: CodeRight's `NormalizedEvent`,
-//! fail-closed unknown-method policy (unknown notifications surface as
-//! [`AgentEvent::Unknown`]) and its async process transport.
+//! `thread/start` and `turn/start` request shapes. Dropped: CodeRight's `NormalizedEvent`
+//! and its async process transport. Unknown notifications surface as [`AgentEvent::Unknown`]
+//! under [`UnknownPolicy::Lenient`]; under [`UnknownPolicy::FailClosed`] an unknown
+//! notification in a required family is refused ([`parse_line_with`]).
 //!
 //! The wire is `[experimental]` in the Codex CLI. The checked-in schema snapshot at
 //! `tests/fixtures/codex/schema-0.161.0.json` pins the method sets this client was written
@@ -15,7 +16,20 @@ use std::io::{BufRead, Write};
 
 use serde_json::{json, Value};
 
-use crate::event::{AgentEvent, ParseError, UsageCounts};
+use crate::event::{AgentEvent, ParseError, RateLimitInfo, UnknownPolicy, UsageCounts};
+
+/// Notification families whose unknown members carry execution truth. Under
+/// [`UnknownPolicy::FailClosed`] an unknown method in one of these is refused.
+const REQUIRED_NOTIFICATION_PREFIXES: &[&str] = &["turn/", "item/", "serverRequest/"];
+
+/// Whether an unknown notification named `method` must be refused under
+/// [`UnknownPolicy::FailClosed`].
+pub fn is_required_notification(method: &str) -> bool {
+    method == "error"
+        || REQUIRED_NOTIFICATION_PREFIXES
+            .iter()
+            .any(|prefix| method.starts_with(prefix))
+}
 
 /// Codex CLI version whose schema this client is written against.
 pub const PINNED_CODEX_VERSION: &str = "0.161.0";
@@ -115,6 +129,24 @@ pub fn parse_line(line: &str) -> Result<Incoming, ParseError> {
     }
 }
 
+/// [`parse_line`] under a policy. Under [`UnknownPolicy::FailClosed`] an unknown notification
+/// in a required family is refused with [`ParseError::unknown_required`]; the method is
+/// readable through [`ParseError::unknown_required_method`].
+pub fn parse_line_with(line: &str, policy: UnknownPolicy) -> Result<Incoming, ParseError> {
+    let incoming = parse_line(line)?;
+    if policy == UnknownPolicy::FailClosed {
+        if let Incoming::Notification { method, events } = &incoming {
+            let unknown = events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::Unknown { .. }));
+            if unknown && is_required_notification(method) {
+                return Err(ParseError::unknown_required(method));
+            }
+        }
+    }
+    Ok(incoming)
+}
+
 fn id_string(id: &Value) -> String {
     match id {
         Value::String(text) => text.clone(),
@@ -181,7 +213,7 @@ fn notification_events(method: &str, params: &Value, raw: &Value) -> Vec<AgentEv
                 .and_then(|t| t.get("status"))
                 .and_then(Value::as_str)
                 .unwrap_or("completed");
-            vec![AgentEvent::Result {
+            let mut events = vec![AgentEvent::Result {
                 cost_usd: None,
                 duration_ms: turn
                     .and_then(|t| t.get("durationMs"))
@@ -190,12 +222,84 @@ fn notification_events(method: &str, params: &Value, raw: &Value) -> Vec<AgentEv
                 permission_denials: Vec::new(),
                 is_error: status == "failed",
                 subtype: status.to_string(),
-            }]
+            }];
+            // A usage-limit failure is the ordinary turn failure plus a rejected rate limit.
+            events.extend(
+                turn.and_then(|t| t.get("error"))
+                    .and_then(usage_limit)
+                    .map(AgentEvent::RateLimit),
+            );
+            events
+        }
+        "turn/failed" => {
+            // `turn/failed` ends the turn: the terminal failure is always emitted, and a usage
+            // limit adds the rate-limit metadata beside it.
+            let carrier = params.get("error").unwrap_or(params);
+            let mut events = vec![AgentEvent::Result {
+                cost_usd: None,
+                duration_ms: params
+                    .get("turn")
+                    .and_then(|t| t.get("durationMs"))
+                    .and_then(Value::as_u64),
+                num_turns: Some(1),
+                permission_denials: Vec::new(),
+                is_error: true,
+                subtype: "failed".to_string(),
+            }];
+            events.extend(usage_limit(carrier).map(AgentEvent::RateLimit));
+            events
+        }
+        "error" => {
+            let carrier = params.get("error").unwrap_or(params);
+            match usage_limit(carrier) {
+                Some(info) => vec![AgentEvent::RateLimit(info)],
+                None => vec![AgentEvent::Unknown { raw: raw.clone() }],
+            }
         }
         "turn/started" => Vec::new(),
         other if BOOKKEEPING_NOTIFICATIONS.contains(&other) => Vec::new(),
         _ => vec![AgentEvent::Unknown { raw: raw.clone() }],
     }
+}
+
+/// A usage-limit rejection carried by a Codex error object: `codexErrorInfo` (or `info`) names
+/// `usageLimitExceeded`, or the message says "usage limit". Unverified: those key names and
+/// the `resetsAt` / `resets_at` placement follow the CodeRight port, not a live run.
+fn usage_limit(carrier: &Value) -> Option<RateLimitInfo> {
+    let info = carrier
+        .get("codexErrorInfo")
+        .or_else(|| carrier.get("info"));
+    let keyed = match info {
+        Some(Value::String(name)) => name.as_str() == "usageLimitExceeded",
+        Some(Value::Object(object)) => object.contains_key("usageLimitExceeded"),
+        _ => false,
+    };
+    let worded = carrier
+        .get("message")
+        .and_then(Value::as_str)
+        .is_some_and(|message| message.to_ascii_lowercase().contains("usage limit"));
+    if !keyed && !worded {
+        return None;
+    }
+    Some(RateLimitInfo {
+        status: "rejected".to_string(),
+        resets_at: carrier
+            .get("resetsAt")
+            .or_else(|| carrier.get("resets_at"))
+            .and_then(Value::as_u64),
+        ..RateLimitInfo::default()
+    })
+}
+
+/// Environment entries for a Codex launch, to add to `SessionConfig::env`. `CODEX_HOME`
+/// scopes the CLI's state directory. An account-scoped launch must also name the BYOK
+/// variables to remove: call `SessionConfig::scrub_byok_env` (see `session::BYOK_ENV_VARS`).
+/// Inherited credentials are not removed by this function.
+pub fn launch_env(codex_home: &std::path::Path) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    vec![(
+        std::ffi::OsString::from("CODEX_HOME"),
+        codex_home.as_os_str().to_os_string(),
+    )]
 }
 
 fn item_events(item: Option<&Value>, started: bool) -> Vec<AgentEvent> {
@@ -366,6 +470,7 @@ pub struct CodexClient<R: BufRead, W: Write> {
     writer: W,
     next_id: u64,
     pending: Vec<Incoming>,
+    policy: UnknownPolicy,
 }
 
 /// Failure of a blocking client call.
@@ -405,7 +510,16 @@ impl<R: BufRead, W: Write> CodexClient<R, W> {
             writer,
             next_id: 1,
             pending: Vec::new(),
+            policy: UnknownPolicy::Lenient,
         }
+    }
+
+    /// The client with an unknown-message policy. A refused line makes `call` or
+    /// `next_incoming` return [`ClientError::Parse`] carrying
+    /// [`ParseError::unknown_required_method`].
+    pub fn with_policy(mut self, policy: UnknownPolicy) -> Self {
+        self.policy = policy;
+        self
     }
 
     fn send(&mut self, value: &Value) -> Result<(), ClientError> {
@@ -429,7 +543,7 @@ impl<R: BufRead, W: Write> CodexClient<R, W> {
             if line.trim().is_empty() {
                 continue;
             }
-            match parse_line(line.trim_end()).map_err(ClientError::Parse)? {
+            match parse_line_with(line.trim_end(), self.policy).map_err(ClientError::Parse)? {
                 Incoming::Response {
                     id: response_id,
                     result,
@@ -458,7 +572,7 @@ impl<R: BufRead, W: Write> CodexClient<R, W> {
             if line.trim().is_empty() {
                 continue;
             }
-            return parse_line(line.trim_end())
+            return parse_line_with(line.trim_end(), self.policy)
                 .map(Some)
                 .map_err(ClientError::Parse);
         }
@@ -536,4 +650,88 @@ fn thread_id(result: &Value) -> String {
     text_at(result, &["thread", "id"])
         .or_else(|| text_at(result, &["threadId"]))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn turn_failed(error: Value) -> String {
+        json!({
+            "jsonrpc": "2.0",
+            "method": "turn/failed",
+            "params": {"turn": {"id": "t1", "durationMs": 900}, "error": error}
+        })
+        .to_string()
+    }
+
+    fn notification_events(line: &str) -> Vec<AgentEvent> {
+        match parse_line(line) {
+            Ok(Incoming::Notification { events, .. }) => events,
+            other => panic!("expected a notification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn usage_limit_turn_failure_is_terminal_and_rate_limited() {
+        let events = notification_events(&turn_failed(json!({
+            "message": "You hit your usage limit",
+            "codexErrorInfo": "usageLimitExceeded",
+            "resetsAt": 1700000000u64
+        })));
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            &events[0],
+            AgentEvent::Result { is_error: true, subtype, duration_ms: Some(900), .. }
+                if subtype == "failed"
+        ));
+        assert!(matches!(
+            &events[1],
+            AgentEvent::RateLimit(info) if info.status == "rejected" && info.resets_at == Some(1700000000)
+        ));
+    }
+
+    #[test]
+    fn plain_turn_failure_is_a_terminal_failure_without_rate_limit() {
+        let events = notification_events(&turn_failed(json!({"message": "model overloaded"})));
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            AgentEvent::Result { is_error: true, subtype, .. } if subtype == "failed"
+        ));
+    }
+
+    #[test]
+    fn fail_closed_refuses_unknown_required_notifications_only() {
+        let unknown_turn = json!({"jsonrpc": "2.0", "method": "turn/teleported", "params": {}});
+        let refused = parse_line_with(&unknown_turn.to_string(), UnknownPolicy::FailClosed);
+        assert_eq!(
+            refused.unwrap_err().unknown_required_method(),
+            Some("turn/teleported")
+        );
+        assert!(parse_line_with(&unknown_turn.to_string(), UnknownPolicy::Lenient).is_ok());
+
+        let unknown_other = json!({"jsonrpc": "2.0", "method": "x/unsupported", "params": {}});
+        assert!(parse_line_with(&unknown_other.to_string(), UnknownPolicy::FailClosed).is_ok());
+
+        let bookkeeping =
+            json!({"jsonrpc": "2.0", "method": "item/reasoning/textDelta", "params": {}});
+        assert!(parse_line_with(&bookkeeping.to_string(), UnknownPolicy::FailClosed).is_ok());
+    }
+
+    #[test]
+    fn fail_closed_client_surfaces_the_typed_refusal() {
+        let wire = format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "method": "turn/teleported", "params": {}})
+        );
+        let mut client = CodexClient::new(std::io::Cursor::new(wire.into_bytes()), Vec::new())
+            .with_policy(UnknownPolicy::FailClosed);
+        match client.next_incoming() {
+            Err(ClientError::Parse(error)) => {
+                assert_eq!(error.unknown_required_method(), Some("turn/teleported"))
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
 }

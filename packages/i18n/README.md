@@ -17,6 +17,8 @@ Small, brand-neutral i18n runtime for React apps. The app supplies an English ca
 
 `createI18n` returns `{ Provider, I18nProvider, useI18n, loadLocale, mergeCatalog, defaultLocale, t, isLoaded }`. `Provider` takes `initialLocale`. `useI18n()` returns `{ locale, catalog, t, loading, error, setLocale }`. Options: `defaultLocale` (default `"en"`), `loaders`, `rtlLocales` (sets `dir="rtl"` on `<html>`).
 
+`locales` (`{ id, name, englishName, aliases? }[]`) is the language picker list; `normalizeLocale(tag)` maps `zh-CN` to `zh` and aliases such as `zh-TW` to `zh-hant`. `persistence` (`load()`, `save(locale)`) restores the chosen language on mount and saves it on `setLocale`, rolling back when the save fails (`saveError`). Catalog values may be functions; `t(locale, key, { args })` calls them.
+
 `t(locale, key, { fallback }?)` is a synchronous lookup for code outside React. It reads only catalogs already loaded (the default locale and any passed to `loadLocale`) and never loads. `key` is an exact top-level key (so a source string with dots works) or a dotted path. It resolves the locale's catalog, then the default catalog, then `fallback`, then `key` itself. `isLoaded(locale)` says whether a locale's catalog is loaded.
 
 Peer dependency: `react` `>=18 <21`.

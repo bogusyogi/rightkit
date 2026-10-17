@@ -218,6 +218,7 @@ pub struct StoreOptions {
     pub(crate) max_bytes: Option<u64>,
     pub(crate) on_refused: OnRefused,
     pub(crate) flat_version_key: Option<String>,
+    pub(crate) utf8_bom: bool,
 }
 
 impl StoreOptions {
@@ -247,6 +248,7 @@ impl StoreOptions {
             max_bytes: None,
             on_refused: OnRefused::Fail,
             flat_version_key: None,
+            utf8_bom: false,
         }
     }
 
@@ -349,10 +351,21 @@ impl StoreOptions {
     /// with [`crate::Error::Invalid`]; the file is left byte for byte as it was (not quarantined,
     /// not overwritten); `get` keeps returning the last known value. With
     /// [`OnRefused::ReadOnlyDefaults`] `open` succeeds instead, with the defaults and a store that
-    /// refuses writes. Applies to the main file of a `Store` (not to [`crate::read_with_options`]).
-    /// Default: no limit.
+    /// refuses writes. Applies to the main file of a `Store`; the free read has its own cap,
+    /// [`ReadOptions::max_bytes`]. Default: no limit.
     pub fn max_bytes(mut self, limit: u64) -> Self {
         self.max_bytes = Some(limit);
+        self
+    }
+
+    /// `true`: the settings file is a UTF-8 file with a byte order mark (`EF BB BF`, as Windows
+    /// editors and some app writers produce). A leading BOM is accepted and removed on read, and
+    /// every write puts one back at the start of the file. Default `false`: a file with a BOM is
+    /// damaged JSON, handled by [`StoreOptions::on_corrupt`], as before. Applies to reads and writes
+    /// of the main file and `<path>.bak`, and to [`crate::read_with_options`] through
+    /// [`ReadOptions::utf8_bom`].
+    pub fn utf8_bom(mut self, yes: bool) -> Self {
+        self.utf8_bom = yes;
         self
     }
 
@@ -488,6 +501,8 @@ pub struct ReadOptions {
     pub(crate) format: FileFormat,
     pub(crate) fill: OptionalFill,
     pub(crate) sidecars: bool,
+    pub(crate) utf8_bom: bool,
+    pub(crate) max_bytes: Option<u64>,
 }
 
 impl ReadOptions {
@@ -497,7 +512,25 @@ impl ReadOptions {
             format,
             fill: OptionalFill::Never,
             sidecars: true,
+            utf8_bom: false,
+            max_bytes: None,
         }
+    }
+
+    /// Refuse to read a file (the main file, and `<path>.bak` when it is used) longer than `limit`
+    /// bytes. The length is checked before the file is read, so an oversized file is never loaded.
+    /// The read fails with [`crate::Error::Invalid`] and touches nothing: no quarantine, no write.
+    /// Default: no limit.
+    pub fn max_bytes(mut self, limit: u64) -> Self {
+        self.max_bytes = Some(limit);
+        self
+    }
+
+    /// Accept and remove a leading UTF-8 byte order mark, as [`StoreOptions::utf8_bom`] does.
+    /// Default `false`.
+    pub fn utf8_bom(mut self, yes: bool) -> Self {
+        self.utf8_bom = yes;
+        self
     }
 
     /// `false`: never read `<path>.bak`; a missing or unreadable main file reads as the defaults.

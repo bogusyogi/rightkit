@@ -40,12 +40,16 @@ pub use device::{
     MINIMUM_INTERVAL, SLOW_DOWN_INCREMENT,
 };
 
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
-use rightkit_http::{percent_decode, percent_encode, Client, HttpError, Request, Secret};
+use rightkit_http::{
+    percent_decode, percent_encode, CancelToken, Client, HttpError, Request, Secret,
+};
 use sha2::{Digest, Sha256};
 
 const GOOGLE_AUTHORIZATION_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -354,6 +358,68 @@ pub trait TokenStore: Send + Sync {
     fn delete(&self, account: &str) -> Result<(), OAuthError>;
 }
 
+/// A [`TokenStore`] that keeps tokens in process memory only, so a
+/// `credentials::Resolver` (feature `secrets`) can run when the app persists tokens elsewhere
+/// (its own credential store) or not at all. Nothing is written to disk; tokens are gone when
+/// the store drops. A `delete` of an absent account succeeds. Safe to share between threads.
+/// Tokens never appear in `Debug` output.
+#[derive(Default)]
+pub struct MemoryTokenStore {
+    tokens: Mutex<HashMap<String, TokenSet>>,
+}
+
+impl MemoryTokenStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, TokenSet>> {
+        // A panic in another thread cannot leave the map half-updated (each operation is a
+        // single insert, get or remove), so a poisoned lock is still safe to use.
+        self.tokens.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl fmt::Debug for MemoryTokenStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryTokenStore")
+            .field("accounts", &self.map().len())
+            .finish()
+    }
+}
+
+impl TokenStore for MemoryTokenStore {
+    fn load(&self, account: &str) -> Result<Option<TokenSet>, OAuthError> {
+        Ok(self.map().get(account).cloned())
+    }
+
+    fn save(&self, account: &str, tokens: &TokenSet) -> Result<(), OAuthError> {
+        self.map().insert(account.to_string(), tokens.clone());
+        Ok(())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), OAuthError> {
+        self.map().remove(account);
+        Ok(())
+    }
+}
+
+/// RFC 7009 `token_type_hint` for [`OAuthClient::revoke`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenTypeHint {
+    AccessToken,
+    RefreshToken,
+}
+
+impl TokenTypeHint {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AccessToken => "access_token",
+            Self::RefreshToken => "refresh_token",
+        }
+    }
+}
+
 /// State created before opening the user's browser.
 pub struct AuthorizationRequest {
     pub authorization_url: String,
@@ -383,6 +449,7 @@ impl AuthorizationRequest {
 pub struct LoopbackAuthorization {
     pub request: AuthorizationRequest,
     listener: TcpListener,
+    redirect_path: String,
 }
 
 impl fmt::Debug for LoopbackAuthorization {
@@ -393,15 +460,74 @@ impl fmt::Debug for LoopbackAuthorization {
     }
 }
 
+impl LoopbackAuthorization {
+    /// Wait for the one browser callback and return its bare authorization code with the
+    /// [`AuthorizationRequest`] (whose [`AuthorizationRequest::code_verifier`] the exchange
+    /// needs), without exchanging it: for callers that send the code somewhere else, such as a
+    /// gateway or a token request with extra parameters.
+    ///
+    /// Same rules as [`OAuthClient::finish_loopback`]: only a request on the exact redirect
+    /// path ends the flow (other paths, stalled and malformed connections are answered and
+    /// ignored until the deadline), `state` is compared in constant time and a wrong or
+    /// missing one is [`OAuthError::StateMismatch`], a provider `access_denied` is
+    /// [`OAuthError::NeedsReauth`]. `cancel` is checked between connections and ends the wait
+    /// with [`OAuthError::Cancelled`] (a connection stalled mid-request delays that by at most
+    /// two seconds). The listener closes when this returns.
+    pub fn wait_code(
+        self,
+        timeout: Duration,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(Secret, AuthorizationRequest), OAuthError> {
+        let callback = await_callback(&self.listener, &self.redirect_path, timeout, cancel)?;
+        let code = check_callback(callback, &self.request.state)?;
+        Ok((Secret::new(code), self.request))
+    }
+}
+
 pub struct OAuthClient {
     pub(crate) config: OAuthConfig,
     pub(crate) http: Client,
+    token_params: Vec<(String, String)>,
+    revocation_url: Option<String>,
 }
 
 impl OAuthClient {
     pub fn new(config: OAuthConfig, http: Client) -> Result<Self, OAuthError> {
         validate_config(&config)?;
-        Ok(Self { config, http })
+        Ok(Self {
+            config,
+            http,
+            token_params: Vec::new(),
+            revocation_url: None,
+        })
+    }
+
+    /// Append `name=value` to the authorization-code exchange and refresh request bodies,
+    /// for example an RFC 8707 `resource` or a `scope` (MCP OAuth sends both). Call again
+    /// with the same name to send several values. Values are not redacted in `Debug`: never
+    /// put a credential here (use [`OAuthConfig::with_client_secret`]). The parameters the
+    /// client itself sets (`grant_type`, `code`, `redirect_uri`, `client_id`,
+    /// `code_verifier`, `refresh_token`, `client_secret`) are refused. The `server` module
+    /// ignores these parameters.
+    pub fn with_token_param(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, OAuthError> {
+        let name = name.into();
+        validate_token_param_name(&name)?;
+        self.token_params.push((name, value.into()));
+        Ok(self)
+    }
+
+    /// The RFC 7009 revocation endpoint [`Self::revoke`] posts to: HTTPS, or an exact
+    /// loopback host (`127.0.0.1`, `[::1]`, `localhost`) over plain HTTP in tests. Userinfo
+    /// is refused.
+    pub fn with_revocation_url(mut self, url: impl Into<String>) -> Result<Self, OAuthError> {
+        let url = url.into();
+        check_endpoint(&url, "revocation_url")?;
+        self.revocation_url = Some(url);
+        Ok(self)
     }
 
     pub fn config(&self) -> &OAuthConfig {
@@ -475,6 +601,7 @@ impl OAuthClient {
                 verifier,
             },
             listener,
+            redirect_path: self.config.redirect.path.clone(),
         })
     }
 
@@ -484,62 +611,8 @@ impl OAuthClient {
         flow: LoopbackAuthorization,
         timeout: Duration,
     ) -> Result<TokenSet, OAuthError> {
-        flow.listener
-            .set_nonblocking(true)
-            .map_err(|e| OAuthError::Callback(e.to_string()))?;
-        let started = std::time::Instant::now();
-        // Single use: the first request on the exact redirect path ends the flow. Requests on
-        // other paths (favicon, probes) and stalled or malformed connections are answered and
-        // ignored until the deadline, so none of them can end the flow.
-        let callback = loop {
-            let stream = match flow.listener.accept() {
-                Ok((stream, _)) => stream,
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        && started.elapsed() < timeout =>
-                {
-                    std::thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    return Err(OAuthError::Callback(
-                        "timed out waiting for browser callback".into(),
-                    ));
-                }
-                Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
-            };
-            // One absolute deadline for the whole request line, never per read.
-            let remaining = timeout
-                .saturating_sub(started.elapsed())
-                .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
-            match read_callback(stream, remaining) {
-                Ok(cb) if cb.path == self.config.redirect.path => break cb,
-                Ok(_) if started.elapsed() < timeout => continue,
-                Ok(_) => {
-                    return Err(OAuthError::Callback(
-                        "timed out waiting for browser callback".into(),
-                    ))
-                }
-                Err(e) => return Err(e),
-            }
-        };
-        let state_ok = callback
-            .state
-            .as_deref()
-            .is_some_and(|s| pkce::constant_time_eq(s.as_bytes(), flow.request.state.as_bytes()));
-        if !state_ok {
-            return Err(OAuthError::StateMismatch);
-        }
-        if let Some(e) = callback.error {
-            if e == "access_denied" {
-                return Err(OAuthError::NeedsReauth);
-            }
-            return Err(OAuthError::Callback(e));
-        }
-        let code = callback
-            .code
-            .ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))?;
-        self.exchange_code(&flow.request, &code)
+        let (code, request) = flow.wait_code(timeout, None)?;
+        self.exchange_code(&request, code.expose())
     }
 
     /// Desktop sign-in through the user's default browser: bind the loopback listener, open the
@@ -577,13 +650,14 @@ impl OAuthClient {
                 "authorization code is empty".into(),
             ));
         }
-        let pairs = vec![
+        let mut pairs = vec![
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", authorization.redirect_uri.as_str()),
             ("client_id", self.config.client_id.as_str()),
             ("code_verifier", authorization.verifier.as_str()),
         ];
+        self.push_token_params(&mut pairs);
         self.token_request(&pairs, None)
     }
 
@@ -593,11 +667,12 @@ impl OAuthClient {
             .refresh_token
             .as_ref()
             .ok_or(OAuthError::NeedsReauth)?;
-        let pairs = vec![
+        let mut pairs = vec![
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh.expose()),
             ("client_id", self.config.client_id.as_str()),
         ];
+        self.push_token_params(&mut pairs);
         let mut fresh = self.token_request(&pairs, Some(refresh))?;
         // A refresh response may omit the ID token (OpenID Connect Core 12.2); keep the one
         // the sign-in produced rather than losing the account identity.
@@ -605,6 +680,57 @@ impl OAuthClient {
             fresh.id_token = current.id_token.clone();
         }
         Ok(fresh)
+    }
+
+    /// Append the configured extra token-endpoint parameters (RFC 8707 `resource`, `scope`).
+    fn push_token_params<'a>(&'a self, pairs: &mut Vec<(&'a str, &'a str)>) {
+        for (name, value) in &self.token_params {
+            pairs.push((name.as_str(), value.as_str()));
+        }
+    }
+
+    /// Revoke `token` at the configured [`Self::with_revocation_url`] (RFC 7009). Sends
+    /// `token`, the optional `token_type_hint`, `client_id`, the client secret when one is
+    /// configured, and the configured [`Self::with_token_param`] (so an RFC 8707 `resource`
+    /// rides along). Success is any 2xx answer; per RFC 7009 a token the provider no longer
+    /// knows is also a success. The token is registered as a request secret, so no error text
+    /// repeats it. Without a configured revocation URL this is
+    /// [`OAuthError::InvalidConfig`] and nothing is sent.
+    pub fn revoke(&self, token: &Secret, hint: Option<TokenTypeHint>) -> Result<(), OAuthError> {
+        let url = self
+            .revocation_url
+            .as_deref()
+            .ok_or_else(|| OAuthError::InvalidConfig("revocation_url is not configured".into()))?;
+        if token.expose().is_empty() {
+            return Err(OAuthError::InvalidConfig("token is empty".into()));
+        }
+        let mut pairs: Vec<(&str, &str)> = vec![("token", token.expose())];
+        if let Some(hint) = hint {
+            pairs.push(("token_type_hint", hint.as_str()));
+        }
+        pairs.push(("client_id", self.config.client_id.as_str()));
+        if let Some(secret) = &self.config.client_secret {
+            pairs.push(("client_secret", secret.expose()));
+        }
+        self.push_token_params(&mut pairs);
+        let request = Request::post(url)
+            .header("Accept", "application/json")
+            .secret_form(&pairs, SECRET_FORM_FIELDS);
+        let response = self
+            .http
+            .send(&request)
+            .map_err(|e| provider_or_http(&request, e))?;
+        // A 2xx body is normally empty. A provider that reports an error with HTTP 200 (as
+        // GitHub does on its token endpoint) must not be read as success.
+        if let Ok(value) = response.json::<serde_json::Value>() {
+            if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
+                return Err(scrub_provider(
+                    &request,
+                    error_from(response.status, error, &value),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn token_request(
@@ -646,31 +772,10 @@ fn validate_config(c: &OAuthConfig) -> Result<(), OAuthError> {
     if c.client_id.trim().is_empty() {
         return Err(OAuthError::InvalidConfig("client_id is empty".into()));
     }
-    if !(c.authorization_url.starts_with("https://")
-        || c.authorization_url.starts_with("http://127.0.0.1:")
-        || c.authorization_url.starts_with("http://localhost:"))
-    {
-        return Err(OAuthError::InvalidConfig(
-            "authorization_url must use HTTPS (or loopback in tests)".into(),
-        ));
-    }
-    if !(c.token_url.starts_with("https://")
-        || c.token_url.starts_with("http://127.0.0.1:")
-        || c.token_url.starts_with("http://localhost:"))
-    {
-        return Err(OAuthError::InvalidConfig(
-            "token_url must use HTTPS (or loopback in tests)".into(),
-        ));
-    }
+    check_endpoint(&c.authorization_url, "authorization_url")?;
+    check_endpoint(&c.token_url, "token_url")?;
     if let Some(d) = &c.device_authorization_url {
-        if !(d.starts_with("https://")
-            || d.starts_with("http://127.0.0.1:")
-            || d.starts_with("http://localhost:"))
-        {
-            return Err(OAuthError::InvalidConfig(
-                "device_authorization_url must use HTTPS (or loopback in tests)".into(),
-            ));
-        }
+        check_endpoint(d, "device_authorization_url")?;
     }
     if !matches!(c.redirect.host.as_str(), "127.0.0.1" | "localhost")
         || !c.redirect.path.starts_with('/')
@@ -682,6 +787,119 @@ fn validate_config(c: &OAuthConfig) -> Result<(), OAuthError> {
     Ok(())
 }
 
+fn validate_token_param_name(name: &str) -> Result<(), OAuthError> {
+    if name.is_empty() || name.bytes().any(|b| b <= 0x20 || b == 0x7f) {
+        return Err(OAuthError::InvalidConfig(
+            "token parameter name must be non-empty with no whitespace or control characters"
+                .into(),
+        ));
+    }
+    if RESERVED_TOKEN_PARAMS
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        return Err(OAuthError::InvalidConfig(format!(
+            "token parameter {name:?} is set by the client and cannot be overridden"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate an endpoint URL by parsing its authority, not by prefix. The scheme must be
+/// `https`, or `http` with the exact host `127.0.0.1`, `[::1]` or `localhost`; userinfo
+/// (`user@`), backslashes, whitespace and control characters are refused, so
+/// `http://localhost:80@attacker.example/` cannot pass as loopback.
+pub(crate) fn check_endpoint(url: &str, what: &str) -> Result<(), OAuthError> {
+    let invalid = |why: &str| OAuthError::InvalidConfig(format!("{what} {why}"));
+    if url
+        .bytes()
+        .any(|b| b <= 0x20 || b == 0x7f || b == b'\\' || !b.is_ascii())
+    {
+        return Err(invalid(
+            "holds whitespace, control, backslash or non-ASCII characters",
+        ));
+    }
+    let (https, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        (false, r)
+    } else {
+        return Err(invalid("must use HTTPS (or loopback in tests)"));
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.contains('@') {
+        return Err(invalid("must not carry userinfo"));
+    }
+    let (host, port) = if let Some(after) = authority.strip_prefix('[') {
+        let close = after
+            .find(']')
+            .ok_or_else(|| invalid("has an unterminated IPv6 host"))?;
+        let host = &authority[..close + 2];
+        let tail = &after[close + 1..];
+        match tail {
+            "" => (host, None),
+            t => (
+                host,
+                Some(
+                    t.strip_prefix(':')
+                        .ok_or_else(|| invalid("has a malformed authority"))?,
+                ),
+            ),
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    if let Some(p) = port {
+        let digits = !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit());
+        if !digits || !matches!(p.parse::<u32>(), Ok(1..=65535)) {
+            return Err(invalid("has an invalid port"));
+        }
+    }
+    if https {
+        let bracketed = host.starts_with('[');
+        let ok = if bracketed {
+            host.len() > 2
+                && host[1..host.len() - 1]
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.')
+        } else {
+            !host.is_empty()
+                && host.len() <= 253
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        };
+        if !ok {
+            return Err(invalid("has an invalid host"));
+        }
+        return Ok(());
+    }
+    if matches!(host, "127.0.0.1" | "[::1]" | "localhost") {
+        Ok(())
+    } else {
+        Err(invalid("must use HTTPS (or loopback in tests)"))
+    }
+}
+
+/// Token-endpoint fields the client sets itself; a configured extra parameter may not repeat
+/// or override them (a second `code_verifier` or `redirect_uri` would be ambiguous), and
+/// `token`, `token_type_hint` are the revocation request's own.
+const RESERVED_TOKEN_PARAMS: &[&str] = &[
+    "grant_type",
+    "code",
+    "redirect_uri",
+    "client_id",
+    "client_secret",
+    "code_verifier",
+    "refresh_token",
+    "token",
+    "token_type_hint",
+];
+
 /// Form fields whose values are credentials: they are registered as secrets on the request
 /// so no error text, ours or the provider's, repeats them.
 pub(crate) const SECRET_FORM_FIELDS: &[&str] = &[
@@ -690,6 +908,7 @@ pub(crate) const SECRET_FORM_FIELDS: &[&str] = &[
     "device_code",
     "code",
     "code_verifier",
+    "token",
 ];
 
 /// Remove the request's secret values from a provider error's `error` and description. A
@@ -727,7 +946,7 @@ fn provider_or_http(request: &Request, e: HttpError) -> OAuthError {
 
 /// A token-endpoint error. A dead grant (`invalid_grant`; GitHub's `bad_refresh_token`) means
 /// the user must sign in again.
-fn error_from(status: u16, error: &str, v: &serde_json::Value) -> OAuthError {
+pub(crate) fn error_from(status: u16, error: &str, v: &serde_json::Value) -> OAuthError {
     if matches!(error, "invalid_grant" | "bad_refresh_token") {
         return OAuthError::NeedsReauth;
     }
@@ -777,6 +996,80 @@ pub(crate) fn parse_tokens(
             .map(Secret::new),
         obtained_at: SystemTime::now(),
     })
+}
+
+/// Serve `listener` until the first request on exactly `path` (see
+/// [`LoopbackAuthorization::wait_code`]). Other paths, stalled and malformed connections are
+/// answered and ignored until the deadline.
+fn await_callback(
+    listener: &TcpListener,
+    path: &str,
+    timeout: Duration,
+    cancel: Option<&CancelToken>,
+) -> Result<Callback, OAuthError> {
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| OAuthError::Callback(e.to_string()))?;
+    let started = std::time::Instant::now();
+    // Single use: the first request on the exact redirect path ends the flow. Requests on
+    // other paths (favicon, probes) and stalled or malformed connections are answered and
+    // ignored until the deadline, so none of them can end the flow.
+    loop {
+        if cancel.is_some_and(CancelToken::is_cancelled) {
+            return Err(OAuthError::Cancelled);
+        }
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                return Err(OAuthError::Callback(
+                    "timed out waiting for browser callback".into(),
+                ));
+            }
+            Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
+        };
+        // One absolute deadline for the whole request line, never per read. With a cancel
+        // token the budget is short so a stalled connection cannot hold cancellation for long.
+        let mut remaining = timeout
+            .saturating_sub(started.elapsed())
+            .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
+        if cancel.is_some() {
+            remaining = remaining.min(Duration::from_secs(2));
+        }
+        match read_callback(stream, remaining) {
+            Ok(cb) if cb.path == path => return Ok(cb),
+            Ok(_) if started.elapsed() < timeout => continue,
+            Ok(_) => {
+                return Err(OAuthError::Callback(
+                    "timed out waiting for browser callback".into(),
+                ))
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Check a callback against the expected `state` and return its authorization code.
+fn check_callback(callback: Callback, expected_state: &str) -> Result<String, OAuthError> {
+    let state_ok = callback
+        .state
+        .as_deref()
+        .is_some_and(|s| pkce::constant_time_eq(s.as_bytes(), expected_state.as_bytes()));
+    if !state_ok {
+        return Err(OAuthError::StateMismatch);
+    }
+    if let Some(e) = callback.error {
+        if e == "access_denied" {
+            return Err(OAuthError::NeedsReauth);
+        }
+        return Err(OAuthError::Callback(e));
+    }
+    callback
+        .code
+        .ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))
 }
 
 struct Callback {

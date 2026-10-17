@@ -1,6 +1,7 @@
-import { useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { useFocusTrap, useModalDismiss } from "./hooks.js";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useFocusTrap, useLatest, useModalDismiss } from "./hooks.js";
 import { Button, Input, cx, type ButtonProps } from "./ui.js";
+import { isTopEscapeOwner, pushEscapeOwner } from "./escape-stack.js";
 import type { SlotClasses } from "./slots.js";
 
 export interface ModalShellProps {
@@ -30,6 +31,16 @@ export interface ModalShellProps {
   className?: string;
   /** Extra class on the backdrop (same as `slots.overlay`). */
   overlayClassName?: string;
+  /**
+   * Escape closes. Default true. Pass false when the content owns Escape (a shortcut recorder cancels its own capture).
+   */
+  escape?: boolean;
+  /**
+   * Veto dismissal. `false` disables Escape and backdrop dismissal; a function is asked at each attempt and a `false`
+   * return refuses that attempt before the exit animation starts, so the dialog never sits in its closing state. Use it
+   * while an action is pending. Buttons that call their own handlers (ConfirmDialog cancel) are not affected.
+   */
+  dismissible?: boolean | (() => boolean);
   /** Inline style on the backdrop, e.g. a different scrim colour. */
   overlayStyle?: CSSProperties;
   /** `root`: extra class on the dialog surface (same as `className`); `overlay`: extra class on the backdrop. */
@@ -42,11 +53,37 @@ export interface ModalShellProps {
  * backdrop dismissal with an exit animation, Tab focus trap, focus restored to the opener, and a
  * width that never exceeds the viewport.
  */
-export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, dismissOn = "mousedown", labelledBy, describedBy, ariaLabel, className, overlayClassName, overlayStyle, slots, children }: ModalShellProps) {
+export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, dismissOn = "mousedown", labelledBy, describedBy, ariaLabel, className, overlayClassName, overlayStyle, escape = true, dismissible, slots, children }: ModalShellProps) {
   const ref = useRef<HTMLDivElement>(null);
   const pressedOnBackdrop = useRef(false);
   const releasedOnBackdrop = useRef(false);
-  const { closing, close } = useModalDismiss(onClose, { escape: true });
+  const dismissibleRef = useLatest(dismissible);
+  // Escape is read here, not by useModalDismiss, so a refused dismissal never starts the exit animation.
+  const { closing, close } = useModalDismiss(onClose, { escape: false });
+  const allowed = () => {
+    const d = dismissibleRef.current;
+    return typeof d === "function" ? d() !== false : d !== false;
+  };
+  const escapeRef = useLatest(escape);
+  const closeRef = useLatest(close);
+  useEffect(() => {
+    // Only the topmost open modal handles Escape; a lower one stays open while a dialog above it is showing.
+    const owner = {};
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !escapeRef.current || !isTopEscapeOwner(owner)) return;
+      e.stopPropagation();
+      e.preventDefault();
+      if (allowed()) closeRef.current();
+    };
+    const removeOwner = pushEscapeOwner(owner);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      removeOwner();
+    };
+    // allowed reads only refs, so one registration per mount is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useFocusTrap(ref, true, { autoFocus });
   const named = ariaLabel !== undefined;
   const byMouseDown = dismissOn === "mousedown";
@@ -56,7 +93,7 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
       style={overlayStyle}
       onMouseDown={(e) => {
         if (byMouseDown) {
-          if (e.target === e.currentTarget && dismissOnBackdrop) close();
+          if (e.target === e.currentTarget && dismissOnBackdrop && allowed()) close();
         } else {
           pressedOnBackdrop.current = e.target === e.currentTarget;
         }
@@ -69,7 +106,7 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
               const started = pressedOnBackdrop.current && releasedOnBackdrop.current;
               pressedOnBackdrop.current = false;
               releasedOnBackdrop.current = false;
-              if (started && e.target === e.currentTarget && dismissOnBackdrop) close();
+              if (started && e.target === e.currentTarget && dismissOnBackdrop && allowed()) close();
             }
       }
     >
@@ -205,12 +242,14 @@ export interface PromptDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   validate?: (value: string) => string | null;
+  /** Masks the value (a password or PIN). The input gets `type="password"` and no autofill or spellcheck. Default false. */
+  secret?: boolean;
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }
 
-/** Single-field text prompt (rename, new folder). */
-export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, onSubmit, onCancel, className, slots }: PromptDialogProps) {
+/** Single-field text prompt (rename, new folder), or a masked prompt for a secret such as a PIN. */
+export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, secret = false, onSubmit, onCancel, className, slots }: PromptDialogProps) {
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
@@ -224,7 +263,7 @@ export function PromptDialog({ title, label, initialValue = "", placeholder, con
     <Dialog title={title} onClose={onCancel} autoFocus={false} className={className} slots={slots}>
       <form onSubmit={submit} className="rk-modal__form">
         <label htmlFor={inputId} className="rk-modal__label">{label}</label>
-        <Input id={inputId} autoFocus value={value} placeholder={placeholder} aria-invalid={error ? true : undefined} onChange={(e) => setValue(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
+        <Input id={inputId} autoFocus type={secret ? "password" : undefined} autoComplete={secret ? "off" : undefined} spellCheck={secret ? false : undefined} value={value} placeholder={placeholder} aria-invalid={error ? true : undefined} onChange={(e) => setValue(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
         {error ? <small className="rk-modal__error" role="alert">{error}</small> : null}
         <div className="rk-modal__actions">
           <Button onClick={onCancel}>{cancelLabel}</Button>

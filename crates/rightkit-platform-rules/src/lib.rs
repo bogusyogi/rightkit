@@ -27,6 +27,7 @@
 #![forbid(unsafe_code)]
 
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -147,11 +148,27 @@ pub struct Rule {
     /// Required when sources disagree; a conflict makes the record `unsourced`.
     #[serde(default)]
     pub conflict_note: Option<String>,
+    /// The upload route this rule applies to (for example a native upload path). Absent means
+    /// the rule applies to every route. Part of the rule's history key. Read with
+    /// [`Rule::route`] and set with [`Rule::with_route`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    route: Option<String>,
 }
 
 impl Rule {
     pub fn revision(&self) -> u32 {
         self.rule_revision
+    }
+
+    /// The upload route this rule applies to, or `None` when it applies to every route.
+    pub fn route(&self) -> Option<&str> {
+        self.route.as_deref()
+    }
+
+    /// The same rule restricted to one upload route.
+    pub fn with_route(mut self, route: &str) -> Self {
+        self.route = Some(route.to_owned());
+        self
     }
 
     /// The fetch date (`fetchedDate`).
@@ -211,11 +228,13 @@ impl Rule {
             &self.account_type,
             &self.capability,
             &self.format,
+            self.route.as_ref(),
         )
     }
 
     /// Canonical text hashed into a [`RuleRevision`]. Source URL and dates are left out: a change
-    /// to them alone has no content effect, so it does not change the revision.
+    /// to them alone has no content effect, so it does not change the revision. A route is
+    /// appended only when present, so a rule without one keeps its earlier hash.
     fn canonical(&self) -> String {
         let n = |v: Option<f64>| v.map_or("-".to_owned(), |x| format!("{x}"));
         let value = self.value.as_ref().map_or("-".to_owned(), |v| {
@@ -225,7 +244,7 @@ impl Rule {
             .window
             .as_ref()
             .map_or("-".to_owned(), |w| format!("{}{}", w.length, w.unit));
-        format!(
+        let mut text = format!(
             "{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{:?}",
             self.rule_id,
             self.account_type,
@@ -241,11 +260,22 @@ impl Rule {
             self.sunset_date.as_deref().unwrap_or("-"),
             self.source_grade,
             self.status,
-        )
+        );
+        if let Some(route) = &self.route {
+            text.push_str("|route=");
+            text.push_str(route);
+        }
+        text
     }
 }
 
-type Key<'a> = (&'a String, &'a String, &'a String, &'a String);
+type Key<'a> = (
+    &'a String,
+    &'a String,
+    &'a String,
+    &'a String,
+    Option<&'a String>,
+);
 
 /// Stable hash of one platform's latest rules. Bind briefs, exports and approvals to it.
 ///
@@ -256,9 +286,80 @@ pub struct RuleRevision {
     pub hash: String,
 }
 
+impl RuleRevision {
+    /// Parse the persisted string form `platform:hash` (32 lowercase hex digits). Store the
+    /// string on a derived record and compare it later with [`Catalog::is_current_id`].
+    pub fn parse(text: &str) -> Result<Self, Violation> {
+        let bad = || Violation::BadRevisionId {
+            text: text.to_owned(),
+        };
+        let (platform, hash) = text.split_once(':').ok_or_else(bad)?;
+        let hex = hash.len() == 32
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        if platform.is_empty() || !hex {
+            return Err(bad());
+        }
+        Ok(Self {
+            platform: platform.to_owned(),
+            hash: hash.to_owned(),
+        })
+    }
+}
+
+impl FromStr for RuleRevision {
+    type Err = Violation;
+
+    fn from_str(text: &str) -> Result<Self, Violation> {
+        Self::parse(text)
+    }
+}
+
 impl fmt::Display for RuleRevision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.platform, self.hash)
+    }
+}
+
+/// A link placement a platform accepts, as named in the `link.placement` rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkPlacement {
+    Caption,
+    FirstComment,
+    LinkSticker,
+    Bio,
+    /// The wire name is `none`: the platform takes no link.
+    #[serde(rename = "none")]
+    NoLink,
+}
+
+/// The wire names a `link.placement` rule may list.
+pub const LINK_PLACEMENTS: [&str; 5] = ["caption", "first_comment", "link_sticker", "bio", "none"];
+
+impl LinkPlacement {
+    /// The wire name, one of [`LINK_PLACEMENTS`].
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LinkPlacement::Caption => "caption",
+            LinkPlacement::FirstComment => "first_comment",
+            LinkPlacement::LinkSticker => "link_sticker",
+            LinkPlacement::Bio => "bio",
+            LinkPlacement::NoLink => "none",
+        }
+    }
+
+    /// The placement named by a wire name, or `None` for any other text.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "caption" => Some(LinkPlacement::Caption),
+            "first_comment" => Some(LinkPlacement::FirstComment),
+            "link_sticker" => Some(LinkPlacement::LinkSticker),
+            "bio" => Some(LinkPlacement::Bio),
+            "none" => Some(LinkPlacement::NoLink),
+            _ => None,
+        }
     }
 }
 
@@ -271,6 +372,8 @@ pub struct Planned {
     pub value: PlannedValue,
     /// The unit the caller measured in; when set it must equal the rule's unit.
     pub unit: Option<String>,
+    /// The upload route the value is planned for; set with [`Planned::on_route`].
+    route: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -310,6 +413,7 @@ impl Planned {
             format: format.to_owned(),
             value,
             unit: None,
+            route: None,
         }
     }
 
@@ -317,6 +421,18 @@ impl Planned {
     pub fn in_unit(mut self, unit: &str) -> Self {
         self.unit = Some(unit.to_owned());
         self
+    }
+
+    /// Plan the value for one upload route. A route-specific rule for that route applies first;
+    /// an unrestricted rule applies otherwise.
+    pub fn on_route(mut self, route: &str) -> Self {
+        self.route = Some(route.to_owned());
+        self
+    }
+
+    /// A planned link placement (`link.placement`, format `any`).
+    pub fn link_placement(account_type: &str, placement: LinkPlacement) -> Self {
+        Self::text(account_type, "link.placement", "any", placement.as_str())
     }
 }
 
@@ -365,6 +481,8 @@ pub enum Violation {
         planned: String,
         allowed: Vec<String>,
     },
+    /// A persisted revision id is not `platform:hash` with 32 lowercase hex digits.
+    BadRevisionId { text: String },
 }
 
 impl fmt::Display for Violation {
@@ -399,6 +517,9 @@ impl fmt::Display for Violation {
             }
             Violation::NotAllowed { rule_id, planned, allowed } => {
                 write!(f, "{planned} is not one of {allowed:?} (rule {rule_id})")
+            }
+            Violation::BadRevisionId { text } => {
+                write!(f, "{text:?} is not a platform:hash revision id")
             }
         }
     }
@@ -591,8 +712,9 @@ impl Catalog {
     }
 
     /// The latest revision of the rule for these coordinates. Falls back from the given account
-    /// type to `all`, and from the given format to `any`. Returns the record even when it blocks
-    /// use; read [`Rule::status_at`].
+    /// type to `all`, and from the given format to `any`. Sees only unrestricted rules (no
+    /// route); use [`Catalog::get_in`] for a route. Returns the record even when it blocks use;
+    /// read [`Rule::status_at`].
     pub fn get(
         &self,
         platform: &str,
@@ -600,26 +722,68 @@ impl Catalog {
         capability: &str,
         format: &str,
     ) -> Option<&Rule> {
+        self.find(platform, account_type, capability, format, None)
+    }
+
+    /// [`Catalog::get`] for one upload route. A rule for that route is preferred over an
+    /// unrestricted rule with the same account type and format.
+    pub fn get_in(
+        &self,
+        platform: &str,
+        account_type: &str,
+        capability: &str,
+        format: &str,
+        route: &str,
+    ) -> Option<&Rule> {
+        self.find(platform, account_type, capability, format, Some(route))
+    }
+
+    fn find(
+        &self,
+        platform: &str,
+        account_type: &str,
+        capability: &str,
+        format: &str,
+        route: Option<&str>,
+    ) -> Option<&Rule> {
         let accounts = [account_type, "all"];
         let formats = [format, "any"];
+        let routes: Vec<Option<&str>> = match route {
+            Some(r) => vec![Some(r), None],
+            None => vec![None],
+        };
         for acct in accounts {
             for fmt in formats {
-                let hit = self
-                    .rules
-                    .iter()
-                    .filter(|r| {
-                        r.platform == platform
-                            && r.account_type == acct
-                            && r.capability == capability
-                            && r.format == fmt
-                    })
-                    .max_by_key(|r| r.rule_revision);
-                if hit.is_some() {
-                    return hit;
+                for want in &routes {
+                    let hit = self
+                        .rules
+                        .iter()
+                        .filter(|r| {
+                            r.platform == platform
+                                && r.account_type == acct
+                                && r.capability == capability
+                                && r.format == fmt
+                                && r.route.as_deref() == *want
+                        })
+                        .max_by_key(|r| r.rule_revision);
+                    if hit.is_some() {
+                        return hit;
+                    }
                 }
             }
         }
         None
+    }
+
+    /// The persisted string form of the platform's current revision (`platform:hash`).
+    pub fn revision_id(&self, platform: &str) -> String {
+        self.revision(platform).to_string()
+    }
+
+    /// True when the persisted revision id `id` is the current revision of its platform. A
+    /// malformed id is false.
+    pub fn is_current_id(&self, id: &str) -> bool {
+        RuleRevision::parse(id).is_ok_and(|bound| self.is_current(&bound))
     }
 
     /// The rule revision of one platform: a stable hash over its latest records. It changes when
@@ -679,7 +843,13 @@ impl Catalog {
         }
         for p in planned {
             let rule = self
-                .get(&bound.platform, &p.account_type, &p.capability, &p.format)
+                .find(
+                    &bound.platform,
+                    &p.account_type,
+                    &p.capability,
+                    &p.format,
+                    p.route.as_deref(),
+                )
                 .ok_or_else(|| Violation::NoRule {
                     platform: bound.platform.clone(),
                     account_type: p.account_type.clone(),
@@ -689,6 +859,102 @@ impl Catalog {
             check_one(rule, p, today)?;
         }
         Ok(())
+    }
+
+    /// [`Catalog::check`] with the bound revision given as its persisted string form. A malformed
+    /// id is [`Violation::BadRevisionId`].
+    pub fn check_id(&self, id: &str, planned: &[Planned]) -> Result<(), Violation> {
+        self.check_id_at(id, planned, &today_utc())
+    }
+
+    /// [`Catalog::check_at`] with the bound revision given as its persisted string form.
+    pub fn check_id_at(&self, id: &str, planned: &[Planned], today: &str) -> Result<(), Violation> {
+        let bound = RuleRevision::parse(id)?;
+        self.check_at(&bound, planned, today)
+    }
+
+    /// The rule a typed accessor reads: present and sourced on `today`, else `NoRule` or
+    /// `Blocked`.
+    fn checked_rule(
+        &self,
+        platform: &str,
+        account_type: &str,
+        capability: &str,
+        format: &str,
+        today: &str,
+    ) -> Result<&Rule, Violation> {
+        let rule = self
+            .get(platform, account_type, capability, format)
+            .ok_or_else(|| Violation::NoRule {
+                platform: platform.to_owned(),
+                account_type: account_type.to_owned(),
+                capability: capability.to_owned(),
+                format: format.to_owned(),
+            })?;
+        let status = rule.status_at(today);
+        if status != Status::Sourced {
+            return Err(Violation::Blocked {
+                rule_id: rule.rule_id.clone(),
+                status,
+            });
+        }
+        Ok(rule)
+    }
+
+    /// The hashtag maximum of `platform` for `account_type` on `today` (`YYYY-MM-DD`).
+    pub fn hashtag_max_at(
+        &self,
+        platform: &str,
+        account_type: &str,
+        today: &str,
+    ) -> Result<u32, Violation> {
+        let rule = self.checked_rule(platform, account_type, "caption.hashtags", "any", today)?;
+        let wrong = || Violation::WrongType {
+            rule_id: rule.rule_id.clone(),
+        };
+        match rule.limit() {
+            Limit::Max(max) if max >= 0.0 && max.fract() == 0.0 && max <= f64::from(u32::MAX) => {
+                Ok(max as u32)
+            }
+            _ => Err(wrong()),
+        }
+    }
+
+    /// [`Catalog::hashtag_max_at`] dated today (UTC).
+    pub fn hashtag_max(&self, platform: &str, account_type: &str) -> Result<u32, Violation> {
+        self.hashtag_max_at(platform, account_type, &today_utc())
+    }
+
+    /// The link placements `platform` accepts for `account_type` on `today`.
+    pub fn link_placements_at(
+        &self,
+        platform: &str,
+        account_type: &str,
+        today: &str,
+    ) -> Result<Vec<LinkPlacement>, Violation> {
+        let rule = self.checked_rule(platform, account_type, "link.placement", "any", today)?;
+        match rule.limit() {
+            Limit::OneOf(names) => names
+                .iter()
+                .map(|name| {
+                    LinkPlacement::parse(name).ok_or_else(|| Violation::WrongType {
+                        rule_id: rule.rule_id.clone(),
+                    })
+                })
+                .collect(),
+            _ => Err(Violation::WrongType {
+                rule_id: rule.rule_id.clone(),
+            }),
+        }
+    }
+
+    /// [`Catalog::link_placements_at`] dated today (UTC).
+    pub fn link_placements(
+        &self,
+        platform: &str,
+        account_type: &str,
+    ) -> Result<Vec<LinkPlacement>, Violation> {
+        self.link_placements_at(platform, account_type, &today_utc())
     }
 }
 
@@ -860,6 +1126,17 @@ fn validate(rule: &Rule) -> Result<(), CatalogError> {
             return Err(bad("min is above max"));
         }
     }
+    if rule.route.as_deref().is_some_and(|r| r.trim().is_empty()) {
+        return Err(bad("route is empty"));
+    }
+    if rule.capability == "link.placement" {
+        if let Limit::OneOf(names) = rule.limit() {
+            let known = |n: &str| LINK_PLACEMENTS.iter().any(|k| *k == n);
+            if let Some(name) = names.iter().find(|n| !known(n.as_str())) {
+                return Err(bad(&format!("{name} is not a link placement")));
+            }
+        }
+    }
     let stated = rule.limit() != Limit::Unstated;
     match rule.status {
         Status::Sourced => {
@@ -1018,14 +1295,96 @@ mod tests {
     #[test]
     fn unsourced_rule_blocks_use() {
         let c = Catalog::bundled();
-        let rev = c.revision("instagram");
-        let p = Planned::number("all", "video.duration", "reel", 30.0);
+        let rev = c.revision("youtube");
+        let p = Planned::number("verified_google_account", "video.duration", "video", 30.0)
+            .in_unit("minutes");
         assert!(matches!(
             c.check_at(&rev, &[p], TODAY),
             Err(Violation::Blocked {
                 status: Status::Unsourced,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn hashtag_max_is_read_from_the_sourced_rule() {
+        let c = Catalog::bundled();
+        assert_eq!(c.hashtag_max_at("instagram", "all", TODAY), Ok(30));
+        assert!(matches!(
+            c.hashtag_max_at("threads", "all", TODAY),
+            Err(Violation::NoRule { .. })
+        ));
+    }
+
+    #[test]
+    fn link_placement_rule_takes_only_named_placements() {
+        let doc = r#"{"schema":1,"rules":[{"ruleId":"x.link.placement","platform":"x","accountType":"all","capability":"link.placement","format":"any","limitKind":"enum","value":["caption","none"],"sourceUrl":"https://example.test/doc","sourceGrade":"official_fetched","sourceDate":"not_stated","fetchedDate":"2026-10-08","ruleRevision":1,"status":"sourced"}]}"#;
+        let c = Catalog::from_json(doc).unwrap();
+        assert_eq!(
+            c.link_placements_at("x", "all", TODAY),
+            Ok(vec![LinkPlacement::Caption, LinkPlacement::NoLink])
+        );
+        let bad = doc.replace("\"none\"]", "\"carousel\"]");
+        assert!(matches!(
+            Catalog::from_json(&bad),
+            Err(CatalogError::Invalid { .. })
+        ));
+    }
+
+    #[test]
+    fn rule_route_is_read_and_set_through_methods() {
+        let plain = r#"{"ruleId":"x.len","platform":"x","accountType":"all","capability":"text.length","format":"text","limitKind":"max","max":100,"inclusive":true,"unit":"characters","sourceUrl":"https://example.test/doc","sourceGrade":"official_fetched","sourceDate":"not_stated","fetchedDate":"2026-10-08","ruleRevision":1,"status":"sourced"}"#;
+        let rule: Rule = serde_json::from_str(plain).unwrap();
+        assert_eq!(rule.route(), None);
+        assert_eq!(rule.with_route("native").route(), Some("native"));
+        // A route present in the JSON is read into the private field.
+        let routed = plain.replace("\"sourceUrl\"", "\"route\":\"native\",\"sourceUrl\"");
+        let rule: Rule = serde_json::from_str(&routed).unwrap();
+        assert_eq!(rule.route(), Some("native"));
+    }
+
+    #[test]
+    fn route_rule_is_hidden_from_get_and_applies_to_its_route() {
+        let doc = r#"{"schema":1,"rules":[{"ruleId":"x.route.length","platform":"x","accountType":"all","capability":"text.length","format":"text","limitKind":"max","max":100,"inclusive":true,"unit":"characters","route":"native","sourceUrl":"https://example.test/doc","sourceGrade":"official_fetched","sourceDate":"not_stated","fetchedDate":"2026-10-08","ruleRevision":1,"status":"sourced"}]}"#;
+        let c = Catalog::from_json(doc).unwrap();
+        assert!(c.get("x", "all", "text.length", "text").is_none());
+        assert!(c
+            .get_in("x", "all", "text.length", "text", "native")
+            .is_some());
+        assert!(c
+            .get_in("x", "all", "text.length", "text", "other")
+            .is_none());
+        let rev = c.revision("x");
+        let over = Planned::number("all", "text.length", "text", 150.0).on_route("native");
+        assert!(matches!(
+            c.check_at(&rev, &[over], TODAY),
+            Err(Violation::AboveMax { .. })
+        ));
+        let elsewhere = Planned::number("all", "text.length", "text", 150.0);
+        assert!(matches!(
+            c.check_at(&rev, &[elsewhere], TODAY),
+            Err(Violation::NoRule { .. })
+        ));
+    }
+
+    #[test]
+    fn revision_id_round_trips_and_detects_change() {
+        let c = Catalog::bundled();
+        let id = c.revision_id("threads");
+        assert!(c.is_current_id(&id));
+        assert_eq!(RuleRevision::parse(&id), Ok(c.revision("threads")));
+        assert!(!c.is_current_id("threads:00000000000000000000000000000000"));
+        assert!(matches!(
+            RuleRevision::parse("threads:ABC"),
+            Err(Violation::BadRevisionId { .. })
+        ));
+        assert!(!c.is_current_id("not an id"));
+        let p = Planned::number("all", "text.length", "text", 10.0).in_unit("characters");
+        assert!(c.check_id_at(&id, std::slice::from_ref(&p), TODAY).is_ok());
+        assert!(matches!(
+            c.check_id_at("threads:00000000000000000000000000000000", &[p], TODAY),
+            Err(Violation::StaleRevision { .. })
         ));
     }
 

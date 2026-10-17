@@ -1000,11 +1000,12 @@ pub(super) struct AncestorLease {
     unleasable: Vec<UnleasableAncestor>,
 }
 impl AncestorLease {
-    pub(super) fn acquire(path: &Path, sid_text: &str) -> Result<Self, SandboxError> {
-        Self::acquire_with(path, sid_text, AncestorLeasePolicy::Strict)
+    /// Ancestors skipped under [`AncestorLeasePolicy::BestEffort`]; empty for a strict lease.
+    pub(super) fn unleasable(&self) -> &[UnleasableAncestor] {
+        &self.unleasable
     }
 
-    fn acquire_with(
+    pub(super) fn acquire_with(
         path: &Path,
         sid_text: &str,
         policy: AncestorLeasePolicy,

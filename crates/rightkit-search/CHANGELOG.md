@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Keyset paging (Orthic-Labs/rightkit#598):** `Keyset::range_bound()` (opt-in, no public field added) adds a redundant bound on the first sort column when a cursor is given (`<=` for `desc`, `>=` for `asc`), so an index on that column can seek to the page. It selects no row the cursor predicate would not; without a cursor nothing is added.
+- **New `Compiled::page_clauses(&keyset, after) -> PageClauses`** (`#[non_exhaustive]`, with `where_sql`, `params`, `order_by`): the predicate and ordering of one page without a `LIMIT`, for a caller-built statement such as a CTE chain with its own marker-substituted `LIMIT`. `Compiled::page` is now built on it and emits the same SQL and parameter order as before.
+- **Documented:** a `Keyset` sort expression is inserted verbatim, so a scalar subquery resolving a lookup tiebreak per row is valid. Tests in `tests/paging.rs`. Not compiled or run locally; CI is the compiler.
+- **Cursor-side expressions (Orthic-Labs/rightkit#598, completed):** `Keyset::cursor_expr(column, sql, params)` replaces the cursor value's `?` for one sort column with a SQL fragment that binds its own params first (e.g. `COALESCE((SELECT rowid FROM messages WHERE account_id = ? AND id = ?), -1)`). The sort order and `ORDER BY` are unchanged. `CursorError` gains `ColumnOutOfRange` and `ExprBindCount` (`#[non_exhaustive]`). `Param` now derives `Eq`. Tests in `tests/cursor_expr.rs`. Not compiled or run locally; CI is the compiler.
+- Orthic-Labs/rightkit#166 and #172 were already implemented in 0.4.0 (see that section); no source change in this unreleased batch.
+
 ## 0.4.0
 
 **Why:** MailRight (bogusyogi/mailright#8) found `ChildScope` (0.3.0) could not express its thread predicates (Orthic-Labs/rightkit#166). **0.x breaking, in the narrow sense below; existing `ChildScope::new` / `Schema::scope` callers compile and behave unchanged.** Not compiled or run locally; CI is the compiler.

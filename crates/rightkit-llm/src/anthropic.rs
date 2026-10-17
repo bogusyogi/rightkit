@@ -86,6 +86,7 @@ impl AnthropicProvider {
     ) -> Result<(Request, Option<String>, Value), LlmError> {
         check_empty_messages(req)?;
         req.check_images()?;
+        req.check_schema()?;
         let credential = self
             .credentials
             .credential(&self.id)?
@@ -160,7 +161,8 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
     }
 
     let mut slots = MAX_BREAKPOINTS;
-    if !req.tools.is_empty() {
+    let response_schema = req.response_schema();
+    if !req.tools.is_empty() || response_schema.is_some() {
         let mut tools: Vec<Value> = req
             .tools
             .iter()
@@ -172,12 +174,25 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
                 tool
             })
             .collect();
+        // A response schema is a synthetic tool that the call is forced to use; the answer
+        // arrives as its input (read with `ChatResponse::schema_output`).
+        if let Some(s) = &response_schema {
+            let mut tool = json!({"name": s.name, "description": "Answer with an object that matches this schema.", "input_schema": s.schema});
+            if s.strict {
+                tool["strict"] = json!(true);
+            }
+            tools.push(tool);
+        }
         if auto {
             tools.last_mut().unwrap()["cache_control"] = ephemeral();
             slots -= 1;
         }
         body.insert("tools".into(), Value::Array(tools));
-        if let Some(name) = &req.force_tool {
+        let forced = req
+            .force_tool
+            .clone()
+            .or_else(|| response_schema.as_ref().map(|s| s.name.clone()));
+        if let Some(name) = forced {
             body.insert("tool_choice".into(), json!({"type": "tool", "name": name}));
         }
     }
@@ -317,7 +332,7 @@ impl std::fmt::Debug for AnthropicProvider {
         // The credential source and HTTP client are omitted: neither prints a key.
         f.debug_struct("AnthropicProvider")
             .field("id", &self.id)
-            .field("base_url", &self.base_url)
+            .field("base_url", &crate::generation::redact_url(&self.base_url))
             .finish_non_exhaustive()
     }
 }

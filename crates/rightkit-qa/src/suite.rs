@@ -7,15 +7,73 @@ use crate::evidence::{Bundle, CheckStatus, RunStatus};
 use crate::lock::{self, LockOptions};
 use crate::process::{sweep_registries, Tracker};
 use crate::scenario::{
-    discover, resolve_run_kind, run_step, scenario_kind, tier_selected, unmet_requirement, Ctx,
-    Scenario, StepRecord,
+    discover, platform_mismatch, resolve_run_kind, run_step, scenario_kind, tier_selected,
+    unmet_requirement, Ctx, Scenario, StepHandlers, StepRecord,
 };
 use crate::storage::{self, RunKind, RunOutcome};
 use crate::util::{err, now_iso, platform, Result};
 use crate::workspace;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Per-scenario callback: gets the scenario's [`Ctx`] (already built, run kind set) and the scenario.
+pub type ScenarioHook = Arc<dyn for<'a> Fn(&mut Ctx<'a>, &Scenario) -> Result<()> + Send + Sync>;
+
+/// App-defined behaviour for a suite run (rightkit#456). `SuiteHooks::default()` changes nothing.
+#[derive(Clone, Default)]
+pub struct SuiteHooks {
+    /// App-defined step kinds, see [`StepHandlers`].
+    pub steps: StepHandlers,
+    /// Runs once per scenario, after its [`Ctx`] exists and before its first step: start the app's
+    /// mock, set `ctx.vars` entries (`mock_url`, ...), register cleanup. An `Err` fails the scenario
+    /// without running its steps; [`SuiteHooks::teardown`] still runs.
+    pub setup: Option<ScenarioHook>,
+    /// Runs once per scenario that reached setup, after its steps (pass or fail) and before the
+    /// built-in teardown (UI, sidecars, mocks) and the run's orphan sweep, while `ctx` is still
+    /// live. An `Err` is a teardown problem and fails an otherwise passing scenario.
+    pub teardown: Option<ScenarioHook>,
+}
+
+impl SuiteHooks {
+    /// Register a custom step kind (builder style).
+    pub fn step(
+        mut self,
+        kind: &str,
+        handler: impl for<'a> Fn(&mut Ctx<'a>, &serde_json::Map<String, Value>) -> Result<Value>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        self.steps.register(kind, handler);
+        self
+    }
+    pub fn setup(
+        mut self,
+        f: impl for<'a> Fn(&mut Ctx<'a>, &Scenario) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.setup = Some(Arc::new(f));
+        self
+    }
+    pub fn teardown(
+        mut self,
+        f: impl for<'a> Fn(&mut Ctx<'a>, &Scenario) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.teardown = Some(Arc::new(f));
+        self
+    }
+}
+
+impl std::fmt::Debug for SuiteHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SuiteHooks")
+            .field("steps", &self.steps)
+            .field("setup", &self.setup.is_some())
+            .field("teardown", &self.teardown.is_some())
+            .finish()
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SuiteOptions {
@@ -34,6 +92,12 @@ pub struct SuiteOptions {
     pub kind: Option<RunKind>,
     /// Explicit scenario files (override discovery).
     pub files: Vec<PathBuf>,
+    /// App-defined step kinds and per-scenario setup/teardown.
+    pub hooks: SuiteHooks,
+    /// Kill tracked processes still alive after each scenario's teardown, without failing the
+    /// scenario, so one scenario's stray process cannot fail the ones after it. A scenario can
+    /// also set `kill_orphans = true`. Off by default: survivors fail the scenario.
+    pub kill_orphans: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +131,29 @@ pub struct SuiteReport {
     pub outcomes: Vec<Outcome>,
 }
 
+/// Whether `only` selects the scenario: `only` is one name or a comma-separated list; a name
+/// matches when it is a substring of the scenario name or file path, or equals the file stem (the
+/// file name without `.scenario.toml`) exactly.
+pub fn only_matches(only: &str, name: &str, file: &Path) -> bool {
+    let fname = file
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let stem = fname
+        .strip_suffix(".scenario.toml")
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            file.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
+        });
+    let path = file.to_string_lossy();
+    only.split(',')
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .any(|o| name.contains(o) || path.contains(o) || stem == o)
+}
+
 pub fn select(cfg: &QaConfig, opts: &SuiteOptions) -> Result<Vec<Scenario>> {
     let tier = opts
         .tier
@@ -84,7 +171,7 @@ pub fn select(cfg: &QaConfig, opts: &SuiteOptions) -> Result<Vec<Scenario>> {
         let matches_only = opts
             .only
             .as_ref()
-            .map(|o| s.name.contains(o.as_str()) || f.to_string_lossy().contains(o.as_str()))
+            .map(|o| only_matches(o, &s.name, &f))
             .unwrap_or(true);
         if matches_only && (!opts.files.is_empty() || tier_selected(&s.tier, &tier)) {
             out.push(s);
@@ -330,13 +417,23 @@ fn run_suite_at(
     for sc in &scenarios {
         let started = Instant::now();
         let name = sc.name.clone();
-        if let Some(reason) = unmet_requirement(&sc.requires, &cfg.app_root) {
-            if sc.optional {
-                println!("[qa] SKIP  {name}: {reason} (optional)");
+        let unmet = platform_mismatch(&sc.requires)
+            .map(|r| (r, true))
+            .or_else(|| unmet_requirement(&sc.requires, &cfg.app_root).map(|r| (r, false)));
+        if let Some((reason, other_os)) = unmet {
+            if sc.optional || other_os {
+                println!(
+                    "[qa] SKIP  {name}: {reason} ({})",
+                    if sc.optional {
+                        "optional"
+                    } else {
+                        "other platform"
+                    }
+                );
                 bundle.add_check(
                     &name,
                     CheckStatus::Skipped,
-                    json!({"reason": reason, "optional": true}),
+                    json!({"reason": reason, "optional": sc.optional, "platform": other_os}),
                     &[],
                 )?;
                 outcomes.push(Outcome {
@@ -405,10 +502,22 @@ fn run_suite_at(
         };
         let mut ctx = Ctx::new(cfg, engine.clone(), ui.clone(), &ws, &tracker, &name)?;
         ctx.kind = kind;
+        ctx.handlers = opts.hooks.steps.clone();
+        ctx.kill_orphans = opts.kill_orphans || sc.kill_orphans;
         let mut steps = vec![];
         let mut failure: Option<String> = None;
         let limit = Duration::from_secs(sc.timeout_s.unwrap_or(600));
+        let mut run_steps = true;
+        if let Some(setup) = &opts.hooks.setup {
+            if let Err(e) = setup(&mut ctx, sc) {
+                failure = Some(format!("scenario setup: {}", e.0));
+                run_steps = false;
+            }
+        }
         for (i, step) in sc.steps.iter().enumerate() {
+            if !run_steps {
+                break;
+            }
             let t = Instant::now();
             if started.elapsed() > limit {
                 failure = Some(format!(
@@ -451,7 +560,13 @@ fn run_suite_at(
                 }
             }
         }
-        let problems = ctx.teardown();
+        let mut problems = vec![];
+        if let Some(td) = &opts.hooks.teardown {
+            if let Err(e) = td(&mut ctx, sc) {
+                problems.push(format!("scenario teardown: {}", e.0));
+            }
+        }
+        problems.extend(ctx.teardown());
         if failure.is_none() && !problems.is_empty() {
             failure = Some(problems.join("; "));
         }
@@ -673,6 +788,21 @@ fn run_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_matches_substring_exact_stem_and_comma_lists() {
+        let f = Path::new("/x/scenarios/login-flow.scenario.toml");
+        assert!(only_matches("login-flow", "Some Name", f));
+        assert!(only_matches("login", "Some Name", f));
+        assert!(only_matches("Some", "Some Name", f));
+        assert!(only_matches("nope, login-flow", "Some Name", f));
+        assert!(only_matches("nope,Some Name", "Some Name", f));
+        assert!(!only_matches("nope,other", "Some Name", f));
+        assert!(!only_matches(" , ", "Some Name", f));
+        // Stem equality, even when the stem is not a substring of anything else matched.
+        let g = Path::new("/x/a/b.scenario.toml");
+        assert!(only_matches("b", "zzz", g));
+    }
 
     #[test]
     fn an_explicit_ui_binary_skips_the_resolver_checks() {

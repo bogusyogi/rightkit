@@ -9,6 +9,8 @@ mod health;
 mod identity;
 #[cfg(all(test, unix))]
 mod identity_tests;
+mod launch;
+pub mod login_shell;
 mod no_window;
 mod owned;
 mod power;
@@ -20,6 +22,7 @@ mod process_windows;
 mod registry;
 mod restart;
 pub mod reveal;
+mod run;
 #[cfg(windows)]
 mod spawn_windows;
 mod stall;
@@ -34,12 +37,15 @@ pub mod windows_job;
 
 pub use capture::{read_bounded, CapturedOutput, OutputCapture};
 pub use foreign::{
-    find_processes, sweep, sweep_descendants, sweep_matching, AdoptedIdentity, AdoptedSignal,
-    IdentityCheck, MatchSweepOptions, MatchSweepReport, MatchedProcess, ProcessQuery, SignalResult,
-    StartToken, SweepReport,
+    find_processes, suspend_current_process, sweep, sweep_descendants, sweep_matching,
+    AdoptedIdentity, AdoptedSignal, IdentityCheck, MatchSweepOptions, MatchSweepReport,
+    MatchedProcess, ProcessQuery, SignalResult, StartToken, SweepReport,
 };
+#[cfg(unix)]
+pub use foreign::{resume_session, signal_session, suspend_session};
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
-pub use no_window::{NoWindow, CREATE_NO_WINDOW};
+pub use launch::{launch_app, open_url};
+pub use no_window::{command_std, NoWindow, CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW};
 pub use owned::{
     AdoptedProcess, BreakawayDenied, JobAssignmentFailure, JobAssignmentMode, OwnedChild,
     OwnedCommand, ProcessPriority, RawHandleOrFd, ReapOutcome, TerminationOptions, TreeTermination,
@@ -52,9 +58,13 @@ pub use restart::{
     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
     RestartTracker,
 };
+pub use run::{run, RunOptions, RunOutput};
 #[cfg(windows)]
 pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
-pub use stall::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
+pub use stall::{
+    Ack, Cooldown, HeartbeatConfig, HeartbeatEvent, HeartbeatWatch, StallConfig, StallEvent,
+    StallWatchdog,
+};
 pub use stderr_tail::StderrTail;
 #[cfg(unix)]
 pub use unix_child::UnixChild;
@@ -62,4 +72,4 @@ pub use usage::{
     observe_idle, process_usage, BudgetLabels, IdleObservation, ProcessUsage, UsageRates,
 };
 #[cfg(windows)]
-pub use windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
+pub use windows_job::{ExitReason, WindowsJob, WindowsJobBuilder, DEFAULT_ACTIVE_PROCESS_LIMIT};

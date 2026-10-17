@@ -26,6 +26,10 @@ pub enum MenuEntry {
     Separator,
 }
 
+/// Id of the app-menu quit item (macOS "Quit <app>", Windows/Linux File > "Exit <app>"). A click
+/// is handled by the shell as `lifecycle::request_quit` and is not emitted as a menu event.
+pub const ID_QUIT: &str = "rk.menu.quit";
+
 fn yes() -> bool {
     true
 }
@@ -144,10 +148,19 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
         app_menu
             .append(&PredefinedMenuItem::separator(app).map_err(s)?)
             .map_err(s)?;
+        // Not the predefined quit: that terminates without the shell's ordered quit, so with
+        // close-to-tray on a Cmd+Q would hide the window instead of draining. The item routes to
+        // `lifecycle::request_quit` (see `ID_QUIT` and `lifecycle::on_menu_event`).
         app_menu
             .append(
-                &PredefinedMenuItem::quit(app, Some(&format!("Quit {}", spec.app_name)))
-                    .map_err(s)?,
+                &MenuItem::with_id(
+                    app,
+                    ID_QUIT,
+                    format!("Quit {}", spec.app_name),
+                    true,
+                    Some("CmdOrCtrl+Q"),
+                )
+                .map_err(s)?,
             )
             .map_err(s)?;
         menu.append(&app_menu).map_err(s)?;
@@ -168,8 +181,16 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
         }
         file.append(&PredefinedMenuItem::close_window(app, None).map_err(s)?)
             .map_err(s)?;
+        // Routed to `lifecycle::request_quit`, as on macOS (see `ID_QUIT`).
         file.append(
-            &PredefinedMenuItem::quit(app, Some(&format!("Exit {}", spec.app_name))).map_err(s)?,
+            &MenuItem::with_id(
+                app,
+                ID_QUIT,
+                format!("Exit {}", spec.app_name),
+                true,
+                None::<&str>,
+            )
+            .map_err(s)?,
         )
         .map_err(s)?;
         menu.append(&file).map_err(s)?;

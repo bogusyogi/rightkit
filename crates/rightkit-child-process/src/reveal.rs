@@ -189,6 +189,11 @@ pub fn plan(
 /// Whether the system would run `canonical` rather than show it: a runnable extension, an
 /// execute permission bit on a Unix file, or an application bundle directory.
 fn is_runnable(canonical: &Path) -> bool {
+    if canonical.is_dir() {
+        // A folder is runnable only when it is a real application or workflow bundle. A folder
+        // named `chart.js`, `highlight.js` or `Foo.app` without a bundle is opened as a folder.
+        return is_bundle(canonical);
+    }
     let extension_runs = canonical
         .extension()
         .and_then(OsStr::to_str)
@@ -207,6 +212,17 @@ fn is_runnable(canonical: &Path) -> bool {
     false
 }
 
+/// A macOS application or workflow bundle: a directory with the bundle extension and a
+/// `Contents/Info.plist`.
+fn is_bundle(dir: &Path) -> bool {
+    let bundle_extension = dir
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.to_ascii_lowercase());
+    matches!(bundle_extension.as_deref(), Some("app") | Some("workflow"))
+        && dir.join("Contents").join("Info.plist").is_file()
+}
+
 /// Checks `path` against `scope` (and, for [`RevealAction::Open`], against runnable files),
 /// then returns the command, not yet started. Stdio is null and the environment is
 /// [`DEFAULT_ENV_ALLOWLIST`] plus the desktop-session variables a launcher needs.
@@ -215,8 +231,17 @@ pub fn launch_command(
     scope: &PathScope,
     action: RevealAction,
 ) -> io::Result<OwnedCommand> {
+    launch_checked(path, scope, action, false)
+}
+
+fn launch_checked(
+    path: &Path,
+    scope: &PathScope,
+    action: RevealAction,
+    allow_runnable: bool,
+) -> io::Result<OwnedCommand> {
     let canonical = scope.resolve(path)?;
-    if action == RevealAction::Open && is_runnable(&canonical) {
+    if action == RevealAction::Open && !allow_runnable && is_runnable(&canonical) {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("{} would be run, not opened", canonical.display()),
@@ -252,7 +277,17 @@ pub fn launch(path: &Path, scope: &PathScope, action: RevealAction) -> io::Resul
 }
 
 fn run(path: &Path, scope: &PathScope, action: RevealAction) -> io::Result<()> {
-    let mut child = launch(path, scope, action)?;
+    run_checked(path, scope, action, false)
+}
+
+fn run_checked(
+    path: &Path,
+    scope: &PathScope,
+    action: RevealAction,
+    allow_runnable: bool,
+) -> io::Result<()> {
+    let mut child =
+        launch_checked(path, scope, action, allow_runnable)?.spawn_uncontained_detached()?;
     match child.wait_timeout(LAUNCH_WAIT)? {
         // `explorer.exe` reports failure with exit code 1 even when it succeeded.
         Some(status) if !status.success() && !cfg!(windows) => Err(io::Error::other(format!(
@@ -272,6 +307,47 @@ pub fn reveal(path: &Path, scope: &PathScope) -> io::Result<()> {
 /// Opens `path` with its default handler. See the module documentation.
 pub fn open(path: &Path, scope: &PathScope) -> io::Result<()> {
     run(path, scope, RevealAction::Open)
+}
+
+/// Opens the folder `path` itself (on Windows, `explorer.exe <folder>`, not the parent with the
+/// folder selected, which is what [`reveal`] does). `path` must be a directory inside the scope.
+/// Folders are never refused for their name, so a folder named `chart.js` opens; a real
+/// application bundle still refuses (it would run).
+pub fn open_folder(path: &Path, scope: &PathScope) -> io::Result<()> {
+    let canonical = scope.resolve(path)?;
+    if !canonical.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a folder", canonical.display()),
+        ));
+    }
+    run(path, scope, RevealAction::Open)
+}
+
+/// Runs a setup program (`.exe`, `.msi` or `.msp`) on Windows through the shell (`explorer.exe`
+/// on the file), not as a plain child process, so the shell's Mark-of-the-Web and SmartScreen
+/// checks still apply. [`open`] refuses these files because they run code; this is the one
+/// path that runs them, and only for those three extensions inside the scope. Other platforms
+/// return `Unsupported`. Whether SmartScreen prompts is decided by Windows, not by this crate.
+pub fn open_installer(path: &Path, scope: &PathScope) -> io::Result<()> {
+    if !cfg!(windows) {
+        return Err(io::Error::from(io::ErrorKind::Unsupported));
+    }
+    let canonical = scope.resolve(path)?;
+    let extension = canonical
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.to_ascii_lowercase());
+    if !canonical.is_file() || !matches!(extension.as_deref(), Some("exe" | "msi" | "msp")) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} is not a setup program (exe, msi, msp)",
+                canonical.display()
+            ),
+        ));
+    }
+    run_checked(path, scope, RevealAction::Open, true)
 }
 
 #[cfg(test)]
@@ -428,8 +504,10 @@ mod tests {
         let root = temp("runnable");
         let script = root.join("run.bat");
         fs::write(&script, b"echo x").unwrap();
+        // A bundle is runnable only with a Contents/Info.plist (see `is_bundle`).
         let bundle = root.join("Thing.app");
-        fs::create_dir_all(&bundle).unwrap();
+        fs::create_dir_all(bundle.join("Contents")).unwrap();
+        fs::write(bundle.join("Contents").join("Info.plist"), b"<plist/>").unwrap();
         let scope = PathScope::new([&root]).unwrap();
         for path in [&script, &bundle] {
             let error = launch_command(path, &scope, RevealAction::Open).unwrap_err();
@@ -439,6 +517,41 @@ mod tests {
         let document = root.join("notes.txt");
         fs::write(&document, b"x").unwrap();
         assert!(launch_command(&document, &scope, RevealAction::Open).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_folder_named_like_a_script_opens_but_a_bundle_refuses() {
+        let root = temp("folder-named");
+        let folder = root.join("chart.js");
+        fs::create_dir_all(&folder).unwrap();
+        let fake_app = root.join("Foo.app");
+        fs::create_dir_all(&fake_app).unwrap();
+        let real_app = root.join("Real.app");
+        fs::create_dir_all(real_app.join("Contents")).unwrap();
+        fs::write(real_app.join("Contents").join("Info.plist"), b"<plist/>").unwrap();
+        let scope = PathScope::new([&root]).unwrap();
+        assert!(!is_runnable(&folder.canonicalize().unwrap()));
+        assert!(!is_runnable(&fake_app.canonicalize().unwrap()));
+        assert!(is_runnable(&real_app.canonicalize().unwrap()));
+        assert!(launch_command(&folder, &scope, RevealAction::Open).is_ok());
+        let error = launch_command(&real_app, &scope, RevealAction::Open).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn open_installer_is_refused_off_windows_and_outside_the_scope() {
+        let root = temp("installer");
+        let setup = root.join("setup.exe");
+        fs::write(&setup, b"MZ").unwrap();
+        let scope = PathScope::new([&root]).unwrap();
+        // Off Windows the call is refused before anything starts. On Windows it would launch the
+        // file, so that case is left to a Windows run.
+        if !cfg!(windows) {
+            let error = open_installer(&setup, &scope).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        }
         let _ = fs::remove_dir_all(&root);
     }
 

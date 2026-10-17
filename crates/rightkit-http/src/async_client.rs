@@ -30,7 +30,7 @@ use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy};
 use crate::redirect;
 use crate::retry::parse_retry_after;
-use crate::sse::{SseDecoder, SseEvent};
+use crate::sse::{EofPolicy, SseDecoder, SseEvent};
 use crate::urlredact::{redact_url, redact_urls_in_text};
 
 /// Default per-line bound for [`AsyncStreamResponse::sse`].
@@ -55,6 +55,8 @@ pub struct AsyncClient {
     routes: Option<AsyncRoutes>,
     proxy_diagnostic: Option<crate::client::ProxyDiagnostic>,
     proxy_mode_used: crate::client::ProxyModeUsed,
+    /// `false` sends `Accept-Encoding: identity`; see [`AsyncClient::compression`].
+    compression: bool,
 }
 
 /// The per-request system routes and one transport per scheme's proxy.
@@ -72,6 +74,8 @@ struct Raw {
     headers: Vec<(String, String)>,
     response: reqwest::Response,
     attempts: u32,
+    /// URL of this response (the hop that produced it).
+    final_url: String,
     /// Whole-attempt deadline (buffered: request timeout, streams: stream timeout).
     deadline: Option<Instant>,
 }
@@ -210,7 +214,16 @@ impl AsyncClient {
             proxy_diagnostic: proxy.as_ref().map(crate::client::ProxyDiagnostic::of),
             proxy_mode_used,
             proxy: proxy.map(|p| p.ureq),
+            compression: true,
         })
+    }
+
+    /// Ask for compressed responses (default true). `false` sends `Accept-Encoding: identity`
+    /// on every request that sets no `Accept-Encoding` of its own. Kept on the client, not on
+    /// [`ClientConfig`], so existing `ClientConfig` struct literals keep compiling.
+    pub fn compression(mut self, on: bool) -> Self {
+        self.compression = on;
+        self
     }
 
     /// The proxy this client uses, if any, without credentials. `None` also when
@@ -262,6 +275,7 @@ impl AsyncClient {
                 headers: raw.headers,
                 body: Vec::new(),
                 attempts: raw.attempts,
+                final_url: raw.final_url,
                 redact: values,
             });
         }
@@ -277,6 +291,7 @@ impl AsyncClient {
             headers: raw.headers,
             body,
             attempts: raw.attempts,
+            final_url: raw.final_url,
             redact: values,
         })
     }
@@ -325,7 +340,12 @@ impl AsyncClient {
             status: raw.status,
             headers: raw.headers,
             attempts: raw.attempts,
-            body: BodyStream::new(Box::pin(raw.response.bytes_stream()), deadline, cancel),
+            body: BodyStream::new(
+                Box::pin(raw.response.bytes_stream()),
+                deadline,
+                cancel,
+                self.config.idle_timeout,
+            ),
         }
     }
 
@@ -491,6 +511,13 @@ impl AsyncClient {
         let mut url = reqwest::Url::parse(&raw_url)
             .map_err(|_| HttpError::InvalidRequest("invalid URL".into()))?;
         let mut headers = req.headers.clone();
+        if !self.compression
+            && !headers
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("accept-encoding"))
+        {
+            headers.push(("Accept-Encoding".to_string(), "identity".to_string()));
+        }
         let mut body = req.body.clone();
         let mut hops = 0u32;
         loop {
@@ -710,6 +737,7 @@ impl AsyncClient {
             headers,
             response,
             attempts: 1,
+            final_url: url.to_string(),
             deadline,
         })
     }
@@ -796,6 +824,23 @@ impl AsyncStreamResponse {
             SseDecoder::with_limits(max_line_bytes, max_event_bytes),
         )
     }
+
+    /// Read the body as text, reading at most `limit` bytes. Bytes past `limit` are not read,
+    /// and the text is cut there without an error; use it for bounded error bodies. Invalid
+    /// UTF-8 is replaced. A transport or timeout error during the read is returned.
+    pub async fn read_text(mut self, limit: usize) -> Result<String, HttpError> {
+        let mut out: Vec<u8> = Vec::new();
+        while let Some(chunk) = self.body.next().await {
+            let chunk = chunk?;
+            let room = limit.saturating_sub(out.len());
+            if chunk.len() >= room {
+                out.extend_from_slice(&chunk[..room]);
+                break;
+            }
+            out.extend_from_slice(&chunk);
+        }
+        Ok(String::from_utf8_lossy(&out).into_owned())
+    }
 }
 
 /// How often a pending [`BodyStream`] with a cancel token wakes itself to look at the token.
@@ -805,6 +850,11 @@ const CANCEL_POLL: Duration = Duration::from_millis(25);
 pub struct BodyStream {
     inner: ByteStream,
     deadline: Option<Pin<Box<Sleep>>>,
+    /// Idle (stall) limit and its timer: restarted by every received chunk.
+    idle_limit: Option<Duration>,
+    idle_timer: Option<Pin<Box<Sleep>>>,
+    /// True while a read is pending and `idle_timer` measures its silence.
+    idle_waiting: bool,
     cancel: Option<CancelToken>,
     /// Present exactly when `cancel` is. [`CancelToken::cancel`] only sets an atomic flag and
     /// wakes no task, so a read that is pending on a server that sends nothing would never
@@ -815,7 +865,12 @@ pub struct BodyStream {
 }
 
 impl BodyStream {
-    fn new(inner: ByteStream, deadline: Option<Instant>, cancel: Option<CancelToken>) -> Self {
+    fn new(
+        inner: ByteStream,
+        deadline: Option<Instant>,
+        cancel: Option<CancelToken>,
+        idle: Option<Duration>,
+    ) -> Self {
         let deadline = deadline.map(|d| {
             Box::pin(tokio::time::sleep(
                 d.saturating_duration_since(Instant::now()),
@@ -827,6 +882,9 @@ impl BodyStream {
         Self {
             inner,
             deadline,
+            idle_limit: idle,
+            idle_timer: idle.map(|d| Box::pin(tokio::time::sleep(d))),
+            idle_waiting: false,
             cancel,
             cancel_tick,
             done: false,
@@ -865,7 +923,12 @@ impl Stream for BodyStream {
             }
         }
         match self.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(b))) => Poll::Ready(Some(Ok(b))),
+            Poll::Ready(Some(Ok(b))) => {
+                // Data arrived: the pending-read clock stops; the next pending read re-arms it,
+                // so time the consumer spends between polls never counts as network silence.
+                self.idle_waiting = false;
+                Poll::Ready(Some(Ok(b)))
+            }
             Poll::Ready(Some(Err(e))) => {
                 self.done = true;
                 Poll::Ready(Some(Err(map_reqwest_error_in(e, Phase::Body))))
@@ -874,7 +937,23 @@ impl Stream for BodyStream {
                 self.done = true;
                 Poll::Ready(None)
             }
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                let waiting = self.idle_waiting;
+                if let (Some(idle), Some(timer)) = (self.idle_limit, self.idle_timer.as_mut()) {
+                    if !waiting {
+                        timer.as_mut().reset(tokio::time::Instant::now() + idle);
+                    }
+                    if timer.as_mut().poll(cx).is_ready() {
+                        self.done = true;
+                        return Poll::Ready(Some(Err(HttpError::timeout(
+                            format!("no data received for {} ms", idle.as_millis()),
+                            Phase::Body,
+                        ))));
+                    }
+                    self.idle_waiting = true;
+                }
+                Poll::Pending
+            }
         }
     }
 }
@@ -886,6 +965,7 @@ pub struct SseStream {
     decoder: SseDecoder,
     queue: VecDeque<SseEvent>,
     done: bool,
+    eof: EofPolicy,
 }
 
 impl SseStream {
@@ -895,7 +975,14 @@ impl SseStream {
             decoder,
             queue: VecDeque::new(),
             done: false,
+            eof: EofPolicy::Drop,
         }
+    }
+
+    /// Choose what happens to an event cut off by end of stream; see [`EofPolicy`].
+    pub fn eof_policy(mut self, policy: EofPolicy) -> Self {
+        self.eof = policy;
+        self
     }
 }
 
@@ -922,7 +1009,24 @@ impl Stream for SseStream {
                     self.done = true;
                     return Poll::Ready(Some(Err(e)));
                 }
-                Poll::Ready(None) => self.done = true,
+                Poll::Ready(None) => {
+                    self.done = true;
+                    match self.eof {
+                        EofPolicy::Drop => {}
+                        EofPolicy::Deliver => match self.decoder.finish() {
+                            Ok(Some(ev)) => self.queue.push_back(ev),
+                            Ok(None) => {}
+                            Err(e) => return Poll::Ready(Some(Err(e))),
+                        },
+                        EofPolicy::Fail => {
+                            if self.decoder.has_pending() {
+                                return Poll::Ready(Some(Err(HttpError::Stream(
+                                    "SSE stream ended inside an event".into(),
+                                ))));
+                            }
+                        }
+                    }
+                }
                 Poll::Pending => return Poll::Pending,
             }
         }

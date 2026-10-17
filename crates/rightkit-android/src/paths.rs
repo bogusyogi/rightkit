@@ -84,6 +84,11 @@ impl AppPaths {
         self.under_files("logs")
     }
 
+    /// `<files_dir>/crashes`: where [`crate::crash::install_panic_recorder`] writes reports.
+    pub fn crash_dir(&self) -> String {
+        self.under_files("crashes")
+    }
+
     pub fn dirs(&self) -> AppDirs {
         AppDirs {
             files_dir: self.files_dir.clone(),
@@ -110,6 +115,7 @@ mod tests {
         assert_eq!(p.models_dir(), format!("{F}/models"));
         assert_eq!(p.settings_dir(), format!("{F}/settings"));
         assert_eq!(p.logs_dir(), format!("{F}/logs"));
+        assert_eq!(p.crash_dir(), format!("{F}/crashes"));
         let d = p.dirs();
         assert_eq!(d.native_library_dir, N);
         assert_eq!(d.models_dir, p.models_dir());

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Additive (bogusyogi/rightkit#470). `LegalGate` props are unchanged.
+
+- Exports `LegalDocumentBody`, `LegalDocumentBodyProps` and `LegalContentFormat` from the package root, so apps can render their own legal viewer with the same Markdown renderer.
+- `LegalDocumentBody` takes an optional `title`: a matching leading heading is omitted when the host already shows it.
+- `LegalDocumentBody` takes an optional `markdown` mode. The default `"legacy"` renders exactly as 0.3.0. `"extended"` omits HTML comments, keeps indented list continuations in their item and keeps two-space hard breaks.
+- `LegalGate` output is unchanged for every input.
+
 ## 0.3.0 — 2026-10-17
 
 Additive (Orthic-Labs/rightkit#266). `LegalGate` is unchanged.

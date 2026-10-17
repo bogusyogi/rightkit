@@ -22,17 +22,21 @@
 //!   uses `rightkit-credentials` through the `SecretStore` trait.
 
 pub mod anthropic;
+pub mod breaker;
 pub mod cache;
 pub mod catalogue;
 pub mod credentials;
 pub mod error;
 pub mod failover;
+pub mod generation;
+pub mod health;
 pub mod image;
 pub mod openai;
 pub mod presets;
 pub mod pricing;
 pub mod provider;
 pub mod raw;
+pub mod reassembler;
 pub mod tools;
 pub mod types;
 

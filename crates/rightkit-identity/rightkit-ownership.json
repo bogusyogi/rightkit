@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-identity",
+  "capabilities": [
+    {
+      "capability": "installation-identity",
+      "summary": "Installation identity with clone detection and startup claim, build identity (git rev, dirty flag, profile, channel, UTC stamp), device pairing with signed transcript, owner approval and resume tickets, bearer-token device auth with per-IP rate limit",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of writing their own install ids, pairing transcripts or bearer-token checks.",
+        "Key agreement is out of scope: the caller supplies the shared secret."
+      ]
+    }
+  ]
+}

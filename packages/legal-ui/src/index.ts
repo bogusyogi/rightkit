@@ -10,3 +10,5 @@ export type {
 } from "./LegalGate.js";
 export { policyGateDocuments } from "./policyDocuments.js";
 export type { DefaultPolicyDocumentLike } from "./policyDocuments.js";
+export { LegalDocumentBody } from "./LegalDocumentBody.js";
+export type { LegalContentFormat, LegalDocumentBodyProps } from "./LegalDocumentBody.js";

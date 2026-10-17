@@ -25,16 +25,17 @@ Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry
 - Use it for long-running engine work that must survive a crash, be de-duplicated by request id, report progress, and be cancelled.
 - Use it when an engine must answer a stdio or CLI job protocol.
 
-Do not use it for one-shot calls that need no persistence. Do not use it to store app data outside jobs.
+Use `InlineCancelRegistry` for cancellable inline calls without persistence, & `DoctorProbe` for discovered engine capability probes. Do not use it to store app data outside jobs.
 
 ## Cargo features
 
-No feature is on by default (0.3.0): a bare dependency builds only the error types. Select what you use; `store`, `supervisor`, `contract` and `service` together restore the 0.2.x default.
+No feature is on by default (0.3.0): a bare dependency builds error types & `InlineCancelRegistry`. Select what you use; `store`, `supervisor`, `contract` and `service` together restore the 0.2.x default.
 
 - `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
 - `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-sidecar`.
 - `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
-- `supervisor` (implies `protocol`): `EngineSupervisor`, `EngineClient` and the `rightkit-child-process` re-exports; pulls `rightkit-child-process`, not `rightkit-db`.
+- `doctor`: bounded CLI doctor probes & binary-identity capability caching; pulls only `rightkit-child-process`.
+- `supervisor` (implies `protocol` & `doctor`): `EngineSupervisor`, `EngineClient` and the `rightkit-child-process` re-exports; pulls `rightkit-child-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.
 
 Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run; set per submit, or once per job kind with `StoreConfig::recovery_for_kind`), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
@@ -219,6 +220,7 @@ Equality of `JobError` ignores the classification.
 - **Work directories (0.3.2).** `StoreConfig::work_root(root)` names a directory of per-request work directories, `<root>/<request_id>`. `claimed_paths_with` claims them (non-terminal jobs for `NonTerminal`, every job for `All`) and `delete` removes the job's directory with it.
 - **Lock files (0.3.2).** The runner removes `<id>.lock` when the job is terminal. `JobLocks::remove`, `JobLocks::sweep(keep)` and `Runner::sweep_job_locks()` clear files left by crashes or earlier versions (call them only for finished or gone jobs).
 - **Write-behind (0.3.2).** `JobStore::admit` (a new job), `set_ext_later` (a checkpoint in extension columns) and `delete_later` hold a write that storage refuses (`db` or `io`) and retry it in order after the next successful write and on `flush_deferred()`. Held writes are memory only and bounded by `MAX_DEFERRED_OPS`; `shutdown_detailed()` flushes them and lists what is left in `SettlementShutdown::deferred`. A held admission is not a row: `get` says `job_not_found` until it lands (`provisional_jobs()` lists it).
+- **Caller connection, named table, due query, revision (unreleased).** `JobTable` (`JobStore::table()`, or `JobTable::new(&cfg)`) runs enqueue, transition, complete, fail, hold_submission, resolve and reads on a `&Connection` or `&Transaction` you supply, so job writes commit with your own rows and roll back with them. `StoreConfig::jobs_table(name)` names the table, `unique(cols)` adds UNIQUE constraints, `due_column(col)` enables `due(now, limit)`, and `row_revision(col)` with `Expect::new().revision(n)` gives a compare-and-swap that fails with `revision_conflict`.
 
 ## Held jobs
 
@@ -287,3 +289,68 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required hosts: macOS and Windows.
 - Status exposure: `EngineSupervisor::status()` in `src/supervisor.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.
+
+## Discovered engine doctor probes
+
+Enable `doctor` (also included by `supervisor`). Pass an absolute engine path;
+probes never search PATH. Each `probe` runs `<engine> doctor` live. Exit 1 is valid
+when stdout contains valid doctor JSON, preserving not-ready engine reports.
+
+```rust,no_run
+use rightkit_job_queue::{DoctorProbe, DEFAULT_DOCTOR_TIMEOUT, run_doctor};
+
+let engine = std::env::current_exe().unwrap(); // replace with discovered engine path
+let probe = DoctorProbe::default(); // retain this instance across discovery calls
+let doctor = probe.probe(&engine)?;
+let capabilities = probe.cached_capabilities(&engine);
+let uncached = run_doctor(&engine, DEFAULT_DOCTOR_TIMEOUT)?;
+# Ok::<(), rightkit_job_queue::JobError>(())
+```
+
+`parse_doctor` extracts `app_version` (string), `contract_version` (unsigned integer),
+`capabilities` (array) & `readiness` (any JSON, null when absent). Other fields are
+ignored. Capability entries stay engine-defined. `DoctorOptions` configures runtime
+& stdout byte limits; stdout is byte-exact, drained past its cap & rejected if
+truncated. Default timeout is 10 seconds; output ceiling is 8 MiB. Runtime budget
+covers stdout EOF as well as child exit, so inherited pipes cannot extend it.
+Timeout cleanup kills owned process trees with at most 250 ms additional reap wait;
+remaining reaping continues in background. OS spawn/stat calls retain OS latency.
+
+`DoctorProbe` caches only capabilities for unchanged binary identities: canonical
+path, size, mtime, creation time when available, plus Unix device/inode/ctime.
+Symlink aliases share entries. Probes compare identity before & after execution;
+replacement during probing prevents caching. Missing or changed binaries miss.
+Metadata identity detects ordinary upgrades; it is not content authentication.
+Cache holds at most 128 binaries, removes older versions of each path & evicts
+oldest entries. `clear_cache()` discards entries; concurrent live probes may add
+entries afterward. Readiness & errors are never cached.
+
+Failures return `JobError` with supervisor origin & codes `bad_input` (relative
+path), `spawn_failed`, `wait_failed`, `doctor_timeout`, `doctor_read_failed`,
+`doctor_output_limit`, `doctor_bad_json` or `doctor_bad_shape`.
+
+## Inline cancellation without persisted jobs
+
+This API needs no Cargo feature or database. Retain one registry across engine
+handlers; clones share registrations. Keep guard alive throughout work.
+
+```rust
+use rightkit_job_queue::InlineCancelRegistry;
+use std::sync::atomic::Ordering;
+
+let registry = InlineCancelRegistry::new();
+let (guard, cancel) = registry.register("render-42")?;
+assert!(registry.clone().cancel("render-42"));
+assert!(cancel.load(Ordering::SeqCst));
+drop(guard);
+assert!(!registry.cancel("render-42"));
+# Ok::<(), rightkit_job_queue::JobError>(())
+```
+
+Registration rejects empty IDs (`bad_input`) & active duplicates (`job_exists`).
+Guard drop removes registration, including during unwind. IDs can then be reused
+with fresh flags. `cancel(id)` returns whether work is registered, including
+already-cancelled work. `cancel_all()` flags current work & returns its count;
+future registrations start uncancelled. Cancellation is cooperative: handlers
+must observe returned `Arc<AtomicBool>`; guard drop never resets flags retained
+by work. Registries do not persist, recover, fence or terminate jobs.

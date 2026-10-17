@@ -9,6 +9,7 @@
  *   "ctrlormeta+k" exactly one of Ctrl or Meta (Cmd/Win) on every platform, whichever the OS uses
  *   "?"            bare key (never fires while typing in a field)
  *   "g i"          sequence: press g, then i within the timeout (never fires while typing)
+ *   "mod+digit"    pseudo-keys: "digit" matches 0-9 and "arrow" matches the four arrow keys (read event.key in `run`)
  */
 import { getPlatform, type Platform } from "@rightkit/platform-ui";
 import type { ThemeStorage } from "./theme.js";
@@ -53,6 +54,8 @@ export interface ShortcutInfo {
   rebindable: boolean;
   hidden: boolean;
   overridden: boolean;
+  /** Explicitly unbound by an override (`null`), as opposed to bound to its default. `chords` is empty when true. */
+  unassigned: boolean;
 }
 
 interface Step {
@@ -76,6 +79,17 @@ interface Snapshot {
 }
 
 const KEY_ALIASES: Record<string, string> = { esc: "escape", plus: "+", return: "enter", del: "delete", up: "arrowup", down: "arrowdown", left: "arrowleft", right: "arrowright" };
+const ARROW_KEYS = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright"]);
+
+/** Base character of punctuation keys, by physical `event.code` (used when Alt or AltGr replaces the produced character). */
+const CODE_KEYS: Record<string, string> = { Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`", Space: "space" };
+
+/** The key a physical code names on a US layout, or undefined when the code is not a letter, digit or listed punctuation. */
+function keyFromCode(code: string): string | undefined {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  return CODE_KEYS[code];
+}
 
 function parseStep(raw: string): Step {
   const step: Step = { mod: false, ctrl: false, meta: false, ctrlOrMeta: false, alt: false, shift: false, key: "" };
@@ -135,15 +149,40 @@ function matchStep(step: Step, snap: Snapshot, platform: Platform, ignoreExtra =
     : modifierMatches(wantMeta, snap.meta, ignoreExtra) && modifierMatches(wantCtrl, snap.ctrl, ignoreExtra);
   if (!primaryOk || !modifierMatches(step.alt, snap.alt, ignoreExtra)) return false;
   const key = KEY_ALIASES[snap.key] ?? snap.key;
+  const physical = keyFromCode(snap.code);
   let keyOk = key === step.key;
-  // macOS Option rewrites the produced character (Alt+Z -> Omega): fall back to the physical key.
-  if (!keyOk && step.alt && step.key.length === 1) {
-    keyOk = snap.code === `Key${step.key.toUpperCase()}` || snap.code === `Digit${step.key}`;
-  }
+  if (!keyOk && step.key === "digit") keyOk = /^[0-9]$/.test(key) || (physical !== undefined && /^[0-9]$/.test(physical));
+  if (!keyOk && step.key === "arrow") keyOk = ARROW_KEYS.has(key);
+  // Option (macOS) and AltGr rewrite the produced character (Alt+Z -> Omega): fall back to the physical key.
+  if (!keyOk && step.alt) keyOk = physical === step.key;
   if (!keyOk) return false;
   // Symbols like "?" or "#" already encode Shift in the produced character.
   const symbol = step.key.length === 1 && !/[a-z0-9]/.test(step.key);
   return symbol || modifierMatches(step.shift, snap.shift, ignoreExtra);
+}
+
+/**
+ * Chord string for a keydown, in the registry's vocabulary: `mod` for the platform primary (Cmd on macOS, Ctrl
+ * elsewhere), then `ctrl`/`meta` for the other one, `alt`, `shift`, and the key. Returns null for a modifier-only press.
+ * Alt and AltGr use the physical key so the chord names the key the user pressed, not the character it produced.
+ * Shift is omitted for symbol keys, which already encode it. Used by `ShortcutRecorder`.
+ */
+export function chordFromEvent(event: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">, platform: Platform): string | null {
+  const raw = event.key ?? "";
+  if (!raw || raw === "Dead" || raw === "Unidentified" || MODIFIER_KEYS.has(raw.toLowerCase())) return null;
+  const mac = platform === "macos" || platform === "ios";
+  const primary = mac ? event.metaKey : event.ctrlKey;
+  const secondary = mac ? event.ctrlKey : event.metaKey;
+  let name = raw === " " ? "space" : raw.toLowerCase();
+  if (event.altKey) name = keyFromCode(event.code ?? "") ?? name;
+  const symbol = name.length === 1 && !/[a-z0-9]/.test(name);
+  const parts: string[] = [];
+  if (primary) parts.push("mod");
+  if (secondary) parts.push(mac ? "ctrl" : "meta");
+  if (event.altKey) parts.push("alt");
+  if (event.shiftKey && !symbol) parts.push("shift");
+  parts.push(name);
+  return parts.join("+");
 }
 
 /** True when focus is in a text-entry surface that owns bare keys. */
@@ -171,6 +210,7 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
   let overrides: Record<string, string | null> = {};
   let pending: Snapshot[] = [];
   let pendingAt = 0;
+  let suspended = false;
   const listeners = new Set<() => void>();
   let version = 0;
 
@@ -212,6 +252,8 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
     (!event.isComposing || entry.def.allowComposing === true) && (!event.defaultPrevented || entry.def.allowDefaultPrevented === true);
 
   function handle(event: KeyboardEvent): boolean {
+    // Suspended for modal key capture (a shortcut recorder): no binding fires until resume().
+    if (suspended) return false;
     // Nothing fires while composing or after another handler prevented the event, unless a shortcut opts in.
     if ((event.isComposing || event.defaultPrevented) && ![...entries.values()].some((entry) => admits(entry, event))) return false;
     const snap = snapshot(event);
@@ -270,6 +312,7 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
       rebindable: entry.def.rebindable ?? false,
       hidden: entry.def.hidden ?? false,
       overridden: overrides[entry.def.id] !== undefined,
+      unassigned: overrides[entry.def.id] === null,
     }));
   }
 
@@ -288,8 +331,12 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
     return order.map((title) => ({ title, items: map.get(title)! }));
   }
 
-  /** Effective bindings that two or more ids share (a Settings rebinding UI should refuse them). */
-  function conflicts(): { chord: string; ids: string[] }[] {
+  /**
+   * Effective bindings that two or more ids share (a Settings rebinding UI should refuse them). `exact`: the same chord.
+   * `prefix`: a one-press chord and a sequence that starts with it (`g` and `g i`), so the sequence can never fire.
+   * `chord` is the canonical text of the shorter chord.
+   */
+  function conflicts(): { chord: string; ids: string[]; kind: "exact" | "prefix" }[] {
     const byChord = new Map<string, string[]>();
     for (const info of list()) {
       for (const chord of info.chords) {
@@ -297,7 +344,19 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
         byChord.set(key, [...(byChord.get(key) ?? []), info.id]);
       }
     }
-    return [...byChord].filter(([, ids]) => ids.length > 1).map(([chord, ids]) => ({ chord, ids }));
+    const exact = [...byChord]
+      .filter(([, ids]) => ids.length > 1)
+      .map(([chord, ids]) => ({ chord, ids, kind: "exact" as const }));
+    const keys = [...byChord.keys()];
+    const prefix: { chord: string; ids: string[]; kind: "prefix" }[] = [];
+    for (const short of keys) {
+      for (const long of keys) {
+        if (short === long || !long.startsWith(`${short} `)) continue;
+        const ids = [...new Set([...byChord.get(short)!, ...byChord.get(long)!])];
+        if (ids.length > 1) prefix.push({ chord: short, ids, kind: "prefix" });
+      }
+    }
+    return [...exact, ...prefix];
   }
 
   return {
@@ -324,6 +383,16 @@ export function createShortcutRegistry(options: ShortcutRegistryOptions = {}) {
       overrides = { ...next };
       notify();
     },
+    /** Stop dispatching every binding (modal key capture) and drop a half-typed sequence. Keys still reach the page. */
+    suspend(): void {
+      suspended = true;
+      pending = [];
+    },
+    /** Dispatch bindings again after `suspend()`. */
+    resume(): void {
+      suspended = false;
+    },
+    isSuspended: (): boolean => suspended,
     overrides: (): Record<string, string | null> => ({ ...overrides }),
     subscribe(listener: () => void): () => void {
       listeners.add(listener);

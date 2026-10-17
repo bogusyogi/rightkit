@@ -92,6 +92,7 @@ All of it is inside this crate, per call, before a parser sees a byte. Defaults 
 | DOCTYPE, entity declarations, UTF-16 XML (so no XXE and no entity expansion) | refused in **every** XML part | `forbidden_xml` |
 | `.docm` `.xlsm` `.dotm` `.xltm`, any VBA project, macro content types | refused for read **and** edit; never opened, run, or stripped | `macro_enabled` |
 | password-protected OOXML (OLE `EncryptedPackage`), zip-level encryption, encrypted PDF | refused | `encrypted` |
+| embedded OLE objects (`embeddings/` parts, `oleObject` parts) and ActiveX controls (`activeX/` parts) | refused before any part is parsed | `active_content` |
 | legacy `.doc` `.xls` `.ppt`, PPTX, XLSB, anything else | refused, never guessed | `unsupported_format` |
 | external relationships (linked images, templates, workbook links, hyperlinks) | never followed; preserved as written; counted in `omitted` | none |
 | formulas that reach outside the workbook: external workbook references, DDE (`\|`), `WEBSERVICE`, `FILTERXML`, `CALL`, `REGISTER`, `EXEC`, file or network locations | refused on create and edit | `unsafe_formula` |

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Issues #375, #376, #384, #453 (listener part), #504, #596, #377 (public routes). Written without compiling or running the build tool here; CI builds and runs the tests. The crate version is unchanged.
+
+- Added (#504): `fail_limit` (private). Failed secrets are limited per connection (5 in 60 s) and globally (30 in 60 s), each block lasting 60 s. A blocked hello or request is answered with the new code `rate_limited` (HTTP 429 in the status table, not retryable on the same connection). The issue text says 5 for both buckets; the source the port comes from uses 30 for the global one, and the code keeps that.
+- Added (#596): `PrivateChild::spawn_with_extra` (secret line, then one more line) and `PrivateChild::write_line`. `Client::call_retrying_over` (retry over a caller-owned connection source, through `call_large`) and `Client::call_retrying_until` (with a stop hook that is checked between attempts, in backoff, and in flight). A timeout is replayed when `RetryPolicy::idempotent` is true; before, `call_retrying` never replayed one. `call_retrying` itself now sends through `call_large`.
+- Added (#375): module `stop` (`StopSource`, `StopToken`, `StopCause`, `stop_on_signals`, `stop_on_stdin_close`). SIGINT and SIGTERM on Unix and the console control handler on Windows are declared in the crate, not through a new dependency.
+- Added (#376): module `ticker` (`spawn_ticker`, `spawn_heartbeat`, `heartbeat_record`). Generic: PostRight's supervisor-specific heartbeat is not replicated.
+- Added (#384): `suite::refuse_build_tool_real_data`, opt-in.
+- Added (#453, listener part): `Accepted`, `Conn` and `Listener` are public and re-exported at the crate root. They were crate-private before; the behaviour is unchanged.
+- Added (#377): `Daemon::add_public_route` (remote feature). Paths under `/v1` are refused.
+
 ## 0.2.7
 
 Issues #295 (supervisor loop), #294 (chunked calls) and #306 (operator surface, partly). Written without compiling or running Cargo here; CI builds and runs the tests.

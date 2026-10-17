@@ -2,10 +2,13 @@
 //! window-addressed messages for tier 3, SendInput for the opt-in tier 4,
 //! PrintWindow for per-window capture. No Python, no Node.
 
+pub mod bounded;
 pub(crate) mod capture_safety;
+pub mod dialog;
 pub mod input;
+pub mod msaa;
 mod sys;
-mod uia;
+pub mod uia;
 
 use crate::model::*;
 use crate::platform::*;
@@ -13,6 +16,10 @@ use crate::proof::FieldText;
 use std::path::Path;
 use uia::El;
 
+pub use bounded::{
+    mutation_circuit_open, reset_mutation_circuit, with_deadline, with_deadline_mutation,
+    with_deadline_security,
+};
 pub use input::{
     is_extended_vk, send_input_batch, send_input_batch_with, vk, ModifierSnapshot, RawInput,
     RawKey, RawMouse, RawMouseButton, SendOptions,

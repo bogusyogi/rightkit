@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod stack;
+
 pub const HR_STATUS_WINDOW_LEVEL: i32 = 25;
 /// Windows native hosts must keep both the extended style and actual z-order in this band.
 pub const WINDOWS_TOPMOST_REQUIRED: bool = true;
@@ -165,6 +167,27 @@ impl OverlayStyle {
         }
         (current & !owned) | wanted
     }
+
+    /// Like [`OverlayStyle::ex_style`], without `WS_EX_LAYERED`. Used by
+    /// [`windows::create_overlay_window`], so a new overlay is a plain topmost tool window that
+    /// paints without `SetLayeredWindowAttributes`. Click-through needs a layered window, so the
+    /// creator refuses that style rather than creating a window that ignores it.
+    pub fn unlayered_ex_style(self, current: u32) -> u32 {
+        self.ex_style(current) & !ex_style::LAYERED
+    }
+}
+
+/// The position and size of an overlay window, in screen pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverlayRect {
+    /// Left edge.
+    pub x: i32,
+    /// Top edge.
+    pub y: i32,
+    /// Width.
+    pub width: i32,
+    /// Height.
+    pub height: i32,
 }
 
 /// What an overlay does while another program covers the whole monitor (a game, a video, a
@@ -263,6 +286,77 @@ pub fn is_foreign_borderless_fullscreen(
     !own_pid && style_is_borderless(style) && rect_equals_monitor(window, monitor)
 }
 
+/// `WS_BORDER`: a one-pixel border. Alone it does not make a window framed (see
+/// [`style_has_no_frame`]).
+pub const WS_BORDER_BIT: u32 = 0x0080_0000;
+/// `WS_DLGFRAME`: a dialog-style frame. Alone it does not make a window framed (see
+/// [`style_has_no_frame`]).
+pub const WS_DLGFRAME_BIT: u32 = 0x0040_0000;
+
+/// True when a window style draws no frame, under the rule a foreground-app check uses: a window
+/// is framed when it has the whole caption (`WS_BORDER` and `WS_DLGFRAME` together) or a sizing
+/// border (`WS_THICKFRAME`). A lone `WS_BORDER` or a lone `WS_DLGFRAME` leaves it frameless.
+/// Stricter than [`style_is_borderless`], which counts either bit as a frame.
+pub fn style_has_no_frame(style: u32) -> bool {
+    style & WS_CAPTION_BITS != WS_CAPTION_BITS && style & WS_THICKFRAME_BIT == 0
+}
+
+/// Whether a foreground window counts as full screen for an overlay's [`FullScreenPolicy`]: it
+/// is not the app's own window, it has no frame ([`style_has_no_frame`]) and it covers the whole
+/// monitor, overhang included ([`fills_monitor`]). A window larger than the monitor (a game or a
+/// video that spills over the edges) therefore counts as full screen.
+pub fn is_foreign_fullscreen_overhang(
+    style: u32,
+    window: WorkArea,
+    monitor: WorkArea,
+    own_pid: bool,
+) -> bool {
+    !own_pid && style_has_no_frame(style) && fills_monitor(window, monitor)
+}
+
+/// Whether two rectangles share any area. Touching edges do not count as overlap.
+pub fn rects_overlap(a: WorkArea, b: WorkArea) -> bool {
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+/// One window stacked above an overlay, reduced to the facts the covering check needs. A host
+/// fills these in from the z-order walk, nearest window above first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CoveringCandidate {
+    /// The window class name (`GetClassNameW`).
+    pub class_name: String,
+    /// The window is visible.
+    pub visible: bool,
+    /// The window belongs to the app itself (its process or one of its own pids).
+    pub own_process: bool,
+    /// The window is cloaked by the compositor (`DWMWA_CLOAKED`), so it is not on screen.
+    pub cloaked: bool,
+    /// The window's bounds in screen pixels.
+    pub rect: WorkArea,
+}
+
+/// How many windows above an overlay a covering check reads. A short walk: the topmost band is
+/// small, and a longer walk costs time on every check.
+pub const MAX_COVERING_WALK: usize = 64;
+
+/// The covering verdict for an overlay, from plain values. `"not_topmost"` when the overlay lost
+/// its topmost flag. Otherwise the class name of the first candidate, nearest above first, that
+/// is visible, not the app's own, not cloaked and overlaps the overlay. `None` when nothing
+/// covers it. Only the first [`MAX_COVERING_WALK`] candidates are read.
+pub fn covering_window(
+    topmost: bool,
+    overlay: WorkArea,
+    above: &[CoveringCandidate],
+) -> Option<String> {
+    if !topmost {
+        return Some("not_topmost".to_string());
+    }
+    above.iter().take(MAX_COVERING_WALK).find_map(|c| {
+        let counts = c.visible && !c.own_process && !c.cloaked && rects_overlap(c.rect, overlay);
+        counts.then(|| c.class_name.clone())
+    })
+}
+
 /// One monitor, for placing an overlay on it: its full bounds, its work area (bounds without
 /// the taskbar) and its DPI. Coordinates are physical screen pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -290,7 +384,7 @@ pub mod windows {
     use std::sync::{Mutex, OnceLock};
 
     use windows_sys::core::BOOL;
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
         MONITOR_DEFAULTTONEAREST,
@@ -304,8 +398,9 @@ pub mod windows {
         SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC,
         WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WS_POPUP};
 
-    use crate::{ex_style, MonitorPlacement, OverlayStyle, WorkArea};
+    use crate::{ex_style, MonitorPlacement, OverlayRect, OverlayStyle, WorkArea};
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
 
@@ -510,6 +605,53 @@ pub mod windows {
         write_ex_style(hwnd, current, style.ex_style(current as u32))
     }
 
+    /// Creates a hidden, topmost, non-activating tool window of `style` at `rect` **without**
+    /// `WS_EX_LAYERED` (`WS_POPUP`, no taskbar button). Show it with [`show_noactivate`]. The
+    /// caller registers `class_name` with `hinstance` first. Returns the handle, or `0` when it
+    /// cannot be made: an empty name or one with an interior NUL, `style.click_through` (that
+    /// needs a layered window), or a failed `CreateWindowExW`.
+    pub fn create_overlay_window(
+        hinstance: isize,
+        class_name: &str,
+        title: &str,
+        rect: OverlayRect,
+        style: OverlayStyle,
+    ) -> isize {
+        if style.click_through || class_name.is_empty() {
+            return 0;
+        }
+        let (Some(class_name), Some(title)) = (wide(class_name), wide(title)) else {
+            return 0;
+        };
+        let ex = style.unlayered_ex_style(0);
+        unsafe {
+            CreateWindowExW(
+                ex,
+                class_name.as_ptr(),
+                title.as_ptr(),
+                WS_POPUP,
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                hinstance as HINSTANCE,
+                std::ptr::null(),
+            ) as isize
+        }
+    }
+
+    /// NUL-terminated UTF-16 copy of `text`, or `None` when it contains a NUL.
+    fn wide(text: &str) -> Option<Vec<u16>> {
+        if text.contains('\0') {
+            return None;
+        }
+        let mut units: Vec<u16> = text.encode_utf16().collect();
+        units.push(0);
+        Some(units)
+    }
+
     /// Turn click-through on or off at run time (`WS_EX_TRANSPARENT`; the window must be
     /// layered). Returns whether the style changed.
     pub fn set_click_through(hwnd: isize, on: bool) -> bool {
@@ -700,6 +842,15 @@ pub mod windows {
     pub fn set_click_through(_hwnd: isize, _on: bool) -> bool {
         false
     }
+    pub fn create_overlay_window(
+        _hinstance: isize,
+        _class_name: &str,
+        _title: &str,
+        _rect: crate::OverlayRect,
+        _style: crate::OverlayStyle,
+    ) -> isize {
+        0
+    }
     pub fn show_noactivate(_hwnd: isize) -> bool {
         false
     }
@@ -829,6 +980,26 @@ mod tests {
     }
 
     #[test]
+    fn an_unlayered_overlay_style_has_no_layered_bit_and_keeps_the_rest() {
+        assert_eq!(
+            OverlayStyle::PASSIVE.unlayered_ex_style(0),
+            TOOLWINDOW | TOPMOST | NOACTIVATE
+        );
+        assert_eq!(
+            OverlayStyle::KEYBOARD.unlayered_ex_style(0),
+            TOOLWINDOW | TOPMOST
+        );
+        // A current LAYERED bit is cleared, an unowned bit survives.
+        const WS_EX_COMPOSITED: u32 = 0x0200_0000;
+        assert_eq!(
+            OverlayStyle::PASSIVE.unlayered_ex_style(LAYERED | WS_EX_COMPOSITED),
+            TOOLWINDOW | TOPMOST | NOACTIVATE | WS_EX_COMPOSITED
+        );
+        // The layered path is unchanged.
+        assert_eq!(OverlayStyle::PASSIVE.ex_style(0) & LAYERED, LAYERED);
+    }
+
+    #[test]
     fn applying_a_style_clears_what_it_owns_and_keeps_the_rest() {
         const WS_EX_COMPOSITED: u32 = 0x0200_0000;
         let before = APPWINDOW | TRANSPARENT | NOACTIVATE | WS_EX_COMPOSITED;
@@ -944,5 +1115,111 @@ mod tests {
         assert_eq!(placement(96).scale(), 1.0);
         assert_eq!(placement(144).scale(), 1.5);
         assert!(placement(0).scale() > 0.0);
+    }
+}
+
+#[cfg(test)]
+mod frame_and_cover_tests {
+    use super::*;
+
+    const MONITOR: WorkArea = WorkArea {
+        left: 0.0,
+        top: 0.0,
+        right: 1920.0,
+        bottom: 1080.0,
+    };
+
+    fn rect(left: f64, top: f64, right: f64, bottom: f64) -> WorkArea {
+        WorkArea {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn a_lone_border_or_dialog_frame_bit_is_frameless() {
+        assert!(style_has_no_frame(0));
+        assert!(style_has_no_frame(WS_BORDER_BIT));
+        assert!(style_has_no_frame(WS_DLGFRAME_BIT));
+        assert!(!style_has_no_frame(WS_CAPTION_BITS));
+        assert!(!style_has_no_frame(WS_THICKFRAME_BIT));
+        assert!(!style_has_no_frame(WS_BORDER_BIT | WS_THICKFRAME_BIT));
+    }
+
+    #[test]
+    fn a_frameless_window_larger_than_the_monitor_is_full_screen() {
+        let overhang = rect(-40.0, -20.0, 1960.0, 1100.0);
+        assert!(is_foreign_fullscreen_overhang(
+            WS_BORDER_BIT,
+            overhang,
+            MONITOR,
+            false
+        ));
+        assert!(!is_foreign_fullscreen_overhang(
+            WS_CAPTION_BITS,
+            overhang,
+            MONITOR,
+            false
+        ));
+        assert!(!is_foreign_fullscreen_overhang(0, overhang, MONITOR, true));
+        assert!(!is_foreign_fullscreen_overhang(
+            0,
+            rect(0.0, 0.0, 960.0, 540.0),
+            MONITOR,
+            false
+        ));
+    }
+
+    #[test]
+    fn touching_edges_do_not_overlap() {
+        let a = rect(0.0, 0.0, 100.0, 100.0);
+        assert!(rects_overlap(a, rect(50.0, 50.0, 150.0, 150.0)));
+        assert!(!rects_overlap(a, rect(100.0, 0.0, 200.0, 100.0)));
+    }
+
+    fn above(
+        class: &str,
+        visible: bool,
+        own: bool,
+        cloaked: bool,
+        r: WorkArea,
+    ) -> CoveringCandidate {
+        CoveringCandidate {
+            class_name: class.to_string(),
+            visible,
+            own_process: own,
+            cloaked,
+            rect: r,
+        }
+    }
+
+    #[test]
+    fn covering_verdict_applies_the_filters_in_z_order() {
+        let overlay = rect(100.0, 100.0, 300.0, 300.0);
+        let far = rect(900.0, 900.0, 1000.0, 1000.0);
+        let near = rect(150.0, 150.0, 350.0, 350.0);
+        let list = [
+            above("Hidden", false, false, false, near),
+            above("Own", true, true, false, near),
+            above("Cloaked", true, false, true, near),
+            above("Far", true, false, false, far),
+            above("Cover", true, false, false, near),
+            above("Later", true, false, false, near),
+        ];
+        assert_eq!(
+            covering_window(true, overlay, &list),
+            Some("Cover".to_string())
+        );
+        assert_eq!(covering_window(true, overlay, &list[..4]), None);
+    }
+
+    #[test]
+    fn lost_topmost_is_reported_before_any_window() {
+        assert_eq!(
+            covering_window(false, rect(0.0, 0.0, 1.0, 1.0), &[]),
+            Some("not_topmost".to_string())
+        );
     }
 }

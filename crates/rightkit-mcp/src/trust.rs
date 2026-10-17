@@ -88,6 +88,18 @@ pub(crate) fn pending_for(workspace: &str, server: &str, spec: &ServerSpec) -> P
     }
 }
 
+/// One decision brought in from a foreign store by [`TrustStore::try_load_migrating`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedTrust {
+    pub workspace: String,
+    pub server: String,
+    /// The foreign fingerprint, kept verbatim. It matches only through
+    /// [`TrustStore::decide_with_fingerprint`]; [`TrustStore::decide`] compares the RightKit
+    /// fingerprint, so an imported record reads as `Pending` there (fails closed).
+    pub fingerprint: String,
+    pub approved: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Record {
     workspace: String,
@@ -124,6 +136,53 @@ impl TrustStore {
         }
     }
 
+    /// As [`TrustStore::try_load`], for a file that may hold another store's records.
+    ///
+    /// A file with a `records` array loads as a `TrustStore` (`migrate` is not called; a record
+    /// that does not parse is `InvalidData`). Any other JSON document is passed whole to
+    /// `migrate`: `Some(records)` becomes
+    /// the store (timestamped now), `None` means the format is not recognised and the result is
+    /// `InvalidData`, so the caller never saves an empty store over decisions it could not read.
+    /// A missing file is an empty store, an unreadable one an `io::Error`, as in `try_load`.
+    /// Nothing is written; call [`TrustStore::save`] to persist the migrated store.
+    pub fn try_load_migrating(
+        path: &Path,
+        migrate: impl FnOnce(&serde_json::Value) -> Option<Vec<ImportedTrust>>,
+    ) -> std::io::Result<Self> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default())
+            }
+            Err(error) => return Err(error),
+        };
+        let invalid =
+            |error: serde_json::Error| std::io::Error::new(std::io::ErrorKind::InvalidData, error);
+        let document: serde_json::Value = serde_json::from_str(&text).map_err(invalid)?;
+        if document
+            .get("records")
+            .is_some_and(serde_json::Value::is_array)
+        {
+            return serde_json::from_value(document).map_err(invalid);
+        }
+        let imported = migrate(&document).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "trust store format not recognised",
+            )
+        })?;
+        let mut store = Self::default();
+        for record in imported {
+            store.set_fingerprint(
+                &record.workspace,
+                &record.server,
+                record.fingerprint,
+                record.approved,
+            );
+        }
+        Ok(store)
+    }
+
     /// As [`TrustStore::try_load`], but every failure is an empty store.
     #[deprecated(
         note = "an unreadable or corrupt file reads as an empty store, which a later save writes over the recorded decisions; use `try_load`"
@@ -143,13 +202,24 @@ impl TrustStore {
     }
 
     pub fn decide(&self, workspace: &str, server: &str, spec: &ServerSpec) -> TrustDecision {
-        let fp = fingerprint(spec);
+        self.decide_with_fingerprint(workspace, server, &fingerprint(spec))
+    }
+
+    /// As [`TrustStore::decide`] against a caller-computed fingerprint, for a host that keeps
+    /// its own content hash (records written by [`TrustStore::approve_with_fingerprint`]). An
+    /// empty fingerprint is never approved or denied: it is `Pending`.
+    pub fn decide_with_fingerprint(
+        &self,
+        workspace: &str,
+        server: &str,
+        fingerprint: &str,
+    ) -> TrustDecision {
         match self
             .records
             .iter()
             .find(|r| r.workspace == workspace && r.server == server)
         {
-            Some(r) if r.fingerprint == fp => {
+            Some(r) if !fingerprint.is_empty() && r.fingerprint == fingerprint => {
                 if r.approved {
                     TrustDecision::Approved
                 } else {
@@ -161,10 +231,20 @@ impl TrustStore {
     }
 
     fn set(&mut self, workspace: &str, server: &str, spec: &ServerSpec, approved: bool) {
+        self.set_fingerprint(workspace, server, fingerprint(spec), approved)
+    }
+
+    fn set_fingerprint(
+        &mut self,
+        workspace: &str,
+        server: &str,
+        fingerprint: String,
+        approved: bool,
+    ) {
         let rec = Record {
             workspace: workspace.into(),
             server: server.into(),
-            fingerprint: fingerprint(spec),
+            fingerprint,
             approved,
             decided_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -179,6 +259,85 @@ impl TrustStore {
             Some(r) => *r = rec,
             None => self.records.push(rec),
         }
+    }
+
+    /// The decision for `name` from `source`, callable before anything is spawned or contacted.
+    /// A [`ServerSource::User`] server is exempt (`Approved`), as in the pool and the client.
+    pub fn gate(&self, source: &ServerSource, name: &str, spec: &ServerSpec) -> TrustDecision {
+        match source {
+            ServerSource::User => TrustDecision::Approved,
+            ServerSource::Workspace(workspace) => self.decide(workspace, name, spec),
+        }
+    }
+
+    /// [`TrustStore::gate`] for a workspace stdio server, before spawn. Any other spec is
+    /// `Pending`: it cannot be approved through the stdio gate (fails closed).
+    pub fn gate_stdio(&self, workspace: &str, name: &str, spec: &ServerSpec) -> TrustDecision {
+        match spec {
+            ServerSpec::Stdio { .. } => self.decide(workspace, name, spec),
+            ServerSpec::Http { .. } => TrustDecision::Pending,
+        }
+    }
+
+    /// True only when `source` may receive credentials for `name` as configured in `spec`: a
+    /// user server, or a workspace server `Approved` for exactly this spec. `Pending`, `Denied`
+    /// and a changed spec are all false.
+    pub fn credential_write_allowed(
+        &self,
+        source: &ServerSource,
+        name: &str,
+        spec: &ServerSpec,
+    ) -> bool {
+        self.gate(source, name, spec) == TrustDecision::Approved
+    }
+
+    /// What a user is asked to approve for `name` in `workspace` (command, args, env names and
+    /// the fingerprint; never env values).
+    pub fn pending_approval(
+        &self,
+        workspace: &str,
+        name: &str,
+        spec: &ServerSpec,
+    ) -> PendingApproval {
+        pending_for(workspace, name, spec)
+    }
+
+    /// Records an approval bound to a caller-computed `fingerprint` instead of
+    /// [`fingerprint`]`(spec)`, so a host with its own content hash keeps matching it through
+    /// [`TrustStore::decide_with_fingerprint`]. An empty fingerprint is ignored (returns
+    /// `false`); otherwise returns `true`. `decide` and `gate*` still compare the RightKit
+    /// fingerprint, so such a record reads as `Pending` there.
+    pub fn approve_with_fingerprint(
+        &mut self,
+        workspace: &str,
+        server: &str,
+        fingerprint: impl Into<String>,
+    ) -> bool {
+        self.set_decided(workspace, server, fingerprint.into(), true)
+    }
+
+    /// As [`TrustStore::approve_with_fingerprint`], recording a denial.
+    pub fn deny_with_fingerprint(
+        &mut self,
+        workspace: &str,
+        server: &str,
+        fingerprint: impl Into<String>,
+    ) -> bool {
+        self.set_decided(workspace, server, fingerprint.into(), false)
+    }
+
+    fn set_decided(
+        &mut self,
+        workspace: &str,
+        server: &str,
+        fingerprint: String,
+        approved: bool,
+    ) -> bool {
+        if fingerprint.is_empty() {
+            return false;
+        }
+        self.set_fingerprint(workspace, server, fingerprint, approved);
+        true
     }
 
     pub fn approve(&mut self, workspace: &str, server: &str, spec: &ServerSpec) {

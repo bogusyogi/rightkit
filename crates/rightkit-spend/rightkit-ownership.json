@@ -3,12 +3,12 @@
   "capabilities": [
     {
       "capability": "spend-ledger",
-      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`) variants, strict transition mode",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
-        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
+        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text; an allowance holds no currency and a reservation holds only the currency text the caller passes."
       ]
     }
   ]

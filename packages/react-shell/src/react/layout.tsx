@@ -2,6 +2,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ButtonHTMLAttributes,
   type CSSProperties,
   type ElementType,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -20,9 +21,9 @@ import {
 import { Kbd, usePlatform } from "@rightkit/platform-ui/react";
 import type { AppShellBridge } from "../bridge.js";
 import type { Command } from "../commands.js";
-import { filterNavGroups, firstNavItem, flattenNav, navNeighborIndex, type NavGroup } from "../nav.js";
+import { filterNavGroups, firstNavItem, flattenNav, navNeighborIndex, type NavGroup, type NavItem } from "../nav.js";
 import { THEME_CHOICES, type ThemeChoice } from "../theme.js";
-import { useMediaQuery } from "./hooks.js";
+import { useMediaQuery, usePersistedState } from "./hooks.js";
 import { ContextMenu, type MenuItem } from "./contextmenu.js";
 import { ShellProvider, useCommands, useShellOptional, useShortcuts, useTheme, type ShellProviderProps } from "./provider.js";
 import { IconButton, cx } from "./ui.js";
@@ -36,6 +37,8 @@ export interface ShellLabels {
   toggleSidebar: string;
   goTo: string;
   theme: Readonly<Record<ThemeChoice, string>>;
+  /** Accessible name of the sidebar resize handle. Default "Resize sidebar". */
+  resizeSidebar?: string;
 }
 
 export const DEFAULT_SHELL_LABELS: ShellLabels = {
@@ -46,6 +49,7 @@ export const DEFAULT_SHELL_LABELS: ShellLabels = {
   toggleSidebar: "Toggle sidebar",
   goTo: "Go to",
   theme: { system: "System", light: "Light", dark: "Dark" },
+  resizeSidebar: "Resize sidebar",
 };
 
 const icon = (children: ReactElement) => (
@@ -65,24 +69,32 @@ const FUSE_PATH = "M12 0V12H0A12 12 0 0 0 12 0Z";
  * masks; ViewRight's `SidebarTabFuseCurves`). Put them inside any `position: relative` row that should fuse.
  * Positioning is inline, so they work without shell.css; pass `fill` (the joined surface colour) when shell.css is absent.
  */
-export function FuseCurves({ fill, size = 12 }: { fill?: string; size?: number } = {}) {
+/**
+ * `side="left"` is the mirrored two-corner form: the curves sit on the row's left edge, for a tab or row that fuses
+ * into a plane on its left. The default `side="right"` is unchanged.
+ */
+export function FuseCurves({ fill, size = 12, side = "right" }: { fill?: string; size?: number; side?: "right" | "left" } = {}) {
+  const left = side === "left";
   return (
     <>
-      {(["top", "bottom"] as const).map((edge) => (
-        <svg
-          key={edge}
-          className={`rk-fuse rk-fuse--${edge}`}
-          data-rk-fuse={edge}
-          aria-hidden="true"
-          focusable="false"
-          width={size}
-          height={size}
-          viewBox="0 0 12 12"
-          style={{ position: "absolute", right: 0, [edge]: -size, width: size, height: size, pointerEvents: "none", ...(edge === "bottom" ? { transform: "scaleY(-1)" } : {}), ...(fill ? { fill } : {}) }}
-        >
-          <path d={FUSE_PATH} />
-        </svg>
-      ))}
+      {(["top", "bottom"] as const).map((edge) => {
+        const transform = [left ? "scaleX(-1)" : null, edge === "bottom" ? "scaleY(-1)" : null].filter(Boolean).join(" ") || undefined;
+        return (
+          <svg
+            key={edge}
+            className={cx(`rk-fuse rk-fuse--${edge}`, left && "rk-fuse--left")}
+            data-rk-fuse={edge}
+            aria-hidden="true"
+            focusable="false"
+            width={size}
+            height={size}
+            viewBox="0 0 12 12"
+            style={{ position: "absolute", [left ? "left" : "right"]: 0, [edge]: -size, width: size, height: size, pointerEvents: "none", ...(transform ? { transform } : {}), ...(fill ? { fill } : {}) }}
+          >
+            <path d={FUSE_PATH} />
+          </svg>
+        );
+      })}
     </>
   );
 }
@@ -249,15 +261,71 @@ export function Plane({ children, className }: { children: ReactNode; className?
   return <section className={`rk-plane${className ? ` ${className}` : ""}`} data-rk-plane>{children}</section>;
 }
 
+/** A named colour preset (for example an accent family). The app applies it; the menu only reports the choice. */
+export interface AppearancePreset {
+  id: string;
+  label: string;
+  /** Up to three colours drawn as a swatch before the label, for example chrome, plane and accent. */
+  swatches?: readonly string[];
+}
+
+/** A body font choice. Shown in its own face; apply the chosen family with `applyBodyFont` (theme). */
+export interface AppearanceFont {
+  id: string;
+  label: string;
+  /** CSS font-family list, for example `"Inter", system-ui, sans-serif`. */
+  family: string;
+}
+
 export interface AppearanceMenuProps {
   value: ThemeChoice;
   onChange: (choice: ThemeChoice) => void;
   labels?: Pick<ShellLabels, "appearance" | "theme">;
+  /** Named colour presets, listed after the light, dark and system choices, with swatches. */
+  presets?: readonly AppearancePreset[];
+  /** Id of the active preset. */
+  preset?: string;
+  onPresetChange?: (id: string) => void;
+  /** Body font choices, listed last. */
+  fonts?: readonly AppearanceFont[];
+  /** Id of the active font. */
+  font?: string;
+  onFontChange?: (id: string) => void;
 }
 
-export function AppearanceMenu({ value, onChange, labels = DEFAULT_SHELL_LABELS }: AppearanceMenuProps) {
+export function AppearanceMenu({ value, onChange, labels = DEFAULT_SHELL_LABELS, presets, preset, onPresetChange, fonts, font, onFontChange }: AppearanceMenuProps) {
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-  const items: MenuItem[] = THEME_CHOICES.map((choice) => ({ id: choice, label: labels.theme[choice], checked: value === choice, run: () => onChange(choice) }));
+  const swatchRow = (colours: readonly string[] | undefined) =>
+    colours && colours.length ? (
+      <span className="rk-swatches" aria-hidden="true">
+        {colours.slice(0, 3).map((colour, i) => (
+          <i key={i} style={{ background: colour }} />
+        ))}
+      </span>
+    ) : null;
+  const items: MenuItem[] = [
+    ...THEME_CHOICES.map((choice) => ({ id: choice, label: labels.theme[choice], checked: value === choice, run: () => onChange(choice) })),
+    ...(presets ?? []).map((p, i) => ({
+      id: `preset:${p.id}`,
+      label: (
+        <span className="rk-appearance__opt">
+          {swatchRow(p.swatches)}
+          <span>{p.label}</span>
+        </span>
+      ),
+      checked: preset === p.id,
+      separatorBefore: i === 0,
+      run: () => onPresetChange?.(p.id),
+    })),
+    ...(fonts ?? []).map((f, i) => ({
+      id: `font:${f.id}`,
+      label: <span style={{ fontFamily: f.family }}>{f.label}</span>,
+      checked: font === f.id,
+      separatorBefore: i === 0,
+      run: () => onFontChange?.(f.id),
+    })),
+  ];
+  const wide = (presets?.length ?? 0) > 0 || (fonts?.length ?? 0) > 0;
   return (
     <>
       <IconButton
@@ -271,7 +339,7 @@ export function AppearanceMenu({ value, onChange, labels = DEFAULT_SHELL_LABELS 
       >
         <ContrastIcon />
       </IconButton>
-      {anchor ? <ContextMenu x={anchor.x} y={anchor.y} width={160} items={items} label={labels.appearance} onClose={() => setAnchor(null)} /> : null}
+      {anchor ? <ContextMenu x={anchor.x} y={anchor.y} width={wide ? 200 : 160} items={items} label={labels.appearance} onClose={() => setAnchor(null)} /> : null}
     </>
   );
 }
@@ -329,17 +397,38 @@ export function PaletteTrigger({ onOpen, label = DEFAULT_SHELL_LABELS.jumpTo, ch
   );
 }
 
+/** Extra attributes for a `NavList` row button: drag-and-drop handlers, data attributes and a class (merged). */
+export type NavRowProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "children" | "onClick" | "role" | "tabIndex" | "aria-current" | "data-nav-id"> & {
+  [key: `data-${string}`]: string | undefined;
+};
+
 export interface NavListProps {
   groups: readonly NavGroup[];
   activeId: string;
   onNavigate: (id: string) => void;
   label?: string;
   /** Override a row; call `defaultRow` to keep standard rendering. */
-  renderItem?: (item: NavGroup["items"][number], state: { active: boolean }, defaultRow: ReactNode) => ReactNode;
+  renderItem?: (item: NavItem, state: { active: boolean }, defaultRow: ReactNode) => ReactNode;
+  /**
+   * Props for each row button, for example drop-target handlers (`onDragOver`, `onDrop`) or a highlight class. Spread
+   * before the shell's own props, so click, keys, role and the active state stay the shell's.
+   */
+  itemProps?: (item: NavItem, state: { active: boolean }) => NavRowProps | undefined;
+  /**
+   * When it returns an object, the row shows a native checkbox before its label, labelled with the item's label
+   * (for example a calendar list). `onChange` receives the new checked state.
+   */
+  itemCheck?: (item: NavItem) => { checked: boolean; onChange: (checked: boolean) => void } | undefined;
+  /** Titles of the collapsed groups. Only read when `onToggleGroup` is set. */
+  collapsedGroups?: readonly string[];
+  /** Makes titled groups collapsible: the title becomes a button with `aria-expanded`, and the handler gets the title. */
+  onToggleGroup?: (title: string) => void;
+  /** Twisty glyph for a collapsible group title; receives whether the group is open. Default ▾ open, ▸ closed. */
+  renderTwisty?: (open: boolean) => ReactNode;
 }
 
 /** Grouped nav with the fused active row and roving arrow-key focus. Reusable in custom sidebars. */
-export function NavList({ groups, activeId, onNavigate, label = DEFAULT_SHELL_LABELS.sections, renderItem }: NavListProps) {
+export function NavList({ groups, activeId, onNavigate, label = DEFAULT_SHELL_LABELS.sections, renderItem, itemProps, itemCheck, collapsedGroups, onToggleGroup, renderTwisty }: NavListProps) {
   const ref = useRef<HTMLElement | null>(null);
   const flat = flattenNav(groups);
   const onKeyDown = (event: ReactKeyboardEvent) => {
@@ -353,31 +442,66 @@ export function NavList({ groups, activeId, onNavigate, label = DEFAULT_SHELL_LA
   };
   return (
     <nav className="rk-nav" aria-label={label} ref={ref} onKeyDown={onKeyDown}>
-      {groups.map((group, gi) => (
-        <div className="rk-group" key={group.title ?? `g${gi}`}>
-          {group.title ? <h6>{group.title}</h6> : null}
-          {group.items.filter((i) => !i.hidden).map((item) => {
-            const active = activeId === item.id;
-            const row = (
-              <button
-                key={item.id}
-                type="button"
-                data-nav-id={item.id}
-                className={`rk-item${active ? " is-active" : ""}`}
-                aria-current={active ? "page" : undefined}
-                tabIndex={active || (!flat.some((f) => f.id === activeId) && item === flat[0]) ? 0 : -1}
-                onClick={() => onNavigate(item.id)}
-              >
-                {item.icon}
-                <span className="rk-item__label">{item.label}</span>
-                {item.badge ? <span className="rk-item__badge">{item.badge}</span> : null}
-                {active ? <FuseCurves /> : null}
-              </button>
-            );
-            return renderItem ? <div key={item.id}>{renderItem(item, { active }, row)}</div> : row;
-          })}
-        </div>
-      ))}
+      {groups.map((group, gi) => {
+        const title = group.title;
+        const collapsible = title !== undefined && onToggleGroup !== undefined;
+        const open = !(collapsible && collapsedGroups?.includes(title ?? ""));
+        return (
+          <div className="rk-group" key={title ?? `g${gi}`}>
+            {title ? (
+              collapsible ? (
+                <h6>
+                  <button type="button" className="rk-group__toggle" aria-expanded={open} onClick={() => onToggleGroup?.(title ?? "")}>
+                    {renderTwisty ? renderTwisty(open) : <span aria-hidden="true">{open ? "▾" : "▸"}</span>}
+                    {title}
+                  </button>
+                </h6>
+              ) : (
+                <h6>{title}</h6>
+              )
+            ) : null}
+            {open
+              ? group.items.filter((i) => !i.hidden).map((item) => {
+                  const active = activeId === item.id;
+                  const extra = itemProps?.(item, { active });
+                  const check = itemCheck?.(item);
+                  const row = (
+                    <button
+                      key={item.id}
+                      {...extra}
+                      type="button"
+                      data-nav-id={item.id}
+                      className={cx(`rk-item${active ? " is-active" : ""}`, extra?.className)}
+                      aria-current={active ? "page" : undefined}
+                      aria-label={item.ariaLabel}
+                      tabIndex={active || (!flat.some((f) => f.id === activeId) && item === flat[0]) ? 0 : -1}
+                      onClick={() => onNavigate(item.id)}
+                    >
+                      {item.icon}
+                      <span className="rk-item__label">{item.label}</span>
+                      {item.badge ? <span className="rk-item__badge">{item.badge}</span> : null}
+                      {active ? <FuseCurves /> : null}
+                    </button>
+                  );
+                  const node = renderItem ? <div key={item.id}>{renderItem(item, { active }, row)}</div> : row;
+                  if (!check) return node;
+                  return (
+                    <div key={item.id} className="rk-item-row">
+                      <input
+                        type="checkbox"
+                        className="rk-item__check"
+                        aria-label={item.label}
+                        checked={check.checked}
+                        onChange={(event) => check.onChange(event.target.checked)}
+                      />
+                      {node}
+                    </div>
+                  );
+                })
+              : null}
+          </div>
+        );
+      })}
     </nav>
   );
 }
@@ -464,6 +588,14 @@ export interface AppShellProps {
   /** Override detection (tests, browser QA). Defaults to platform-ui. */
   platform?: Platform;
   sidebarWidth?: number;
+  /**
+   * Drag handle on the sidebar's right edge. Pointer drag and Left/Right arrows (Shift for larger steps; Home and End
+   * for the limits) resize it. `min` defaults to 160 and `max` to 420 px. `storageKey` remembers the width across
+   * reloads. `true` enables the handle with the defaults.
+   */
+  sidebarResizable?: boolean | { min?: number; max?: number; storageKey?: string };
+  /** Called with the width in px when a resize ends (pointer up or key press). */
+  onSidebarWidthChange?: (px: number) => void;
   className?: string;
   /** Options for the implicit `ShellProvider` (ignored when an ancestor provider exists). Includes `keybindings` and `paletteWidth`. */
   shell?: Omit<ShellProviderProps, "children" | "bridge" | "platform">;
@@ -473,6 +605,15 @@ export interface AppShellProps {
    */
   slots?: SlotClasses<"root" | "titlebar" | "sidebar" | "sidebarFoot" | "body" | "plane">;
   children: ReactNode;
+}
+
+function normalizeResize(value: true | { min?: number; max?: number; storageKey?: string }): { min: number; max: number; storageKey?: string } {
+  const o = value === true ? {} : value;
+  return { min: o.min ?? 160, max: o.max ?? 420, storageKey: o.storageKey };
+}
+
+function clampWidth(px: number, limits: { min: number; max: number }): number {
+  return Math.min(limits.max, Math.max(limits.min, Math.round(px)));
 }
 
 function ShellLayout(props: AppShellProps) {
@@ -516,7 +657,20 @@ function ShellLayout(props: AppShellProps) {
       : [],
   );
 
-  const style = props.sidebarWidth ? ({ "--rk-sidebar-width": `${props.sidebarWidth}px` } as CSSProperties) : undefined;
+  const resize = props.sidebarResizable ? normalizeResize(props.sidebarResizable) : null;
+  const [storedWidth, setStoredWidth] = usePersistedState<number>(resize?.storageKey ?? null, props.sidebarWidth ?? 220);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const dragging = useRef<{ startX: number; startWidth: number; last: number } | null>(null);
+  const shownWidth = resize ? clampWidth(dragWidth ?? storedWidth, resize) : null;
+  const commitWidth = (px: number) => {
+    if (!resize) return;
+    const next = clampWidth(px, resize);
+    setStoredWidth(next);
+    props.onSidebarWidthChange?.(next);
+  };
+  const style = shownWidth !== null
+    ? ({ "--rk-sidebar-width": `${shownWidth}px` } as CSSProperties)
+    : props.sidebarWidth ? ({ "--rk-sidebar-width": `${props.sidebarWidth}px` } as CSSProperties) : undefined;
   const sideHidden = collapsed;
   const toggle = hasSidebar && sidebarToggle ? (
     <IconButton label={labels.toggleSidebar} pressed={!sideHidden} onClick={() => setCollapsed(!collapsed)} className="rk-top__toggle">
@@ -563,6 +717,50 @@ function ShellLayout(props: AppShellProps) {
       )}
       <div className={cx("rk-body", props.slots?.body)}>
         {hasSidebar ? props.sidebar ?? defaultSidebar : null}
+        {resize && shownWidth !== null && hasSidebar && !sideHidden ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={labels.resizeSidebar ?? DEFAULT_SHELL_LABELS.resizeSidebar}
+            aria-valuemin={resize.min}
+            aria-valuemax={resize.max}
+            aria-valuenow={shownWidth}
+            tabIndex={0}
+            className="rk-side-resizer"
+            data-rk-resizer
+            style={{ left: shownWidth - 3 }}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+              dragging.current = { startX: event.clientX, startWidth: shownWidth, last: shownWidth };
+              setDragWidth(shownWidth);
+            }}
+            onPointerMove={(event) => {
+              const d = dragging.current;
+              if (!d || !resize) return;
+              d.last = clampWidth(d.startWidth + event.clientX - d.startX, resize);
+              setDragWidth(d.last);
+            }}
+            onPointerUp={(event) => {
+              const d = dragging.current;
+              dragging.current = null;
+              event.currentTarget.releasePointerCapture?.(event.pointerId);
+              setDragWidth(null);
+              if (d) commitWidth(d.last);
+            }}
+            onKeyDown={(event) => {
+              if (!resize) return;
+              const step = event.shiftKey ? 32 : 8;
+              let next: number | null = null;
+              if (event.key === "ArrowLeft") next = shownWidth - step;
+              else if (event.key === "ArrowRight") next = shownWidth + step;
+              else if (event.key === "Home") next = resize.min;
+              else if (event.key === "End") next = resize.max;
+              if (next === null) return;
+              event.preventDefault();
+              commitWidth(next);
+            }}
+          />
+        ) : null}
         <Plane className={props.slots?.plane}>{props.children}</Plane>
       </div>
     </AppFrame>

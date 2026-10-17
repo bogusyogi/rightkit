@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- `DecodeOptions` gained public `max_duration` and `audio_stream_index` (both `Option`, default `None`) plus `Default` and builder methods. Literals using `..Default::default()` keep compiling; exhaustive literals must name the two fields (source-breaking, deliberate).
+
+- Breaking (CutRight G5, issue #457; crate version not bumped here): `decode::DecodeOptions` gains
+  `max_duration: Option<Duration>` (output `-t`) and `audio_stream_index: Option<u32>` (strict
+  `-map 0:a:N`, a zero-based ordinal in input 0). Both PCM decoders share them. Duration uses
+  microsecond precision; a value below one microsecond fails before spawn. `timeout` stays an
+  independent wall-clock deadline. Existing struct literals must add both fields as `None` to keep
+  unlimited output and automatic stream selection. Written without compiling or running anything.
+- New (issues #353, #479): `encoders` module. `EncoderInventory::probe(binary, timeout)` runs
+  `-encoders` once and keeps the video encoders in listing order (`names()`, `has()`);
+  `video_encoder_names(listing)` does the same parse on text. `pick_h264(inventory, os, usable)`
+  returns the first listed hardware H.264 encoder for `os` that `usable` accepts (`h264_videotoolbox`
+  on macOS; `h264_nvenc` then `h264_mf` on Windows; `h264_vaapi` on Linux), else the first listed
+  `libopenh264`, else `None`. `libx264` is never a candidate (GPL; forbidden by every catalog row).
+  MPEG-4 fallback stays the caller's decision. Written without compiling or running anything.
+- New (issues #354, #479): `handle` module. `ToolHandle<V>` is `Verified(V)` or `Development(DevFfmpeg)`,
+  implements `FfmpegBinary` and `is_verified()`; `FfmpegHandle` and `FfprobeHandle` are its aliases.
+  `verify_ffmpeg_or_development` and `verify_ffprobe_or_development` take a bundled path and variant and
+  return the handle. The development handle is produced only in a development build (`dev-overrides`),
+  for a file on disk, and only when the error is `is_not_in_catalog()`; a release build returns the
+  catalog error unchanged. `resolve_ffmpeg_handle` and `resolve_ffprobe_handle` are the one-call
+  resolver: the first existing bundled candidate (`bundled_tool_candidates`: beside the executable,
+  then `src-tauri/binaries/<tool>-<triple>` up the executable's ancestors) is verified; with no bundled
+  file, a development build resolves its `UnverifiedRequest` (override, environment variable, PATH).
+  Not done: a release build that runs a bundled binary with no catalog row by path (see README).
+  Written without compiling or running anything.
+- New (issue #581): `command::extract_args(input, output, &ExtractOptions)` builds
+  `-y [-ss S] -i input [-t D] [-vn | -c copy] extra... output` with `ExtractOptions { start, duration,
+  mode: Option<ExtractMode::{Copy, AudioOnly}>, extra }`; times are `Duration` with microsecond
+  precision. It builds arguments only and runs nothing. Not done: the PATH resolution that returns an
+  unverified ffmpeg in a release build (`resolve_ffmpeg_or_path`); the development form is
+  `unverified::resolve_ffmpeg_or_unverified`. Written without compiling or running anything.
+
 - New (crate version 0.2.9; Orthic-Labs/rightkit#300, PostRight RG-3): `quickprobe::Probe` now carries `size_bytes` (always set), `codec` (png, jpeg, gif, webp, WAV PCM variants, flac, mp3, and for MP4/MOV the first video track's sample entry as h264, hevc, av1, vp9, prores and so on, else the audio track's), `audio_codec` (MP4/MOV with a video track) and `frame_count` (GIF image frames). Confirmed unchanged: duration and dimensions. No "slide count": it is not a container property, so GIF `frame_count` is the nearest and deck formats (PDF, PPTX) are not probed here (rightkit-pdf has page counts). `Probe` gained public fields, so code that builds it with a struct literal needs `..Default::default()`. Written without compiling or running anything; CI builds it.
 
 - New (crate version 0.2.8; Orthic-Labs/rightkit#271): process priority for ffmpeg. `RunOptions::with_priority(ProcessPriority)` (used by `run_with_progress`, `run_with_stdin`, `run_capture_with` and the checked variants) and `spawn_streaming_with_priority(.., priority)`; `ProcessPriority` is re-exported. `Normal` (the default) changes nothing; `BelowNormal`, `Idle` and the new `Efficient` (EcoQoS on Windows, utility QoS on macOS) come from rightkit-child-process 0.4.3, now the minimum. Written without compiling or running anything; CI builds it.

@@ -11,7 +11,7 @@ It contains no app protocol, probe implementation, or business message.
 
 ## Features
 
-One optional feature, off by default: `tokio` (adds `tokio` with `process` and `time`): `NoWindow` for `tokio::process::Command` and `tokio_support::{terminate_tree, terminate_process_group}`. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
+One optional feature, off by default: `tokio` (adds `tokio` with `process` and `time`): `NoWindow` for `tokio::process::Command`, `tokio_support::{command, lead_session, terminate_tree, terminate_process_group, terminate_session}`. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
 
 ## Platform support
 
@@ -208,6 +208,61 @@ in which that could happen. The rule that replaces it:
   `KERN_PROCARGS2`, Windows `QueryFullProcessImageNameW` and `NtQueryInformationProcess`. A process that `exec`s a
   different program between the scan and the signal keeps its identity and is not re-checked. Tests:
   `tests/sweep_matching.rs`.
+
+## Unreleased (not yet published; version unchanged)
+
+- Command builders that are already no-window: `command_std(program)` returns a
+  `std::process::Command`, and with feature `tokio`, `tokio_support::command(program)` returns a
+  `tokio::process::Command`. Both return by value, so they chain. To keep app code from building
+  bare commands, add to the app's `clippy.toml`:
+
+  ```toml
+  disallowed-methods = [
+    { path = "std::process::Command::new", reason = "use rightkit_child_process::command_std" },
+  ]
+  ```
+
+  `tokio_support::lead_session(&mut tokio::process::Command)` puts the child in a new session on
+  Unix (`setsid`) without a hand-written `pre_exec`. `CREATE_BREAKAWAY_FROM_JOB` is exported on
+  every platform next to `CREATE_NO_WINDOW`.
+- `run(program, args, &RunOptions)` runs a program to completion with a deadline (the tree is
+  terminated at the deadline), bounded stdout and stderr capture, and no window on Windows by
+  default. It returns the status, `timed_out`, and both `CapturedOutput`s.
+- `open_url(url)` opens a URL with its scheme's handler (`file:` is refused). `launch_app(id)`
+  launches an app by macOS bundle identifier or Windows AppUserModelID. Both hand off to a
+  detached desktop launcher, as `reveal` does.
+- `reveal::open_folder(path, scope)` opens the folder itself. A folder is refused only when it is
+  a real `.app` or `.workflow` bundle, so a folder named `chart.js` opens. `reveal::open_installer`
+  runs a Windows `.exe`, `.msi` or `.msp` through the shell (`explorer.exe`), so SmartScreen and
+  Mark-of-the-Web checks still apply; other platforms return `Unsupported`.
+- `login_shell::path(timeout)` and `login_shell::env_values(names, timeout)` read the login
+  shell's `PATH` and selected variables under a hard deadline (Unix; nothing on Windows). Values
+  are secrets and are never logged.
+- `WindowsJob::builder()` adds `job_memory_limit` and `process_memory_limit` next to the
+  active-process cap. `peak_job_memory()` and `exit_reason()` report `ExitReason::JobMemoryLimit`
+  when the job's peak memory reached its job limit (evidence, not a per-process event).
+  `WindowsJob::contain_current_process()` puts this process in a kill-on-close job and leaks the
+  handle for the process lifetime; it fails with `PermissionDenied` when an outer job forbids
+  nesting.
+- `OwnedCommand::windows_visible()` clears the hidden-console default. `windows_allow_breakaway(true)`
+  sets explicit-only breakaway (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`): only grandchildren that request
+  breakaway can outlive the helper, all others stay contained. `windows_allow_silent_breakaway(true)`
+  is the separate silent mode: no descendant is contained. Dropping the owned child still terminates
+  the helper's tree.
+- `AdoptedIdentity::start_time()` returns the process start as wall-clock time (exact on macOS and
+  Windows; boot time plus ticks on Linux). `AdoptedIdentity::from_recorded_unix_ms(pid, ms,
+  tolerance)` verifies a pid recorded earlier as epoch milliseconds and returns the identity only
+  when the start is within `tolerance`.
+- `AdoptedIdentity::suspend()` (`SIGSTOP`) and `resume()` (`SIGCONT`), plus `suspend_session` and
+  `resume_session`, are additive methods (Unix; Windows returns `Unsupported`); `AdoptedSignal` is unchanged. `suspend_current_process()` raises `SIGTSTP` on Unix.
+- `signal_session(sid, signal)` (Unix) signals every process group whose session id is `sid`,
+  except this process's own group. `tokio_support::terminate_session(sid, options)` does the same
+  with a graceful grace and then a forced stage. Both find groups by one process-table scan, so
+  they are best effort for groups that start after the scan.
+- `HeartbeatWatch::spawn(name, HeartbeatConfig { path, poll, threshold }, on_event)` watches the
+  modification time of a file another process rewrites. It reports `HeartbeatEvent::Stalled` once
+  per episode and `Recovered` when the file is fresh again. A missing file ages from its last
+  seen write, or from the watch start.
 
 ## Known limits
 

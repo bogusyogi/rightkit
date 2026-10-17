@@ -3,10 +3,11 @@ import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep } from "./steps.js";
-import type { LegalAcceptanceRecord, LegalGateDocument, OnboardingProps, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
+import type { LegalAcceptanceRecord, LegalGateDocument, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
+const DEFAULT_LABELS: OnboardingLabels = { skip: "Set up later", skipStep: "Skip", back: "Back", continue: "Continue", finish: "Finish setup", loading: "Loading setup…" };
 
 function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -28,6 +29,7 @@ function readState(value: unknown): PersistedOnboardingState {
     legalAccepted: candidate.legalAccepted === true || legalAcceptance !== undefined,
     eligibilityBasis: legalAcceptance?.eligibilityBasis ?? (candidate.eligibilityBasis === "individual" || candidate.eligibilityBasis === "enterprise" ? candidate.eligibilityBasis : undefined),
     ...(legalAcceptance ? { legalAcceptance } : {}),
+    ...(Array.isArray(candidate.skippedSteps) ? { skippedSteps: candidate.skippedSteps.filter((x): x is string => typeof x === "string") } : {}),
   };
 }
 
@@ -85,8 +87,9 @@ function NoticeList({ documents }: { documents: readonly LegalGateDocument[] }) 
   return <ul className="rk-onboarding__notices">{documents.map((d) => <li key={d.title}>{d.onOpen ? <button type="button" onClick={d.onOpen}>{d.title}</button> : d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}</li>)}</ul>;
 }
 
-export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
+export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
   if (legalMode === "gate" && !legal) throw new Error("Onboarding: `legal` is required when legalMode is \"gate\"");
+  const L: OnboardingLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const gated = legalMode === "gate";
   /** Leading steps the user cannot navigate to: the Agreement stand-in in gate mode. */
   const lead = gated ? 1 : 0;
@@ -97,6 +100,9 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   const [gateCleared, setGateCleared] = useState(false);
   /** One auto-start per mount, even when the models step unmounts (Back/Next) or the step list is rebuilt. */
   const modelsStarted = useRef(false);
+  /** Values passed to `ctx.setResult`, keyed by step id; handed to `onComplete`. */
+  const stepResults = useRef<Record<string, unknown>>({});
+  const [continuing, setContinuing] = useState(false);
   /** Persists a patch; throws when the settings backend rejects it. */
   const persist = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
     setSaving(true); setError(null);
@@ -145,6 +151,9 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   const index = !accepted ? 0 : builtins.length > lead ? Math.max(lead, Math.min(activeState.currentStep, builtins.length - 1)) : 0;
   const active = builtins[index];
   const activeId = active?.id ?? "";
+  /** The step on screen now; an `onContinue` that resolves after the step changed is stale. */
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
   const setReady = useCallback((ready: boolean) => setReadyMap((m) => m[activeId] === ready ? m : { ...m, [activeId]: ready }), [activeId]);
   useEffect(() => {
     if (!needsGate) { setGateCleared(false); return; }
@@ -154,24 +163,44 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     return () => { live = false; };
   }, [needsGate, gateCleared, beforeLegalGate]);
 
-  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, ready: readyMap, setReady };
+  const setResult = useCallback((value: unknown) => { stepResults.current[activeId] = value; }, [activeId]);
+  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, ready: readyMap, setReady, setResult };
   const canContinue = active?.canContinue ? active.canContinue(context) : true;
   const runCallback = async (callback: (() => void | Promise<void>) | undefined) => {
     try { await callback?.(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const markAndMove = async (nextIndex: number, completedId?: string) => {
-    const completed = completedId && !activeState.completed.includes(completedId) ? [...activeState.completed, completedId] : activeState.completed;
+  const resultOf = (completed: string[], skipped: string[]): OnboardingResult => ({ completed, skipped, steps: { ...stepResults.current } });
+  /** Marks `mark.completed` done or `mark.skipped` skipped (never both), then moves to `nextIndex`; completing the last step calls `onComplete`. */
+  const markAndMove = async (nextIndex: number, mark: { completed?: string; skipped?: string } = {}) => {
+    const previousSkipped = activeState.skippedSteps ?? [];
+    // A step is completed or skipped, never both: a skip removes an earlier completion of the same step.
+    const completedBase = activeState.completed.filter((id) => id !== mark.skipped);
+    const completed = mark.completed && !completedBase.includes(mark.completed) ? [...completedBase, mark.completed] : completedBase;
+    const skippedBase = previousSkipped.filter((id) => id !== mark.completed);
+    const skippedSteps = mark.skipped && !skippedBase.includes(mark.skipped) ? [...skippedBase, mark.skipped] : skippedBase;
     if (nextIndex >= builtins.length) {
-      if (await save({ completed, currentStep: Math.max(0, builtins.length - 1), skipped: false })) await runCallback(onComplete);
+      if (await save({ completed, skippedSteps, currentStep: Math.max(0, builtins.length - 1), skipped: false })) await runCallback(() => onComplete(resultOf(completed, skippedSteps)));
       return;
     }
-    await save({ completed, currentStep: nextIndex, skipped: false });
+    await save({ completed, skippedSteps, currentStep: nextIndex, skipped: false });
+  };
+  /** Primary button: runs the step's `onContinue` veto first; `false` or a throw keeps the step. */
+  const advance = async () => {
+    if (active.onContinue) {
+      const stepId = active.id;
+      setContinuing(true); setError(null);
+      let proceed = true;
+      try { proceed = (await active.onContinue(context)) !== false; } catch (e) { if (activeIdRef.current === stepId) setError(e instanceof Error ? e.message : String(e)); return; } finally { setContinuing(false); }
+      // The step changed while onContinue was awaited: discard this completion rather than move or save from stale state.
+      if (!proceed || activeIdRef.current !== stepId) return;
+    }
+    await markAndMove(index + 1, { completed: active.id });
   };
   if (error && !state) return <div className={cx("rk-onboarding", className)}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
-  if (state && !active) return <main className={cx("rk-onboarding", className)} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(onComplete)}>Finish setup</Button></main>;
-  if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">Loading setup…</p></div>;
+  if (state && !active) return <main className={cx("rk-onboarding", className)} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(() => onComplete(resultOf(activeState.completed, activeState.skippedSteps ?? [])))}>{L.finish}</Button></main>;
+  if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">{L.loading}</p></div>;
   if (needsGate) {
-    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">Loading setup…</p></div>;
+    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">{L.loading}</p></div>;
     if (!legal) return null;
     const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
     return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
@@ -181,13 +210,13 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
       }
       const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
       await persist({ legalAccepted: true, eligibilityBasis, legalAcceptance, ...progress });
-      if (!reacceptance && builtins.length === 1) await onComplete();
+      if (!reacceptance && builtins.length === 1) await onComplete(resultOf(["legal"], []));
     }} /></div>;
   }
   const body: ReactNode = active.render(context);
   return <main className={cx("rk-onboarding", className)} data-testid="onboarding" data-step-id={active.id}>
     <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
-    <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{appName ?? legal?.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={gated && i === 0 && builtins.length > 1} onClick={() => { if (i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
-    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p><h1>{active.title}</h1>{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>Set up later</Button> : null}<span className="rk-onboarding__hint">{!canContinue && active.blockedHint ? active.blockedHint : null}</span><Button variant="secondary" disabled={index <= lead || saving} onClick={() => void save({ currentStep: index - 1 })}>Back</Button><Button variant="primary" disabled={saving || !canContinue} onClick={() => void markAndMove(index + 1, active.id)}>{index === builtins.length - 1 ? "Finish setup" : "Continue"}</Button></footer></section>
+    <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{appName ?? legal?.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={(gated && i === 0 && builtins.length > 1) || continuing} onClick={() => { if (!continuing && i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
+    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p>{active.title ? <h1>{active.title}</h1> : null}{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving || continuing} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>{L.skip}</Button> : null}{active.skippable ? <Button variant="ghost" disabled={saving || continuing} onClick={() => void markAndMove(index + 1, { skipped: active.id })}>{L.skipStep}</Button> : null}<span className="rk-onboarding__hint">{!canContinue && active.blockedHint ? active.blockedHint : null}</span><Button variant="secondary" disabled={index <= lead || saving || continuing} onClick={() => void save({ currentStep: index - 1 })}>{L.back}</Button><Button variant="primary" disabled={saving || continuing || !canContinue} onClick={() => void advance()}>{active.continueLabel ?? (index === builtins.length - 1 ? L.finish : L.continue)}</Button></footer></section>
   </main>;
 }

@@ -22,6 +22,8 @@ pub mod command;
 pub mod content_digest;
 pub mod decode;
 pub mod dev_resolve;
+pub mod encoders;
+pub mod handle;
 pub mod loudnorm;
 #[cfg(feature = "native")]
 pub mod native;
@@ -37,10 +39,17 @@ pub use bundled::{
     verify_bundled_ffprobe_in,
 };
 pub use command::{
-    transcode_audio_command, AudioTranscode, DevFfmpeg, FfmpegArg, FfmpegBinary, FfmpegCommand,
+    extract_args, transcode_audio_command, AudioTranscode, DevFfmpeg, ExtractMode, ExtractOptions,
+    FfmpegArg, FfmpegBinary, FfmpegCommand,
 };
 pub use content_digest::{
     content_identity, content_identity_file, ContentFormat, ContentIdentity, SliceDigest,
+};
+pub use encoders::{pick_h264, EncoderInventory};
+pub use handle::{
+    bundled_tool_candidates, resolve_ffmpeg_handle, resolve_ffprobe_handle,
+    verified_or_development, verify_ffmpeg_or_development, verify_ffprobe_or_development,
+    FfmpegHandle, FfprobeHandle, ToolHandle,
 };
 /// Re-exports of the `rightkit-child-process` types that appear in this crate's public signatures
 /// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return

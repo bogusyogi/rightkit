@@ -19,12 +19,15 @@ Typed Claude Code and Codex hook payloads, a deadline-bound dispatcher that exit
 | `run`, `run_with` | The whole hook process. Returns 0 on every failure, printing the configured fallback (default nothing). |
 | `ReceiptStore`, `tag_context`, `marker`, `scan_transcript_tail` | `emitted` receipts with a marker line on the context; `observe` flips them to `observed` when the marker appears in the host transcript tail. |
 | `ObserveModule` | The transcript-scan hook: on the chat's own `Stop`, runs `observe`. |
+| `ReceiptStore::membrane(root)` | The receipt store Membrane shares: marker `[membrane:<id>]`, `receipts/<session>/<id>.json` with Membrane's `harness`/`state` spellings alongside `wire`/`level`. |
+| `membrane` module | Membrane's hook wire types (`HookModuleId`, `HookModuleOutputV1`, `HookDispatchResultV1`, `HookHostResponseV1`) and `project_hook_host_response`. |
 
 ## Output shapes
 
 | Case | Output |
 |---|---|
 | Context | `{"hookSpecificOutput":{"hookEventName":E,"additionalContext":T}}` |
+| Notice only (no decision, no context) | `{"systemMessage":M}`, exit 0 |
 | Stop continuation | `{"decision":"block","reason":R}` |
 | Claude PreToolUse deny/ask | `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"\|"ask","permissionDecisionReason":R}}`, exit 0 |
 | Codex PreToolUse deny (ask also denies) | empty stdout, reason on stderr, exit 2 |

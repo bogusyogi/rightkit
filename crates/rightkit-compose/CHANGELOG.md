@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added `opacity` module (rightkit#351): validated `Opacity` (`new`, `clamped`, `as_f64`, `as_f32`, `constant_track`), a `FrameFade` primitive with `opacity_at` and `opacity_track`, and `OpacityError`. `ClipVisual` opacity is validated through it.
+- Added signed source time (rightkit#350): `SignedTicks`, `source_time_at_signed`, and frame conversions `frame_to_ticks`, `ticks_to_frame`, `frame_at_ticks`, `Rational::from_frames_rounded`. Non-whole-tick frame rates now round as the Rational helpers define.
+- Frame schema v2 is unchanged and stays the default: `evaluate`, `evaluate_ms`, `FRAME_SCHEMA` (`rightkit.frame.v2`), `FrameDescription`, `Payload` and `Payload::Video.source: Ticks` behave as before. A negative signed source (for example from `SignedHold`) is an `Invalid` evaluation error in v2. `RetimeSegment` gains the additive `FramePlay` and `SignedHold` variants (exhaustive matches need two arms).
+- Added opt-in frame schema v3 (`FRAME_SCHEMA_V3` = `rightkit.frame.v3`): `evaluate_v3`, `evaluate_ms_v3`, `FrameDescriptionV3`, `FrameLayerV3` and `PayloadV3`, whose `Video.source` is `SignedTicks` so a negative pre-roll survives. Consumers opt in; nothing emits v3 unless called. The composition schema stays `rightkit.composition.v2`.
+- `SignedTicks` serialises as a bare integer bounded to `i64::MIN..=u64::MAX` (`SignedTicks::MIN`/`MAX`); values outside that range fail to serialise or deserialise instead of writing JSON that cannot be read back.
+- Composition opacity validation is unchanged (`Invalid`); `Opacity` and `FrameFade` are standalone helpers.
+
 ## 0.1.0 - 2026-10-11
 
 Publishable: `publish = false` is removed and the manifest gains `readme`, `keywords` and `categories` (wave 2.8).

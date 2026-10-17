@@ -297,6 +297,24 @@ struct Shared {
     max_connections: usize,
     /// Connections being served (Unix cap).
     live_conns: Arc<AtomicUsize>,
+    /// Failed-authentication limiter (issue #504), shared by every connection.
+    fails: Mutex<crate::fail_limit::FailLimiter>,
+}
+
+/// Forgets a connection's failure-limiter entry when its thread ends, however it ends.
+struct ForgetFails {
+    s: Arc<Shared>,
+    conn: u64,
+}
+
+impl Drop for ForgetFails {
+    fn drop(&mut self) {
+        self.s
+            .fails
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget(self.conn, Instant::now());
+    }
 }
 
 /// Decrements the live-connection count when a connection thread ends, however it ends.
@@ -659,6 +677,7 @@ fn start_host(
         max_message: options.max_message,
         max_connections: options.max_connections,
         live_conns: Arc::new(AtomicUsize::new(0)),
+        fails: Mutex::new(crate::fail_limit::FailLimiter::new()),
     });
     takeover_watch::register(
         takeover_path(&shared.suite, &shared.cfg.service),
@@ -900,6 +919,12 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         }
     };
     let mut buf = Vec::new();
+    // The connection's key for the failure limiter and its events; the same number is its id.
+    let conn_key = s.next_conn.fetch_add(1, Ordering::SeqCst);
+    let _forget_fails = ForgetFails {
+        s: s.clone(),
+        conn: conn_key,
+    };
     // ---- hello
     let hello: Value = match read_json_line(&mut reader, &mut buf, 64 * 1024) {
         Ok(Some(v)) => v,
@@ -927,7 +952,26 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         );
     }
     if let Some(secret) = &s.cfg.private_secret {
+        // The limiter sees only a secret that failed to verify: a correct hello is never refused
+        // because other callers failed (issue #504).
         if !secret.verify(hello["secret"].as_str().unwrap_or("")) {
+            let now = Instant::now();
+            let limited = s
+                .fails
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .refuses_unverified(conn_key, now);
+            if limited {
+                return reject(
+                    "too many failed authentications; wait before reconnecting",
+                    crate::error::ERROR_RATE_LIMITED,
+                    false,
+                );
+            }
+            s.fails
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .record_failure(conn_key, now);
             return reject(
                 "missing or wrong secret",
                 crate::error::ERROR_UNAUTHENTICATED,
@@ -952,7 +996,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             false,
         );
     }
-    let id = s.next_conn.fetch_add(1, Ordering::SeqCst);
+    let id = conn_key;
     s.conns
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -998,7 +1042,30 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             }
         };
         if let Some(secret) = &s.cfg.private_secret {
+            // A verified request is never refused by the limiter, so a block caused by other
+            // callers cannot end an authenticated connection (issue #504).
             if !secret.verify(req["secret"].as_str().unwrap_or("")) {
+                let now = Instant::now();
+                let limited = s
+                    .fails
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .refuses_unverified(conn_key, now);
+                if limited {
+                    s.event(ServiceEvent::ConnectionRejected {
+                        app: app.clone(),
+                        reason: "too many failed authentications".into(),
+                    });
+                    send(
+                        &json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
+                        "error": ServiceError::new(crate::error::ERROR_RATE_LIMITED, "too many failed authentications; wait before reconnecting").to_value()}),
+                    );
+                    break;
+                }
+                s.fails
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record_failure(conn_key, now);
                 s.event(ServiceEvent::ConnectionRejected {
                     app: app.clone(),
                     reason: "missing or wrong secret".into(),

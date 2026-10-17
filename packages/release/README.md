@@ -65,7 +65,7 @@ Every Right app has absolutely NO access to DevTools; the single exception is Vi
 
 | Group | Subcommands |
 |---|---|
-| Build | `release`, `build`, `package` |
+| Build | `release`, `build`, `package`, `build --web` / `web-build` (web frontend only) |
 | Build (SwiftPM apps) | `swift-package` (`windows-stage`, `msix`, `mac-app`) (config schema 1: `windows.{exe,out,searchDirs,include,dependencies,publisher,assets}`, `mac.{executable,bundleId,out,frameworks,resources,entitlements}`) |
 | Install | `install-app` |
 | Publish | `publish`, `upload`, `publish-update`, `github`, `mirror-root-artifact` |
@@ -75,7 +75,85 @@ Every Right app has absolutely NO access to DevTools; the single exception is Vi
 | Dev artifact signing | `sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]`: Developer ID signs an existing CI dev artifact per file with fixed identifiers (macOS). It verifies the recorded hashes in the payload metadata (default `payload.json`, `{ schema: 1, files: [{ path, sha256 }] }`) first, signs each sign-manifest entry (`file` relative to the artifact, `identifier` required, nested code before its bundle) through the dev-signing identity (missing Developer ID: `DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED`, no ad hoc fallback), verifies with `codesign --verify --strict`, reads back Identifier and TeamIdentifier, refreshes the metadata hashes, and writes evidence JSON. Never builds, notarizes or publishes. The payload metadata must sit outside every signed entry (`SIGN_DEV_ARTIFACT_METADATA_IN_SIGNED_ENTRY`). An optional declarative `refresh` in the sign manifest recomputes digests that other JSON files record about signed bytes: `{ "refreshRoot": "<dir inside the artifact>", "refresh": [{ "file", "pointer" (JSON pointer to an existing string), "compute": "sha256-file" \| "sha256-tree-v1" \| "verify-sha256-file", "of", "format"?, "currentMatches"? }] }` (`file` and `of` relative to `refreshRoot`; `sha256-tree-v1` = sha256 over the sorted relative paths, each as path, NUL, 8-byte big-endian length, bytes; `verify-sha256-file` writes nothing and refuses a digest that changed; `format` embeds the digest in a locator string through one `{value}`; `currentMatches` refuses to overwrite a value of another kind, such as a signed attestation locator). Order is enforced: operations run after the entries they read are signed and before the first entry that contains a refreshed file, so that bundle (the wrapper) signs last over the final bytes; an operation may not read what a later one writes. JSON is rewritten in place with key order kept, and a file the writer would have to reformat is refused. Evidence gains a `refresh` list |
 | Checks | `deps`, `hardening`, `harden`, `hardeningscan`, `cargo-target` |
 | Ownership | `ownership`, `ownership-approval`, `ownership-report` |
+| Test | `test` (the app's declared suites) |
+| Legal | `license-notices npm` |
 | Other | `dev`, `doctor`, `suite-doctor`, `qa`, `dmg`, `cache`, `apple`, `inventory`, `model`, `addon`, `hooks`, `lsclean`, `generate-dmg-background`, `publish cargo`, `publish npm`, `publish swift` |
+
+## Declared test suites, web build, npm notices and artifact mirroring
+
+These replace per-app wrapper scripts. Each is declared in `right-release.config.mjs` and runs without a shell from the app
+root (the config file's directory). A step is `{ cmd | node, args?, cwd?, env?, nodeFlags?, nodeOptions? }`: `node` is an
+app-relative script run by the Node that runs `right-release`, `cmd: "node"` means the same Node, `nodeFlags` go before the
+script, `nodeOptions` are merged once into `NODE_OPTIONS`. `cwd` and `node` must stay inside the app; unknown keys are refused.
+
+### `right-release test`
+
+```js
+tests: {
+  eventPrefix: "e2e",                       // optional, default "test": events are <prefix>_suite_started / _completed
+  runners: {                                // optional named bases
+    vitest: { node: "node_modules/vitest/vitest.mjs", nodeFlags: ["--no-experimental-webstorage"], nodeOptions: ["--no-experimental-webstorage"] },
+  },
+  suites: [
+    { name: "tooling", runner: "vitest", args: ["run", "scripts/tooling.test.mjs", "--no-file-parallelism", "--maxWorkers=1"] },
+    { name: "runtime-config", node: "scripts/runtime-config.test.mjs", nodeFlags: ["--test"] },
+    // Expands to journeys-1, journeys-2, ...: the names in the JSON list run `chunk` at a time, one process per chunk.
+    { name: "journeys", node: "scripts/qa-browser-functional.mjs", args: ["--keep-going"],
+      journeys: { file: "scripts/qa-e2e-journeys.json", key: "journeys", chunk: 12, flag: "--journey" } },
+  ],
+}
+```
+
+`right-release test` runs every suite in order and stops at the first failure, exiting with that suite's code; each suite prints
+a JSON line before and after (`{"event":"e2e_suite_completed","suite":"tooling","exitCode":0,"durationMs":1234}`). `--suite a,b`
+(repeatable) selects suites; a group name such as `journeys` selects all its chunks. `--runner vitest -- run --project unit`
+runs a runner once with the arguments after `--` (watch mode, one project); `-- <args>` after `--suite` is allowed when exactly
+one suite is selected. `--list [--json]` prints the resolved commands and runs nothing. Wrap it as the repository needs, for
+example `rightkit storage run --app <app> -- right-release test`.
+
+### `right-release build --web` (or `web-build`)
+
+```js
+web: { build: [
+  { node: "node_modules/typescript/bin/tsc", nodeFlags: ["--disable-warning=DEP0205"] },
+  { node: "node_modules/vite/bin/vite.js", args: ["build"], nodeFlags: ["--disable-warning=DEP0205"] },
+] }
+```
+
+Runs only the `web.build` steps: no Tauri, no signing, no packaging. `--dry-run` prints the commands. It is guarded by the same
+GitHub-Actions-only execution policy as the other build commands.
+
+### `right-release license-notices npm`
+
+```js
+legal: { npmNotices: { output: "legal/THIRD_PARTY_NPM_LICENSES.html", productName: "ViewRight", exclude: ["@rightkit/"] } }
+```
+
+Writes the third-party npm license appendix for the production closure of a pnpm app (`pnpm licenses list --prod --json`),
+with each package's own LICENSE / COPYING / NOTICE text. A package with no license file gets the standard published text for
+its declared MIT or ISC license, labelled as a fallback; any other license without a file fails the run. The page records the
+app version, the `pnpm-lock.yaml` sha256 and `generated-by=right-release license-notices npm`, so equal inputs give equal bytes.
+`--check` writes nothing and exits 1 when the file differs. `--output` and `--product-name` override the config.
+
+### Mirroring an artifact (`mirror-root-artifact`)
+
+```js
+targets: { win: {
+  mirror: [{ file: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/App_1.0.0_x64-setup.exe", pruneSuffix: "-setup.exe" }],
+  postSign: { cmd: "right-release", args: ["mirror-root-artifact", "--config", "right-release.config.mjs", "--platform", "win"] },
+} }
+```
+
+Copies each `targets.<platform>.mirror` entry (an app-relative path, or `{ file, name?, pruneSuffix? }`) atomically into
+`RIGHT_RELEASE_ARTIFACT_DIR`. The directory must be outside the repository and the command refuses to run without it, so it
+never writes into the repository root. `pruneSuffix` then removes the other files with that suffix from that directory, so it
+holds only the current installer. The one-file form (`--file <path> --package-root <dir> [--name <name>]`) is unchanged.
+
+### macOS updater tarball from `macPackage`
+
+`targets.mac.macPackage.updater: true` (or an app-relative `.tar.gz` path) adds a `create-mac-updater` command at the front of
+`postSign`: it packs the signed, stapled `.app` and signs the tarball. The default output is `<App>.app.tar.gz`, named after the
+app in `notarize.app`. Declare the file in `updater.artifacts` as before. See `docs/MAC-PACKAGE-RECIPE.md`.
 
 ## QA receipts (warn-and-record)
 
@@ -203,6 +281,10 @@ sign: {
 
 Nested code that the map does not name (frameworks, other helpers) is signed first with the defaults; the appex's own `Contents/MacOS` executable is signed before the appex, and the appex signature then carries the extension entitlements. The Finder extension's entitlements never reach the app and the app's Apple Events entitlement never reaches the extension.
 
+### Signing the built DMG (`dmg build --sign`)
+
+`right-release dmg build ... --sign [--identifier <id>] [--receipt <path>]` Developer ID signs the finished image with the shared Developer ID Application identity (secure timestamp, no hardened runtime, as for any disk image; optional stable codesign `--identifier`; strict verification and identity/timestamp readback), so an app whose `package` step builds its own DMG needs no direct `sign-macos.mjs` call before `notarize`. `--receipt` writes the same signing receipt `sign-macos.mjs` writes. A signing failure removes the unsigned image (`DMG_SIGN_FAILED`). It never notarizes or uploads; there is no ad hoc or Apple Development fallback. `buildDmg({ ..., sign: true, identifier, signReceipt })` is the SDK form. `targets.mac.macPackage` and SwiftPM apps already sign the DMG themselves.
+
 ### DMG from an appdmg-style spec
 
 `right-release dmg build --app <.app> --out <dmg> --spec <appdmg.json>` (and `targets.mac.dmg.spec` for SwiftPM apps that right-release packs itself) renders an appdmg-style JSON file through the same headless hdiutil pipeline; explicit flags and `targets.mac.dmg` options win over the spec, and the spec's `title` is the volume name (on the command line, `--volname` is required when the spec has no `title`). Relative `background` and `icon` paths resolve against the spec file's directory. Pulse's `release/appdmg.json` works unchanged:
@@ -292,6 +374,22 @@ Linux has catalog and planner support only: the planner maps `linux` to the `*-u
 
 Any app that ships more than the ffmpeg sidecar (MailRight: `mailright-engine`, `mailright-core`) sets `targets.mac.externalBin` / `targets.win.externalBin`: `{ names: [...], arch?, stageDir? ("src-tauri/binaries"), bundleDir? (mac: "Contents/MacOS" | "Contents/Resources"), stage?: { cmd, args? } }`. It is the generic form of the ffmpeg staging above and reuses its target-triple naming (`<name>-<triple>[.exe]`), staged-file checks and signing evidence checks (`external-bin.mjs` over `media-sidecar.mjs`); it has no catalog, notices or manifest seal. `stage` is the app's own build of the files. Windows signs the staged files in the raw-EXE step; macOS signs `<bundleDir>/<name>` as nested code (hardened runtime) and checks the nested receipt. `external-bin.json` (state root) records pre-sign and signed digests. Names that `mediaSidecar` stages (`ffmpeg`, `ffprobe`) are refused here. Tests: `external-bin.test.mjs`.
 
+## Sidecar staging: source builds, prebuilt checks, archives, mixed variants, universal macOS
+
+`stage-sidecar` (the `sidecars` list in `right-release.config.mjs`, receipt `stage-sidecar.json`) covers these cases without an app script. Every download is https and digest-pinned, nothing runs through a shell, and a failed check stages nothing.
+
+- **`cmake` (Orthic-Labs/rightkit#489):** `{ kind: "cmake", name: "whisper-cli", repo: "https://github.com/ggml-org/whisper.cpp", commit: "<40 hex>", target?: "whisper-cli", output?: "bin/whisper-cli", cmakeArgs?: ["-DBUILD_SHARED_LIBS=OFF"], platformArgs?: { mac: ["-DGGML_METAL=ON"], win: [...] }, generator?, smoke?: ["--help"], sha256?, dest?, clean?, platforms? }`. It fetches exactly that commit into the fixed `.right-release/cmake/<name>/src` (`git init`, `fetch --depth 1 origin <commit>`, detach; a checkout already at the commit is reused, one with local edits or at another commit is refused with `STAGE_SIDECAR_SOURCE_MISMATCH`), configures and builds `target` in `.right-release/cmake/<name>/build` (`CMAKE_OSX_ARCHITECTURES` is set from the target; `universal-apple-darwin` builds `arm64;x86_64` and checks `lipo -archs`), finds the executable (`output`, then `Release/` layouts, `.exe` on Windows), optionally pins its sha256, stages it as `<name>-<triple>[.exe]` and smoke-runs it when the target can run on this host. `cmakeArgs` and `platformArgs` accept only `-DNAME=value` definitions.
+- **`prebuilt` (#490):** verifies a host-built binary already staged at `<stageDir>/<name>-<triple>` (or copied from `from`) against an app manifest, never building or downloading: `manifest: { file, entry: "binaries.{platform}", sha256?: "sha256", approvalSha256?: "approval_sha256", approvalAlgorithm?: "approval_hash_algorithm" }` (`{platform}` is `macos-aarch64`, `windows-x86_64`, ...). The raw sha256 must match; when an approval hash is named it must match too, with `raw-sha256` or `macho-codesign-strip-linkedit-v1` (`macho-approval-hash.mjs`: the sha256 of a thin Mach-O with its code signature removed and `__LINKEDIT` normalised, so a signed and an unsigned copy of one build agree; macOS only, `codesign --remove-signature` on a private copy). A missing file, entry or digest fails closed.
+- **`remote` archives (#491):** `extract: "<member file name>"` (with `memberSha256?`, `executable?`) unpacks one member of a zip or tgz after the archive digest passes, so a Windows zip needs no `command` entry.
+- **`ffmpeg` mixed variants, fetch and probes (#491):** `variants: { ffmpeg: "export-ass" }` lets one entry take the export-ass ffmpeg with the decode ffprobe (a tool not named uses `variant`). `sources: { ffmpeg: { url, sha256, member }, ffprobe: {...} }` downloads the bytes the catalog only pins: the archive is digest-checked, the member is unpacked and its sha256 must equal the APPROVED catalog row's content digest, so a swapped archive can never stage. `probe: true` runs `-version` and `-encoders` on a staged binary this host can run: the configuration must say `--disable-gpl` and `--disable-nonfree` and must not enable GPL, nonfree, libx264, libx265, libxvid or libfdk-aac, and ffmpeg may not list those encoders (`STAGE_SIDECAR_FFMPEG_PROBE_FAILED`; another architecture or OS is recorded as `skipped-cross-target`). The catalog has no Windows `export-ass` row yet (only `export-ass-zimg`); that row belongs to the rightkit-ffmpeg crate.
+- **`universal-apple-darwin` for `ffmpeg` and `onnxruntime` (#492):** each arch row is staged thin under `.right-release/slices/<triple>/` and the files are lipo-merged into `<stageDir>/<tool>-universal-apple-darwin` (onnxruntime: into `resourceDir`), requiring both archs and every row approved (onnxruntime also accepts `pinned`). For `ffmpeg`, `{arch}`, `{triple}` and `{stageDir}` in the `stage` command's arguments name the slice (it runs once per slice), `sources` need the per-arch form `{ ffmpeg: { aarch64: {...}, x86_64: {...} } }`, one source offer lists both slices, and the receipt rows carry `slices`. A merged file identical to the staged one is not rewritten.
+
+## Declared Rust audit, dist-scan and the Windows Swift toolchain
+
+- `right-release deps --audit` also runs `cargo audit` in every folder named by `deps.cargoWorkdirs` (app-relative, each must hold a `Cargo.lock`), through the managed cargo client (the RightKit broker on managed hosts; there is no bare-cargo fallback on a managed Mac), and fails when any workdir fails or cannot start. An app with no `deps.cargoWorkdirs` audits no Rust. Orthic-Labs/rightkit#674.
+- `right-release dist-scan --dist <dir> --forbid <string>... [--forbid-file <path>] [--forbid-name <regex>]... [--ext js,css,...]` fails a built web `dist/` that carries a forbidden marker string in a text file, or a chunk named `devSource-*`, `mockDataSource-*`, `fixtures-*` or matching `--forbid-name` (exit 1; exit 2 on a usage error, a missing `dist/` or a run with no markers). It replaces per-app copies of a release-bundle checker. Orthic-Labs/rightkit#484.
+- `right-release toolchain swift --version 6.4.0 --sha256 <pin> [--github-env] [--json]` (Windows) downloads the swift.org installer, refuses unless its sha256 equals the pin (before anything runs; a bad download is deleted), skips the install when that Swift version is already on PATH, otherwise runs it silently (`/quiet /norestart`, exit 0 and 3010 pass), checks `swift --version`, finds the runtime bin (`Runtimes\<ver>\usr\bin` with `swiftCore.dll`) and, with `--github-env`, appends only the variables the installer added or changed (names printed, values never) to `GITHUB_ENV`, and the new PATH entries, the swift directory and the runtime bin to `GITHUB_PATH`. Orthic-Labs/rightkit#436 (the `@rightkit/ci` `swift-toolchain` step calls this and lives in the ci package).
+
 ## Keeping agent writes off the internal drive (`disk agent-env`, `disk probe`)
 
 No agent may write to the internal drive (C: on Windows, the internal disk on macOS); only installed apps go there.
@@ -326,3 +424,82 @@ No agent may write to the internal drive (C: on Windows, the internal disk on ma
 `target.postSign` accepts either one command object or an array of command objects. An array runs in order, for example `create-mac-updater` followed by `lsclean`, and stops at the first failing command, so the release fails closed. Every command in the array is scanned for forbidden build features and release switches, exactly like a single command. A single object behaves as before.
 
 Each command may set `timeoutMs`. When it expires the release kills the whole process tree (`taskkill /T /F` on Windows, the process group elsewhere) and exits non-zero, so a hung child such as Tauri leaves no orphan.
+
+
+## App-specific forbidden release crates (G14)
+
+Declare exact Cargo package names in `right-release.config.mjs`:
+
+```js
+export default {
+  // Existing app, version & distribution fields...
+  releaseDependencies: {
+    manifest: "src-tauri/Cargo.toml",
+    forbiddenCrates: [
+      "rightkit-record", "rightkit-automation", "rightkit-hotkeys",
+      "rightkit-overlay", "rightkit-agent-tools", "rightkit-qa", "rightkit-qa-driver",
+    ],
+    // Optional extra features for build flags hidden inside opaque scripts:
+    features: [],
+    // Set true only when every release command disables default features:
+    noDefaultFeatures: false,
+  },
+  targets: {
+    mac: { cargoTarget: "aarch64-apple-darwin", /* existing packaging config */ },
+    win: { cargoTarget: "x86_64-pc-windows-msvc", /* existing packaging config */ },
+  },
+};
+```
+
+`right-release build` enforces this policy before packaging. `--skip-checks` skips only app scripts;
+this gate also blocks dry runs when Cargo cannot resolve dependencies. Development builds do not run it.
+Without `releaseDependencies`, existing apps retain their current behavior. An explicit empty
+`forbiddenCrates: []` still verifies that Cargo can resolve its graph.
+
+Standalone checks, run from app root:
+
+```sh
+pnpm exec right-release check-release-dependencies
+pnpm exec right-release check-release-dependencies --platform win
+pnpm exec right-release check-release-dependencies --all-targets
+pnpm exec right-release check-release-dependencies --config path/to/right-release.config.mjs
+```
+
+Default selection uses host platform's release commands & host architecture's triple. `--all-targets` checks every configured
+release target; non-host targets need `cargoTarget`, `targetTriple` or `rustTarget`. Each target must be
+registered with managed Cargo. Unknown hosts fail unless an explicit platform or all targets is selected.
+
+Graphs use `cargo tree --locked -e normal --prefix none --target <triple>` through normal Cargo dispatch.
+Normal direct & transitive dependencies count; build-only & dev-only edges do not. Names match exactly,
+including renamed dependencies' actual package names; versions, sources & duplicate tree entries do not
+change matching. Checks never read Cargo.lock as evidence of reachability.
+
+Each distinct command feature set is resolved separately. Commands, recipe steps & package scripts
+(up to three nested script calls) contribute `--features`, `-F`, `-f`, `--all-features` &
+`--no-default-features`; `releaseSwitches.features` & `releaseDependencies.features` add explicit features.
+Declare flags hidden inside shell/Node script files in config. Manifest precedence is
+`releaseDependencies.manifest`, target `cargoManifest`, `releaseSwitches.manifest`, native assembly
+manifest, then `src-tauri/Cargo.toml` or `Cargo.toml`. Declared missing manifests fail.
+
+SDK usage:
+
+```js
+import { assertReleaseDependencies, forbiddenCrateFindings } from "@rightkit/release/release-dependencies.mjs";
+
+const evidence = assertReleaseDependencies({ root: appRoot, config, target: config.targets.mac });
+// { manifest, target, trees, forbiddenCrates }; throws with crate & target on refusal.
+const names = forbiddenCrateFindings(treeText, config.releaseDependencies.forbiddenCrates);
+```
+
+`run(command, args, options)` can inject Cargo execution for tests. Standalone CLI rejects missing policy,
+invalid arguments, failed resolution & forbidden dependencies with nonzero exit status. Demo capability
+files, base Tauri config content & app-specific default-feature restrictions remain separate guards.
+
+
+## Template rename, PE digest, icon packing
+
+`right-release init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]` renames the desktop app template identity in place (see `init-command.mjs`); it runs no gate or build.
+
+`right-release pe digest <file> [--algorithm sha256|sha384|sha512] [--json]` prints the signature-independent PE content digest (Authenticode image hash: CheckSum, certificate table entry and certificate data excluded, so signing, re-signing and timestamping do not change it). `right-release pe imports <file> [--allow dll,...] [--allow-file <path>] [--json]` lists regular and delay-load imports and exits 1 when any is outside the allow list (case-insensitive; a trailing `*` allows a prefix such as `api-ms-win-*`; no allow list refuses every import). SDK: `peContentDigest(bytes)` and `verifyImportClosure(bytes, allowedDlls)` in `pe-content.mjs`.
+
+`right-release icons ico|icns --out <file> --frame <PNG>... [--dir <folder>]` packs per-size PNG frames, hand-tuned small ones included, into an ICO (sizes 1..256, PNG-compressed entries) or an ICNS (16, 32, 64, 128, 256, 512, 1024). Frame sizes come from each PNG's IHDR; non-square, duplicate or unsupported sizes are refused. Rendering the PNG frames from a design master stays with the app's design source; the DMG background generator is `generate-dmg-background.py`.

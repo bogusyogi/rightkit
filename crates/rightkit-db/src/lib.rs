@@ -10,9 +10,12 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
-use zeroize::Zeroizing;
+/// The zeroizing wrapper that the SQLCipher key fields and key candidates use, re-exported so
+/// callers build keys without declaring their own `zeroize` dependency.
+pub use zeroize::Zeroizing;
 
 mod backup;
+mod checkpoint_job;
 #[allow(unsafe_code)]
 mod host;
 pub use host::per_host_path;
@@ -22,22 +25,32 @@ pub use host::per_host_path;
 pub use rusqlite;
 mod migrate;
 mod recover;
+mod restore;
 mod unreadable;
 
 pub use backup::{
     online_backup_to, remove_database_files, replace_database, replace_database_locked,
     restore_from, store_lock_path, BackupProgress, StoreLock,
 };
+pub use checkpoint_job::{
+    WalCheckpointJob, WalCheckpointMode, WalCheckpointPolicy, WalCheckpointRun,
+};
 pub use migrate::{
-    add_column_if_missing, column_exists, migrate, migration_version, pending_marker, rollback_to,
-    rollback_to_with_storage, user_version, LegacyVersionTable, MigrateOptions, Migration,
-    MigrationReport, PendingMarker, Step, VersionStorage,
+    add_column_if_missing, column_exists, migrate, migration_version, pending_marker,
+    pending_marker_started_at, rollback_to, rollback_to_with_storage, stored_version_is_newer,
+    user_version, write_pending_marker, Degraded, LegacyVersionTable, MigrateOptions, Migration,
+    MigrationReport, OpenOrDegrade, PendingMarker, Step, VersionStorage,
 };
 #[cfg(feature = "cipher")]
 pub use recover::rekey;
 pub use recover::{
     quarantine_database, quarantine_database_opts, quarantine_database_with, MoveMode, OpenOutcome,
     QuarantineOptions, QuarantineStamp, RecoveryPolicy, SidecarPolicy,
+};
+
+pub use restore::{
+    recover_interrupted_restore, recover_interrupted_restore_locked, restore_database,
+    restore_database_locked, InterruptedRestore, RestoreOptions, RestoreReceipt, RestoreVerify,
 };
 
 pub use unreadable::{
@@ -100,6 +113,18 @@ pub enum DbError {
     Rollback(String),
     #[error("database backup failed: {0}")]
     Backup(String),
+    /// [`restore_database`] failed. `previous` is where the previous store is kept when it is not
+    /// at the live path (never deleted); `failed_copy` is where the restored copy was set aside.
+    /// `rolled_back` is true when the live path holds the previous store again (or was never
+    /// touched); false means the rollback was incomplete, a restore journal remains, and
+    /// [`recover_interrupted_restore`] finishes it.
+    #[error("database restore failed: {message}")]
+    RestoreFailed {
+        message: String,
+        previous: Option<PathBuf>,
+        failed_copy: Option<PathBuf>,
+        rolled_back: bool,
+    },
     #[error("no candidate key opened the database")]
     NoKeyOpened,
     #[error(transparent)]
@@ -368,7 +393,7 @@ impl DbOptions {
 
     /// A pool reader opened with `SQLITE_OPEN_READ_ONLY`, so the file refuses writes even after
     /// `query_only` is turned off. It never creates the file, changes the journal mode, narrows
-    /// permissions, or runs `optimize` or `init`; the writer owns those.
+    /// permissions, or runs `optimize`; the writer owns those. `init` runs on each reader.
     fn open_pool_read_only(&self, cache_kib: Option<u32>) -> Result<Connection> {
         let path = self.effective_path();
         let key = self.key_pragma_value()?;
@@ -384,6 +409,11 @@ impl DbOptions {
             conn.pragma_update(None, "foreign_keys", true)?;
         }
         apply_cache_settings(&conn, self, ConnectionKind::Reader { cache_kib })?;
+        // Per-connection setup (`init`) runs on every reader, read-only ones included, as it does
+        // on the other connection kinds. An `init` that writes fails here with the SQLite error.
+        if let Some(init) = &self.init {
+            init(&conn)?;
+        }
         enforce_query_only(&conn)?;
         if !conn.is_readonly("main")? {
             return Err(DbError::ReadOnlyNotEffective(
@@ -702,6 +732,14 @@ pub fn write_txn(conn: &mut Connection) -> Result<Transaction<'_>> {
         .map_err(Into::into)
 }
 
+/// [`write_txn`] for a caller that holds only `&Connection`, such as a closure-style helper.
+/// It runs `BEGIN IMMEDIATE` through `Transaction::new_unchecked`, so the reserved writer slot is
+/// the same. The borrow checker does not stop a nested transaction here: SQLite refuses the
+/// `BEGIN` instead. The transaction rolls back when dropped unless it is committed.
+pub fn write_txn_unchecked(conn: &Connection) -> Result<Transaction<'_>> {
+    Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(Into::into)
+}
+
 #[cfg(feature = "cipher")]
 fn apply_key_first(conn: &Connection, key: Option<&str>) -> Result<()> {
     if let Some(key) = key {
@@ -774,8 +812,9 @@ impl ReadPoolOptions {
 
     /// Opens each reader with `SQLITE_OPEN_READ_ONLY`, so writes fail even if `query_only` is later
     /// turned off. The database must already exist: the pool never creates it, changes its journal
-    /// mode, narrows its permissions, or runs `optimize` or `init`. A rollback journal left by a
-    /// crash is recovered by a writer, not by a read-only reader. Default off.
+    /// mode, narrows its permissions, or runs `optimize`. Each reader still runs the `init` hook,
+    /// as on the other connections. A rollback journal left by a crash is recovered by a writer,
+    /// not by a read-only reader. Default off.
     pub fn with_read_only(mut self, on: bool) -> Self {
         self.read_only = on;
         self
@@ -798,9 +837,12 @@ pub struct ReadPool {
     inner: Arc<ReadPoolInner>,
 }
 
+/// Opens one reader connection. A pool built from [`DbOptions`] uses that database's reader
+/// setup; [`ReadPool::from_opener`] supplies its own.
+type ReaderOpener = Box<dyn Fn() -> Result<Connection> + Send + Sync>;
+
 struct ReadPoolInner {
-    options: DbOptions,
-    pool_options: ReadPoolOptions,
+    open: ReaderOpener,
     cap: usize,
     state: Mutex<ReadPoolState>,
     /// Wakes a `get` waiting for capacity, and every waiter when the pool closes.
@@ -819,7 +861,7 @@ struct ReadPoolState {
 
 impl ReadPoolInner {
     fn open_reader(&self) -> Result<Connection> {
-        self.options.open_pool_reader(self.pool_options)
+        (self.open)()
     }
 }
 
@@ -869,10 +911,30 @@ impl ReadPool {
                 return Err(DbError::InvalidReaderCacheSize(kib));
             }
         }
+        Self::with_opener(
+            cap,
+            Box::new(move || options.open_pool_reader(pool_options)),
+        )
+    }
+
+    /// A pool whose readers come from `open`, called once now to check it works and again for
+    /// each new reader. The pool enforces `cap` and the closed and wait rules; `query_only` and
+    /// other reader setup are the opener's job. Intended for tests that need a pool over a
+    /// connection they build themselves. Use [`DbOptions::open_read_pool`] for a real database.
+    pub fn from_opener(
+        cap: usize,
+        open: impl Fn() -> Result<Connection> + Send + Sync + 'static,
+    ) -> Result<Self> {
+        Self::with_opener(cap, Box::new(open))
+    }
+
+    fn with_opener(cap: usize, open: ReaderOpener) -> Result<Self> {
+        if cap == 0 {
+            return Err(DbError::InvalidPoolCapacity);
+        }
         let pool = Self {
             inner: Arc::new(ReadPoolInner {
-                options,
-                pool_options,
+                open,
                 cap,
                 state: Mutex::new(ReadPoolState::default()),
                 available: Condvar::new(),
@@ -1063,6 +1125,14 @@ pub struct CheckpointStatus {
 
 pub fn checkpoint_truncate(conn: &Connection) -> Result<CheckpointStatus> {
     checkpoint(conn, "PRAGMA wal_checkpoint(TRUNCATE)")
+}
+
+/// `PRAGMA wal_checkpoint(RESTART)`: copies the log into the main file like PASSIVE, waits (under
+/// the busy timeout) for readers still using the log, then the next writer starts it again from
+/// the beginning. The log file keeps its size. Use it when the database is quiet and the log is
+/// large; [`WalCheckpointJob`] decides when.
+pub fn checkpoint_restart(conn: &Connection) -> Result<CheckpointStatus> {
+    checkpoint(conn, "PRAGMA wal_checkpoint(RESTART)")
 }
 
 pub fn checkpoint_if_wal_larger_than(

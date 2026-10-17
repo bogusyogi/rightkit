@@ -127,9 +127,24 @@ pub fn classify_risk(label: &str) -> Option<RiskClass> {
     let has = |set: &[&str]| words.iter().any(|w| set.contains(w));
     if has(&["delete", "remove", "erase", "discard", "trash", "destroy"]) {
         Some(RiskClass::Delete)
-    } else if has(&["send", "submit", "post", "publish", "reply"]) {
+    } else if has(&[
+        "send", "submit", "post", "publish", "reply", "share", "tweet", "signup", "register",
+        "apply", "confirm",
+    ]) {
         Some(RiskClass::Send)
-    } else if has(&["buy", "purchase", "pay", "checkout", "order", "subscribe"]) {
+    } else if has(&[
+        "buy",
+        "purchase",
+        "pay",
+        "payment",
+        "checkout",
+        "order",
+        "subscribe",
+        "book",
+        "reserve",
+        "donate",
+        "transfer",
+    ]) {
         Some(RiskClass::Purchase)
     } else if has(&["close", "quit", "exit"]) {
         Some(RiskClass::Close)
@@ -185,9 +200,20 @@ pub fn credential_label(label: &str) -> bool {
         "otp",
         "cvv",
         "cvc",
+        "cvn",
         "ssn",
         "apikey",
         "pwd",
+        "pin",
+        "iban",
+        "swift",
+        "bic",
+        "routing",
+        "aadhaar",
+        "aadhar",
+        "passport",
+        "nino",
+        "cardholder",
     ]
     .iter()
     .any(|w| has(w))
@@ -195,9 +221,26 @@ pub fn credential_label(label: &str) -> bool {
         || pair("private", "key")
         || pair("one", "time")
         || pair("card", "number")
+        || pair("card", "no")
+        || pair("credit", "card")
+        || pair("debit", "card")
+        || pair("account", "number")
+        || pair("account", "no")
+        || pair("bank", "account")
+        || pair("sort", "code")
         || pair("security", "code")
         || pair("social", "security")
+        || pair("national", "id")
+        || pair("national", "insurance")
+        || pair("tax", "id")
+        || pair("identity", "number")
+        || pair("id", "number")
+        || pair("driver", "license")
+        || pair("driver", "licence")
+        || pair("drivers", "license")
         || pair("recovery", "code")
+        || pair("expiry", "date")
+        || pair("expiration", "date")
 }
 
 /// Receipt-safe form of a payload: length only unless `log_values`, and never
@@ -482,6 +525,8 @@ mod tests {
         assert_eq!(classify_risk("Send"), Some(RiskClass::Send));
         assert_eq!(classify_risk("Buy now"), Some(RiskClass::Purchase));
         assert_eq!(classify_risk("Close window"), Some(RiskClass::Close));
+        assert_eq!(classify_risk("Share"), Some(RiskClass::Send));
+        assert_eq!(classify_risk("Book table"), Some(RiskClass::Purchase));
         assert_eq!(classify_risk("Resend"), None);
         assert_eq!(classify_risk("Equals"), None);
         assert!(looks_secret(&format!("{}{}", "sk", "-example-value")));
@@ -503,17 +548,15 @@ mod tests {
             "Security Code",
             "Client secret",
             "Access token",
+            "PIN",
+            "IBAN",
+            "Passport number",
+            "Bank account",
+            "Driver licence",
         ] {
             assert!(credential_label(l), "{l}");
         }
-        for l in [
-            "Search",
-            "Body",
-            "Pin tab",
-            "Keyboard",
-            "Name",
-            "Passport photo",
-        ] {
+        for l in ["Search", "Body", "Keyboard", "Name", "Account settings"] {
             assert!(!credential_label(l), "{l}");
         }
     }

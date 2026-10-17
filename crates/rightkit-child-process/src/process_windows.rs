@@ -16,7 +16,8 @@ use windows::Win32::{
         JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
             SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
         },
         Threading::{
             OpenThread, ProcessPowerThrottling, ResumeThread, SetProcessInformation,
@@ -221,12 +222,24 @@ mod tests {
 pub(crate) struct KillOnCloseJob(OwnedHandle);
 
 impl KillOnCloseJob {
-    fn assign(process: &ProcessHandle) -> io::Result<Self> {
+    fn assign(process: &ProcessHandle, breakaway: crate::owned::BreakawayMode) -> io::Result<Self> {
         let job = Self(own(
             unsafe { CreateJobObjectW(None, None) }.map_err(os_error)?
         ));
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        match breakaway {
+            crate::owned::BreakawayMode::None => {}
+            // Only a process that asks (CREATE_BREAKAWAY_FROM_JOB) leaves the job.
+            crate::owned::BreakawayMode::Explicit => {
+                limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+            }
+            // Every created process leaves the job without asking.
+            crate::owned::BreakawayMode::Silent => {
+                limits.BasicLimitInformation.LimitFlags |=
+                    JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            }
+        }
         unsafe {
             SetInformationJobObject(
                 raw(&job.0),
@@ -261,6 +274,7 @@ pub(crate) fn assign_jobs(
     process: &ProcessHandle,
     caller_job: Option<OwnedHandle>,
     mode: JobAssignmentMode,
+    breakaway: crate::owned::BreakawayMode,
     owned_job: &mut Option<std::sync::Arc<KillOnCloseJob>>,
     failures: &mut Vec<JobAssignmentFailure>,
 ) -> io::Result<()> {
@@ -273,7 +287,7 @@ pub(crate) fn assign_jobs(
             failures,
         )?;
     }
-    match KillOnCloseJob::assign(process) {
+    match KillOnCloseJob::assign(process, breakaway) {
         Ok(job) => *owned_job = Some(std::sync::Arc::new(job)),
         Err(error) => assignment_result(
             Err(error),

@@ -7,7 +7,9 @@
 //! children use the `sandbox-exec -p` wrapper because `portable-pty` exposes
 //! no `pre_exec`.
 
-use crate::{NetworkPolicy, SandboxPolicy};
+use crate::deny_read::{glob_to_deny_regex, plan_deny_read_paths};
+use crate::{ConfinementMode, DenyReadEntry, NetworkPolicy, SandboxPolicy};
+use std::collections::HashSet;
 use std::ffi::{CString, OsString};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -317,11 +319,127 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
     Ok(p)
 }
 
-/// Build the deny-default SBPL profile for `policy`.
-pub fn profile_for(policy: &SandboxPolicy) -> String {
+/// Fixed locations a write-only profile always lets the child write: per-user and system temp,
+/// and the device nodes ordinary tools open for writing.
+const WRITE_ONLY_TEMP: &[&str] = &[
+    "/private/tmp",
+    "/private/var/folders",
+    "/private/var/tmp",
+    "/tmp",
+];
+const WRITE_ONLY_DEV: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/dtracehelper",
+    "/dev/stdout",
+    "/dev/stderr",
+];
+
+/// Build the write-confinement-only SBPL profile: default-allow, so reads and execution are
+/// unrestricted and ordinary toolchains run, then every write denied except beneath
+/// `write_paths` (realpath-resolved), the temporary locations and a few `/dev` nodes. With
+/// [`NetworkPolicy::Deny`] outbound network is denied and local unix sockets stay allowed.
+///
+/// Pure string construction apart from path resolution. Nothing in it hides a file from reads;
+/// add [`SandboxPolicy::deny_read()`] rules (see [`profile_for`]) for secrets.
+pub fn write_only_profile(write_paths: &[PathBuf], network: NetworkPolicy) -> String {
+    let mut p = String::from("(version 1)\n(allow default)\n(deny file-write*)\n");
+    p.push_str("(allow file-write*\n");
+    for fixed in WRITE_ONLY_TEMP {
+        p.push_str(&format!("    (subpath {})\n", quote(Path::new(fixed))));
+    }
+    for dev in WRITE_ONLY_DEV {
+        p.push_str(&format!("    (literal {})\n", quote(Path::new(dev))));
+    }
+    p.push_str("    (regex #\"^/dev/tty\")\n");
+    for path in write_paths {
+        p.push_str(&format!(
+            "    (subpath {})\n",
+            quote(&resolve_for_profile(path))
+        ));
+    }
+    p.push_str(")\n");
+    if network == NetworkPolicy::Deny {
+        p.push_str("(deny network-outbound)\n(allow network-outbound (remote unix-socket))\n");
+    }
+    p
+}
+
+/// A glob with its literal leading directory realpath-resolved (`/tmp/x/*` -> `/private/tmp/x/*`),
+/// so the regex names what Seatbelt evaluates.
+fn resolve_glob_prefix(pattern: &str) -> String {
+    let Some(first_wildcard) = pattern.find(['*', '?']) else {
+        return resolve_for_profile(Path::new(pattern))
+            .to_string_lossy()
+            .into_owned();
+    };
+    let Some(cut) = pattern[..first_wildcard].rfind('/') else {
+        return pattern.to_string();
+    };
+    let prefix = if cut == 0 { "/" } else { &pattern[..cut] };
+    let resolved = resolve_for_profile(Path::new(prefix));
+    let resolved = resolved.to_string_lossy();
+    format!("{}/{}", resolved.trim_end_matches('/'), &pattern[cut + 1..])
+}
+
+/// `deny_read` rules: for every path both its configured spelling and its resolved one (and the
+/// canonical target when it exists), for every glob a regex over the resolved prefix. Emitted
+/// after all allows, so they win (the last matching rule decides in SBPL). Both read and write
+/// are denied so a protected location cannot be overwritten either.
+fn deny_read_rules(entries: &[DenyReadEntry]) -> std::io::Result<String> {
+    let mut out = String::new();
+    let mut seen_paths: HashSet<PathBuf> = HashSet::new();
+    let mut seen_regexes: HashSet<String> = HashSet::new();
+    let paths: Vec<PathBuf> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            DenyReadEntry::Path(path) => Some(path.clone()),
+            DenyReadEntry::Glob(_) => None,
+        })
+        .collect();
+    for planned in plan_deny_read_paths(&paths)? {
+        for candidate in [planned.clone(), resolve_for_profile(&planned)] {
+            if seen_paths.insert(candidate.clone()) {
+                out.push_str(&format!(
+                    "(deny file-read* file-write* (subpath {}))\n",
+                    quote(&candidate)
+                ));
+            }
+        }
+    }
+    for entry in entries {
+        if let DenyReadEntry::Glob(pattern) = entry {
+            let resolved = resolve_glob_prefix(pattern);
+            for spelling in [pattern.as_str(), resolved.as_str()] {
+                let regex = glob_to_deny_regex(spelling);
+                if seen_regexes.insert(regex.clone()) {
+                    out.push_str(&format!(
+                        "(deny file-read* file-write* (regex #\"{regex}\"))\n"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Build the SBPL profile for `policy`, or say why it cannot be built (a `deny_read` entry that
+/// resolves to a filesystem root, say). Deny-default ([`ConfinementMode::Strict`]) imports
+/// `bsd.sb` first; [`ConfinementMode::WriteOnly`] is default-allow with writes confined.
+pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
+    let deny = deny_read_rules(&policy.deny_read)?;
+    if policy.mode == ConfinementMode::WriteOnly {
+        let mut p = write_only_profile(&policy.write_paths, policy.network);
+        p.push_str(&deny);
+        return Ok(p);
+    }
     let mut p = String::from("(version 1)\n(import \"bsd.sb\")\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n");
     for dir in SYSTEM_EXEC {
         p.push_str(&format!("(allow process-exec* (subpath \"{dir}\"))\n"));
+    }
+    if policy.exec_any {
+        // Execute any program. The image still has to be readable: add read or exec paths.
+        p.push_str("(allow process*)\n");
     }
     for e in &policy.exec_paths {
         let r = quote(&resolve_for_profile(e));
@@ -351,7 +469,15 @@ pub fn profile_for(policy: &SandboxPolicy) -> String {
         p.push_str(&format!("(allow file-read* file-write* (subpath {r}))\n"));
     }
     p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|tty|ttys[0-9]+|dtracehelper|urandom|random)$\"))\n");
-    p
+    p.push_str(&deny);
+    Ok(p)
+}
+
+/// Build the SBPL profile for `policy`. A `deny_read` entry that cannot be planned makes the
+/// result a profile that denies everything (the child cannot start), never a profile without the
+/// deny; use [`try_profile_for`] to get the error instead.
+pub fn profile_for(policy: &SandboxPolicy) -> String {
+    try_profile_for(policy).unwrap_or_else(|_| String::from("(version 1)\n(deny default)\n"))
 }
 
 /// Prepared in the parent; call [`Prepared::apply`] from `pre_exec`.
@@ -365,7 +491,14 @@ pub struct Prepared {
 
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
-        CString::new(profile_for(policy))
+        Self::from_profile(try_profile_for(policy)?)
+    }
+
+    /// Prepare an SBPL profile the caller built (for example [`write_only_profile`]). The
+    /// profile is applied as given: nothing is imported or added, so a deny-default profile must
+    /// carry its own `(import "bsd.sb")`.
+    pub fn from_profile(profile: String) -> std::io::Result<Self> {
+        CString::new(profile)
             .map(|profile| Self {
                 profile,
                 diagnostic: false,
@@ -444,17 +577,277 @@ impl Prepared {
     }
 }
 
-/// `sandbox-exec -p <profile> program args...` wrapper (used for PTY children).
+/// `sandbox-exec -p <profile> program args...` wrapper (used for PTY children). A `deny_read`
+/// entry that cannot be planned yields a deny-everything profile; see [`try_wrap_argv`].
 pub fn wrap_argv(
     policy: &SandboxPolicy,
     program: &OsString,
     args: &[OsString],
 ) -> (OsString, Vec<OsString>) {
+    wrap_profile(profile_for(policy), program, args)
+}
+
+/// As [`wrap_argv`], returning the error when the profile cannot be built.
+pub fn try_wrap_argv(
+    policy: &SandboxPolicy,
+    program: &OsString,
+    args: &[OsString],
+) -> std::io::Result<(OsString, Vec<OsString>)> {
+    Ok(wrap_profile(try_profile_for(policy)?, program, args))
+}
+
+fn wrap_profile(
+    profile: String,
+    program: &OsString,
+    args: &[OsString],
+) -> (OsString, Vec<OsString>) {
     let mut out = vec![
         OsString::from("-p"),
-        OsString::from(profile_for(policy)),
+        OsString::from(profile),
         program.clone(),
     ];
     out.extend(args.iter().cloned());
     (OsString::from("/usr/bin/sandbox-exec"), out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rk-seatbelt-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(&dir).unwrap()
+    }
+
+    fn last_allow(profile: &str) -> usize {
+        profile.rfind("(allow ").expect("an allow rule")
+    }
+
+    #[test]
+    fn write_only_profile_is_default_allow_with_writes_confined() {
+        let workspace = scratch("wo");
+        let profile = write_only_profile(std::slice::from_ref(&workspace), NetworkPolicy::Allow);
+        assert!(
+            profile.starts_with("(version 1)\n(allow default)\n(deny file-write*)\n"),
+            "{profile}"
+        );
+        assert!(!profile.contains("(deny default)"), "{profile}");
+        assert!(!profile.contains("bsd.sb"), "{profile}");
+        assert!(
+            !profile.contains("(deny file-read"),
+            "reads stay open:\n{profile}"
+        );
+        for fixed in [
+            "/private/tmp",
+            "/private/var/folders",
+            "/private/var/tmp",
+            "/tmp",
+        ] {
+            assert!(
+                profile.contains(&format!("(subpath \"{fixed}\")")),
+                "{fixed}\n{profile}"
+            );
+        }
+        for dev in [
+            "/dev/null",
+            "/dev/zero",
+            "/dev/dtracehelper",
+            "/dev/stdout",
+            "/dev/stderr",
+        ] {
+            assert!(
+                profile.contains(&format!("(literal \"{dev}\")")),
+                "{dev}\n{profile}"
+            );
+        }
+        assert!(profile.contains("(regex #\"^/dev/tty\")"), "{profile}");
+        assert!(
+            profile.contains(&format!("(subpath {})", quote(&workspace))),
+            "workspace is granted resolved:\n{profile}"
+        );
+        assert!(!profile.contains("network-outbound"), "{profile}");
+    }
+
+    #[test]
+    fn write_only_profile_resolves_symlinked_write_paths() {
+        // `/tmp` is a symlink to `/private/tmp`; Seatbelt matches the resolved path.
+        let profile = write_only_profile(
+            &[PathBuf::from("/tmp/rk-write-only-not-yet-created")],
+            NetworkPolicy::Allow,
+        );
+        assert!(
+            profile.contains("(subpath \"/private/tmp/rk-write-only-not-yet-created\")"),
+            "{profile}"
+        );
+        assert!(
+            !profile.contains("(subpath \"/tmp/rk-write-only-not-yet-created\")"),
+            "{profile}"
+        );
+    }
+
+    #[test]
+    fn write_only_network_deny_keeps_unix_sockets() {
+        let profile = write_only_profile(&[], NetworkPolicy::Deny);
+        assert!(profile.contains("(deny network-outbound)\n"), "{profile}");
+        assert!(
+            profile.contains("(allow network-outbound (remote unix-socket))\n"),
+            "{profile}"
+        );
+        assert!(!profile.contains("(allow network*)"), "{profile}");
+    }
+
+    #[test]
+    fn a_hostile_write_path_cannot_break_out_of_its_rule() {
+        let evil = PathBuf::from("/tmp/a\") (allow file-read* (subpath \"/");
+        let profile = write_only_profile(std::slice::from_ref(&evil), NetworkPolicy::Allow);
+        let quoted = quote(&resolve_for_profile(&evil));
+        assert!(
+            profile.contains(&format!("(subpath {quoted})")),
+            "{profile}"
+        );
+        // Every quote inside the hostile text is escaped, so it stays inside its string.
+        let inner = &quoted[1..quoted.len() - 1];
+        let mut previous = ' ';
+        for c in inner.chars() {
+            if c == '"' {
+                assert_eq!(previous, '\\', "unescaped quote in {quoted}");
+            }
+            previous = c;
+        }
+        assert!(inner.contains("\\\""), "{quoted}");
+    }
+
+    #[test]
+    fn the_mode_selects_the_profile_and_deny_default_keeps_its_import_first() {
+        let strict = profile_for(&SandboxPolicy::new());
+        let import = strict.find("(import \"bsd.sb\")").expect("base import");
+        let deny = strict.find("(deny default)").expect("deny default");
+        assert!(import < deny, "{strict}");
+        let write_only = profile_for(&SandboxPolicy::new().mode(ConfinementMode::WriteOnly));
+        assert!(write_only.contains("(allow default)"), "{write_only}");
+        assert!(!write_only.contains("(deny default)"), "{write_only}");
+    }
+
+    #[test]
+    fn exec_any_adds_process_star_only_when_asked() {
+        let plain = profile_for(&SandboxPolicy::new());
+        assert!(!plain.contains("(allow process*)"), "{plain}");
+        let any = profile_for(&SandboxPolicy::new().exec_any(true));
+        assert!(any.contains("(allow process*)\n"), "{any}");
+        // It grants execution, not reading: no read rule appears for it.
+        assert_eq!(
+            plain.matches("(allow file-read*").count(),
+            any.matches("(allow file-read*").count()
+        );
+    }
+
+    #[test]
+    fn deny_read_rules_come_after_every_allow_so_they_win() {
+        let dir = scratch("deny");
+        let secret = dir.join(".ssh");
+        std::fs::create_dir_all(&secret).unwrap();
+        for policy in [
+            SandboxPolicy::new().allow_write(&dir).deny_read(&secret),
+            SandboxPolicy::new()
+                .mode(ConfinementMode::WriteOnly)
+                .allow_write(&dir)
+                .deny_read(&secret),
+        ] {
+            let profile = profile_for(&policy);
+            let deny = format!("(deny file-read* file-write* (subpath {}))", quote(&secret));
+            let at = profile
+                .find(&deny)
+                .unwrap_or_else(|| panic!("{deny}\n{profile}"));
+            assert!(
+                at > last_allow(&profile),
+                "deny must follow the last allow:\n{profile}"
+            );
+        }
+    }
+
+    #[test]
+    fn deny_read_covers_both_spellings_of_a_symlinked_secret() {
+        let dir = scratch("deny-link");
+        let real = dir.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let profile = profile_for(&SandboxPolicy::new().deny_read(&link));
+        assert!(
+            profile.contains(&format!("(subpath {})", quote(&link))),
+            "{profile}"
+        );
+        assert!(
+            profile.contains(&format!("(subpath {})", quote(&real))),
+            "{profile}"
+        );
+    }
+
+    #[test]
+    fn deny_read_globs_become_anchored_regexes_that_cover_children() {
+        let dir = scratch("deny-glob");
+        let pattern = format!("{}/keys/*.pem", dir.display());
+        let profile = profile_for(&SandboxPolicy::new().deny_read_glob(&pattern));
+        let rule = profile
+            .lines()
+            .find(|line| line.starts_with("(deny file-read* file-write* (regex"))
+            .unwrap_or_else(|| panic!("{profile}"));
+        assert!(rule.contains("#\"^"), "{rule}");
+        assert!(rule.contains("[^/]*"), "{rule}");
+        assert!(rule.ends_with("(/.*)?$\"))"), "{rule}");
+    }
+
+    #[test]
+    fn a_glob_prefix_is_resolved_like_a_path() {
+        assert_eq!(
+            resolve_glob_prefix("/tmp/rk-glob-not-yet/*.pem"),
+            "/private/tmp/rk-glob-not-yet/*.pem"
+        );
+        assert_eq!(resolve_glob_prefix("/*"), "/*");
+        assert_eq!(
+            resolve_glob_prefix("/tmp/rk-glob-not-yet/**/key"),
+            "/private/tmp/rk-glob-not-yet/**/key"
+        );
+    }
+
+    #[test]
+    fn an_unplannable_deny_read_never_yields_a_profile_without_the_deny() {
+        let relative = SandboxPolicy::new()
+            .allow_write("/tmp")
+            .deny_read("relative");
+        assert!(try_profile_for(&relative).is_err());
+        let poisoned = profile_for(&relative);
+        assert!(
+            !poisoned.contains("(allow "),
+            "no allow may survive:\n{poisoned}"
+        );
+        assert!(Prepared::new(&relative).is_err());
+        // A symlink that resolves to the filesystem root is refused too.
+        let dir = scratch("deny-root-alias");
+        let alias = dir.join("everything");
+        std::os::unix::fs::symlink("/", &alias).unwrap();
+        assert!(try_profile_for(&SandboxPolicy::new().deny_read(&alias)).is_err());
+    }
+
+    #[test]
+    fn from_profile_applies_nothing_extra_and_rejects_nul() {
+        assert!(Prepared::from_profile("(version 1)\n(allow default)\n".into()).is_ok());
+        assert!(Prepared::from_profile("(version 1)\0".into()).is_err());
+    }
+
+    #[test]
+    fn try_wrap_argv_matches_wrap_argv_for_a_valid_policy() {
+        let policy = SandboxPolicy::new().mode(ConfinementMode::WriteOnly);
+        let program = OsString::from("/bin/echo");
+        let args = [OsString::from("hi")];
+        let plain = wrap_argv(&policy, &program, &args);
+        let tried = try_wrap_argv(&policy, &program, &args).unwrap();
+        assert_eq!(plain, tried);
+        assert_eq!(plain.0, OsString::from("/usr/bin/sandbox-exec"));
+        assert_eq!(plain.1[0], OsString::from("-p"));
+        let relative = SandboxPolicy::new().deny_read("relative");
+        assert!(try_wrap_argv(&relative, &program, &args).is_err());
+    }
 }

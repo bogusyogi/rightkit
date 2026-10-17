@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Orthic-Labs/rightkit#586, #587, #588, #589, #600 (CodeRight and MailRight ports). Additive: every existing call behaves as before; `OAuthConfig`, `CallbackOptions` and `LoopbackHost` keep their shapes, and the new settings sit behind builder methods on private fields. Endpoint URLs are now parsed, not prefix-checked: userinfo, backslashes and whitespace are refused, and plain `http` is accepted only for the exact hosts `127.0.0.1`, `[::1]`, `localhost`. Not built or run locally.
+
+- #586: `OAuthClient::with_token_param(name, value)` (builder, returns `Result`) appends extra parameters (RFC 8707 `resource`, `scope`) to the code-exchange and refresh bodies; `OAuthClient::new` refuses names the client sets itself. `OAuthClient::with_revocation_url(url)` (builder, returns `Result`) and `OAuthClient::revoke(&Secret, Option<TokenTypeHint>)` (RFC 7009; token scrubbed from errors). `LoopbackAuthorization::wait_code(timeout, cancel)` returns the bare code and the `AuthorizationRequest`; `finish_loopback` now uses it (same behaviour, plus cancel support).
+- #587: `callback::CallbackBind` (`CallbackListener::bind_with`): `redirect_host(host)` (spelling of `redirect_uri`'s host; loopback listeners accept only `localhost`, `127.0.0.1`, `[::1]`) and `custom_bind_address(IpAddr)`, an explicit opt-in to bind a non-default address; multicast refused, unspecified needs `redirect_host`. `CallbackListener::bind(state, CallbackOptions)` is unchanged. `OAuthClient::begin_loopback` is unchanged and still binds `127.0.0.1` only.
+- #588: `CallbackListener::wait_post_json(timeout, cancel, allowed_origin)` for a CORS-preflighted JSON POST callback: exact origin, exact path, constant-time `state` in the JSON body, `OPTIONS` handling with `Access-Control-Allow-Origin` and Private-Network headers, 64 KiB body cap, ignore-and-continue for everything else. New `callback::MAX_POST_BODY`.
+- #589: `GatewayExchange::exchange_tokens` (`GatewayTokens { token_set, extra }`, `Debug` hides values), `exchange_raw` (the whole JSON object), `with_refresh_endpoint` and `refresh(http, &Secret, extra_fields, cancel)` (401 or `invalid_grant`, also when sent with HTTP 200, is `NeedsReauth`; a response without a refresh token keeps the one sent).
+- #600: `MemoryTokenStore`, an in-process `TokenStore` for `credentials::Resolver`.
+- Orthic-Labs/rightkit#194 needed no change: it is already implemented in 0.7.0 (see below).
+- Unverified: the Command Code and Hermes gateway wire formats are taken from the issue text, not from provider documentation.
+
 ## 0.8.0 (unpublished)
 
 Orthic-Labs/rightkit#279: sign-in always opens the user's default browser, never an in-app webview. Not built or run locally.

@@ -171,6 +171,10 @@ For an app that runs its own engine as a child that only it may call (MailRight'
 
 The protocol pieces for devices that cannot reach each other directly: a relay that stores and forwards sealed bytes it cannot read, and the device side that talks to it. `relay::RelayCore` is the relay's state machine (challenge and ticket authentication, queues, caps, quota; no sockets or clock), `relay::RelaySession` is a device's side, and the cipher between devices is a `Sealer` the caller supplies. What the relay learns: mailbox and circle pseudonyms, who talks to whom, when, and how much. See the 0.2.6 changelog for what is not built yet (the cipher, a socket adapter, direct paths, push-wake, durable queues).
 
+The handshake can carry a second line: `PrivateChild::spawn_with_extra(command, secret, Some(line))` writes the secret line and then `line` before it returns, and `PrivateChild::write_line` sends a line later. A line may not contain a newline.
+
+Failed secrets are limited (`src/fail_limit.rs`, ported from MailRight): five failures from one connection in 60 s block that connection for 60 s, and 30 failures from all connections in 60 s block every connection for 60 s. A blocked hello or request is answered `rate_limited` before its secret is compared.
+
 ## Supervising a daemon-pipe child (`supervisor`)
 
 `supervisor::supervise` watches a `PrivateChild` (an engine the app started and talks to over the daemon pipe) on one thread: it polls for exit, probes with a closure you give it (`ping_probe` connects with the child's own secret, verifies the host and calls `ping`), feeds the `rightkit-child-process` `HealthTracker`, stops an unhealthy or never-ready child (stdin closed, then the tree killed after a grace) and lets `RestartTracker` decide: relaunch after its backoff, wait for `SupervisorHandle::restart_now`, or give up (`Exhausted`). See the module docs for the choices that are easy to get wrong.
@@ -178,6 +182,22 @@ The protocol pieces for devices that cannot reach each other directly: a relay t
 ## Messages above one frame (`chunk`)
 
 The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends a larger request in pieces through the reserved `rk.upload` method, which the host assembles under a separate `HostOptions::max_message` bound. Chunking is off by default (`max_message` 0; the host refuses `rk.upload`): a service that takes large calls opts in with a size, for example `HostOptions::new().max_message(chunk::SUGGESTED_MAX_MESSAGE)` (64 MiB). The first piece is authorised before anything is buffered, a connection holds one assembly, and the assembled text is bounded in nesting and value count before it is parsed. On Unix `HostOptions::max_connections` (default 64) caps concurrent connections. A client that calls through `call_large` gets an oversized result back in pieces (`rk.fetch`) instead of `response_too_large`. A plain `Client::call` is unchanged. Events keep the frame limit. A shared-file handoff is not built; see the 0.2.7 changelog.
+
+## Public routes (`remote` feature)
+
+An application route that needs no device signature (a provider webhook, a callback, a redirect) is registered with `Daemon::add_public_route(method, path, body_limit, handler)`. The method and path must match exactly, the path may not be under `/v1`, and the handler does its own verification over `Request::body`. Public routes are checked before any device check and before the daemon-api table.
+
+## Stop, ticker and heartbeat (`stop`, `ticker`)
+
+`stop::StopSource` is the one trigger for a host's stop: `stop_on_signals` (SIGINT and SIGTERM on Unix, the console control handler on Windows; a 50 ms watcher thread turns the signal into a trigger) and `stop_on_stdin_close` both feed it, and `StopToken` is what the host's threads wait on. `ticker::spawn_ticker` runs a closure every interval until the stop, and `ticker::spawn_heartbeat` writes a `{pid, updated_ms, state}` record atomically to a path on the same schedule.
+
+## Build-tool guard (`suite`)
+
+`suite::refuse_build_tool_real_data(&suite)` returns an error when the build tool's runtime environment is present and the suite is neither `Suite::per_run_temp` nor under the system temporary directory. It is opt-in: call it at the start of a test or dev run; it is not called from `Suite::resolve`.
+
+## Listener (`transport`)
+
+`Listener::bind`, `accept` (returning `Accepted::Conn(Conn)`, `Accepted::Rejected` or `Accepted::Vanished`), `wake` and `cleanup` are public. Each accepted peer is checked for the current user before any byte is read.
 
 ## Operator surface (`remote` feature)
 

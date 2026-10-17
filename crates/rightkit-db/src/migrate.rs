@@ -13,8 +13,12 @@
 //!   needs is still present (additive forward compatibility);
 //! - rollback replays `down` steps and refuses when any step in the range lacks one.
 
+use crate::recover::{
+    allowed, is_unreadable, quarantine_database_journaled, unfinished_quarantine, RecoveryPolicy,
+    QUARANTINE_JOURNAL_SUFFIX,
+};
 use crate::{DbError, DbOptions, Result};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, ErrorCode, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -101,6 +105,8 @@ pub struct LegacyVersionTable {
     pub version_column: String,
 }
 
+/// Checks a pre-migration backup before the first step runs; `Err(reason)` stops the migration.
+pub type VerifyBackup = fn(&Path) -> std::result::Result<(), String>;
 #[derive(Clone)]
 pub struct MigrateOptions {
     /// Version location shared by reads and transactional migration writes.
@@ -116,6 +122,19 @@ pub struct MigrateOptions {
     pub optimize_after: bool,
     /// Adopt an existing app version table (see [`MigrateOptions::import_legacy_versions`]). Default none.
     pub legacy_versions: Option<LegacyVersionTable>,
+    /// Name of the pre-migration backup, given the current and target versions. Default
+    /// `<db>.pre-v<target>.bak` beside the database. Must be a plain file name that is not the
+    /// database's own name (a name with a path separator or NUL is refused as
+    /// [`DbError::Backup`]).
+    pub backup_name: Option<fn(current: i64, target: i64) -> String>,
+    /// Checks the pre-migration backup before the first step runs. `Err(reason)` stops the
+    /// migration with [`DbError::Backup`]. The live database is untouched and the backup is kept.
+    pub verify_backup: Option<VerifyBackup>,
+    /// Keeps only the newest `n` pre-migration backups of this database, by modification time:
+    /// after each backup, older files named `<db>.pre-*.bak` in the same directory are removed.
+    /// The backup just taken is always kept. Removal is best effort and never fails the migration.
+    /// Default `None`: every backup is kept.
+    pub backup_retention: Option<usize>,
 }
 
 impl Default for MigrateOptions {
@@ -127,6 +146,9 @@ impl Default for MigrateOptions {
             forward_compatible: None,
             optimize_after: true,
             legacy_versions: None,
+            backup_name: None,
+            verify_backup: None,
+            backup_retention: None,
         }
     }
 }
@@ -360,6 +382,83 @@ fn check_storage(storage: &VersionStorage) -> Result<()> {
     }
 }
 
+/// Where the pre-migration backup goes: `<db>.pre-v<target>.bak`, or the name from
+/// [`MigrateOptions::backup_name`]. The name must be a plain file name other than the database's.
+fn backup_path(db: &Path, options: &MigrateOptions, current: i64, target: i64) -> Result<PathBuf> {
+    let name = db
+        .file_name()
+        .ok_or(DbError::InvalidDatabasePath)?
+        .to_string_lossy()
+        .into_owned();
+    let file = match options.backup_name {
+        Some(namer) => namer(current, target),
+        None => format!("{name}.pre-v{target}.bak"),
+    };
+    if file.is_empty() || file.contains(['/', '\\', '\0']) || file == "." || file == ".." {
+        return Err(DbError::Backup(format!(
+            "backup name {file:?} must be a plain file name other than the database's"
+        )));
+    }
+    // The backup is published with a replacing rename, so it must never land on the database,
+    // a live sidecar, or a recovery file this crate keeps beside the database. Compared
+    // case-insensitively: a case-insensitive filesystem treats those names as the same file.
+    let lowered = file.to_lowercase();
+    let reserved = [
+        "",
+        "-wal",
+        "-shm",
+        "-journal",
+        ".migrating",
+        ".restore-journal",
+        ".store-lock",
+        QUARANTINE_JOURNAL_SUFFIX,
+    ]
+    .iter()
+    .any(|suffix| lowered == format!("{name}{suffix}").to_lowercase());
+    if reserved {
+        return Err(DbError::Backup(format!(
+            "backup name {file:?} is the database, one of its sidecars or a recovery file; choose another name"
+        )));
+    }
+    Ok(db.with_file_name(file))
+}
+
+/// Keeps the `keep` newest pre-migration backups of `db`, counting `newest` (the backup just
+/// taken), and removes the older `<db>.pre-*.bak` files beside it. Best effort: a file that
+/// cannot be removed is left in place.
+fn prune_backups(db: &Path, newest: &Path, keep: usize) {
+    let Some(name) = db.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return;
+    };
+    let dir = db
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let prefix = format!("{name}.pre-");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut older: Vec<(SystemTime, PathBuf)> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.as_path() != newest)
+        .filter(|path| {
+            path.file_name().is_some_and(|n| {
+                let n = n.to_string_lossy();
+                n.starts_with(&prefix) && n.ends_with(".bak")
+            })
+        })
+        .filter_map(|path| {
+            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok()?;
+            Some((modified, path))
+        })
+        .collect();
+    // Newest first; the just-taken backup already fills one of the `keep` places.
+    older.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    for (_, path) in older.into_iter().skip(keep.saturating_sub(1)) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -402,6 +501,48 @@ pub fn pending_marker(db: &Path) -> Option<PendingMarker> {
         }
     }
     Some(marker)
+}
+
+/// Unix seconds when the pending `<db>.migrating` batch started, `0` for a marker written
+/// before the start time was recorded, `None` without a readable marker. A separate reader keeps
+/// [`PendingMarker`] constructible as before.
+pub fn pending_marker_started_at(db: &Path) -> Option<u64> {
+    pending_marker(db)?;
+    let text = std::fs::read_to_string(marker_path(db)).ok()?;
+    Some(
+        text.lines()
+            .find_map(|line| line.strip_prefix("started="))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
+    )
+}
+
+/// Writes the `<db>.migrating` marker for a batch that moves the schema from version `from` to
+/// `to`. The write is atomic and records the writing process id and the start time (unix
+/// seconds). [`migrate`] writes this same marker; [`pending_marker`] reads it back. Use it to
+/// simulate an interrupted migration in a crash test, instead of a private copy of the format.
+pub fn write_pending_marker(db: &Path, from: i64, to: i64) -> Result<()> {
+    let body = format!(
+        "from={from}\nto={to}\npid={}\nstarted={}\n",
+        std::process::id(),
+        now_secs().max(0)
+    );
+    rightkit_fs::atomic_write(&marker_path(db), body.as_bytes())?;
+    Ok(())
+}
+
+/// True when the version stored under `storage` is above the newest of `migrations`, which means
+/// a newer build wrote this database. It only reads: nothing is migrated, created or written. It
+/// does not consult [`MigrateOptions::import_legacy_versions`].
+pub fn stored_version_is_newer(
+    conn: &Connection,
+    storage: &VersionStorage,
+    migrations: &[Migration],
+) -> Result<bool> {
+    validate(migrations)?;
+    check_storage(storage)?;
+    let max = migrations.last().map_or(0, |m| m.version);
+    Ok(migration_version(conn, storage)? > max)
 }
 
 pub fn migrate(
@@ -448,23 +589,26 @@ pub fn migrate(
 
     if current > 0 && options.backup {
         if let Some(path) = db_path {
-            let name = path
-                .file_name()
-                .ok_or(DbError::InvalidDatabasePath)?
-                .to_string_lossy();
-            let backup = path.with_file_name(format!("{name}.pre-v{max}.bak"));
+            let backup = backup_path(path, options, current, max)?;
             let backup_options = options
                 .backup_options
                 .clone()
                 .unwrap_or_else(|| DbOptions::new(path));
             crate::online_backup_to(&backup_options, conn, &backup, None)?;
+            if let Some(verify) = options.verify_backup {
+                verify(&backup).map_err(|reason| {
+                    DbError::Backup(format!("pre-migration backup failed its check: {reason}"))
+                })?;
+            }
+            if let Some(keep) = options.backup_retention {
+                prune_backups(path, &backup, keep);
+            }
             report.backup = Some(backup);
         }
     }
 
     if let Some(path) = db_path {
-        let body = format!("from={current}\nto={max}\npid={}\n", std::process::id());
-        rightkit_fs::atomic_write(&marker_path(path), body.as_bytes())?;
+        write_pending_marker(path, current, max)?;
     }
 
     for migration in pending {
@@ -606,6 +750,37 @@ fn check_ident(ident: &str) -> Result<()> {
     }
 }
 
+/// What [`DbOptions::open_writer_migrated_or_degrade`] returns.
+#[derive(Debug)]
+pub struct OpenOrDegrade {
+    /// The writer to use: the database at the path, or a private in-memory store when degraded.
+    pub conn: Connection,
+    /// The migration report for the connection in `conn`.
+    pub report: MigrationReport,
+    /// `Some` when `conn` is not the database as it was stored: it was quarantined and recreated,
+    /// or the app runs on an in-memory store. The app should show it to the user.
+    pub degraded: Option<Degraded>,
+}
+
+/// Why [`DbOptions::open_writer_migrated_or_degrade`] did not use the stored database as-is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Degraded {
+    /// The failure that made the stored database unusable.
+    pub reason: String,
+    /// Where the unusable file went, with its sidecars, when it was quarantined. Also set when a
+    /// quarantine stopped part way and could not be undone (see `quarantine_incomplete`): then
+    /// it is where the main file is now.
+    pub quarantined: Option<PathBuf>,
+    /// `true` when a quarantine moved part of the stored database and neither finished nor rolled
+    /// back. The files are split between the original path and `quarantined`; a
+    /// `<db>.quarantine-journal` file records the move and makes later opens through
+    /// [`DbOptions::open_writer_migrated_or_degrade`] stay in memory instead of creating a
+    /// replacement over the split files. A person must reunite or remove them.
+    pub quarantine_incomplete: bool,
+    /// `true` when the connection is a private in-memory store, not a file at the path.
+    pub in_memory: bool,
+}
+
 impl DbOptions {
     /// Open the writer and bring the schema up to date (see [`migrate`]); the pre-migration
     /// backup is keyed like the database itself.
@@ -619,5 +794,124 @@ impl DbOptions {
         options.backup_options.get_or_insert_with(|| self.clone());
         let report = migrate(&conn, Some(&self.path), migrations, &options)?;
         Ok((conn, report))
+    }
+
+    /// Open-or-degrade: [`Self::open_writer_migrated`], with recovery for a stored database that
+    /// is corrupt, not a database, or fails its integrity check, at open or during migration.
+    ///
+    /// For such a failure, `policy` decides as in [`Self::open_writer_recovering`]: when it allows
+    /// (`quarantine_corrupt` for a plain database, `quarantine_keyed` for a keyed one), the file
+    /// and its sidecars move aside under the policy's stamp and sidecar options (never deleted by
+    /// default), and the database is created and migrated again. When it does not allow, the file
+    /// is left untouched. Either way, if the store still cannot be opened, the connection is a
+    /// private in-memory store that is migrated the same way, and [`OpenOrDegrade::degraded`]
+    /// says so.
+    ///
+    /// Any other failure (busy, permission, I/O, a newer database, an invalid migration list) is
+    /// returned as an error, because it does not show the stored data is damaged.
+    pub fn open_writer_migrated_or_degrade(
+        &self,
+        migrations: &[Migration],
+        options: &MigrateOptions,
+        policy: RecoveryPolicy,
+    ) -> Result<OpenOrDegrade> {
+        // A quarantine an earlier run could not finish or undo: never create a replacement over
+        // the split files.
+        if let Some(journal) = unfinished_quarantine(&self.path) {
+            let reason = format!(
+                "an earlier quarantine of {} stopped part way and was not undone; see {}",
+                self.path.display(),
+                journal.display()
+            );
+            return self.degrade_in_memory(migrations, options, reason, None, true);
+        }
+        let error = match self.open_writer_migrated(migrations, options) {
+            Ok((conn, report)) => {
+                return Ok(OpenOrDegrade {
+                    conn,
+                    report,
+                    degraded: None,
+                })
+            }
+            Err(error) if is_recoverable_damage(&error) => error,
+            Err(error) => return Err(error),
+        };
+        let reason = error.to_string();
+        if !allowed(self, policy) {
+            return self.degrade_in_memory(migrations, options, reason, None, false);
+        }
+        let quarantined = match quarantine_database_journaled(
+            &self.path,
+            policy.quarantine_stamp,
+            policy.sidecars,
+        ) {
+            Ok(moved) => moved,
+            Err(failure) => {
+                // Nothing moved (or every move was undone): the store is untouched. Otherwise
+                // the split stays on disk, journaled, and the result says so.
+                let reason = format!("{reason}; quarantine failed: {}", failure.error);
+                let incomplete = failure.stranded_at.is_some();
+                return self.degrade_in_memory(
+                    migrations,
+                    options,
+                    reason,
+                    failure.stranded_at,
+                    incomplete,
+                );
+            }
+        };
+        match self.open_writer_migrated(migrations, options) {
+            Ok((conn, report)) => Ok(OpenOrDegrade {
+                conn,
+                report,
+                degraded: Some(Degraded {
+                    reason,
+                    quarantined: Some(quarantined),
+                    quarantine_incomplete: false,
+                    in_memory: false,
+                }),
+            }),
+            Err(second) => {
+                let reason = format!("{reason}; reopen after quarantine failed: {second}");
+                self.degrade_in_memory(migrations, options, reason, Some(quarantined), false)
+            }
+        }
+    }
+
+    fn degrade_in_memory(
+        &self,
+        migrations: &[Migration],
+        options: &MigrateOptions,
+        reason: String,
+        quarantined: Option<PathBuf>,
+        quarantine_incomplete: bool,
+    ) -> Result<OpenOrDegrade> {
+        let conn = self.open_in_memory()?;
+        let report = migrate(&conn, None, migrations, options)?;
+        Ok(OpenOrDegrade {
+            conn,
+            report,
+            degraded: Some(Degraded {
+                reason,
+                quarantined,
+                quarantine_incomplete,
+                in_memory: true,
+            }),
+        })
+    }
+}
+
+/// Damage that recovery may act on: an unreadable or failed-integrity open (see
+/// [`is_unreadable`]), or a migration step that SQLite reports as not a database or corrupt.
+fn is_recoverable_damage(error: &DbError) -> bool {
+    match error {
+        DbError::MigrationFailed {
+            source: rusqlite::Error::SqliteFailure(failure, _),
+            ..
+        } => matches!(
+            failure.code,
+            ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt
+        ),
+        other => is_unreadable(other),
     }
 }

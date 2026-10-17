@@ -791,6 +791,7 @@
       "repositoryIdentity": "https://github.com/bogusyogi/postright",
       "dependencies": [
         "cargo:jiff",
+        "cargo:serde",
         "cargo:serde_json",
         "cargo:tauri",
         "cargo:tauri-build",

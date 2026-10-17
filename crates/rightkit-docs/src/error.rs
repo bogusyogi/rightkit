@@ -33,6 +33,10 @@ pub enum DocsError {
     /// refused rather than parsed.
     #[error("forbidden XML construct in {part}: {what}")]
     ForbiddenXml { part: String, what: &'static str },
+    /// An embedded OLE object or ActiveX control part. Such parts run or embed foreign code, so
+    /// the package is refused: they are never extracted, parsed or followed.
+    #[error("active content refused in {part}: {what}")]
+    ActiveContent { part: String, what: &'static str },
     /// The target differs from the file the edit was based on.
     #[error("the target changed since it was read")]
     SourceChanged,
@@ -83,6 +87,7 @@ impl DocsError {
             DocsError::ArchiveLimit(_) => "archive_limit",
             DocsError::Malformed(_) => "malformed",
             DocsError::ForbiddenXml { .. } => "forbidden_xml",
+            DocsError::ActiveContent { .. } => "active_content",
             DocsError::SourceChanged => "source_changed",
             DocsError::TargetExists => "target_exists",
             DocsError::TargetMissing => "target_missing",

@@ -584,4 +584,129 @@ mod windows {
         }
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn deny_read_blocks_a_folder_inside_a_granted_root_and_leaves_its_neighbour() {
+        if !crate::common::real_user_stores_allowed(
+            "deny_read_blocks_a_folder_inside_a_granted_root_and_leaves_its_neighbour",
+        ) {
+            return;
+        }
+        let root = scratch("deny");
+        fs::write(root.join("public.txt"), "PUBLIC").unwrap();
+        fs::create_dir_all(root.join("secrets")).unwrap();
+        fs::write(root.join("secrets").join("key.txt"), "TOP-SECRET").unwrap();
+        let policy = SandboxPolicy::new()
+            .allow_write(&root)
+            .deny_read(root.join("secrets"));
+        let _profile = crate::common::ProfileCleanup::of(&policy);
+        let script = r"type public.txt> public.copy & type secrets\key.txt> leak.txt";
+        let out = expanded()
+            .spawn(&policy, cmd(script).cwd(&root))
+            .unwrap()
+            .wait_with_output(T)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("public.copy"))
+                .unwrap_or_default()
+                .trim_end(),
+            "PUBLIC",
+            "the neighbour stays readable: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let leaked = fs::read_to_string(root.join("leak.txt")).unwrap_or_default();
+        assert!(
+            !leaked.contains("TOP-SECRET"),
+            "the secret leaked: {leaked:?}"
+        );
+        // The deny ACE is revoked with the child: the user reads the file again afterwards.
+        assert_eq!(
+            fs::read_to_string(root.join("secrets").join("key.txt")).unwrap(),
+            "TOP-SECRET"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_piped_child_reads_its_stdin_until_the_parent_closes_it() {
+        use std::io::Write;
+        if !crate::common::real_user_stores_allowed(
+            "a_piped_child_reads_its_stdin_until_the_parent_closes_it",
+        ) {
+            return;
+        }
+        let root = scratch("piped");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
+        let mut child = expanded()
+            .spawn_piped(
+                &policy,
+                SandboxCommand::new("findstr.exe").arg("^").cwd(&root),
+            )
+            .unwrap();
+        let mut stdin = child.take_stdin().expect("a piped child has stdin");
+        stdin.write_all(b"through-the-pipe\r\n").unwrap();
+        drop(stdin);
+        let out = child.wait_with_output(T).unwrap();
+        assert!(!out.timed_out, "findstr must see end of input");
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("through-the-pipe"),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_workspace_profile_is_reusable_and_refuses_protected_grants() {
+        if !crate::common::real_user_stores_allowed(
+            "a_workspace_profile_is_reusable_and_refuses_protected_grants",
+        ) {
+            return;
+        }
+        let root = scratch("workspace-profile");
+        let profile = AppContainerProfile::for_workspace(&root).expect("profile");
+        crate::common::assert_test_name(profile.name(), "rightkit.sandbox.");
+        let _cleanup = ProfileNameCleanup(profile.name().to_string());
+        assert!(profile.sid_string().starts_with("S-1-15-2-"));
+        assert!(!profile.network_allowed());
+        for round in 0..2 {
+            let out = expanded()
+                .spawn_in_profile(
+                    &profile,
+                    cmd(&format!("echo round{round}> marker{round}.txt")).cwd(&root),
+                    &EnvPolicy::default(),
+                )
+                .unwrap()
+                .wait_with_output(T)
+                .unwrap();
+            assert!(
+                out.status.unwrap().success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(root.join(format!("marker{round}.txt")).exists());
+        }
+        if let Some(secret) = secret_roots().into_iter().find(|p| p.exists()) {
+            assert!(
+                profile.lease_grant(&secret, false).is_err(),
+                "a secret is never grantable"
+            );
+        }
+        let filesystem_root = PathBuf::from(r"C:\");
+        assert!(profile.lease_grant(&filesystem_root, false).is_err());
+        // The profile (and its leases) go before its registration is deleted.
+        drop(profile);
+        drop(_cleanup);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Deletes a profile by name when the test ends.
+    struct ProfileNameCleanup(String);
+
+    impl Drop for ProfileNameCleanup {
+        fn drop(&mut self) {
+            let _ = delete_appcontainer_profile_for_test(&self.0);
+        }
+    }
 }

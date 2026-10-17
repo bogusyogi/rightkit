@@ -1,5 +1,6 @@
 //! Typst rendering for titles, captions and math, with optional LaTeX input.
 //!
+//! - [`FontFace::parse`] reads sfnt metrics; [`FontFace::measure`] returns advances & missing glyphs.
 //! - [`Typesetter::new`]`(FontSource, ppi)` then [`Typesetter::render`]`(&Request)`.
 //! - A [`Request`] source is Typst markup, Typst math, or (feature `latex`) LaTeX via mitex.
 //! - Output is SVG by default, or PNG with feature `png` (typst-render).
@@ -13,7 +14,10 @@
 //! NOTE: written against the typst 0.15.1 `World` API from the decision record
 //! (`docs/design/motion-owner.md`) without a compile; CI is the first compiler.
 
+pub mod font;
 mod world;
+
+pub use font::{FontError, FontFace, Measurement};
 
 use thiserror::Error;
 

@@ -286,3 +286,53 @@ fn empty_keyset_is_a_typed_error_not_a_panic() {
         "keyset has no sort columns"
     );
 }
+
+#[test]
+fn range_bound_keeps_pages_identical_and_adds_one_bind() {
+    let conn = msgs_db();
+    for id in 1..=10 {
+        insert(&conn, id, id * 10);
+    }
+    let plain = newest_first();
+    let bounded = newest_first().range_bound();
+    let q = no_filter();
+
+    let (p1, next1) = page(&conn, &q, &plain, None, 4);
+    let next1 = next1.unwrap();
+    // With no cursor the range bound adds nothing to the statement.
+    let none = q
+        .page("SELECT id, ts FROM msgs", &bounded, None, 4)
+        .unwrap();
+    assert_eq!(none.params.len(), 1, "only the limit is bound");
+
+    let (b2, _) = page(&conn, &q, &bounded, Some(&next1), 4);
+    let (p2, _) = page(&conn, &q, &plain, Some(&next1), 4);
+    assert_eq!(ids(&b2), ids(&p2));
+    assert_eq!(ids(&p1), vec![10, 9, 8, 7]);
+}
+
+#[test]
+fn page_clauses_supports_a_caller_built_statement_with_its_own_limit() {
+    let conn = msgs_db();
+    for id in 1..=5 {
+        insert(&conn, id, id * 10);
+    }
+    let ks = newest_first().range_bound();
+    let q = no_filter();
+    let c = q.page_clauses(&ks, Some(&key(4, 40))).unwrap();
+    // Range bound (1) + group one (1) + group two (2): no limit in the clauses.
+    assert_eq!(c.params.len(), 4);
+    let sql = format!(
+        "WITH base AS (SELECT id, ts FROM msgs) SELECT id, ts FROM base WHERE {} ORDER BY {} LIMIT ?",
+        c.where_sql, c.order_by
+    );
+    let mut params = c.params.clone();
+    params.push(Param::Int(10));
+    let mut stmt = conn.prepare(&sql).unwrap();
+    let got: Vec<i64> = stmt
+        .query_map(params_from_iter(params.iter()), |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(got, vec![3, 2, 1]);
+}

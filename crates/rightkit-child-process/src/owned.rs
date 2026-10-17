@@ -94,6 +94,18 @@ impl TerminationOptions {
 }
 
 /// Every failed assignment in a best-effort Windows spawn is retained.
+/// Windows job breakaway policy for an owned child; Unix ignores it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum BreakawayMode {
+    /// Full containment.
+    #[default]
+    None,
+    /// `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: only processes that ask leave the job.
+    Explicit,
+    /// `BREAKAWAY_OK` plus `SILENT_BREAKAWAY_OK`: every created process leaves the job.
+    Silent,
+}
+
 #[derive(Debug)]
 pub struct JobAssignmentFailure {
     pub stage: &'static str,
@@ -119,6 +131,7 @@ type InheritedValue = RawHandleOrFd;
 pub struct OwnedCommand {
     command: Command,
     windows_hidden: bool,
+    windows_breakaway: BreakawayMode,
     caller_job: CallerJob,
     job_assignment: JobAssignmentMode,
     unix_containment: UnixContainment,
@@ -163,6 +176,7 @@ impl OwnedCommand {
         Self {
             command,
             windows_hidden: true,
+            windows_breakaway: BreakawayMode::None,
             caller_job: None,
             job_assignment: JobAssignmentMode::Strict,
             unix_containment: UnixContainment::ProcessGroup,
@@ -259,6 +273,40 @@ impl OwnedCommand {
     /// Compatibility no-op: hidden is already the default.
     pub fn windows_hide(&mut self) -> &mut Self {
         self.windows_hidden = true;
+        self
+    }
+    /// Windows: leaves the console window visible, clearing the hidden default, for a
+    /// user-facing program (an editor, a terminal at a project path) that must keep its window.
+    /// Pair it with [`spawn_uncontained_detached`](Self::spawn_uncontained_detached) for a
+    /// fire-and-forget launch. Unix ignores it.
+    pub fn windows_visible(&mut self) -> &mut Self {
+        self.windows_hidden = false;
+        self
+    }
+    /// Windows: explicit-only breakaway (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`). A process in the
+    /// job leaves it only by asking (`CREATE_BREAKAWAY_FROM_JOB`); every descendant that does
+    /// not ask stays contained and is terminated with the job. Dropping the owned child still
+    /// terminates the helper's tree; a grandchild that asked and broke away stays running.
+    /// `false` restores full containment. Unix ignores it. For descendants that escape without
+    /// asking, see [`windows_allow_silent_breakaway`](Self::windows_allow_silent_breakaway).
+    pub fn windows_allow_breakaway(&mut self, allow: bool) -> &mut Self {
+        self.windows_breakaway = if allow {
+            BreakawayMode::Explicit
+        } else {
+            BreakawayMode::None
+        };
+        self
+    }
+    /// Windows: silent breakaway (`JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` plus `BREAKAWAY_OK`).
+    /// Every process the job's processes create is outside the job without asking, so
+    /// descendants are NOT contained and survive the helper. Use only for a helper whose
+    /// children must all outlive it. `false` restores full containment. Unix ignores it.
+    pub fn windows_allow_silent_breakaway(&mut self, allow: bool) -> &mut Self {
+        self.windows_breakaway = if allow {
+            BreakawayMode::Silent
+        } else {
+            BreakawayMode::None
+        };
         self
     }
     /// Duplicate caller job; assign before the empty nested RightKit job.
@@ -453,7 +501,11 @@ impl OwnedCommand {
             self.process_priority,
         );
         #[cfg(unix)]
-        let _ = (self.windows_hidden, self.job_assignment);
+        let _ = (
+            self.windows_hidden,
+            self.windows_breakaway,
+            self.job_assignment,
+        );
         #[cfg(windows)]
         let _ = (self.unix_containment, self.kill_on_parent_exit);
         let spawned_at = SystemTime::now();
@@ -560,6 +612,7 @@ impl OwnedCommand {
                 &owned.handle,
                 self.caller_job.take(),
                 self.job_assignment,
+                self.windows_breakaway,
                 &mut owned.job,
                 &mut owned.assignment_failures,
             )?;
@@ -1418,6 +1471,19 @@ mod tests {
             let nice: i32 = text.trim().parse().expect("ps printed a nice value");
             assert!(nice >= floor, "nice {nice} below floor {floor}");
         }
+    }
+
+    #[test]
+    fn breakaway_is_off_by_default_explicit_by_default_opt_in_and_silent_is_separate() {
+        use super::BreakawayMode;
+        let mut command = super::OwnedCommand::new("unused");
+        assert_eq!(command.windows_breakaway, BreakawayMode::None);
+        command.windows_allow_breakaway(true);
+        assert_eq!(command.windows_breakaway, BreakawayMode::Explicit);
+        command.windows_allow_silent_breakaway(true);
+        assert_eq!(command.windows_breakaway, BreakawayMode::Silent);
+        command.windows_allow_silent_breakaway(false);
+        assert_eq!(command.windows_breakaway, BreakawayMode::None);
     }
 
     #[test]

@@ -416,10 +416,12 @@ impl SystemRoutes {
     }
 
     /// The distinct proxies, for a client that prepares one transport per proxy.
+    #[cfg(feature = "async")]
     pub(crate) fn http(&self) -> Option<&ResolvedProxy> {
         self.http.as_ref()
     }
 
+    #[cfg(feature = "async")]
     pub(crate) fn https(&self) -> Option<&ResolvedProxy> {
         self.https.as_ref()
     }
@@ -691,8 +693,9 @@ pub struct ClientConfig {
     /// that receives no bytes for this long fails with an `io::ErrorKind::TimedOut` error,
     /// whatever the header, `recv_body_timeout` and `stream_timeout` budgets say. The clock
     /// restarts on every chunk, so a slow but steady multi-gigabyte download survives. `None`
-    /// (default) disables it. Costs one helper thread per stream while set. Buffered calls
-    /// (`send`) are not affected; use `recv_body_timeout` there. Blocking client only.
+    /// (default) disables it. The blocking client costs one helper thread per stream while set;
+    /// the async client's stream costs one timer. Buffered calls (`send`) are not affected; use
+    /// `recv_body_timeout` there. Applies to the streamed body of both clients.
     pub idle_timeout: Option<Duration>,
     /// Redirects followed (0 = never; credentials are never replayed to a new host).
     pub max_redirects: u32,
@@ -1089,6 +1092,44 @@ pub fn percent_decode(input: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// RFC 3986 percent-encoding for one URL path segment or query value. Unreserved bytes
+/// (`A-Z a-z 0-9 - . _ ~`) are kept, a space becomes `%20` (never `+`), and every other byte
+/// becomes `%XX`. Use [`percent_encode`] only for `application/x-www-form-urlencoded` bodies.
+pub fn percent_encode_component(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for b in input.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Inverse of [`percent_encode_component`]: decodes `%XX` escapes and leaves `+` as written.
+/// An escape that is not two hex digits is kept as written; invalid UTF-8 is replaced.
+pub fn percent_decode_component(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn form_encode(pairs: &[(&str, &str)]) -> String {
     pairs
         .iter()
@@ -1104,6 +1145,8 @@ pub struct Response {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub attempts: u32,
+    /// URL of the response after the redirects that were followed (the request URL when none).
+    pub(crate) final_url: String,
     /// Secrets to scrub from `Debug` output: the client's `redact_values` and the
     /// request's secret values and URL secrets.
     pub(crate) redact: Vec<String>,
@@ -1112,6 +1155,20 @@ pub struct Response {
 impl Response {
     pub fn header(&self, name: &str) -> Option<&str> {
         header_of(&self.headers, name)
+    }
+    /// Every value of a repeated header, in order (for example several `Set-Cookie` lines).
+    /// [`Response::header`] returns only the first.
+    pub fn header_all<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> + 'a {
+        header_all_of(&self.headers, name)
+    }
+    /// The URL after the followed redirects, as the caller's own URL data (it keeps any query
+    /// string; `Debug` redacts it).
+    pub fn final_url(&self) -> &str {
+        &self.final_url
+    }
+    /// The numeric or HTTP-date `Retry-After` delay, when the response carries one.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.header("retry-after").and_then(parse_retry_after)
     }
     pub fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
@@ -1166,6 +1223,10 @@ impl ResponseHead {
     pub fn header(&self, name: &str) -> Option<&str> {
         header_of(&self.headers, name)
     }
+    /// Every value of a repeated header, in order; see [`Response::header_all`].
+    pub fn header_all<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> + 'a {
+        header_all_of(&self.headers, name)
+    }
 }
 
 impl fmt::Debug for ResponseHead {
@@ -1194,6 +1255,46 @@ impl StreamResponse {
     pub fn header(&self, name: &str) -> Option<&str> {
         header_of(&self.headers, name)
     }
+    /// Every value of a repeated header, in order; see [`Response::header_all`].
+    pub fn header_all<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> + 'a {
+        header_all_of(&self.headers, name)
+    }
+    /// Copy the body into `writer`, at most `max_bytes` in total, calling `progress` with the
+    /// running byte count after each chunk. A body over the cap fails with
+    /// [`HttpError::BodyTooLarge`]; bytes already written stay written. Returns the total.
+    pub fn copy_to<W: io::Write>(
+        self,
+        writer: &mut W,
+        max_bytes: u64,
+        mut progress: impl FnMut(u64),
+    ) -> Result<u64, HttpError> {
+        let mut reader = self.reader;
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total: u64 = 0;
+        loop {
+            let n = match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) if is_cancelled_io(&e) => return Err(HttpError::Cancelled),
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                    return Err(HttpError::timeout(e.to_string(), Phase::Body))
+                }
+                Err(e) => return Err(HttpError::transport(e.to_string(), Phase::Body)),
+            };
+            total = total.saturating_add(n as u64);
+            if total > max_bytes {
+                return Err(HttpError::BodyTooLarge {
+                    limit: max_bytes as usize,
+                });
+            }
+            writer
+                .write_all(&buf[..n])
+                .map_err(|e| HttpError::Stream(format!("write failed: {e}")))?;
+            progress(total);
+        }
+        Ok(total)
+    }
     pub fn into_reader(self) -> Box<dyn Read + Send> {
         self.reader
     }
@@ -1210,6 +1311,18 @@ pub(crate) fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Opti
         .map(|(_, v)| v.as_str())
 }
 
+/// Every value of `name`, in order. The name is copied so the iterator borrows only `headers`.
+pub(crate) fn header_all_of<'a>(
+    headers: &'a [(String, String)],
+    name: &str,
+) -> impl Iterator<Item = &'a str> + 'a {
+    let name = name.to_string();
+    headers
+        .iter()
+        .filter(move |(k, _)| k.eq_ignore_ascii_case(&name))
+        .map(|(_, v)| v.as_str())
+}
+
 #[derive(Clone)]
 pub struct Client {
     agent: ureq::Agent,
@@ -1223,6 +1336,8 @@ pub struct Client {
     proxy_mode_used: ProxyModeUsed,
     /// Set when the proxy settings were invalid; every request then fails closed.
     config_error: Option<String>,
+    /// `false` sends `Accept-Encoding: identity`; see [`Client::compression`].
+    compression: bool,
     /// The invalid setting is a system proxy configuration this client cannot follow:
     /// requests fail with the typed [`HttpError::SystemProxyUnsupported`] naming this
     /// element, instead of a generic message.
@@ -1319,8 +1434,18 @@ impl Client {
             proxy_diagnostic: diagnostic,
             proxy_mode_used: used,
             config_error: None,
+            compression: true,
             system_proxy_unsupported: None,
         }
+    }
+
+    /// Ask for compressed responses (default true). `false` sends `Accept-Encoding: identity`
+    /// on every request that sets no `Accept-Encoding` of its own, so an SSE or provider stream
+    /// is not buffered or re-encoded by an intermediary. Kept on the client, not on
+    /// [`ClientConfig`], so existing `ClientConfig` struct literals keep compiling.
+    pub fn compression(mut self, on: bool) -> Self {
+        self.compression = on;
+        self
     }
 
     /// Which certificate verifier this client was built with: `"platform"` (the OS verifier)
@@ -1415,6 +1540,7 @@ impl Client {
                 headers: raw.headers,
                 body: Vec::new(),
                 attempts: raw.attempts,
+                final_url: raw.final_url,
                 redact: values,
             });
         }
@@ -1432,6 +1558,7 @@ impl Client {
             headers: raw.headers,
             body,
             attempts: raw.attempts,
+            final_url: raw.final_url,
             redact: values,
         })
     }
@@ -1673,6 +1800,13 @@ impl Client {
         let mut method = req.method;
         let mut url = req.url.clone();
         let mut headers = req.headers.clone();
+        if !self.compression
+            && !headers
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("accept-encoding"))
+        {
+            headers.push(("Accept-Encoding".to_string(), "identity".to_string()));
+        }
         let mut body = req.body.clone();
         let mut hops = 0u32;
         loop {
@@ -2865,5 +2999,28 @@ mod tests {
             https_seen,
             vec!["CONNECT app.example.com:443 HTTP/1.1".to_string()]
         );
+    }
+
+    #[test]
+    fn component_encoding_and_repeated_headers() {
+        assert_eq!(percent_encode_component("a b/c+~"), "a%20b%2Fc%2B~");
+        assert_eq!(percent_decode_component("a%20b%2Fc+d%zz"), "a b/c+d%zz");
+        let r = Response {
+            status: 200,
+            headers: vec![
+                ("set-cookie".into(), "a=1".into()),
+                ("set-cookie".into(), "b=2".into()),
+            ],
+            body: Vec::new(),
+            attempts: 1,
+            final_url: "https://x.test/".into(),
+            redact: Vec::new(),
+        };
+        assert_eq!(
+            r.header_all("Set-Cookie").collect::<Vec<_>>(),
+            vec!["a=1", "b=2"]
+        );
+        assert_eq!(r.header("set-cookie"), Some("a=1"));
+        assert_eq!(r.final_url(), "https://x.test/");
     }
 }

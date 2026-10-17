@@ -55,6 +55,7 @@ mod gate;
 mod lease;
 mod lifecycle;
 mod refresh;
+mod revocation;
 #[cfg(feature = "subject-entitlement")]
 mod subject;
 
@@ -70,6 +71,10 @@ pub use subject::{
     SubjectDecision, SubjectEntitlement, SubjectEntitlementConfig, SubjectEntitlementError,
     SubjectEntitlementSource, SubjectSource, TokenError, SUBJECT_OFFLINE_GRACE_SECS,
     SUBJECT_RECHECK_SECS,
+};
+
+pub use revocation::{
+    peek_unverified_claims, verify_token_not_revoked, RevocationError, RevokedIds, UnverifiedClaims,
 };
 
 pub use clock::reconcile_clock;
@@ -405,6 +410,20 @@ pub fn authenticate_token(
     expected_app: &str,
     device_id: &str,
 ) -> Result<Entitlement, VerifyError> {
+    authenticate_token_any_device(token, pubkey, expected_app, &[device_id])
+}
+
+/// [`authenticate_token`] against several acceptable device ids (for example the raw id and
+/// a derived hash of it). The signature, parse and app checks run once; the token's
+/// `device_id` must equal one of `device_ids` exactly. An empty list is
+/// [`VerifyError::DeviceMismatch`]. Like [`authenticate_token`] it performs no time check and
+/// never grants access by itself.
+pub fn authenticate_token_any_device(
+    token: &str,
+    pubkey: &[u8; 32],
+    expected_app: &str,
+    device_ids: &[&str],
+) -> Result<Entitlement, VerifyError> {
     let dot = token.find('.').ok_or(VerifyError::Malformed)?;
     let payload_b64 = &token[..dot];
     let sig_b64 = &token[dot + 1..];
@@ -434,7 +453,7 @@ pub fn authenticate_token(
             got: ent.app.clone(),
         });
     }
-    if ent.device_id != device_id {
+    if !device_ids.iter().any(|d| *d == ent.device_id) {
         return Err(VerifyError::DeviceMismatch);
     }
     Ok(ent)
@@ -457,7 +476,34 @@ pub fn verify_token(
     device_id: &str,
     now_unix: i64,
 ) -> Result<Entitlement, VerifyError> {
-    let ent = authenticate_token(token, pubkey, expected_app, device_id)?;
+    verify_token_any_device(token, pubkey, expected_app, &[device_id], now_unix)
+}
+
+/// [`verify_token`] against several acceptable device ids (raw and hashed, for example, when
+/// typed-key activation binds the raw id and lease or link tokens bind its hash).
+///
+/// The signature is verified once; the token's `device_id` must equal one of `device_ids`
+/// exactly, then the same `iat`, expiry and lifecycle checks as [`verify_token`] apply. An
+/// empty list is [`VerifyError::DeviceMismatch`], so a caller whose device source produced
+/// nothing never verifies. Every failure other than a device mismatch is independent of the
+/// device id, so a token that matches no id reports [`VerifyError::DeviceMismatch`] and a
+/// token that matches reports its own expiry or lifecycle error, never a mismatch left over
+/// from another candidate.
+pub fn verify_token_any_device(
+    token: &str,
+    pubkey: &[u8; 32],
+    expected_app: &str,
+    device_ids: &[&str],
+    now_unix: i64,
+) -> Result<Entitlement, VerifyError> {
+    let ent = authenticate_token_any_device(token, pubkey, expected_app, device_ids)?;
+    check_time_and_lifecycle(ent, now_unix)
+}
+
+pub(crate) fn check_time_and_lifecycle(
+    ent: Entitlement,
+    now_unix: i64,
+) -> Result<Entitlement, VerifyError> {
     // Tolerate ordinary clock drift but reject a token whose signed issue time is
     // far in the future. This blocks the simplest pre-issuance clock rollback.
     if now_unix.saturating_add(300) < ent.iat {
@@ -625,5 +671,46 @@ mod tests {
                 now: 1_000
             })
         );
+    }
+
+    #[test]
+    fn any_device_accepts_second_candidate_and_checks_time() {
+        let ids = ["nope", "dev-1"];
+        let e = verify_token_any_device(TOKEN, &PUBKEY, "heardright", &ids, 2_000)
+            .expect("second candidate matches");
+        assert_eq!(e.device_id, "dev-1");
+        assert!(matches!(
+            verify_token_any_device(TOKEN, &PUBKEY, "heardright", &ids, 10_000_000_000),
+            Err(VerifyError::Expired { .. })
+        ));
+    }
+
+    #[test]
+    fn any_device_rejects_empty_and_non_matching_lists() {
+        assert_eq!(
+            verify_token_any_device(TOKEN, &PUBKEY, "heardright", &[], 2_000),
+            Err(VerifyError::DeviceMismatch)
+        );
+        assert_eq!(
+            verify_token_any_device(TOKEN, &PUBKEY, "heardright", &["a", "b", ""], 2_000),
+            Err(VerifyError::DeviceMismatch)
+        );
+        // Matching is exact: no prefix, case folding or trimming.
+        let near = ["DEV-1", "dev-1 ", "dev"];
+        assert_eq!(
+            verify_token_any_device(TOKEN, &PUBKEY, "heardright", &near, 2_000),
+            Err(VerifyError::DeviceMismatch)
+        );
+    }
+
+    #[test]
+    fn any_device_still_fails_closed_on_signature_and_app() {
+        let mut k = PUBKEY;
+        k[0] ^= 1;
+        assert!(verify_token_any_device(TOKEN, &k, "heardright", &["dev-1"], 2_000).is_err());
+        assert!(matches!(
+            verify_token_any_device(TOKEN, &PUBKEY, "coderight", &["dev-1"], 2_000),
+            Err(VerifyError::AppMismatch { .. })
+        ));
     }
 }

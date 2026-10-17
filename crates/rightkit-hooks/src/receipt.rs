@@ -27,6 +27,8 @@ pub const SCAN_TAIL_BYTES: u64 = 4 * 1024 * 1024;
 /// Wall budget of one scan (Membrane's `CONFIRM_BUDGET`).
 pub const SCAN_BUDGET: Duration = Duration::from_secs(2);
 const RECEIPTS_DIR: &str = "receipts";
+/// Marker prefix of the store Membrane reads and writes (`[membrane:<id>]`).
+pub const MEMBRANE_MARKER_PREFIX: &str = "membrane";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,6 +49,78 @@ pub struct Receipt {
     /// Bytes of context emitted, marker included.
     pub chars: usize,
     pub ts: u64,
+}
+
+/// The on-disk form of a [`Receipt`], shared with Membrane's `ContextReceipt`.
+///
+/// Membrane names the fields `harness` and `state` (`emitted` or `delivered`); this crate names
+/// them `wire` and `level` (`emitted` or `observed`) and keeps `chars`. Writes carry both
+/// spellings, so Membrane reads every file this crate writes and this crate reads Membrane's.
+/// Reads accept either spelling; a file with only `state` gets its `level` from `state`.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskReceipt {
+    id: String,
+    session: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    wire: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    harness: Option<String>,
+    event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state: Option<String>,
+    #[serde(default)]
+    chars: usize,
+    ts: u64,
+}
+
+impl DiskReceipt {
+    fn from_receipt(receipt: &Receipt) -> Self {
+        let (level, state) = match receipt.level {
+            DeliveryLevel::Emitted => ("emitted", "emitted"),
+            DeliveryLevel::Observed => ("observed", "delivered"),
+        };
+        Self {
+            id: receipt.id.clone(),
+            session: receipt.session.clone(),
+            wire: Some(receipt.wire.clone()),
+            harness: Some(receipt.wire.clone()),
+            event: receipt.event.clone(),
+            level: Some(level.to_owned()),
+            state: Some(state.to_owned()),
+            chars: receipt.chars,
+            ts: receipt.ts,
+        }
+    }
+
+    fn into_receipt(self) -> Option<Receipt> {
+        let wire = self.wire.or(self.harness)?;
+        // Membrane's confirm flips only `state`, so a read record whose `level` still says
+        // `emitted` is observed when `state` says `delivered`: any observed spelling wins.
+        let spellings = [self.level.as_deref(), self.state.as_deref()];
+        let level = if spellings
+            .iter()
+            .flatten()
+            .any(|s| matches!(*s, "observed" | "delivered"))
+        {
+            DeliveryLevel::Observed
+        } else if spellings.iter().flatten().any(|s| *s == "emitted") {
+            DeliveryLevel::Emitted
+        } else {
+            return None;
+        };
+        Some(Receipt {
+            id: self.id,
+            session: self.session,
+            wire,
+            event: self.event,
+            level,
+            chars: self.chars,
+            ts: self.ts,
+        })
+    }
 }
 
 fn unix_seconds() -> u64 {
@@ -150,6 +224,12 @@ impl ReceiptStore {
         }
     }
 
+    /// The store Membrane reads and writes: marker prefix `membrane`, the same
+    /// `receipts/<session>/<id>.json` layout and the shared field spellings of [`DiskReceipt`].
+    pub fn membrane(root: impl Into<PathBuf>) -> Self {
+        Self::new(root, MEMBRANE_MARKER_PREFIX)
+    }
+
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
@@ -177,10 +257,9 @@ impl ReceiptStore {
             .ok_or_else(|| std::io::Error::other("no parent"))?;
         std::fs::create_dir_all(parent)?;
         let tmp = parent.join(format!(".{}.tmp", receipt.id));
-        std::fs::write(
-            &tmp,
-            serde_json::to_vec(receipt).map_err(std::io::Error::other)?,
-        )?;
+        let bytes = serde_json::to_vec(&DiskReceipt::from_receipt(receipt))
+            .map_err(std::io::Error::other)?;
+        std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, &path)
     }
 
@@ -232,7 +311,8 @@ impl ReceiptStore {
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
             .filter_map(|e| std::fs::read(e.path()).ok())
-            .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
+            .filter_map(|bytes| serde_json::from_slice::<DiskReceipt>(&bytes).ok())
+            .filter_map(DiskReceipt::into_receipt)
             .collect();
         receipts.sort_by(|a: &Receipt, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)));
         receipts

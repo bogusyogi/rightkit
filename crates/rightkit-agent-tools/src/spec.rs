@@ -146,6 +146,37 @@ pub trait Tool: Send + Sync {
     fn call(&self, ctx: &CallCtx, args: Value) -> Result<Value, ToolError>;
 }
 
+/// Strict schema check: everything [`validate_args`] checks, plus unknown-field rejection.
+///
+/// An argument is unknown when the schema does not list it under `properties`. The check is
+/// skipped only when the schema explicitly sets `additionalProperties` to `true` or to a schema
+/// object. A missing `additionalProperties` is treated as `false` (strict), so a typo such as
+/// `{"nmae": ..}` fails closed instead of being silently ignored.
+pub fn validate_args_strict(schema: &Value, args: &Value) -> Result<(), String> {
+    validate_args(schema, args)?;
+    let open = match &schema["additionalProperties"] {
+        Value::Bool(b) => *b,
+        Value::Object(_) => true,
+        _ => false,
+    };
+    if open {
+        return Ok(());
+    }
+    if let Value::Object(obj) = args {
+        let props = schema["properties"].as_object();
+        let mut unknown: Vec<&str> = obj
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !props.is_some_and(|p| p.contains_key(*k)))
+            .collect();
+        unknown.sort_unstable();
+        if let Some(first) = unknown.first() {
+            return Err(format!("unknown argument `{first}`"));
+        }
+    }
+    Ok(())
+}
+
 /// Minimal schema check: `required` present, declared primitive types and enums match.
 pub fn validate_args(schema: &Value, args: &Value) -> Result<(), String> {
     let obj = match args {
@@ -185,4 +216,45 @@ pub fn validate_args(schema: &Value, args: &Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod strict_tests {
+    use super::*;
+
+    fn schema() -> Value {
+        json!({"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}})
+    }
+
+    #[test]
+    fn strict_rejects_unknown_field() {
+        assert!(validate_args_strict(&schema(), &json!({"a": "x"})).is_ok());
+        let err = validate_args_strict(&schema(), &json!({"a": "x", "b": 1})).unwrap_err();
+        assert!(err.contains("`b`"));
+        // The lenient check still accepts it.
+        assert!(validate_args(&schema(), &json!({"a": "x", "b": 1})).is_ok());
+    }
+
+    #[test]
+    fn strict_still_enforces_base_rules() {
+        assert!(validate_args_strict(&schema(), &json!({})).is_err());
+        assert!(validate_args_strict(&schema(), &json!({"a": 1})).is_err());
+        assert!(validate_args_strict(&schema(), &json!("x")).is_err());
+    }
+
+    #[test]
+    fn strict_honors_explicit_additional_properties() {
+        let mut open = schema();
+        open["additionalProperties"] = json!(true);
+        assert!(validate_args_strict(&open, &json!({"a": "x", "b": 1})).is_ok());
+        let mut closed = schema();
+        closed["additionalProperties"] = json!(false);
+        assert!(validate_args_strict(&closed, &json!({"a": "x", "b": 1})).is_err());
+    }
+
+    #[test]
+    fn strict_with_no_properties_rejects_any_field() {
+        assert!(validate_args_strict(&json!({"type": "object"}), &json!({"z": 1})).is_err());
+        assert!(validate_args_strict(&json!({"type": "object"}), &Value::Null).is_ok());
+    }
 }

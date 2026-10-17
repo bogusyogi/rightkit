@@ -96,11 +96,13 @@ export function presetTokens(preset: TokenPreset, accentId?: string | null): Rec
 
 /**
  * Font token hook: maps app font stacks onto the suite's font variables. `mono` -> `--rk-font-mono`
- * (the suite's monospace stack, also aliased as `--font-mono`) and `wordmark` -> `--rk-wordmark-font`.
+ * (the suite's monospace stack, also aliased as `--font-mono`), `body` -> `--rk-font-body` and
+ * `wordmark` -> `--rk-wordmark-font`.
  */
-export function fontTokens(fonts: { mono?: string; wordmark?: string }): Record<string, string> {
+export function fontTokens(fonts: { mono?: string; body?: string; wordmark?: string }): Record<string, string> {
   const out: Record<string, string> = {};
   if (fonts.mono) out["--rk-font-mono"] = fonts.mono;
+  if (fonts.body) out["--rk-font-body"] = fonts.body;
   if (fonts.wordmark) out["--rk-wordmark-font"] = fonts.wordmark;
   return out;
 }

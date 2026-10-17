@@ -20,6 +20,29 @@ pub fn install_tar_gz(
     dest_root: &Path,
     installed_name: &str,
 ) -> Result<(), String> {
+    install_inner(archive, dest_root, None, installed_name)
+}
+
+/// Like [`install_tar_gz`], but the archive's single top-level directory must be named
+/// exactly `expected_wrapper`. A different top-level name, or a second top-level entry, is
+/// refused before anything is installed: the previous install (if any) is untouched and
+/// nothing is left behind. `expected_wrapper` must be one plain path component.
+pub fn install_tar_gz_expecting(
+    archive: &Path,
+    dest_root: &Path,
+    expected_wrapper: &str,
+    installed_name: &str,
+) -> Result<(), String> {
+    validate_dir_name(expected_wrapper)?;
+    install_inner(archive, dest_root, Some(expected_wrapper), installed_name)
+}
+
+fn install_inner(
+    archive: &Path,
+    dest_root: &Path,
+    expected_wrapper: Option<&str>,
+    installed_name: &str,
+) -> Result<(), String> {
     validate_dir_name(installed_name)?;
     fs::create_dir_all(dest_root)
         .map_err(|err| format!("create {}: {err}", dest_root.display()))?;
@@ -36,35 +59,36 @@ pub fn install_tar_gz(
     fs::create_dir_all(&staging).map_err(|err| format!("create {}: {err}", staging.display()))?;
 
     let result =
-        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging, None).and_then(|()| {
-            let dest = dest_root.join(installed_name);
-            // Never delete `dest` before the replacement is in place: a crash or a
-            // failed rename between the two would leave no model at all. Move the
-            // existing install aside, commit the new one, and only then drop the
-            // aside copy; restore it if the commit fails.
-            let aside = dest
-                .exists()
-                .then(|| previous_aside_path(dest_root, installed_name));
-            if let Some(aside) = aside.as_ref() {
-                let _ = fs::remove_dir_all(aside);
-                fs::rename(&dest, aside)
-                    .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
-            }
-            match fs::rename(&staging, &dest) {
-                Ok(()) => {
-                    if let Some(aside) = aside.as_ref() {
-                        let _ = fs::remove_dir_all(aside);
-                    }
-                    Ok(())
+        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging, expected_wrapper)
+            .and_then(|()| {
+                let dest = dest_root.join(installed_name);
+                // Never delete `dest` before the replacement is in place: a crash or a
+                // failed rename between the two would leave no model at all. Move the
+                // existing install aside, commit the new one, and only then drop the
+                // aside copy; restore it if the commit fails.
+                let aside = dest
+                    .exists()
+                    .then(|| previous_aside_path(dest_root, installed_name));
+                if let Some(aside) = aside.as_ref() {
+                    let _ = fs::remove_dir_all(aside);
+                    fs::rename(&dest, aside)
+                        .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
                 }
-                Err(err) => {
-                    if let Some(aside) = aside.as_ref() {
-                        let _ = fs::rename(aside, &dest);
+                match fs::rename(&staging, &dest) {
+                    Ok(()) => {
+                        if let Some(aside) = aside.as_ref() {
+                            let _ = fs::remove_dir_all(aside);
+                        }
+                        Ok(())
                     }
-                    Err(format!("install {}: {err}", dest.display()))
+                    Err(err) => {
+                        if let Some(aside) = aside.as_ref() {
+                            let _ = fs::rename(aside, &dest);
+                        }
+                        Err(format!("install {}: {err}", dest.display()))
+                    }
                 }
-            }
-        });
+            });
 
     if result.is_err() {
         let _ = fs::remove_dir_all(&staging);

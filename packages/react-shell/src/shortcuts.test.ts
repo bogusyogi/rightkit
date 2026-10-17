@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { canonicalChord, createShortcutRegistry, type ShortcutDef } from "./shortcuts.js";
+import { canonicalChord, chordFromEvent, createShortcutRegistry, type ShortcutDef } from "./shortcuts.js";
 
 interface KeyInit {
   key: string;
@@ -133,5 +133,60 @@ describe("shortcut registry: ignoreExtraModifiers", () => {
     const { registry, run } = fixture("windows", [{ id: "k", chord: "mod+k", label: "K" }]);
     expect(registry.handle(keyEvent({ key: "k", ctrl: true, shift: true }))).toBe(false);
     expect(run("k")).not.toHaveBeenCalled();
+  });
+});
+
+describe("shortcut registry: 0.6.9 additions", () => {
+  it("matches the digit pseudo-key with the held modifier and hands the event to run", () => {
+    const { registry, run } = fixture("windows", [{ id: "tab", chord: "mod+digit", label: "Switch tab" }]);
+    expect(registry.handle(keyEvent({ key: "3", ctrl: true }))).toBe(true);
+    expect(run("tab")).toHaveBeenCalledOnce();
+    expect(registry.handle(keyEvent({ key: "a", ctrl: true }))).toBe(false);
+    expect(registry.handle(keyEvent({ key: "3" }))).toBe(false);
+  });
+
+  it("reports a one-press chord that starts a sequence as a prefix conflict", () => {
+    const { registry } = fixture("windows", [
+      { id: "a", chord: "g", label: "A" },
+      { id: "b", chord: "g i", label: "B" },
+    ]);
+    expect(registry.conflicts()).toEqual([{ chord: "g", ids: ["a", "b"], kind: "prefix" }]);
+  });
+
+  it("classifies two ids on one chord as an exact conflict", () => {
+    const { registry } = fixture("windows", [
+      { id: "a", chord: "mod+k", label: "A" },
+      { id: "b", chord: "mod+k", label: "B" },
+    ]);
+    expect(registry.conflicts()).toEqual([{ chord: canonicalChord("mod+k"), ids: ["a", "b"], kind: "exact" }]);
+  });
+
+  it("reports an explicitly unbound shortcut as unassigned, and not after the override is removed", () => {
+    const { registry } = fixture("windows", [{ id: "save", chord: "mod+s", label: "Save" }]);
+    registry.setOverrides({ save: null });
+    expect(registry.list()[0]).toMatchObject({ unassigned: true, chords: [], overridden: true });
+    registry.setOverrides({});
+    expect(registry.list()[0]).toMatchObject({ unassigned: false, chords: ["mod+s"] });
+  });
+
+  it("dispatches nothing while suspended and again after resume", () => {
+    const { registry, run } = fixture("windows", [{ id: "save", chord: "mod+s", label: "Save" }]);
+    registry.suspend();
+    expect(registry.isSuspended()).toBe(true);
+    expect(registry.handle(keyEvent({ key: "s", ctrl: true }))).toBe(false);
+    registry.resume();
+    expect(registry.handle(keyEvent({ key: "s", ctrl: true }))).toBe(true);
+    expect(run("save")).toHaveBeenCalledOnce();
+  });
+
+  it("builds a chord from a keydown in the registry vocabulary", () => {
+    expect(chordFromEvent({ key: "P", code: "KeyP", ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }, "windows")).toBe("mod+shift+p");
+    expect(chordFromEvent({ key: "s", code: "KeyS", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "macos")).toBe("mod+s");
+    expect(chordFromEvent({ key: "Shift", code: "ShiftLeft", ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }, "macos")).toBeNull();
+    expect(chordFromEvent({ key: "?", code: "Slash", ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }, "windows")).toBe("?");
+  });
+
+  it("uses the physical key for an Option-composed character", () => {
+    expect(chordFromEvent({ key: "Ω", code: "KeyZ", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false }, "macos")).toBe("alt+z");
   });
 });

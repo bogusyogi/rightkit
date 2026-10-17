@@ -103,6 +103,10 @@ impl ToolProvider for Worker {
             .pointer("/params/arguments/mode")
             .and_then(Value::as_str)
             .unwrap_or("finish");
+        if mode == "whole" {
+            call.notify_progress_number(1u64.into(), Some(3u64.into()), Some("whole"));
+            return Some(Ok(ToolResult::text("done").to_value()));
+        }
         call.notify_progress(1.0, Some(3.0), Some("started"));
         if mode == "wait" {
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -195,6 +199,20 @@ fn progress_notification_carries_the_request_token() {
 }
 
 #[test]
+fn whole_number_progress_is_written_as_an_integer() {
+    let s = Session::start(|h| h);
+    s.send(call(1, Some(json!("t")), "whole"));
+    s.send(call(2, None, "whole"));
+    let (frames, _) = s.finish();
+    let progress: Vec<&Value> = frames.iter().filter(|f| is_progress(f)).collect();
+    assert_eq!(progress.len(), 1, "no token, no notification: {frames:?}");
+    let params = &progress[0]["params"];
+    assert_eq!(params["progress"].as_u64(), Some(1), "integer, not 1.0");
+    assert_eq!(params["total"].as_u64(), Some(3));
+    assert_eq!(params["message"], "whole");
+}
+
+#[test]
 fn numeric_token_is_echoed_and_no_token_means_no_notification() {
     let s = Session::start(|h| h);
     s.send(call(1, Some(json!(42)), "finish"));
@@ -270,6 +288,7 @@ fn handle_is_inert_outside_concurrent_serving() {
     assert_eq!(reply["result"]["content"][0]["text"], "done");
     let handle = CallHandle::default();
     assert!(!handle.notify_progress(1.0, None, None));
+    assert!(!handle.notify_progress_number(1u64.into(), None, None));
     assert!(!handle.is_cancelled());
     assert!(handle.progress_token().is_none());
 }

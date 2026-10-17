@@ -113,6 +113,31 @@ export interface PersistedOnboardingState {
   /** Legacy mirror of `legalAcceptance.eligibilityBasis`. */
   eligibilityBasis?: EligibilityBasis;
   legalAcceptance?: LegalAcceptanceRecord;
+  /** Step ids the user skipped with the per-step Skip button (not marked complete). */
+  skippedSteps?: string[];
+}
+
+/** What `onComplete` receives. `steps` holds values passed to `ctx.setResult` during this mount. */
+export interface OnboardingResult {
+  completed: string[];
+  skipped: string[];
+  steps: Record<string, unknown>;
+}
+
+/** Button and status copy. Each key defaults to the English text shown in the table. */
+export interface OnboardingLabels {
+  /** "Set up later". */
+  skip: string;
+  /** Per-step Skip button. */
+  skipStep: string;
+  /** "Back". */
+  back: string;
+  /** "Continue". */
+  continue: string;
+  /** "Finish setup" on the last step. */
+  finish: string;
+  /** "Loading setup…". */
+  loading: string;
 }
 
 export interface OnboardingStepContext {
@@ -127,6 +152,8 @@ export interface OnboardingStepContext {
   ready: Readonly<Record<string, boolean>>;
   /** Reports whether the active step is ready (used by `canContinue`). Stable per step. */
   setReady: (ready: boolean) => void;
+  /** Stores a value for this step; it is passed to `onComplete` as `result.steps[step.id]`. */
+  setResult: (value: unknown) => void;
 }
 
 export interface OnboardingStep {
@@ -139,6 +166,14 @@ export interface OnboardingStep {
   canContinue?: (context: OnboardingStepContext) => boolean;
   /** Shown beside the disabled Continue/Finish button. */
   blockedHint?: string;
+  /** Primary button text for this step (e.g. "Open CodeRight"). Overrides Continue and Finish setup. */
+  continueLabel?: string;
+  /**
+   * Runs before Continue/Finish advances. Return `false` (or throw) to keep the step; a throw shows its message.
+   * `void` or `true` advances. Not run for Back, the rail, or Skip.
+   */
+  onContinue?: (context: OnboardingStepContext) => void | boolean | Promise<void | boolean>;
+  /** Empty title hides the heading (e.g. a Welcome step). */
   render: (context: OnboardingStepContext) => ReactNode;
 }
 
@@ -167,8 +202,11 @@ export interface OnboardingProps {
   permissions?: PermissionsBackend;
   models?: ModelsBackend;
   license?: LicenseBackend;
-  onComplete: () => void | Promise<void>;
+  /** Called once when setup finishes, with the completed and skipped step ids and the step results. */
+  onComplete: (result: OnboardingResult) => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
+  /** Override any button or status text. Keys not given keep the English defaults. */
+  labels?: Partial<OnboardingLabels>;
   className?: string;
   /** Version the user must have accepted. A different (or missing) stored version re-prompts with `variant: "re-acceptance"`. */
   requiredVersion?: string;

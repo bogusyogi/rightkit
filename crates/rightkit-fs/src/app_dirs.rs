@@ -282,6 +282,17 @@ impl AppDirs {
         AppDirs::resolve_with_legacy(&app, &Options::current(), &process_env, &|p| p.is_dir())
     }
 
+    /// [`AppDirs::resolve`] with explicit [`Options`] instead of [`Options::current`]: `dev(false)`
+    /// gives the release namespace from a dev build, and the namespace follows `opts.dev` alone.
+    /// The base folders are read as in [`AppDirs::resolve`] (on Windows the known-folder API first,
+    /// then the environment variable), and legacy names apply when their folder already exists.
+    /// On Windows the known-folder lookup is the build's own, so `opts.os` should name the build's
+    /// OS for the real per-user folders; `opts.test_root` and the QA overrides behave as documented
+    /// on [`Options`].
+    pub fn resolve_with_options(app: AppId, opts: &Options) -> Result<AppDirs> {
+        AppDirs::resolve_with_legacy(&app, opts, &process_env, &|p| p.is_dir())
+    }
+
     /// Per-process temp folders in any build (consumer tests): never asks the OS.
     pub fn for_test(app: AppId) -> Result<AppDirs> {
         let opts = Options::current().test_root(Some(process_test_root()));
@@ -1031,6 +1042,20 @@ mod tests {
         // A relative test root is refused.
         let bad = Options::new(Os::Linux).test_root(Some(p("rel")));
         assert!(AppDirs::resolve_with(&AppId::new("A"), &bad, &env_of(&[])).is_err());
+    }
+
+    #[test]
+    fn resolve_with_options_takes_the_namespace_from_the_options_not_the_build() {
+        let root = process_test_root();
+        // A dev build asking for the release shape gets the release namespace.
+        let release = Options::new(Os::current())
+            .dev(false)
+            .test_root(Some(root.clone()));
+        let d = AppDirs::resolve_with_options(AppId::new("ViewRight"), &release).unwrap();
+        assert_eq!(d.data, root.join("ViewRight").join("data"));
+        let dev = release.clone().dev(true);
+        let d = AppDirs::resolve_with_options(AppId::new("ViewRight"), &dev).unwrap();
+        assert_eq!(d.data, root.join("ViewRightDev").join("data"));
     }
 
     #[test]

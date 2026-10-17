@@ -49,7 +49,18 @@ export interface FocusTrapOptions {
   emptyList?: "prevent" | "pass";
   /** With no focusable control on open: `"container"` (default) focuses the container, `"none"` does nothing. */
   focusFallback?: "container" | "none";
+  /**
+   * Where the Tab keydown is read. `"element"` (default): on the container. `"document"`: capture phase on the
+   * document, so the trap still holds while focus is on a backdrop or outside the container (e.g. a fixed-position
+   * dialog whose overlay takes focus).
+   */
+  scope?: "element" | "document";
+  /** Skip controls with no layout box (`getClientRects()` empty) when finding the first and last. Default false. */
+  skipUnrendered?: boolean;
 }
+
+/** Active document-scoped traps, oldest first. Only the last one per document handles Tab. */
+const documentTraps: Array<{ el: HTMLElement; doc: Document }> = [];
 
 /**
  * Framework-free core of {@link useFocusTrap}: attach to `el`, return the detach (and restore) function.
@@ -59,9 +70,12 @@ export interface FocusTrapOptions {
  */
 export function attachFocusTrap(
   el: HTMLElement,
-  config: Required<FocusTrapOptions> & { opener: { current: HTMLElement | null }; isActive: () => boolean },
+  config: Required<Omit<FocusTrapOptions, "scope" | "skipUnrendered">> &
+    Pick<FocusTrapOptions, "scope" | "skipUnrendered"> & { opener: { current: HTMLElement | null }; isActive: () => boolean },
 ): () => void {
   const { autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, opener, isActive } = config;
+  const scope = config.scope ?? "element";
+  const skipUnrendered = config.skipUnrendered ?? false;
   if (captureOpener === "effect" && !opener.current) {
     const candidate = el.ownerDocument.activeElement as HTMLElement | null;
     if (candidate && candidate !== el && !el.contains(candidate)) opener.current = candidate;
@@ -69,11 +83,20 @@ export function attachFocusTrap(
   const target = opener.current;
   const items = () => {
     const all = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE));
-    return skipHidden ? all.filter((n) => !n.hasAttribute("hidden")) : all;
+    return all.filter((n) => (!skipHidden || !n.hasAttribute("hidden")) && (!skipUnrendered || n.getClientRects().length > 0));
   };
   if (autoFocus) (items()[0] ?? (focusFallback === "container" ? el : undefined))?.focus();
+  const entry = { el, doc: el.ownerDocument };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Tab") return;
+    if (scope === "document") {
+      for (let i = documentTraps.length - 1; i >= 0; i--) {
+        if (documentTraps[i].doc === entry.doc) {
+          if (documentTraps[i] !== entry) return;
+          break;
+        }
+      }
+    }
     const focusable = items();
     if (!focusable.length) {
       if (emptyList === "prevent") event.preventDefault();
@@ -91,9 +114,14 @@ export function attachFocusTrap(
       first.focus();
     }
   };
-  if (trap) el.addEventListener("keydown", onKeyDown);
+  const listenOn: EventTarget = scope === "document" ? el.ownerDocument : el;
+  const capture = scope === "document";
+  if (trap) listenOn.addEventListener("keydown", onKeyDown as EventListener, capture);
+  if (trap && scope === "document") documentTraps.push(entry);
   return () => {
-    if (trap) el.removeEventListener("keydown", onKeyDown);
+    const at = documentTraps.indexOf(entry);
+    if (at >= 0) documentTraps.splice(at, 1);
+    if (trap) listenOn.removeEventListener("keydown", onKeyDown as EventListener, capture);
     // By default restore only on a real close. React StrictMode runs this cleanup against a still-mounted
     // dialog and would otherwise yank focus back to the opener.
     const settle = () => {
@@ -124,6 +152,8 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
     skipHidden = true,
     emptyList = "prevent",
     focusFallback = "container",
+    scope = "element",
+    skipUnrendered = false,
   } = opts;
   // "render": captured during the first render, since React's `autoFocus` attribute moves focus at commit, before
   // any effect runs. "effect": filled by the core on the first effect run of an open (see attachFocusTrap).
@@ -143,10 +173,12 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
       skipHidden,
       emptyList,
       focusFallback,
+      scope,
+      skipUnrendered,
       opener,
       isActive: () => activeRef.current,
     });
-  }, [ref, active, autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, activeRef]);
+  }, [ref, active, autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, scope, skipUnrendered, activeRef]);
 }
 
 /**

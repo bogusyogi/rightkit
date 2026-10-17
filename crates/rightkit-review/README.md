@@ -111,4 +111,69 @@ assert_eq!(outcome.record.attempts[1].disposition, Disposition::Pass);
 
 ## Version
 
-Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. 0.1.0 is staged, not published, in the registry record (`../../packages/release/rightkit-versions.json`). Current source: 0.3.0 (adds the autonomy ladder; 0.2.0 added text rules and open rule kinds).
+Current source: unreleased (crate version stays 0.4.0 until the release owner bumps it). See `CHANGELOG.md`; registry staging & publication belong to release owner.
+
+## Product QA & delivery (unreleased)
+
+`qa` provides `CheckStatus::{Pass, Fail, NotApplicable}`, `Severity::{Error,
+Warning}`, `Check` & `overall_status`. Only `Error` + `Fail` blocks; a failed
+warning remains visible. These APIs leave existing `Verdict`, `Finding`,
+`disposition`, `Subject` & repair records unchanged.
+
+`qa::policy_hash(&spec)` gives the SHA-256 of a consumer policy; store it with `check_version`.
+`qa::VerdictRecord<Spec, Render, Media>` stores product reports with snake_case
+fields: `schema_version`, `preset`, `status`, `render`, `media`,
+`captions_blake3`, `spec`, `check_version`, `checks`, `ffmpeg_identity` &
+`generated_at`. Generic payloads keep consumer policy & identity formats intact.
+`from_json`/`to_json` validate schema version 1, unique check ids, nonzero check
+version & aggregate status. Missing legacy `check_version` reads as 1.
+`with_check` replaces by id & recomputes status. Receipt verification still
+binds render bytes, captions & full policy; parsing alone does not prove freshness.
+This envelope is separate from root `VerdictRecord` (content pipeline schema 1.1.0).
+
+`qa::unexpected_intervals` takes measured `Interval`s & `AllowedWindow`s.
+Each declaration names exactly one check, carries a reason & sets its own
+`slack_ms`. Only whole-span containment inside one matching window exempts a
+measurement; boundary equality passes, adjacent windows never merge. Signed
+millisecond times & widened arithmetic handle negative probe offsets safely.
+Existing `DeclaredWindow` semantics remain unchanged.
+
+`delivery` owns pure checks over supplied measurements:
+
+| API | Rule |
+|---|---|
+| `decode_integrity` | Full decode must complete, exit successfully & report no error-level diagnostics. Missing input fails. |
+| `required_streams` | Video must exist; audio must exist when required. |
+| `DurationRule::check` | Positive duration within inclusive two-sided tolerance; no target still requires positive duration. |
+| `FrameRateRule::check` | Finite positive rate within max(absolute tolerance, expected × relative tolerance). |
+| `FormatRule::check` | Exact allowlist for codecs or pixel format, with caller-selected severity. |
+| `StreamSyncRule::check` | Absolute start offset & duration drift within independent inclusive limits; compare readable pairs. |
+| `CaptionRule::check` | Cue timing/order/overlap, render end & text safe zone block; reading speed & tail coverage warn. |
+
+Policies & measurements implement serde. Invalid policy returns `ReviewError`;
+missing required measurements produce failed checks. Optional absent streams
+should use `Check::not_applicable`. Sync is not applicable without both streams
+or any comparable pair; malformed present timestamps fail. Caption absence is
+not applicable only when optional; supplied empty cues fail. Unknown render
+duration skips caption end-bound & tail checks; check duration independently.
+Safe zone uses nonempty line count & Unicode scalar values per line, matching
+CutRight's text burn-in box. Parsing & rendered pixel bounds stay with caller.
+
+`DecodeIntegrity` must describe decoding every selected stream through EOF.
+Sampling, cancellation & timeouts set `completed = false`. Keep full error-level
+diagnostics in `errors`: only display evidence truncates to eight lines. This
+crate does not launch FFmpeg or verify a caller's measurement provenance.
+`DELIVERY_CHECK_VERSION` versions these checks; include it in consumer check-code
+binding. Bump consumer check version during adoption so existing receipts expire.
+
+```rust
+use rightkit_review::{delivery::DurationRule, qa::CheckStatus};
+
+let rule = DurationRule { expected_ms: Some(10_000), tolerance_ms: 100 };
+assert_eq!(rule.check(Some(9_900)).unwrap().status, CheckStatus::Pass);
+assert!(rule.check(Some(9_899)).unwrap().blocking());
+```
+
+`tests/product_qa.rs` covers public adoption, warning persistence, old report
+wire shape & legacy review isolation. Unit tests cover rule boundaries, missing
+measurements, malformed policies, Unicode captions & timestamp overflow.

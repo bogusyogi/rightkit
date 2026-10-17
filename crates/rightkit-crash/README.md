@@ -8,7 +8,7 @@ Catalog capability: `crash-reporting`. Published to crates.io (see [INDEX.md](..
 
 - `install_panic_hook(CrashConfig)`: chains the existing panic hook and writes a redacted, bounded JSON report atomically. The hook still runs under `panic = "abort"`.
 - `record_report`: records panic, hang and sidecar crash reports, with bounded retention (`Retention`, `prune`).
-- `NativeCapture`: `Off` (default) or `Auto`. `Auto` uses macOS `sample` or the adjacent Windows dump helper (`rightkit-dump-helper` binary). Native artifacts stay local.
+- `NativeCapture`: `Off` (default) or `Auto`. `Auto` uses macOS `sample` or the adjacent Windows dump helper (`rightkit-dump-helper` binary, or an app's own binary calling `rightkit_crash::dump_helper::run`). Native artifacts stay local.
 - `enqueue_pending(crash_dir, outbox)`: waits for consent, queues each report once through `rightkit-logs`' outbox, and moves submitted reports aside. `list_pending` lists what is waiting.
 - `build_support_bundle(SupportBundleOptions)`: a redacted ZIP. Native artifacts need explicit opt-in.
 
@@ -23,6 +23,9 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 `support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
 
 ## Usage
+
+`CrashConfig::chain_default_hook(false)` makes the panic hook print one fixed line instead of the previous hook's message, so the panic payload never reaches stderr (rightkit#513).
+
 
 Taken from the setup in `tests/crash_e2e.rs`:
 

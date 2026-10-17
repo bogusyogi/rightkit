@@ -640,9 +640,71 @@ impl AppleHelper {
     }
 }
 
+/// Bundle subdirectories (under `Contents/`) searched by [`resolve_bundled`], in order.
+const BUNDLE_HELPER_DIRS: [&str; 3] = ["MacOS", "Helpers", "Library/LoginItems"];
+
+/// Resolve the helper `name` inside the running app's bundle, or `None`. `name` is a single file
+/// name (no separator, no `.`/`..`), looked up as
+/// `Contents/{MacOS,Helpers,Library/LoginItems}/<name>` of the `.app` that contains the
+/// running executable. The result is canonical, a regular file (not a symlink out of the
+/// bundle) and verified to lie under the canonical bundle root; any doubt is `None`.
+/// Pass the result to [`AppleHelper::new`]. This checks placement only; it does not check the
+/// code signature (the helper's entitlement is enforced by the OS at run time).
+pub fn resolve_bundled(name: &str) -> Option<PathBuf> {
+    resolve_in_bundle(&std::env::current_exe().ok()?, name)
+}
+
+fn resolve_in_bundle(exe: &std::path::Path, name: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let mut parts = std::path::Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(Component::Normal(n)), None) if n == std::ffi::OsStr::new(name) => {}
+        _ => return None,
+    }
+    let exe = exe.canonicalize().ok()?;
+    let bundle = exe.ancestors().find(|a| {
+        a.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")) && a.join("Contents").is_dir()
+    })?;
+    let bundle = bundle.canonicalize().ok()?;
+    BUNDLE_HELPER_DIRS.iter().find_map(|dir| {
+        let found = bundle
+            .join("Contents")
+            .join(dir)
+            .join(name)
+            .canonicalize()
+            .ok()?;
+        (found.starts_with(&bundle) && found.is_file()).then_some(found)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_in_bundle_finds_contains_and_refuses_escapes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("Demo.app").join("Contents");
+        std::fs::create_dir_all(app.join("MacOS")).unwrap();
+        std::fs::create_dir_all(app.join("Helpers")).unwrap();
+        let exe = app.join("MacOS").join("demo");
+        std::fs::write(&exe, b"x").unwrap();
+        std::fs::write(app.join("Helpers").join("helper"), b"x").unwrap();
+        let found = resolve_in_bundle(&exe, "helper").unwrap();
+        assert!(found.starts_with(tmp.path().canonicalize().unwrap().join("Demo.app")));
+        assert!(resolve_in_bundle(&exe, "missing").is_none());
+        for bad in ["", ".", "..", "../MacOS/demo", "a/b", "/etc/passwd"] {
+            assert!(resolve_in_bundle(&exe, bad).is_none(), "{bad}");
+        }
+        assert!(resolve_in_bundle(&tmp.path().join("plain"), "helper").is_none());
+        #[cfg(unix)]
+        {
+            let outside = tmp.path().join("outside");
+            std::fs::write(&outside, b"x").unwrap();
+            std::os::unix::fs::symlink(&outside, app.join("Helpers").join("escape")).unwrap();
+            assert!(resolve_in_bundle(&exe, "escape").is_none());
+        }
+    }
 
     fn value_of(line: &str) -> Option<String> {
         parse_read_reply(line)

@@ -45,6 +45,74 @@ impl NoWindow for tokio::process::Command {
     }
 }
 
+/// A `tokio::process::Command` for `program` that already has the no-window flag set on
+/// Windows, returned by value so it chains. The async counterpart of
+/// [`command_std`](crate::command_std).
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    // windowless: no_window() is applied on the next line
+    let mut command = tokio::process::Command::new(program);
+    command.no_window();
+    command
+}
+
+/// Makes the command's child lead a new session (`setsid`) on Unix, so a later
+/// [`terminate_tree`] or session sweep finds it as the session leader without a hand-written
+/// `pre_exec`. A no-op on Windows (use [`OwnedCommand`](crate::OwnedCommand) for job containment).
+/// The child runs in its own session and process group from the spawn onward.
+pub fn lead_session(command: &mut tokio::process::Command) -> &mut tokio::process::Command {
+    #[cfg(unix)]
+    {
+        // SAFETY: the closure makes one `setsid` call, which is async-signal-safe, and maps its
+        // failure to an error for the spawn.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    command
+}
+
+/// Stops every process group of session `sid` (the session id is the pid of its leader, as for
+/// a pseudo-terminal the caller created): `SIGTERM` to each group now, up to `options.grace`
+/// for them to leave, then `SIGKILL` to those still present. Returns `true` when at least one
+/// group was found. Unix only. The groups are found by a process-table scan (see
+/// [`signal_session`](crate::signal_session)), so this is best effort for a group that starts
+/// after the scan. This process's own group is never signalled.
+#[cfg(unix)]
+pub async fn terminate_session(
+    sid: std::num::NonZeroU32,
+    options: TerminationOptions,
+) -> io::Result<bool> {
+    let groups: Vec<u32> = crate::foreign::session_groups(sid)?
+        .into_iter()
+        .filter_map(|group| u32::try_from(group).ok())
+        .collect();
+    if groups.is_empty() {
+        return Ok(false);
+    }
+    for &group in &groups {
+        signal(group, true, libc::SIGTERM)?;
+    }
+    let deadline = Instant::now() + options.grace;
+    while groups.iter().any(|&group| group_exists(group)) && Instant::now() < deadline {
+        tokio::time::sleep(POLL).await;
+    }
+    for &group in &groups {
+        if group_exists(group) {
+            signal(group, true, libc::SIGKILL)?;
+        }
+    }
+    let kill_deadline = Instant::now() + KILL_WAIT;
+    while groups.iter().any(|&group| group_exists(group)) && Instant::now() < kill_deadline {
+        tokio::time::sleep(POLL).await;
+    }
+    Ok(true)
+}
+
 /// Stops the tree under `child`: `SIGTERM` now (Unix), up to `options.grace` for it to leave,
 /// then `SIGKILL`. On Windows there is no graceful stage: every member is terminated at once,
 /// and `options.windows_exit_code` is not applied (tokio's kill uses exit code 1). Returns the

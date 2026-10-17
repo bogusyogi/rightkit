@@ -18,6 +18,7 @@ import { boundedCanvasDpr, clampScale, renderPageLimit, viewportRotation, withTi
 import { attachPasswordHandler, createLoadTimer, type PdfPasswordHandler } from "./password.js";
 import { pdfDocumentInit, type PdfDocumentOptions } from "./loader.js";
 import { renderPdfTextLayer } from "./textLayer.js";
+import { createRegexSearcher, findLiteralMatches } from "./searchUtils.js";
 import type {
   OutlineNode,
   PdfDocumentInfo,
@@ -64,6 +65,10 @@ export interface PdfViewerProps {
    *  `standardFontDataUrl`. Read when loading starts, like `onPassword`: changing it does not reload
    *  a document already open. Absent: pdf.js defaults, exactly as before. */
   documentOptions?: PdfDocumentOptions;
+  /** Show a "Regex" checkbox in the find bar. Off by default, so the markup is unchanged. When
+   *  checked, the query is a regular expression, bounded by `regexPatternError`; a refused or invalid
+   *  pattern finds nothing. */
+  regexFind?: boolean;
 }
 
 interface PageState {
@@ -179,6 +184,7 @@ export function PdfViewer({
   toolbar,
   hideToolbar = false,
   findBar = true,
+  regexFind = false,
   onPassword,
   maxRenderPages,
   truncationNotice,
@@ -344,26 +350,32 @@ export function PdfViewer({
       setMatches([]); setActiveMatch(-1); return { count: 0, activeIndex: -1 };
     }
     const found: Array<{ page: number; index: number }> = [];
-    const needle = findOptions.matchCase ? nextQuery : nextQuery.toLocaleLowerCase();
+    let timedOut = false;
+    const searcher = findOptions.regex ? createRegexSearcher() : null;
+    try {
     for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, renderLimit); pageNumber++) {
       try {
         const content = await pdf.getPage(pageNumber).then((p) => p.getTextContent());
         let text = content.items.map((item) => "str" in item ? item.str : "").join(" ");
         if (text.length > MAX_TEXT) text = text.slice(0, MAX_TEXT);
-        const haystack = findOptions.matchCase ? text : text.toLocaleLowerCase();
-        let index = haystack.indexOf(needle);
-        while (index >= 0) {
-          const end = index + needle.length;
-          const isWord = (value: string | undefined) => !!value && /[\p{L}\p{N}_]/u.test(value);
-          if (!findOptions.wholeWord || (!isWord(text[index - 1]) && !isWord(text[end]))) found.push({ page: pageNumber, index });
-          index = haystack.indexOf(needle, Math.max(index + 1, end));
+        let hits;
+        if (searcher) {
+          const bounded = await searcher.search(text, nextQuery, findOptions);
+          if (bounded.timedOut) timedOut = true;
+          hits = bounded.matches;
+        } else {
+          hits = findLiteralMatches(text, nextQuery, findOptions);
         }
+        for (const hit of hits) found.push({ page: pageNumber, index: hit.start });
       } catch { /* one malformed page must not break find in rest */ }
+    }
+    } finally {
+      searcher?.dispose();
     }
     setMatches(found);
     setActiveMatch(found.length ? 0 : -1);
     if (found[0]) goToPage(found[0].page);
-    return { count: found.length, activeIndex: found.length ? 0 : -1 };
+    return { count: found.length, activeIndex: found.length ? 0 : -1, ...(timedOut ? { timedOut: true } : {}) };
   }, [findOptions, goToPage, pdf, query, renderLimit]);
 
   const stepMatch = useCallback((delta: number): PdfSearchResult => {
@@ -407,6 +419,7 @@ export function PdfViewer({
       {findBar && <form className="rk-pdf-find" onSubmit={(event) => { event.preventDefault(); void find(); }}>
         <input aria-label="Find in PDF" placeholder="Find" value={query} onChange={(event) => setQuery(event.target.value)} />
         <button type="submit">Find</button><button type="button" onClick={() => stepMatch(1)} disabled={!matches.length}>Next</button>
+        {regexFind && <label><input type="checkbox" checked={findOptions.regex ?? false} onChange={(event) => setFindOptions((value) => ({ ...value, regex: event.target.checked }))} /> Regex</label>}
       </form>}
       {toolbar}
     </div>}

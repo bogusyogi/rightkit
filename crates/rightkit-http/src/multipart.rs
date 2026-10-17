@@ -132,6 +132,83 @@ impl Request {
     }
 }
 
+/// A `multipart/related` body (RFC 2387): an ordered list of parts, each with its own
+/// `Content-Type` and no `Content-Disposition`. A Google-style media upload is a JSON metadata
+/// part followed by the media part.
+#[derive(Debug, Clone)]
+pub struct MultipartRelated {
+    boundary: String,
+    parts: Vec<(String, Vec<u8>)>,
+}
+
+impl MultipartRelated {
+    /// A related body with a random boundary.
+    pub fn new() -> Self {
+        Self {
+            boundary: random_boundary(),
+            parts: Vec::new(),
+        }
+    }
+    /// A related body with a pinned boundary; same rules as [`Multipart::with_boundary`].
+    pub fn with_boundary(boundary: impl Into<String>) -> Self {
+        Self {
+            boundary: boundary.into(),
+            parts: Vec::new(),
+        }
+    }
+    /// Append a part with its `Content-Type`. Parts are sent in the order added.
+    pub fn part(mut self, content_type: &str, body: impl Into<Vec<u8>>) -> Self {
+        self.parts.push((sanitize(content_type), body.into()));
+        self
+    }
+    /// The `Content-Type` header value for this body.
+    pub fn content_type(&self) -> String {
+        format!("multipart/related; boundary={}", self.boundary)
+    }
+    /// Encode the body. Fails if the boundary is invalid or occurs inside a part.
+    pub fn into_body(self) -> Result<Vec<u8>, HttpError> {
+        validate_boundary(&self.boundary)?;
+        let boundary = self.boundary.as_bytes();
+        let delimiter = format!("--{}", self.boundary);
+        let mut out = Vec::new();
+        for (content_type, body) in &self.parts {
+            let head = format!("Content-Type: {content_type}\r\n");
+            if contains(head.as_bytes(), boundary) || contains(body, boundary) {
+                return Err(HttpError::InvalidRequest(
+                    "multipart boundary occurs inside a part; use another boundary".into(),
+                ));
+            }
+            out.extend_from_slice(delimiter.as_bytes());
+            out.extend_from_slice(b"\r\n");
+            out.extend_from_slice(head.as_bytes());
+            out.extend_from_slice(b"\r\n");
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(delimiter.as_bytes());
+        out.extend_from_slice(b"--\r\n");
+        Ok(out)
+    }
+}
+
+impl Default for MultipartRelated {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Request {
+    /// Set the body and `Content-Type` from a `multipart/related` body (replacing any existing
+    /// Content-Type).
+    pub fn multipart_related(self, form: MultipartRelated) -> Result<Self, HttpError> {
+        let content_type = form.content_type();
+        let body = form.into_body()?;
+        let mut req = self.set_header("Content-Type", content_type);
+        req.body = body;
+        Ok(req)
+    }
+}
+
 fn sanitize(value: &str) -> String {
     value
         .chars()
@@ -246,5 +323,28 @@ Content-Type: text/plain\r\n\r\nDATA\r\n--XB--\r\n";
             1
         );
         assert!(req.body.starts_with(b"--XB\r\n"));
+    }
+
+    #[test]
+    fn related_body_frames_each_part_with_its_content_type() {
+        let body = MultipartRelated::with_boundary("b1")
+            .part("application/json; charset=UTF-8", "{\"name\":\"x\"}")
+            .part("message/rfc822", "Subject: hi\r\n\r\nbody")
+            .into_body()
+            .unwrap();
+        let text = String::from_utf8(body).unwrap();
+        assert_eq!(
+            text,
+            "--b1\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"name\":\"x\"}\r\n\
+             --b1\r\nContent-Type: message/rfc822\r\n\r\nSubject: hi\r\n\r\nbody\r\n--b1--\r\n"
+        );
+        assert_eq!(
+            MultipartRelated::with_boundary("b1").content_type(),
+            "multipart/related; boundary=b1"
+        );
+        assert!(MultipartRelated::with_boundary("b1")
+            .part("text/plain", "has b1 inside")
+            .into_body()
+            .is_err());
     }
 }

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { assertPublic } from "./policy/visibility-gate.mjs";
 import { loadManifest, LANE_FILENAMES, buildRenderContext } from "./manifest.mjs";
 import { applyCheckoutOptions } from "./checkout.mjs";
+import { renderWorkflows } from "./workflows.mjs";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
@@ -32,7 +33,7 @@ function releaseChainDependencyError(repoPath, manifest) {
 
 /** Render every lane declared in the manifest. Returns { lane, filename, content }[]. */
 export function renderLanes(manifest, repoPath) {
-  return manifest.lanes.map((lane) => {
+  const laneFiles = manifest.lanes.map((lane) => {
     const context = buildRenderContext(manifest, repoPath, lane);
     const filename = LANE_FILENAMES[lane];
     const templatePath = manifest.profile === "rust-hybrid"
@@ -41,6 +42,8 @@ export function renderLanes(manifest, repoPath) {
     const templateText = fs.readFileSync(templatePath, "utf8");
     return { lane, filename, content: applyCheckoutOptions(renderTemplate(templateText, context), manifest) };
   });
+  // manifest.workflows: named custom, swift-host and dispatch-matrix workflows (see workflows.mjs).
+  return [...laneFiles, ...renderWorkflows(manifest, repoPath)];
 }
 
 /** List files in <repo>/.github/workflows that carry the right-git managed marker. */

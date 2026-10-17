@@ -184,7 +184,7 @@ pub fn tdt_step(
     // prediction for THIS step's joint output, independent of which token
     // candidate a hypothesis picks, identical to the pre-beam decode.
     let dur = durations[argmax(dur_logits)] as usize;
-    let log_probs = log_softmax(tok_logits);
+    let log_z = super::scoring::logsumexp(tok_logits);
     rank_top_k(tok_logits, bonuses, width)
         .into_iter()
         .map(|tok| {
@@ -200,7 +200,7 @@ pub fn tdt_step(
             let is_emission = tok as i32 != blank;
             nh.score = super::scoring::score_emission(
                 nh.score,
-                log_probs[tok],
+                tok_logits[tok] - log_z,
                 0.0,
                 if is_emission { emit_reward } else { 0.0 },
                 bonus,
@@ -246,7 +246,7 @@ pub fn rnnt_step(
     new_h: &[f32],
     new_c: &[f32],
 ) -> Vec<BeamHyp> {
-    let log_probs = log_softmax(logits);
+    let log_z = super::scoring::logsumexp(logits);
     rank_top_k(logits, bonuses, width)
         .into_iter()
         .map(|tok| {
@@ -257,7 +257,7 @@ pub fn rnnt_step(
             let is_blank = tok as i32 == blank;
             nh.score = super::scoring::score_emission(
                 nh.score,
-                log_probs[tok],
+                logits[tok] - log_z,
                 0.0,
                 if is_blank { 0.0 } else { emit_reward },
                 bonus,

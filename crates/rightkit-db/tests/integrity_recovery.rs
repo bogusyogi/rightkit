@@ -247,21 +247,22 @@ fn custom_stamp_rejects_empty_or_path_suffixes_without_moving() {
 }
 
 #[test]
-fn quarantine_refuses_to_overwrite_an_existing_copy() {
+fn quarantine_numbers_a_custom_stamp_instead_of_overwriting_an_existing_copy() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("app.sqlite");
     std::fs::write(&path, b"new garbage").unwrap();
     let existing = dir.path().join("app.sqlite.bad-fixed");
     std::fs::write(&existing, b"earlier evidence").unwrap();
-    let error = quarantine_database_with(
+    let moved = quarantine_database_with(
         &path,
         QuarantineStamp::Custom(fixed_suffix),
         SidecarPolicy::RenameSidecars,
     )
-    .unwrap_err();
-    assert!(matches!(error, DbError::Fs(_)));
+    .unwrap();
+    assert_eq!(moved, dir.path().join("app.sqlite.bad-fixed-1"));
+    assert_eq!(std::fs::read(&moved).unwrap(), b"new garbage");
     assert_eq!(std::fs::read(&existing).unwrap(), b"earlier evidence");
-    assert_eq!(std::fs::read(&path).unwrap(), b"new garbage");
+    assert!(!path.exists());
 }
 
 fn write_with_sidecars(path: &Path) -> (PathBuf, PathBuf) {

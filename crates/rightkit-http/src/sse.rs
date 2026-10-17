@@ -29,6 +29,8 @@ pub struct SseDecoder {
     max_line: usize,
     max_event: usize,
     event_bytes: usize,
+    /// Deliver each `data:` line as its own event when its newline arrives (see [`SseDecoder::eager`]).
+    eager: bool,
 }
 
 impl Default for SseDecoder {
@@ -58,7 +60,46 @@ impl SseDecoder {
             max_line: max_line_bytes,
             max_event: max_event_bytes,
             event_bytes: 0,
+            eager: false,
         }
+    }
+
+    /// Eager decoder with the default line bound. Every `data:` line becomes an event as soon
+    /// as its newline arrives, carrying that line as its `data`, instead of waiting for the
+    /// blank line that ends the frame. A provider whose daemon ends each frame with a newline
+    /// rather than a blank line needs this; the WHATWG framing is the default.
+    pub fn eager() -> Self {
+        Self {
+            eager: true,
+            ..Self::default()
+        }
+    }
+
+    /// Switch this decoder to eager mode (see [`SseDecoder::eager`]).
+    pub fn with_eager(mut self) -> Self {
+        self.eager = true;
+        self
+    }
+
+    /// True when bytes or a frame are buffered that no event has delivered yet: a partial line,
+    /// or `data` lines waiting for their blank line. A stream that ends while this is true was
+    /// cut off mid-event.
+    pub fn has_pending(&self) -> bool {
+        !self.line.is_empty() || self.has_data
+    }
+
+    /// Flush at end of stream. A final line without its newline is processed, and a complete
+    /// frame still waiting for its blank line is delivered, so a daemon that closes right after
+    /// its last event does not lose it. Returns at most one event. Errors (invalid UTF-8 in the
+    /// final line, for example) are reported, never dropped.
+    pub fn finish(&mut self) -> Result<Option<SseEvent>, HttpError> {
+        if !self.line.is_empty() {
+            let line = std::mem::take(&mut self.line);
+            if let Some(ev) = self.handle_line(&line)? {
+                return Ok(Some(ev));
+            }
+        }
+        Ok(self.dispatch())
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SseEvent>, HttpError> {
@@ -117,6 +158,20 @@ impl SseDecoder {
         }
         match field {
             "event" => self.event = value.to_string(),
+            "data" if self.eager => {
+                self.event_bytes = 0;
+                let event = if self.event.is_empty() {
+                    "message".to_string()
+                } else {
+                    self.event.clone()
+                };
+                return Ok(Some(SseEvent {
+                    event,
+                    data: value.to_string(),
+                    id: self.id.clone(),
+                    retry_ms: self.retry_ms.take(),
+                }));
+            }
             "data" => {
                 self.data.push(value.to_string());
                 self.has_data = true;
@@ -155,23 +210,49 @@ impl SseDecoder {
     }
 }
 
-/// Blocking iterator of events over any reader. An event cut off by EOF is
-/// dropped, per the EventSource spec.
+/// What a reader does with an event cut off by end of stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EofPolicy {
+    /// Drop it, per the EventSource spec (the default).
+    #[default]
+    Drop,
+    /// Deliver a complete final frame that lacks its blank line ([`SseDecoder::finish`]).
+    Deliver,
+    /// Report an error when the stream ends inside an event ([`SseDecoder::has_pending`]),
+    /// so a truncated stream fails closed.
+    Fail,
+}
+
+/// Blocking iterator of events over any reader. By default an event cut off by EOF is
+/// dropped, per the EventSource spec; see [`SseReader::eof_policy`].
 pub struct SseReader<R: Read> {
     reader: R,
     decoder: SseDecoder,
     queue: VecDeque<SseEvent>,
     done: bool,
+    eof: EofPolicy,
 }
 
 impl<R: Read> SseReader<R> {
     pub fn new(reader: R) -> Self {
+        Self::with_decoder(reader, SseDecoder::default())
+    }
+
+    /// Read with a caller-built decoder (for example [`SseDecoder::eager`]).
+    pub fn with_decoder(reader: R, decoder: SseDecoder) -> Self {
         Self {
             reader,
-            decoder: SseDecoder::default(),
+            decoder,
             queue: VecDeque::new(),
             done: false,
+            eof: EofPolicy::Drop,
         }
+    }
+
+    /// Choose what happens to an event cut off by end of stream.
+    pub fn eof_policy(mut self, policy: EofPolicy) -> Self {
+        self.eof = policy;
+        self
     }
 }
 
@@ -189,6 +270,21 @@ impl<R: Read> Iterator for SseReader<R> {
             match self.reader.read(&mut buf) {
                 Ok(0) => {
                     self.done = true;
+                    match self.eof {
+                        EofPolicy::Drop => {}
+                        EofPolicy::Deliver => match self.decoder.finish() {
+                            Ok(Some(ev)) => self.queue.push_back(ev),
+                            Ok(None) => {}
+                            Err(e) => return Some(Err(e)),
+                        },
+                        EofPolicy::Fail => {
+                            if self.decoder.has_pending() {
+                                return Some(Err(HttpError::Stream(
+                                    "SSE stream ended inside an event".into(),
+                                )));
+                            }
+                        }
+                    }
                 }
                 Ok(n) => match self.decoder.push(&buf[..n]) {
                     Ok(events) => self.queue.extend(events),
@@ -209,5 +305,52 @@ impl<R: Read> Iterator for SseReader<R> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eager_delivers_each_data_line_and_finish_flushes_the_tail() {
+        let mut d = SseDecoder::eager();
+        let evs = d.push(b"event: tick\ndata: one\ndata: two\n").unwrap();
+        assert_eq!(evs.len(), 2);
+        assert_eq!(evs[0].event, "tick");
+        assert_eq!(evs[0].data, "one");
+        assert_eq!(evs[1].data, "two");
+        assert!(!d.has_pending());
+        assert!(d.push(b"data: tail").unwrap().is_empty());
+        assert!(d.has_pending());
+        let last = d.finish().unwrap().unwrap();
+        assert_eq!(last.data, "tail");
+        assert!(!d.has_pending());
+    }
+
+    #[test]
+    fn default_mode_finish_delivers_a_frame_missing_its_blank_line() {
+        let mut d = SseDecoder::new(1024);
+        assert!(d.push(b"data: a\n").unwrap().is_empty());
+        assert!(d.has_pending());
+        let ev = d.finish().unwrap().unwrap();
+        assert_eq!(ev.data, "a");
+        assert_eq!(ev.event, "message");
+        assert!(!d.has_pending());
+    }
+
+    #[test]
+    fn reader_eof_policies_drop_deliver_or_fail() {
+        let input: &[u8] = b"data: a\n\ndata: b";
+        let dropped: Vec<String> = SseReader::new(input).map(|r| r.unwrap().data).collect();
+        assert_eq!(dropped, vec!["a"]);
+        let delivered: Vec<String> = SseReader::new(input)
+            .eof_policy(EofPolicy::Deliver)
+            .map(|r| r.unwrap().data)
+            .collect();
+        assert_eq!(delivered, vec!["a", "b"]);
+        let failed: Vec<Result<SseEvent, HttpError>> =
+            SseReader::new(input).eof_policy(EofPolicy::Fail).collect();
+        assert!(failed.last().unwrap().is_err());
     }
 }

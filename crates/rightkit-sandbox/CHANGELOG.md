@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased
+
+CodeRight port (issues #558, #559, #560, #561, #562, #564, #566). New API and opt-in policy knobs, except the Linux
+hardening in the first entry, which applies to every Linux spawn (a behaviour change by design: ABI 2/3
+rights on newer kernels and the seccomp architecture check). Nothing here was compiled or run for this entry.
+
+- **Linux: `confine_command(&mut Command, &SandboxPolicy)`** confines a command the caller owns (a
+  `tokio::process::Command` through `as_std_mut()`), with `is_landlock_available()` and
+  `landlock_abi_version()`. Landlock now probes its ABI: ABI 2 adds `REFER` (renaming or linking across
+  directories outside the granted trees is denied) and ABI 3 adds `TRUNCATE`; read and exec roots never carry
+  them. A rule on a file (not a directory) drops the directory rights, where it used to fail with `EINVAL`.
+  Every seccomp program now starts with an architecture check (`AUDIT_ARCH_X86_64`; a foreign architecture, such
+  as i386 `int 0x80`, is killed) and the allowlist denies the x32 alias of every number, closing the compat-syscall
+  bypass. New knobs: `SandboxPolicy::seccomp(SeccompMode::NetworkOnly)` is a default-allow filter that denies
+  `socket`/`socketpair` for every domain except `AF_UNIX` and `io_uring_*` (x86_64 and aarch64);
+  `SandboxPolicy::landlock(LandlockMode::SkipWhenNoPaths)` applies no Landlock ruleset when no path is listed (opt-in,
+  the only documented way to run on Linux without one; a listed path turns it back on and Landlock must then be
+  available). `exec_any` adds Landlock `EXECUTE` on `/`.
+- **macOS: `ConfinementMode::WriteOnly`** (`SandboxPolicy::mode`) is a default-allow Seatbelt profile that denies
+  every write except `write_paths`, the temporary locations and a few `/dev` nodes; reads and execution stay open
+  (`seatbelt::write_only_profile(write_paths, network)` builds it). `SandboxPolicy::exec_any(true)` emits
+  `(allow process*)` for vendor CLIs that exec helpers from arbitrary install roots; it grants execution, not
+  reading. `seatbelt::Prepared::from_profile(String)` applies a caller-built profile, so a private `sandbox_init`
+  copy can go. `try_profile_for` and `try_wrap_argv` return the error when a profile cannot be built. Linux and
+  Windows refuse `WriteOnly` (fail closed). **Not verified on a Mac**: `exec_any` against real vendor drivers.
+- **`SandboxPolicy::deny_read` / `deny_read_glob`** keep paths and globs unreadable (and unwritable) inside a granted
+  root. macOS: `(deny file-read* file-write*)` after every allow (a glob becomes an anchored regex that also covers
+  children). Windows: an explicit DENY ACE for the container, held with the child; globs expand against the
+  files that exist at spawn (bounded; a huge tree fails the spawn), a missing path has no object and is skipped,
+  and the deny set is part of the profile name. **Linux: not enforced** (Landlock only adds allowances); check
+  `deny_read_enforced()`. New planner API: `plan_deny_read_paths` (lexical and canonical spellings; refuses
+  relative paths, `..` and filesystem roots, including an alias that resolves to one), `secret_roots`,
+  `secret_roots_under`, `secret_paths_within`, `path_is_protected_secret`, `path_is_within` (`..` resolved first),
+  `user_profile_root`, `USERPROFILE_SECRET_FOLDERS`, `glob_matches`.
+- **`report_denial` and `DenialReport`** (`category`, `denied_path`, `protected_secret`, `requested_grant: Grant`,
+  `message`) are built from command output, command text and `ConfinementInfo`: quoted-path and `tool: /path:
+  Permission denied` extraction, PowerShell and curl network-block phrasing, a write-versus-read guess for the
+  grant. Output is untrusted, so a protected secret, a filesystem root or a `..` path never gets a requested grant.
+- **`Sandbox::spawn_piped`** is `spawn` with a stdin pipe (`SandboxedChild::take_stdin`); on Windows the pipe is an
+  ACL-bound named pipe, on Unix a plain pipe. **Not done (needs a dependency change, see issue #562):** the
+  tokio `AsyncWrite`/`AsyncRead` wrappers (`ConfinedPipedChild`), which need an optional `tokio` dependency with
+  features `rt` and `time` and a `tokio` crate feature. Windows `resolve_program(&str)` is exported.
+- **Windows: `AppContainerProfile`** (`for_workspace`, `for_policy`, `with_network`, `with_loopback`,
+  `lease_grant`/`with_grant`, `name`, `sid_string`, `folder_path`, `git_ceilings`) is a reusable container
+  spawned into with `Sandbox::spawn_in_profile` / `spawn_piped_in_profile`. Its allow and deny leases are
+  reference counted, shared with every child and revoked with the last holder; `for_workspace` denies the
+  protected secret folders inside the workspace; `lease_grant` refuses protected locations, roots and a path that
+  resolves into a secret. Its ancestor leases are best effort: an ancestor the user cannot re-ACL is skipped and
+  the deepest one is exported as `GIT_CEILING_DIRECTORIES` (unless the caller sets it). `SandboxPolicy::loopback(
+  LoopbackPolicy::Exempt)` adds the container to the machine's loopback-exempt list for a network-enabled
+  child, reference counted per container and resolved from `FirewallAPI.dll` at run time; it needs an elevated
+  process (otherwise the container stays loopback-blocked, never wider; `SandboxedChild::loopback_exempt()`
+  reports it) and a crashed holder leaves the exemption until the next holder for that container ends.
+  The profile key now includes deny entries and the loopback choice; with neither, names are unchanged.
+- **`Sandbox::pin_read_roots(&[PathBuf]) -> PinHandle`**, `PinHandle::release_all()`, `read_root_is_too_broad`,
+  `is_interpreter_dir`, `default_user_dirs`: interpreter install directories shared as read and execute roots with
+  a user count per root. A root must be an existing directory that holds a known interpreter (python, node,
+  ruby, ...) and must not be, or contain, a filesystem root, the user profile, a user data folder or a protected
+  secret. Windows: an ALL APPLICATION PACKAGES read/execute ACE (so readable by every AppContainer app on the
+  machine), added once and removed with the last handle unless the DACL already allowed it. Elsewhere the roots
+  join the read and execute roots of each confined spawn.
+
 
 ## 0.4.0
 

@@ -58,6 +58,8 @@ pub mod png;
 pub mod policy;
 pub mod proof;
 pub mod redact;
+pub mod sensitive;
+pub mod uia_text;
 
 #[cfg(target_os = "macos")]
 pub mod macos;

@@ -269,7 +269,9 @@ pub fn compose_reply(event: &HookEvent, results: &[ModuleResult], context_cap: u
     match (base, system) {
         (Some(reply), Some(message)) => reply.with_system_message(&message),
         (Some(reply), None) => reply,
-        (None, _) => Reply::none(),
+        // A notice-only reply: no decision and no context, but a message for the person.
+        (None, Some(message)) => Reply::none().with_system_message(&message),
+        (None, None) => Reply::none(),
     }
 }
 

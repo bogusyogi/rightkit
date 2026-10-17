@@ -51,7 +51,8 @@ undo(); // restores the previous inline value of each name it set
 - `applyTokens(record, root?)` writes custom properties on `root`'s inline style, skips `undefined` values and returns an undo function. Names must match `--name`.
 - `aliasTokens(map)` returns `var(--target)` references for unprefixed names. `SUITE_ALIASES` is the same map as `@rightkit/react-shell/suite-aliases.css`; a test in this package keeps them in step.
 - `presetTokens(preset, accentId?)` merges an accent over a preset's base tokens.
-- `fontTokens({ mono, wordmark })` maps font stacks onto `--rk-font-mono` and `--rk-wordmark-font`.
+- `fontTokens({ mono, body, wordmark })` maps font stacks onto `--rk-font-mono`, `--rk-font-body` and `--rk-wordmark-font`.
+- `presetCss(presets, { attribute? })` emits `:root[data-palette="<id>"]` blocks for generated preset stylesheets; `aliasCss(map)` emits the `:root` alias block as CSS; `tailwindThemeCss(tokens, { prefix? })` emits a Tailwind v4 `@theme` block (default prefix `--color-`) so `presetTokens` output can feed `@theme`.
 
 `applyBrand(brand, mode, root, { applySuiteAliases: true })` also writes the flat suite aliases. It is off by default, because writing `--ink` or `--panel` would overwrite an app that owns those names.
 

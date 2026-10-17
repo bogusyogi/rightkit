@@ -25,6 +25,7 @@ const withoutRecipe = (target) => {
 };
 const QUIET_TAURI_ENV = { TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
 const RECIPE_BUILD = fileURLToPath(new URL("./recipe-build.mjs", import.meta.url));
+const CREATE_MAC_UPDATER = fileURLToPath(new URL("./create-mac-updater.mjs", import.meta.url));
 const PROFILE = /^[a-z][a-z0-9_-]*$/;
 
 function relativeInside(value, label) {
@@ -160,7 +161,7 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   };
 }
 
-const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot"]);
+const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot", "updater"]);
 const MAC_TRIPLES = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 const MAC_CLEANUP_KEYS = new Set(["staleApps", "staleDmgVolumes", "lsclean"]);
 
@@ -179,6 +180,8 @@ function macCleanupSpec(value) {
  * The app path and DMG path are `notarize.app` and `notarize.file`; DMG branding is `targets.mac.dmg`.
  * Architecture: `triple` (an explicit arch triple) beats `universal`; `universal: false` means this host's arch.
  * `cleanup` runs built-in steps in recipe-build before the build (stale DMG volumes, stale .app bundles, lsregister).
+ * `updater: true | "<app-relative .tar.gz>"` emits the Tauri updater tarball and its signature from the signed, stapled .app:
+ * it prepends a `create-mac-updater` command to `postSign` (default output `<App>.app.tar.gz` beside the app's working root).
  */
 export function expandMacPackageTarget(target, { appRoot, env = process.env, resolveTargetRoot = cargoResolveTargetRoot }) {
   if (!target?.macPackage) return withoutRecipe(target);
@@ -196,6 +199,8 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   const cwd = spec.tauriCwd ?? ".";
   if (typeof cwd !== "string" || path.isAbsolute(cwd) || cwd.split(/[\\/]/).includes("..")) fail("targets.mac.macPackage.tauriCwd must be a relative path inside the app");
   const cleanupSpec = macCleanupSpec(spec.cleanup);
+  if (spec.updater !== undefined && spec.updater !== true && spec.updater !== false && typeof spec.updater !== "string") fail("targets.mac.macPackage.updater must be true or an app-relative .tar.gz path");
+  if (typeof spec.updater === "string" && !/\.tar\.gz$/i.test(relativeInside(spec.updater, "targets.mac.macPackage.updater"))) fail("targets.mac.macPackage.updater must end in .tar.gz");
   // Tauri's universal-apple-darwin target builds both slices and lipos them itself.
   const triple = spec.triple ?? (spec.universal === false ? (process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin") : "universal-apple-darwin");
   if (spec.triple !== undefined) {
@@ -225,8 +230,17 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
     : undefined;
   const wrapped = extras.prepare.length || extras.postBuild.length || cleanup;
   const { macPackage, recipe: _ignoredMac, ...rest } = target;
+  // The updater tarball is made from the signed .app, so it runs in postSign, ahead of any postSign the app declares.
+  const updaterOutput = spec.updater === true ? `${productName}.app.tar.gz` : typeof spec.updater === "string" ? relativeInside(spec.updater, "targets.mac.macPackage.updater") : undefined;
+  const postSign = updaterOutput === undefined ? {} : {
+    postSign: [
+      { cmd: process.execPath, args: [CREATE_MAC_UPDATER, "--app", app, "--output", updaterOutput] },
+      ...(target.postSign === undefined ? [] : Array.isArray(target.postSign) ? target.postSign : [target.postSign]),
+    ],
+  };
   return {
     ...rest,
+    ...postSign,
     prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     sign: { ...(target.sign ?? {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },

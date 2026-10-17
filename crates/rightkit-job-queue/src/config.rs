@@ -14,6 +14,9 @@ use serde_json::{Map, Value};
 use crate::error::{JobError, JobResult};
 use crate::store::{JobRecord, Recovery, Resolution, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
 
+/// Name of the job table unless [`StoreConfig::jobs_table`] names another.
+pub const DEFAULT_JOBS_TABLE: &str = "jobs";
+
 /// Extension values of one job, keyed by declared column name.
 pub type Ext = Map<String, Value>;
 
@@ -468,6 +471,10 @@ pub struct StoreConfig {
     pub(crate) scratch_root: Option<PathBuf>,
     pub(crate) work_roots: Vec<PathBuf>,
     pub(crate) kind_recovery: Vec<(String, Recovery)>,
+    pub(crate) jobs_table: String,
+    pub(crate) unique: Vec<Vec<String>>,
+    pub(crate) revision: Option<String>,
+    pub(crate) due: Option<String>,
 }
 
 impl Default for StoreConfig {
@@ -486,6 +493,10 @@ impl Default for StoreConfig {
             scratch_root: None,
             work_roots: vec![],
             kind_recovery: vec![],
+            jobs_table: DEFAULT_JOBS_TABLE.to_string(),
+            unique: vec![],
+            revision: None,
+            due: None,
         }
     }
 }
@@ -506,6 +517,10 @@ impl std::fmt::Debug for StoreConfig {
             .field("scratch_root", &self.scratch_root)
             .field("work_roots", &self.work_roots)
             .field("kind_recovery", &self.kind_recovery)
+            .field("jobs_table", &self.jobs_table)
+            .field("unique", &self.unique)
+            .field("revision", &self.revision)
+            .field("due", &self.due)
             .finish()
     }
 }
@@ -613,6 +628,64 @@ impl StoreConfig {
             .find(|(k, _)| k == kind)
             .map(|(_, c)| *c)
     }
+    /// Name the job table (default `jobs`) so an app that already owns a table of its own can
+    /// keep its name (for example `publish_jobs`). The crate-owned side tables (`job_events`,
+    /// `rk_job_meta`, `rk_job_submissions`) are keyed by job id and keep their names. A plain
+    /// lower-snake identifier; it may not be one of the crate's own table names or the artifact
+    /// table. An existing table of that name is adopted additively, as `jobs` always was.
+    pub fn jobs_table(mut self, name: impl Into<String>) -> Self {
+        self.jobs_table = name.into();
+        self
+    }
+    /// An extra UNIQUE constraint over `columns` (core columns such as `kind` or declared
+    /// extension columns), repeatable. Created at schema init as a unique index
+    /// (`CREATE UNIQUE INDEX IF NOT EXISTS`), so it also lands on an existing table. A second
+    /// row with the same values is refused by SQLite as a constraint error; `request_id` stays
+    /// unique as before.
+    pub fn unique<I, S>(mut self, columns: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.unique
+            .push(columns.into_iter().map(Into::into).collect());
+        self
+    }
+    /// Keep a row revision in `column` (declared here as `INTEGER NOT NULL DEFAULT 0`; do not
+    /// declare it again). It is 0 on insert and rises by one on every write the crate makes to
+    /// the job row, so a caller can pass the revision it read as [`crate::Expect::revision`]
+    /// and get a `revision_conflict` error ([`crate::JobError::revision_conflict`]) instead of
+    /// overwriting a newer write. Values are read from [`crate::JobRecord::ext`]; writing the
+    /// column through `Ext` or `Transition` is refused.
+    pub fn row_revision(mut self, column: impl Into<String>) -> Self {
+        let name = column.into();
+        if self.column_named(&name).is_none() {
+            self.columns
+                .push(ExtColumn::integer(name.clone()).not_null().default(0));
+        }
+        self.revision = Some(name);
+        self
+    }
+    /// Name the declared extension column (TEXT or INTEGER) holding when a job is next due
+    /// (for example `next_attempt_at`, an ISO-8601 UTC string or epoch seconds). Enables
+    /// [`crate::JobStore::due`] and [`crate::JobTable::due`]: jobs whose column is not NULL and
+    /// is `<=` an injected `now`, oldest due first.
+    pub fn due_column(mut self, column: impl Into<String>) -> Self {
+        self.due = Some(column.into());
+        self
+    }
+    /// The job table name (see [`StoreConfig::jobs_table`]).
+    pub fn jobs_table_name(&self) -> &str {
+        &self.jobs_table
+    }
+    /// The row revision column, if [`StoreConfig::row_revision`] set one.
+    pub fn revision_column(&self) -> Option<&str> {
+        self.revision.as_deref()
+    }
+    /// The due-time column, if [`StoreConfig::due_column`] set one.
+    pub fn due_column_name(&self) -> Option<&str> {
+        self.due.as_deref()
+    }
     pub fn work_roots(&self) -> &[PathBuf] {
         &self.work_roots
     }
@@ -687,6 +760,54 @@ impl StoreConfig {
         }
         check_ident(&self.artifacts.table)?;
         check_ident(&self.artifacts.id_column)?;
+        check_ident(&self.jobs_table)?;
+        if [
+            "job_events",
+            "rk_job_submissions",
+            "rk_job_meta",
+            "rk_job_deleting",
+        ]
+        .contains(&self.jobs_table.as_str())
+            || self.jobs_table == self.artifacts.table
+        {
+            return Err(JobError::new("config", "job table name is reserved"));
+        }
+        if let Some(r) = &self.revision {
+            match self.column_named(r) {
+                Some(c) if c.ty == ColumnType::Integer && c.not_null && !c.required() => {}
+                _ => {
+                    return Err(JobError::new(
+                        "config",
+                        format!("revision column {r} must be INTEGER NOT NULL with a default"),
+                    ))
+                }
+            }
+        }
+        if let Some(d) = &self.due {
+            match self.column_named(d) {
+                Some(c) if matches!(c.ty, ColumnType::Text | ColumnType::Integer) => {}
+                _ => {
+                    return Err(JobError::new(
+                        "config",
+                        format!("due column {d} must be a declared text or integer column"),
+                    ))
+                }
+            }
+        }
+        for u in &self.unique {
+            if u.is_empty() {
+                return Err(JobError::new("config", "unique constraint names no column"));
+            }
+            for col in u {
+                check_ident(col)?;
+                if !CORE_JOB_COLUMNS.contains(&col.as_str()) && self.column_named(col).is_none() {
+                    return Err(JobError::new(
+                        "config",
+                        format!("unique constraint names unknown column {col}"),
+                    ));
+                }
+            }
+        }
         if [
             "jobs",
             "job_events",

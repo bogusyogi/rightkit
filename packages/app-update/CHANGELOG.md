@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added `downloadAvailable()` and `installStaged(handle)` (verify-only download prefetch), `createUpdateConsentRunner`, a `staged` status and phase, and the `./react` subpath (`UpdateOverlay`, `UpdateConsentCard`).
+
+- Add `deriveUpdateOverlay(status)` and `createUpdateConsent()` (Orthic-Labs/rightkit#625): a framework-free overlay view model over `AutoUpdateStatus` (checking, available incl. non-eligible Pro reason, deferred, downloading with 0..100 bounded progress, ready, error) and a per-action consent controller (download and install are separate approvals; Allow Once / Don't Allow; busy and error state). The React `UpdateOverlay`/`UpdateConsentCard` components are not included (they need a react peer dependency; see issue). Additive, Breaking: none. Not built or run locally.
+
 - Document and test a GitHub Releases `latest.json` URL as a channel endpoint, and how an app reads the suite updater public key (Orthic-Labs/rightkit#237). Documentation and a test only; no code or API change. Not built or run locally; CI is the compiler.
 
 - Define the rollback location (Orthic-Labs/rightkit#261; "no new id, no new folder, for every app"). `previousInstallPath(installPath)` is `<installPath>.previous`, beside the fixed install path; `createBootProbation().begin(from, to, { installPath })` records it, and a `rollback` decision and the `onRollback` hook carry `installPath` and the copy to restore (`restorePath`): the host renames `<install>.previous` back over the install path and relaunches from the install path. The update replaces the app in place at one fixed path, the replaced copy becomes the single `.previous`, and nothing is ever executed from a new, versioned or temporary path or from `.previous`. Optional and backward compatible: without `installPath` behaviour is unchanged. Not built or run locally; CI is the compiler.

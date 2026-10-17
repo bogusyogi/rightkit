@@ -41,6 +41,7 @@ operation with its own outcome.
 - `SecureStore<T>`: the get, set, and delete trait that each app implements over its keyring.
 - `LicenseRequirement` (re-exported from `rightkit-license`).
 - `DeviceService`: the single managed device service described above.
+- `device_id_hash(raw)`: lowercase hex SHA-256 of the raw device id; the only form that leaves the machine.
 - Also public in `src/lib.rs`: `SecureService`, `MutationHook`, `AuthorizationService`, `guard_paid_command`, and `LogService` / `DiagnosticService` over the `LogHost` / `DiagnosticHost` traits.
 
 ## Features

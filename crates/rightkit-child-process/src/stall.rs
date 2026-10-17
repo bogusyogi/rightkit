@@ -234,3 +234,178 @@ fn run(
         }
     }
 }
+
+/// A file another process rewrites as its heartbeat. The watch reads only its modification
+/// time, so the writer needs no protocol: a process that keeps touching the file is alive.
+#[derive(Clone, Debug)]
+pub struct HeartbeatConfig {
+    /// The file the other process writes (for example a pid-scoped heartbeat in the app data
+    /// folder). It may be missing; see [`HeartbeatWatch`].
+    pub path: std::path::PathBuf,
+    /// How often the file is looked at.
+    pub poll: Duration,
+    /// An age (time since the last write) at or above which the writer counts as stalled.
+    pub threshold: Duration,
+}
+
+/// What a [`HeartbeatWatch`] reports, edge-triggered like [`StallEvent`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeartbeatEvent {
+    /// The heartbeat is at least `threshold` old. Reported once per episode.
+    Stalled { episode: u64, age: Duration },
+    /// The heartbeat is fresh again after a reported stall.
+    Recovered { episode: u64, age: Duration },
+}
+
+/// A running heartbeat-file watch. Dropping it stops and joins the thread.
+///
+/// The age is measured from the file's modification time. A file that is missing (or whose
+/// modification time cannot be read) keeps aging from the last time it was seen, or from when
+/// the watch started if it was never seen, so a writer that never starts is reported too.
+pub struct HeartbeatWatch {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl HeartbeatWatch {
+    /// Starts watching `config.path`. `on_event` runs on the watch thread, so keep it short.
+    pub fn spawn(
+        name: &str,
+        config: HeartbeatConfig,
+        on_event: impl Fn(HeartbeatEvent) + Send + 'static,
+    ) -> io::Result<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let handle = thread::Builder::new()
+            .name(name.to_string())
+            .spawn(move || watch_heartbeat(config, flag, on_event))?;
+        Ok(Self {
+            stop,
+            handle: Some(handle),
+        })
+    }
+
+    /// Stop and join. Idempotent.
+    pub fn stop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+impl Drop for HeartbeatWatch {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Pure heartbeat state: the caller supplies the file's modification time and `now`, so the
+/// episode logic is driven by explicit time and never by sleeping.
+#[derive(Debug)]
+struct HeartbeatState {
+    last_seen: std::time::SystemTime,
+    episode: Episode,
+    episode_no: u64,
+}
+
+impl HeartbeatState {
+    fn new(started: std::time::SystemTime) -> Self {
+        Self {
+            last_seen: started,
+            episode: Episode::default(),
+            episode_no: 0,
+        }
+    }
+
+    fn step(
+        &mut self,
+        modified: Option<std::time::SystemTime>,
+        now: std::time::SystemTime,
+        threshold: Duration,
+    ) -> Option<HeartbeatEvent> {
+        if let Some(modified) = modified {
+            self.last_seen = modified;
+        }
+        let age = now.duration_since(self.last_seen).unwrap_or(Duration::ZERO);
+        if self.episode.detect(age, threshold) {
+            self.episode_no += 1;
+            Some(HeartbeatEvent::Stalled {
+                episode: self.episode_no,
+                age,
+            })
+        } else if age < threshold && self.episode.reported {
+            self.episode.reported = false;
+            Some(HeartbeatEvent::Recovered {
+                episode: self.episode_no,
+                age,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+fn watch_heartbeat(
+    config: HeartbeatConfig,
+    stop: Arc<AtomicBool>,
+    on_event: impl Fn(HeartbeatEvent),
+) {
+    let mut state = HeartbeatState::new(std::time::SystemTime::now());
+    while !stop.load(Ordering::SeqCst) {
+        thread::sleep(config.poll);
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let modified = std::fs::metadata(&config.path)
+            .and_then(|m| m.modified())
+            .ok();
+        if let Some(event) = state.step(modified, std::time::SystemTime::now(), config.threshold) {
+            on_event(event);
+        }
+    }
+}
+
+#[cfg(test)]
+mod heartbeat_tests {
+    use super::*;
+    use std::time::SystemTime;
+
+    #[test]
+    fn a_missing_heartbeat_is_reported_once_and_a_fresh_one_recovers() {
+        let threshold = Duration::from_millis(100);
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut state = HeartbeatState::new(t0);
+        // Never seen: ages from the start, silent below the threshold.
+        assert_eq!(state.step(None, at(50), threshold), None);
+        // One report when the silence reaches the threshold, none while it continues.
+        assert_eq!(
+            state.step(None, at(100), threshold),
+            Some(HeartbeatEvent::Stalled {
+                episode: 1,
+                age: Duration::from_millis(100)
+            })
+        );
+        assert_eq!(state.step(None, at(300), threshold), None);
+        assert_eq!(state.step(None, at(400), threshold), None);
+        // A fresh beat recovers once.
+        assert_eq!(
+            state.step(Some(at(400)), at(410), threshold),
+            Some(HeartbeatEvent::Recovered {
+                episode: 1,
+                age: Duration::from_millis(10)
+            })
+        );
+        // Beating keeps it quiet.
+        assert_eq!(state.step(Some(at(430)), at(440), threshold), None);
+        // A new silence past the threshold is a new episode.
+        assert_eq!(
+            state.step(Some(at(430)), at(530), threshold),
+            Some(HeartbeatEvent::Stalled {
+                episode: 2,
+                age: Duration::from_millis(100)
+            })
+        );
+    }
+}

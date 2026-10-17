@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-crypto",
+  "capabilities": [
+    {
+      "capability": "crypto-primitives",
+      "summary": "Neutral SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling HMAC, constant-time compare, base64 or approval tokens.",
+        "Not a general cryptography suite: no encryption, signatures or key derivation."
+      ]
+    }
+  ]
+}

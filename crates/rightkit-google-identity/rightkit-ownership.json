@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-google-identity",
+  "capabilities": [
+    {
+      "capability": "google-identity",
+      "summary": "Google sign-in building blocks: PKCE, redirect, token request body, ID-token claim validation and refresh-token store; Android Credential Manager seam",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling Google OAuth request shapes.",
+        "ID-token signatures are not verified here; callers must not grant access on claims alone."
+      ]
+    }
+  ]
+}

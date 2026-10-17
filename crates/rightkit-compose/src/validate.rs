@@ -112,7 +112,8 @@ fn check_layer(
             check_rect(layer, placement, "placement")?;
             check_crop_track(layer, crop)?;
             let span = Ticks(timing.end.0 - timing.start.0);
-            check_retime(retime, span).map_err(|reason| invalid(layer, reason))?;
+            check_retime(retime, span, timing.start, composition.fps)
+                .map_err(|reason| invalid(layer, reason))?;
         }
         Content::Still {
             asset,

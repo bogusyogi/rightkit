@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `discovery::run_bounded` drains stdout and stderr concurrently, each capped at `discovery::PROBE_OUTPUT_CAP` (64 KiB). With feature `session` the deadline terminates the whole process tree through `rightkit_child_process::run`; without it only the direct child is killed and pipes are waited on for at most 2 s after exit. `discovery.rs` is a new file in this working tree, not in HEAD.
+- `session::SessionConfig::extras: SessionExtras` (new field; build with `SessionConfig::new` and assign fields). It holds `claude: ClaudeExtras`, `env_remove` and `unknown_policy`. `SessionConfig` struct literals no longer compile.
+- `session::SessionConfig::scrub_byok_env` and `session::BYOK_ENV_VARS`: removes credential-class variables before spawn. The scrub is opt-in per launch; inherited variables are not removed by default. The list (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) includes two names whose CLI behavior is unverified.
+- `claude::ClaudeOptions` is restored to its 0.2.0 field set, so exhaustive literals compile again. The six added options (`tools`, `no_chrome`, `fork_session`, `resume_session_at`, `max_turns`, `fallback_model`) moved to `claude::ClaudeExtras` (`#[non_exhaustive]`), used through `claude::build_args_with`.
+- `codex::parse_line_with` and `CodexClient::with_policy`: under `UnknownPolicy::FailClosed`, an unknown notification in the `turn/`, `item/`, `serverRequest/` families or `error` is refused with `ParseError::unknown_required` (the client returns `ClientError::Parse`; a session emits `SessionEvent::Error` and drops the line). The family list is this crate's classification, not a Codex schema fact.
+- `codex`: `turn/failed` always yields a terminal `Result` with `is_error: true` and subtype `failed`, plus `RateLimit` when the error is a usage limit. Previously a non-usage `turn/failed` was `Unknown`, and a usage-limit one was `RateLimit` only. The session also clears its active turn on `turn/failed`.
+
 ## 0.2.0
 
 - Feature `session` (new, pulls in `claude`, `codex` and `rightkit-child-process`): `session::Session`, a blocking thread-based session over either vendor CLI. `Session::spawn(SessionConfig)` starts the CLI through `OwnedCommand` (it owns its process tree), `events()` is a single-consumer `mpsc::Receiver<SessionEvent>` of vendor-neutral `AgentEvent`s plus `Error` and `Closed`, `send_user_message`, `approve` / `deny` (`ApprovalDecision::{Allow, AllowForSession, Deny { message, interrupt }}`), `cancel` (interrupt the turn, release pending approvals), `pending_approvals`, `session_id`, `pid`, `exit_status` and `shutdown(grace)` (close stdin, polite stop, forced tree kill, reap; dropping the `Session` also kills the tree). Attach to an existing conversation with `ClaudeOptions::resume_session_id` or `CodexOptions::resume_thread_id`.

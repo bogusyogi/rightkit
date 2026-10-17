@@ -6,11 +6,17 @@
 //! shutdown are `EngineClient`; child ownership is `rightkit-child-process`. Donor: HeardRight
 //! `engine.rs` / `engine_events.rs` (event bridge) and the template's `engine_supervisor`.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rightkit_child_process::OwnedCommand;
-use rightkit_job_queue::{EngineClient, JobError};
+pub use rightkit_child_process::{RestartMode, RestartPolicy};
+use rightkit_job_queue::{
+    CallOptions, EngineClient, EngineSupervisor, JobError, Lifecycle, SupervisorConfig, Terminal,
+};
+pub use rightkit_job_queue::{EventFrame, LifecycleEvent};
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Wry};
 
@@ -23,7 +29,8 @@ pub struct EngineSpec {
     pub command: CommandFactory,
     pub hello_timeout: Duration,
     pub shutdown_grace: Duration,
-    /// Per-call deadline applied by the webview command (None = engine decides).
+    /// Per-call deadline. `None` is unbounded in legacy mode; supervised mode uses
+    /// the configured supervisor RPC timeout (120 s unless configured otherwise).
     pub call_timeout: Option<Duration>,
 }
 
@@ -38,8 +45,104 @@ impl EngineSpec {
     }
 }
 
+/// Optional shell policy. Defaults preserve unrestricted calls & legacy recovery.
+#[derive(Clone, Default)]
+pub struct EnginePolicy {
+    /// `None` permits every method; `Some(empty)` denies every method.
+    pub allowed_methods: Option<HashSet<String>>,
+    /// Exact method names; missing entries use `EngineSpec::call_timeout`.
+    pub method_timeouts: HashMap<String, Duration>,
+    /// Opt into job-queue's bounded supervisor (automatic, on-demand or disabled).
+    pub restart: Option<RestartPolicy>,
+    /// Supervised calls abandon only their wait on timeout instead of killing the child.
+    pub keep_alive_on_timeout: bool,
+    /// Optional contract, stderr, readiness & handshake configuration. Also enables supervision.
+    pub configure_supervisor:
+        Option<Arc<dyn Fn(SupervisorConfig) -> SupervisorConfig + Send + Sync>>,
+}
+
+impl EnginePolicy {
+    pub fn allow_methods(mut self, methods: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.allowed_methods = Some(methods.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn method_timeout(mut self, method: impl Into<String>, timeout: Duration) -> Self {
+        self.method_timeouts.insert(method.into(), timeout);
+        self
+    }
+
+    pub fn restart_policy(mut self, policy: RestartPolicy) -> Self {
+        self.restart = Some(policy);
+        self
+    }
+
+    pub fn supervisor_config(
+        mut self,
+        configure: impl Fn(SupervisorConfig) -> SupervisorConfig + Send + Sync + 'static,
+    ) -> Self {
+        self.configure_supervisor = Some(Arc::new(configure));
+        self
+    }
+
+    /// Validate at the native boundary, before obtaining or starting a client.
+    pub fn check_method(&self, method: &str) -> Result<(), JobError> {
+        if self
+            .allowed_methods
+            .as_ref()
+            .is_some_and(|m| !m.contains(method))
+        {
+            return Err(JobError::supervisor(
+                "method_not_allowed",
+                format!("method {method:?} is not available to the app"),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn timeout_for(&self, method: &str, fallback: Option<Duration>) -> Option<Duration> {
+        self.method_timeouts.get(method).copied().or(fallback)
+    }
+}
+
+/// Additive fields retain the existing `{call, event}` event contract.
+#[derive(Debug, Clone, Serialize)]
+pub struct EngineEvent {
+    pub call: String,
+    pub id: Option<u64>,
+    pub tag: Option<String>,
+    pub event: Value,
+}
+
+/// Typed error returned by the tagged IPC command. Legacy IPC keeps string errors.
+#[derive(Debug, Clone, Serialize)]
+pub struct EngineCallError {
+    pub code: String,
+    pub message: String,
+    /// Distinguishes pre-execution readiness errors from engine replies with matching codes.
+    pub origin: &'static str,
+}
+
+impl From<JobError> for EngineCallError {
+    fn from(e: JobError) -> Self {
+        Self {
+            code: e.code,
+            message: e.message,
+            origin: if e.origin == rightkit_job_queue::ErrorOrigin::Supervisor {
+                "supervisor"
+            } else {
+                "engine"
+            },
+        }
+    }
+}
+
+pub type EngineEventSink = Arc<dyn Fn(EngineEvent) + Send + Sync>;
+
 pub struct EngineHost {
     spec: EngineSpec,
+    policy: EnginePolicy,
+    supervisor: Option<EngineSupervisor>,
     client: Mutex<Option<Arc<EngineClient>>>,
     closing: std::sync::atomic::AtomicBool,
     lifecycle: Mutex<Value>,
@@ -47,8 +150,32 @@ pub struct EngineHost {
 
 impl EngineHost {
     pub fn new(spec: EngineSpec) -> Self {
+        Self::with_policy(spec, EnginePolicy::default())
+    }
+
+    pub fn with_policy(spec: EngineSpec, policy: EnginePolicy) -> Self {
+        let supervisor = if policy.restart.is_some() || policy.configure_supervisor.is_some() {
+            let command = spec.command.clone();
+            let mut config = SupervisorConfig::new("rk-shell-engine", move || Ok(command()))
+                .with_hello_timeout(spec.hello_timeout)
+                .with_shutdown_grace(spec.shutdown_grace);
+            if let Some(t) = spec.call_timeout {
+                config = config.with_rpc_timeout(t);
+            }
+            if let Some(restart) = policy.restart {
+                config = config.with_restart(restart);
+            }
+            if let Some(configure) = &policy.configure_supervisor {
+                config = configure(config);
+            }
+            Some(EngineSupervisor::new(config))
+        } else {
+            None
+        };
         Self {
             spec,
+            policy,
+            supervisor,
             client: Mutex::new(None),
             closing: Default::default(),
             lifecycle: Mutex::new(serde_json::json!({"state": "starting"})),
@@ -57,6 +184,16 @@ impl EngineHost {
 
     /// Spawn the engine (blocking until hello). Replaces a previous client.
     pub fn start(&self) -> Result<Value, JobError> {
+        if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(JobError::supervisor("shutting_down", "the app is exiting"));
+        }
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.start()?;
+            return supervisor
+                .status()
+                .hello
+                .ok_or_else(|| JobError::supervisor("engine_not_running", "engine has no hello"));
+        }
         let client = Arc::new(EngineClient::spawn_with(
             (self.spec.command)(),
             self.spec.hello_timeout,
@@ -67,8 +204,28 @@ impl EngineHost {
     }
 
     /// Last start outcome (`{state: starting|ready|error, ...}`). The start event can fire before the
-    /// webview subscribes, so `rk_shell_ready` and `rk_shell_status` replay this.
+    /// webview subscribes, so `rk_shell_ready` & `rk_shell_engine_status` replay this.
     pub fn lifecycle(&self) -> Value {
+        if let Some(s) = &self.supervisor {
+            let status = s.status();
+            let state = match status.lifecycle {
+                Lifecycle::Booting => "starting",
+                Lifecycle::Ready => "ready",
+                Lifecycle::Recovering => "restarting",
+                Lifecycle::Down => match &status.terminal {
+                    Some(Terminal::Stopped) => "stopped",
+                    Some(Terminal::Failed { .. }) => "failed",
+                    None if status.generation == 0 => "starting",
+                    None => "restarting",
+                },
+            };
+            return serde_json::json!({"state": state, "hello": status.hello,
+            "restarts": status.restarts, "last_error": match status.terminal {
+                Some(Terminal::Failed { reason }) => Some(reason),
+                _ if status.lifecycle == Lifecycle::Ready => None,
+                _ => status.last_exit_reason,
+            }});
+        }
         self.lifecycle
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -80,6 +237,9 @@ impl EngineHost {
     }
 
     pub fn hello(&self) -> Option<Value> {
+        if let Some(s) = &self.supervisor {
+            return s.status().hello;
+        }
         self.client
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -89,13 +249,13 @@ impl EngineHost {
 
     fn client(&self) -> Result<Arc<EngineClient>, JobError> {
         if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(JobError::new("shutting_down", "the app is exiting"));
+            return Err(JobError::supervisor("shutting_down", "the app is exiting"));
         }
         self.client
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
-            .ok_or_else(|| JobError::new("engine_not_running", "engine has not started"))
+            .ok_or_else(|| JobError::supervisor("engine_not_running", "engine has not started"))
     }
 
     /// One call; engine events stream to the webview as `rightkit-shell://engine`
@@ -107,16 +267,56 @@ impl EngineHost {
         method: &str,
         params: Value,
     ) -> Result<Value, JobError> {
-        let attempt = |client: Arc<EngineClient>| {
-            let app = app.clone();
-            let name = method.to_string();
-            let on_event: Box<dyn Fn(&Value) + Send> = Box::new(move |ev| {
-                let _ = app.emit(EVENT_ENGINE, serde_json::json!({"call": name, "event": ev}));
-            });
-            match self.spec.call_timeout {
-                Some(t) => client.call_timeout(method, params.clone(), Some(on_event), t),
-                None => client.call_with_events(method, params.clone(), Some(on_event)),
-            }
+        let app = app.clone();
+        self.call_tagged(
+            method,
+            params,
+            None,
+            Arc::new(move |event| {
+                let _ = app.emit(EVENT_ENGINE, event);
+            }),
+        )
+    }
+
+    /// Native/IPC entry point with caller correlation & request ids. In-flight failures are never replayed.
+    pub fn call_tagged(
+        &self,
+        method: &str,
+        params: Value,
+        tag: Option<String>,
+        sink: EngineEventSink,
+    ) -> Result<Value, JobError> {
+        self.policy.check_method(method)?;
+        if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(JobError::supervisor("shutting_down", "the app is exiting"));
+        }
+        let timeout = self.policy.timeout_for(method, self.spec.call_timeout);
+        let on_frame = || {
+            let (call, tag, sink) = (method.to_string(), tag.clone(), sink.clone());
+            Box::new(move |frame: &EventFrame<'_>| {
+                sink(EngineEvent {
+                    call: call.clone(),
+                    id: Some(frame.id),
+                    tag: tag.clone(),
+                    event: frame.event.clone(),
+                })
+            }) as rightkit_job_queue::OnEventFrame
+        };
+        if let Some(supervisor) = &self.supervisor {
+            return supervisor.call_with(
+                method,
+                params,
+                CallOptions {
+                    timeout,
+                    on_frame: Some(on_frame()),
+                    keep_alive_on_timeout: self.policy.keep_alive_on_timeout,
+                    ..Default::default()
+                },
+            );
+        }
+        let attempt = |client: Arc<EngineClient>| match timeout {
+            Some(t) => client.call_timeout_frames(method, params.clone(), Some(on_frame()), t),
+            None => client.call_with_frames(method, params.clone(), Some(on_frame())),
         };
         let closing = || self.closing.load(std::sync::atomic::Ordering::SeqCst);
         match attempt(self.client()?) {
@@ -136,12 +336,102 @@ impl EngineHost {
         }
     }
 
+    /// Subscribe before `start()` to observe recovery even when no call is active.
+    pub fn subscribe_lifecycle(&self) -> Option<std::sync::mpsc::Receiver<LifecycleEvent>> {
+        self.supervisor.as_ref().map(|s| s.subscribe_lifecycle())
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.closing.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Unsolicited engine frames, with no request id. Supervised mode only.
+    pub fn subscribe_events(&self) -> Option<std::sync::mpsc::Receiver<Value>> {
+        self.supervisor.as_ref().map(|s| s.subscribe_events())
+    }
+
     /// Ordered-exit step: refuse new calls, then ask the engine to stop (bounded).
     pub fn shutdown(&self) {
         self.closing
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.shutdown();
+        }
         if let Some(c) = self.client.lock().unwrap_or_else(|e| e.into_inner()).take() {
             c.shutdown(self.spec.shutdown_grace);
         }
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn unrestricted_default_and_exact_allowlist_with_empty_deny_all() {
+        assert!(EnginePolicy::default().check_method("anything").is_ok());
+        let policy = EnginePolicy::default().allow_methods(["project.show"]);
+        assert!(policy.check_method("project.show").is_ok());
+        for method in ["project", "project.show.extra", "PROJECT.SHOW"] {
+            assert_eq!(
+                policy.check_method(method).unwrap_err().code,
+                "method_not_allowed"
+            );
+        }
+        assert!(EnginePolicy::default()
+            .allow_methods(Vec::<String>::new())
+            .check_method("project.show")
+            .is_err());
+    }
+
+    #[test]
+    fn method_deadlines_override_default_only_for_exact_names() {
+        let policy = EnginePolicy::default().method_timeout("render", Duration::from_secs(300));
+        assert_eq!(
+            policy.timeout_for("render", Some(Duration::from_secs(10))),
+            Some(Duration::from_secs(300))
+        );
+        assert_eq!(
+            policy.timeout_for("render.cancel", Some(Duration::from_secs(10))),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(policy.timeout_for("other", None), None);
+    }
+
+    #[test]
+    fn denial_precedes_client_acquisition_and_spawn() {
+        let host = EngineHost::with_policy(
+            EngineSpec::new(|| panic!("denied method spawned engine")),
+            EnginePolicy::default().allow_methods(["ok"]),
+        );
+        assert_eq!(
+            host.call_tagged("bad", Value::Null, None, Arc::new(|_| panic!("event")))
+                .unwrap_err()
+                .code,
+            "method_not_allowed"
+        );
+    }
+
+    #[test]
+    fn correlated_event_and_error_wire_shapes() {
+        let event = EngineEvent {
+            call: "render".into(),
+            id: Some(42),
+            tag: Some("ui-2".into()),
+            event: serde_json::json!({"progress": 1}),
+        };
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            serde_json::json!({"call": "render", "id": 42, "tag": "ui-2", "event": {"progress": 1}})
+        );
+        let reply = EngineCallError::from(JobError::new("not_ready", "engine reply"));
+        let readiness = EngineCallError::from(JobError::supervisor("not_ready", "starting"));
+        assert_eq!(reply.origin, "engine");
+        assert_eq!(readiness.origin, "supervisor");
+        let error = EngineCallError::from(JobError::supervisor("method_not_allowed", "denied"));
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({"code": "method_not_allowed", "message": "denied", "origin": "supervisor"})
+        );
     }
 }

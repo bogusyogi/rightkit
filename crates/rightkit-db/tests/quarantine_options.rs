@@ -163,3 +163,87 @@ fn optimize_on_open_is_on_by_default_and_can_be_switched_off() {
     drop(explicit.open_writer().unwrap());
     fs::remove_dir_all(dir).unwrap();
 }
+
+fn custom_stamp(_: std::time::SystemTime) -> String {
+    ".bad-fixed".into()
+}
+
+#[test]
+fn custom_stamp_takes_a_numbered_name_when_the_plain_one_is_taken() {
+    let (dir, db) = fixture("custom-collision");
+    fs::write(dir.join("app.sqlite.bad-fixed"), b"earlier").unwrap();
+    let options = QuarantineOptions {
+        name: QuarantineStamp::Custom(custom_stamp),
+        ..QuarantineOptions::default()
+    };
+    let dest = quarantine_database_opts(&db, &options).unwrap();
+    assert_eq!(dest, dir.join("app.sqlite.bad-fixed-1"));
+    assert_eq!(
+        fs::read(dir.join("app.sqlite.bad-fixed")).unwrap(),
+        b"earlier"
+    );
+    assert_eq!(fs::read(&dest).unwrap(), b"damaged bytes");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// A directory where a sidecar file should be makes its removal fail after the main file moved.
+fn block_with_directory(path: &std::path::Path) {
+    fs::create_dir(path).unwrap();
+    fs::write(path.join("inside"), b"x").unwrap();
+}
+
+#[test]
+fn a_sidecar_failure_after_the_main_move_rolls_the_main_file_back() {
+    let (dir, db) = fixture("rollback");
+    block_with_directory(&dir.join("app.sqlite-wal"));
+    let error = quarantine_database_opts(
+        &db,
+        &QuarantineOptions {
+            sidecars: SidecarPolicy::DeleteSidecars,
+            marker: Some(dir.join("recovery.json")),
+            ..QuarantineOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(!error.to_string().is_empty());
+    assert_eq!(
+        fs::read(&db).unwrap(),
+        b"damaged bytes",
+        "main file is back"
+    );
+    let moved: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
+        .collect();
+    assert!(moved.is_empty(), "nothing is left at a quarantine name");
+    assert!(
+        !dir.join("recovery.json").exists(),
+        "an undone move leaves no marker"
+    );
+}
+
+#[test]
+fn a_stop_after_a_deleted_sidecar_keeps_the_move_and_the_marker() {
+    // The -wal is deleted first, then the -shm blocks: the delete cannot be undone, so the main
+    // file stays quarantined and the failure names the split instead of claiming it is untouched.
+    let (dir, db) = fixture("stranded");
+    fs::write(dir.join("app.sqlite-wal"), b"wal").unwrap();
+    block_with_directory(&dir.join("app.sqlite-shm"));
+    let marker = dir.join("recovery.json");
+    let error = quarantine_database_opts(
+        &db,
+        &QuarantineOptions {
+            sidecars: SidecarPolicy::DeleteSidecars,
+            marker: Some(marker.clone()),
+            ..QuarantineOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("quarantine incomplete"),
+        "{error}"
+    );
+    assert!(!db.exists(), "the main file was moved aside");
+    assert!(marker.exists(), "the marker is kept for recovery");
+}

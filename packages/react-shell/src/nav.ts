@@ -10,6 +10,10 @@ export interface NavItem {
   keywords?: readonly string[];
   /** Hide without removing (platform-only destinations). */
   hidden?: boolean;
+  /**
+   * Accessible name of the row, when the visible label is not enough (for example "Inbox, 3 unread"). Default: the label.
+   */
+  ariaLabel?: string;
 }
 
 export interface NavGroup {

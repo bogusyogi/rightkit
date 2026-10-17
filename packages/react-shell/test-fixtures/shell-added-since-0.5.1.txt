@@ -1,0 +1,236 @@
+@keyframes rk-shimmer | from { background-position: 100% 0; } to { background-position: -100% 0; }
+@keyframes rk-toast-in-top | from { opacity: 0; transform: translateY(-8px); }
+@media (prefers-reduced-motion: reduce) | .rk-modal:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-palette:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-menu:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-toast:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-overlay:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) | animation: none !important
+@media (prefers-reduced-motion: reduce) | .rk-modal:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-palette:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-menu:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-toast:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)), .rk-overlay:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) | transition: none !important
+@media (prefers-reduced-motion: reduce) | .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) | transition: none
+@media (prefers-reduced-motion: reduce) | .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) | animation: none
+| .rk-appearance__opt | align-items: center
+| .rk-appearance__opt | display: inline-flex
+| .rk-appearance__opt | gap: 8px
+| .rk-body | position: relative
+| .rk-caption__btn | cursor: var(--rk-caption-cursor, default)
+| .rk-caption__btn:focus-visible | outline-offset: var(--rk-caption-outline-offset, -2px)
+| .rk-caption__btn:focus-visible | outline: var(--rk-caption-outline, 2px solid var(--rk-focus))
+| .rk-card--interactive | cursor: default
+| .rk-card--interactive:active | box-shadow: inset 0 0 0 999px var(--rk-wash-press), var(--rk-card)
+| .rk-card--interactive:focus-visible | outline-offset: 2px
+| .rk-card--interactive:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-card--interactive:hover | box-shadow: inset 0 0 0 999px var(--rk-wash-hover), var(--rk-card)
+| .rk-card.is-flush | padding: 0
+| .rk-card.is-selected | box-shadow: inset 0 0 0 1.5px var(--rk-accent), var(--rk-card)
+| .rk-check | align-items: center
+| .rk-check | color: var(--rk-ink)
+| .rk-check | cursor: default
+| .rk-check | display: inline-flex
+| .rk-check | font-size: 13px
+| .rk-check | gap: 8px
+| .rk-check | position: relative
+| .rk-check.is-disabled | opacity: .5
+| .rk-check:not(.is-disabled):active .rk-check__box | background: var(--rk-wash-press)
+| .rk-check__box | background: var(--rk-fill-2)
+| .rk-check__box | border-radius: 5px
+| .rk-check__box | box-shadow: inset 0 0 0 1px var(--rk-line-strong)
+| .rk-check__box | color: var(--rk-accent-ink)
+| .rk-check__box | display: grid
+| .rk-check__box | flex: none
+| .rk-check__box | font-size: 11px
+| .rk-check__box | font-weight: 700
+| .rk-check__box | height: 16px
+| .rk-check__box | place-items: center
+| .rk-check__box | width: 16px
+| .rk-check__input | clip-path: inset(50%)
+| .rk-check__input | clip: rect(0 0 0 0)
+| .rk-check__input | height: 1px
+| .rk-check__input | left: 0
+| .rk-check__input | margin: 0
+| .rk-check__input | position: absolute
+| .rk-check__input | top: 0
+| .rk-check__input | width: 1px
+| .rk-check__input:checked + .rk-check__box, .rk-check__input:indeterminate + .rk-check__box | background: var(--rk-accent)
+| .rk-check__input:checked + .rk-check__box, .rk-check__input:indeterminate + .rk-check__box | box-shadow: none
+| .rk-check__input:focus-visible + .rk-check__box | outline-offset: 2px
+| .rk-check__input:focus-visible + .rk-check__box | outline: 2px solid var(--rk-focus)
+| .rk-group__toggle | align-items: center
+| .rk-group__toggle | background: none
+| .rk-group__toggle | border: 0
+| .rk-group__toggle | color: var(--rk-ink-3)
+| .rk-group__toggle | cursor: default
+| .rk-group__toggle | display: inline-flex
+| .rk-group__toggle | font-size: 11px
+| .rk-group__toggle | font-weight: 600
+| .rk-group__toggle | font: inherit
+| .rk-group__toggle | gap: 4px
+| .rk-group__toggle | padding: 0
+| .rk-item-row > .rk-item | flex: 1 1 auto
+| .rk-item-row > .rk-item | min-width: 0
+| .rk-item-row | align-items: center
+| .rk-item-row | display: flex
+| .rk-item:not(.is-active):active | background: var(--rk-wash-press)
+| .rk-item__check | accent-color: var(--rk-accent)
+| .rk-item__check | flex: none
+| .rk-item__check | margin: 0 0 0 14px
+| .rk-menu-scrim.is-closing, .rk-menu.is-closing | pointer-events: none
+| .rk-menu.is-closing | animation: rk-pop-out var(--rk-menu-exit-ms, 80ms) ease-in forwards
+| .rk-notice | align-items: flex-start
+| .rk-notice | background: var(--rk-fill)
+| .rk-notice | border-radius: 10px
+| .rk-notice | box-shadow: inset 0 0 0 1px var(--rk-line)
+| .rk-notice | color: var(--rk-ink)
+| .rk-notice | display: flex
+| .rk-notice | font-size: 12.5px
+| .rk-notice | gap: 10px
+| .rk-notice | line-height: 1.45
+| .rk-notice | padding: 10px 12px
+| .rk-notice--bad | background: var(--rk-bad-soft)
+| .rk-notice--ok | background: var(--rk-ok-soft)
+| .rk-notice--warn | background: var(--rk-warn-soft)
+| .rk-notice__action | flex: none
+| .rk-notice__body | display: flex
+| .rk-notice__body | flex-direction: column
+| .rk-notice__body | flex: 1
+| .rk-notice__body | min-width: 0
+| .rk-notice__text | color: var(--rk-ink-2)
+| .rk-notice__title | font-weight: 650
+| .rk-palette__scope | background: var(--rk-accent-soft)
+| .rk-palette__scope | border-radius: 6px
+| .rk-palette__scope | color: var(--rk-accent)
+| .rk-palette__scope | flex: none
+| .rk-palette__scope | font: 600 13px/22px var(--rk-font-mono)
+| .rk-palette__scope | height: 22px
+| .rk-palette__scope | min-width: 20px
+| .rk-palette__scope | padding: 0 6px
+| .rk-palette__scope | text-align: center
+| .rk-palette__sub | color: var(--rk-ink-3)
+| .rk-palette__sub | flex: 0 1 auto
+| .rk-palette__sub | font-size: 12px
+| .rk-palette__sub | min-width: 0
+| .rk-palette__sub | overflow: hidden
+| .rk-palette__sub | text-overflow: ellipsis
+| .rk-palette__sub | white-space: nowrap
+| .rk-palette__type | background: var(--rk-fill-2)
+| .rk-palette__type | border-radius: 99px
+| .rk-palette__type | color: var(--rk-ink-2)
+| .rk-palette__type | flex: none
+| .rk-palette__type | font-size: 11px
+| .rk-palette__type | font-weight: 600
+| .rk-palette__type | height: 18px
+| .rk-palette__type | line-height: 18px
+| .rk-palette__type | padding: 0 6px
+| .rk-pill:active | background: var(--rk-wash-press)
+| .rk-popover | background: var(--rk-elevated)
+| .rk-popover | border-radius: var(--rk-radius)
+| .rk-popover | box-shadow: var(--rk-pop)
+| .rk-popover | color: var(--rk-ink)
+| .rk-popover | font-size: 13px
+| .rk-popover | line-height: 1.4
+| .rk-popover | overflow-y: auto
+| .rk-popover | padding: 8px
+| .rk-popover | position: fixed
+| .rk-popover | z-index: 81
+| .rk-popover:focus | outline: none
+| .rk-progress | background: var(--rk-fill-2)
+| .rk-progress | border-radius: 99px
+| .rk-progress | height: 6px
+| .rk-progress | overflow: hidden
+| .rk-progress | position: relative
+| .rk-progress--bad .rk-progress__fill | background: var(--rk-bad)
+| .rk-progress--ok .rk-progress__fill | background: var(--rk-ok-dot)
+| .rk-progress--warn .rk-progress__fill | background: var(--rk-warn-dot)
+| .rk-progress__fill | background: var(--rk-accent)
+| .rk-progress__fill | border-radius: inherit
+| .rk-progress__fill | display: block
+| .rk-progress__fill | height: 100%
+| .rk-progress__fill | transition: width .2s ease
+| .rk-recorder | align-items: center
+| .rk-recorder | background: var(--rk-fill-2)
+| .rk-recorder | border-radius: 7px
+| .rk-recorder | border: 0
+| .rk-recorder | color: var(--rk-ink)
+| .rk-recorder | display: inline-flex
+| .rk-recorder | font-size: 12.5px
+| .rk-recorder | font: inherit
+| .rk-recorder | gap: 6px
+| .rk-recorder | height: 28px
+| .rk-recorder | justify-content: center
+| .rk-recorder | min-width: 120px
+| .rk-recorder | padding: 0 10px
+| .rk-recorder.is-recording | background: var(--rk-accent-soft)
+| .rk-recorder.is-recording | box-shadow: 0 0 0 2px var(--rk-accent)
+| .rk-recorder:disabled | opacity: .5
+| .rk-recorder:focus-visible | outline-offset: 2px
+| .rk-recorder:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-recorder__empty, .rk-recorder__hint | color: var(--rk-ink-3)
+| .rk-seg | gap: var(--rk-seg-gap, 2px)
+| .rk-seg__item:not(.is-on):active | background: var(--rk-wash-press)
+| .rk-select | appearance: none
+| .rk-select | background-color: var(--rk-fill-2)
+| .rk-select | background-image: linear-gradient(45deg, transparent 50%, var(--rk-ink-2) 50%), linear-gradient(135deg, var(--rk-ink-2) 50%, transparent 50%)
+| .rk-select | background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%
+| .rk-select | background-repeat: no-repeat
+| .rk-select | background-size: 4px 4px, 4px 4px
+| .rk-select | border-radius: 8px
+| .rk-select | border: 0
+| .rk-select | color: var(--rk-ink)
+| .rk-select | font: inherit
+| .rk-select | height: 30px
+| .rk-select | outline: none
+| .rk-select | padding: 0 28px 0 10px
+| .rk-select:disabled | opacity: .5
+| .rk-select:focus-visible | box-shadow: 0 0 0 2px var(--rk-focus)
+| .rk-shell | font-family: var(--rk-font-body, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)
+| .rk-shell.is-narrow .rk-side-resizer | display: none
+| .rk-side-resizer | bottom: 0
+| .rk-side-resizer | cursor: col-resize
+| .rk-side-resizer | position: absolute
+| .rk-side-resizer | top: 0
+| .rk-side-resizer | width: 6px
+| .rk-side-resizer | z-index: 2
+| .rk-side-resizer:focus-visible | outline-offset: -2px
+| .rk-side-resizer:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-skeleton | animation: rk-shimmer 1.4s ease infinite
+| .rk-skeleton | background-size: 400% 100%
+| .rk-skeleton | background: linear-gradient(90deg, var(--rk-fill-2) 25%, var(--rk-fill-3) 37%, var(--rk-fill-2) 63%)
+| .rk-skeleton | border-radius: 6px
+| .rk-skeleton | display: block
+| .rk-skeleton-rows | display: grid
+| .rk-skeleton-rows | gap: 8px
+| .rk-slider | accent-color: var(--rk-accent)
+| .rk-slider | width: 100%
+| .rk-slider:disabled | opacity: .5
+| .rk-slider:focus-visible | outline-offset: 2px
+| .rk-slider:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-swatches i | display: block
+| .rk-swatches i | flex: 1 1 0
+| .rk-swatches i | min-width: 0
+| .rk-swatches | border-radius: 4px
+| .rk-swatches | box-shadow: inset 0 0 0 .5px var(--rk-line-strong)
+| .rk-swatches | display: inline-flex
+| .rk-swatches | flex: none
+| .rk-swatches | height: 12px
+| .rk-swatches | overflow: hidden
+| .rk-swatches | width: 18px
+| .rk-toasts | translate: var(--rk-toast-translate, -50% 0)
+| .rk-toasts | width: min(var(--rk-toast-width, 26rem), calc(100vw - 2rem))
+| .rk-toasts[data-placement="top-center"] .rk-toast | animation-name: rk-toast-in-top
+| .rk-toasts[data-placement="top-center"] | bottom: auto
+| .rk-toasts[data-placement="top-center"] | top: var(--rk-toast-top-offset, 16px)
+| .rk-toasts[data-placement="top-end"] .rk-toast | animation-name: rk-toast-in-top
+| .rk-toasts[data-placement="top-end"] | bottom: auto
+| .rk-toasts[data-placement="top-end"] | left: auto
+| .rk-toasts[data-placement="top-end"] | right: var(--rk-toast-end-offset, 3.5rem)
+| .rk-toasts[data-placement="top-end"] | top: var(--rk-toast-top-end-offset, 3rem)
+| .rk-toasts[data-placement="top-end"] | translate: none
+| .rk-toggle | height: var(--rk-toggle-height, 22px)
+| .rk-toggle | width: var(--rk-toggle-width, 36px)
+| .rk-toggle[aria-checked="true"] .rk-toggle__knob | transform: translateX(var(--rk-toggle-travel, 14px))
+| .rk-toggle__knob | height: var(--rk-toggle-knob, 18px)
+| .rk-toggle__knob | width: var(--rk-toggle-knob, 18px)
+| :root | --rk-line-2: color-mix(in srgb, currentColor 8%, transparent)
+| :root | --rk-wash-hover: var(--rk-fill)
+| :root | --rk-wash-press: var(--rk-fill-2)
+| :root:not([data-rk-pointer="off"]) .rk-check:not(.is-disabled):hover .rk-check__box | background: var(--rk-wash-hover)
+| :root:not([data-rk-pointer="off"]) .rk-item:not(.is-active):hover | background: var(--rk-wash-hover)
+| :root:not([data-rk-pointer="off"]) .rk-pill:hover | background: var(--rk-wash-hover)
+| :root:not([data-rk-pointer="off"]) .rk-seg__item:not(.is-on):hover | background: var(--rk-wash-hover)
+| :root:not([data-rk-pointer="off"]) .rk-toggle[aria-checked="false"]:not(:disabled):hover | background: var(--rk-wash-press)
+| :where(.rk-top, .rk-top__title, .rk-side, .rk-plane, .rk-nav, .rk-item__label, .rk-brand-foot, .rk-page__band, .rk-page__scroll, .rk-page__head h1, .rk-field label, .rk-modal__title, .rk-modal__label, .rk-palette__label, .rk-toast__msg) | color: var(--rk-ink)

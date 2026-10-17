@@ -1,4 +1,4 @@
-import { forwardRef, useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 
 export { Kbd } from "@rightkit/platform-ui/react";
 
@@ -73,8 +73,185 @@ export function SegmentedControl<T extends string>({ value, options, onChange, l
   );
 }
 
-export function Card({ className, children, as: Tag = "div" }: { className?: string; children: ReactNode; as?: "div" | "section" | "article" }) {
-  return <Tag className={cx("rk-card", className)}>{children}</Tag>;
+export interface CardProps {
+  className?: string;
+  children: ReactNode;
+  as?: "div" | "section" | "article";
+  /** Makes the card a button (role, Tab stop, Enter and Space). The app's handler runs; nothing else changes. */
+  onClick?: () => void;
+  /** Accessible name, needed when the card is interactive and its text is not a useful name. */
+  label?: string;
+  /** Remove the inner padding (media or a full-bleed list inside the card). */
+  flush?: boolean;
+  /** Highlights the card. With `onClick` it is also exposed as `aria-pressed`. */
+  selected?: boolean;
+}
+
+export function Card({ className, children, as: Tag = "div", onClick, label, flush, selected }: CardProps) {
+  const interactive = onClick !== undefined;
+  const onKeyDown = interactive
+    ? (event: ReactKeyboardEvent<HTMLElement>) => {
+        // Keys from a nested control belong to that control.
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick?.();
+        }
+      }
+    : undefined;
+  return (
+    <Tag
+      className={cx("rk-card", interactive && "rk-card--interactive", flush && "is-flush", selected && "is-selected", className)}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={label}
+      aria-pressed={interactive && selected !== undefined ? selected : undefined}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+    >
+      {children}
+    </Tag>
+  );
+}
+
+/** Placeholder block for loading content. Decorative: pair it with a `SkeletonRows` status or a visible "Loading" label. */
+export interface SkeletonProps {
+  width?: number | string;
+  height?: number | string;
+  radius?: number | string;
+  className?: string;
+  style?: CSSProperties;
+}
+
+export function Skeleton({ width, height = 12, radius, className, style }: SkeletonProps) {
+  return <span aria-hidden="true" className={cx("rk-skeleton", className)} style={{ width, height, borderRadius: radius, ...style }} />;
+}
+
+/** A column of skeleton lines announced as a busy status. The last line is shorter, as text usually is. */
+export function SkeletonRows({ rows = 3, label = "Loading", className }: { rows?: number; label?: string; className?: string }) {
+  return (
+    <div role="status" aria-label={label} aria-busy="true" className={cx("rk-skeleton-rows", className)}>
+      {Array.from({ length: Math.max(1, rows) }, (_, i) => (
+        <Skeleton key={i} width={i === Math.max(1, rows) - 1 ? "60%" : "100%"} />
+      ))}
+    </div>
+  );
+}
+
+/** Checkbox with a visible box and a label. `indeterminate` shows the mixed state (set on the input, not an attribute). */
+export interface CheckboxProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: ReactNode;
+  disabled?: boolean;
+  indeterminate?: boolean;
+  className?: string;
+}
+
+export function Checkbox({ checked, onChange, label, disabled, indeterminate = false, className }: CheckboxProps) {
+  return (
+    <label className={cx("rk-check", disabled && "is-disabled", className)}>
+      <input
+        ref={(el) => {
+          if (el) el.indeterminate = indeterminate;
+        }}
+        type="checkbox"
+        className="rk-check__input"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="rk-check__box" aria-hidden="true">{indeterminate ? "–" : checked ? "✓" : ""}</span>
+      <span className="rk-check__label">{label}</span>
+    </label>
+  );
+}
+
+/** Native select in the shell's look. Option labels are strings (the browser renders `option` text only). */
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+  disabled?: boolean;
+}
+
+export function Select<T extends string>({ value, options, onChange, label, disabled, className }: { value: T; options: readonly SelectOption<T>[]; onChange: (value: T) => void; label: string; disabled?: boolean; className?: string }) {
+  return (
+    <select className={cx("rk-select", className)} aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>
+      {options.map((option) => (
+        <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
+/** Native range input in the shell's look. `format` supplies the spoken value (for example "42 percent"). */
+export interface SliderProps {
+  value: number;
+  onChange: (value: number) => void;
+  label: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  disabled?: boolean;
+  format?: (value: number) => string;
+  className?: string;
+}
+
+export function Slider({ value, onChange, label, min = 0, max = 100, step = 1, disabled, format, className }: SliderProps) {
+  return (
+    <input
+      type="range"
+      className={cx("rk-slider", className)}
+      aria-label={label}
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      disabled={disabled}
+      aria-valuetext={format ? format(value) : undefined}
+      onChange={(event) => onChange(Number(event.target.value))}
+    />
+  );
+}
+
+/** Inline notice. `warn` and `bad` announce as alerts; the others as status. */
+export interface NoticeProps {
+  tone?: "info" | "ok" | "warn" | "bad";
+  title?: ReactNode;
+  children?: ReactNode;
+  /** A button or link at the end of the notice. */
+  action?: ReactNode;
+  className?: string;
+}
+
+export function Notice({ tone = "info", title, children, action, className }: NoticeProps) {
+  return (
+    <div role={tone === "bad" || tone === "warn" ? "alert" : "status"} className={cx("rk-notice", `rk-notice--${tone}`, className)}>
+      <div className="rk-notice__body">
+        {title ? <strong className="rk-notice__title">{title}</strong> : null}
+        {children ? <span className="rk-notice__text">{children}</span> : null}
+      </div>
+      {action ? <div className="rk-notice__action">{action}</div> : null}
+    </div>
+  );
+}
+
+/** Determinate progress bar with a tone. `value` is clamped to 0..max. */
+export interface ProgressBarProps {
+  value: number;
+  max?: number;
+  tone?: "accent" | "ok" | "warn" | "bad";
+  label: string;
+  className?: string;
+}
+
+export function ProgressBar({ value, max = 100, tone = "accent", label, className }: ProgressBarProps) {
+  const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  return (
+    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={Math.round(Math.min(max, Math.max(0, value)))} className={cx("rk-progress", `rk-progress--${tone}`, className)}>
+      <span className="rk-progress__fill" style={{ width: `${pct}%` }} />
+    </div>
+  );
 }
 
 export function Badge({ tone = "neutral", children }: { tone?: "neutral" | "accent" | "ok" | "warn" | "bad"; children: ReactNode }) {

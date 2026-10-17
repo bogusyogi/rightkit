@@ -13,7 +13,7 @@ Brand-neutral, read-only PDF viewer for Right Suite apps, built on pdf.js. `PdfV
 
 | Import | Contents |
 |---|---|
-| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `thumbnailWindow`, `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, `pdfDocumentInit`, `pdfTextContentSource`, `renderPdfTextLayer`; types |
+| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `findRegexMatches`, `regexPatternError`, `thumbnailWindow`, `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, `pdfDocumentInit`, `pdfTextContentSource`, `renderPdfTextLayer`; types |
 | `@rightkit/pdf-ui/styles.css` | Stylesheet. Import once in the app. |
 
 Dependency: `pdfjs-dist` `^6.3.289`.

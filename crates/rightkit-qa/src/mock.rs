@@ -22,7 +22,7 @@ use crate::util::Result;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -159,6 +159,19 @@ impl Reply {
     pub fn ignore_range(self) -> Self {
         self.with_header(IGNORE_RANGE_HEADER, "1")
     }
+    /// Close the connection without writing any response: a half-accepted request (the
+    /// client sent it, the server never answered). The request is still recorded and logged
+    /// (status `0` in [`RequestLog`]). Recorded as the reserved [`DROP_HEADER`], which the
+    /// mock consumes and never sends.
+    pub fn drop_connection() -> Self {
+        Self::bytes("application/octet-stream", Vec::new()).with_header(DROP_HEADER, "1")
+    }
+    /// True for a [`Reply::drop_connection`] reply.
+    pub fn is_drop(&self) -> bool {
+        self.headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case(DROP_HEADER))
+    }
     /// Send the response head (with the full `Content-Length`), then only the first
     /// `bytes` body bytes, then close the connection: a download dropped mid-transfer.
     /// Applies after any `Range` slicing. Recorded as the reserved [`CUT_AFTER_HEADER`],
@@ -168,6 +181,8 @@ impl Reply {
     }
 }
 
+/// Reserved reply header behind [`Reply::drop_connection`]; consumed, never sent.
+pub const DROP_HEADER: &str = "X-RightKit-Mock-Drop";
 /// Reserved reply header behind [`Reply::ignore_range`]; consumed, never sent.
 pub const IGNORE_RANGE_HEADER: &str = "X-RightKit-Mock-Ignore-Range";
 /// Reserved reply header behind [`Reply::cut_after`]; consumed, never sent.
@@ -248,6 +263,104 @@ impl From<Option<Reply>> for Reply {
 
 type Handler = dyn Fn(&Request, &str) -> Reply + Send + Sync;
 
+/// One request as the per-request log hook ([`MockOptions::on_request`]) sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestLog {
+    /// Empty when the request could not be read (limit hit, malformed, closed early).
+    pub method: String,
+    /// Request target as sent; empty when the request could not be read.
+    pub path: String,
+    /// Status written; `0` when the connection was dropped with no response.
+    pub status: u16,
+    /// Why the mock itself rejected the request (limit, `Transfer-Encoding`, connection cap),
+    /// else `None`.
+    pub rejected: Option<&'static str>,
+}
+
+type LogHook = dyn Fn(&RequestLog) + Send + Sync;
+
+/// Extra behaviour for [`MockServer::start_opts`]. `MockOptions::default()` behaves exactly
+/// like [`MockServer::start_with`]: ephemeral port, no limits, no cap, no linger.
+#[derive(Clone, Default)]
+pub struct MockOptions {
+    /// Bind this port on `127.0.0.1` instead of an ephemeral one (`serve --port n`).
+    pub port: Option<u16>,
+    /// Request head larger than this gets `431`.
+    pub max_header_bytes: Option<usize>,
+    /// A `Content-Length` larger than this gets `413`.
+    pub max_body_bytes: Option<usize>,
+    /// Any `Transfer-Encoding` request header gets `501` (only `Content-Length` bodies are read).
+    pub reject_transfer_encoding: bool,
+    /// At most this many connections are served at once; extra ones get `503` and are closed.
+    pub max_connections: Option<usize>,
+    /// After a reply, shut down the write side, then read and discard the peer's remaining
+    /// bytes for up to this long before closing, so a close with unread input cannot reset
+    /// the connection and discard a reply the client has not read.
+    pub linger: Option<Duration>,
+    /// Called once per request, after it is answered (or dropped, or rejected).
+    pub on_request: Option<Arc<LogHook>>,
+}
+
+impl MockOptions {
+    pub fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+    pub fn max_header_bytes(mut self, n: usize) -> Self {
+        self.max_header_bytes = Some(n);
+        self
+    }
+    pub fn max_body_bytes(mut self, n: usize) -> Self {
+        self.max_body_bytes = Some(n);
+        self
+    }
+    pub fn reject_transfer_encoding(mut self) -> Self {
+        self.reject_transfer_encoding = true;
+        self
+    }
+    pub fn max_connections(mut self, n: usize) -> Self {
+        self.max_connections = Some(n);
+        self
+    }
+    pub fn linger(mut self, d: Duration) -> Self {
+        self.linger = Some(d);
+        self
+    }
+    pub fn on_request(mut self, f: impl Fn(&RequestLog) + Send + Sync + 'static) -> Self {
+        self.on_request = Some(Arc::new(f));
+        self
+    }
+}
+
+/// Cloneable, thread-safe handle that stops a [`MockServer`] (from a signal handler thread,
+/// a stdin-close watcher, or a `/shutdown` route) and lets another thread wait for it.
+#[derive(Clone)]
+pub struct ShutdownHandle {
+    addr: SocketAddr,
+    stop: Arc<AtomicBool>,
+}
+
+impl ShutdownHandle {
+    /// Stop accepting; in-flight connections finish.
+    pub fn shutdown(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(200));
+    }
+    pub fn is_shutdown(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+    /// Block until [`ShutdownHandle::shutdown`] is called (the main thread of a standalone mock).
+    pub fn wait(&self) {
+        while !self.is_shutdown() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+struct Limits {
+    opts: MockOptions,
+}
+
 pub struct MockServer {
     pub base: String,
     addr: SocketAddr,
@@ -303,22 +416,53 @@ impl MockServer {
     pub fn start_with<R: Into<Reply>>(
         handler: impl Fn(&Request, &str) -> R + Send + Sync + 'static,
     ) -> Result<Self> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        Self::start_opts(MockOptions::default(), handler)
+    }
+
+    /// [`MockServer::start_with`] plus [`MockOptions`]: a chosen port, request limits
+    /// (`431`/`413`/`501`), a connection cap (`503`), linger/drain, and a per-request log hook.
+    /// Rejections are written by the mock; the handler never sees those requests.
+    pub fn start_opts<R: Into<Reply>>(
+        opts: MockOptions,
+        handler: impl Fn(&Request, &str) -> R + Send + Sync + 'static,
+    ) -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", opts.port.unwrap_or(0)))?;
         let addr = listener.local_addr()?;
         let base = format!("http://{addr}");
         let seen = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let handler: Arc<Handler> = Arc::new(move |r: &Request, b: &str| handler(r, b).into());
         let (s2, st2, b2) = (seen.clone(), stop.clone(), base.clone());
+        let limits = Arc::new(Limits { opts });
+        let active = Arc::new(AtomicUsize::new(0));
         std::thread::spawn(move || {
-            for conn in listener.incoming().flatten() {
+            for mut conn in listener.incoming().flatten() {
                 if st2.load(Ordering::SeqCst) {
                     break;
                 }
-                let (s3, h, b) = (s2.clone(), handler.clone(), b2.clone());
-                std::thread::spawn(move || {
-                    let _ = serve(conn, &s3, &b, &*h);
+                if limits
+                    .opts
+                    .max_connections
+                    .is_some_and(|cap| active.load(Ordering::SeqCst) >= cap)
+                {
+                    reject(&mut conn, &limits, 503, "too many connections");
+                    continue;
+                }
+                active.fetch_add(1, Ordering::SeqCst);
+                let (s3, h, b, l, a) = (
+                    s2.clone(),
+                    handler.clone(),
+                    b2.clone(),
+                    limits.clone(),
+                    active.clone(),
+                );
+                let spawned = std::thread::Builder::new().spawn(move || {
+                    let _ = serve(conn, &s3, &b, &*h, &l);
+                    a.fetch_sub(1, Ordering::SeqCst);
                 });
+                if spawned.is_err() {
+                    active.fetch_sub(1, Ordering::SeqCst);
+                }
             }
         });
         Ok(Self {
@@ -327,6 +471,14 @@ impl MockServer {
             seen,
             stop,
         })
+    }
+
+    /// A handle that stops this server from any thread.
+    pub fn shutdown_handle(&self) -> ShutdownHandle {
+        ShutdownHandle {
+            addr: self.addr,
+            stop: self.stop.clone(),
+        }
     }
 
     pub fn port(&self) -> u16 {
@@ -356,8 +508,10 @@ fn serve(
     seen: &Mutex<Vec<Seen>>,
     base: &str,
     handler: &Handler,
+    limits: &Limits,
 ) -> std::io::Result<()> {
     s.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let o = &limits.opts;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 16384];
     let (head_end, content_len) = loop {
@@ -366,22 +520,71 @@ fn serve(
             return Ok(());
         }
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        let end = buf.windows(4).position(|w| w == b"\r\n\r\n");
+        if let Some(max) = o.max_header_bytes {
+            if end.unwrap_or(buf.len()) > max {
+                reject(&mut s, limits, 431, "request headers are too large");
+                return Ok(());
+            }
+        }
+        if let Some(p) = end {
             let head = String::from_utf8_lossy(&buf[..p]).to_ascii_lowercase();
-            let len = head
-                .lines()
-                .find_map(|l| {
-                    l.strip_prefix("content-length:")
-                        .and_then(|v| v.trim().parse::<usize>().ok())
+            if o.reject_transfer_encoding
+                && head.lines().skip(1).any(|l| {
+                    l.split_once(':')
+                        .is_some_and(|(k, _)| k.trim() == "transfer-encoding")
                 })
-                .unwrap_or(0);
+            {
+                reject(
+                    &mut s,
+                    limits,
+                    501,
+                    "Transfer-Encoding is not supported; send Content-Length",
+                );
+                return Ok(());
+            }
+            let mut lens = head.lines().skip(1).filter_map(|l| {
+                l.split_once(':')
+                    .filter(|(k, _)| k.trim() == "content-length")
+                    .map(|(_, v)| v.trim().to_string())
+            });
+            let len = match (lens.next(), lens.next()) {
+                (None, _) => 0,
+                (Some(v), None) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+                    match v.parse::<usize>() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            reject(&mut s, limits, 400, "invalid Content-Length");
+                            return Ok(());
+                        }
+                    }
+                }
+                _ => {
+                    reject(&mut s, limits, 400, "invalid or duplicate Content-Length");
+                    return Ok(());
+                }
+            };
+            if o.max_body_bytes.is_some_and(|max| len > max) {
+                reject(&mut s, limits, 413, "request body is too large");
+                return Ok(());
+            }
             break (p + 4, len);
         }
     };
-    while buf.len() < head_end + content_len {
+    let Some(total) = head_end.checked_add(content_len) else {
+        reject(&mut s, limits, 400, "invalid Content-Length");
+        return Ok(());
+    };
+    while buf.len() < total {
         let n = s.read(&mut chunk)?;
         if n == 0 {
-            break;
+            reject(
+                &mut s,
+                limits,
+                400,
+                "request body ended before Content-Length",
+            );
+            return Ok(());
         }
         buf.extend_from_slice(&chunk[..n]);
     }
@@ -396,7 +599,7 @@ fn serve(
         .filter_map(|l| l.split_once(':'))
         .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
         .collect();
-    let body_bytes = buf[head_end..(head_end + content_len).min(buf.len())].to_vec();
+    let body_bytes = buf[head_end..total].to_vec();
     let req = Seen {
         method,
         path,
@@ -407,7 +610,58 @@ fn serve(
     seen.lock().unwrap().push(req.clone());
     let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(&req, base)))
         .unwrap_or_else(|_| Reply::status(500, json!({"error": "mock handler panicked"})));
-    write_reply(&mut s, &req, reply)
+    let log = |status: u16| {
+        if let Some(f) = &o.on_request {
+            f(&RequestLog {
+                method: req.method.clone(),
+                path: req.path.clone(),
+                status,
+                rejected: None,
+            });
+        }
+    };
+    if reply.is_drop() {
+        log(0);
+        return Ok(());
+    }
+    let status = reply.status;
+    let r = write_reply(&mut s, &req, reply);
+    log(status);
+    linger(&mut s, o);
+    r
+}
+
+/// Write a mock-generated JSON error, log it, and close.
+fn reject(s: &mut TcpStream, limits: &Limits, status: u16, why: &'static str) {
+    let _ = s.set_write_timeout(Some(Duration::from_secs(10)));
+    let req = Seen {
+        method: String::new(),
+        path: String::new(),
+        headers: vec![],
+        body: String::new(),
+        body_bytes: vec![],
+    };
+    let body = json!({"error": {"code": "bad_request", "message": why}});
+    let _ = write_reply(s, &req, Reply::status(status, body));
+    if let Some(f) = &limits.opts.on_request {
+        f(&RequestLog {
+            method: String::new(),
+            path: String::new(),
+            status,
+            rejected: Some(why),
+        });
+    }
+    linger(s, &limits.opts);
+}
+
+/// Stop sending, then drain the peer's last bytes so the close is not a reset.
+fn linger(s: &mut TcpStream, o: &MockOptions) {
+    let Some(d) = o.linger else { return };
+    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _ = s.set_read_timeout(Some(d));
+    let mut sink = [0u8; 1024];
+    let deadline = std::time::Instant::now() + d;
+    while std::time::Instant::now() < deadline && matches!(s.read(&mut sink), Ok(n) if n > 0) {}
 }
 
 fn write_reply(s: &mut TcpStream, req: &Request, mut reply: Reply) -> std::io::Result<()> {
@@ -743,5 +997,143 @@ mod tests {
         let (_, h, b) = raw(&st, "GET", "/x", &[]);
         assert_eq!(b, b"he");
         assert!(h.iter().all(|(k, _)| !k.starts_with("x-rightkit-mock")));
+    }
+
+    fn exchange(addr: SocketAddr, req: &[u8]) -> String {
+        let mut st = TcpStream::connect(addr).unwrap();
+        st.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let _ = st.write_all(req);
+        let mut out = Vec::new();
+        let _ = st.read_to_end(&mut out);
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn opts_bind_chosen_port_and_drop_connection_and_log() {
+        let free = TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let log = Arc::new(Mutex::new(Vec::<RequestLog>::new()));
+        let l2 = log.clone();
+        let m = MockServer::start_opts(
+            MockOptions::default()
+                .port(free)
+                .on_request(move |r| l2.lock().unwrap().push(r.clone())),
+            |req: &Request, _| {
+                if req.is("POST", "/half") {
+                    Reply::drop_connection()
+                } else {
+                    Reply::text("ok")
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(m.port(), free);
+        assert!(exchange(m.addr, b"POST /half HTTP/1.1\r\nContent-Length: 0\r\n\r\n").is_empty());
+        assert!(exchange(m.addr, b"GET /a HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 200"));
+        assert_eq!(m.seen().len(), 2);
+        let l = log.lock().unwrap();
+        assert_eq!((l[0].path.as_str(), l[0].status), ("/half", 0));
+        assert_eq!((l[1].path.as_str(), l[1].status), ("/a", 200));
+    }
+
+    #[test]
+    fn malformed_framing_is_rejected_before_the_handler() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c2 = calls.clone();
+        let m = MockServer::start_opts(
+            MockOptions::default().linger(Duration::from_millis(50)),
+            move |_: &Request, _| {
+                c2.fetch_add(1, Ordering::SeqCst);
+                Reply::text("ok")
+            },
+        )
+        .unwrap();
+        for bad in [
+            "POST /x HTTP/1.1\r\nContent-Length: abc\r\n\r\n",
+            "POST /x HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
+            "POST /x HTTP/1.1\r\nContent-Length: 99999999999999999999999\r\n\r\n",
+            "POST /x HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\nA",
+        ] {
+            assert!(
+                exchange(m.addr, bad.as_bytes()).starts_with("HTTP/1.1 400"),
+                "{bad}"
+            );
+        }
+        // truncated body: the client half-closes before sending Content-Length bytes
+        let mut st = TcpStream::connect(m.addr).unwrap();
+        st.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        st.write_all(b"POST /x HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc")
+            .unwrap();
+        st.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut out = Vec::new();
+        let _ = st.read_to_end(&mut out);
+        assert!(String::from_utf8_lossy(&out).starts_with("HTTP/1.1 400"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(m.seen().is_empty());
+        assert!(
+            exchange(m.addr, b"POST /x HTTP/1.1\r\nContent-Length: 2\r\n\r\nab")
+                .starts_with("HTTP/1.1 200")
+        );
+    }
+
+    #[test]
+    fn opts_limits_answer_431_413_501_without_calling_the_handler() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c2 = calls.clone();
+        let m = MockServer::start_opts(
+            MockOptions::default()
+                .max_header_bytes(256)
+                .max_body_bytes(10)
+                .reject_transfer_encoding()
+                .linger(Duration::from_millis(50)),
+            move |_: &Request, _| {
+                c2.fetch_add(1, Ordering::SeqCst);
+                Reply::text("ok")
+            },
+        )
+        .unwrap();
+        let big = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(400));
+        assert!(exchange(m.addr, big.as_bytes()).starts_with("HTTP/1.1 431"));
+        let r = exchange(
+            m.addr,
+            b"POST / HTTP/1.1\r\nContent-Length: 11\r\n\r\nhello world",
+        );
+        assert!(r.starts_with("HTTP/1.1 413"), "{r}");
+        let r = exchange(
+            m.addr,
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        );
+        assert!(r.starts_with("HTTP/1.1 501"), "{r}");
+        assert!(
+            exchange(m.addr, b"POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello")
+                .starts_with("HTTP/1.1 200")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn opts_connection_cap_answers_503_and_shutdown_handle_stops() {
+        let m = MockServer::start_opts(
+            MockOptions::default().max_connections(1),
+            |_: &Request, _| {
+                std::thread::sleep(Duration::from_millis(400));
+                Reply::text("slow")
+            },
+        )
+        .unwrap();
+        let addr = m.addr;
+        let t = std::thread::spawn(move || exchange(addr, b"GET /s HTTP/1.1\r\n\r\n"));
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(exchange(addr, b"GET /s HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 503"));
+        assert!(t.join().unwrap().starts_with("HTTP/1.1 200"));
+        let h = m.shutdown_handle();
+        let h2 = h.clone();
+        let w = std::thread::spawn(move || h2.wait());
+        h.shutdown();
+        w.join().unwrap();
+        assert!(h.is_shutdown());
     }
 }

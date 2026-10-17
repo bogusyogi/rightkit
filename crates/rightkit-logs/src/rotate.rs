@@ -89,6 +89,29 @@ pub(crate) fn rotate_if_needed(
     roll_generations(path, generations, default_name, RotatedNaming::Suffix)
 }
 
+/// Rotate `path` before `incoming` bytes would push it past `max_file_bytes` (`0` disables
+/// rotation). An empty or missing file is never rotated, so a line longer than the limit is still
+/// written, alone in its file.
+pub(crate) fn rotate_before_overflow(
+    path: &Path,
+    max_file_bytes: u64,
+    generations: u32,
+    default_name: &str,
+    incoming: u64,
+) -> io::Result<()> {
+    if max_file_bytes == 0 {
+        return Ok(());
+    }
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(());
+    };
+    let len = metadata.len();
+    if len == 0 || len.saturating_add(incoming) <= max_file_bytes {
+        return Ok(());
+    }
+    roll_generations(path, generations, default_name, RotatedNaming::Suffix)
+}
+
 /// Unconditionally roll `path` into generation 1 (shifting older ones; the oldest is removed).
 /// A missing or empty current file is left alone.
 pub(crate) fn roll_generations(

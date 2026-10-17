@@ -70,6 +70,9 @@ pub struct CrashConfig {
     /// Known secrets removed from every report and native text artifact (see
     /// [`CrashConfig::redact_values`]).
     redact_values: SecretList,
+    /// Whether the panic hook hands the panic to the previously installed hook (default `true`;
+    /// see [`CrashConfig::chain_default_hook`]).
+    chain_default_hook: bool,
 }
 
 impl CrashConfig {
@@ -90,6 +93,7 @@ impl CrashConfig {
             capture_backtrace: true,
             process_kind: None,
             redact_values: SecretList::default(),
+            chain_default_hook: true,
         }
     }
 
@@ -101,6 +105,16 @@ impl CrashConfig {
     /// `Debug`.
     pub fn redact_values(mut self, values: Vec<String>) -> Self {
         self.redact_values.extend(values);
+        self
+    }
+
+    /// Choose what the panic hook does after recording a report. The default, `true`, passes the
+    /// panic to the previous hook, so the standard message (which quotes the panic payload) still
+    /// reaches stderr. `false` drops that output: the hook writes one fixed line that names the
+    /// app and points at the crash report, and the panic payload is not printed. Use `false` when
+    /// the default message could carry user content into a log the app does not control.
+    pub fn chain_default_hook(mut self, enabled: bool) -> Self {
+        self.chain_default_hook = enabled;
         self
     }
 
@@ -247,6 +261,8 @@ pub fn recording_enabled() -> bool {
 /// (for example from a caller that catches it) leaves recording enabled for the next panic.
 pub fn install_panic_hook(config: CrashConfig) {
     let previous = std::panic::take_hook();
+    let chain = config.chain_default_hook;
+    let app_name = config.app_name.clone();
     std::panic::set_hook(Box::new(move |info| {
         let message = info
             .payload()
@@ -257,9 +273,23 @@ pub fn install_panic_hook(config: CrashConfig) {
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
-        let _ = capture_panic(&config, &message, location.as_deref());
-        previous(info);
+        let recorded = capture_panic(&config, &message, location.as_deref()).is_some();
+        if chain {
+            previous(info);
+        } else {
+            eprintln!("{}", non_chaining_notice(&app_name, recorded));
+        }
     }));
+}
+
+/// The stderr line a non-chaining hook prints after a panic. The success wording is used only
+/// when the report was actually recorded.
+fn non_chaining_notice(app_name: &str, recorded: bool) -> String {
+    if recorded {
+        format!("{app_name} stopped after an internal error. A crash report was recorded.")
+    } else {
+        format!("{app_name} stopped after an internal error. A crash report could not be recorded.")
+    }
 }
 
 /// Install the panic hook for one process boundary: the same as setting
@@ -923,5 +953,22 @@ mod tests {
             assert!(!text.contains("sleep"), "known secret survived: {text}");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn non_chaining_notice_claims_a_report_only_when_one_was_recorded() {
+        let recorded = non_chaining_notice("Demo", true);
+        assert!(
+            recorded.ends_with("A crash report was recorded."),
+            "{recorded}"
+        );
+        assert!(!recorded.contains("could not"), "{recorded}");
+
+        let failed = non_chaining_notice("Demo", false);
+        assert!(
+            failed.ends_with("A crash report could not be recorded."),
+            "{failed}"
+        );
+        assert!(!failed.contains("was recorded"), "{failed}");
     }
 }

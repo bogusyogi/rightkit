@@ -7,6 +7,17 @@ Added:
 
 ## Unreleased
 
+Fixed:
+- `applyBrand` writes `--rk-wordmark-font` in dark mode as well as light, matching `generateCss` (#535). Test: `applyBrand wordmark font` in `src/tokens.test.ts`.
+
+Added:
+- `fontTokens({ body })` maps a body font stack onto `--rk-font-body` (#614).
+- `presetCss(presets, { attribute })` emits one `:root[data-palette="<id>"]` block per `TokenPreset` (base tokens; accents stay runtime via `presetTokens`) (#618).
+- `aliasCss(map, selector?)` emits a `:root` block of `var(--target)` aliases, the stylesheet form of `aliasTokens` (#618).
+- `tailwindThemeCss(tokens, { prefix })` emits a Tailwind v4 `@theme` block from any token record, so `presetTokens` output can feed `@theme`. `generateCss` gains `tailwindPrefix` (default `--color-`, output unchanged) (#618).
+
+Not built or run; verification is the root integration batch.
+
 Added (M2-G1, CodeRight dark-default contract):
 - `themeAttributeValue`, `applyThemeAttribute` and `ThemeAttributeOptions { darkRemovesAttribute }`: with the option, a resolved dark theme removes `data-theme` and only light is written. `themeBootScript(storageKey, { darkRemovesAttribute })` follows the same rule. Default unchanged (`false`: dark writes `data-theme="dark"`; the boot script output is byte-identical without options).
 - The persisted store itself (`createThemeStore`) lives in `@rightkit/app-shell`, outside this package: wiring the same option into its `apply` is a separate app-shell change (see the M1-M2 owner-fix report).

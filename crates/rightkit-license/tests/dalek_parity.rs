@@ -216,10 +216,11 @@ fn token_payload() -> String {
 const LEASE_FIELDS: &str = r#"{"leaseId":"lease_01HZX","deviceIdHash":"9f2c1a7be04d3f56","pool":"pro","issuedAt":"2026-10-01T00:00:00.000Z","expiresAt":"2026-11-01T00:00:00.000Z","graceSeconds":604800,"generation":3}"#;
 
 fn lease_envelope(signature_b64: &str) -> String {
-    let mut value: Value = serde_json::from_str(LEASE_FIELDS).expect("lease fields");
-    value["entitlement"] = json!("ENTITLEMENT.NOT.COVERED");
-    value["signature"] = json!(signature_b64);
-    value.to_string()
+    // Built textually so the recorded key order holds whether or not `serde_json` has
+    // `preserve_order` enabled by feature unification elsewhere in the workspace.
+    let fields = LEASE_FIELDS.strip_suffix('}').expect("lease fields object");
+    let signature = serde_json::to_string(signature_b64).expect("signature string");
+    format!(r#"{fields},"entitlement":"ENTITLEMENT.NOT.COVERED","signature":{signature}}}"#)
 }
 
 pub fn cases() -> Vec<Case> {
@@ -474,7 +475,18 @@ fn builder_reproduces_the_recorded_inputs() {
             "{}",
             case.id
         );
-        assert_eq!(recorded_case["input"], case.input.as_str(), "{}", case.id);
+        // Inputs that are JSON documents compare structurally: serde_json key order depends on
+        // whether `preserve_order` is unified into the build, and the verifier parses them anyway.
+        let recorded_input = recorded_case["input"]
+            .as_str()
+            .expect("recorded input string");
+        match (
+            serde_json::from_str::<Value>(recorded_input),
+            serde_json::from_str::<Value>(&case.input),
+        ) {
+            (Ok(a), Ok(b)) => assert_eq!(a, b, "{}", case.id),
+            _ => assert_eq!(recorded_input, case.input.as_str(), "{}", case.id),
+        }
     }
 }
 

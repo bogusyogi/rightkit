@@ -188,7 +188,20 @@ pub fn is_alive(pid: u32) -> bool {
     }
     #[cfg(unix)]
     {
-        quiet_ok(Command::new("kill").args(["-0", &pid.to_string()]))
+        if !quiet_ok(Command::new("kill").args(["-0", &pid.to_string()])) {
+            return false;
+        }
+        // A zombie has exited and accepts signals, but is not running. It stays a zombie until
+        // its parent reaps it, which may never happen (a parent that forgot its child), so it
+        // must not count as a survivor.
+        let stat = output_bounded(
+            Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]),
+            KILL_HELPER_TIMEOUT,
+        );
+        !matches!(
+            stat,
+            Ok(Some(o)) if String::from_utf8_lossy(&o.stdout).trim_start().starts_with('Z')
+        )
     }
     #[cfg(windows)]
     {

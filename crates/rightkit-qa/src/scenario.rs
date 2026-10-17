@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +39,10 @@ pub struct Scenario {
     /// scenario is a mandatory gate: skipping it fails the run.
     #[serde(default)]
     pub optional: bool,
+    /// Kill any tracked process still alive after this scenario's teardown, without failing the
+    /// scenario (see `SuiteOptions::kill_orphans`).
+    #[serde(default)]
+    pub kill_orphans: bool,
     pub timeout_s: Option<u64>,
     /// `functional` or `visual`. Absent: the scenario takes the run's kind (see
     /// [`resolve_run_kind`]). A `functional` scenario takes no screenshots and no recordings; a
@@ -174,6 +179,16 @@ pub fn tier_selected(scenario_tier: &str, selected: &str) -> bool {
             .any(|t| sel.contains(&t))
 }
 
+/// `Some(reason)` when a `platform:<os>` requirement names another OS than the host. The suite
+/// skips such a scenario even when it is mandatory: it can never run here.
+pub fn platform_mismatch(requires: &[String]) -> Option<String> {
+    let host = crate::util::platform().ok();
+    requires.iter().find_map(|r| {
+        let (kind, value) = r.split_once(':')?;
+        (kind == "platform" && host != Some(value)).then(|| format!("platform is not {value}"))
+    })
+}
+
 /// `Some(reason)` when a requirement is not met (the scenario is skipped). `env:X` reads the
 /// process environment; see [`unmet_requirement_with`] for a settings source.
 pub fn unmet_requirement(requires: &[String], app_root: &Path) -> Option<String> {
@@ -230,6 +245,51 @@ fn command_exists(name: &str) -> bool {
 
 // ------------------------------------------------------------------- context
 
+/// A handler for an app-defined step kind: gets the live [`Ctx`] (variables, the `save` map is
+/// `ctx.vars`, data and log dirs, tracker, mocks) and the step's parameters with `${...}` already
+/// interpolated. The value it returns is what the step's `[[step.expect]]` checks run on and what
+/// `save` stores, exactly like a built-in kind.
+pub type StepHandler =
+    Arc<dyn for<'a> Fn(&mut Ctx<'a>, &Map<String, Value>) -> Result<Value> + Send + Sync>;
+
+/// The app-defined step kinds of a run, by kind name. A registered kind takes precedence over a
+/// built-in of the same name.
+#[derive(Clone, Default)]
+pub struct StepHandlers(BTreeMap<String, StepHandler>);
+
+impl StepHandlers {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Register `handler` for `kind` (replacing an earlier one).
+    pub fn register(
+        &mut self,
+        kind: &str,
+        handler: impl for<'a> Fn(&mut Ctx<'a>, &Map<String, Value>) -> Result<Value>
+            + Send
+            + Sync
+            + 'static,
+    ) -> &mut Self {
+        self.0.insert(kind.to_string(), Arc::new(handler));
+        self
+    }
+    pub fn get(&self, kind: &str) -> Option<StepHandler> {
+        self.0.get(kind).cloned()
+    }
+    pub fn kinds(&self) -> Vec<&str> {
+        self.0.keys().map(String::as_str).collect()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for StepHandlers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.keys()).finish()
+    }
+}
+
 pub struct Ctx<'a> {
     pub cfg: &'a QaConfig,
     pub engine: Option<EngineTarget>,
@@ -250,6 +310,10 @@ pub struct Ctx<'a> {
     pub kind: RunKind,
     /// Files this scenario produced; the runner hashes them into the evidence bundle.
     pub artifacts: Vec<(String, PathBuf)>,
+    /// App-defined step kinds; the suite fills it from `SuiteOptions::hooks`. Empty by default.
+    pub handlers: StepHandlers,
+    /// When set, [`Ctx::teardown`] kills tracked survivors instead of reporting them as orphans.
+    pub kill_orphans: bool,
     step_no: usize,
 }
 
@@ -303,6 +367,8 @@ impl<'a> Ctx<'a> {
             browser: None,
             kind: RunKind::Functional,
             artifacts: vec![],
+            handlers: StepHandlers::default(),
+            kill_orphans: false,
             step_no: 0,
         })
     }
@@ -318,7 +384,8 @@ impl<'a> Ctx<'a> {
             .ok_or_else(|| Error("no UI app launched; add a ui_launch step first".into()))
     }
 
-    fn artifact(&mut self, name: &str, path: PathBuf) {
+    /// Record a file this scenario produced as evidence (hashed into the bundle).
+    pub fn artifact(&mut self, name: &str, path: PathBuf) {
         self.artifacts
             .push((format!("{}/{}", self.scenario, name), path));
     }
@@ -358,7 +425,9 @@ impl<'a> Ctx<'a> {
             s.close();
         }
         self.mocks.clear();
-        if let Err(e) = self.tracker.assert_no_orphans() {
+        if self.kill_orphans {
+            self.tracker.kill_all();
+        } else if let Err(e) = self.tracker.assert_no_orphans() {
             problems.push(e.0);
         }
         problems
@@ -399,7 +468,7 @@ pub(crate) fn dur(p: &Map<String, Value>, k: &str, default_s: f64) -> Duration {
 ///
 /// A canonicalised path on Windows is verbatim, and under that prefix Windows does no
 /// normalisation: `/` is a file-name character, not a separator. Scenario text joins with `/`.
-pub(crate) fn strip_verbatim(text: &str) -> String {
+pub fn strip_verbatim(text: &str) -> String {
     // Also keeps the path verbatim for a reserved device name or a component Windows would
     // rewrite (see `util::plain_path_text`).
     crate::util::plain_path_text(text)
@@ -607,6 +676,9 @@ fn run_cli(ctx: &mut Ctx, p: &Map<String, Value>, log_name: &str) -> Result<Valu
 }
 
 fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
+    if let Some(handler) = ctx.handlers.get(kind) {
+        return handler(ctx, p);
+    }
     match kind {
         // ------------------------------------------------------------ engine
         "cli" => {
@@ -1264,6 +1336,47 @@ command = \"x\"
     /// The step-level rule, through the real executor: a functional scenario's screenshot step
     /// is refused before the app is touched, and a visual one gets past the gate (and then stops
     /// for want of a launched app, which proves the refusal was the kind and nothing else).
+    #[test]
+    fn a_custom_step_kind_runs_with_ctx_and_params_and_feeds_expect_and_save() {
+        let root = std::env::temp_dir().join(format!("rkqa-custom-ws-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg =
+            QaConfig::parse("app = \"customtest\"\n", &root.join("rightkit-qa.toml")).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "customtest").unwrap();
+        let tracker = Tracker::new();
+        let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        ctx.vars.insert("mock_url".into(), json!("http://m"));
+        let e = run_step(&mut ctx, &bare_step("mock_admin", json!({}))).unwrap_err();
+        assert!(e.0.contains("unknown step kind 'mock_admin'"), "{e}");
+        ctx.handlers.register("mock_admin", |ctx, p| {
+            let url = ctx.vars["mock_url"].as_str().unwrap().to_string();
+            ctx.vars.insert("touched".into(), json!(true));
+            Ok(json!({"url": url, "echo": p.get("what").cloned()}))
+        });
+        assert_eq!(ctx.handlers.kinds(), vec!["mock_admin"]);
+        // Parameters arrive interpolated; the result is what `expect` checks and `save` stores.
+        let mut step = bare_step("mock_admin", json!({"what": "${mock_url}/x"}));
+        step.save = Some("admin".into());
+        step.expect =
+            vec![serde_json::from_value(json!({"path": "echo", "eq": "http://m/x"})).unwrap()];
+        let v = run_step(&mut ctx, &step).unwrap();
+        assert_eq!(v["url"], "http://m");
+        assert_eq!(ctx.vars["admin"]["echo"], "http://m/x");
+        assert_eq!(ctx.vars["touched"], json!(true));
+        step.expect = vec![serde_json::from_value(json!({"path": "echo", "eq": "nope"})).unwrap()];
+        let e = run_step(&mut ctx, &step).unwrap_err();
+        assert!(e.0.contains("mock_admin"), "{e}");
+        // A handler error is the step's error.
+        ctx.handlers.register("boom", |_, _| err("bad thing"));
+        assert!(run_step(&mut ctx, &bare_step("boom", json!({})))
+            .unwrap_err()
+            .0
+            .contains("bad thing"));
+        drop(ctx);
+        let _ = crate::workspace::dispose(&ws, false, 3, 10);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn a_functional_scenario_refuses_screenshot_steps_and_a_visual_one_does_not() {
         let root = std::env::temp_dir().join(format!("rkqa-kind-ws-{}", util::new_id()));

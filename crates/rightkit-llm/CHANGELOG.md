@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Request-level response schema (Orthic-Labs/rightkit#584): `SchemaConstraint`, `ChatRequest::with_response_schema`, `ChatRequest::check_schema`, `ChatResponse::schema_output`. OpenAI-compatible routes send `response_format` (`json_schema`); Anthropic sends a synthetic forced tool. Combining a schema with `tools` or `force_tool` is `LlmError::InvalidRequest`.
+- Public circuit breaker (Orthic-Labs/rightkit#659): module `breaker` (`CircuitBreaker`, `BreakerConfig`, `Phase`, `Outcome`).
+- Public route health (Orthic-Labs/rightkit#660): module `health` (`RouteHealth`, `HealthPolicy`, `HealthState`, process registry `record_success`, `record_failure`, `state`, `snapshot`).
+- Tool-call chunk reassembly (Orthic-Labs/rightkit#664): module `reassembler` (`ToolCallChunkReassembler`, `ReassembledToolCall`, `ReassembleError`).
+- Image generation client and image-route catalogue (Orthic-Labs/rightkit#663): module `generation`. The images request and response field names are unverified against this repository.
+- **Breaking:** `FailoverEvent` gains `breaker_skipped`. Routes skipped because their breaker is cooling now emit an event with `breaker_skipped: true`.
+
 ## 0.3.0
 
 - Tool executor (Orthic-Labs/rightkit#297). New module `tools`: `ToolRegistry` (tool spec plus a `ToolHandler`, closures work), `ToolGate` (`AllowAll`, `AllowTools`, closures; no default gate, so allowing everything is explicit), `ToolBudget` (model rounds 8, tool calls 32, 64 KiB per result, 512 KiB total, optional token and wall-clock bounds) and `ToolExecutor`. `ToolExecutor::run(&provider, request)` loops model call, tool calls, one user message of `ToolResult` blocks in call order, next model call, until the model answers without a tool or a bound stops it (`StopCause`: `Completed`, `RoundLimit`, `CallLimit`, `ResultBytesLimit`, `TokenLimit`, `Deadline`, `Cancelled`; `Failed` only on error). Every call gets a result: a denied, unknown, failed, panicking or skipped call is an `is_error` result with the reason, and each is recorded in `ToolCallRecord` (`ToolOutcome`). `ToolExecutor::execute_round` runs one response's calls for hosts with their own loop. Tools are not run when a bound stops the run after a response that asked for them. A provider failure returns `ToolLoopError` with `partial` (rounds, transcript, records, summed usage with `usage_known`) so earlier spend is kept. Limits: bounds are checked between calls (a running handler is not interrupted, so a blocking handler needs its own timeout); tool input is not validated against the JSON schema; a handler panic is caught, a gate panic is not; calls run one at a time. Not included: a scene-detection tool for motion decode (needs a video decoder, which is the host's).

@@ -108,7 +108,7 @@ impl DbOptions {
     }
 }
 
-fn validated_backup(options: &DbOptions, path: &Path) -> Result<Connection> {
+pub(crate) fn validated_backup(options: &DbOptions, path: &Path) -> Result<Connection> {
     let source = options.open_existing_at(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     // Keep the checked snapshot stable until Backup has finished reading it.
     source.execute_batch("BEGIN;")?;

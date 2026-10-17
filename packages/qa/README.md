@@ -113,6 +113,7 @@ try {
 - `readiness`: `urls` (an array, or a function of the port) that must each answer 2xx, or a `check(port)` predicate. `attemptTimeoutMs` bounds one request, `totalTimeoutMs` one launch's wait, `intervalMs` the delay between rounds.
 - Port choice: `ports` in order (a held port is skipped before anything is spawned on it); otherwise the first free port at or above `portFloor`, probed by binding; otherwise `freePort()`. A collision (EADDRINUSE in the output) moves to the next candidate.
 - Result: `{ pid, port, url, attempts, stop(), output() }`. `stop()` kills the whole process tree the launch started and reports `leftoverPids`.
+- An installed app is refused: a `command` under an installed-apps location throws `InstalledAppRefused` before anything is spawned, unless installed-QA mode is on (`RIGHT_RELEASE_QA_STAGE=installed`, set by `right-release qa --stage installed`).
 - A failed launch stops its whole tree before it throws `DevServerError` (`reason`, `pid`, `port`, `attempts`, `leftoverPids`, and a bounded `output` tail). The message includes the last 2 KB of output.
 
 ```ts
@@ -148,6 +149,10 @@ await stopDevServer({ recordPath: "/abs/qa/dev.json" });
 ```
 
 The package has no CLI entry, so there are no `devserver start` or `devserver stop` commands; call these functions from a script.
+
+## TypeScript suites under Node's runner (ts-register)
+
+`node --import @rightkit/qa/ts-register --test <files>.ts` runs `.ts` test sources whose imports are extensionless (`./x` finds `x.ts`, `x.tsx`, `x/index.ts`, `x/index.tsx`) or JSON without import attributes. Node strips the types; the hook only resolves. `@rightkit/qa/ts-hooks` is the same hook for `module.register`.
 
 ## Raw CDP, page sockets and labelled waits (0.4.8)
 

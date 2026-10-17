@@ -30,5 +30,7 @@ pub use policy::{
     DecodePolicy, ModelSemantics, PruningMode, MACOS_POST_C0239763_EMIT_REWARD, WINDOWS_EMIT_REWARD,
     WINDOWS_VENDOR_DURATION_CAP_INDEX,
 };
-pub use scoring::{log_softmax, score_blank, score_emission, top_k_indices};
+pub use scoring::{
+    log_prob_at, log_softmax, logsumexp, score_blank, score_emission, top_k_indices,
+};
 pub use types::{DecodedPiece, TimedToken, TranscriptionResult};

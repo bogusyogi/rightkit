@@ -874,6 +874,29 @@ impl AtomicWriter {
         self.commit_inner(false, false, |_| Ok(())).map(|_| ())
     }
 
+    /// [`AtomicWriter::commit`] under a different final name in the same directory, for a file whose
+    /// name is known only once its bytes are written (a content hash computed at the end).
+    ///
+    /// `new_target` must be in the writer's directory ([`FsError::BadName`] otherwise) and must not
+    /// be shaped like a temp name this crate generates. `replace` is used for this publish in place
+    /// of the writer's [`AtomicWriteOptions::replace`]; pass [`ReplaceMode::NoReplace`] for an
+    /// exclusive publish that refuses an existing name. Everything else is as `commit`: the temp
+    /// file is flushed, published to `new_target`, and on a failure before the replace the temp
+    /// file is removed and nothing is published.
+    pub fn commit_as(mut self, new_target: &Path, replace: ReplaceMode) -> Result<()> {
+        let name = new_target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| FsError::BadName(new_target.display().to_string()))?;
+        reject_reserved_name(&name)?;
+        if parent_of(new_target) != parent_of(&self.target) {
+            return Err(FsError::BadName(new_target.display().to_string()));
+        }
+        self.target = new_target.to_path_buf();
+        self.options.replace = replace;
+        self.commit()
+    }
+
     /// [`AtomicWriter::commit`], returning what was actually achieved (M8-O4): the flush level the
     /// temp file reached ([`WriteReport::sync_level`], so an Apple volume that could not
     /// `F_FULLFSYNC` is visible instead of silently weaker) and what publishing with these options
@@ -1214,8 +1237,9 @@ pub fn sync_dir(dir: &Path) {
 
 /// Directory `fsync`, reporting failure. A no-op off unix: Windows has no directory flush (a
 /// directory handle opened for listing cannot be flushed), so the strongest publication there is
-/// a write-through move; see [`publication_durability`].
-pub(crate) fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
+/// a write-through move; see [`publication_durability`]. The fallible form of [`sync_dir`]: a
+/// caller that owes a directory entry durability checks the result instead of discarding it.
+pub fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         #[cfg(feature = "test-seams")]
@@ -2505,5 +2529,61 @@ mod retry_tests {
         });
         assert!(result.is_err());
         assert_eq!(calls.get(), 1);
+    }
+}
+
+#[cfg(test)]
+mod commit_as_tests {
+    use super::{AtomicWriteOptions, AtomicWriter, ReplaceMode};
+    use crate::error::FsError;
+
+    #[test]
+    fn commit_as_publishes_under_the_new_name_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let provisional = dir.path().join("segment.part");
+        let final_name = dir.path().join("segment-abc123.bin");
+        let mut writer =
+            AtomicWriter::create_with(&provisional, AtomicWriteOptions::default()).unwrap();
+        writer.write_all(b"payload").unwrap();
+        writer
+            .commit_as(&final_name, ReplaceMode::NoReplace)
+            .unwrap();
+        assert_eq!(std::fs::read(&final_name).unwrap(), b"payload");
+        assert!(!provisional.exists());
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(leftovers.len(), 1, "{leftovers:?}");
+    }
+
+    #[test]
+    fn commit_as_no_replace_refuses_an_existing_name_and_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let final_name = dir.path().join("taken.bin");
+        std::fs::write(&final_name, b"old").unwrap();
+        let mut writer =
+            AtomicWriter::create_with(&dir.path().join("x.part"), AtomicWriteOptions::default())
+                .unwrap();
+        writer.write_all(b"new").unwrap();
+        let err = writer
+            .commit_as(&final_name, ReplaceMode::NoReplace)
+            .unwrap_err();
+        assert!(matches!(err, FsError::AlreadyExists(_)), "{err:?}");
+        assert_eq!(std::fs::read(&final_name).unwrap(), b"old");
+    }
+
+    #[test]
+    fn commit_as_refuses_a_name_in_another_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let mut writer =
+            AtomicWriter::create_with(&dir.path().join("y.part"), AtomicWriteOptions::default())
+                .unwrap();
+        writer.write_all(b"z").unwrap();
+        let err = writer
+            .commit_as(&other.path().join("elsewhere.bin"), ReplaceMode::Rename)
+            .unwrap_err();
+        assert!(matches!(err, FsError::BadName(_)), "{err:?}");
     }
 }

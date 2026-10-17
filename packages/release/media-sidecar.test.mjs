@@ -268,3 +268,22 @@ test("cargo resolution wants exactly one rightkit-ffmpeg package and reports lau
   assert.throws(() => cargoFfmpegCrate("/app/Cargo.toml", { run: () => ({ status: 101, stderr: "no lock" }) }), /cargo metadata failed: no lock/);
   assert.throws(() => cargoFfmpegCrate("/app/Cargo.toml", { run: () => ({ error: new Error("spawn"), status: null }) }), /could not run cargo metadata/);
 });
+
+test("variants mixes variants in one entry: each tool selects its own catalog variant (#491)", () => {
+  const mixed = { schemaVersion: 2, artifacts: [
+    row("ffmpeg", "macos", "aarch64", { variant: "export-ass", contentSha256: hex("a") }),
+    row("ffmpeg", "macos", "aarch64"),
+    row("ffprobe", "macos", "aarch64", { contentSha256: hex("b") }),
+  ] };
+  const config = validateMediaSidecarConfig({ arch: "aarch64", variants: { ffmpeg: "export-ass" }, notices: { dir: "n", sourceOfferContact: CONTACT } }, { platform: "mac" });
+  assert.deepEqual(config.variants, { ffmpeg: "export-ass" });
+  const rows = selectSidecarRows(mixed, config);
+  assert.deepEqual(rows.map((item) => [item.tool, item.variant]), [["ffmpeg", "export-ass"], ["ffprobe", "decode"]]);
+  const plan = planMediaSidecar({ config, catalog: mixed, crateDir: "/crate", crateVersion: "0.2.6", root: ROOT });
+  assert.deepEqual(plan.files.map((file) => file.variant), ["export-ass", "decode"]);
+  assert.throws(() => selectSidecarRows(mixed, { ...config, variants: { ffmpeg: "decode-av1" } }), { code: "MEDIA_SIDECAR_NO_ROW" });
+  for (const variants of [{}, { ffprobe: "Decode" }, { ffplay: "decode" }, "decode"]) {
+    assert.throws(() => validateMediaSidecarConfig({ arch: "aarch64", variants, notices: { dir: "n", sourceOfferContact: CONTACT } }, { platform: "mac" }), { code: "MEDIA_SIDECAR_CONFIG_INVALID" });
+  }
+  assert.throws(() => validateMediaSidecarConfig({ arch: "aarch64", tools: ["ffprobe"], variants: { ffmpeg: "export-ass" }, notices: { dir: "n", sourceOfferContact: CONTACT } }, { platform: "mac" }), /not one of the configured tools/);
+});

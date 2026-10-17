@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Onboarding, isLegalAccepted } from "./Onboarding.js";
@@ -446,5 +446,126 @@ describe("legalMode (Orthic-Labs/rightkit#285)", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => render(<Onboarding settings={s.backend} onComplete={vi.fn()} />)).toThrow(/legal/);
     spy.mockRestore();
+  });
+});
+
+describe("step hooks, results, skip and labels", () => {
+  it("keeps the step when onContinue returns false, and advances when it returns void", async () => {
+    const user = userEvent.setup();
+    let allow = false;
+    const onContinue = vi.fn(() => allow ? undefined : false);
+    const { onComplete } = setup(accepted({ currentStep: 0 }), {
+      steps: [{ id: "keys", label: "Keys", title: "Keys", onContinue, render: () => <p>keys body</p> }, { id: "done", label: "Done", title: "", render: () => <p>done body</p> }],
+    });
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("keys body")).toBeInTheDocument();
+    allow = true;
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("done body")).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the step and shows the message when onContinue throws", async () => {
+    const user = userEvent.setup();
+    setup(accepted({ currentStep: 0 }), {
+      steps: [{ id: "keys", label: "Keys", title: "Keys", onContinue: async () => { throw new Error("Could not save key"); }, render: () => <p>keys body</p> }],
+    });
+    await user.click(await screen.findByRole("button", { name: "Finish setup" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save key");
+    expect(screen.getByText("keys body")).toBeInTheDocument();
+  });
+
+  it("passes completed, skipped and setResult values to onComplete", async () => {
+    const user = userEvent.setup();
+    const { onComplete } = setup(accepted({ currentStep: 0 }), {
+      steps: [
+        { id: "a", label: "A", title: "A", skippable: true, render: () => <p>a body</p> },
+        { id: "b", label: "B", title: "B", render: (ctx) => { ctx.setResult("pro"); return <p>b body</p>; } },
+      ],
+    });
+    await user.click(await screen.findByRole("button", { name: "Skip" }));
+    await user.click(await screen.findByRole("button", { name: "Finish setup" }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    // "legal" is in the persisted completed list because the agreement was accepted (fixture); "a" was skipped, not completed.
+    expect(onComplete.mock.calls[0]![0]).toEqual({ completed: ["legal", "b"], skipped: ["a"], steps: { b: "pro" } });
+  });
+
+  it("hides Skip on steps that are not skippable and on the last step", async () => {
+    setup(accepted({ currentStep: 0 }), { steps: [{ id: "a", label: "A", title: "A", render: () => <p>a</p> }] });
+    expect(await screen.findByRole("button", { name: "Finish setup" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  });
+
+  it("uses per-step continueLabel and the labels prop for chrome text", async () => {
+    setup(accepted({ currentStep: 0 }), {
+      labels: { skip: "Later", back: "Previous", continue: "Next", loading: "Please wait" },
+      steps: [{ id: "a", label: "A", title: "A", continueLabel: "Open AcmeRight", render: () => <p>a</p> }, { id: "b", label: "B", title: "B", render: () => <p>b</p> }],
+    });
+    expect(await screen.findByRole("button", { name: "Open AcmeRight" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Later" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
+  });
+
+  it("hides the heading for an untitled step", async () => {
+    setup(accepted({ currentStep: 0 }), { steps: [{ id: "w", label: "Welcome", title: "", render: () => <p>welcome body</p> }] });
+    expect(await screen.findByText("welcome body")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+  });
+});
+
+describe("rail navigation, per-step skip and skipped-step bookkeeping", () => {
+  it("disables rail navigation while onContinue is awaited", async () => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    setup(accepted({ currentStep: 0 }), {
+      steps: [
+        { id: "a", label: "A", title: "A", skippable: true, onContinue: () => hold, render: () => <p>a body</p> },
+        { id: "b", label: "B", title: "B", render: () => <p>b body</p> },
+      ],
+    });
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    const rail = screen.getByRole("navigation", { name: "Setup progress" });
+    expect(within(rail).getByRole("button", { name: /A$/ })).toBeDisabled();
+    expect(within(rail).getByRole("button", { name: /B$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    release();
+    expect(await screen.findByText("b body")).toBeInTheDocument();
+  });
+
+  it("offers per-step Skip when canContinue is false, and finishes from a skipped final step", async () => {
+    const user = userEvent.setup();
+    const { onComplete } = setup(accepted({ currentStep: 0 }), {
+      steps: [
+        { id: "a", label: "A", title: "A", skippable: true, canContinue: () => false, blockedHint: "Add a key first", render: () => <p>a body</p> },
+        { id: "b", label: "B", title: "B", skippable: true, render: () => <p>b body</p> },
+      ],
+    });
+    await user.click(await screen.findByRole("button", { name: "Skip" }));
+    expect(await screen.findByText("b body")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete.mock.calls[0]![0]).toEqual({ completed: ["legal"], skipped: ["a", "b"], steps: {} });
+  });
+
+  it("lists a step only as skipped when it was completed, revisited and then skipped", async () => {
+    const user = userEvent.setup();
+    const { onComplete } = setup(accepted({ currentStep: 0 }), {
+      steps: [
+        { id: "a", label: "A", title: "A", skippable: true, render: () => <p>a body</p> },
+        { id: "b", label: "B", title: "B", render: () => <p>b body</p> },
+      ],
+    });
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("b body")).toBeInTheDocument();
+    const rail = screen.getByRole("navigation", { name: "Setup progress" });
+    await user.click(within(rail).getByRole("button", { name: /A$/ }));
+    expect(await screen.findByText("a body")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    expect(await screen.findByText("b body")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete.mock.calls[0]![0]).toEqual({ completed: ["legal", "b"], skipped: ["a"], steps: {} });
   });
 });

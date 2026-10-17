@@ -351,7 +351,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         {
             if stored.version.is_none() {
                 let original = stored.values.clone();
-                let (migrated, changed) = migrate(original.clone())?;
+                let (migrated, changed) = migrate(sorted_keys(&original))?;
                 if changed {
                     stored.values = migrated.clone();
                     stored.needs_rewrite = true;
@@ -666,7 +666,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         if stored.values == pending.0 {
             next.values = pending.1;
         } else {
-            let (migrated, changed) = migrate(stored.values.clone())?;
+            let (migrated, changed) = migrate(sorted_keys(&stored.values))?;
             if !changed {
                 return Ok(None);
             }
@@ -868,7 +868,13 @@ pub fn read_with_options<T: Serialize + DeserializeOwned + Default>(
         Value::Object(object) => object.clone(),
         _ => return Err(Error::BadSchema("defaults must be a JSON object")),
     };
-    let found = read_values_only(path.as_ref(), options.format, options.sidecars)?;
+    let found = read_values_only(
+        path.as_ref(),
+        options.format,
+        options.sidecars,
+        options.utf8_bom,
+        options.max_bytes,
+    )?;
     let absent = found.is_none();
     let file = found.unwrap_or_default();
     let value = match options.fill {
@@ -958,6 +964,17 @@ fn known_keys<T: Serialize + Default>(
     let mut keys: BTreeSet<String> = defaults.keys().cloned().collect();
     keys.extend(typed.keys().cloned());
     Ok(keys)
+}
+
+/// `values` with its keys in sorted order. `serde_json::Map` is sorted only without the
+/// `preserve_order` feature, which the workspace enables through other crates, so the migration
+/// hook gets the same key order either way.
+fn sorted_keys(values: &Map<String, Value>) -> Map<String, Value> {
+    let mut keys: Vec<&String> = values.keys().collect();
+    keys.sort();
+    keys.into_iter()
+        .map(|key| (key.clone(), values[key].clone()))
+        .collect()
 }
 
 /// `base`, plus the entries of `extra` whose key `base` lacks.

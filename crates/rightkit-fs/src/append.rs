@@ -104,6 +104,31 @@ pub fn append_record(
     Ok(Some(level))
 }
 
+/// Opens `path` for appending and returns the handle, for a caller that writes records of its own
+/// (a chat transcript, a delivery journal) and does not want the one-call [`append_record`].
+///
+/// A file this call creates is owner-only (0600 / owner DACL), as [`crate::create_private_new`]; an
+/// existing file keeps its permissions. The handle is append-mode (`O_APPEND`), so every write goes
+/// to the current end. Nothing is flushed here: the caller syncs the handle when it needs the bytes
+/// on stable storage ([`crate::durable_sync`]). A symlink at `path` is refused
+/// ([`FsError::Symlink`]), a non-regular file is refused ([`FsError::NotAFile`]), and a name
+/// shaped like a generated temp name is refused ([`FsError::BadName`]). The torn-tail caveat of
+/// [`append_record`] applies to whatever the caller writes.
+pub fn open_private_append(path: &Path) -> Result<std::fs::File> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| FsError::BadName(path.display().to_string()))?;
+    crate::atomic::reject_reserved_name(&name.to_string_lossy())?;
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(FsError::Symlink(path.to_path_buf()))
+        }
+        Ok(meta) if !meta.is_file() => return Err(FsError::NotAFile(path.to_path_buf())),
+        _ => {}
+    }
+    open_append(path, AppendOptions::private()).map(|(file, _)| file)
+}
+
 /// Opens `path` for appending; the flag says whether this call created it.
 fn open_append(path: &Path, options: AppendOptions) -> Result<(std::fs::File, bool)> {
     if options.private {
@@ -135,4 +160,38 @@ fn append_handle(path: &Path) -> Result<std::fs::File> {
         open.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
     open.open(path).map_err(|e| FsError::io(path, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_private_append_creates_then_appends_to_the_same_file() {
+        use std::io::Read;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.log");
+        {
+            let mut first = open_private_append(&path).unwrap();
+            first.write_all(b"one\n").unwrap();
+        }
+        {
+            let mut second = open_private_append(&path).unwrap();
+            second.write_all(b"two\n").unwrap();
+        }
+        let mut text = String::new();
+        std::fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert_eq!(text, "one\ntwo\n");
+    }
+
+    #[test]
+    fn open_private_append_refuses_a_directory_and_a_temp_shaped_name() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(open_private_append(dir.path()).is_err());
+        let generated = dir.path().join(".x.rktmp-1-0-0");
+        assert!(open_private_append(&generated).is_err());
+    }
 }

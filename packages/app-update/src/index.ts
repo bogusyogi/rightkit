@@ -39,7 +39,22 @@ export type AutoUpdateStatus =
   | { kind: 'deferred'; version: string; tier: UpdateTier | null; reason: string }
   | { kind: 'downloading'; version: string; tier: UpdateTier | null; pct: number }
   | { kind: 'ready'; version: string; tier: UpdateTier | null }
+  /** Download step finished: the update is verified and staged, and nothing is installed yet (additive, #625). */
+  | { kind: 'staged'; version: string; tier: UpdateTier }
   | { kind: 'error'; message: string };
+
+/**
+ * Opaque handle returned by `downloadAvailable()`. It names one verified update; `installStaged()` accepts only
+ * a handle this client issued for the update that is still current (a newer check invalidates it).
+ */
+export interface StagedUpdateHandle {
+  readonly version: string;
+  readonly tier: UpdateTier;
+}
+
+export type DownloadAvailableResult =
+  | { ok: true; handle: StagedUpdateHandle; status: AutoUpdateStatus }
+  | { ok: false; status: AutoUpdateStatus };
 
 export interface AutoUpdateClientConfig {
   check: CheckForUpdate;
@@ -102,6 +117,15 @@ export interface AutoUpdateClientConfig {
 
 export interface AutoUpdateClient {
   checkOnce(): Promise<AutoUpdateStatus>;
+  /**
+   * Download step. Runtime adapters expose only the combined `downloadAndInstall`, so this step is a
+   * verify-only prefetch: it confirms the checked, verified and eligible update and stages a handle without
+   * fetching the artifact. The bytes are fetched by `installStaged()`.
+   */
+  downloadAvailable(): Promise<DownloadAvailableResult>;
+  /** Install step: consumes the handle, resolves install headers, and runs the combined adapter install. */
+  installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus>;
+  /** Combined compatibility path, implemented as `downloadAvailable` then `installStaged` without a 'staged' emit. */
   installAvailable(): Promise<AutoUpdateStatus>;
 }
 
@@ -160,6 +184,8 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       }
     | null = null;
   let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
+  const handleByRecord = new WeakMap<object, StagedUpdateHandle>();
+  const recordByHandle = new WeakMap<StagedUpdateHandle, NonNullable<typeof available>>();
 
   function emit(status: AutoUpdateStatus): AutoUpdateStatus {
     config.onStatus?.(status);
@@ -248,10 +274,42 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
     }
   }
 
+  /** Returns a handle for the current available update without consuming it; null when nothing is staged-able. */
+  function stage(): StagedUpdateHandle | null {
+    const current = available;
+    if (!current) return null;
+    let handle = handleByRecord.get(current);
+    if (!handle) {
+      handle = Object.freeze({ version: current.update.version, tier: current.tier });
+      handleByRecord.set(current, handle);
+      recordByHandle.set(handle, current);
+    }
+    return handle;
+  }
+
+  async function downloadAvailable(): Promise<DownloadAvailableResult> {
+    const handle = stage();
+    if (!handle) {
+      return { ok: false, status: ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' }) };
+    }
+    const status = emit({ kind: 'staged', version: handle.version, tier: handle.tier });
+    return { ok: true, handle, status };
+  }
+
+  async function installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus> {
+    // Synchronous claim before any await: overlapping installs of one handle run once.
+    const record = recordByHandle.get(handle);
+    if (!record || available !== record) {
+      return emit({ kind: 'error', message: 'staged update is no longer current; check for updates again' });
+    }
+    available = null;
+    return install(record);
+  }
+
   async function installAvailable(): Promise<AutoUpdateStatus> {
-    const claimed = claimAvailable();
-    if (claimed) return install(claimed);
-    return ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' });
+    const handle = stage();
+    if (!handle) return ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' });
+    return installStaged(handle);
   }
 
   function claimAvailable(expectedGeneration?: number) {
@@ -309,7 +367,7 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
     }
   }
 
-  return { checkOnce, installAvailable };
+  return { checkOnce, downloadAvailable, installStaged, installAvailable };
 }
 
 function isStartedEvent(event: UpdateDownloadEvent): event is { event: 'Started'; data: { contentLength?: number } } {
@@ -349,3 +407,14 @@ export {
   assertSingleUpdatesVersion,
   registerUpdatesInstance,
 } from './single-instance.js';
+export {
+  createUpdateConsent,
+  createUpdateConsentRunner,
+  deriveUpdateOverlay,
+  type UpdateConsentOperations,
+  type UpdateConsentAction,
+  type UpdateConsentController,
+  type UpdateConsentState,
+  type UpdateOverlayModel,
+  type UpdateOverlayPhase,
+} from './overlay.js';

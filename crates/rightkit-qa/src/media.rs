@@ -112,19 +112,38 @@ pub fn ffprobe(path: &Path, tracker: &Tracker) -> Result<Value> {
 
 /// [`ffprobe`] with an explicit binary.
 pub fn ffprobe_with(bin: &str, path: &Path, tracker: &Tracker) -> Result<Value> {
+    ffprobe_run(bin, path, tracker, false)
+}
+
+/// [`ffprobe`] with `-count_frames`: each stream gains `nb_read_frames`, the frames ffprobe
+/// actually decoded. This decodes the whole file, so it is slower than [`ffprobe`].
+pub fn ffprobe_count_frames_with(bin: &str, path: &Path, tracker: &Tracker) -> Result<Value> {
+    ffprobe_run(bin, path, tracker, true)
+}
+
+/// [`ffprobe_count_frames_with`] with the binary from [`ffprobe_bin`].
+pub fn ffprobe_count_frames(path: &Path, tracker: &Tracker) -> Result<Value> {
+    ffprobe_count_frames_with(&ffprobe_bin(), path, tracker)
+}
+
+fn ffprobe_run(bin: &str, path: &Path, tracker: &Tracker, count_frames: bool) -> Result<Value> {
+    let mut args: Vec<String> = vec![
+        "-v".into(),
+        "quiet".into(),
+        "-print_format".into(),
+        "json".into(),
+        "-show_format".into(),
+        "-show_streams".into(),
+    ];
+    if count_frames {
+        args.push("-count_frames".into());
+    }
+    args.push(path.to_string_lossy().into());
     let out = run_owned(
         bin,
-        &[
-            "-v".into(),
-            "quiet".into(),
-            "-print_format".into(),
-            "json".into(),
-            "-show_format".into(),
-            "-show_streams".into(),
-            path.to_string_lossy().into(),
-        ],
+        &args,
         &RunOptions {
-            timeout: Some(Duration::from_secs(60)),
+            timeout: Some(Duration::from_secs(if count_frames { 600 } else { 60 })),
             label: "ffprobe".into(),
             ..Default::default()
         },
@@ -658,6 +677,198 @@ pub fn locate_tool(name: &str, settings: &crate::settings::Settings, key: &str) 
         .unwrap_or_default();
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(PathBuf::from));
     dirs.into_iter().map(|d| d.join(&exe)).find(|p| p.is_file())
+}
+
+// ------------------------------------------------------- interval detectors (#355)
+
+/// A `[start_s, end_s)` span of the media in seconds, the shape ffmpeg's `*detect` filters report.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Interval {
+    pub start_s: f64,
+    pub end_s: f64,
+}
+
+impl Interval {
+    pub fn duration_s(&self) -> f64 {
+        self.end_s - self.start_s
+    }
+}
+
+/// Maximal runs of `true` in `flags` (unit `i` spans `[i * unit_s, (i + 1) * unit_s)`), kept when
+/// they last at least `min_s`.
+fn flag_runs(flags: &[bool], unit_s: f64, min_s: f64) -> Vec<Interval> {
+    let mut out = vec![];
+    let mut start: Option<usize> = None;
+    for (i, &flag) in flags.iter().chain(std::iter::once(&false)).enumerate() {
+        match (flag, start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                let iv = Interval {
+                    start_s: s as f64 * unit_s,
+                    end_s: i as f64 * unit_s,
+                };
+                if iv.duration_s() + 1e-9 >= min_s {
+                    out.push(iv);
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Silent intervals, as ffmpeg `silencedetect` reports them. A frame (one sample per channel) is
+/// silent when every channel's absolute sample is at or below `threshold_db` dBFS (for example
+/// `-60.0`). Runs shorter than `min_s` seconds are dropped.
+pub fn silence_intervals(pcm: &Pcm, threshold_db: f64, min_s: f64) -> Vec<Interval> {
+    let ch = pcm.channels.max(1) as usize;
+    let limit = 10f64.powf(threshold_db / 20.0) as f32;
+    let flags: Vec<bool> = pcm
+        .samples
+        .chunks(ch)
+        .map(|frame| frame.iter().all(|s| s.abs() <= limit))
+        .collect();
+    flag_runs(&flags, 1.0 / pcm.sample_rate.max(1) as f64, min_s)
+}
+
+/// Clipped runs: maximal runs of at least `min_run` consecutive samples whose absolute value is at
+/// or above `level` (for example `0.999`), counted per channel. Returns the number of runs.
+pub fn clipped_runs(pcm: &Pcm, level: f32, min_run: usize) -> usize {
+    let ch = pcm.channels.max(1) as usize;
+    let mut total = 0;
+    for c in 0..ch {
+        let mut run = 0usize;
+        for s in pcm.samples.iter().skip(c).step_by(ch) {
+            if s.abs() >= level {
+                run += 1;
+            } else {
+                if run >= min_run {
+                    total += 1;
+                }
+                run = 0;
+            }
+        }
+        if run >= min_run {
+            total += 1;
+        }
+    }
+    total
+}
+
+/// Black intervals over decoded RGB24 frames at `fps` frames per second. A frame is black when the
+/// mean of its bytes is at or below `max_mean` (0 to 255). Runs shorter than `min_s` are dropped.
+pub fn black_intervals(frames: &[Vec<u8>], fps: f64, max_mean: f64, min_s: f64) -> Vec<Interval> {
+    if fps <= 0.0 {
+        return vec![];
+    }
+    let flags: Vec<bool> = frames
+        .iter()
+        .map(|f| pixel_stats(f).mean <= max_mean)
+        .collect();
+    flag_runs(&flags, 1.0 / fps, min_s)
+}
+
+/// Mean absolute byte difference of two equal-length buffers; infinity when the lengths differ.
+fn mean_abs_diff(a: &[u8], b: &[u8]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return f64::INFINITY;
+    }
+    let total: u64 = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| u64::from(x.abs_diff(*y)))
+        .sum();
+    total as f64 / a.len() as f64
+}
+
+/// Freeze intervals over decoded RGB24 frames at `fps` frames per second. A frame repeats its
+/// predecessor when their mean absolute byte difference is at or below `noise` (0 to 255; `0.0`
+/// means identical). A frozen interval starts at the first frame of the repeat run, and runs
+/// shorter than `min_s` are dropped.
+pub fn freeze_intervals(frames: &[Vec<u8>], fps: f64, noise: f64, min_s: f64) -> Vec<Interval> {
+    if fps <= 0.0 || frames.len() < 2 {
+        return vec![];
+    }
+    let unit = 1.0 / fps;
+    let flags: Vec<bool> = std::iter::once(false)
+        .chain(
+            frames
+                .windows(2)
+                .map(|w| mean_abs_diff(&w[0], &w[1]) <= noise),
+        )
+        .collect();
+    flag_runs(&flags, unit, 0.0)
+        .into_iter()
+        .map(|iv| Interval {
+            start_s: iv.start_s - unit,
+            end_s: iv.end_s,
+        })
+        .filter(|iv| iv.duration_s() + 1e-9 >= min_s)
+        .collect()
+}
+
+#[cfg(test)]
+mod interval_tests {
+    use super::*;
+
+    fn close(a: &[Interval], want: &[(f64, f64)]) -> bool {
+        a.len() == want.len()
+            && a.iter()
+                .zip(want)
+                .all(|(x, (s, e))| (x.start_s - s).abs() < 1e-9 && (x.end_s - e).abs() < 1e-9)
+    }
+
+    #[test]
+    fn silence_runs_shorter_than_the_minimum_are_dropped() {
+        let pcm = Pcm {
+            sample_rate: 10,
+            channels: 1,
+            samples: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+        };
+        let got = silence_intervals(&pcm, -60.0, 0.2);
+        assert!(close(&got, &[(0.0, 0.4), (0.6, 0.9)]), "{got:?}");
+        assert!(silence_intervals(&pcm, -60.0, 0.35).len() == 1);
+    }
+
+    #[test]
+    fn stereo_frame_is_silent_only_when_every_channel_is() {
+        let pcm = Pcm {
+            sample_rate: 4,
+            channels: 2,
+            samples: vec![0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        };
+        let got = silence_intervals(&pcm, -60.0, 0.0);
+        assert!(close(&got, &[(0.25, 1.0)]), "{got:?}");
+    }
+
+    #[test]
+    fn clipped_runs_count_per_channel_and_respect_the_minimum() {
+        let pcm = Pcm {
+            sample_rate: 10,
+            channels: 1,
+            samples: vec![1.0, 1.0, 1.0, 0.1, 1.0, 1.0],
+        };
+        assert_eq!(clipped_runs(&pcm, 0.999, 2), 2);
+        assert_eq!(clipped_runs(&pcm, 0.999, 3), 1);
+    }
+
+    #[test]
+    fn black_frames_form_intervals() {
+        let frames = vec![vec![0u8; 12], vec![200u8; 12], vec![0u8; 12]];
+        let got = black_intervals(&frames, 1.0, 16.0, 0.5);
+        assert!(close(&got, &[(0.0, 1.0), (2.0, 3.0)]), "{got:?}");
+    }
+
+    #[test]
+    fn repeated_frames_form_a_freeze_interval_from_the_first_frame() {
+        let a = vec![10u8; 12];
+        let b = vec![200u8; 12];
+        let frames = vec![a.clone(), a.clone(), a.clone(), b.clone()];
+        let got = freeze_intervals(&frames, 1.0, 0.0, 0.5);
+        assert!(close(&got, &[(0.0, 3.0)]), "{got:?}");
+        assert!(freeze_intervals(&[a.clone(), b.clone()], 1.0, 0.0, 0.0).is_empty());
+    }
 }
 
 #[cfg(test)]

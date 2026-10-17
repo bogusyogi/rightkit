@@ -162,6 +162,18 @@ pub struct FileBackend {
     trailing_newline: bool,
     key_order: KeyOrder,
     max_bytes: Option<u64>,
+    utf8_bom: bool,
+}
+
+/// The UTF-8 byte order mark.
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// `bytes` without a leading UTF-8 BOM when `bom` is set; unchanged otherwise.
+fn strip_bom(bytes: &[u8], bom: bool) -> &[u8] {
+    match bytes.strip_prefix(UTF8_BOM) {
+        Some(rest) if bom => rest,
+        _ => bytes,
+    }
 }
 
 /// Serialises writers of sidecar-free backends within this process.
@@ -183,7 +195,15 @@ impl FileBackend {
             trailing_newline: false,
             key_order: KeyOrder::Preserve,
             max_bytes: None,
+            utf8_bom: false,
         }
+    }
+
+    /// Accept a leading UTF-8 byte order mark on read and write one on every write. See
+    /// [`StoreOptions::utf8_bom`].
+    pub fn utf8_bom(mut self, yes: bool) -> Self {
+        self.utf8_bom = yes;
+        self
     }
 
     /// Refuse to read the file when it is larger than `limit` bytes. See
@@ -262,6 +282,7 @@ impl FileBackend {
             trailing_newline: options.trailing_newline,
             key_order: options.key_order,
             max_bytes: options.max_bytes,
+            utf8_bom: options.utf8_bom,
         }
     }
 
@@ -321,6 +342,12 @@ impl FileBackend {
             bytes.push(b'\n');
         }
         let revision = envelope_revision.unwrap_or_else(|| fingerprint(&bytes));
+        if self.utf8_bom {
+            let mut framed = Vec::with_capacity(UTF8_BOM.len() + bytes.len());
+            framed.extend_from_slice(UTF8_BOM);
+            framed.extend_from_slice(&bytes);
+            bytes = framed;
+        }
         // Keep the last good file. A damaged file is never copied over a good backup. A failed copy
         // stops the write: replacing the file now would destroy the only copy of its content, and
         // leave an older `.bak` to be restored from later.
@@ -353,15 +380,15 @@ impl FileBackend {
         let mut reference: Option<Vec<u8>> = None;
         let mut main_good = false;
         self.check_size()?;
-        let main = read_bytes(&self.path)?;
+        let main = read_bytes_capped(&self.path, self.max_bytes)?;
         let doc = match &main {
-            Some(bytes) => parse_doc(&self.path, self.format, bytes)?,
+            Some(bytes) => parse_doc(&self.path, self.format, bytes, self.utf8_bom)?,
             None => Doc::Missing,
         };
         let current = match doc {
             Doc::Stored(s) => {
                 main_good = true;
-                reference = main;
+                reference = main.map(|bytes| strip_bom(&bytes, self.utf8_bom).to_vec());
                 Some(s)
             }
             Doc::Missing => self.restore(&mut reference)?,
@@ -409,7 +436,7 @@ impl SettingsBackend for FileBackend {
 
     fn load(&self) -> Result<Option<Stored>, Error> {
         self.check_size()?;
-        match read_file(&self.path, self.format)? {
+        match read_file(&self.path, self.format, self.utf8_bom, self.max_bytes)? {
             Doc::Stored(s) => Ok(Some(s)),
             Doc::Corrupt => self.refuse_if_strict().and_then(|()| self.backup()),
             Doc::Missing => self.backup(),
@@ -447,7 +474,7 @@ impl FileBackend {
         if !self.sidecars {
             return Ok(None);
         }
-        from_backup(&self.path, self.format)
+        from_backup(&self.path, self.format, self.utf8_bom, self.max_bytes)
     }
 
     /// The `.bak` sidecar's values; its text becomes the reference for key order.
@@ -483,15 +510,41 @@ fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, Error> {
     }
 }
 
-fn read_file(path: &Path, format: FileFormat) -> Result<Doc, Error> {
-    match read_bytes(path)? {
-        Some(bytes) => parse_doc(path, format, &bytes),
+/// The bytes of `path` like [`read_bytes`], but never more than `limit` bytes. The file is opened
+/// once and at most `limit + 1` bytes are read, so a file that grows or is replaced after a size
+/// check cannot make the read allocate past the cap. More than `limit` bytes is refused before
+/// anything is parsed. `None` as the limit reads the whole file.
+fn read_bytes_capped(path: &Path, limit: Option<u64>) -> Result<Option<Vec<u8>>, Error> {
+    use std::io::Read;
+    let Some(limit) = limit else {
+        return read_bytes(path);
+    };
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(Error::Invalid(format!(
+            "{} is over the {limit} byte limit",
+            path.display()
+        )));
+    }
+    Ok(Some(bytes))
+}
+
+fn read_file(path: &Path, format: FileFormat, bom: bool, limit: Option<u64>) -> Result<Doc, Error> {
+    match read_bytes_capped(path, limit)? {
+        Some(bytes) => parse_doc(path, format, &bytes, bom),
         None => Ok(Doc::Missing),
     }
 }
 
-/// `bytes`, read from `path`, as a document of `format`.
-fn parse_doc(path: &Path, format: FileFormat, bytes: &[u8]) -> Result<Doc, Error> {
+/// `bytes`, read from `path`, as a document of `format`. A leading BOM is removed first when `bom`.
+fn parse_doc(path: &Path, format: FileFormat, bytes: &[u8], bom: bool) -> Result<Doc, Error> {
+    let bytes = strip_bom(bytes, bom);
     let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(bytes) else {
         return Ok(Doc::Corrupt);
     };
@@ -574,6 +627,8 @@ pub(crate) fn read_values_only(
     path: &Path,
     format: FileFormat,
     sidecars: bool,
+    bom: bool,
+    max_bytes: Option<u64>,
 ) -> Result<Option<Map<String, Value>>, Error> {
     let candidates = if sidecars {
         vec![path.to_path_buf(), bak_path(path)]
@@ -581,7 +636,20 @@ pub(crate) fn read_values_only(
         vec![path.to_path_buf()]
     };
     for candidate in candidates {
-        if let Doc::Stored(stored) = read_file(&candidate, format)? {
+        // The length is checked before the file is read; an oversized file is refused, not parsed.
+        let oversized = max_bytes.and_then(|limit| {
+            fs::metadata(&candidate)
+                .ok()
+                .filter(|meta| meta.len() > limit)
+                .map(|meta| (limit, meta.len()))
+        });
+        if let Some((limit, len)) = oversized {
+            return Err(Error::Invalid(format!(
+                "{} is {len} bytes, over the {limit} byte limit",
+                candidate.display()
+            )));
+        }
+        if let Doc::Stored(stored) = read_file(&candidate, format, bom, max_bytes)? {
             return Ok(Some(stored.values));
         }
     }
@@ -589,15 +657,20 @@ pub(crate) fn read_values_only(
 }
 
 /// The `.bak` document of `path` and the text it was read from.
-fn from_backup(path: &Path, format: FileFormat) -> Result<Option<(Stored, Vec<u8>)>, Error> {
+fn from_backup(
+    path: &Path,
+    format: FileFormat,
+    bom: bool,
+    limit: Option<u64>,
+) -> Result<Option<(Stored, Vec<u8>)>, Error> {
     let bak = bak_path(path);
-    let Some(text) = read_bytes(&bak)? else {
+    let Some(text) = read_bytes_capped(&bak, limit)? else {
         return Ok(None);
     };
-    match parse_doc(&bak, format, &text)? {
+    match parse_doc(&bak, format, &text, bom)? {
         Doc::Stored(mut s) => {
             s.needs_rewrite = true;
-            Ok(Some((s, text)))
+            Ok(Some((s, strip_bom(&text, bom).to_vec())))
         }
         Doc::Missing | Doc::Corrupt => Ok(None),
     }
@@ -1244,6 +1317,39 @@ mod tests {
 
     fn schema() -> Schema {
         Schema::new("t", 1)
+    }
+
+    #[test]
+    fn a_bounded_read_accepts_exactly_the_cap_and_refuses_one_more_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        fs::write(&p, b"0123456789").unwrap();
+        assert_eq!(
+            read_bytes_capped(&p, Some(10)).unwrap().unwrap(),
+            b"0123456789"
+        );
+        let over = read_bytes_capped(&p, Some(9));
+        assert!(matches!(over, Err(Error::Invalid(m)) if m.contains("byte limit")));
+        assert_eq!(read_bytes_capped(&p, None).unwrap().unwrap().len(), 10);
+        let missing = dir.path().join("missing.json");
+        assert!(read_bytes_capped(&missing, Some(9)).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_backup_read_is_bounded_by_the_cap_like_the_main_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        // `{"n":7}` is exactly 7 bytes; the main file is missing, so the backup is read.
+        fs::write(bak_path(&p), br#"{"n":7}"#).unwrap();
+        let at_cap = FileBackend::new(&p, FileFormat::Flat).max_bytes(7);
+        let stored = at_cap.load().unwrap().unwrap();
+        assert_eq!(stored.values.get("n").and_then(Value::as_u64), Some(7));
+        let under = FileBackend::new(&p, FileFormat::Flat).max_bytes(6);
+        assert!(under.load().is_err());
+        let values = read_values_only(&p, FileFormat::Flat, true, false, Some(6));
+        assert!(values.is_err());
+        let values = read_values_only(&p, FileFormat::Flat, true, false, Some(7)).unwrap();
+        assert_eq!(values.unwrap().get("n").and_then(Value::as_u64), Some(7));
     }
 
     /// File names in `dir` other than the lock sidecar.

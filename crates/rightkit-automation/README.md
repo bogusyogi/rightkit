@@ -24,6 +24,7 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 | Lifecycle events, content-free metrics | `src/events.rs` |
 | Allowlist, deny list, kill switch, risk classes, credential gates | `src/policy.rs` |
 | Screenshot redaction, PNG decode | `src/redact.rs`, `src/png.rs` |
+| Sensitive input checks (card, IBAN, SSN and other checksums; credential, submit labels) | `src/sensitive.rs` |
 | Text delivery with read-back proof | `src/delivery.rs`, `src/proof.rs` |
 | Fail-closed app-data root | `src/paths.rs` (feature `paths`, via `rightkit-daemon::Suite`) |
 | Tier 2 channel contract | `src/in_app.rs` (`InApp` trait; implemented by the caller, no server here) |

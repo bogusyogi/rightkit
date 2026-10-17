@@ -87,3 +87,24 @@ Notes:
 
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:28`).
 - Under a strict CSP without `'unsafe-inline'`, the gate injects no style element only when `legal-ui.css` is imported. Without the import, the gate injects its layout at runtime and needs `style-src 'unsafe-inline'`.
+
+## Standalone legal documents (Unreleased)
+
+Package root exports `LegalDocumentBody` & types `LegalDocumentBodyProps`, `LegalContentFormat`.
+Use host layout & styles around its content:
+
+```tsx
+import { LegalDocumentBody } from "@rightkit/legal-ui";
+
+<div className="legal-document">
+  <LegalDocumentBody content={documentText} format="markdown" title={viewerTitle} />
+</div>
+```
+
+`content` & `format` (`"markdown" | "text"`) are required. Optional `title` omits matching leading
+Markdown headings when viewer already displays them. Markdown supports headings (h2–h6),
+paragraphs, lists, rules, emphasis, code & safe http(s)/mailto links. Default `markdown: "legacy"`
+matches 0.3.0 output exactly. Opt in with `markdown: "extended"` to omit HTML comments, keep indented
+list continuations in their item & honour two-space hard breaks; emphasis spans soft line breaks in
+both modes. Text mode preserves line breaks inside `pre.rk-legal-gate__doc-text`. Content is escaped
+React text; raw HTML is never injected.

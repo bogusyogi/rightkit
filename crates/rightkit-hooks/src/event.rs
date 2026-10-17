@@ -5,6 +5,7 @@
 //! `toolName`; tool use: `tool_use_id`, `toolUseId`). Every other typed field is one that shipped
 //! Pulse, Legion or Membrane code already reads. The untouched payload stays in [`HookEvent::raw`].
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 use std::io::Read;
@@ -108,6 +109,19 @@ impl EventKind {
             self,
             Self::SessionStart | Self::UserPromptSubmit | Self::PostToolUse
         )
+    }
+}
+
+impl Serialize for EventKind {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for EventKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Ok(Self::from_name(&name))
     }
 }
 

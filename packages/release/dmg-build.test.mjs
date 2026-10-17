@@ -138,6 +138,28 @@ for (const phase of ["attach", "detach", "convert", "verify"]) test(`DMG ${phase
   if (phase !== "detach") assert.ok(!readdirSync(f.root).some((n) => n.startsWith(".rightkit-dmg-")));
 });
 
+test("dmg build --sign signs the finished image with the identifier and receipt path; a signing failure removes the unsigned image", { skip: WINDOWS_SKIP }, (t) => {
+  const f = fixture(t), calls = [], signed = [];
+  const result = buildDmg({ ...f, background: undefined, sign: true, identifier: "dev.example.dmg", signReceipt: path.join(f.root, "r", "sign.json") },
+    { platform: "darwin", run: mockCommands(f, calls), log() {}, signDmg: (input) => { signed.push(input); assert.equal(readFileSync(input.file, "utf8"), "UDZO fixture"); return [{ file: input.file }]; } });
+  assert.deepEqual(signed, [{ file: f.out, identifier: "dev.example.dmg", receipt: path.join(f.root, "r", "sign.json") }]);
+  assert.equal(result.signed, true);
+  assert.throws(() => buildDmg({ ...f, background: undefined, sign: true }, { platform: "darwin", run: mockCommands(f, []), log() {}, signDmg: () => { throw new Error("no Developer ID identity"); } }), { code: "DMG_SIGN_FAILED" });
+  assert.equal(existsSync(f.out), false, "the unsigned image is removed");
+  const unsigned = buildDmg({ ...f, background: undefined }, { platform: "darwin", run: mockCommands(f, []), log() {}, signDmg: () => assert.fail("not asked to sign") });
+  assert.equal(unsigned.signed, undefined);
+});
+
+test("dmg build --sign options: --sign is a flag, --identifier and --receipt need it, identifiers are validated", { skip: WINDOWS_SKIP }, (t) => {
+  const f = fixture(t);
+  assert.deepEqual(parseDmgArguments(["build", "--app", f.app, "--sign", "--out", f.out, "--identifier", "dev.example.dmg", "--receipt", "r.json"]), { app: f.app, sign: true, out: f.out, identifier: "dev.example.dmg", signReceipt: "r.json" });
+  assert.throws(() => parseDmgArguments(["build", "--sign", "--sign"]), { code: "DMG_INVALID_OPTIONS" });
+  const boom = () => assert.fail("must not run");
+  assert.throws(() => buildDmg({ ...f, identifier: "dev.example.dmg" }, { platform: "darwin", run: boom, log() {} }), { code: "DMG_INVALID_OPTIONS" });
+  assert.throws(() => buildDmg({ ...f, signReceipt: "r.json" }, { platform: "darwin", run: boom, log() {} }), { code: "DMG_INVALID_OPTIONS" });
+  assert.throws(() => buildDmg({ ...f, sign: true, identifier: "bad id" }, { platform: "darwin", run: boom, log() {} }), { code: "DMG_INVALID_OPTIONS" });
+});
+
 test("DMG CLI parses options & rejects invalid/native-host requests", (t) => {
   const f = fixture(t);
   assert.deepEqual(parseDmgArguments(["build", "--app", f.app, "--out", f.out, "--volname", f.volname, "--window", "660,400"]), { app: f.app, out: f.out, volname: f.volname, window: "660,400" });

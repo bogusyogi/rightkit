@@ -131,6 +131,8 @@ pub const HOST_HANDOFF: &str = "host_handoff";
 pub const STALLED: &str = "stalled";
 /// Stable wire code for [`JobError::stale_attempt`].
 pub const STALE_ATTEMPT: &str = "stale_attempt";
+/// Stable wire code for [`JobError::revision_conflict`].
+pub const REVISION_CONFLICT: &str = "revision_conflict";
 /// Stable wire code of the terminal error a `Recovery::Never` job gets when its runner is lost.
 pub const INTERRUPTED: &str = "interrupted";
 /// Stable wire code of the cancel error a single-flight submit leaves on the job it replaced.
@@ -146,8 +148,8 @@ pub const INVALID_CURSOR: &str = "invalid_cursor";
 /// Stable code: a paging [`crate::Cursor`] was issued for a different filter or sort order than
 /// the listing it was passed to.
 pub const CURSOR_MISMATCH: &str = "cursor_mismatch";
-/// Stable code: `JobStore::import_terminal*` found a job with the same id (or request id) and
-/// either was not asked to accept an identical record or the stored record differs.
+/// Stable code: an active inline request already owns this ID, or
+/// `JobStore::import_terminal*` found a conflicting job ID or request ID.
 pub const JOB_EXISTS: &str = "job_exists";
 /// Stable code: the database file could not be read and the store was not allowed to set it
 /// aside (`rightkit_db::DbError::Unreadable`). The message names the cause.
@@ -256,6 +258,21 @@ impl JobError {
             STALE_ATTEMPT,
             format!("job {job_id}: write from a superseded attempt was rejected"),
         )
+    }
+    /// A compare-and-swap write expected the job row at `expected` but found it at `actual`
+    /// (see `StoreConfig::row_revision` and `Expect::revision`). Nothing was written; the caller
+    /// re-reads the job and decides. Not retryable as is.
+    pub fn revision_conflict(job_id: &str, expected: i64, actual: i64) -> Self {
+        Self::new(
+            REVISION_CONFLICT,
+            format!(
+                "job {job_id}: expected revision {expected}, found {actual}; nothing was written"
+            ),
+        )
+    }
+    /// Whether this is the error built by [`JobError::revision_conflict`].
+    pub fn is_revision_conflict(&self) -> bool {
+        self.code == REVISION_CONFLICT
     }
     /// The engine's hello advertises a contract version the shell does not
     /// require. Not retryable: the engine binary has to change.

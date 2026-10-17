@@ -18,6 +18,7 @@
 
 use crate::atomic::atomic_write_private;
 use crate::error::{FsError, Result};
+pub use crate::file_key::FileKey;
 use crate::lock::{FileLock, LockOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -32,100 +33,6 @@ const SAMPLE: u64 = 64 * 1024;
 const LEDGER_VERSION: u32 = 1;
 
 pub type StableId = String;
-
-/// The filesystem's own identity for an open file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FileKey {
-    pub volume: u64,
-    pub index: u64,
-}
-
-impl FileKey {
-    pub fn of_path(path: &Path) -> Result<Self> {
-        let file = File::open(path).map_err(|e| FsError::io(path, e))?;
-        Self::of_file(&file, path)
-    }
-
-    pub fn of_file(file: &File, shown: &Path) -> Result<Self> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let meta = file.metadata().map_err(|e| FsError::io(shown, e))?;
-            Ok(Self {
-                volume: meta.dev(),
-                index: meta.ino(),
-            })
-        }
-        #[cfg(windows)]
-        {
-            windows_key(file).map_err(|e| FsError::io(shown, e))
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            let _ = (file, shown);
-            Err(FsError::Unavailable("file identity"))
-        }
-    }
-
-    fn of_meta(meta: &std::fs::Metadata, path: &Path) -> Option<Self> {
-        #[cfg(unix)]
-        {
-            let _ = path;
-            use std::os::unix::fs::MetadataExt;
-            Some(Self {
-                volume: meta.dev(),
-                index: meta.ino(),
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = meta;
-            Self::of_path(path).ok()
-        }
-    }
-}
-
-#[cfg(windows)]
-fn windows_key(file: &File) -> std::io::Result<FileKey> {
-    use std::os::windows::io::AsRawHandle;
-    #[repr(C)]
-    struct FileTime {
-        low: u32,
-        high: u32,
-    }
-    #[repr(C)]
-    struct ByHandleFileInformation {
-        attributes: u32,
-        creation: FileTime,
-        access: FileTime,
-        write: FileTime,
-        volume_serial: u32,
-        size_high: u32,
-        size_low: u32,
-        links: u32,
-        index_high: u32,
-        index_low: u32,
-    }
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetFileInformationByHandle(
-            handle: *mut std::ffi::c_void,
-            info: *mut ByHandleFileInformation,
-        ) -> i32;
-    }
-    let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
-    // SAFETY: the handle is a live file handle and `info` is a valid out-parameter.
-    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), info.as_mut_ptr()) };
-    if ok == 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: the call succeeded and filled the struct.
-    let info = unsafe { info.assume_init() };
-    Ok(FileKey {
-        volume: u64::from(info.volume_serial),
-        index: (u64::from(info.index_high) << 32) | u64::from(info.index_low),
-    })
-}
 
 /// Cheap content fingerprint: size plus FNV-1a over the first and last 64 KiB. Only ever used to
 /// shortlist a replaced or copied file; never as proof of identity on its own.

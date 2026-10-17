@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { existsSync } from "node:fs";
+import { cargoAuditWorkdirs, runCargoAudits } from "./deps-cargo.mjs";
 
 const args = process.argv.slice(2);
 const opts = {
@@ -54,6 +55,12 @@ for (const { rel, cwd } of resolvedWorkdirs) {
     run("pnpm", ["update", ...workspaceArgs, ...(opts.latest ? ["--latest"] : [])], cwd, { ignoreScripts: true });
     run("pnpm", ["install", ...workspaceArgs, "--lockfile-only", "--ignore-scripts"], cwd, { ignoreScripts: true });
   }
+}
+if (opts.mode === "audit") {
+  // Rust advisories (#674): every deps.cargoWorkdirs folder, through the managed cargo client; declared only.
+  let cargoWorkdirs;
+  try { cargoWorkdirs = cargoAuditWorkdirs(config, root); } catch (error) { fail(error.message); }
+  failures.push(...runCargoAudits(cargoWorkdirs).failures);
 }
 if (failures.length > 0) {
   for (const failure of failures) console.error(`right-deps: ${failure}`);

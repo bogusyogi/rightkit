@@ -156,7 +156,31 @@ function resolveLocalPath(root, sourceFile, pathValue, coverage, display, invent
   } catch { coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-path-unresolved${detail ? `:${detail}` : ""}` }); }
 }
 
-function parseCargo(parsed, file, out, workspace, root, coverage, inventory) {
+// A Git dependency pinned by a full 40-hex `rev` is immutable. When its URL is third-party it is equivalent to a registry
+// dependency and is not a gap (Orthic-Labs/rightkit#677). A first-party URL (Orthic-Labs, bogusyogi, or an org listed in
+// ownership-repositories.json) stays an unscanned fatal gap because first-party code must be scanned. A branch, a tag, a
+// short rev or no rev is always an unscanned coverage gap.
+const FULL_GIT_REV = /^[0-9a-f]{40}$/i;
+export const PINNED_GIT_DEPENDENCY = "pinned-git-dependency";
+const FIRST_PARTY_GIT_ORGS = new Set(["github.com/orthic-labs", "github.com/bogusyogi"]);
+const gitHostOrg = (url) => {
+  const text = String(url).trim();
+  const match = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/\s]+@)?([^/:\s]+)[/:]+([^/\s]+)/i.exec(text);
+  return match ? `${match[1]}/${match[2]}`.toLowerCase() : null;
+};
+let configuredFirstParty;
+function firstPartyGitOrgs() {
+  if (configuredFirstParty) return configuredFirstParty;
+  const orgs = new Set(FIRST_PARTY_GIT_ORGS);
+  try {
+    const config = JSON.parse(readFileSync(new URL("./ownership-repositories.json", import.meta.url), "utf8"));
+    for (const repo of config.repositories ?? []) { const key = gitHostOrg(repo.repositoryIdentity ?? ""); if (key) orgs.add(key); }
+  } catch { /* the built-in first-party orgs still apply */ }
+  return (configuredFirstParty = orgs);
+}
+export const isFirstPartyGitUrl = (url) => { const key = gitHostOrg(url); return key === null || firstPartyGitOrgs().has(key); };
+
+function parseCargo(parsed, file, out, workspace, root, coverage, inventory, covered = []) {
   const pathSpec = (pathValue, sourceFile, display) => {
     resolveLocalPath(root, sourceFile, pathValue, coverage, display, inventory);
   };
@@ -176,7 +200,15 @@ function parseCargo(parsed, file, out, workspace, root, coverage, inventory) {
       if (!raw || typeof raw !== "string" && (typeof raw !== "object" || Array.isArray(raw)) || features.some((x) => typeof x !== "string") || requirement !== null && typeof requirement !== "string") throw new Error(`malformed dependency declaration: ${alias}`);
       addDependency(out, "cargo", name, file, { alias: name === alias ? null : alias, section: `${prefix}${section}`, requirement, features, defaultFeatures: spec["default-features"] ?? inherited["default-features"] ?? null, source, resolvedVersion: null, local: !!pathValue || !!git });
       if (pathValue) pathSpec(pathValue, spec.path ? file : path.posix.join(workspace.dir ?? ".", "Cargo.toml"), file);
-      if (git) coverage.push({ path: file, status: "unscanned", reason: `git-dependency-source:${name}` });
+      if (git) {
+        const rev = spec.rev ?? inherited.rev;
+        const moving = [spec.branch, inherited.branch, spec.tag, inherited.tag].some((value) => value !== undefined);
+        if (typeof git === "string" && typeof rev === "string" && FULL_GIT_REV.test(rev) && !moving && !isFirstPartyGitUrl(git)) {
+          // Immutable third-party source, not a gap: kept out of `coverage` (every coverage row blocks the gate) and reported on
+          // `deps.covered`. `scanned: false` records that the source is pinned, not examined.
+          covered.push({ path: file, status: PINNED_GIT_DEPENDENCY, reason: `git-dependency-source:${name}`, fingerprint: `${git}@${rev.toLowerCase()}`, scanned: false });
+        } else coverage.push({ path: file, status: "unscanned", reason: `git-dependency-source:${name}` });
+      }
     }
     for (const [target, value] of Object.entries(table.target ?? {})) addTable(value, `${prefix}target.'${target}'.`);
   };
@@ -375,7 +407,7 @@ function resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDi
 }
 
 function dependenciesFromInventory(appRoot, inventory) {
-  const deps = [], coverage = [], contentDigests = [];
+  const deps = [], coverage = [], contentDigests = [], covered = [];
   // Workspace inheritance is loaded before member manifests.
   const manifestNames = new Set(["Cargo.toml", "package.json", "Package.swift"]);
   const manifests = inventory.files.filter((x) => manifestNames.has(path.posix.basename(x.rel)));
@@ -419,7 +451,7 @@ function dependenciesFromInventory(appRoot, inventory) {
     if (base === "Cargo.toml") {
       const dir = path.posix.dirname(rel);
       const workspace = workspaces.filter((x) => x.dir === "." || dir === x.dir || dir.startsWith(`${x.dir}/`)).sort((a, b) => b.dir.length - a.dir.length)[0] ?? { dir: ".", deps: {} };
-      try { parseCargo(parseToml(text), rel, deps, workspace, appRoot, coverage, inventory); }
+      try { parseCargo(parseToml(text), rel, deps, workspace, appRoot, coverage, inventory, covered); }
       catch { coverage.push({ path: rel, status: "unscanned", reason: "invalid-cargo-toml" }); }
     }
     else if (base === "package.json") {
@@ -453,6 +485,7 @@ function dependenciesFromInventory(appRoot, inventory) {
   resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDigests);
   Object.defineProperty(deps, "coverage", { value: coverage, enumerable: false });
   Object.defineProperty(deps, "contentDigests", { value: contentDigests, enumerable: false });
+  Object.defineProperty(deps, "covered", { value: covered, enumerable: false });
   Object.defineProperty(deps, "manifests", { value: files, enumerable: false });
   return deps;
 }

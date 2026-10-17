@@ -15,6 +15,10 @@ export interface Command {
   shortcut?: string;
   /** Literal chord to show when there is no registered shortcut. */
   chord?: string;
+  /** Short type chip before the shortcut, for example "View" or "Session". Shown in `CommandPalette` rows. */
+  kind?: string;
+  /** Secondary text under the label, for example a path or a session title. Shown in `CommandPalette` rows. */
+  sublabel?: ReactNode;
   /** Hide without unregistering. */
   disabled?: boolean;
   /** Re-focus the launcher after an action (not a navigation). */

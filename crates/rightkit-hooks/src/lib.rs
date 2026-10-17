@@ -3,12 +3,14 @@
 //! - [`event`]: typed payload parsing ([`HookEvent`], [`Wire`], [`EventKind`]);
 //! - [`output`]: exact per-event output shapes ([`Reply`]);
 //! - [`dispatch`]: modules under per-module and total deadlines, exit 0 on any failure;
-//! - [`receipt`]: `emitted` and `observed` delivery receipts and the transcript-scan module.
+//! - [`receipt`]: `emitted` and `observed` delivery receipts and the transcript-scan module;
+//! - [`membrane`]: Membrane's hook wire types (module status, dispatch result, host response).
 //!
 //! The crate holds no policy: a module decides, this crate only parses, bounds and prints.
 
 pub mod dispatch;
 pub mod event;
+pub mod membrane;
 pub mod output;
 pub mod receipt;
 

@@ -59,6 +59,20 @@ const channels = { stable: { endpoints: ["https://github.com/<owner>/<repo>/rele
 
 There is one updater trust root for every RightKit app: the Right Suite updater key (key id `29395F9FF466261D`), the same key `sign-updater.mjs` signs with for the R2 lane. An app does not provision its own. The app's `tauri.conf.json` carries the key's public half in `plugins.updater.pubkey` (the base64 text of the key's `.pub` file); copy the value from any shipped suite app, or from the `.pub` file beside the updater private key on the release host. Tauri's updater verifies each downloaded artifact against that value; this package does no signature verification itself. Set `distribution.updaterKeyId: "29395F9FF466261D"` in the release config and `publish-update` also refuses to publish a signature made by any other key.
 
+## Update overlay model and consent
+
+`deriveUpdateOverlay(status)` maps an `AutoUpdateStatus` to a render-ready model (phase, bounded `progress`, `reason`, offered `actions`). An ineligible Pro update offers no download or install action. `createUpdateConsent()` is the per-action approval state: `request('download'|'install')`, `allowOnce(run)` (consumes the approval, exposes `busy` and `error`), `deny()`. Download and install are separate approvals. Signature and digest verification stay in the updater plugin and `verifyMetadata`; a failed run never proceeds to install.
+
+### Staged download and install
+
+`client.downloadAvailable()` is the download step. It confirms the already-verified, eligible update and returns `{ ok: true, handle, status }` with a `staged` status. Nothing is installed. `client.installStaged(handle)` is the install step; it accepts only the current handle, so a newer check invalidates it. `client.installAvailable()` runs both steps and keeps its previous status sequence.
+
+The runtime adapter (Tauri updater) exposes only the combined `downloadAndInstall`, so the download step is a **verify-only prefetch**: it does not fetch the artifact bytes. The bytes are fetched during `installStaged`. Use `createUpdateConsentRunner(client)` as the `allowOnce` runner so the download approval runs only `downloadAvailable` and the install approval runs only `installStaged`.
+
+### React subpath
+
+`@rightkit/app-update/react` exports `UpdateOverlay` and `UpdateConsentCard`, typed against `UpdateOverlayModel` and `UpdateConsentState`. `react` is an optional peer dependency; the root entry never imports React.
+
 ## Known issues
 
 - Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.

@@ -6,6 +6,8 @@
 //! * **JNI init** ([`jni_entry`], [`context`]): captures the `JavaVM`, the application `Context`
 //!   and the app paths once, and shares them through [`ContextHandle`].
 //! * **Keystore bridge** ([`keystore`]): installs the `rightkit-credentials` Android store.
+//! * **Panic capture** ([`crash`]): a recording panic hook and report reader for the next launch
+//!   (rightkit#156; native signal crashes and AAudio capture stay deferred).
 //! * **Gradle module** under `android/`: Kotlin `RightKit.init`, the Keystore implementation, and
 //!   packaging of `jniLibs/<abi>/*.so` plus the generated bindings.
 //!
@@ -19,6 +21,7 @@ uniffi::setup_scaffolding!();
 
 pub mod abi;
 pub mod context;
+pub mod crash;
 pub mod error;
 pub mod jni_entry;
 pub mod keystore;

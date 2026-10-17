@@ -39,6 +39,18 @@ impl Dir {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Keyset {
     cols: Vec<(&'static str, Dir)>,
+    range_bound: bool,
+    /// Cursor-side replacements, as `(column index, expression)`. A column without one
+    /// compares its sort expression with a plain `?` bound to the cursor value.
+    cursor_exprs: Vec<(usize, CursorExpr)>,
+}
+
+/// Cursor-side right-hand side for one sort column: a SQL fragment whose last `?`
+/// receives the cursor value for that column, with `params` bound before it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CursorExpr {
+    sql: &'static str,
+    params: Vec<Param>,
 }
 
 impl Keyset {
@@ -53,6 +65,37 @@ impl Keyset {
 
     pub fn asc(mut self, expr: &'static str) -> Self {
         self.cols.push((expr, Dir::Asc));
+        self
+    }
+
+    /// Add a redundant bound on the first sort column (`<=` for `desc`, `>=` for
+    /// `asc`) next to the cursor predicate, so an index on that column can seek to the
+    /// page instead of scanning. It selects no row the cursor predicate would not, so
+    /// output is unchanged. Off by default; with no cursor it adds nothing.
+    pub fn range_bound(mut self) -> Self {
+        self.range_bound = true;
+        self
+    }
+
+    /// Replace the cursor-side value of sort column `column` (0-based, in the order
+    /// the columns were added) with a SQL expression. The sort order and the `ORDER
+    /// BY` term are unchanged; only the value the cursor predicate compares against
+    /// changes.
+    ///
+    /// `sql` is the right-hand side of the comparison and may hold its own
+    /// placeholders. `params` bind those placeholders in order; the cursor value for
+    /// this column binds the final `?`, so `sql` must hold `params.len() + 1`
+    /// placeholders. A `?` inside a SQL string literal is not supported.
+    ///
+    /// Example (MailRight thread tiebreak, a row whose rowid is looked up per account):
+    /// `Keyset::new().asc("received_at").asc("rowid").cursor_expr(1,
+    /// "COALESCE((SELECT rowid FROM messages WHERE account_id = ? AND id = ?), -1)",
+    /// vec![Param::Int(account_id)])`. A cursor row that was deleted resolves to the
+    /// fallback in `sql`, which the caller chooses, and the fallback decides what is
+    /// lost or repeated: a fallback that matches no row skips the rest of that tie
+    /// group, and one that matches every row repeats the part of it already shown.
+    pub fn cursor_expr(mut self, column: usize, sql: &'static str, params: Vec<Param>) -> Self {
+        self.cursor_exprs.push((column, CursorExpr { sql, params }));
         self
     }
 }
@@ -73,6 +116,17 @@ pub enum CursorError {
     },
     /// The [`Keyset`] has no sort columns, so no page can be ordered.
     EmptyKeyset,
+    /// A [`Keyset::cursor_expr`] names a column the keyset does not have.
+    ColumnOutOfRange {
+        column: usize,
+        columns: usize,
+    },
+    /// A [`Keyset::cursor_expr`] has a placeholder count other than its params plus one.
+    ExprBindCount {
+        column: usize,
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl fmt::Display for CursorError {
@@ -86,6 +140,20 @@ impl fmt::Display for CursorError {
                 )
             }
             Self::EmptyKeyset => write!(f, "keyset has no sort columns"),
+            Self::ColumnOutOfRange { column, columns } => {
+                write!(
+                    f,
+                    "cursor expression names column {column} but the keyset has {columns} columns"
+                )
+            }
+            Self::ExprBindCount {
+                column,
+                expected,
+                got,
+            } => write!(
+                f,
+                "cursor expression for column {column} has {got} placeholders, expected {expected}"
+            ),
         }
     }
 }
@@ -184,6 +252,66 @@ pub struct PagedSql {
     pub params: Vec<Param>,
 }
 
+/// The predicate and ordering of one keyset page, for callers that build their own
+/// statement (a CTE chain, or a `LIMIT` they substitute). The caller emits
+/// `WHERE {where_sql} ORDER BY {order_by} LIMIT ?` and binds `params` first, then the
+/// limit (`limit + 1`, as [`Compiled::page`] does).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct PageClauses {
+    /// Predicate without the `WHERE` keyword.
+    pub where_sql: String,
+    /// Parameters for `where_sql`, in placeholder order.
+    pub params: Vec<Param>,
+    /// `ORDER BY` terms without the keyword.
+    pub order_by: String,
+}
+
+impl Keyset {
+    /// One optional cursor-side expression per column, after checking that each names
+    /// a real column and has one placeholder per param plus the cursor value. A later
+    /// [`Keyset::cursor_expr`] for the same column replaces an earlier one.
+    fn checked_cursor_exprs(&self) -> Result<Vec<Option<&CursorExpr>>, CursorError> {
+        let n = self.cols.len();
+        let mut bounds: Vec<Option<&CursorExpr>> = vec![None; n];
+        for (column, expr) in &self.cursor_exprs {
+            if *column >= n {
+                return Err(CursorError::ColumnOutOfRange {
+                    column: *column,
+                    columns: n,
+                });
+            }
+            let expected = expr.params.len() + 1;
+            let got = expr.sql.bytes().filter(|&b| b == b'?').count();
+            if got != expected {
+                return Err(CursorError::ExprBindCount {
+                    column: *column,
+                    expected,
+                    got,
+                });
+            }
+            bounds[*column] = Some(expr);
+        }
+        Ok(bounds)
+    }
+}
+
+/// The SQL for one column's cursor value, pushing its bound parameters in order: the
+/// expression's own params, then the cursor value, or just the value for a plain `?`.
+fn cursor_rhs(bound: Option<&CursorExpr>, value: &Param, params: &mut Vec<Param>) -> String {
+    match bound {
+        Some(expr) => {
+            params.extend(expr.params.iter().cloned());
+            params.push(value.clone());
+            expr.sql.to_string()
+        }
+        None => {
+            params.push(value.clone());
+            "?".to_string()
+        }
+    }
+}
+
 impl Compiled {
     /// Build one keyset page over `select_from` (which carries no placeholders).
     ///
@@ -204,12 +332,41 @@ impl Compiled {
         after: Option<&Cursor>,
         limit: usize,
     ) -> Result<PagedSql, CursorError> {
+        let clauses = self.page_clauses(keyset, after)?;
+        let mut params = clauses.params;
+        params.push(Param::Int(
+            i64::try_from(limit).unwrap_or(i64::MAX).saturating_add(1),
+        ));
+        let sql = format!(
+            "{select_from} WHERE {} ORDER BY {} LIMIT ?",
+            clauses.where_sql, clauses.order_by
+        );
+        Ok(PagedSql { sql, params })
+    }
+
+    /// The predicate, parameters and ordering of one keyset page, without a `LIMIT`.
+    ///
+    /// Use this when the statement is not a plain `SELECT`, for example a CTE chain
+    /// that substitutes its own `LIMIT`. The sort-key expressions in [`Keyset`] are
+    /// inserted verbatim, so a scalar subquery (a lookup that resolves a tiebreak
+    /// value per row) is a valid column expression; it is evaluated per row like any
+    /// other.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Compiled::page`].
+    pub fn page_clauses(
+        &self,
+        keyset: &Keyset,
+        after: Option<&Cursor>,
+    ) -> Result<PageClauses, CursorError> {
         if keyset.cols.is_empty() {
             return Err(CursorError::EmptyKeyset);
         }
         let n = keyset.cols.len();
+        let bounds = keyset.checked_cursor_exprs()?;
         let mut params = self.params.clone();
-        let mut sql = format!("{select_from} WHERE ({})", self.where_sql);
+        let mut where_sql = format!("({})", self.where_sql);
 
         if let Some(cursor) = after {
             let values = cursor.values();
@@ -219,31 +376,43 @@ impl Compiled {
                     got: values.len(),
                 });
             }
+            if keyset.range_bound {
+                let (expr, dir) = keyset.cols[0];
+                let op = match dir {
+                    Dir::Asc => ">=",
+                    Dir::Desc => "<=",
+                };
+                let rhs = cursor_rhs(bounds[0], &values[0], &mut params);
+                where_sql.push_str(&format!(" AND ({expr} {op} {rhs})"));
+            }
             // Row i is after the cursor when columns 0..i equal the cursor and column i
-            // is strictly after it. Groups are emitted and bound in the same order.
+            // is strictly after it. Placeholders and params are emitted in the same
+            // left-to-right order, so each cursor value binds in its own position.
             let mut groups = Vec::with_capacity(n);
             for i in 0..n {
-                let mut parts: Vec<String> = keyset.cols[..i]
-                    .iter()
-                    .map(|(expr, _)| format!("{expr} = ?"))
-                    .collect();
+                let mut parts: Vec<String> = Vec::with_capacity(i + 1);
+                for j in 0..i {
+                    let rhs = cursor_rhs(bounds[j], &values[j], &mut params);
+                    parts.push(format!("{} = {rhs}", keyset.cols[j].0));
+                }
                 let (expr, dir) = keyset.cols[i];
-                parts.push(format!("{expr} {} ?", dir.after_op()));
+                let rhs = cursor_rhs(bounds[i], &values[i], &mut params);
+                parts.push(format!("{expr} {} {rhs}", dir.after_op()));
                 groups.push(format!("({})", parts.join(" AND ")));
-                params.extend(values[..=i].iter().cloned());
             }
-            sql.push_str(&format!(" AND ({})", groups.join(" OR ")));
+            where_sql.push_str(&format!(" AND ({})", groups.join(" OR ")));
         }
 
-        let order: Vec<String> = keyset
+        let order_by: Vec<String> = keyset
             .cols
             .iter()
             .map(|(expr, dir)| format!("{expr} {}", dir.keyword()))
             .collect();
-        sql.push_str(&format!(" ORDER BY {} LIMIT ?", order.join(", ")));
-        let fetch = i64::try_from(limit).unwrap_or(i64::MAX).saturating_add(1);
-        params.push(Param::Int(fetch));
 
-        Ok(PagedSql { sql, params })
+        Ok(PageClauses {
+            where_sql,
+            params,
+            order_by: order_by.join(", "),
+        })
     }
 }

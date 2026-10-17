@@ -356,4 +356,33 @@ mod tests {
         assert_eq!(slot.get(), Some(a));
         assert!(InjectedRoot::new().set(Path::new("rel")).is_err());
     }
+
+    #[test]
+    fn fit_selection_on_4_6_and_8_gb_android_profiles() {
+        use crate::hardware::{FitKind, Measurement, Requirements};
+        let model = Requirements {
+            memory_gb: Some(2.5),
+            ..Requirements::default()
+        };
+        // Usable pool is half of RAM (no Android factor without a measurement): 4 GB gives about
+        // 1.85 GB, which a 2.5 GB requirement exceeds; 6 GB and 8 GB give 2.8 and 3.8 GB.
+        let four = Hardware::from_android(&facts(&["arm64-v8a"], 3.7));
+        assert_eq!(four.profile, "android-4gb");
+        assert_eq!(four.estimate_fit(&model, &[]).kind, FitKind::Unsupported);
+        let measured = Measurement {
+            profile: "android-4gb".into(),
+            at: None,
+            extra: Default::default(),
+        };
+        assert_eq!(
+            four.estimate_fit(&model, &[measured]).kind,
+            FitKind::Measured
+        );
+        let six = Hardware::from_android(&facts(&["arm64-v8a"], 5.6));
+        assert_eq!(six.profile, "android-6gb");
+        assert_eq!(six.estimate_fit(&model, &[]).kind, FitKind::Estimated);
+        let eight = Hardware::from_android(&facts(&["arm64-v8a"], 7.6));
+        assert_eq!(eight.profile, "android-8gb");
+        assert_eq!(eight.estimate_fit(&model, &[]).kind, FitKind::Estimated);
+    }
 }

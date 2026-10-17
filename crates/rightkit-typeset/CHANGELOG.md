@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `font` module (rightkit#461, re-exported at the crate root): `FontFace::parse`, `units_per_em`, `glyph_id`, `advance_units`, `measure` and `Measurement::width_px`. Reads `hmtx` advances and `cmap` formats 4 and 12 from TrueType and OpenType sfnt bytes, plus the first face of a TTC, with no new dependency. Kerning, ligatures, shaping and other cmap formats are not covered; malformed or unsupported input is `FontError`.
+
 ## 0.1.0 - 2026-10-17
 
 Initial version (rightkit#264).

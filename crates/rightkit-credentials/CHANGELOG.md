@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added (rightkit#509): `Store::generate_key(bytes) -> Result<Secret>`, a public fresh-key generator (OS CSPRNG, standard base64 text, 16..=1024 bytes, nothing stored) for rotation keys; `get_or_create_key` now uses it. Additive.
+- Added (rightkit#611): `apple_helper::resolve_bundled(name) -> Option<PathBuf>` resolves a helper under `Contents/{MacOS,Helpers,Library/LoginItems}` of the running app's bundle, canonical, regular file, contained in the bundle, `None` on any doubt or a name with a path component. Placement only; no code-signature check. Additive.
 - Cleared version for macOS (Orthic-Labs/rightkit#308, ledger 103). `rightkit-secrets` 0.1.3 and earlier read, modified and deleted through the whole user keychain search list on macOS (the default-keychain defect fixed in 0.2.0 below), so they are not cleared. The cleared line is `rightkit-credentials` 0.2.0 or newer (the crate renamed from `rightkit-secrets`; this release, 0.2.1, is the first that also carries the Linux and Android backends). Migrate with `rightkit-credentials = "0.2.1"` and the new crate name. No code change; documentation only.
 
 ## 0.2.1

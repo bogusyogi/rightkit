@@ -65,6 +65,9 @@ pub struct FailoverEvent {
     pub from: String,
     pub to: Option<String>,
     pub reason: String,
+    /// `true` when `from` was skipped without a call because its breaker was cooling (no
+    /// attempt was made on it); `false` when `from` failed an attempt. Orthic-Labs/rightkit#661.
+    pub breaker_skipped: bool,
 }
 
 #[derive(Default)]
@@ -155,7 +158,8 @@ impl FailoverChain {
 
     /// Routes to try, in order; cooling routes are skipped unless that would
     /// leave nothing to try.
-    fn order(&self) -> Vec<usize> {
+    /// Returns the routes to try and, separately, the cooling routes skipped for this call.
+    fn order(&self) -> (Vec<usize>, Vec<usize>) {
         let now = Instant::now();
         let guard = self.breakers.lock().unwrap();
         let live: Vec<usize> = (0..self.routes.len())
@@ -168,9 +172,12 @@ impl FailoverChain {
             })
             .collect();
         if live.is_empty() {
-            (0..self.routes.len()).collect()
+            ((0..self.routes.len()).collect(), Vec::new())
         } else {
-            live
+            let skipped = (0..self.routes.len())
+                .filter(|i| !live.contains(i))
+                .collect();
+            (live, skipped)
         }
     }
 
@@ -194,12 +201,13 @@ impl FailoverChain {
         }
     }
 
-    fn notify(&self, from: &str, to: Option<&str>, reason: &str) {
+    fn notify(&self, from: &str, to: Option<&str>, reason: &str, breaker_skipped: bool) {
         if let Some(o) = &self.observer {
             o(&FailoverEvent {
                 from: from.into(),
                 to: to.map(String::from),
                 reason: reason.into(),
+                breaker_skipped,
             });
         }
     }
@@ -211,7 +219,16 @@ impl FailoverChain {
         req: &ChatRequest,
         mut attempt_route: impl FnMut(&Route, &ChatRequest, &mut bool) -> Result<T, LlmError>,
     ) -> Result<T, LlmError> {
-        let order = self.order();
+        let (order, skipped) = self.order();
+        let first = order.first().map(|&n| self.routes[n].name.clone());
+        for &s in &skipped {
+            self.notify(
+                &self.routes[s].name,
+                first.as_deref(),
+                "circuit open: route skipped without an attempt",
+                true,
+            );
+        }
         let mut attempts: Vec<Attempt> = Vec::new();
         for (pos, &i) in order.iter().enumerate() {
             let route = &self.routes[i];
@@ -228,7 +245,7 @@ impl FailoverChain {
                     let billing = e.billing();
                     self.record_away(&route.name);
                     let next = order.get(pos + 1).map(|&n| self.routes[n].name.as_str());
-                    self.notify(&route.name, next, &reason);
+                    self.notify(&route.name, next, &reason, false);
                     attempts.push(Attempt {
                         route: route.name.clone(),
                         reason,

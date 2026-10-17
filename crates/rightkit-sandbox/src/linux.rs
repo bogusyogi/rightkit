@@ -1,12 +1,26 @@
-//! Linux backend: Landlock filesystem confinement + seccomp-BPF allowlist, ported
-//! from CodeRight `linux_sandbox.rs` / `seccomp_landlock.rs`. Everything is
-//! prepared in the parent; `Prepared::apply` (post-fork) performs syscalls only.
-//! Fail closed: unavailable Landlock/seccomp is an error, never an unsandboxed run.
-//! NOTE: compiled/tested only where a Linux host is available (see matrix.md).
+//! Linux backend: Landlock filesystem confinement + seccomp-BPF, ported from CodeRight
+//! `linux_sandbox.rs` / `seccomp_landlock.rs`. Everything is prepared in the parent;
+//! `Prepared::apply` (post-fork) performs syscalls only.
+//!
+//! Fail closed: an unavailable Landlock or seccomp is an error, never an unsandboxed run. The one
+//! documented exception is [`LandlockMode::SkipWhenNoPaths`], an explicit opt-in for network-only
+//! tiers that list no path at all.
+//!
+//! Landlock ABI. The ruleset handles whatever the running kernel supports: ABI 2 adds `REFER`
+//! (renaming or linking across directories is denied outside the granted trees) and ABI 3 adds
+//! `TRUNCATE` (truncating a file needs the right too). On an older kernel those operations keep
+//! the kernel's behavior for that ABI; [`landlock_abi_version`] reports what is in force.
+//!
+//! seccomp. With the network denied the child gets either the default-deny allowlist or the
+//! network-only filter ([`SeccompMode`]); both begin with an architecture check (see
+//! `seccomp.rs`). NOTE: compiled/tested only where a Linux host is available (see matrix.md).
 
-use crate::{NetworkPolicy, SandboxPolicy};
+use crate::seccomp::{self, SockFilter};
+use crate::{ConfinementMode, LandlockMode, NetworkPolicy, SandboxPolicy, SeccompMode};
 use std::ffi::CString;
+use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::path::Path;
 
 const FS_EXECUTE: u64 = 1 << 0;
 const FS_WRITE_FILE: u64 = 1 << 1;
@@ -21,12 +35,18 @@ const FS_MAKE_SOCK: u64 = 1 << 9;
 const FS_MAKE_FIFO: u64 = 1 << 10;
 const FS_MAKE_BLOCK: u64 = 1 << 11;
 const FS_MAKE_SYM: u64 = 1 << 12;
+/// ABI 2.
+const FS_REFER: u64 = 1 << 13;
+/// ABI 3.
+const FS_TRUNCATE: u64 = 1 << 14;
 const RULE_PATH_BENEATH: u32 = 1;
+const CREATE_RULESET_VERSION: u32 = 1 << 0;
 const SYS_CREATE_RULESET: libc::c_long = 444;
 const SYS_ADD_RULE: libc::c_long = 445;
 const SYS_RESTRICT_SELF: libc::c_long = 446;
 
-const ALL: u64 = FS_EXECUTE
+/// Every ABI-1 right.
+const ALL_V1: u64 = FS_EXECUTE
     | FS_WRITE_FILE
     | FS_READ_FILE
     | FS_READ_DIR
@@ -45,6 +65,37 @@ const SYSTEM_EXEC: &[&str] = &[
     "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
 ];
 
+/// The rights the running ABI can express: ABI 2 adds `REFER`, ABI 3 adds `TRUNCATE`.
+fn supported_rights(abi: u32) -> u64 {
+    let mut all = ALL_V1;
+    if abi >= 2 {
+        all |= FS_REFER;
+    }
+    if abi >= 3 {
+        all |= FS_TRUNCATE;
+    }
+    all
+}
+
+/// The rights a rule on a non-directory may carry; the kernel rejects directory rights there
+/// (`EINVAL`).
+fn file_rights(abi: u32) -> u64 {
+    let mut rights = FS_EXECUTE | FS_WRITE_FILE | FS_READ_FILE;
+    if abi >= 3 {
+        rights |= FS_TRUNCATE;
+    }
+    rights
+}
+
+/// Narrow `access` to what a rule on this kind of object may carry.
+fn rights_for_object(access: u64, is_dir: bool, abi: u32) -> u64 {
+    if is_dir {
+        access
+    } else {
+        access & file_rights(abi)
+    }
+}
+
 #[repr(C)]
 struct RulesetAttr {
     handled_access_fs: u64,
@@ -55,78 +106,179 @@ struct PathBeneathAttr {
     parent_fd: i32,
 }
 
-pub struct Prepared {
-    ruleset: std::fs::File,
-    seccomp: Option<Vec<libc::sock_filter>>,
+/// The Landlock ABI version the running kernel offers, or why it offers none.
+pub(crate) fn landlock_abi() -> io::Result<u32> {
+    // SAFETY: a version query takes a null attribute, size 0 and the VERSION flag.
+    let version = unsafe {
+        libc::syscall(
+            SYS_CREATE_RULESET,
+            std::ptr::null::<RulesetAttr>(),
+            0usize,
+            CREATE_RULESET_VERSION,
+        )
+    };
+    if version < 1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(u32::try_from(version).unwrap_or(u32::MAX))
 }
 
-impl Prepared {
-    pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
-        let attr = RulesetAttr {
-            handled_access_fs: ALL,
+/// The Landlock ABI version in force, or `None` when Landlock is unavailable here.
+pub(crate) fn landlock_abi_version() -> Option<u32> {
+    landlock_abi().ok()
+}
+
+pub struct Prepared {
+    ruleset: Option<std::fs::File>,
+    seccomp: Option<Vec<SockFilter>>,
+}
+
+fn add_rule(ruleset: i32, path: &Path, access: u64, abi: u32) -> io::Result<()> {
+    let Ok(c) = CString::new(path.to_string_lossy().into_owned()) else {
+        return Ok(());
+    };
+    // SAFETY: `c` is a valid NUL-terminated path.
+    let pfd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
+    if pfd < 0 {
+        return Ok(()); // a missing path grants nothing
+    }
+    let result = (|| {
+        // SAFETY: `pfd` is a live descriptor and `st` a valid out-pointer; fstat works on O_PATH.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(pfd, &mut st) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let is_dir = (st.st_mode & libc::S_IFMT) == libc::S_IFDIR;
+        let access = rights_for_object(access, is_dir, abi);
+        if access == 0 {
+            return Ok(());
+        }
+        let pa = PathBeneathAttr {
+            allowed_access: access,
+            parent_fd: pfd,
         };
-        // SAFETY: valid attr pointer and size.
-        let fd = unsafe {
+        // SAFETY: valid ruleset descriptor and attribute pointer.
+        let r = unsafe {
             libc::syscall(
-                SYS_CREATE_RULESET,
-                &attr as *const RulesetAttr,
-                std::mem::size_of::<RulesetAttr>(),
+                SYS_ADD_RULE,
+                ruleset,
+                RULE_PATH_BENEATH,
+                &pa as *const PathBeneathAttr,
                 0,
             )
         };
-        if fd < 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(match err.raw_os_error() {
-                Some(libc::ENOSYS) | Some(libc::EOPNOTSUPP) => {
-                    std::io::Error::other("Landlock unavailable; refusing unsandboxed execution")
-                }
-                _ => err,
-            });
+        if r < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
         }
-        // Own the descriptor before any fallible rule installation.
-        let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
-        let add = |path: &std::path::Path, access: u64| -> std::io::Result<()> {
-            let Ok(c) = CString::new(path.to_string_lossy().into_owned()) else {
-                return Ok(());
-            };
-            let pfd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
-            if pfd < 0 {
-                return Ok(()); // missing path grants nothing
-            }
-            let pa = PathBeneathAttr {
-                allowed_access: access,
-                parent_fd: pfd,
-            };
-            let r = unsafe {
-                libc::syscall(
-                    SYS_ADD_RULE,
-                    ruleset.as_raw_fd(),
-                    RULE_PATH_BENEATH,
-                    &pa as *const PathBeneathAttr,
-                    0,
-                )
-            };
-            unsafe { libc::close(pfd) };
-            if r < 0 {
-                Err(std::io::Error::last_os_error())
-            } else {
-                Ok(())
-            }
-        };
-        for p in SYSTEM_EXEC {
-            add(std::path::Path::new(p), EXEC)?;
+    })();
+    // SAFETY: `pfd` was opened above and is closed exactly once.
+    unsafe { libc::close(pfd) };
+    result
+}
+
+/// Landlock ruleset for `policy`, or `None` when the mode skips it for a path-less policy.
+fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
+    let paths_listed = !policy.read_paths.is_empty()
+        || !policy.write_paths.is_empty()
+        || !policy.exec_paths.is_empty();
+    if policy.landlock == LandlockMode::SkipWhenNoPaths && !paths_listed {
+        return Ok(None);
+    }
+    let abi = landlock_abi().map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("Landlock unavailable ({error}); refusing unsandboxed execution"),
+        )
+    })?;
+    let handled = supported_rights(abi);
+    let attr = RulesetAttr {
+        handled_access_fs: handled,
+    };
+    // SAFETY: valid attr pointer and size.
+    let fd = unsafe {
+        libc::syscall(
+            SYS_CREATE_RULESET,
+            &attr as *const RulesetAttr,
+            std::mem::size_of::<RulesetAttr>(),
+            0,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // Own the descriptor before any fallible rule installation.
+    // SAFETY: `fd` is a fresh descriptor owned by no other value.
+    let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
+    let raw = ruleset.as_raw_fd();
+    for p in SYSTEM_EXEC {
+        add_rule(raw, Path::new(p), EXEC, abi)?;
+    }
+    for p in &policy.read_paths {
+        add_rule(raw, p, READ, abi)?;
+    }
+    for p in &policy.exec_paths {
+        add_rule(raw, p, EXEC, abi)?;
+    }
+    for p in &policy.write_paths {
+        add_rule(raw, p, handled, abi)?;
+    }
+    if policy.exec_any {
+        // Execution anywhere; reading an image still needs a read grant.
+        add_rule(raw, Path::new("/"), FS_EXECUTE, abi)?;
+    }
+    Ok(Some(ruleset))
+}
+
+#[cfg(target_arch = "x86_64")]
+fn allowlist_filter() -> io::Result<Vec<SockFilter>> {
+    seccomp::allowlist_program(seccomp::AUDIT_ARCH_X86_64, ALLOWED_SYSCALLS)
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn allowlist_filter() -> io::Result<Vec<SockFilter>> {
+    // A requested strict tier cannot silently omit the filter.
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "strict seccomp allowlist is unavailable for this architecture",
+    ))
+}
+
+#[cfg(target_arch = "x86_64")]
+fn network_only_filter() -> io::Result<Vec<SockFilter>> {
+    seccomp::network_only_program(&seccomp::X86_64_NETWORK)
+}
+
+#[cfg(target_arch = "aarch64")]
+fn network_only_filter() -> io::Result<Vec<SockFilter>> {
+    seccomp::network_only_program(&seccomp::AARCH64_NETWORK)
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn network_only_filter() -> io::Result<Vec<SockFilter>> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the network-only seccomp filter is unavailable for this architecture",
+    ))
+}
+
+impl Prepared {
+    pub fn new(policy: &SandboxPolicy) -> io::Result<Self> {
+        if policy.mode == ConfinementMode::WriteOnly {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "ConfinementMode::WriteOnly is implemented for macOS only; refusing to run with a \
+                 different boundary",
+            ));
         }
-        for p in &policy.read_paths {
-            add(p, READ)?;
-        }
-        for p in &policy.exec_paths {
-            add(p, EXEC)?;
-        }
-        for p in &policy.write_paths {
-            add(p, ALL)?;
-        }
+        // `deny_read` is not enforceable under Landlock (allow-only): see `deny_read_enforced`.
+        let ruleset = build_ruleset(policy)?;
         let seccomp = if policy.network == NetworkPolicy::Deny {
-            Some(prepare_seccomp_filter()?)
+            Some(match policy.seccomp {
+                SeccompMode::Allowlist => allowlist_filter()?,
+                SeccompMode::NetworkOnly => network_only_filter()?,
+            })
         } else {
             None
         };
@@ -134,20 +286,29 @@ impl Prepared {
     }
 
     /// Post-fork, pre-exec: syscalls only.
-    pub fn apply(&self) -> std::io::Result<()> {
-        if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } < 0 {
-            return Err(std::io::Error::last_os_error());
+    pub fn apply(&self) -> io::Result<()> {
+        if self.ruleset.is_none() && self.seccomp.is_none() {
+            return Ok(());
         }
-        if unsafe { libc::syscall(SYS_RESTRICT_SELF, self.ruleset.as_raw_fd(), 0) } < 0 {
-            return Err(std::io::Error::last_os_error());
+        // SAFETY: plain prctl with constant arguments.
+        if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if let Some(ruleset) = &self.ruleset {
+            // SAFETY: valid ruleset descriptor.
+            if unsafe { libc::syscall(SYS_RESTRICT_SELF, ruleset.as_raw_fd(), 0) } < 0 {
+                return Err(io::Error::last_os_error());
+            }
         }
         if let Some(program) = &self.seccomp {
             let filter = libc::sock_fprog {
                 len: program.len() as u16,
-                filter: program.as_ptr().cast_mut(),
+                filter: program.as_ptr().cast::<libc::sock_filter>().cast_mut(),
             };
+            // SAFETY: `filter` points at `program`, which outlives the call; `SockFilter` has
+            // the layout of `struct sock_filter`.
             if unsafe { libc::prctl(libc::PR_SET_SECCOMP, 2, &filter as *const _, 0, 0) } < 0 {
-                return Err(std::io::Error::last_os_error());
+                return Err(io::Error::last_os_error());
             }
         }
         Ok(())
@@ -160,6 +321,7 @@ impl Prepared {
 /// (socket/connect/bind/sendto/…) are deliberately omitted, which is what
 /// denies egress on Linux — there is no separate network rule to read, so
 /// `network_syscalls_are_never_allowlisted` guards the property directly.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 const ALLOWED_SYSCALLS: &[u32] = &[
     0,   // read
     1,   // write
@@ -275,83 +437,183 @@ const ALLOWED_SYSCALLS: &[u32] = &[
     439, // faccessat2
 ];
 
-/// Apply a seccomp-BPF allowlist for coding tasks (Linux x86_64).
-///
-/// Allowed syscalls cover the needs of a compiler/test runner: file I/O,
-/// process management, memory, signals, clocks, and IPC primitives. Everything
-/// else returns EPERM. ENOSYS/EINVAL from the seccomp() syscall itself means the
-/// kernel cannot enforce the requested strict tier, so launch fails closed.
-#[cfg(target_os = "linux")]
-fn prepare_seccomp_filter() -> std::io::Result<Vec<libc::sock_filter>> {
-    use libc;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::seccomp::interpreter::run;
 
-    // BPF instruction encoding constants (linux/filter.h).
-    const BPF_LD: u16 = 0x00;
-    const BPF_W: u16 = 0x00;
-    const BPF_ABS: u16 = 0x20;
-    const BPF_JMP: u16 = 0x05;
-    const BPF_JEQ: u16 = 0x10;
-    const BPF_K: u16 = 0x00;
-    const BPF_RET: u16 = 0x06;
+    /// x86_64 syscall numbers that can open or use a network connection.
+    const NETWORK_SYSCALLS: &[(u32, &str)] = &[
+        (41, "socket"),
+        (42, "connect"),
+        (43, "accept"),
+        (44, "sendto"),
+        (45, "recvfrom"),
+        (46, "sendmsg"),
+        (47, "recvmsg"),
+        (49, "bind"),
+        (50, "listen"),
+        (53, "socketpair"),
+        (288, "accept4"),
+        (299, "recvmmsg"),
+        (307, "sendmmsg"),
+        (425, "io_uring_setup"),
+        (426, "io_uring_enter"),
+        (427, "io_uring_register"),
+    ];
 
-    // seccomp return values.
-    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
-    const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
-    const EPERM_VAL: u32 = 1;
-
-    // A requested strict tier cannot silently omit the filter.
-    #[cfg(not(target_arch = "x86_64"))]
-    return Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "strict seccomp allowlist is unavailable for this architecture",
-    ));
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        const SYSCALL_NR_OFFSET: u32 = 0;
-
-        // Allowlisted syscall numbers for a compiler/test/editor workload.
-        let allowed: &[u32] = ALLOWED_SYSCALLS;
-
-        let n = allowed.len();
-        let mut prog: Vec<libc::sock_filter> = Vec::with_capacity(n + 3);
-
-        // Load syscall number from seccomp_data at offset 0.
-        prog.push(libc::sock_filter {
-            code: (BPF_LD | BPF_W | BPF_ABS) as u16,
-            jt: 0,
-            jf: 0,
-            k: SYSCALL_NR_OFFSET,
-        });
-
-        // For each allowed syscall: if NR matches, jump forward to the ALLOW return.
-        // The ALLOW instruction is always the last one; jump distance decreases as we go.
-        for (i, &nr) in allowed.iter().enumerate() {
-            let jump_to_allow = (n - i) as u8;
-            prog.push(libc::sock_filter {
-                code: (BPF_JMP | BPF_JEQ | BPF_K) as u16,
-                jt: jump_to_allow,
-                jf: 0,
-                k: nr,
-            });
+    // Linux egress isolation is enforced by omission: the seccomp filter is an allowlist, so a
+    // network syscall is denied precisely because it is absent. That makes the property invisible
+    // in the source, and a future "just add socketpair so tool X works" edit would silently open
+    // egress. This test is the guard.
+    #[test]
+    fn network_syscalls_are_never_allowlisted() {
+        for (nr, name) in NETWORK_SYSCALLS {
+            assert!(
+                !ALLOWED_SYSCALLS.contains(nr),
+                "syscall {nr} ({name}) is allowlisted; the Linux sandbox would permit network egress"
+            );
         }
+    }
 
-        // Default: deny with EPERM.
-        prog.push(libc::sock_filter {
-            code: BPF_RET as u16,
-            jt: 0,
-            jf: 0,
-            k: SECCOMP_RET_ERRNO | EPERM_VAL,
-        });
+    #[test]
+    fn allowlist_has_no_duplicate_entries() {
+        let mut seen = ALLOWED_SYSCALLS.to_vec();
+        seen.sort_unstable();
+        let before = seen.len();
+        seen.dedup();
+        assert_eq!(before, seen.len(), "duplicate syscall numbers in allowlist");
+    }
 
-        // Allow.
-        prog.push(libc::sock_filter {
-            code: BPF_RET as u16,
-            jt: 0,
-            jf: 0,
-            k: SECCOMP_RET_ALLOW,
-        });
+    #[test]
+    fn allowlist_is_non_empty_and_covers_core_io() {
+        assert!(!ALLOWED_SYSCALLS.is_empty());
+        for (nr, name) in [(0u32, "read"), (1, "write"), (3, "close")] {
+            assert!(
+                ALLOWED_SYSCALLS.contains(&nr),
+                "core syscall {nr} ({name}) must stay allowlisted"
+            );
+        }
+    }
 
-        Ok(prog)
+    #[test]
+    fn the_real_allowlist_program_checks_the_architecture_first() {
+        let prog = seccomp::allowlist_program(seccomp::AUDIT_ARCH_X86_64, ALLOWED_SYSCALLS)
+            .expect("the real allowlist fits byte jumps");
+        for &nr in ALLOWED_SYSCALLS {
+            assert_eq!(
+                run(&prog, seccomp::AUDIT_ARCH_X86_64, nr, 0),
+                seccomp::SECCOMP_RET_ALLOW,
+                "{nr}"
+            );
+            // The same number under i386 or as an x32 alias never reaches the allowlist.
+            assert_eq!(
+                run(&prog, 0x4000_0003, nr, 0),
+                seccomp::SECCOMP_RET_KILL_PROCESS,
+                "i386 {nr}"
+            );
+            assert_ne!(
+                run(&prog, seccomp::AUDIT_ARCH_X86_64, nr | 0x4000_0000, 0),
+                seccomp::SECCOMP_RET_ALLOW,
+                "x32 {nr}"
+            );
+        }
+        for (nr, name) in NETWORK_SYSCALLS {
+            assert_ne!(
+                run(&prog, seccomp::AUDIT_ARCH_X86_64, *nr, 2),
+                seccomp::SECCOMP_RET_ALLOW,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn rights_follow_the_abi() {
+        assert_eq!(supported_rights(1), ALL_V1);
+        assert_eq!(supported_rights(2), ALL_V1 | FS_REFER);
+        assert_eq!(supported_rights(3), ALL_V1 | FS_REFER | FS_TRUNCATE);
+        assert_eq!(supported_rights(9), supported_rights(3));
+        // Write grants carry REFER and TRUNCATE exactly when they are handled, so a handled-but-
+        // ungranted right (read-only roots) stays denied.
+        for abi in 1..=3 {
+            let handled = supported_rights(abi);
+            assert_eq!(READ & !handled, 0);
+            assert_eq!(EXEC & !handled, 0);
+            assert_eq!(handled & FS_REFER != 0, abi >= 2, "abi {abi}");
+            assert_eq!(handled & FS_TRUNCATE != 0, abi >= 3, "abi {abi}");
+        }
+        // Read and exec roots never carry REFER or TRUNCATE.
+        assert_eq!(EXEC & (FS_REFER | FS_TRUNCATE), 0);
+    }
+
+    #[test]
+    fn a_rule_on_a_file_drops_the_directory_rights() {
+        // The kernel answers EINVAL for directory rights on a file; the mask must remove them.
+        let on_file = rights_for_object(READ | FS_EXECUTE, false, 1);
+        assert_eq!(on_file, FS_READ_FILE | FS_EXECUTE);
+        let write = rights_for_object(supported_rights(3), false, 3);
+        assert_eq!(
+            write,
+            FS_EXECUTE | FS_WRITE_FILE | FS_READ_FILE | FS_TRUNCATE
+        );
+        assert_eq!(
+            rights_for_object(supported_rights(1), false, 1) & FS_TRUNCATE,
+            0
+        );
+        // A directory keeps everything it was given.
+        assert_eq!(
+            rights_for_object(supported_rights(3), true, 3),
+            supported_rights(3)
+        );
+        // Nothing left means nothing to add.
+        assert_eq!(rights_for_object(FS_READ_DIR | FS_MAKE_DIR, false, 3), 0);
+    }
+
+    #[test]
+    fn write_only_mode_is_refused_not_approximated() {
+        let policy = SandboxPolicy::new().mode(ConfinementMode::WriteOnly);
+        let error = Prepared::new(&policy).err().expect("refused");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn a_pathless_network_only_policy_prepares_no_landlock_when_asked() {
+        let policy = SandboxPolicy::new()
+            .landlock(LandlockMode::SkipWhenNoPaths)
+            .seccomp(SeccompMode::NetworkOnly);
+        let prepared = Prepared::new(&policy).expect("network-only tier prepares anywhere");
+        assert!(prepared.ruleset.is_none());
+        assert!(prepared.seccomp.is_some());
+        // No network restriction and no paths: nothing to apply at all.
+        let open = SandboxPolicy::new()
+            .landlock(LandlockMode::SkipWhenNoPaths)
+            .network(NetworkPolicy::Allow);
+        let prepared = Prepared::new(&open).unwrap();
+        assert!(prepared.ruleset.is_none() && prepared.seccomp.is_none());
+        prepared
+            .apply()
+            .expect("an empty confinement applies nothing");
+    }
+
+    #[test]
+    fn a_listed_path_turns_landlock_on_even_in_skip_mode() {
+        let policy = SandboxPolicy::new()
+            .landlock(LandlockMode::SkipWhenNoPaths)
+            .allow_read(std::env::temp_dir());
+        match (landlock_abi_version(), Prepared::new(&policy)) {
+            (Some(_), Ok(prepared)) => assert!(prepared.ruleset.is_some()),
+            // No Landlock here: the launch must fail, never fall back to unconfined.
+            (None, Err(error)) => assert_eq!(error.kind(), io::ErrorKind::Unsupported),
+            (abi, outcome) => panic!("abi {abi:?} but prepare gave ok={}", outcome.is_ok()),
+        }
+    }
+
+    #[test]
+    fn the_abi_probe_agrees_with_availability() {
+        assert_eq!(
+            crate::is_landlock_available(),
+            landlock_abi_version().is_some_and(|abi| abi >= 1)
+        );
     }
 }

@@ -53,8 +53,99 @@ pub struct Dep {
 pub struct DepsResult {
     pub deps: Vec<Dep>,
     pub coverage: Vec<Cov>,
+    /// Sources recorded as pinned but not examined (not coverage gaps).
+    pub covered: Vec<Covered>,
     pub content_digests: Vec<ContentDigest>,
     pub manifests: Vec<File>,
+}
+
+/// A source that is immutable and third-party: recorded, never scanned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Covered {
+    pub path: String,
+    pub status: &'static str,
+    pub reason: String,
+    pub fingerprint: String,
+    pub scanned: bool,
+}
+
+pub const PINNED_GIT_DEPENDENCY: &str = "pinned-git-dependency";
+const FIRST_PARTY_GIT_ORGS: [&str; 2] = ["github.com/orthic-labs", "github.com/bogusyogi"];
+
+const REMOTE_GIT_SCHEMES: [&str; 8] = [
+    "http",
+    "https",
+    "ssh",
+    "git",
+    "git+http",
+    "git+https",
+    "git+ssh",
+    "ssh+git",
+];
+
+/// Canonical `host/org` from a host and the path that follows it; `None` for local or
+/// ambiguous shapes (IP literals, `localhost`, empty or numeric or escaped org).
+fn host_org_key(host: &str, path: &str) -> Option<String> {
+    let host = host.trim().trim_end_matches('.').to_lowercase();
+    let valid_host = !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.');
+    let ip_like = host.bytes().all(|b| b.is_ascii_digit() || b == b'.');
+    if !valid_host || ip_like || host == "localhost" || host.ends_with(".localhost") {
+        return None;
+    }
+    let org = path.split('/').find(|segment| !segment.is_empty())?;
+    if org.bytes().all(|b| b.is_ascii_digit()) || org.contains(['%', '\\', ':', '@']) {
+        return None;
+    }
+    Some(format!("{host}/{}", org.to_lowercase()))
+}
+
+/// `host/org` of a Git URL, lowercased with ports and userinfo removed; `None` when it is
+/// not a recognised remote form (local paths, `file:`, unknown schemes, IP literals).
+fn git_host_org(url: &str) -> Option<String> {
+    let text = url.trim();
+    if text.is_empty() || text.contains(char::is_whitespace) {
+        return None;
+    }
+    if text.contains("://") {
+        let parsed = url::Url::parse(text).ok()?;
+        if !REMOTE_GIT_SCHEMES.contains(&parsed.scheme()) {
+            return None;
+        }
+        let host = match parsed.host()? {
+            url::Host::Domain(domain) => domain.to_string(),
+            _ => return None,
+        };
+        return host_org_key(&host, parsed.path());
+    }
+    // scp syntax: `[user@]host:org/repo`. No port form exists; path-like text is rejected.
+    if text.starts_with(['/', '.', '~', '\\']) || text.contains('\\') {
+        return None;
+    }
+    let (left, path) = text.split_once(':')?;
+    let host = match left.rsplit_once('@') {
+        Some((user, host)) if !user.is_empty() && !user.contains('/') => host,
+        Some(_) => return None,
+        None => left,
+    };
+    if host.contains('/') || host.len() < 2 {
+        return None;
+    }
+    host_org_key(host, path)
+}
+
+/// First-party Git URL, or one that does not classify as a remote (fail closed).
+pub fn is_first_party_git_url(url: &str) -> bool {
+    match git_host_org(url) {
+        None => true,
+        Some(key) => FIRST_PARTY_GIT_ORGS.contains(&key.as_str()),
+    }
+}
+
+fn is_full_git_rev(rev: &str) -> bool {
+    rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 const MANIFEST_NAMES: [&str; 3] = ["Cargo.toml", "package.json", "Package.swift"];
@@ -186,6 +277,7 @@ fn parse_cargo(
     workspace: &CargoWorkspace,
     resolver: &Resolve<'_>,
     coverage: &mut Vec<Cov>,
+    covered: &mut Vec<Covered>,
 ) -> Res<()> {
     fn add_table(
         table: &Value,
@@ -195,6 +287,7 @@ fn parse_cargo(
         workspace: &CargoWorkspace,
         resolver: &Resolve<'_>,
         coverage: &mut Vec<Cov>,
+        covered: &mut Vec<Covered>,
     ) -> Res<()> {
         if !table.is_object() {
             return Ok(());
@@ -332,8 +425,26 @@ fn parse_cargo(
                     };
                     resolver.local_path(&source_file, p, coverage, file, "local-dependency", "");
                 }
-                if git_text.is_some() {
-                    coverage.push(Cov::new(file, format!("git-dependency-source:{name}")));
+                if let Some(git_url) = &git_text {
+                    let rev = first(&[field(spec, "rev"), field(inherited, "rev")]);
+                    let moving = [spec, inherited]
+                        .iter()
+                        .any(|v| !field(v, "branch").is_null() || !field(v, "tag").is_null());
+                    let pinned = rev.as_str().filter(|r| {
+                        is_full_git_rev(r) && !moving && !is_first_party_git_url(git_url)
+                    });
+                    if let Some(rev) = pinned {
+                        // Immutable third-party source: recorded, not a gap.
+                        covered.push(Covered {
+                            path: file.to_string(),
+                            status: PINNED_GIT_DEPENDENCY,
+                            reason: format!("git-dependency-source:{name}"),
+                            fingerprint: format!("{git_url}@{}", rev.to_lowercase()),
+                            scanned: false,
+                        });
+                    } else {
+                        coverage.push(Cov::new(file, format!("git-dependency-source:{name}")));
+                    }
                 }
             }
         }
@@ -347,12 +458,15 @@ fn parse_cargo(
                     workspace,
                     resolver,
                     coverage,
+                    covered,
                 )?;
             }
         }
         Ok(())
     }
-    add_table(parsed, "", file, out, workspace, resolver, coverage)
+    add_table(
+        parsed, "", file, out, workspace, resolver, coverage, covered,
+    )
 }
 
 /// JavaScript `String(value)` for scalars.
@@ -425,6 +539,7 @@ fn is_git_spec(spec: &str) -> bool {
 pub fn dependencies_from_inventory(app_root: &Path, inventory: &ScanInv) -> Res<DepsResult> {
     let mut deps: Vec<Dep> = Vec::new();
     let mut coverage: Vec<Cov> = Vec::new();
+    let mut covered: Vec<Covered> = Vec::new();
     let mut content_digests: Vec<ContentDigest> = Vec::new();
     let resolver = Resolve {
         root: app_root,
@@ -541,8 +656,16 @@ pub fn dependencies_from_inventory(app_root: &Path, inventory: &ScanInv) -> Res<
             };
             let workspace = candidates.first().copied().unwrap_or(&fallback);
             let outcome = parse_toml(&text).map_err(|_| ()).and_then(|parsed| {
-                parse_cargo(&parsed, rel, &mut deps, workspace, &resolver, &mut coverage)
-                    .map_err(|_| ())
+                parse_cargo(
+                    &parsed,
+                    rel,
+                    &mut deps,
+                    workspace,
+                    &resolver,
+                    &mut coverage,
+                    &mut covered,
+                )
+                .map_err(|_| ())
             });
             if outcome.is_err() {
                 coverage.push(Cov::new(rel.clone(), "invalid-cargo-toml"));
@@ -706,6 +829,7 @@ pub fn dependencies_from_inventory(app_root: &Path, inventory: &ScanInv) -> Res<
     Ok(DepsResult {
         deps,
         coverage,
+        covered,
         content_digests,
         manifests: files.into_iter().cloned().collect(),
     })
@@ -1056,4 +1180,97 @@ fn resolve_yarn(d: &mut Dep, text: &str) -> Result<(), String> {
         return Err(format!("yarn lock resolution missing: {target}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pinned_git_tests {
+    use super::*;
+
+    #[test]
+    fn third_party_urls_are_not_first_party() {
+        for url in [
+            "https://github.com/serde-rs/serde",
+            "git@gitlab.com:group/repo.git",
+            "ssh://git@example.org/org/repo",
+        ] {
+            assert!(!is_first_party_git_url(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn first_party_and_unparseable_urls_fail_closed() {
+        for url in [
+            "https://github.com/Orthic-Labs/rightkit",
+            "git@github.com:bogusyogi/postright.git",
+            "https://github.com/BOGUSYOGI/x.git",
+            "",
+            "not a url",
+        ] {
+            assert!(is_first_party_git_url(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn ports_userinfo_and_case_are_canonicalized() {
+        for url in [
+            "https://github.com:443/Orthic-Labs/rightkit",
+            "https://GitHub.com:8443/orthic-labs/x.git",
+            "https://user:pw@github.com/Orthic-Labs/x",
+            "ssh://git@github.com:22/bogusyogi/x.git",
+            "ssh://git@github.com:2222/Orthic-Labs/x.git",
+            "git@GITHUB.com:Orthic-Labs/x.git",
+            "github.com:bogusyogi/x",
+            "https://github.com./Orthic-Labs/x",
+        ] {
+            assert!(is_first_party_git_url(url), "{url}");
+        }
+        assert_eq!(
+            git_host_org("https://github.com:443/serde-rs/serde").as_deref(),
+            Some("github.com/serde-rs")
+        );
+        assert_eq!(
+            git_host_org("ssh://git@gitlab.com:2222/group/repo.git").as_deref(),
+            Some("gitlab.com/group")
+        );
+        assert!(!is_first_party_git_url(
+            "ssh://git@gitlab.com:2222/group/repo.git"
+        ));
+        assert!(!is_first_party_git_url(
+            "https://github.com:443/serde-rs/serde"
+        ));
+    }
+
+    #[test]
+    fn local_and_unsupported_forms_fail_closed() {
+        for url in [
+            "file:///tmp/private-repo",
+            "file://host/tmp/x",
+            "/tmp/private-repo",
+            "./relative/repo",
+            "../repo",
+            "~/repo",
+            "C:\\repos\\x",
+            "ssh://localhost/org/repo",
+            "ssh://git@localhost:2222/org/repo",
+            "https://127.0.0.1/org/repo",
+            "https://[::1]/org/repo",
+            "git@localhost:org/repo",
+            "ftp://example.org/org/repo",
+            "https://github.com/",
+            "https://github.com/%4Frthic-Labs/x",
+            "github.com/serde-rs/serde",
+            "git@github.com:443/serde-rs/serde",
+            "https://",
+        ] {
+            assert!(is_first_party_git_url(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn only_full_forty_hex_revs_pin() {
+        assert!(is_full_git_rev(&"a".repeat(40)));
+        assert!(is_full_git_rev(&"A1".repeat(20)));
+        assert!(!is_full_git_rev(&"a".repeat(39)));
+        assert!(!is_full_git_rev(&"g".repeat(40)));
+    }
 }

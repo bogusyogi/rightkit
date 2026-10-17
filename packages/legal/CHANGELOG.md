@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Legal snapshot and npm license notice tooling (Orthic-Labs/rightkit#472; source side of #673).
+
+- Add `@rightkit/legal/tooling` (Node-only; not in the root or browser entries): `syncLegalSnapshot`, `assertFinalLegalSnapshot`, `generateNpmLicenseAppendix` and typed `LegalSnapshotConfig`.
+- Ship `legal-snapshot` (sync, or `--final` read-only release check) and `generate-npm-license-appendix` bins. Sync copies masters, renders notices and writes the hash-bound manifest and gate contract; `--final` checks committed content without masters.
+- Npm notices cover production packages only, exclude `@rightkit/*`, read every distinct installed instance, escape HTML and record the lockfile SHA-256. Packages without a packaged license file get a labeled MIT/ISC standard-text fallback; other missing texts fail.
+- `refundPolicy` defaults to the suite 14-day window (`SUITE_REFUND_POLICY`, Adrian's decision 2026-10-17 06:20) and stays overridable per app with `{ kind: "window", days }` or `{ kind: "none", trialDays? }`. The "required per-app" note is removed.
+- Export `effectiveRefundPolicy`; `renderDefaultPolicy` no longer throws when `refundPolicy` is omitted.
+- Snapshot & npm tooling resolves real paths: writes and reads are refused when the resolved target lies outside its declared root, including through a symlinked ancestor. Source masters are contained in `sourceRoot`, which may sit outside the app root.
+- Add `rightkit-legal` bin: `npm-licenses` delegates to `generateNpmLicenseAppendix`; `rust-licenses` is BLOCKED (no licence-metadata source decided).
+- Add Node unit and CLI integration tests (`pnpm run test:tooling`); `pnpm test` runs them after the Vitest suite.
+- Package version stays 0.5.0; the publish step sets the version.
+
 ## 0.5.0 — 2026-10-17
 
 Additive (Orthic-Labs/rightkit#281). Existing manifests, receipts and digests are unchanged.

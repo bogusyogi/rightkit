@@ -138,14 +138,19 @@ impl Shared {
         f32::from_bits(self.volume_bits.load(Ordering::Relaxed))
     }
 
+    /// Samples (interleaved) the device has taken from the queue since the last flush, before
+    /// latency adjustment. Reaches the pushed count once the queue has drained.
+    pub(crate) fn consumed_samples(&self) -> u64 {
+        self.ring
+            .head()
+            .saturating_sub(self.clock_base.load(Ordering::Relaxed))
+    }
+
     /// Samples (interleaved) that have been played and are audible: consumed since the last
     /// flush, minus what the device still holds.
     pub(crate) fn played_samples(&self) -> u64 {
-        let consumed = self
-            .ring
-            .head()
-            .saturating_sub(self.clock_base.load(Ordering::Relaxed));
-        consumed.saturating_sub(self.latency_samples.load(Ordering::Relaxed))
+        self.consumed_samples()
+            .saturating_sub(self.latency_samples.load(Ordering::Relaxed))
     }
 
     pub(crate) fn position(&self) -> Duration {
@@ -288,6 +293,19 @@ mod tests {
         shared.set_latency(Duration::from_millis(500));
         assert_eq!(shared.latency(), Duration::from_millis(500));
         assert_eq!(shared.position(), Duration::from_millis(1_500));
+    }
+
+    #[test]
+    fn consumed_reaches_pushed_count_while_played_stays_behind_latency() {
+        let shared = Shared::new(1_000, 1, 1_000);
+        shared.push(&[0.5; 100]);
+        shared.set_latency(Duration::from_millis(20));
+        let mut out = [0.0f32; 100];
+        assert_eq!(shared.ring.pop_into(&mut out), 100);
+        // The queue is empty, so every pushed sample has been taken by the device.
+        assert_eq!(shared.consumed_samples(), 100);
+        // Played still excludes the 20 samples the device holds.
+        assert_eq!(shared.played_samples(), 80);
     }
 
     #[test]

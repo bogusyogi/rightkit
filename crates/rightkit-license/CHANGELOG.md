@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Additive; no existing signature, field, variant or behaviour changed, no dependency change. Not compiled when written; verification is the CI run.
+
+- **Several device ids (bogusyogi/rightkit#610, related #391).** `verify_token_any_device(token, pubkey, app, &[&str], now)` and `authenticate_token_any_device(..)`: the signature is checked once and the token's `device_id` must equal one candidate exactly (raw and hashed ids, for example). An empty list is `VerifyError::DeviceMismatch`; every other failure is device-independent, so the error returned is the token's own (a matching but expired token reports `Expired`, not a mismatch from another candidate). `verify_token` and `authenticate_token` now delegate to these with one id and behave as before. `AuthorizationService::with_device_alternates` belongs to `rightkit-device` and is not part of this change.
+- **Revoked entitlement-id denylist (bogusyogi/rightkit#501).** `RevokedIds` (exact-match set) and `verify_token_not_revoked(token, pubkey, app, &[&str], now, &RevokedIds) -> Result<Entitlement, RevocationError>`. The id is read only from an authenticated token and checked before expiry, so a revoked token reports `RevocationError::Revoked { id }` even when expired; other failures arrive as `RevocationError::Verify(VerifyError)`. `RevocationError` is `#[non_exhaustive]`. The existing `VerifyError` enum is unchanged.
+- **Unverified claims peek (bogusyogi/rightkit#391).** `peek_unverified_claims(token) -> Result<UnverifiedClaims, VerifyError>` decodes `id`, `app`, `tier`, `iat`, `exp` without any signature, app, device or time check, for decisions taken before verification. Tokens over 16 KiB are refused. The result is untrusted and must never grant access. The process-tree usage half of #391 is `rightkit-child-process` work and is not in this crate.
+- Tests: unit tests in `src/lib.rs` and `src/revocation.rs` (second candidate, empty and near-miss lists, exact matching, wrong key and app still fail, listed id refused including after expiry, unlisted and empty list pass, forged token never reaches the denylist, peek of valid, unsigned, malformed, oversized and incomplete tokens).
+- Not changed: #164 is already shipped as `SubjectEntitlementSource` (0.2.1, feature `subject-entitlement`); #272 needs backend registration data (host, key, trial issuance) that this crate does not hold.
+
 ## 0.2.2
 
 Additive, behind the new cargo feature `engine-gate` (off by default; implies `subject-entitlement`). With the feature off the crate builds and behaves exactly as 0.2.1. One small additive method on the existing `SubjectEntitlementSource`, available whenever `subject-entitlement` is on. Version is a patch bump on purpose: in 0.x a minor bump (0.3.0) would break the `rightkit-license = "0.2.0"` requirement in `rightkit-device`, and 0.2.1 added a feature the same way. Not compiled when written; verification is the CI run (`Cargo.lock` is regenerated there).

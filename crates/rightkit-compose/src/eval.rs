@@ -9,12 +9,18 @@ use crate::model::{
     AssetRef, ClickShape, Clip, Composition, Content, CursorSample, CursorSprite, Layer, Pattern,
     Point, Rect, Rgba, Style, Timing, Transform,
 };
-use crate::retime::{source_time_at, RetimeSegment};
-use crate::ticks::{Rational, Ticks, TICKS_PER_SECOND};
+use crate::retime::{source_time_at_signed, RetimeSegment};
+use crate::ticks::{Rational, SignedTicks, Ticks, TICKS_PER_SECOND};
 use crate::track::{sample, Easing, Keyframe};
 use crate::validate::validate;
 
+/// Default frame schema, emitted by [`evaluate`] & [`evaluate_ms`]. Video
+/// source times are unsigned `Ticks`; a negative source is an evaluation error.
 pub const FRAME_SCHEMA: &str = "rightkit.frame.v2";
+
+/// Opt-in frame schema, emitted by [`evaluate_v3`] & [`evaluate_ms_v3`]. Video
+/// source times are [`SignedTicks`], so negative pre-roll is representable.
+pub const FRAME_SCHEMA_V3: &str = "rightkit.frame.v3";
 
 /// Everything a renderer needs to draw one frame. Layers are in stack order,
 /// back to front, and include only layers active at `t`.
@@ -121,6 +127,174 @@ pub enum Payload {
     },
 }
 
+/// Frame description for the opt-in `rightkit.frame.v3` schema. Same shape as
+/// [`FrameDescription`] but layers carry [`PayloadV3`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrameDescriptionV3 {
+    pub schema: String,
+    pub t: Ticks,
+    pub width: u32,
+    pub height: u32,
+    pub layers: Vec<FrameLayerV3>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrameLayerV3 {
+    pub id: String,
+    pub stack_index: usize,
+    pub opacity: f64,
+    pub clip: Option<ClipPx>,
+    pub shadow: Option<ShadowPx>,
+    pub motion_blur: Option<MotionBlurFrame>,
+    pub payload: PayloadV3,
+}
+
+/// v3 payload. Identical to [`Payload`] except `Video::source` is signed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PayloadV3 {
+    Video {
+        asset_id: String,
+        /// Signed source time after retime. Known duration caps only the upper
+        /// bound; negative pre-roll is preserved for the caller's decoder policy.
+        source: SignedTicks,
+        crop: Rect,
+        dest_px: Rect,
+    },
+    Still {
+        asset_id: String,
+        crop: Rect,
+        dest_px: Rect,
+    },
+    Webcam {
+        asset_id: String,
+        source: Ticks,
+        dest_px: Rect,
+    },
+    Cursor {
+        asset_id: String,
+        visible: bool,
+        tip_px: Point,
+        sprite_px: Rect,
+    },
+    Background {
+        pattern: Pattern,
+    },
+    Badge {
+        label: String,
+        anchor_px: Point,
+        style: Style,
+    },
+    Caption {
+        text: String,
+        rect_px: Rect,
+        style: Style,
+    },
+    Ripple {
+        center_px: Point,
+        radius_px: f64,
+        stroke_px: f64,
+        alpha: f64,
+        style: Style,
+    },
+    Highlight {
+        rect_px: Rect,
+        corner_radius_px: f64,
+        alpha: f64,
+        style: Style,
+    },
+}
+
+impl From<Payload> for PayloadV3 {
+    fn from(payload: Payload) -> Self {
+        match payload {
+            Payload::Video {
+                asset_id,
+                source,
+                crop,
+                dest_px,
+            } => PayloadV3::Video {
+                asset_id,
+                source: source.into(),
+                crop,
+                dest_px,
+            },
+            Payload::Still {
+                asset_id,
+                crop,
+                dest_px,
+            } => PayloadV3::Still {
+                asset_id,
+                crop,
+                dest_px,
+            },
+            Payload::Webcam {
+                asset_id,
+                source,
+                dest_px,
+            } => PayloadV3::Webcam {
+                asset_id,
+                source,
+                dest_px,
+            },
+            Payload::Cursor {
+                asset_id,
+                visible,
+                tip_px,
+                sprite_px,
+            } => PayloadV3::Cursor {
+                asset_id,
+                visible,
+                tip_px,
+                sprite_px,
+            },
+            Payload::Background { pattern } => PayloadV3::Background { pattern },
+            Payload::Badge {
+                label,
+                anchor_px,
+                style,
+            } => PayloadV3::Badge {
+                label,
+                anchor_px,
+                style,
+            },
+            Payload::Caption {
+                text,
+                rect_px,
+                style,
+            } => PayloadV3::Caption {
+                text,
+                rect_px,
+                style,
+            },
+            Payload::Ripple {
+                center_px,
+                radius_px,
+                stroke_px,
+                alpha,
+                style,
+            } => PayloadV3::Ripple {
+                center_px,
+                radius_px,
+                stroke_px,
+                alpha,
+                style,
+            },
+            Payload::Highlight {
+                rect_px,
+                corner_radius_px,
+                alpha,
+                style,
+            } => PayloadV3::Highlight {
+                rect_px,
+                corner_radius_px,
+                alpha,
+                style,
+            },
+        }
+    }
+}
+
 /// Evaluates the composition at a millisecond time. A thin wrapper over
 /// [`evaluate`] that converts exactly, 705,600 ticks per millisecond. A value
 /// past the composition's duration returns `OutOfRange`.
@@ -131,9 +305,83 @@ pub fn evaluate_ms(
     evaluate(composition, Ticks::from_ms(t_ms))
 }
 
-/// Evaluates the composition at timeline time `t`. Validation runs first, so
-/// an invalid composition is reported rather than drawn.
+/// Evaluates the composition at a millisecond time into the opt-in v3 frame.
+pub fn evaluate_ms_v3(
+    composition: &Composition,
+    t_ms: u64,
+) -> Result<FrameDescriptionV3, CompositionError> {
+    evaluate_v3(composition, Ticks::from_ms(t_ms))
+}
+
+/// Evaluates the composition at timeline time `t` into the default `v2` frame.
+/// Validation runs first, so an invalid composition is reported rather than
+/// drawn. A video layer whose retimed source is negative is an `Invalid` error;
+/// use [`evaluate_v3`] to keep negative pre-roll.
 pub fn evaluate(composition: &Composition, t: Ticks) -> Result<FrameDescription, CompositionError> {
+    let (width, height, layers) = evaluate_with(
+        composition,
+        t,
+        payload_at,
+        |id, stack_index, opacity, clip, shadow, motion_blur, payload| FrameLayer {
+            id,
+            stack_index,
+            opacity,
+            clip,
+            shadow,
+            motion_blur,
+            payload,
+        },
+    )?;
+    Ok(FrameDescription {
+        schema: FRAME_SCHEMA.to_string(),
+        t,
+        width,
+        height,
+        layers,
+    })
+}
+
+/// Evaluates at `t` into the opt-in `rightkit.frame.v3` frame, whose video
+/// source is [`SignedTicks`]. Same validation & layer selection as [`evaluate`].
+pub fn evaluate_v3(
+    composition: &Composition,
+    t: Ticks,
+) -> Result<FrameDescriptionV3, CompositionError> {
+    let (width, height, layers) = evaluate_with(
+        composition,
+        t,
+        payload_at_v3,
+        |id, stack_index, opacity, clip, shadow, motion_blur, payload| FrameLayerV3 {
+            id,
+            stack_index,
+            opacity,
+            clip,
+            shadow,
+            motion_blur,
+            payload,
+        },
+    )?;
+    Ok(FrameDescriptionV3 {
+        schema: FRAME_SCHEMA_V3.to_string(),
+        t,
+        width,
+        height,
+        layers,
+    })
+}
+
+type Assemble<P, L> =
+    fn(String, usize, f64, Option<ClipPx>, Option<ShadowPx>, Option<MotionBlurFrame>, P) -> L;
+
+/// Builds one layer payload for the layer visible at `t` with the given (x, y) placement.
+type PayloadFor<P> = fn(&Composition, &Layer, Ticks, (f64, f64)) -> Result<P, CompositionError>;
+
+fn evaluate_with<P, L>(
+    composition: &Composition,
+    t: Ticks,
+    payload_for: PayloadFor<P>,
+    assemble: Assemble<P, L>,
+) -> Result<(u32, u32, Vec<L>), CompositionError> {
     validate(composition)?;
     if t >= composition.duration {
         return Err(CompositionError::OutOfRange {
@@ -152,7 +400,7 @@ pub fn evaluate(composition: &Composition, t: Ticks) -> Result<FrameDescription,
         }
         let local = Ticks(t.0 - layer.timing.start.0);
         let opacity = sample(&layer.opacity, local).unwrap_or(1.0);
-        let payload = payload_at(composition, layer, t, (width, height));
+        let payload = payload_for(composition, layer, t, (width, height))?;
         let clip = layer.clip.map(|c| match c {
             Clip::RoundedRect { radius } => ClipPx::RoundedRect {
                 radius_px: radius * min_side,
@@ -168,34 +416,59 @@ pub fn evaluate(composition: &Composition, t: Ticks) -> Result<FrameDescription,
         let motion_blur = layer.motion_blur.map(|m| MotionBlurFrame {
             offsets_ticks: blur_offsets(m.samples, m.shutter_degrees, composition.fps),
         });
-        layers.push(FrameLayer {
-            id: layer.id.clone(),
+        layers.push(assemble(
+            layer.id.clone(),
             stack_index,
             opacity,
             clip,
             shadow,
             motion_blur,
             payload,
-        });
+        ));
     }
-
-    Ok(FrameDescription {
-        schema: FRAME_SCHEMA.to_string(),
-        t,
-        width: canvas.width,
-        height: canvas.height,
-        layers,
-    })
+    Ok((canvas.width, canvas.height, layers))
 }
 
 fn is_active(timing: Timing, t: Ticks) -> bool {
     t >= timing.start && t < timing.end
 }
 
-fn payload_at(composition: &Composition, layer: &Layer, t: Ticks, canvas: (f64, f64)) -> Payload {
+/// v3 payload: video keeps its signed source, everything else is shared.
+fn payload_at_v3(
+    composition: &Composition,
+    layer: &Layer,
+    t: Ticks,
+    canvas: (f64, f64),
+) -> Result<PayloadV3, CompositionError> {
+    let Content::Video {
+        asset,
+        placement,
+        crop,
+        retime,
+    } = &layer.content
+    else {
+        return payload_at(composition, layer, t, canvas).map(PayloadV3::from);
+    };
     let (width, height) = canvas;
     let local = Ticks(t.0 - layer.timing.start.0);
-    match &layer.content {
+    let (dest, crop) = media_geometry(layer, *placement, crop, local);
+    Ok(PayloadV3::Video {
+        asset_id: asset.id.clone(),
+        source: video_source(retime, local, asset),
+        crop,
+        dest_px: to_px(dest, width, height),
+    })
+}
+
+fn payload_at(
+    composition: &Composition,
+    layer: &Layer,
+    t: Ticks,
+    canvas: (f64, f64),
+) -> Result<Payload, CompositionError> {
+    let (width, height) = canvas;
+    let local = Ticks(t.0 - layer.timing.start.0);
+    Ok(match &layer.content {
         Content::Video {
             asset,
             placement,
@@ -203,9 +476,15 @@ fn payload_at(composition: &Composition, layer: &Layer, t: Ticks, canvas: (f64, 
             retime,
         } => {
             let (dest, crop) = media_geometry(layer, *placement, crop, local);
+            let source = Ticks::try_from(video_source(retime, local, asset)).map_err(|_| {
+                CompositionError::Invalid {
+                    layer: layer.id.clone(),
+                    reason: "negative video source time; evaluate with evaluate_v3".to_string(),
+                }
+            })?;
             Payload::Video {
                 asset_id: asset.id.clone(),
-                source: video_source(retime, local, asset),
+                source,
                 crop,
                 dest_px: to_px(dest, width, height),
             }
@@ -283,7 +562,7 @@ fn payload_at(composition: &Composition, layer: &Layer, t: Ticks, canvas: (f64, 
             local,
             (width, height),
         ),
-    }
+    })
 }
 
 /// Animation progress of a click effect at a layer-local time. Returns
@@ -397,13 +676,16 @@ fn place(placement: Rect, transform: Transform) -> Rect {
 /// Source time of a video layer at layer-local `local`. An empty retime is
 /// identity. Otherwise the retime maps the time, and validation guarantees the
 /// segments cover the layer.
-fn video_source(retime: &[RetimeSegment], local: Ticks, asset: &AssetRef) -> Ticks {
+fn video_source(retime: &[RetimeSegment], local: Ticks, asset: &AssetRef) -> SignedTicks {
     let raw = if retime.is_empty() {
-        local
+        local.into()
     } else {
-        source_time_at(retime, local).unwrap_or(Ticks::ZERO)
+        source_time_at_signed(retime, local).unwrap_or_default()
     };
-    clamp_to_asset(raw, asset)
+    match asset.duration {
+        Some(duration) => raw.min(duration.into()),
+        None => raw,
+    }
 }
 
 /// Clamps a source time to the asset's known duration, if it has one.

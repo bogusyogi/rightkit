@@ -190,7 +190,8 @@ subresources beneath a site root. The app grants it for a document it already ho
   (`clipboard::named_board_refusal`) before touching a pasteboard. Register them as `rightkit-qa` control commands; see
   `example-app/src/main.rs` and `example-app/scenarios/`.
 - `frameless::button_frames(&window)` is a read-only macOS probe of the close, minimise and zoom buttons (frame, hidden
-  flag, window visibility), read on the main thread; it returns `ShellError::Unsupported` on other platforms.
+  flag, window visibility), read on the main thread; it returns `ShellError::Unsupported` on other platforms. It is a
+  QA probe: compiled only with the non-default `qa-probes` feature in a debug-assertions build; a release build that enables the feature fails with `compile_error!`.
 - Clipboard reads: `clipboard::read` no longer copies bytes of unrecognised pasteboard types. Opt in with
   `ClipboardOptions { custom_max_bytes: Some(n), .. }` through `clipboard::read_with` or
   `ShellBuilder::clipboard_options`. On macOS text also falls back to the other plain-text types
@@ -200,8 +201,16 @@ subresources beneath a site root. The app grants it for a document it already ho
   `StreamEventKind::{Resolved, Head, RangeServed, FullServed, RangeRejected, BytesRead}`. Unset costs one
   branch per request; a panicking observer is caught and never reaches the response.
 - `frameless::TrafficLights` is a plain value (`Default`, `Clone`). An app without the shell plugin can
-  `app.manage(TrafficLights::default())`, call `set_offset` from its own command and forward window events
-  to `handle_window_event`; no `ShellState`, lifecycle hook or single-instance claim is needed.
+  `app.manage(TrafficLights::default())`, call `set_offset` (relative to the macOS default) or `set_inset` (absolute:
+  the close button's top-left corner `x` points from the left and `y` points from the top) from its own command and
+  forward window events to `handle_window_event`; no `ShellState`, lifecycle hook or single-instance claim is needed.
+  The shell's own app-menu quit item (macOS "Quit <app>", Windows/Linux "Exit <app>") routes to the ordered quit, so
+  close-to-tray no longer swallows Cmd+Q. `LeftClick::Show` reveals the window on a tray left click and never hides it.
+- Navigation: `OAUTH_POPUP_ORIGINS` now includes the Atlassian and Salesforce sign-in origins. `NavPolicy::decide_window_open_pinned`
+  admits a popup only from a given pinned opener origin; `decide_window_open` is unchanged and still returns `Deny` for a
+  non-web scheme, and `NavPolicy::protocol_consent_scheme` names the scheme an app with a consent surface may confirm.
+  The shell's own windows pass the opening window's URL to the popup decision. `nav::strip_coop_headers` and
+  `nav::popup_origins_from_json` are pure helpers for the popup response hook and an app's popup-origin setting.
 
 ### Relaunch for update, and the legacy plugins' names
 
@@ -350,3 +359,85 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Status exposure: `status()` in `src/watchdog.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: darwin/arm64 (Mac18,5), rightkit-tauri-shell 0.3.2 at 0b0a275db242, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 292b696d0b59: resident memory 58.5 MiB, idle CPU 0.024%, wake-ups 5.089 per second, disk operations n/a (not measurable on this host).
 - Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-tauri-shell 0.3.2 at 2c2303f8cae6, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 8eb097044951: resident memory 9.8 MiB, idle CPU 0%, wake-ups 4.859 per second, disk operations 0 operations per second.
+
+## Engine policy & independent trays (G15–G18)
+
+Enable Cargo feature `engine`, then opt into native policy:
+
+```rust,ignore
+use std::time::Duration;
+use rightkit_tauri_shell::engine::{EnginePolicy, EngineSpec, RestartPolicy};
+let spec = EngineSpec::new(|| {
+    let mut command = rightkit_child_process::OwnedCommand::new("my-engine");
+    command.command_mut().arg("serve");
+    command
+});
+let policy = EnginePolicy::default()
+    .allow_methods(["doctor", "project.show", "render"])
+    .method_timeout("render", Duration::from_secs(6 * 60 * 60))
+    .restart_policy(RestartPolicy::default())
+    .supervisor_config(|config| config.require_contract_version("1"));
+let shell = rightkit_tauri_shell::Shell::builder("myapp")
+    .engine_with_policy(spec, policy).build();
+```
+
+`None` allowlist permits every method; an empty allowlist denies every method.
+Names match exactly, before any client acquisition or spawn. Missing deadline entries use
+`EngineSpec::call_timeout`. Without supervision, `None` means no call deadline. Opting into
+`restart_policy` or `supervisor_config` uses `rightkit-job-queue::EngineSupervisor`; with
+`call_timeout: None`, its configured RPC timeout applies (120 seconds by default).
+`supervisor_config` runs after shell defaults & can set contract checks, readiness waits,
+stderr/protocol sinks, initial-failure behavior & frame limits.
+`EnginePolicy::keep_alive_on_timeout = true` abandons only caller wait; default supervised
+timeout kills wedged engine. Automatic, on-demand & disabled restarts share job-queue's bounded
+generation/budget rules. Failed in-flight calls are returned without replay. `engine(spec)`
+keeps legacy recovery.
+
+Register commands through `rightkit_tauri_shell::handler![]` or add only
+`commands::rk_shell_engine_call_tagged` & `commands::rk_shell_engine_status` to an existing
+`tauri::generate_handler!`. Legacy `rk_shell_engine_call` keeps its signature & string errors;
+it applies configured allowlist/deadlines too. Tagged command adds optional `tag` & returns
+structured `{code, message, origin}` errors. Native callers use
+`EngineHost::call_tagged(method, params, tag, Arc<dyn Fn(EngineEvent) + Send + Sync>)`.
+
+`EVENT_ENGINE` / renderer `EVENTS.engine` carry `{call, id, tag, event}` for progress.
+Request ids originate in job-queue; caller tags are preserved independently for concurrent
+calls. `$unsolicited` frames have null `id`/`tag`. `$lifecycle` frames carry current lifecycle
+snapshot in `event` & raw transition diagnostics in `supervisor`; they have no request id.
+`rk_shell_engine_status` replays current state as `{state, hello, restarts, last_error}` in
+supervised mode (or null without an engine); legacy startup snapshots retain their old shape.
+States: `starting`, `ready`, `restarting`, `failed`, `stopped`; legacy startup failures use
+`error`. `rk_shell_ready` also replays state. Event forwarders stop during ordered shutdown.
+
+Additional trays use independently owned handles; shell's primary tray stays available:
+
+```rust,ignore
+use std::sync::Arc;
+use rightkit_tauri_shell::{MenuEntry, TraySpec};
+use rightkit_tauri_shell::tray::{install_with_options, TrayOptions, TrayUpdate};
+let demo = install_with_options(app, &TraySpec {
+    tooltip: "Demo".into(),
+    items: vec![MenuEntry::item("stop", "Stop demo")],
+    ..Default::default()
+}, "main", TrayOptions::custom_only("demo"), Some(Arc::new(|app, id| {
+    // Invoke application action here; id is logical "stop".
+})))?;
+demo.update(app, &TrayUpdate { tooltip: Some("Recording".into()), ..Default::default() })?;
+// Retain demo in application state for updates; demo.icon() exposes native title/icon APIs.
+```
+
+Call during setup/on main thread. `custom_only` uses exactly provided rows, including empty
+menus; `TrayOptions::default()` retains Show/custom/Quit order. Duplicate tray ids, empty or
+duplicate item ids & standard-action id collisions are rejected. Logical ids may repeat across
+trays: native ids are namespaced & handlers filter those exact ids, including after menu rebuilds.
+Custom-only menus may use shell Show/Quit logical ids as ordinary custom actions. Renderer tray
+events add `trayId`; native callback receives logical id. `TrayHandle::update` addresses only its
+own tray. Existing `tray::install`, `tray::update`, `TraySpec` & `TrayUpdate` remain unchanged.
+
+Verification: first `cargo build -p rightkit-tauri-shell --features engine --example shell_engine_fixture`,
+then `cargo test -p rightkit-tauri-shell --features engine --all-targets` exercises real-child
+engine policy/integration tests; `tests/tray_options.rs` tests menu
+planning without native windows. Native multi-tray rendering/clicks require desktop smoke test.
+
+Tagged errors identify `origin` as `engine` or `supervisor`. Retry readiness codes only for
+`supervisor` errors: an engine reply using `down` or `not_ready` may follow completed work.

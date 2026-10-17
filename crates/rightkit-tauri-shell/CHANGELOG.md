@@ -3,6 +3,17 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased (not built or run locally)
+
+- Changed: `frameless::button_frames`, `ButtonFrame` and `ButtonFrames` are compiled only with the `qa-probes` feature and `clipboard::qa` are compiled only with `qa-probes` in a debug-assertions build (QA probe, never in a release build): the gate is `all(feature = "qa-probes", debug_assertions)` and a release build that enables `qa-probes` fails with `compile_error!`. The 0.3.2 note already said so; the code did not.
+- Added: `frameless::TrafficLights::set_inset(&window, x, y)` places the buttons at an absolute inset (macOS).
+- Added: `tray::LeftClick::Show` (left click reveals the window and never hides it).
+- Changed: the app-menu quit item (macOS "Quit <app>", Windows/Linux "Exit <app>") is a shell item that routes to the ordered quit, not the predefined quit, so close-to-tray no longer swallows Cmd+Q.
+- Added: `OAUTH_POPUP_ORIGINS` gains `mcp.atlassian.com`, `auth.atlassian.com`, `login.salesforce.com`, `test.salesforce.com`. `nav::strip_coop_headers`, `nav::popup_origins_from_json`, `NavPolicy::decide_window_open_pinned` (opener must equal a pinned origin) and `NavPolicy::protocol_consent_scheme` (the scheme of a non-web `window.open` target an app may confirm; `decide_window_open` still returns `Deny` for it). `NavPolicy` and `WindowOpenDecision` keep their previous public shape.
+- Changed: the shell's `on_new_window` hook passes the opening window's current URL (`WebviewWindow::url`) to the popup decision, so an opener not served in place is external. Partial for #638: the shell does not yet carry a pinned server origin (no `ShellConfig` setting), so pinned-origin popups need the app to call `decide_window_open_pinned`; the hook uses the unpinned rule.
+- Note (unchanged, pre-existing policy): DevTools `AllowDev` (dev-inspect) and `AllowContent` (ContentOnly) decisions remain.
+- Added: engine policy and tray options from the CutRight gap patch G15-G18 (see `engine::EnginePolicy`, `tray::TrayOptions`). Not built or run locally.
+
 ## 0.3.2
 
 - Added (Orthic-Labs/rightkit#309; not built or run locally):

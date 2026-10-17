@@ -315,7 +315,7 @@ impl JobStore {
                 ));
             }
         }
-        let (names, vals) = self.encode_new_ext(&rec.ext)?;
+        let (names, vals) = self.table.encode_new_ext(&rec.ext)?;
         let mut canon = Vec::with_capacity(names.len());
         for (k, v) in &rec.ext {
             if let Some(c) = self.cfg.column_named(k) {
@@ -370,7 +370,11 @@ impl JobStore {
         if let Some(id) = &rec.id {
             let found = tx
                 .query_row(
-                    &format!("SELECT {} FROM jobs WHERE job_id=?1", self.select),
+                    &format!(
+                        "SELECT {} FROM {} WHERE job_id=?1",
+                        self.table.select(),
+                        self.jt()
+                    ),
                     [id],
                     |r| self.record_row(r),
                 )
@@ -382,7 +386,11 @@ impl JobStore {
         if let Some(rid) = &rec.request_id {
             return Ok(tx
                 .query_row(
-                    &format!("SELECT {} FROM jobs WHERE request_id=?1", self.select),
+                    &format!(
+                        "SELECT {} FROM {} WHERE request_id=?1",
+                        self.table.select(),
+                        self.jt()
+                    ),
                     [rid],
                     |r| self.record_row(r),
                 )
@@ -454,7 +462,7 @@ impl JobStore {
         }
         all.extend(p.vals.iter().cloned());
         tx.execute(
-            &format!("INSERT INTO jobs ({cols}) VALUES ({ph})"),
+            &format!("INSERT INTO {} ({cols}) VALUES ({ph})", self.jt()),
             params_from_iter(all),
         )?;
 

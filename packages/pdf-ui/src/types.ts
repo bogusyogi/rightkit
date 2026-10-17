@@ -35,12 +35,16 @@ export interface PdfDocumentInfo {
 export interface PdfSearchOptions {
   matchCase: boolean;
   wholeWord: boolean;
+  /** Read the query as a regular expression. Absent or false: literal find. */
+  regex?: boolean;
 }
 
 /** `activeIndex` is 0-based, or -1 when there are no matches. */
 export interface PdfSearchResult {
   count: number;
   activeIndex: number;
+  /** Regex find only: at least one page hit the search deadline, so `count` is partial. */
+  timedOut?: boolean;
 }
 
 /** Find shape for a host-owned find implementation. `PdfViewer` does not accept or consume this

@@ -11,6 +11,8 @@ Catalog capability: `audio`.
 - WAV I/O (`wav`): `read_wav_mono_f32`, `read_wav_16k_mono`, `write_wav_mono_i16`.
 - Live capture (`capture`, feature `capture`) and the Windows endpoint and power lifecycle (`lifecycle`).
 - Audio output (`playback`, feature `playback`): `list_output_devices`, `OutputSession` (push, pause, resume, flush, volume, mute, clock, counters, device-loss recovery) and the `OutputControl` handle for other threads.
+- One-shot playback (`playback::play_once`, feature `playback`): decode a WAV and play it to the default output device, blocking until it ends.
+- Mic-to-camera lag (`mic_align`: `align_mic`) and equal-power looped room-tone fill (`room_fill`: `room_tone_fill`, `room_tone_bed`).
 
 ## When to use it
 
@@ -50,6 +52,12 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 - Playback (feature `playback`) uses cpal output on WASAPI, CoreAudio and ALSA, as capture does. The pure ring, gain and clock tests run on every host; the device test runs with `--features playback -- --ignored`.
 
 ## Playback
+
+For a short cue, `play_once` does the decode, resample and device handling in one call and returns when the device has consumed the file:
+
+```rust
+rightkit_audio::playback::play_once(std::path::Path::new("chime.wav"))?;
+```
 
 ```rust
 use rightkit_audio::playback::OutputSession;

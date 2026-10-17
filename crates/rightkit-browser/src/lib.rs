@@ -21,8 +21,11 @@
 //!   [`ProfileSpec::ImportedFrom`] and [`BrowserSession::attach_user_browser`] reuse the user's
 //!   own sign-ins in a private copy, confined to the consented domains. See [`ImportSpec`].
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
+//! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
+//!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
 mod cdp_ext;
 mod config;
+pub mod design_mode;
 mod error;
 mod fixture;
 mod fixture_protocol;
@@ -41,7 +44,7 @@ mod sandbox_access;
 mod session;
 
 pub use cdp_ext::{
-    AxNode, ContinueOverrides, DownloadBehavior, ExceptionFrame, InterceptDecision,
+    AxNode, AxSummary, ContinueOverrides, DownloadBehavior, ExceptionFrame, InterceptDecision,
     InterceptFailure, InterceptStage, InterceptedRequest, PageException, RequestInterceptor,
     MAX_EXCEPTIONS,
 };
@@ -60,7 +63,10 @@ pub use fixture_protocol::{
     FixtureKey, FIXTURE_SCHEMA,
 };
 pub use fixture_server::FixtureServer;
-pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
+pub use page::{
+    BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, ScreenshotOptions, Target,
+    OBSERVE_AX_DEPTH,
+};
 pub use policy::{
     classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback,
     BlockReason, BlockedRequest, BrowserEvent, BrowserRequest, Decision, EventSink, LifecycleKind,
@@ -72,4 +78,4 @@ pub use real_session::{
     BrowserKind, BrowserSource, ConsentRevocation, ImportReport, ImportSpec, SourceProfile,
     UserConsentReceipt, CONSENT_SCHEMA,
 };
-pub use session::BrowserSession;
+pub use session::{BrowserSession, PageSetup};

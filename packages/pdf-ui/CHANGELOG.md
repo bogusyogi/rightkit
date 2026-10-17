@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Fix and additive options (Orthic-Labs/rightkit#273, #396). Default output is unchanged.
+
+- Viewer find (`PdfViewer`) no longer uses its own `toLocaleLowerCase` + `indexOf` loop, which had the #273 offset drift and no whitespace collapsing. It now calls `findLiteralMatches` per page, so counts and whole-word checks match `findLiteralMatches`.
+- Regex find is denial-of-service bounded: `PdfViewer` runs it in a terminable Worker (blob URL, no bundler dependency) with a 250 ms per-page deadline; on expiry the Worker is terminated and `PdfSearchResult.timedOut` is true with partial results. New `createRegexSearcher(deadlineMs?)`, `MAX_REGEX_BOUND`, `REGEX_DEADLINE_MS`. Without `Worker`, matching is synchronous under a strict policy (`regexPatternError` default): at most 1 unbounded repeat (`MAX_REGEX_REPEATS` is now 1), no repeat on a group containing a repeat or alternation at any depth, repeat bounds at most 1000, so `(?:(a|aa))+b`, `a*a*b` and `a{0,100000}a{0,100000}b` are refused.
+- New `findRegexMatches(text, pattern, { matchCase?, wholeWord? })` and `regexPatternError(pattern)`. Offsets index the text directly. A user pattern is refused (matches nothing) when it is longer than 200 characters, uses a backreference, repeats a group that already repeats or alternates (`(a+)+`, `(a|a)*`), has more than 2 unbounded repeats, or does not compile. Patterns are only compiled with `RegExp`, never evaluated. Only the first 100,000 units of text are searched per call. JavaScript has no step budget, so the bounds are structural.
+- New optional `PdfViewer` prop `regexFind` (default false): shows a "Regex" checkbox in the find bar. `PdfSearchOptions` gains optional `regex`.
+- `highlightSpan` takes `regex` (default false) in `HighlightSpanOptions`.
+- New exports `findRegexMatches`, `regexPatternError`, `MAX_REGEX_PATTERN_LENGTH`, `MAX_REGEX_REPEATS`, `MAX_REGEX_TEXT`, type `RegexMatchOptions`. Tests in `test/regex.test.ts`; ß, ligature and whitespace cases added to `test/search.test.ts`.
+
 ## 0.1.8
 
 Fix, plus additive option (Orthic-Labs/rightkit#273). 0.1.7 above was never published; the published version is 0.1.6.

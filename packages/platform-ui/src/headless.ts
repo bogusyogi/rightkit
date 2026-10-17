@@ -18,6 +18,8 @@ export {
   type FloatingPanelStyle,
 } from "./geometry.js";
 export * from "./toast.js";
+export { blockNativeContextMenu } from "./context-menu.js";
+export { relativeTimeFrom } from "./time.js";
 export { attachFocusTrap, useFocusTrap, useLatest, useModalDismiss, type FocusTrapOptions } from "./focus.js";
 export { attachDismiss, useDismiss, type DismissConfig, type DismissOptions, type DismissReason, type OutsidePress } from "./dismiss.js";
 export {

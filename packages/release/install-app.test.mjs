@@ -353,7 +353,7 @@ const recoverDeps = (h) => ({ dest: h.dest, appName: "Pulse.app", run: (c, a) =>
 
 for (const [name, at, expectMarker] of [
   ["after backup rename, before staged rename", (from, to) => (to.endsWith(".app.previous") ? "after" : null), "old"],
-  ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null), "new"],
+  ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install.app") ? "after" : null), "new"],
 ]) {
   test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, { skip: WINDOWS_SKIP }, async () => {
     const h = harness();
@@ -364,7 +364,7 @@ for (const [name, at, expectMarker] of [
     assert.equal(r1.length, 1);
     assert.deepEqual(bundles(h), ["Pulse.app"]);
     assert.equal(h.marker(), expectMarker);
-    assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), [], "no journal, staging, or backup left");
+    assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".") && n !== ".rightkit-install.lock"), [], "no journal, staging, or backup left");
     assert.deepEqual(await recoverInstalls(recoverDeps(h)), [], "second recovery is a no-op");
     assert.equal(h.marker(), expectMarker);
     assert.ok(h.calls.some((x) => x[0].endsWith("hdiutil") && x[1] === "detach" && x[2] === h.mount), "stale DMG mount detached");
@@ -373,7 +373,7 @@ for (const [name, at, expectMarker] of [
 
 test("kill after staged rename with a bad new bundle rolls back to the backup", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install.app") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   h.deps.execFile = ((orig) => async (cmd, args) => { if (cmd.endsWith("codesign") && args[0] === "--verify") throw new Error("broken"); return orig(cmd, args); })(h.deps.execFile);
   const r = await recoverInstalls(recoverDeps(h));
@@ -510,7 +510,8 @@ test("no xcrun stapler: --dev never probes xcrun", async () => {
 
 // ---- atomic swap (rightkit-swap / RENAME_SWAP) ----
 
-const dotfiles = (h) => fs.readdirSync(h.dest).filter((n) => n.startsWith("."));
+// A killed installer leaves its lock behind by design; the next locked entry point (install/recover) takes it over.
+const dotfiles = (h) => fs.readdirSync(h.dest).filter((n) => n.startsWith(".") && n !== ".rightkit-install.lock");
 
 test("atomic swap: installed is never absent, old bundle trashed last, event records swap atomic", async () => {
   const h = harness();
@@ -522,7 +523,7 @@ test("atomic swap: installed is never absent, old bundle trashed last, event rec
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.swap, "atomic");
   assert.equal(swaps.length, 1);
-  assert.match(swaps[0][0], /^\.Pulse\.rightkit-install-\d+\.app$/);
+  assert.match(swaps[0][0], /^\.Pulse\.rightkit-install\.app$/);
   assert.equal(swaps[0][1], "Pulse.app");
   assert.ok(!renames.some((n) => n.includes("rightkit-backup")), "no backup rename in atomic mode");
   assert.equal(h.marker(), "new");
@@ -772,7 +773,7 @@ test("recovery of a dev journal from an older RightKit never keeps the old bundl
   const backup = `${installed}.previous`;
   fs.mkdirSync(path.join(backup, "Contents"), { recursive: true });
   fs.writeFileSync(path.join(backup, "Contents", "marker"), "old-parked");
-  fs.writeFileSync(journalPathFor(h.dest, "Pulse.app"), JSON.stringify({ schema: 1, appName: "Pulse.app", pid: 1, phase: "verified", dev: true, installed, backup, staged: path.join(h.dest, ".Pulse.rightkit-install-1.app"), mount: null, mountRoot: null }));
+  fs.writeFileSync(journalPathFor(h.dest, "Pulse.app"), JSON.stringify({ schema: 1, appName: "Pulse.app", pid: 1, phase: "verified", dev: true, installed, backup, staged: path.join(h.dest, ".Pulse.rightkit-install.app"), mount: null, mountRoot: null }));
   const results = await recoverInstalls({ dest: h.dest, appName: "Pulse.app", run: h.deps.execFile, fsImpl: fs, home: h.home, now: () => new Date(), event: () => {}, sleep: async () => {}, isAlive: () => false, selfPid: 2, swapPaths: h.deps.swapPaths });
   assert.equal(results[0].action, "rolled-forward");
   assert.equal(fs.existsSync(backup), false);

@@ -17,6 +17,7 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 - `right-git drift --all` checks installed workflows against templates and re-checks visibility. When the manifest declares the `regenerate` lane, drift also warns (never fails) if the repository's "Allow GitHub Actions to create and approve pull requests" setting is off. It reads `gh api repos/{owner}/{repo}/actions/permissions/workflow` and prints a note instead when gh is unavailable.
 - `right-git adopt` maps an existing repository's workflows onto lanes for review. With `--out <dir>` it writes the candidate templates to that directory.
 - `right-git uninstall` removes every managed file.
+- `right-git artifacts fetch --run <id> --out <dir> [--name <glob>] [--repo owner/repo] [--expect-sha256 <hex> [--file <path>]] [--receipt <file>] [--json]` downloads the artifacts of one workflow run through `gh`, merges them into one tree and writes a JSON receipt (see Fetch CI artifacts).
 
 `install` and `sync` refuse private, internal and unconfirmed-visibility repositories. There is no override flag.
 
@@ -181,6 +182,38 @@ Which jobs get the steps, and why each is safe:
 Never rendered: `package-smoke` (a clean-room tarball check), `publish-npm` and `publish-package-managers` (publishing credentials), and the release chain's `windows-sign`, `macos-sign`, `installed-qualification` and `publish` jobs (signing and publish credentials). Their output is the same with and without `swift.privatePackages`.
 
 Release policy. `@rightkit/release` enforces the `right-git-ci-only` policy over the rendered workflows (`validateHostedWorkflows` in `release.mjs`). It refuses a managed workflow that references any secret outside an allowlist. The allowlist admits the `swift.privatePackages` secret only on its `RIGHT_GIT_PRIVATE_TOKEN_<n>: ${{ secrets.<NAME> }}` env line, inside the "Configure private Swift package access" or "Remove private Swift package access" step, of these jobs: `ci.yml` jobs `ci` (either profile), `dev-artifact-mac` (rust-hybrid with `devArtifact.parallel` and a `devArtifact.mac` leg) and `test` (node profile); `qualification.yml` job `qualification`; `release-candidate.yml` job `candidate`; and `regenerate.yml` job `regenerate` (`SWIFT_PRIVATE_JOBS`, `release.mjs:86-91`). Each reference also needs its lane listed in `.rightgit.json`, `devArtifact.dispatch` not true, and no `pull_request_target` or `workflow_run` trigger. `workflow_dispatch` is allowed only in `release-candidate.yml` and `regenerate.yml` (`swiftPrivateSecretRefusal`, `release.mjs`).
+
+## Named workflows: custom, swift-host and dispatch-matrix
+
+The `workflows` block renders named workflow files beside the lane files (`right-git sync`, `drift` and `uninstall` treat them like lane files; the file starts with the managed marker). Each entry has a `kind`. Every kind renders: top-level `permissions: contents: read`, a `private-repo-guard` job that every job needs, actions pinned to commit SHAs, `persist-credentials: false` on every checkout, the shared ownership scan (skipped on Linux runners, which ownership approval does not support) after the pinned package-manager install, and no `secrets` reference. Steps may not mention `secrets` or interpolate untrusted event data (`github.head_ref`, `github.event.pull_request.*` and similar); `workflow_dispatch` inputs reach scripts as `RIGHT_GIT_INPUT_<NAME>` environment variables. The node and package-manager setup, install and ownership steps come from the manifest's `matrix.node[0]` and `packageManager`, so a sparse checkout must keep `package.json`, the lockfile and whatever the install needs (cone mode keeps root files).
+
+Common fields: `file` (default `<name>.yml`; never a built-in lane filename), `on` (`push` and `pull_request`: `true` or `{ branches, paths }`; `workflow_dispatch: true`), `concurrency` (`{ group, cancelInProgress }`, rendered as `<group>-${{ github.ref }}`), `checkout` (`{ sparse, longPaths }`, replaces the global `checkout` for this workflow), `timeoutMinutes` (default 60).
+
+**`custom`** (Orthic-Labs/rightkit#465): `runsOn` (one label or several, which become a matrix), `toolchain` (`rust`: `stable`, `beta`, `nightly` or an exact version, rendered as the pinned `dtolnay/rust-toolchain` `toolchain:` input; `swift`: see below), `steps` (`{ name?, shell: bash|pwsh, workingDirectory?, run }`) and `artifact` (`{ name, path, retentionDays 1-90 (default 14), ifNoFilesFound error|warn|ignore (default error), when success|always }`). Artifact names accept the tokens `{sha}`, `{run_id}`, `{run_attempt}`, `{os}` and `{matrix.<key>}`; with several runners the name must carry `{os}`.
+
+```json
+{ "workflows": { "render-windows": {
+  "kind": "custom", "file": "render-windows.yml", "runsOn": "windows-2025",
+  "on": { "push": { "branches": ["main"], "paths": ["render/**"] }, "workflow_dispatch": true },
+  "concurrency": { "group": "render-windows", "cancelInProgress": false },
+  "checkout": { "sparse": ["render"], "longPaths": true },
+  "toolchain": { "rust": "1.91.0" },
+  "steps": [{ "name": "Unit tests", "shell": "pwsh", "workingDirectory": "render", "run": "cargo test --release" }],
+  "artifact": { "name": "swiftright-render-{sha}", "path": "render/target/release/render.dll", "retentionDays": 30 }
+} } }
+```
+
+**`swift-host`** (Orthic-Labs/rightkit#437): `os` (for example `["windows-2025", "macos-15"]`, rendered as a matrix), `packages` (one `swift test` step per package directory), optional `swiftArgs` (plain options such as `--parallel`), `toolchain.swift` (required when `os` has a Windows runner) and an optional `artifact`. `on` defaults to push on the default branch plus `pull_request`.
+
+**`dispatch-matrix`** (Orthic-Labs/rightkit#437): `on.workflow_dispatch: true`, `inputs` (`{ description, type string|boolean|choice, default, required, options }`), `plan` (`{ shell, run, runsOn?, workingDirectory? }`; the script writes `matrix=<JSON>` to `$GITHUB_OUTPUT`), `jobs` (up to 6 per-item jobs `{ id, runsOn, toolchain?, steps, artifact? }`, each run once per matrix entry, artifact names carrying `{matrix.<key>}`) and an optional `collect` job (`{ runsOn?, download: { pattern, path }, steps }`, which runs after the item jobs and only when the guard passed).
+
+**`swift-toolchain` step** (Orthic-Labs/rightkit#436): `toolchain.swift = { version, sha256 }` renders, on Windows runners only, `<pm> exec right-release toolchain swift --version <v> --sha256 <pin> --github-env`. The installer's sha256 is verified before it runs, and `--github-env` exports what the installer changed to `GITHUB_ENV` and `GITHUB_PATH` for the later steps. The repository must depend on `@rightkit/release` (the same dependency the ownership scan needs). The step builder is exported as `swiftToolchainStep` from `workflows.mjs`.
+
+`@rightkit/release`'s `right-git-ci-only` policy accepts only `<lane>.yml` files for the declared lanes, so a repository that declares `workflows` fails its release check until that policy also accepts the files named by `workflows` (needs an update in the release package).
+
+## Fetch CI artifacts
+
+`right-git artifacts fetch --run <id> --out <dir>` lists the run's artifacts (`gh api`), keeps those matching `--name` (a glob with `*` and `?`; default all), downloads each by exact name into a staging directory next to `<dir>`, and merges them into `<dir>`. Two artifacts that disagree about a file's bytes fail the fetch. `--repo owner/repo` selects the repository (default: the current checkout's). `--expect-sha256 <hex>` is verified before anything reaches `<dir>`: with `--file <relative path>` it pins that one file (the renderer DLL, for example); without it, the tree digest (sha256 over the sorted lines `<sha256>  <path>`). A mismatch, an expired or unsafe-named artifact, a symbolic link or a failed download exits 1 and leaves `<dir>` untouched. `--receipt <file>` writes the JSON receipt (`schema right-git.artifacts-receipt/1`: run, repo, name pattern, per-artifact files with sizes and sha256, `fileCount`, `treeSha256`, `pin`, `verified`); `--json` prints it.
 
 ## Entry points
 

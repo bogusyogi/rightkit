@@ -11,7 +11,7 @@
    Sections: tokens, frame/fused layout, page, ui kit, overlays (palette, modal, menu, toast).
    Flat suite tokens (--rk-chrome --rk-plane --rk-ink --rk-accent ...) are defined here and
    shared with app view CSS. Dark follows the OS unless html[data-theme] is set. */
-:root { --rk-brand: #7040c4; --rk-brand-dark: var(--rk-brand); --rk-caption-close-bg: #c42b1c; --rk-caption-close-ink: #fff; --rk-plane-radius: 20px; --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff; --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8; --rk-fill: rgba(35,31,26,.05); --rk-fill-2: rgba(35,31,26,.085); --rk-fill-3: rgba(35,31,26,.13); --rk-line: rgba(35,31,26,.11); --rk-line-strong: rgba(35,31,26,.18); --rk-hairline: rgba(35,31,26,.11); --rk-ink: #231f1a; --rk-ink-2: #6b655c; --rk-ink-3: #8a8378; --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent); --rk-accent-ink: #ffffff; --rk-focus: color-mix(in srgb, var(--rk-accent) 35%, transparent); --rk-ok: #1e7f3c; --rk-ok-dot: #2ba24a; --rk-ok-soft: rgba(43,162,74,.14); --rk-warn: #b25000; --rk-warn-dot: #e08a00; --rk-warn-soft: rgba(224,138,0,.14); --rk-bad: #c4001a; --rk-bad-soft: rgba(196,0,26,.1); --rk-radius: 12px; --rk-card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06); --rk-knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06); --rk-sel: rgba(35,31,26,.06); --rk-seg-on: #ffffff; --rk-ghost: #ffffff; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 16px 40px rgba(20,16,10,.22); --rk-scrim: rgba(20,16,10,.38); --rk-danger: var(--rk-bad); --rk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color-scheme: light; }
+:root { --rk-wash-hover: var(--rk-fill); --rk-wash-press: var(--rk-fill-2); --rk-line-2: color-mix(in srgb, currentColor 8%, transparent); --rk-brand: #7040c4; --rk-brand-dark: var(--rk-brand); --rk-caption-close-bg: #c42b1c; --rk-caption-close-ink: #fff; --rk-plane-radius: 20px; --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff; --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8; --rk-fill: rgba(35,31,26,.05); --rk-fill-2: rgba(35,31,26,.085); --rk-fill-3: rgba(35,31,26,.13); --rk-line: rgba(35,31,26,.11); --rk-line-strong: rgba(35,31,26,.18); --rk-hairline: rgba(35,31,26,.11); --rk-ink: #231f1a; --rk-ink-2: #6b655c; --rk-ink-3: #8a8378; --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent); --rk-accent-ink: #ffffff; --rk-focus: color-mix(in srgb, var(--rk-accent) 35%, transparent); --rk-ok: #1e7f3c; --rk-ok-dot: #2ba24a; --rk-ok-soft: rgba(43,162,74,.14); --rk-warn: #b25000; --rk-warn-dot: #e08a00; --rk-warn-soft: rgba(224,138,0,.14); --rk-bad: #c4001a; --rk-bad-soft: rgba(196,0,26,.1); --rk-radius: 12px; --rk-card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06); --rk-knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06); --rk-sel: rgba(35,31,26,.06); --rk-seg-on: #ffffff; --rk-ghost: #ffffff; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 16px 40px rgba(20,16,10,.22); --rk-scrim: rgba(20,16,10,.38); --rk-danger: var(--rk-bad); --rk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color-scheme: light; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); color-scheme: dark; }
 }
@@ -220,4 +220,70 @@
   .rk-menu:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
   .rk-toast:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)),
   .rk-overlay:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none !important; transition: none !important; }
+}
+
+/* ---- 0.6.9 additions: colour, type, radius, shadow and motion ----------------------------------------------------- */
+/* Hover washes apply only while the pointer is over the window; installHoverGuard() sets data-rk-pointer="off" otherwise. */
+:root:not([data-rk-pointer="off"]) .rk-item:not(.is-active):hover { background: var(--rk-wash-hover); }
+.rk-item:not(.is-active):active { background: var(--rk-wash-press); }
+:root:not([data-rk-pointer="off"]) .rk-seg__item:not(.is-on):hover { background: var(--rk-wash-hover); }
+.rk-seg__item:not(.is-on):active { background: var(--rk-wash-press); }
+:root:not([data-rk-pointer="off"]) .rk-pill:hover { background: var(--rk-wash-hover); }
+.rk-pill:active { background: var(--rk-wash-press); }
+:root:not([data-rk-pointer="off"]) .rk-toggle[aria-checked="false"]:not(:disabled):hover { background: var(--rk-wash-press); }
+:root:not([data-rk-pointer="off"]) .rk-check:not(.is-disabled):hover .rk-check__box { background: var(--rk-wash-hover); }
+.rk-check:not(.is-disabled):active .rk-check__box { background: var(--rk-wash-press); }
+.rk-shell { font-family: var(--rk-font-body, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif); }
+.rk-popover { background: var(--rk-elevated); color: var(--rk-ink); border-radius: var(--rk-radius); box-shadow: var(--rk-pop); padding: 8px; font-size: 13px; line-height: 1.4; }
+.rk-card--interactive { cursor: default; }
+.rk-card--interactive:hover { box-shadow: inset 0 0 0 999px var(--rk-wash-hover), var(--rk-card); }
+.rk-card--interactive:active { box-shadow: inset 0 0 0 999px var(--rk-wash-press), var(--rk-card); }
+.rk-card--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-card.is-selected { box-shadow: inset 0 0 0 1.5px var(--rk-accent), var(--rk-card); }
+.rk-appearance__opt { gap: 8px; }
+.rk-skeleton { border-radius: 6px; background: linear-gradient(90deg, var(--rk-fill-2) 25%, var(--rk-fill-3) 37%, var(--rk-fill-2) 63%); background-size: 400% 100%; animation: rk-shimmer 1.4s ease infinite; }
+.rk-skeleton-rows { gap: 8px; }
+@keyframes rk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.rk-check { gap: 8px; color: var(--rk-ink); font-size: 13px; cursor: default; }
+.rk-check.is-disabled { opacity: .5; }
+.rk-check__box { width: 16px; height: 16px; border-radius: 5px; background: var(--rk-fill-2); box-shadow: inset 0 0 0 1px var(--rk-line-strong); color: var(--rk-accent-ink); font-size: 11px; font-weight: 700; }
+.rk-check__input:checked + .rk-check__box, .rk-check__input:indeterminate + .rk-check__box { background: var(--rk-accent); box-shadow: none; }
+.rk-check__input:focus-visible + .rk-check__box { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-select { height: 30px; padding: 0 28px 0 10px; border: 0; border-radius: 8px; background-color: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; background-image: linear-gradient(45deg, transparent 50%, var(--rk-ink-2) 50%), linear-gradient(135deg, var(--rk-ink-2) 50%, transparent 50%); background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+.rk-select:focus-visible { box-shadow: 0 0 0 2px var(--rk-focus); }
+.rk-select:disabled { opacity: .5; }
+.rk-slider { width: 100%; accent-color: var(--rk-accent); }
+.rk-slider:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-slider:disabled { opacity: .5; }
+.rk-notice { gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--rk-fill); color: var(--rk-ink); font-size: 12.5px; line-height: 1.45; box-shadow: inset 0 0 0 1px var(--rk-line); }
+.rk-notice--ok { background: var(--rk-ok-soft); }
+.rk-notice--warn { background: var(--rk-warn-soft); }
+.rk-notice--bad { background: var(--rk-bad-soft); }
+.rk-notice__title { font-weight: 650; }
+.rk-notice__text { color: var(--rk-ink-2); }
+.rk-progress { height: 6px; border-radius: 99px; background: var(--rk-fill-2); }
+.rk-progress__fill { border-radius: inherit; background: var(--rk-accent); transition: width .2s ease; }
+.rk-progress--ok .rk-progress__fill { background: var(--rk-ok-dot); }
+.rk-progress--warn .rk-progress__fill { background: var(--rk-warn-dot); }
+.rk-progress--bad .rk-progress__fill { background: var(--rk-bad); }
+.rk-recorder { gap: 6px; min-width: 120px; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; font-size: 12.5px; }
+.rk-recorder:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-recorder.is-recording { background: var(--rk-accent-soft); box-shadow: 0 0 0 2px var(--rk-accent); }
+.rk-recorder__empty, .rk-recorder__hint { color: var(--rk-ink-3); }
+.rk-recorder:disabled { opacity: .5; }
+.rk-palette__scope { min-width: 20px; height: 22px; padding: 0 6px; border-radius: 6px; background: var(--rk-accent-soft); color: var(--rk-accent); font: 600 13px/22px var(--rk-font-mono); text-align: center; }
+.rk-palette__sub { font-size: 12px; color: var(--rk-ink-3); text-overflow: ellipsis; white-space: nowrap; }
+.rk-palette__type { height: 18px; padding: 0 6px; border-radius: 99px; background: var(--rk-fill-2); color: var(--rk-ink-2); font-size: 11px; line-height: 18px; font-weight: 600; }
+.rk-swatches { border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 0 .5px var(--rk-line-strong); }
+.rk-group__toggle { gap: 4px; border: 0; background: none; padding: 0; font: inherit; color: var(--rk-ink-3); font-size: 11px; font-weight: 600; cursor: default; }
+.rk-item__check { flex: none; margin: 0 0 0 14px; accent-color: var(--rk-accent); }
+.rk-side-resizer { cursor: col-resize; }
+.rk-side-resizer:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-popover:focus { outline: none; }
+.rk-card.is-flush { padding: 0; }
+.rk-check__input { margin: 0; }
+.rk-toasts[data-placement="top-end"] .rk-toast { animation-name: rk-toast-in-top; }
+@media (prefers-reduced-motion: reduce) {
+  .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+  .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { transition: none; }
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DATA_STATEMENT,
   RIGHT_SUITE_COMPANY_FACTS,
+  SUITE_REFUND_POLICY,
   assertLegalManifest,
   defaultPolicyDescriptors,
   materialAcceptanceDigest,
@@ -51,9 +52,14 @@ describe("RIGHT_SUITE_COMPANY_FACTS", () => {
     expect(RIGHT_SUITE_COMPANY_FACTS.legalName).toBe("Damned Ventures LLC");
   });
 
-  it("defaults the support email and has no default refund policy", () => {
+  it("defaults the support email and keeps refund terms out of company facts", () => {
     expect(RIGHT_SUITE_COMPANY_FACTS.supportEmail).toBe("hello@orthiclabs.com");
     expect("refundPolicy" in RIGHT_SUITE_COMPANY_FACTS).toBe(false);
+  });
+
+  it("suite refund default is the 14-day window", () => {
+    expect(SUITE_REFUND_POLICY).toEqual({ kind: "window", days: 14 });
+    expect(Object.isFrozen(SUITE_REFUND_POLICY)).toBe(true);
   });
 
   it("uses the default support email and accepts an override", () => {
@@ -86,9 +92,22 @@ describe("default policies", () => {
     expect(doc.content).not.toContain("14");
   });
 
-  it("requires a refund policy", () => {
-    expect(() => renderDefaultPolicies({ ...base, refundPolicy: undefined as never })).toThrow(/refundPolicy/);
+  it("defaults the refund policy to the 14-day window when an app omits it", () => {
+    const { refundPolicy: _omitted, ...withoutRefund } = base;
+    const doc = renderDefaultPolicy("refund", withoutRefund);
+    expect(doc.content).toContain("14-day window");
+    expect(doc.content).toBe(renderDefaultPolicy("refund", base).content);
+  });
+
+  it("keeps per-app refund overrides ahead of the suite default", () => {
+    const { refundPolicy: _omitted, ...withoutRefund } = base;
+    expect(renderDefaultPolicy("refund", { ...withoutRefund, refundPolicy: { kind: "window", days: 30 } }).content).toContain("30-day window");
+    expect(renderDefaultPolicy("refund", { ...withoutRefund, refundPolicy: { kind: "none" } }).content).toContain("No refunds except where the law requires.");
+  });
+
+  it("validates an explicit refund policy", () => {
     expect(() => renderDefaultPolicies({ ...base, refundPolicy: { kind: "window", days: 0 } })).toThrow(/days/);
+    expect(() => renderDefaultPolicies({ ...base, refundPolicy: { kind: "bogus" } as never })).toThrow(/kind/);
   });
 
   it("applies per-app overrides", () => {

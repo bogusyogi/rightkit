@@ -221,11 +221,25 @@ pub struct Daemon {
     links: Mutex<BTreeMap<String, Arc<LinkSession>>>,
     /// Short-code pairing window and sessions (memory only).
     pairing: Mutex<pairing::PairingState>,
+    /// Application routes that need no device signature (issue #377), see [`Daemon::add_public_route`].
+    public_routes: Mutex<Vec<PublicRoute>>,
     inner: Mutex<Inner>,
     counters: Counters,
 }
 
 type Guard<'a> = MutexGuard<'a, Inner>;
+
+/// A handler for a public route: it receives the whole request and does its own verification (a
+/// webhook signature over `Request::body`, a provider's callback secret). It runs on a blocking
+/// thread, like the authenticated routes.
+pub type PublicHandler = Arc<dyn Fn(&Request) -> Response + Send + Sync>;
+
+struct PublicRoute {
+    method: String,
+    path: String,
+    body_limit: usize,
+    handler: PublicHandler,
+}
 
 const MAX_ID: usize = 128;
 
@@ -288,6 +302,7 @@ impl Daemon {
             calls: None,
             links: Mutex::new(BTreeMap::new()),
             pairing: Mutex::new(pairing::PairingState::default()),
+            public_routes: Mutex::new(Vec::new()),
             inner: Mutex::new(Inner {
                 state,
                 uploads,
@@ -303,6 +318,48 @@ impl Daemon {
         }
         d.recover()?;
         Ok(d)
+    }
+
+    /// Serve an application route that needs no device signature: a provider webhook, a callback
+    /// or a redirect (issue #377). `method` and `path` must match exactly (the path has no query
+    /// string); `body_limit` bounds the body read before the handler runs. The path must start
+    /// with `/` and must not be under `/v1` (the daemon-api table, which always authenticates), and
+    /// one method and path can be registered once. The handler is the only check on the request:
+    /// it must verify what it trusts, for example a signature over `Request::body`, and it must not
+    /// trust a header that the caller chose without checking it.
+    pub fn add_public_route(
+        &self,
+        method: &str,
+        path: &str,
+        body_limit: usize,
+        handler: impl Fn(&Request) -> Response + Send + Sync + 'static,
+    ) -> Result<(), &'static str> {
+        if !path.starts_with('/') || path.contains('?') {
+            return Err("a public route path starts with / and has no query string");
+        }
+        if path == "/v1" || path.starts_with("/v1/") {
+            return Err("public routes may not use the /v1 daemon-api table");
+        }
+        let mut routes = self.public_routes.lock().unwrap_or_else(|e| e.into_inner());
+        if routes.iter().any(|r| r.method == method && r.path == path) {
+            return Err("this public route is already registered");
+        }
+        routes.push(PublicRoute {
+            method: method.to_string(),
+            path: path.to_string(),
+            body_limit,
+            handler: Arc::new(handler),
+        });
+        Ok(())
+    }
+
+    /// The body limit and handler of a registered public route for this method and path.
+    fn public_route(&self, method: &str, path: &str) -> Option<(usize, PublicHandler)> {
+        let routes = self.public_routes.lock().unwrap_or_else(|e| e.into_inner());
+        routes
+            .iter()
+            .find(|r| r.method == method && r.path == path)
+            .map(|r| (r.body_limit, r.handler.clone()))
     }
 
     /// Serve `POST /v1/call/{method}` from `calls`. Without it the route answers 404, as a 1.0.0
@@ -681,6 +738,9 @@ impl Daemon {
     /// Largest body the transport should read for this request before the
     /// request is authenticated.
     pub fn body_limit(&self, method: &str, path: &str) -> usize {
+        if let Some((limit, _)) = self.public_route(method, path) {
+            return limit;
+        }
         if Self::is_pair_path(path) {
             return self.cfg.max_json_body;
         }
@@ -696,6 +756,13 @@ impl Daemon {
 
     pub fn handle(&self, req: Request) -> Response {
         self.counters.requests.fetch_add(1, Ordering::Relaxed);
+        // Public routes (issue #377) are matched by exact method and path, before any device check.
+        if let Some((limit, handler)) = self.public_route(&req.method, req.path()) {
+            if req.body.len() > limit {
+                return Response::err(413, "body_too_large");
+            }
+            return handler(&req);
+        }
         // Short-code pairing (`/v1/pair`): not in the daemon-api route table, like `/v1/link`.
         if Self::is_pair_path(req.path()) {
             if req.body.len() > self.cfg.max_json_body {

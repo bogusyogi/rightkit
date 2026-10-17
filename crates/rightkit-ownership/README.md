@@ -27,6 +27,7 @@ Approval signatures are verified with RustCrypto: P-256 ECDSA/SHA-256 (`p256`) a
 - Catalog source patterns run on `fancy-regex`. `\w`, `\d` and `\b` are Unicode-aware, where V8 is ASCII-only.
 - Path ordering follows ICU root collation exactly for ASCII and approximately beyond it.
 - JSON and TOML parse errors come from `serde_json` and the `toml` crate, so their text differs from Node's; the fixture harness normalises TOML error text (`tests/ownership_fixtures.rs`, `normalize_parser_text`).
+- A Cargo Git dependency pinned by a full 40-hex `rev` with a third-party URL is reported on `DepsResult.covered` as `pinned-git-dependency` (`scanned: false`), not as a coverage gap. First-party orgs (github.com/Orthic-Labs, github.com/bogusyogi; the Node scanner also reads `ownership-repositories.json`, whose orgs are the same two) and unparseable URLs stay unscanned gaps.
 - `scannerPolicyDigest` hashes this crate's own source files, not the Node module closure.
 
 ## Tests

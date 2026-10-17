@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Orthic-Labs/rightkit#454: new `mic_align` (`align_mic`, `AlignParams`, `MicAlignment`): mic-to-camera lag by mean-removed normalized cross-correlation, coarse 4x-decimated full-range pass then a full-rate fine pass, with confidence and peak margin. New `room_fill` (`room_tone_fill`, `room_tone_bed`, `FillParams`, `ToneFill`, `rms`, `encode_mono_f32_wav`): looped room-tone fill with equal-power crossfaded seams, scaled to the measured RMS plus `gain_db`. Lifted from CutRight `cutright-audio`, with its tests. Not compiled or run.
+- Lag failures (short, silent or low-correlation input) return `AudioError::Invalid` with a `no mic alignment` message; `AudioError` gains no variant.
+
+- #413 (audio part): `playback::play_once(path)` blocks until a WAV has played through the default output device. It downmixes to mono, resamples linearly, duplicates across device channels, and fails with `Playback` past the file duration plus five seconds. Not run on a device.
+- #248, #326 and #449 source side is already on main (`playback::OutputSession`, `wav::read_wav_16k_mono` single open with capacity hint). The 0.3.x publish in #449 is not part of this entry and needs a version bump.
+
 ## 0.3.1
 
 - Orthic-Labs/rightkit#326 (NOT COMPILED OR RUN): `read_wav_16k_mono` opens the file once (it used to open it twice, once for the header and once in `read_wav_mono_f32`) and sizes the sample buffer from the header's data length. `read_wav_mono_f32` shares the same decode and gets the same capacity hint. Output and errors are unchanged.

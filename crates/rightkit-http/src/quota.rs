@@ -40,10 +40,87 @@ pub struct QuotaSchedule {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+    system_ms(SystemTime::now())
+}
+
+/// Milliseconds since the Unix epoch (0 before it).
+fn system_ms(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Storage behind a quota schedule, for an app that keeps the value in its own database. The
+/// app implements it; [`QuotaSchedule`] implements it too. Keys are arbitrary non-empty strings
+/// (a provider, an account, or a provider and account pair).
+pub trait QuotaStore {
+    /// The stored not-before time for `provider`, in milliseconds since the Unix epoch.
+    fn get_not_before_ms(&self, provider: &str) -> io::Result<Option<u64>>;
+    /// Store `not_before_ms` for `provider`, keeping the larger of the stored value and this
+    /// one (max-merge: a shorter wait never shortens a longer one).
+    fn merge_not_before_ms(&mut self, provider: &str, not_before_ms: u64) -> io::Result<()>;
+}
+
+impl QuotaStore for QuotaSchedule {
+    fn get_not_before_ms(&self, provider: &str) -> io::Result<Option<u64>> {
+        Ok(self.not_before_ms.get(provider).copied())
+    }
+
+    fn merge_not_before_ms(&mut self, provider: &str, not_before_ms: u64) -> io::Result<()> {
+        if provider.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "empty provider key",
+            ));
+        }
+        if !self.not_before_ms.contains_key(provider) && self.not_before_ms.len() >= MAX_PROVIDERS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many providers in the quota schedule",
+            ));
+        }
+        let slot = self.not_before_ms.entry(provider.to_string()).or_insert(0);
+        if not_before_ms > *slot {
+            *slot = not_before_ms;
+        }
+        self.save()
+    }
+}
+
+/// Record a wait for `key` in `store`, measured from the injected `now`, and return the time it
+/// ends. The wait is max-merged with any stored one and clamped to [`MAX_DEFER`].
+pub fn defer_in<S: QuotaStore + ?Sized>(
+    store: &mut S,
+    key: &str,
+    wait: Duration,
+    now: SystemTime,
+) -> io::Result<SystemTime> {
+    if key.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "empty provider key",
+        ));
+    }
+    let until = system_ms(now).saturating_add(wait.min(MAX_DEFER).as_millis() as u64);
+    let existing = store.get_not_before_ms(key)?.unwrap_or(0);
+    let merged = existing.max(until);
+    store.merge_not_before_ms(key, merged)?;
+    Ok(UNIX_EPOCH + Duration::from_millis(merged))
+}
+
+/// Time left before `key` may be called again as seen from the injected `now`, read from `store`.
+/// `None` when it is free.
+pub fn remaining_in<S: QuotaStore + ?Sized>(
+    store: &S,
+    key: &str,
+    now: SystemTime,
+) -> io::Result<Option<Duration>> {
+    Ok(store.get_not_before_ms(key)?.and_then(|until| {
+        until
+            .checked_sub(system_ms(now))
+            .filter(|d| *d > 0)
+            .map(Duration::from_millis)
+    }))
 }
 
 impl QuotaSchedule {
@@ -131,6 +208,33 @@ impl QuotaSchedule {
         self.save()
     }
 
+    /// Like [`QuotaSchedule::defer`], measured from the injected `now`.
+    pub fn defer_at(&mut self, provider: &str, wait: Duration, now: SystemTime) -> io::Result<()> {
+        self.defer_from(provider, wait, system_ms(now))
+    }
+
+    /// Like [`QuotaSchedule::remaining`], measured from the injected `now`.
+    pub fn remaining_at(&self, provider: &str, now: SystemTime) -> Option<Duration> {
+        self.remaining_ms(provider, system_ms(now))
+    }
+
+    /// Like [`QuotaSchedule::defer_for_header`], with the injected `now` as the clock for an
+    /// HTTP-date `Retry-After`.
+    pub fn defer_for_header_at(
+        &mut self,
+        provider: &str,
+        value: &str,
+        now: SystemTime,
+    ) -> io::Result<Option<Duration>> {
+        match parse_retry_after_at(value, now) {
+            Some(wait) => {
+                self.defer_at(provider, wait, now)?;
+                Ok(Some(wait.min(MAX_DEFER)))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Record a raw `Retry-After` header value (seconds or HTTP-date). Returns the wait that
     /// was recorded, or `None` when the value does not parse.
     pub fn defer_for_header(
@@ -167,10 +271,10 @@ impl QuotaSchedule {
 
     /// Time left before `provider` may be called again, `None` when it is free now.
     pub fn remaining(&self, provider: &str) -> Option<Duration> {
-        self.remaining_at(provider, now_ms())
+        self.remaining_ms(provider, now_ms())
     }
 
-    fn remaining_at(&self, provider: &str, now: u64) -> Option<Duration> {
+    fn remaining_ms(&self, provider: &str, now: u64) -> Option<Duration> {
         let until = *self.not_before_ms.get(provider)?;
         until
             .checked_sub(now)
@@ -219,9 +323,9 @@ mod tests {
         let mut q = QuotaSchedule::new();
         q.defer_from("p", Duration::from_secs(3600), 1_000).unwrap();
         q.defer_from("p", Duration::from_secs(10), 1_000).unwrap();
-        assert_eq!(q.remaining_at("p", 1_000), Some(Duration::from_secs(3600)));
-        assert_eq!(q.remaining_at("p", 1_000 + 3_600_000), None);
-        assert_eq!(q.remaining_at("other", 1_000), None);
+        assert_eq!(q.remaining_ms("p", 1_000), Some(Duration::from_secs(3600)));
+        assert_eq!(q.remaining_ms("p", 1_000 + 3_600_000), None);
+        assert_eq!(q.remaining_ms("other", 1_000), None);
     }
 
     #[test]
@@ -268,5 +372,30 @@ mod tests {
         q.clear("a").unwrap();
         assert!(q.remaining("a").is_none());
         assert!(q.defer("", Duration::from_secs(1)).is_err());
+    }
+
+    #[test]
+    fn injected_clock_and_store_are_max_merged() {
+        let now = UNIX_EPOCH + Duration::from_secs(1_000);
+        let mut q = QuotaSchedule::new();
+        q.defer_at("acct-1", Duration::from_secs(60), now).unwrap();
+        q.defer_at("acct-1", Duration::from_secs(10), now).unwrap();
+        assert_eq!(q.remaining_at("acct-1", now), Some(Duration::from_secs(60)));
+        assert_eq!(
+            q.remaining_at("acct-1", now + Duration::from_secs(60)),
+            None
+        );
+        let until = defer_in(&mut q, "acct-2", Duration::from_secs(120), now).unwrap();
+        assert_eq!(until, now + Duration::from_secs(120));
+        assert_eq!(
+            remaining_in(&q, "acct-2", now).unwrap(),
+            Some(Duration::from_secs(120))
+        );
+        assert_eq!(
+            q.defer_for_header_at("acct-3", "Thu, 01 Jan 1970 00:20:00 GMT", now)
+                .unwrap(),
+            Some(Duration::from_secs(200))
+        );
+        assert!(defer_in(&mut q, "", Duration::from_secs(1), now).is_err());
     }
 }

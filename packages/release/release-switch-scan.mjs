@@ -120,7 +120,13 @@ function readPackageScripts(root) {
 // skip is `rust === false` (releaseSwitches.rust: false, an explicit "this app has no Rust") and only when no candidate
 // manifest exists. Returns { treeText, manifest } or { skipped: <reason> }. Throws when cargo fails: the caller fails closed.
 // `run` is injectable for tests: (command, args, options) => { status, stdout, stderr, error }.
-export function resolveFeatureClosure({ root, manifest, cargoManifest, rust, features = [], scripts, triple, commandTexts = [], run = spawnSync } = {}) {
+export function resolveFeatureClosure(options = {}) {
+  return resolveCargoTree(options);
+}
+
+/** Shared Cargo tree resolver; keeps each build command's feature selection separate. */
+export function resolveCargoTree({ root, manifest, cargoManifest, rust, features = [], scripts, triple, commandTexts = [],
+  edges = "features,no-dev", prefix, noDefaultFeatures = false, label = "feature closure", run = spawnSync } = {}) {
   const { rel, declared, candidates } = resolveCargoManifestPath({ root, cargoManifest, manifest });
   if (!rel) {
     if (rust === false) return { skipped: "releaseSwitches.rust is false: the app declares no Rust" };
@@ -129,7 +135,8 @@ export function resolveFeatureClosure({ root, manifest, cargoManifest, rust, fea
   if (declared.length && !declared.some((c) => existsSync(path.join(root, c)))) {
     throw new Error(`release-switch-manifest-missing: declared manifest ${declared.join(", ")} does not exist under ${root}`);
   }
-  const baseArgs = ["tree", "-e", "features,no-dev", "--locked", "--manifest-path", path.join(root, rel), "--target", triple || "all"];
+  const baseArgs = ["tree", "--color", "never", "-e", edges, "--locked", "--manifest-path", path.join(root, rel), "--target", triple || "all"];
+  if (prefix) baseArgs.push("--prefix", prefix);
   const pkgScripts = scripts ?? readPackageScripts(root);
   // One cargo tree per distinct (features, no-default-features, manifest) combination, one combination per build command
   // (flags gathered over the command and the package.json scripts it runs). A `--no-default-features` in one command never
@@ -143,30 +150,33 @@ export function resolveFeatureClosure({ root, manifest, cargoManifest, rust, fea
       if (script && depth < 3 && Object.hasOwn(pkgScripts, script) && !seen.has(script)) expand(String(pkgScripts[script]), depth + 1, new Set([...seen, script]));
     };
     expand(text, 0, new Set());
-    let noDefault = false;
+    let noDefault = noDefaultFeatures;
+    let allFeatures = false;
     const enabled = [...features];
     for (const t of expanded) {
       const tokens = commandTokens(t);
       if (tokens.includes("--no-default-features")) noDefault = true;
+      if (tokens.includes("--all-features")) allFeatures = true;
       enabled.push(...featuresInTokens(tokens).enabled);
     }
     const list = [...new Set(enabled)].sort();
-    combos.set(`${rel}|${noDefault}|${list.join(",")}`, { noDefault, list });
+    combos.set(`${rel}|${noDefault}|${allFeatures}|${list.join(",")}`, { noDefault, allFeatures, list });
   };
   const texts = commandTexts.filter(Boolean);
   if (texts.length === 0) comboFor("");
   for (const text of texts) comboFor(text);
   const trees = [];
-  for (const { noDefault, list } of combos.values()) {
+  for (const { noDefault, allFeatures, list } of combos.values()) {
     const args = [...baseArgs];
     if (noDefault) args.push("--no-default-features");
+    if (allFeatures) args.push("--all-features");
     if (list.length) args.push("--features", list.join(","));
     const result = run("cargo", args, { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
     if (result.error || result.status !== 0) {
-      throw new Error(`feature closure: \`cargo ${args.join(" ")}\` failed (${result.error?.message ?? `exit ${result.status}`}): ${String(result.stderr ?? "").trim().slice(0, 600)}. The resolved feature graph is the authoritative test-mode check, so a release cannot continue without it.`);
+      throw new Error(`${label}: \`cargo ${args.join(" ")}\` failed (${result.error?.message ?? `exit ${result.status}`}): ${String(result.stderr ?? "").trim().slice(0, 600)}. The resolved feature graph is the authoritative test-mode check, so a release cannot continue without it.`);
     }
     const out = String(result.stdout ?? "");
-    if (!out.trim()) throw new Error("feature closure: `cargo tree` printed nothing; cannot verify");
+    if (!out.trim()) throw new Error(`${label}: \`cargo tree\` printed nothing; cannot verify`);
     trees.push(out);
   }
   const treeText = trees.join("\n");

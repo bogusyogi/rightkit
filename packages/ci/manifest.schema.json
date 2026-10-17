@@ -121,6 +121,43 @@
         }
       }
     }
+    ,"workflows": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 8,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,40}$" },
+      "description": "Named workflows rendered by code. kind custom: one build job with triggers (push/pull_request with paths, workflow_dispatch), steps, toolchain pins, a named artifact, per-workflow sparse checkout and concurrency. kind swift-host: swift test on Windows and macOS hosts for chosen packages. kind dispatch-matrix: workflow_dispatch inputs, a plan job emitting a matrix, per-item jobs and a collect job. Every action is pinned to a commit SHA, permissions are contents: read, and no step may read secrets. Validated in full by validateManifest (workflows.mjs).",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["custom", "swift-host", "dispatch-matrix"] },
+          "file": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\\.yml$" },
+          "on": { "type": "object", "propertyNames": { "enum": ["push", "pull_request", "workflow_dispatch"] } },
+          "concurrency": { "type": "object", "additionalProperties": false, "required": ["group"], "properties": { "group": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$" }, "cancelInProgress": { "type": "boolean" } } },
+          "checkout": { "type": "object" },
+          "timeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 360 },
+          "runsOn": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+          "os": { "type": "array", "items": { "type": "string" } },
+          "packages": { "type": "array", "items": { "type": "string" } },
+          "swiftArgs": { "type": "array", "items": { "type": "string" } },
+          "toolchain": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rust": { "type": "string", "pattern": "^(stable|beta|nightly|[0-9]+\\.[0-9]+(\\.[0-9]+)?)$" },
+              "swift": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
+            }
+          },
+          "steps": { "type": "array", "items": { "type": "object", "required": ["shell", "run"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "shell": { "enum": ["bash", "pwsh"] }, "workingDirectory": { "type": "string" }, "run": { "type": "string" } } } },
+          "artifact": { "type": "object", "required": ["name", "path"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "path": { "type": "string" }, "retentionDays": { "type": "integer", "minimum": 1, "maximum": 90 }, "ifNoFilesFound": { "enum": ["error", "warn", "ignore"] }, "when": { "enum": ["success", "always"] } } },
+          "inputs": { "type": "object" },
+          "plan": { "type": "object" },
+          "jobs": { "type": "array" },
+          "collect": { "type": "object" }
+        }
+      }
+    }
     ,"swift": {
       "type": "object",
       "additionalProperties": false,

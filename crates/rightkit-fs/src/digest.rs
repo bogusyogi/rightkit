@@ -19,6 +19,29 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// True when every byte of `text` is an ASCII hex digit (`0-9`, `a-f`, `A-F`). The empty string is
+/// hex (zero bytes). Pure, no allocation. Callers that name a file after the text check the length
+/// too, so a hostile id cannot name a path.
+pub fn is_hex(text: &str) -> bool {
+    text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Decode hex text (either case) into bytes. `None` when the length is odd or a character is not
+/// an ASCII hex digit. The inverse of [`hex`] for lowercase input.
+pub fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !is_hex(text) || !text.len().is_multiple_of(2) {
+        return None;
+    }
+    text.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let high = (pair[0] as char).to_digit(16)?;
+            let low = (pair[1] as char).to_digit(16)?;
+            Some(((high << 4) | low) as u8)
+        })
+        .collect()
+}
+
 /// Incremental SHA-256 over this crate's own `sha2`, so a consumer that hashes while it writes needs no
 /// second `sha2` major. Feed it with [`Sha256Hasher::update`] (or as an [`io::Write`]), then take the
 /// lowercase hex with [`Sha256Hasher::finalize`]. The result equals [`sha256_bytes`] of the
@@ -105,6 +128,25 @@ mod tests {
     fn hex_is_lowercase_two_chars_per_byte() {
         assert_eq!(hex(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
         assert_eq!(hex(&[]), "");
+    }
+
+    #[test]
+    fn unhex_inverts_hex_and_accepts_either_case() {
+        let bytes = [0x00u8, 0x0f, 0xa0, 0xff];
+        assert_eq!(unhex(&hex(&bytes)), Some(bytes.to_vec()));
+        assert_eq!(unhex("0FA0Ff"), Some(vec![0x0f, 0xa0, 0xff]));
+        assert_eq!(unhex(""), Some(Vec::new()));
+    }
+
+    #[test]
+    fn unhex_and_is_hex_refuse_odd_length_and_non_hex() {
+        assert_eq!(unhex("abc"), None);
+        assert_eq!(unhex("zz"), None);
+        assert_eq!(unhex("0g"), None);
+        assert_eq!(unhex("é0"), None);
+        assert!(is_hex("0123456789abcdefABCDEF"));
+        assert!(!is_hex("0x12"));
+        assert!(!is_hex("../x"));
     }
 
     #[test]

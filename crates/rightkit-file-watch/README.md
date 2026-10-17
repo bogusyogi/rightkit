@@ -14,6 +14,21 @@ Filesystem watching for Right Suite apps. It is built on `notify` and has three 
 
 `async` (default): the `subscribe` module (`FileWatcher`, `FileWatcherSubscriber`, receivers) over `tokio` (`rt`, `sync`, `time`, `macros`). With `default-features = false`, `tokio` is not compiled and `sync`, `typed`, `options`, and `coalesce` remain. Other dependencies: `notify` (8.2.0), `tracing`, and `rightkit-child-process` (not optional). The crate re-exports `notify`.
 
+## Owner-keyed watch sessions
+
+`WatchSessionManager` keeps one watch per `(owner, id)` pair for hosts that serve several clients. `watch` registers a path, `poll` drains a debounced `ChangeBatch` when the session is due, `unwatch` stops one session, and `release_owner` stops everything an owner holds.
+
+```rust,no_run
+use rightkit_file_watch::WatchSessionManager;
+
+let mut manager = WatchSessionManager::new();
+manager.watch("client-1", "w1", "/path/to/root", true).unwrap();
+for batch in manager.poll("client-1", "w1") {
+    println!("changed: {:?}", batch.changed);
+}
+manager.release_owner("client-1");
+```
+
 ## Platform support
 
 Platform-specific code is the `TypedWatcher` native backend: `src/native.rs` selects `native/macos.rs` (FSEvents, `cfg(target_os = "macos")`), `native/windows.rs` (`cfg(windows)`), or `native/unsupported.rs` elsewhere, where `WatchBackend::Native` is an error rather than a fallback (`src/typed.rs:195`). `subscribe` and `sync` use `notify`'s recommended watcher (`src/subscribe.rs:23`, `src/sync.rs:22`). The only `cfg(unix)` is a test (`recursive_directory_snapshot_does_not_follow_symlinks`, `src/options.rs:995`). FSEvents reports unpaired rename hints as Modify events (`src/native/macos.rs:196`).

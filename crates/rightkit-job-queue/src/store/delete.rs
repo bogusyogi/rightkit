@@ -257,7 +257,7 @@ impl JobStore {
         if !self.cfg.work_roots.is_empty() {
             let request_id: Option<String> = conn
                 .query_row(
-                    "SELECT request_id FROM jobs WHERE job_id=?1",
+                    &format!("SELECT request_id FROM {} WHERE job_id=?1", self.jt()),
                     [job_id],
                     |r| r.get::<_, Option<String>>(0),
                 )
@@ -341,9 +341,13 @@ impl JobStore {
         };
         let exists: bool = {
             let conn = self.c();
-            conn.query_row("SELECT 1 FROM jobs WHERE job_id=?1", [job_id], |_| Ok(()))
-                .optional()?
-                .is_some()
+            conn.query_row(
+                &format!("SELECT 1 FROM {} WHERE job_id=?1", self.jt()),
+                [job_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some()
         };
         if !exists {
             // Pruned or removed another way since the mark was written: only the mark is left.

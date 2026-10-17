@@ -1,6 +1,8 @@
 import { formatChord as formatChordFor, normalizePlatform, type FormatChordOptions, type Platform } from "./format.js";
 
 export { normalizePlatform, platformInitializationScript, type FormatChordOptions, type Platform } from "./format.js";
+export { blockNativeContextMenu } from "./context-menu.js";
+export { relativeTimeFrom } from "./time.js";
 
 export interface QaPlatformBootstrapInput {
   /** Raw query string. The override is ignored unless it also contains `qa=1` (see `configurePlatform`). */
@@ -108,9 +110,14 @@ function injectedPlatform(): Platform | undefined {
   return typeof raw === "string" && raw !== "" ? normalizePlatform(raw) : undefined;
 }
 
+/** True inside a Tauri WebView (the Tauri internals object exists). Pure detection; never loads plugin-os. */
+export function isTauri(): boolean {
+  return "__TAURI_INTERNALS__" in globalThis;
+}
+
 /** A native host: the host injected a platform, plugin-os answered, or the Tauri internals exist. */
 function inNativeHost(): boolean {
-  return pluginResolved || injectedPlatform() !== undefined || "__TAURI_INTERNALS__" in globalThis;
+  return pluginResolved || injectedPlatform() !== undefined || isTauri();
 }
 
 function withFallback(platform: Platform): Platform {

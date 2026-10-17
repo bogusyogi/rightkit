@@ -13,8 +13,12 @@
 //! is created suspended, assigned to a kill-on-close Job Object, and only then resumed, so it
 //! never runs (or spawns) outside the job.
 
+use crate::deny_read::{expand_glob, plan_deny_read_paths, GLOB_EXPANSION_LIMIT};
 use crate::windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
-use crate::{EnvPolicy, NetworkPolicy, SandboxCommand, SandboxError, SandboxPolicy};
+use crate::{
+    ConfinementMode, DenyReadEntry, EnvPolicy, LoopbackPolicy, NetworkPolicy, SandboxCommand,
+    SandboxError, SandboxPolicy,
+};
 #[path = "windows_ancestors.rs"]
 mod ancestors;
 pub use ancestors::{
@@ -47,6 +51,7 @@ use windows::Win32::System::Threading::{
 const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
 const SE_FILE_OBJECT: u32 = 1;
 const GRANT_ACCESS: i32 = 1;
+const DENY_ACCESS: i32 = 3;
 const REVOKE_ACCESS: i32 = 4;
 /// `SE_GROUP_ENABLED`: attribute for a capability SID in the token.
 const SE_GROUP_ENABLED: u32 = 0x0000_0004;
@@ -191,6 +196,10 @@ unsafe extern "system" {
         attributes: *const SecurityAttributes,
     ) -> *mut c_void;
     fn ConnectNamedPipe(handle: *mut c_void, overlapped: *mut c_void) -> i32;
+    fn LoadLibraryExW(name: *const u16, file: *mut c_void, flags: u32) -> *mut c_void;
+    fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
+    fn GetProcessHeap() -> *mut c_void;
+    fn HeapFree(heap: *mut c_void, flags: u32, memory: *mut c_void) -> i32;
 }
 
 #[link(name = "userenv")]
@@ -872,18 +881,54 @@ fn lease_registry() -> &'static Mutex<HashMap<String, LeaseEntry>> {
     REGISTRY.get_or_init(Default::default)
 }
 
-/// One per-command allow grant for a container SID; dropping the last lease on a key revokes
-/// the ACE, so grants never outlive the commands that needed them.
+/// Whether a lease allows access or carves it out of a wider allow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeaseKind {
+    Allow,
+    Deny,
+}
+
+/// Everything a deny entry takes away: read, write, execute and delete.
+const DENY_PERMISSIONS: u32 =
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE;
+
+/// One per-command grant for a container SID, an allow or a deny carve-out; dropping the last
+/// lease on a key revokes the ACE, so grants never outlive the commands that needed them.
 struct GrantLease {
     key: String,
+    kind: LeaseKind,
     writable: bool,
     sid_text: String,
     path: PathBuf,
 }
 
+/// Registry key of one lease. Allow keys keep the `<sid>|<path>` form the ancestor sweep reads
+/// to tell a live grant from a stale one; deny keys carry a prefix so they never collide with it.
+fn lease_key(kind: LeaseKind, sid_text: &str, path: &Path) -> String {
+    match kind {
+        LeaseKind::Allow => format!("{sid_text}|{}", lexical_path_key(path)),
+        LeaseKind::Deny => format!("deny|{sid_text}|{}", lexical_path_key(path)),
+    }
+}
+
 impl GrantLease {
     fn acquire(sid: *mut c_void, sid_text: &str, path: &Path, writable: bool) -> io::Result<Self> {
-        let key = format!("{sid_text}|{}", lexical_path_key(path));
+        Self::acquire_kind(LeaseKind::Allow, sid, sid_text, path, writable)
+    }
+
+    /// An explicit DENY ACE for the container on `path` (and below it, for a directory).
+    fn deny(sid: *mut c_void, sid_text: &str, path: &Path) -> io::Result<Self> {
+        Self::acquire_kind(LeaseKind::Deny, sid, sid_text, path, false)
+    }
+
+    fn acquire_kind(
+        kind: LeaseKind,
+        sid: *mut c_void,
+        sid_text: &str,
+        path: &Path,
+        writable: bool,
+    ) -> io::Result<Self> {
+        let key = lease_key(kind, sid_text, path);
         let mut registry = lease_registry().lock().unwrap_or_else(|e| e.into_inner());
         let grant = |writable| {
             apply_sid_path_entry(
@@ -900,27 +945,51 @@ impl GrantLease {
         };
         match registry.get_mut(&key) {
             Some(entry) => {
-                if writable && !entry.writable {
+                if kind == LeaseKind::Allow && writable && !entry.writable {
                     grant(true)?;
                     entry.writable = true;
                 }
                 entry.count += 1;
             }
             None => {
-                // No live lease owns the key, so a write-capable ACE here is stale: remove it
-                // before granting narrower read/execute access.
-                if !writable && path_has_write_grant(path, sid) {
-                    apply_sid_path_entry(path, sid, REVOKE_ACCESS, 0, inheritance_for(path))
-                        .map_err(|e| {
-                            step_error(format!("revoke stale write ACE on {}", path.display()), e)
-                        })?;
+                match kind {
+                    LeaseKind::Allow => {
+                        // No live lease owns the key, so a write-capable ACE here is stale:
+                        // remove it before granting narrower read/execute access.
+                        if !writable && path_has_write_grant(path, sid) {
+                            apply_sid_path_entry(
+                                path,
+                                sid,
+                                REVOKE_ACCESS,
+                                0,
+                                inheritance_for(path),
+                            )
+                            .map_err(|e| {
+                                step_error(
+                                    format!("revoke stale write ACE on {}", path.display()),
+                                    e,
+                                )
+                            })?;
+                        }
+                        grant(writable)?;
+                    }
+                    LeaseKind::Deny => {
+                        apply_sid_path_entry(
+                            path,
+                            sid,
+                            DENY_ACCESS,
+                            DENY_PERMISSIONS,
+                            inheritance_for(path),
+                        )
+                        .map_err(|e| step_error(format!("deny ACE on {}", path.display()), e))?;
+                    }
                 }
-                grant(writable)?;
                 registry.insert(key.clone(), LeaseEntry { count: 1, writable });
             }
         }
         Ok(Self {
             key,
+            kind,
             writable,
             sid_text: sid_text.to_string(),
             path: path.to_path_buf(),
@@ -940,7 +1009,8 @@ impl Drop for GrantLease {
         }
         registry.remove(&self.key);
         // A failed revoke leaves an ACE for this container SID only; the next acquire for the
-        // same key re-checks the live DACL (and strips a stale write grant).
+        // same key re-checks the live DACL (and strips a stale write grant). A stale deny only
+        // ever narrows this container's access.
         if let Ok(sid) = LocalSid::parse(&self.sid_text) {
             let _ = apply_sid_path_entry(
                 &self.path,
@@ -961,6 +1031,224 @@ struct LeaseSet {
     ancestors: Mutex<Vec<AncestorLease>>,
     /// Marks the profile in use for as long as these leases live.
     holder: Mutex<Option<ancestors::ProfileHolder>>,
+    /// The deepest ancestor of each leased path the container could not be given traverse
+    /// access to (best-effort leases only). Exported to children as `GIT_CEILING_DIRECTORIES` so
+    /// upward repository discovery stops before it.
+    git_ceilings: Mutex<Vec<PathBuf>>,
+    /// The loopback exemption of a network-enabled container; removed with the last holder.
+    loopback: Mutex<Option<LoopbackLease>>,
+}
+
+// ---------------------------------------------------------------------------------------
+// Loopback exemption
+// ---------------------------------------------------------------------------------------
+
+/// `NetworkIsolation*AppContainerConfig` entry points, resolved at run time so the crate has no
+/// link-time dependency on `FirewallAPI.dll`.
+/// `LOAD_LIBRARY_SEARCH_SYSTEM32` (documented value 0x00000800): resolve only from System32, never
+/// the application directory or the current directory, so a planted DLL cannot be loaded.
+const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
+
+struct LoopbackApi {
+    get: unsafe extern "system" fn(*mut u32, *mut *mut SidAndAttributes) -> u32,
+    set: unsafe extern "system" fn(u32, *mut SidAndAttributes) -> u32,
+}
+
+fn loopback_api() -> io::Result<&'static LoopbackApi> {
+    static API: OnceLock<Result<LoopbackApi, String>> = OnceLock::new();
+    API.get_or_init(|| {
+        let name = wide("FirewallAPI.dll");
+        // SAFETY: `name` is NUL-terminated; the module stays loaded for the life of the process.
+        let module = unsafe {
+            LoadLibraryExW(
+                name.as_ptr(),
+                std::ptr::null_mut(),
+                LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+        };
+        if module.is_null() {
+            return Err(format!(
+                "load FirewallAPI.dll: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        // SAFETY: `module` is a live module handle and each name is a NUL-terminated export.
+        let (get, set) = unsafe {
+            (
+                GetProcAddress(module, b"NetworkIsolationGetAppContainerConfig\0".as_ptr()),
+                GetProcAddress(module, b"NetworkIsolationSetAppContainerConfig\0".as_ptr()),
+            )
+        };
+        if get.is_null() || set.is_null() {
+            return Err("FirewallAPI.dll lacks the NetworkIsolation AppContainer exports".into());
+        }
+        // SAFETY: the exports have exactly these signatures (netfw.h).
+        Ok(unsafe {
+            LoopbackApi {
+                get: std::mem::transmute::<
+                    *mut c_void,
+                    unsafe extern "system" fn(*mut u32, *mut *mut SidAndAttributes) -> u32,
+                >(get),
+                set: std::mem::transmute::<
+                    *mut c_void,
+                    unsafe extern "system" fn(u32, *mut SidAndAttributes) -> u32,
+                >(set),
+            }
+        })
+    })
+    .as_ref()
+    .map_err(|message| io::Error::other(message.clone()))
+}
+
+/// Add (`add`) or remove the container from the machine's loopback-exempt list. Windows blocks
+/// loopback for every AppContainer, and `internetClient` only opens the external network, so a
+/// network-enabled child that must reach a local service needs this exemption. The list is
+/// replaced wholesale by the API, so the current one is read, merged and written back. Writing it
+/// needs elevation: an unelevated caller gets `ERROR_ACCESS_DENIED` and the container simply has
+/// no loopback (never more access than before).
+fn update_loopback_exemption(sid: *mut c_void, add: bool) -> io::Result<()> {
+    let api = loopback_api()?;
+    let mut count = 0u32;
+    let mut list: *mut SidAndAttributes = std::ptr::null_mut();
+    // SAFETY: valid out-pointers; success yields a process-heap array released below.
+    let status = unsafe { (api.get)(&mut count, &mut list) };
+    if status != 0 {
+        return Err(step_error(
+            "read the loopback exemption list",
+            io::Error::from_raw_os_error(status as i32),
+        ));
+    }
+    let existing: &[SidAndAttributes] = if list.is_null() || count == 0 {
+        &[]
+    } else {
+        // SAFETY: the API returned `count` contiguous entries at `list`.
+        unsafe { std::slice::from_raw_parts(list, count as usize) }
+    };
+    let mut merged: Vec<SidAndAttributes> = Vec::with_capacity(existing.len() + 1);
+    let mut present = false;
+    for entry in existing {
+        // SAFETY: both SIDs are valid for the duration of the call.
+        if unsafe { EqualSid(entry.sid, sid) } != 0 {
+            present = true;
+            if !add {
+                continue;
+            }
+        }
+        merged.push(SidAndAttributes {
+            sid: entry.sid,
+            attributes: entry.attributes,
+        });
+    }
+    if add && !present {
+        merged.push(SidAndAttributes { sid, attributes: 0 });
+    }
+    let result = if add == present {
+        // Already in the requested state.
+        Ok(())
+    } else {
+        // SAFETY: `merged` holds `len` valid entries whose SIDs outlive the call (API-owned
+        // until freed below, or `sid`).
+        let status = unsafe { (api.set)(merged.len() as u32, merged.as_mut_ptr()) };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(step_error(
+                if add {
+                    "add the container to the loopback exemption list"
+                } else {
+                    "remove the container from the loopback exemption list"
+                },
+                io::Error::from_raw_os_error(status as i32),
+            ))
+        }
+    };
+    if !list.is_null() {
+        // The Get call allocates the array and every SID on the process heap and the caller
+        // frees each with HeapFree (NetworkIsolationFreeAppContainers belongs to the differently
+        // shaped Enum result and corrupts the heap here).
+        // SAFETY: `list` holds `count` entries from that call; each SID and the array are freed
+        // exactly once, after their last use.
+        unsafe {
+            let heap = GetProcessHeap();
+            for entry in std::slice::from_raw_parts(list, count as usize) {
+                if !entry.sid.is_null() {
+                    HeapFree(heap, 0, entry.sid);
+                }
+            }
+            HeapFree(heap, 0, list.cast());
+        }
+    }
+    result
+}
+
+/// Process-wide reference counts of live loopback exemptions, and the containers whose exemption
+/// could not be established (not retried: the failure is environmental, usually no elevation).
+#[derive(Default)]
+struct LoopbackRegistry {
+    live: HashMap<String, usize>,
+    failed: std::collections::HashSet<String>,
+}
+
+fn loopback_registry() -> &'static Mutex<LoopbackRegistry> {
+    static REGISTRY: OnceLock<Mutex<LoopbackRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// A loopback exemption held for the lifetime of a profile's commands and removed when the last
+/// holder in the process ends, like every other grant.
+struct LoopbackLease {
+    sid_text: String,
+}
+
+impl LoopbackLease {
+    /// `Ok(None)`: an earlier attempt for this container failed, so none is made again.
+    fn acquire(sid: *mut c_void, sid_text: &str) -> io::Result<Option<Self>> {
+        let mut registry = loopback_registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registry.failed.contains(sid_text) {
+            return Ok(None);
+        }
+        let lease = || Self {
+            sid_text: sid_text.to_string(),
+        };
+        if let Some(count) = registry.live.get_mut(sid_text) {
+            *count += 1;
+            return Ok(Some(lease()));
+        }
+        if let Err(error) = update_loopback_exemption(sid, true) {
+            registry.failed.insert(sid_text.to_string());
+            return Err(error);
+        }
+        registry.live.insert(sid_text.to_string(), 1);
+        Ok(Some(lease()))
+    }
+}
+
+impl Drop for LoopbackLease {
+    fn drop(&mut self) {
+        let mut registry = loopback_registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(count) = registry.live.get_mut(&self.sid_text) else {
+            return;
+        };
+        *count = count.saturating_sub(1);
+        if *count > 0 {
+            return;
+        }
+        registry.live.remove(&self.sid_text);
+        let outcome =
+            LocalSid::parse(&self.sid_text).and_then(|sid| update_loopback_exemption(sid.0, false));
+        if let Err(error) = outcome {
+            // A crashed holder cannot clean up either: the exemption then stays until the next
+            // holder for the same container ends. It never widens file access.
+            eprintln!(
+                "rightkit-sandbox: could not remove the loopback exemption for {}: {error}",
+                self.sid_text
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1125,14 +1413,14 @@ fn ensure_alias_at(base: &Path, root: &Path) -> io::Result<PathBuf> {
 /// An AppContainer profile plus its SID. Profiles persist across runs by design and are
 /// keyed by the policy's grant set, so a command confined for one set of paths never
 /// inherits ACEs granted to another.
-struct AppContainerProfile {
+struct ContainerProfile {
     name: String,
     sid: *mut c_void,
     sid_text: String,
     leases: Arc<LeaseSet>,
 }
 
-impl AppContainerProfile {
+impl ContainerProfile {
     /// Create the named profile, or adopt it when a previous run already made one. Only
     /// `ALREADY_EXISTS` adopts; other failures (userenv reports a concurrent-creation race
     /// under varying HRESULTs) retry briefly and are then returned unchanged.
@@ -1211,11 +1499,11 @@ impl AppContainerProfile {
 
     /// Grant `path` to this profile for the lifetime of the launch's child.
     fn lease(&self, path: &Path, writable: bool) -> io::Result<()> {
-        let key = format!("{}|{}", self.sid_text, lexical_path_key(path));
+        let key = lease_key(LeaseKind::Allow, &self.sid_text, path);
         let mut items = self.leases.items.lock().unwrap_or_else(|e| e.into_inner());
         if items
             .iter()
-            .any(|l| l.key == key && (l.writable || !writable))
+            .any(|l| l.kind == LeaseKind::Allow && l.key == key && (l.writable || !writable))
         {
             return Ok(());
         }
@@ -1226,6 +1514,98 @@ impl AppContainerProfile {
             writable,
         )?);
         Ok(())
+    }
+
+    /// Deny the container `path` (and everything below it) for the lifetime of the launch's
+    /// child, with an explicit DENY ACE that wins over any allow inherited from a granted root.
+    fn lease_deny(&self, path: &Path) -> io::Result<()> {
+        let key = lease_key(LeaseKind::Deny, &self.sid_text, path);
+        let mut items = self.leases.items.lock().unwrap_or_else(|e| e.into_inner());
+        if items.iter().any(|l| l.key == key) {
+            return Ok(());
+        }
+        items.push(GrantLease::deny(self.sid, &self.sid_text, path)?);
+        Ok(())
+    }
+
+    /// Lease traverse access on every physical ancestor of `path` for this container. Under
+    /// [`AncestorLeasePolicy::BestEffort`] an ancestor whose DACL cannot be written (no
+    /// WRITE_DAC, for example under `C:\Users`) is skipped instead of failing the launch, and the
+    /// deepest skipped one is remembered as a Git ceiling for the child's environment.
+    fn lease_ancestors(
+        &self,
+        path: &Path,
+        policy: AncestorLeasePolicy,
+    ) -> Result<(), SandboxError> {
+        let lease = AncestorLease::acquire_with(path, &self.sid_text, policy)?;
+        // Ancestors nearest the leased path are the deepest; Git must not reach any of them, so
+        // the deepest unleasable one bounds discovery.
+        if let Some(deepest) = lease
+            .unleasable()
+            .iter()
+            .max_by_key(|ancestor| ancestor.path.components().count())
+        {
+            let ceiling = plain_path(&deepest.path);
+            let mut ceilings = self
+                .leases
+                .git_ceilings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !ceilings.contains(&ceiling) {
+                ceilings.push(ceiling);
+            }
+        }
+        self.leases
+            .ancestors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(lease);
+        Ok(())
+    }
+
+    /// Take (once per container) the loopback exemption a network-enabled container needs to
+    /// reach local services. `false` when it could not be established, typically because the
+    /// process is not elevated: the container then stays loopback-blocked, which is narrower
+    /// than asked, never wider.
+    fn lease_loopback(&self) -> bool {
+        let mut held = self
+            .leases
+            .loopback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return true;
+        }
+        match LoopbackLease::acquire(self.sid, &self.sid_text) {
+            Ok(Some(lease)) => {
+                *held = Some(lease);
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                eprintln!(
+                    "rightkit-sandbox: loopback exemption unavailable for {} ({error}); \
+                     adding it needs an elevated process, the container stays loopback-blocked",
+                    self.sid_text
+                );
+                false
+            }
+        }
+    }
+
+    /// The Git ceilings recorded for this container, joined for `GIT_CEILING_DIRECTORIES`.
+    fn git_ceiling_value(&self) -> Option<String> {
+        let ceilings = self
+            .leases
+            .git_ceilings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if ceilings.is_empty() {
+            return None;
+        }
+        std::env::join_paths(ceilings.iter())
+            .ok()
+            .map(|joined| joined.to_string_lossy().into_owned())
     }
 
     /// AppContainer does not inherit the caller's executable ACL: grant read/execute on the
@@ -1278,7 +1658,12 @@ fn image_lease_target(program: &Path, dir: &Path) -> PathBuf {
     }
 }
 
-impl Drop for AppContainerProfile {
+// SAFETY: `sid` is allocated once, never written afterwards and freed only in `Drop`; every use
+// is a read-only FFI call. The mutable state (`leases`) is behind mutexes.
+unsafe impl Send for ContainerProfile {}
+unsafe impl Sync for ContainerProfile {}
+
+impl Drop for ContainerProfile {
     fn drop(&mut self) {
         // SAFETY: from CreateAppContainerProfile/DeriveAppContainerSidFromAppContainerName.
         unsafe { FreeSid(self.sid) };
@@ -1441,6 +1826,72 @@ fn output_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)
     Ok((unsafe { std::fs::File::from_raw_handle(server) }, client))
 }
 
+/// An outbound pipe for the child's stdin: the parent writes `File`, the child reads the
+/// inheritable raw handle. The DACL admits only the user and the container, and dropping the
+/// `File` is the child's end-of-input.
+fn input_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let name = wide(format!(
+        r"\\.\pipe\rightkit-sandbox-in-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let attributes = SecurityAttributes {
+        length: std::mem::size_of::<SecurityAttributes>() as u32,
+        descriptor: security.0,
+        inherit_handle: 0,
+    };
+    // SAFETY: name and attributes outlive the call.
+    let server = unsafe {
+        CreateNamedPipeW(
+            name.as_ptr(),
+            PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            64 * 1024,
+            64 * 1024,
+            0,
+            &attributes,
+        )
+    };
+    if server.is_null() || server == INVALID_HANDLE {
+        return Err(last_error("CreateNamedPipeW stdin"));
+    }
+    // SAFETY: opens the unique client end of the server just created.
+    let client = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            GENERIC_READ,
+            0,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if client.is_null() || client == INVALID_HANDLE {
+        let e = last_error("open stdin pipe client");
+        close_raw(server);
+        return Err(e);
+    }
+    // SAFETY: synchronous connect of a server whose client is already open.
+    if unsafe { ConnectNamedPipe(server, std::ptr::null_mut()) } == 0
+        && unsafe { GetLastError() } != ERROR_PIPE_CONNECTED
+    {
+        let e = last_error("ConnectNamedPipe stdin");
+        close_raw(client);
+        close_raw(server);
+        return Err(e);
+    }
+    if let Err(e) = set_inheritable(client) {
+        close_raw(client);
+        close_raw(server);
+        return Err(e);
+    }
+    // SAFETY: the server end's ownership moves into the File.
+    Ok((unsafe { std::fs::File::from_raw_handle(server) }, client))
+}
+
 /// One auxiliary pipe. Parent keeps an overlapped, non-inheritable server end;
 /// the child receives only its synchronous client endpoint through the explicit
 /// process handle list.
@@ -1540,6 +1991,15 @@ unsafe impl Send for ConfinedChild {}
 impl ConfinedChild {
     pub(crate) fn id(&self) -> u32 {
         self.pid
+    }
+
+    /// Whether this child's container holds the loopback exemption.
+    pub(crate) fn loopback_exempt(&self) -> bool {
+        self._leases
+            .loopback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 
     fn wait_ms(&self, ms: u32) -> io::Result<Option<ExitStatus>> {
@@ -1671,6 +2131,8 @@ impl Drop for ConfinedChild {
 
 pub(crate) struct ConfinedSpawn {
     pub(crate) child: ConfinedChild,
+    /// The parent's write end of the child's stdin, for a piped spawn; `None` means NUL.
+    pub(crate) stdin: Option<std::fs::File>,
     pub(crate) stdout: std::fs::File,
     pub(crate) stderr: std::fs::File,
 }
@@ -1685,6 +2147,7 @@ pub(crate) struct ConfinedPipeSpawn {
 
 struct ConfinedLaunch {
     child: ConfinedChild,
+    stdin: Option<std::fs::File>,
     stdout: Option<std::fs::File>,
     stderr: Option<std::fs::File>,
     auxiliary: Option<(OwnedHandle, OwnedHandle)>,
@@ -1866,15 +2329,65 @@ fn profile_name(sorted_key: &[String]) -> String {
     format!("{PROFILE_PREFIX}{:016x}", fnv1a(&sorted_key.join("|")))
 }
 
+/// The identity of a launch's container: its grants, deny entries and loopback choice, sorted.
+/// With no deny entry and no loopback exemption it is the grant key every earlier version used,
+/// so existing profiles keep their names.
+fn profile_key(grants: &[(PathBuf, bool)], denies: &[PathBuf], loopback: bool) -> Vec<String> {
+    let mut key: Vec<String> = grants
+        .iter()
+        .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
+        .chain(denies.iter().map(|p| format!("d:{}", lexical_path_key(p))))
+        .collect();
+    if loopback {
+        key.push("loopback".into());
+    }
+    key.sort();
+    key
+}
+
+/// Whether a policy asks for the loopback exemption (it needs network to mean anything).
+fn wants_loopback(policy: &SandboxPolicy) -> bool {
+    policy.network == NetworkPolicy::Allow && policy.loopback == LoopbackPolicy::Exempt
+}
+
+/// The concrete, existing paths the policy's `deny_read` entries name: globs expanded (bounded),
+/// every path planned lexically and canonically. An entry that cannot be planned (a relative
+/// path, a filesystem root, a glob over a huge tree) fails the spawn instead of being dropped.
+/// A path that does not exist has no object to attach a deny to and is skipped.
+fn deny_targets(policy: &SandboxPolicy) -> Result<Vec<PathBuf>, SandboxError> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in &policy.deny_read {
+        match entry {
+            DenyReadEntry::Path(path) => paths.push(path.clone()),
+            DenyReadEntry::Glob(pattern) => {
+                paths.extend(expand_glob(pattern, GLOB_EXPANSION_LIMIT).map_err(SandboxError::Io)?)
+            }
+        }
+    }
+    let planned = plan_deny_read_paths(&paths).map_err(|e| match e.kind() {
+        io::ErrorKind::InvalidInput => SandboxError::InvalidPolicy(e.to_string()),
+        _ => SandboxError::Io(e),
+    })?;
+    let mut targets: Vec<PathBuf> = Vec::new();
+    for path in planned {
+        let path = plain_path(&path);
+        let key = lexical_path_key(&path);
+        if path.exists() && !targets.iter().any(|t| lexical_path_key(t) == key) {
+            targets.push(path);
+        }
+    }
+    Ok(targets)
+}
+
 /// Test support: the name of the AppContainer profile a spawn with `policy` registers for the
 /// current user. The granted paths must exist, as they must for the spawn itself.
 #[doc(hidden)]
 pub fn appcontainer_profile_name_for_test(policy: &SandboxPolicy) -> Result<String, SandboxError> {
-    let mut key: Vec<String> = canonical_grants(policy)?
-        .iter()
-        .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
-        .collect();
-    key.sort();
+    let key = profile_key(
+        &canonical_grants(policy)?,
+        &deny_targets(policy)?,
+        wants_loopback(policy),
+    );
     Ok(profile_name(&key))
 }
 
@@ -1899,12 +2412,405 @@ pub fn delete_appcontainer_profile_for_test(name: &str) -> io::Result<bool> {
     Ok(result >= 0)
 }
 
+// ---------------------------------------------------------------------------------------
+// Reusable profile
+// ---------------------------------------------------------------------------------------
+
+/// Validate a requested extra grant and return its canonical path.
+fn validated_grant(path: &Path) -> Result<PathBuf, SandboxError> {
+    if crate::path_is_protected_secret(path) {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "{} is a protected location and cannot be granted",
+            path.display()
+        )));
+    }
+    let canonical = std::fs::canonicalize(path)
+        .map(|p| plain_path(&p))
+        .map_err(|e| {
+            SandboxError::InvalidPolicy(format!(
+                "granted path {} does not resolve: {e}",
+                path.display()
+            ))
+        })?;
+    if canonical.parent().is_none() {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "refusing to grant a filesystem root: {}",
+            path.display()
+        )));
+    }
+    // A canonical path can still land inside a secret (a junction into `.ssh`).
+    if crate::path_is_protected_secret(&canonical) {
+        return Err(SandboxError::InvalidPolicy(format!(
+            "{} resolves to a protected location and cannot be granted",
+            path.display()
+        )));
+    }
+    Ok(canonical)
+}
+
+/// A named, reusable AppContainer with its leases held: the confinement boundary for a series of
+/// commands, spawned with [`crate::Sandbox::spawn_in_profile`].
+///
+/// The container is `rightkit.sandbox.<hash of its grants>` (so [`remove_unused_appcontainer_profiles`]
+/// and the ancestor sweeps know it), its SID derived from that name. Its allow grants, deny
+/// carve-outs, ancestor traverse leases and loopback exemption are reference-counted leases shared
+/// with every child spawned from it: they are revoked when the profile and the last such child are
+/// gone, never earlier. Ancestors the user cannot re-ACL are skipped rather than failing the
+/// profile; the deepest one becomes a `GIT_CEILING_DIRECTORIES` entry in each child's environment
+/// (unless the caller sets that variable), so upward repository discovery stops before it.
+pub struct AppContainerProfile {
+    prepared: PreparedContainer,
+}
+
+impl AppContainerProfile {
+    /// The container for one workspace: read/write on `workspace_root`, with an explicit deny on
+    /// every protected secret folder ([`crate::secret_paths_within`]) that lies inside it, so a
+    /// workspace that is the user profile never exposes `.ssh` and friends.
+    pub fn for_workspace(workspace_root: &Path) -> Result<Self, SandboxError> {
+        let canonical = std::fs::canonicalize(workspace_root)
+            .map(|p| plain_path(&p))
+            .map_err(|e| {
+                SandboxError::InvalidPolicy(format!(
+                    "workspace {} does not resolve: {e}",
+                    workspace_root.display()
+                ))
+            })?;
+        let mut policy = SandboxPolicy::new().allow_write(&canonical);
+        for secret in crate::secret_paths_within(&canonical) {
+            policy = policy.deny_read(secret);
+        }
+        Self::for_policy(&policy)
+    }
+
+    /// The container for `policy`'s grants, deny entries and network choice, created or adopted by
+    /// name. `ConfinementMode::WriteOnly` is refused.
+    pub fn for_policy(policy: &SandboxPolicy) -> Result<Self, SandboxError> {
+        policy.validate()?;
+        Ok(Self {
+            prepared: prepare_container(policy, AncestorLeasePolicy::BestEffort)?,
+        })
+    }
+
+    /// Allow or withhold outbound network (the `internetClient` capability) for later spawns.
+    /// The container's SID does not change.
+    pub fn with_network(mut self, allow: bool) -> Self {
+        self.prepared.network = allow;
+        self
+    }
+
+    /// Ask for the loopback exemption on later network-enabled spawns. It needs an elevated
+    /// process; without one the container stays loopback-blocked.
+    pub fn with_loopback(mut self, exempt: bool) -> Self {
+        self.prepared.loopback = exempt;
+        self
+    }
+
+    /// Add a grant by building a newly keyed profile. The container SID derives from the complete
+    /// frozen grant and deny set, so the returned profile has its own identity (existing grants
+    /// plus `path`, with a deny on every protected secret inside it) and the original profile's
+    /// SID and ACLs are never mutated. Consuming `self` releases the old profile's leases.
+    /// Refuses a protected location, a filesystem root and a path that does not resolve; on any
+    /// failure every lease newly taken for the new profile is rolled back.
+    pub fn with_grant(self, path: &Path, writable: bool) -> Result<Self, SandboxError> {
+        let canonical = validated_grant(path)?;
+        let mut grants = self
+            .prepared
+            .grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let key = lexical_path_key(&canonical);
+        match grants.iter_mut().find(|(p, _)| lexical_path_key(p) == key) {
+            Some(existing) => existing.1 |= writable,
+            None => grants.push((canonical.clone(), writable)),
+        }
+        let mut denies = self.prepared.denies.clone();
+        for secret in crate::secret_paths_within(&canonical) {
+            let secret = plain_path(&secret);
+            let secret_key = lexical_path_key(&secret);
+            if !denies.iter().any(|d| lexical_path_key(d) == secret_key) {
+                denies.push(secret);
+            }
+        }
+        let prepared = prepare_container_from(
+            grants,
+            denies,
+            self.prepared.loopback,
+            self.prepared.network,
+            self.prepared.named_capabilities.clone(),
+            AncestorLeasePolicy::BestEffort,
+        )?;
+        Ok(Self { prepared })
+    }
+
+    /// Always refused for a grant that would otherwise be valid: a profile's SID derives from its
+    /// frozen grant policy, so mutating the ACLs of that shared SID would widen every other
+    /// profile and child using it (and a persistent ACE could outlive a crash). Use
+    /// [`AppContainerProfile::with_grant`], which produces a newly keyed profile. Protected
+    /// locations, filesystem roots and paths that do not resolve are refused first, with the
+    /// same errors `with_grant` gives.
+    pub fn lease_grant(&self, path: &Path, _writable: bool) -> Result<(), SandboxError> {
+        validated_grant(path)?;
+        Err(SandboxError::InvalidPolicy(format!(
+            "cannot add {} to profile {} in place: its identity is frozen; use with_grant to \
+             build a newly keyed profile",
+            path.display(),
+            self.prepared.profile.name
+        )))
+    }
+
+    /// The profile name, `rightkit.sandbox.<16 hex digits>`.
+    pub fn name(&self) -> &str {
+        &self.prepared.profile.name
+    }
+
+    /// The container SID in `S-1-15-2-...` form, as `icacls` prints it.
+    pub fn sid_string(&self) -> &str {
+        &self.prepared.profile.sid_text
+    }
+
+    /// The container's own folder (`...\Packages\<name>\AC`), which it can always reach.
+    pub fn folder_path(&self) -> io::Result<PathBuf> {
+        self.prepared.profile.folder_path()
+    }
+
+    /// Whether spawns from this profile get the `internetClient` capability.
+    pub fn network_allowed(&self) -> bool {
+        self.prepared.network
+    }
+
+    /// The Git ceilings recorded for ancestors that could not be leased.
+    pub fn git_ceilings(&self) -> Vec<PathBuf> {
+        self.prepared
+            .profile
+            .leases
+            .git_ceilings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+}
+
+/// Spawn `command` in `profile`'s container with `env`.
+pub(crate) fn spawn_in_profile(
+    profile: &AppContainerProfile,
+    command: &SandboxCommand,
+    env: &EnvPolicy,
+    piped_stdin: bool,
+) -> Result<ConfinedSpawn, SandboxError> {
+    let stdin_mode = if piped_stdin {
+        StdinMode::Piped
+    } else {
+        StdinMode::Null
+    };
+    let program = resolve_image(&command.program)?;
+    confined_spawn(launch_container(
+        &profile.prepared,
+        program,
+        command,
+        env,
+        None,
+        None,
+        stdin_mode,
+    )?)
+}
+
+/// Resolve `program` to the full image path an AppContainer launch uses: an absolute path is kept,
+/// anything else is searched on `PATH`, then in System32 and Windows PowerShell (the launch
+/// passes an explicit image, so no search happens at creation).
+pub fn resolve_program_str(program: &str) -> io::Result<PathBuf> {
+    resolve_program(OsStr::new(program))
+}
+
+// ---------------------------------------------------------------------------------------
+// Pinned read roots
+// ---------------------------------------------------------------------------------------
+
+/// `ACE_FLAGS` bit marking an inherited ACE.
+const INHERITED_ACE: u8 = 0x10;
+
+/// One explicit allow ACE for a trustee: its mask and inheritance flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PriorAce {
+    mask: u32,
+    flags: u8,
+}
+
+/// The inheritance bits (`OBJECT_INHERIT`, `CONTAINER_INHERIT`, `NO_PROPAGATE`, `INHERIT_ONLY`)
+/// to hand back to `SetEntriesInAclW` when restoring a recorded ACE.
+fn prior_ace_inheritance(flags: u8) -> u32 {
+    u32::from(
+        flags
+            & (OBJECT_INHERIT_ACE
+                | CONTAINER_INHERIT_ACE
+                | NO_PROPAGATE_INHERIT_ACE
+                | INHERIT_ONLY_ACE),
+    )
+}
+
+/// Whether recorded prior ACEs already hold everything a pin adds, so the pin has nothing to
+/// undo and nothing of its own to remove.
+fn prior_entries_cover(prior: &[PriorAce], permissions: u32) -> bool {
+    prior
+        .iter()
+        .any(|ace| ace.flags & INHERIT_ONLY_ACE == 0 && ace.mask & permissions == permissions)
+}
+
+/// Explicit (non-inherited) allow ACEs `sid` holds in the live DACL of `path`.
+fn explicit_allow_entries(path: &Path, sid: *mut c_void) -> io::Result<Vec<PriorAce>> {
+    let mut wide_path = wide(path);
+    let mut found = Vec::new();
+    // SAFETY: as in apply_sid_path_entry; the descriptor is freed after the DACL is read and
+    // every ACE is bounds-checked against the ACL size before its fields are trusted.
+    unsafe {
+        let mut dacl = std::ptr::null_mut();
+        let mut descriptor = std::ptr::null_mut();
+        let got = GetNamedSecurityInfoW(
+            wide_path.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        );
+        if got != 0 {
+            return Err(io::Error::from_raw_os_error(got as i32));
+        }
+        if !dacl.is_null() {
+            let acl = dacl as *const Acl;
+            let (revision, acl_size, ace_count) =
+                ((*acl).acl_revision, (*acl).acl_size, (*acl).ace_count);
+            if revision == ACL_REVISION {
+                for index in 0..u32::from(ace_count) {
+                    let mut ace: *mut c_void = std::ptr::null_mut();
+                    if GetAce(dacl, index, &mut ace) == 0 || ace.is_null() {
+                        continue;
+                    }
+                    let offset = (ace as usize).wrapping_sub(dacl as usize);
+                    if offset >= usize::from(acl_size) {
+                        continue;
+                    }
+                    let allowed = &*(ace as *const AccessAllowedAce);
+                    if allowed.header.ace_type != ACCESS_ALLOWED_ACE_TYPE
+                        || usize::from(allowed.header.ace_size)
+                            < std::mem::size_of::<AccessAllowedAce>()
+                        || offset + usize::from(allowed.header.ace_size) > usize::from(acl_size)
+                        || allowed.header.ace_flags & INHERITED_ACE != 0
+                    {
+                        continue;
+                    }
+                    if EqualSid(&allowed.sid_start as *const u32 as *mut c_void, sid) != 0 {
+                        found.push(PriorAce {
+                            mask: allowed.mask,
+                            flags: allowed.header.ace_flags,
+                        });
+                    }
+                }
+            }
+        }
+        LocalFree(descriptor);
+    }
+    Ok(found)
+}
+
+/// What each live pin found on its path before it added anything: the explicit ALL APPLICATION
+/// PACKAGES allow ACEs to put back when the pin is removed. Keyed by lexical path.
+fn pin_prior_registry() -> &'static Mutex<HashMap<String, Vec<PriorAce>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Vec<PriorAce>>>> = OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// Grant ALL APPLICATION PACKAGES read and execute on `path` (and below, for a directory) so every
+/// AppContainer child can read an interpreter install. `Ok(false)`: the live DACL already allows
+/// that, nothing was added and nothing must be revoked later. Explicit ACEs the trustee already
+/// held are recorded first so [`pin_revoke`] restores exactly them.
+pub(crate) fn pin_grant(path: &Path) -> io::Result<bool> {
+    if packages_can_read(path) {
+        return Ok(false);
+    }
+    let packages = LocalSid::parse(ALL_APP_PACKAGES_SID)?;
+    let prior = explicit_allow_entries(path, packages.0)?;
+    let key = lexical_path_key(path);
+    pin_prior_registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key.clone())
+        .or_insert(prior);
+    let granted = apply_sid_path_entry(
+        path,
+        packages.0,
+        GRANT_ACCESS,
+        FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+        inheritance_for(path),
+    )
+    .map_err(|e| step_error(format!("pin read root {}", path.display()), e));
+    if granted.is_err() {
+        pin_prior_registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
+    }
+    granted?;
+    Ok(true)
+}
+
+/// Remove only what [`pin_grant`] added: revoke the trustee's explicit entries, then restore the
+/// explicit ACEs recorded before the pin so pre-existing rights survive.
+pub(crate) fn pin_revoke(path: &Path) -> io::Result<()> {
+    let packages = LocalSid::parse(ALL_APP_PACKAGES_SID)?;
+    let key = lexical_path_key(path);
+    let prior = pin_prior_registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .cloned()
+        .unwrap_or_default();
+    if prior_entries_cover(&prior, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE) {
+        // The original already held everything the pin adds; there is nothing of ours to remove.
+        pin_prior_registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
+        return Ok(());
+    }
+    apply_sid_path_entry(path, packages.0, REVOKE_ACCESS, 0, inheritance_for(path))
+        .map_err(|e| step_error(format!("unpin read root {}", path.display()), e))?;
+    for ace in &prior {
+        apply_sid_path_entry(
+            path,
+            packages.0,
+            GRANT_ACCESS,
+            ace.mask,
+            prior_ace_inheritance(ace.flags),
+        )
+        .map_err(|e| step_error(format!("restore prior rights on {}", path.display()), e))?;
+    }
+    pin_prior_registry()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&key);
+    Ok(())
+}
+
 /// Spawn `command` confined to `policy`: suspended, assigned to a kill-on-close job, resumed.
+/// With `piped_stdin` the child's stdin is a pipe whose write end comes back in the result.
 pub(crate) fn spawn(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
+    piped_stdin: bool,
 ) -> Result<ConfinedSpawn, SandboxError> {
-    let launched = spawn_inner(policy, command, None, None)?;
+    let stdin_mode = if piped_stdin {
+        StdinMode::Piped
+    } else {
+        StdinMode::Null
+    };
+    let launched = spawn_inner(policy, command, None, None, stdin_mode)?;
+    confined_spawn(launched)
+}
+
+fn confined_spawn(launched: ConfinedLaunch) -> Result<ConfinedSpawn, SandboxError> {
     let stdout = launched.stdout.ok_or_else(|| {
         SandboxError::InvalidPolicy("ordinary confined spawn did not create stdout capture".into())
     })?;
@@ -1913,6 +2819,7 @@ pub(crate) fn spawn(
     })?;
     Ok(ConfinedSpawn {
         child: launched.child,
+        stdin: launched.stdin,
         stdout,
         stderr,
     })
@@ -1931,7 +2838,13 @@ pub(crate) fn spawn_with_pipe_pair(
             "pipe-pair sandbox requires NetworkPolicy::Deny".into(),
         ));
     }
-    let launched = spawn_inner(policy, command, Some(handle_flag), stdio_file)?;
+    let launched = spawn_inner(
+        policy,
+        command,
+        Some(handle_flag),
+        stdio_file,
+        StdinMode::Null,
+    )?;
     let (to_child, from_child) = launched.auxiliary.ok_or_else(|| {
         SandboxError::InvalidPolicy("pipe-pair launch did not create auxiliary handles".into())
     })?;
@@ -2139,26 +3052,69 @@ fn file_link_count(file: &std::fs::File) -> io::Result<u32> {
     Ok(unsafe { info.assume_init() }.number_of_links)
 }
 
-fn spawn_inner(
+/// How a launch wires the child's stdin.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StdinMode {
+    /// The NUL device: the child reads end-of-file at once.
+    Null,
+    /// A pipe whose write end the parent keeps; dropping it ends the child's input.
+    Piped,
+}
+
+/// A container with its leases taken: what one or more launches share.
+struct PreparedContainer {
+    profile: ContainerProfile,
+    /// The granted roots, (canonical path, writable). Extra grants join the list.
+    grants: Mutex<Vec<(PathBuf, bool)>>,
+    /// The deny carve-outs frozen into the profile identity.
+    denies: Vec<PathBuf>,
+    network: bool,
+    /// Take the loopback exemption for a network-enabled launch.
+    loopback: bool,
+    named_capabilities: Vec<String>,
+}
+
+/// Create or adopt the container for `policy` and take every lease it needs: traverse access on
+/// the ancestors of each grant (`ancestor_policy` says whether one that cannot be written fails
+/// the launch), the grants themselves, and the deny carve-outs. Nothing is granted that the policy
+/// does not list, and a failure at any step drops the leases already taken.
+fn prepare_container(
     policy: &SandboxPolicy,
-    command: &SandboxCommand,
-    handle_flag: Option<&str>,
-    stdio_file: Option<&Path>,
-) -> Result<ConfinedLaunch, SandboxError> {
-    // Launch and lease the real image: version managers (nvm-windows, volta, scoop) expose
-    // tools through links whose link objects the container cannot use and the user cannot
-    // re-ACL.
-    let program = resolve_program(&command.program)?;
-    let program = std::fs::canonicalize(&program)
-        .map(|p| plain_path(&p))
-        .unwrap_or(program);
+    ancestor_policy: AncestorLeasePolicy,
+) -> Result<PreparedContainer, SandboxError> {
+    if policy.mode == ConfinementMode::WriteOnly {
+        return Err(SandboxError::Unsupported(
+            "ConfinementMode::WriteOnly is implemented for macOS only; an AppContainer is \
+             deny-by-default and cannot leave reads open"
+                .into(),
+        ));
+    }
     let grants = canonical_grants(policy)?;
-    let mut key: Vec<String> = grants
-        .iter()
-        .map(|(p, w)| format!("{}{}", if *w { "w:" } else { "r:" }, lexical_path_key(p)))
-        .collect();
-    key.sort();
-    let name = profile_name(&key);
+    let denies = deny_targets(policy)?;
+    let loopback = wants_loopback(policy);
+    prepare_container_from(
+        grants,
+        denies,
+        loopback,
+        policy.network == NetworkPolicy::Allow,
+        policy.named_capabilities.clone(),
+        ancestor_policy,
+    )
+}
+
+/// Create or adopt the container keyed by the complete frozen `grants`, `denies` and `loopback`
+/// choice, then take its leases. Deny carve-outs are installed before any allow so a protected
+/// child is never reachable through a broad allow, and a failure at any step drops every lease
+/// already taken (the profile's lease set is released with it).
+fn prepare_container_from(
+    grants: Vec<(PathBuf, bool)>,
+    denies: Vec<PathBuf>,
+    loopback: bool,
+    network: bool,
+    named_capabilities: Vec<String>,
+    ancestor_policy: AncestorLeasePolicy,
+) -> Result<PreparedContainer, SandboxError> {
+    let name = profile_name(&profile_key(&grants, &denies, loopback));
     let profile = {
         // Held while the profile is marked in use and created or adopted, so
         // `remove_unused_appcontainer_profiles` in another process cannot delete it in between.
@@ -2170,7 +3126,7 @@ fn spawn_inner(
                 )
             })?;
         let holder = ancestors::ProfileHolder::create(&name)?;
-        let profile = AppContainerProfile::ensure(&name)?;
+        let profile = ContainerProfile::ensure(&name)?;
         *profile
             .leases
             .holder
@@ -2179,32 +3135,112 @@ fn spawn_inner(
         profile
     };
     for (path, _) in &grants {
-        let lease = AncestorLease::acquire(path, &profile.sid_text)?;
+        profile.lease_ancestors(path, ancestor_policy)?;
+    }
+    // Before every allow: an explicit deny ACE on the protected object outranks an allow
+    // inherited from a granted root, and it is already in place when the broad allow lands.
+    for path in &denies {
         profile
-            .leases
-            .ancestors
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(lease);
+            .lease_deny(path)
+            .map_err(|e| step_error(format!("deny {}", path.display()), e))?;
     }
     for (path, writable) in &grants {
         profile
             .lease(path, *writable)
             .map_err(|e| step_error(format!("lease {}", path.display()), e))?;
     }
+    Ok(PreparedContainer {
+        profile,
+        grants: Mutex::new(grants),
+        denies,
+        network,
+        loopback,
+        named_capabilities,
+    })
+}
+
+/// `program` resolved to the real image path `CreateProcessW` is given. Launch and lease the real
+/// image: version managers (nvm-windows, volta, scoop) expose tools through links whose link
+/// objects the container cannot use and the user cannot re-ACL.
+fn resolve_image(program: &OsStr) -> Result<PathBuf, SandboxError> {
+    let program = resolve_program(program)?;
+    Ok(std::fs::canonicalize(&program)
+        .map(|p| plain_path(&p))
+        .unwrap_or(program))
+}
+
+fn spawn_inner(
+    policy: &SandboxPolicy,
+    command: &SandboxCommand,
+    handle_flag: Option<&str>,
+    stdio_file: Option<&Path>,
+    stdin_mode: StdinMode,
+) -> Result<ConfinedLaunch, SandboxError> {
+    let program = resolve_image(&command.program)?;
+    let prepared = prepare_container(policy, AncestorLeasePolicy::Strict)?;
+    launch_container(
+        &prepared,
+        program,
+        command,
+        &policy.env,
+        handle_flag,
+        stdio_file,
+        stdin_mode,
+    )
+}
+
+/// Start `command` in `prepared`'s container: lease its image, build its cwd and environment,
+/// wire its stdio, create it suspended, put it in a kill-on-close job, then resume it.
+fn launch_container(
+    prepared: &PreparedContainer,
+    program: PathBuf,
+    command: &SandboxCommand,
+    env: &EnvPolicy,
+    handle_flag: Option<&str>,
+    stdio_file: Option<&Path>,
+    stdin_mode: StdinMode,
+) -> Result<ConfinedLaunch, SandboxError> {
+    let profile = &prepared.profile;
+    let grants: Vec<(PathBuf, bool)> = prepared
+        .grants
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     profile.lease_image_dir(&program)?;
     let folder = profile.folder_path()?;
     let cwd = match &command.cwd {
         Some(requested) => confined_cwd(requested, &grants)?,
         None => folder.clone(),
     };
-    let environment = confined_environment(&cwd, &folder, &policy.env, &command.env);
+    if prepared.network && prepared.loopback {
+        profile.lease_loopback();
+    }
+    let mut extra: Vec<(String, String)> = command.env.clone();
+    if let Some(ceilings) = profile.git_ceiling_value() {
+        let named = |key: &str| key.eq_ignore_ascii_case("GIT_CEILING_DIRECTORIES");
+        // The caller's own setting wins over the computed one.
+        if !extra.iter().any(|(key, _)| named(key)) && !env.set.keys().any(|key| named(key)) {
+            extra.push(("GIT_CEILING_DIRECTORIES".into(), ceilings));
+        }
+    }
+    let environment = confined_environment(&cwd, &folder, env, &extra);
 
     let security = PipeSecurity::new(&profile.sid_text)?;
-    let stdin = std::fs::OpenOptions::new()
-        .read(true)
-        .open("NUL")?
-        .into_raw_handle();
+    // A piped stdin is an ACL-bound pipe whose write end the parent keeps; otherwise the child
+    // reads the NUL device. Pipe-pair launches always use NUL.
+    let (stdin_parent, stdin) = match stdin_mode {
+        StdinMode::Piped if handle_flag.is_none() => {
+            let (parent, child_end) = input_pipe(&security)?;
+            (Some(parent), child_end)
+        }
+        _ => (
+            None,
+            std::fs::OpenOptions::new()
+                .read(true)
+                .open("NUL")?
+                .into_raw_handle(),
+        ),
+    };
     let (stdout, stdout_child, stderr, stderr_child) = if handle_flag.is_some() {
         // Pipe-pair callers drain Chrome DevTools I/O themselves. Keep stdio on NUL (or on an
         // append-mode diagnostic file the caller named) so this path has no reader threads
@@ -2335,8 +3371,8 @@ fn spawn_inner(
                 command_line: &command_line,
                 cwd: &cwd,
                 environment: &environment,
-                network: policy.network == NetworkPolicy::Allow,
-                named_capabilities: &policy.named_capabilities,
+                network: prepared.network,
+                named_capabilities: &prepared.named_capabilities,
                 stdio: [stdin, stdout_child, stderr_child],
                 auxiliary: &auxiliary_child_handles,
             },
@@ -2366,6 +3402,7 @@ fn spawn_inner(
     let auxiliary = auxiliary.map(|(to_child, _, from_child, _)| (to_child, from_child));
     Ok(ConfinedLaunch {
         child,
+        stdin: stdin_parent,
         stdout,
         stderr,
         auxiliary,
@@ -2375,7 +3412,7 @@ fn spawn_inner(
 /// `CreateProcessW` with the AppContainer's `SECURITY_CAPABILITIES` (plus `internetClient`
 /// when network is allowed), an explicit inherited-handle list, no window, and suspended.
 fn create_suspended(
-    profile: &AppContainerProfile,
+    profile: &ContainerProfile,
     params: SuspendedLaunchParams<'_>,
 ) -> io::Result<(*mut c_void, *mut c_void, u32)> {
     let SuspendedLaunchParams {
@@ -2506,6 +3543,56 @@ fn create_suspended(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn profile_identity_covers_every_grant_and_deny() {
+        let base = vec![(PathBuf::from("C:\\w"), true)];
+        let widened = vec![
+            (PathBuf::from("C:\\w"), true),
+            (PathBuf::from("C:\\q"), false),
+        ];
+        let denies = vec![PathBuf::from("C:\\w\\.ssh")];
+        assert_ne!(
+            profile_key(&base, &[], false),
+            profile_key(&widened, &[], false)
+        );
+        assert_ne!(
+            profile_key(&base, &[], false),
+            profile_key(&base, &denies, false)
+        );
+        assert_ne!(
+            profile_name(&profile_key(&base, &[], false)),
+            profile_name(&profile_key(&widened, &[], false))
+        );
+    }
+
+    #[test]
+    fn prior_ace_helpers_preserve_inheritance_and_detect_coverage() {
+        let flags = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERITED_ACE;
+        assert_eq!(prior_ace_inheritance(flags), 0x3);
+        let read_only = PriorAce {
+            mask: FILE_GENERIC_READ,
+            flags: 0,
+        };
+        let both = PriorAce {
+            mask: FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+            flags: 0,
+        };
+        let inherit_only = PriorAce {
+            mask: both.mask,
+            flags: INHERIT_ONLY_ACE,
+        };
+        let want = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+        assert!(!prior_entries_cover(&[], want));
+        assert!(!prior_entries_cover(&[read_only], want));
+        assert!(!prior_entries_cover(&[inherit_only], want));
+        assert!(prior_entries_cover(&[read_only, both], want));
+    }
+
+    #[test]
+    fn firewall_dll_loads_from_system32_only() {
+        assert_eq!(LOAD_LIBRARY_SEARCH_SYSTEM32, 0x0000_0800);
+    }
+
     use super::*;
 
     /// These tests register profiles for the real user: CI or the repository's opt-in only.
@@ -2700,8 +3787,8 @@ mod tests {
         let _alone = one_sweep_test_at_a_time();
         let (used, unused) = (scratch_profile("used"), scratch_profile("unused"));
         let _cleanup = Profiles(vec![used.clone(), unused.clone()]);
-        let _used = AppContainerProfile::ensure(&used).unwrap();
-        let _unused = AppContainerProfile::ensure(&unused).unwrap();
+        let _used = ContainerProfile::ensure(&used).unwrap();
+        let _unused = ContainerProfile::ensure(&unused).unwrap();
         assert!(registered(&used) && registered(&unused));
         let holder = ancestors::ProfileHolder::create(&used).unwrap();
 
@@ -2737,7 +3824,7 @@ mod tests {
             fnv1a(&scratch_profile("x"))
         );
         let _cleanup = Profiles(vec![foreign.clone()]);
-        let _profile = AppContainerProfile::ensure(&foreign).unwrap();
+        let _profile = ContainerProfile::ensure(&foreign).unwrap();
         assert!(registered(&foreign));
         let report = remove_unused_appcontainer_profiles().unwrap();
         assert!(!report.removed.contains(&foreign), "{report:?}");
@@ -2778,7 +3865,7 @@ mod tests {
         let _alone = one_sweep_test_at_a_time();
         let name = scratch_profile("order");
         let _cleanup = Profiles(vec![name.clone()]);
-        let _ = AppContainerProfile::ensure(&name).unwrap();
+        let _ = ContainerProfile::ensure(&name).unwrap();
         let dir = std::env::temp_dir().join(format!("rk-profile-order-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         remove_unused_appcontainer_profiles().unwrap();
@@ -2810,7 +3897,7 @@ mod tests {
             .collect();
         let _cleanup = Profiles(names.clone());
         for name in &names {
-            let _ = AppContainerProfile::ensure(name).unwrap();
+            let _ = ContainerProfile::ensure(name).unwrap();
         }
         let children: Vec<_> = (0..2)
             .map(|_| {
@@ -2932,5 +4019,122 @@ mod tests {
         );
         std::fs::remove_dir(&link).unwrap();
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn the_profile_key_is_the_old_grant_key_until_a_deny_or_loopback_is_added() {
+        let grants = vec![
+            (PathBuf::from(r"D:\work"), true),
+            (PathBuf::from(r"C:\tools"), false),
+        ];
+        let old = profile_key(&grants, &[], false);
+        assert_eq!(
+            old,
+            vec![r"r:c:\tools".to_string(), r"w:d:\work".to_string()]
+        );
+        let denied = profile_key(&grants, &[PathBuf::from(r"D:\work\secrets")], false);
+        let loopback = profile_key(&grants, &[], true);
+        assert_ne!(denied, old, "a different deny set is a different container");
+        assert_ne!(loopback, old, "a loopback-exempt container is its own SID");
+        assert_ne!(profile_name(&denied), profile_name(&old));
+        assert_ne!(profile_name(&loopback), profile_name(&old));
+        // Order of the inputs does not matter.
+        let mut reversed = grants.clone();
+        reversed.reverse();
+        assert_eq!(profile_key(&reversed, &[], false), old);
+    }
+
+    #[test]
+    fn allow_and_deny_leases_never_share_a_registry_key() {
+        let path = Path::new(r"D:\work\secrets");
+        let allow = lease_key(LeaseKind::Allow, "S-1-15-2-1-2-3", path);
+        let deny = lease_key(LeaseKind::Deny, "S-1-15-2-1-2-3", path);
+        assert_ne!(allow, deny);
+        // The ancestor sweep reads allow keys as `<sid>|<path>`.
+        assert!(allow.starts_with("S-1-15-2-1-2-3|"), "{allow}");
+        assert!(deny.starts_with("deny|"), "{deny}");
+    }
+
+    #[test]
+    fn deny_targets_plans_existing_paths_skips_missing_ones_and_refuses_the_hostile() {
+        let root = scratch_dir("deny-targets");
+        let secrets = root.join("secrets");
+        std::fs::create_dir_all(&secrets).unwrap();
+        std::fs::write(secrets.join("a.pem"), "x").unwrap();
+        let policy = SandboxPolicy::new()
+            .deny_read(&secrets)
+            .deny_read(root.join("not-yet"))
+            .deny_read_glob(format!("{}\\secrets\\*.pem", root.display()));
+        let targets = deny_targets(&policy).unwrap();
+        let keys: Vec<String> = targets.iter().map(|p| lexical_path_key(p)).collect();
+        assert!(keys.contains(&lexical_path_key(&secrets)), "{keys:?}");
+        assert!(
+            keys.contains(&lexical_path_key(&secrets.join("a.pem"))),
+            "{keys:?}"
+        );
+        assert!(
+            !keys.iter().any(|k| k.ends_with("not-yet")),
+            "a missing path has no object to deny: {keys:?}"
+        );
+        // A filesystem root and a relative path fail the spawn; they are never dropped.
+        let root_policy = SandboxPolicy {
+            deny_read: vec![DenyReadEntry::Path(PathBuf::from(r"C:\"))],
+            ..SandboxPolicy::default()
+        };
+        assert!(matches!(
+            deny_targets(&root_policy),
+            Err(SandboxError::InvalidPolicy(_))
+        ));
+        let relative = SandboxPolicy {
+            deny_read: vec![DenyReadEntry::Path(PathBuf::from("relative"))],
+            ..SandboxPolicy::default()
+        };
+        assert!(deny_targets(&relative).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn write_only_mode_is_refused_by_the_appcontainer_backend() {
+        let policy = SandboxPolicy::new().mode(ConfinementMode::WriteOnly);
+        assert!(matches!(
+            prepare_container(&policy, AncestorLeasePolicy::Strict),
+            Err(SandboxError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn a_deny_ace_is_added_and_revoked_on_a_scratch_folder() {
+        let root = scratch_dir("deny-ace");
+        // A SID that belongs to no container: the ACE is written on a folder this test owns and
+        // removed again, and nothing outside that folder is touched.
+        let sid = LocalSid::parse("S-1-15-2-1-2-3-4-5-6-7").unwrap();
+        let lease = GrantLease::deny(sid.0, "S-1-15-2-1-2-3-4-5-6-7", &root).unwrap();
+        assert!(lease_registry().lock().unwrap().contains_key(&lease_key(
+            LeaseKind::Deny,
+            "S-1-15-2-1-2-3-4-5-6-7",
+            &root
+        )));
+        drop(lease);
+        assert!(!lease_registry().lock().unwrap().contains_key(&lease_key(
+            LeaseKind::Deny,
+            "S-1-15-2-1-2-3-4-5-6-7",
+            &root
+        )));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn git_ceilings_are_joined_for_the_environment() {
+        let leases = LeaseSet::default();
+        leases
+            .git_ceilings
+            .lock()
+            .unwrap()
+            .extend([PathBuf::from(r"C:\Users"), PathBuf::from(r"C:\Users\x")]);
+        let value = std::env::join_paths(leases.git_ceilings.lock().unwrap().iter())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(value, r"C:\Users;C:\Users\x");
     }
 }

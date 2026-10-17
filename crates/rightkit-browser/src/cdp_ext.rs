@@ -250,6 +250,32 @@ impl AxNode {
     }
 }
 
+/// One non-ignored node of an accessibility tree that has a role, as carried by an observation.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AxSummary {
+    pub role: String,
+    /// Accessible name; empty when the node has none.
+    pub name: String,
+    /// CDP frame id of the node's document (empty when Chrome reports none).
+    pub frame_id: String,
+}
+
+/// Summarize an accessibility tree: ignored nodes and nodes without a role are dropped.
+pub(crate) fn summarize_ax(nodes: &[AxNode]) -> Vec<AxSummary> {
+    nodes
+        .iter()
+        .filter(|n| !n.ignored)
+        .filter_map(|n| {
+            let role = n.role.as_ref().filter(|r| !r.is_empty())?;
+            Some(AxSummary {
+                role: role.clone(),
+                name: n.name.clone().unwrap_or_default(),
+                frame_id: n.frame_id.clone().unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
 /// Decode the result of `Accessibility.getFullAXTree` (`{"nodes":[...]}`).
 pub(crate) fn parse_ax_tree(result: &Value) -> Vec<AxNode> {
     let ax_value =
@@ -995,5 +1021,44 @@ mod tests {
             download_params(&gone),
             Err(BrowserError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn ax_summary_drops_ignored_and_roleless_nodes() {
+        let node = |role: Option<&str>, name: Option<&str>, ignored: bool| AxNode {
+            node_id: "1".into(),
+            ignored,
+            role: role.map(str::to_string),
+            name: name.map(str::to_string),
+            description: None,
+            value: None,
+            properties: Vec::new(),
+            parent_id: None,
+            child_ids: Vec::new(),
+            backend_dom_node_id: None,
+            frame_id: Some("FRAME-1".into()),
+        };
+        let nodes = vec![
+            node(Some("button"), Some("Save"), false),
+            node(Some("generic"), None, true),
+            node(None, Some("orphan"), false),
+            node(Some(""), None, false),
+            node(Some("link"), None, false),
+        ];
+        assert_eq!(
+            summarize_ax(&nodes),
+            vec![
+                AxSummary {
+                    role: "button".into(),
+                    name: "Save".into(),
+                    frame_id: "FRAME-1".into(),
+                },
+                AxSummary {
+                    role: "link".into(),
+                    name: String::new(),
+                    frame_id: "FRAME-1".into(),
+                },
+            ]
+        );
     }
 }

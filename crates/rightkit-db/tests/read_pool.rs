@@ -2,7 +2,7 @@
 //! SQLite files.
 
 use rightkit_db::rusqlite::Connection;
-use rightkit_db::{journal_mode, CacheProfile, DbError, DbOptions, ReadPoolOptions};
+use rightkit_db::{journal_mode, CacheProfile, DbError, DbOptions, ReadPool, ReadPoolOptions};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -432,4 +432,33 @@ fn get_timeout_with_an_enormous_duration_still_returns_a_returned_reader() {
     std::thread::sleep(Duration::from_millis(100));
     drop(held);
     assert_eq!(waiter.join().unwrap(), Ok(true));
+}
+
+#[test]
+fn from_opener_pool_hands_out_readers_and_honours_the_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let (options, _writer) = fixture(&dir);
+    let pool = ReadPool::from_opener(1, move || options.open_reader()).unwrap();
+    let first = pool.get().unwrap();
+    assert_eq!(values(&first), vec!["kept".to_string()]);
+    assert!(pool
+        .get_timeout(Duration::from_millis(50))
+        .unwrap()
+        .is_none());
+    drop(first);
+    assert!(pool.get_timeout(Duration::from_secs(1)).unwrap().is_some());
+}
+
+#[test]
+fn read_only_readers_run_the_init_hook() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut options, _writer) = fixture(&dir);
+    options.init = Some(std::sync::Arc::new(|conn: &Connection| {
+        conn.execute_batch("PRAGMA recursive_triggers = ON;")
+    }));
+    let pool = options
+        .open_read_pool_with(1, ReadPoolOptions::new().with_read_only(true))
+        .unwrap();
+    let reader = pool.get().unwrap();
+    assert_eq!(pragma_i64(&reader, "recursive_triggers"), 1);
 }

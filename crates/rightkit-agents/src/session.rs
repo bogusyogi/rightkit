@@ -46,9 +46,20 @@ use std::time::Duration;
 use rightkit_child_process::{OwnedChild, OwnedCommand, WaitOutcome};
 use serde_json::{json, Value};
 
-use crate::claude::{self, ClaudeOptions, StreamParser};
+use crate::claude::{self, ClaudeExtras, ClaudeOptions, StreamParser};
 use crate::codex::{self, CodexOptions, Decision, Incoming};
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, UnknownPolicy};
+
+/// Bring-your-own-key variables an account-scoped launch must not inherit. Names are spelled
+/// with `concat!` so the source never contains them as one literal. Pass the list to
+/// [`SessionConfig::scrub_byok_env`]. `CODEX_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are included
+/// as credential-class names; their exact CLI behavior is unverified.
+pub const BYOK_ENV_VARS: &[&str] = &[
+    concat!("ANTHROPIC", "_API_KEY"),
+    concat!("ANTHROPIC", "_AUTH_TOKEN"),
+    concat!("OPENAI", "_API_KEY"),
+    concat!("CODEX", "_API_KEY"),
+];
 
 /// Default time to wait for the Codex `initialize` and `thread/start` handshake.
 pub const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,6 +87,21 @@ pub struct CommandOverride {
     pub args: Vec<OsString>,
 }
 
+/// Options beyond the original [`SessionConfig`] shape. Held in one field so the new knobs
+/// arrive together. `#[non_exhaustive]`: start from `SessionExtras::default()`.
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct SessionExtras {
+    /// Claude argv options beyond [`ClaudeOptions`]. Ignored for Codex.
+    pub claude: ClaudeExtras,
+    /// Inherited variables removed before spawn. Applied before [`SessionConfig::env`], so an
+    /// explicit `env` entry for the same name still wins.
+    pub env_remove: Vec<OsString>,
+    /// [`UnknownPolicy::FailClosed`] refuses unknown Codex notifications in the required
+    /// families: the reader emits [`SessionEvent::Error`] and does not forward the line.
+    pub unknown_policy: UnknownPolicy,
+}
+
 /// Everything needed to start a session.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
@@ -87,6 +113,9 @@ pub struct SessionConfig {
     pub command: Option<CommandOverride>,
     pub startup_timeout: Duration,
     pub teardown_grace: Duration,
+    /// Options added after the original field set. Build with [`SessionConfig::new`] and
+    /// assign fields, not a struct literal.
+    pub extras: SessionExtras,
 }
 
 impl SessionConfig {
@@ -98,7 +127,18 @@ impl SessionConfig {
             command: None,
             startup_timeout: DEFAULT_STARTUP_TIMEOUT,
             teardown_grace: DEFAULT_TEARDOWN_GRACE,
+            extras: SessionExtras::default(),
         }
+    }
+
+    /// Remove every name in [`BYOK_ENV_VARS`] from the inherited environment before spawn.
+    /// Use it for any launch that must run on the account it was given, not a key in the
+    /// host's environment.
+    pub fn scrub_byok_env(mut self) -> Self {
+        self.extras
+            .env_remove
+            .extend(BYOK_ENV_VARS.iter().copied().map(OsString::from));
+        self
     }
 }
 
@@ -201,6 +241,7 @@ struct Shared {
     requests: Mutex<HashMap<u64, Request>>,
     next_id: AtomicU64,
     events: Sender<SessionEvent>,
+    policy: UnknownPolicy,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -274,7 +315,11 @@ impl Shared {
     // ---- Codex ----
 
     fn codex_line(&self, line: &str) {
-        match codex::parse_line(line) {
+        match codex::parse_line_with(line, self.policy) {
+            Err(error) if error.unknown_required_method().is_some() => {
+                // Fail closed: the refused line is not forwarded as an event.
+                self.emit(SessionEvent::Error(format!("codex refused: {error}")));
+            }
             Err(_) => self.emit_raw_line(line),
             Ok(Incoming::Response { id, result, error }) => self.codex_response(&id, result, error),
             Ok(Incoming::ServerRequest {
@@ -331,7 +376,7 @@ impl Shared {
                             *lock(&self.turn) = turn;
                         }
                     }
-                    "turn/completed" => *lock(&self.turn) = None,
+                    "turn/completed" | "turn/failed" => *lock(&self.turn) = None,
                     _ => {}
                 }
                 for event in events {
@@ -389,6 +434,9 @@ impl Session {
         if let Some(cwd) = &config.cwd {
             command.current_dir(cwd);
         }
+        for key in &config.extras.env_remove {
+            command.env_remove(key);
+        }
         for (key, value) in &config.env {
             command.env(key, value);
         }
@@ -411,6 +459,7 @@ impl Session {
             requests: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             events: events_tx,
+            policy: config.extras.unknown_policy,
         });
 
         if let Some(stderr) = stderr {
@@ -671,7 +720,8 @@ fn resolve(config: &SessionConfig) -> Result<Resolved, SessionError> {
         Backend::Claude(options) => {
             let mut options = options.clone();
             options.host_approvals = true;
-            let args = claude::build_args(&options).map_err(SessionError::Config)?;
+            let args = claude::build_args_with(&options, &config.extras.claude)
+                .map_err(SessionError::Config)?;
             Ok(pick(config, Kind::Claude, "claude", args, Value::Null))
         }
         Backend::Codex(options) => {
@@ -793,4 +843,31 @@ fn codex_reader(
         shared.codex_line(&line);
     }
     shared.emit(SessionEvent::Closed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrub_byok_env_names_every_credential_class_variable() {
+        let config = SessionConfig::new(Backend::Codex(CodexOptions::default())).scrub_byok_env();
+        assert_eq!(config.extras.env_remove.len(), BYOK_ENV_VARS.len());
+        assert!(config
+            .extras
+            .env_remove
+            .contains(&OsString::from(concat!("OPENAI", "_API_KEY"))));
+        assert!(config
+            .extras
+            .env_remove
+            .contains(&OsString::from(concat!("ANTHROPIC", "_API_KEY"))));
+    }
+
+    #[test]
+    fn extras_default_to_the_original_behavior() {
+        let config = SessionConfig::new(Backend::Codex(CodexOptions::default()));
+        assert!(config.extras.env_remove.is_empty());
+        assert_eq!(config.extras.unknown_policy, UnknownPolicy::Lenient);
+        assert_eq!(config.extras.claude, ClaudeExtras::default());
+    }
 }

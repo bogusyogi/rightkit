@@ -224,7 +224,7 @@ pub fn named_board_refusal(name: &str) -> Option<&'static str> {
 }
 
 /// QA-only control-command helpers for private pasteboards (feature `qa-probes`).
-#[cfg(feature = "qa-probes")]
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 pub mod qa;
 
 /// Apply the priority policy to a snapshot: grant the files that exist, write a bitmap to a granted

@@ -6,7 +6,8 @@
 //!
 //! Byte-range resume requires a strong ETag match and matching resume
 //! metadata; anything unprovable restarts from zero rather than risking a
-//! spliced file.
+//! spliced file. The one opt-in exception is [`DownloadOptions::resume_without_strong_etag`],
+//! which needs a pinned sha256 so a spliced file is still caught.
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
@@ -111,6 +112,23 @@ pub struct DownloadResult {
     pub sha256: String,
 }
 
+/// Opt-in behaviour for [`download_resumable_with_options`]. `Default` is exactly
+/// [`download_resumable`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DownloadOptions {
+    /// On cancel, delete the `.part` and its resume record instead of keeping them for a later
+    /// resume. Off by default: a cancelled download keeps its partial bytes.
+    pub discard_partial_on_cancel: bool,
+    /// Resume a `.part` although the server offers no strong ETag (only a weak one,
+    /// `Last-Modified`, or nothing). The resume continues only when the request pins
+    /// `expected_sha256`, the response continues exactly at the saved offset, and its total size
+    /// equals the saved total. Without a pin this is ignored and the download restarts from zero,
+    /// because nothing would catch a spliced file. A same-size splice that passes the size check
+    /// is caught by the pin after the whole file is downloaded: the `.part` is deleted and the
+    /// call fails with `ErrorCode::HashMismatch`.
+    pub resume_without_strong_etag: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct ResumeMetadata {
     url: String,
@@ -133,6 +151,7 @@ fn plan_response(
     content_range: Option<&str>,
     response_etag: Option<&str>,
     content_length: Option<u64>,
+    weak_total: Option<u64>,
 ) -> Result<ResponsePlan, String> {
     if status == 200 {
         return Ok(ResponsePlan::Replace {
@@ -154,6 +173,14 @@ fn plan_response(
     }
     if offset == 0 {
         return Ok(ResponsePlan::Replace { total });
+    }
+    if let Some(stored_total) = weak_total {
+        // No strong validator to compare: the exact continuation and the saved total are all
+        // that can be checked here. The request's pinned sha256 catches a same-size splice.
+        if total != stored_total {
+            return Ok(ResponsePlan::RetryFromZero);
+        }
+        return Ok(ResponsePlan::Append { offset, total });
     }
     if stored_etag.is_none()
         || stored_etag != response_etag
@@ -267,6 +294,11 @@ fn valid_pin(pin: &str) -> bool {
 /// `.part` when present. The dest is only ever replaced by a fully-downloaded,
 /// hash-verified `.part` via atomic rename.
 ///
+/// Byte-range resume needs a strong ETag (`"..."`, not `W/"..."`) that matches the saved resume
+/// record. A server that sends only a weak ETag, `Last-Modified` or no validator restarts from
+/// zero, unless [`download_resumable_with_options`] is called with
+/// [`DownloadOptions::resume_without_strong_etag`] and the request pins a sha256.
+///
 /// Requests go through the vetted `rightkit-http` transport (see [`crate::http`]).
 /// Pass a [`Client`]; a legacy `&ureq::Agent` still compiles but only contributes
 /// its redirect limit.
@@ -296,6 +328,27 @@ pub fn download_resumable_capped(
         request,
         None,
         max_bytes,
+        progress,
+        &FailureSlot::default(),
+    )
+}
+
+/// As [`download_resumable_capped`], with the opt-in behaviour in `options` (see
+/// [`DownloadOptions`]). `DownloadOptions::default()` with `max_bytes: None` is exactly
+/// [`download_resumable`].
+pub fn download_resumable_with_options(
+    client: &impl AsHttpClient,
+    request: DownloadRequest<'_>,
+    max_bytes: Option<u64>,
+    options: DownloadOptions,
+    progress: impl FnMut(u64, u64),
+) -> Result<DownloadResult, Error> {
+    download_resumable_recorded_with(
+        &client.vetted_client(),
+        request,
+        None,
+        max_bytes,
+        options,
         progress,
         &FailureSlot::default(),
     )
@@ -331,10 +384,40 @@ pub(crate) fn download_resumable_recorded_capped(
     progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, Error> {
+    download_resumable_recorded_with(
+        client,
+        request,
+        identity,
+        max_bytes,
+        DownloadOptions::default(),
+        progress,
+        slot,
+    )
+}
+
+/// The one body behind the `download_resumable*` entry points; `options` opts into the
+/// behaviour described on [`DownloadOptions`].
+fn download_resumable_recorded_with(
+    client: &ModelHttp,
+    request: DownloadRequest<'_>,
+    identity: Option<&str>,
+    max_bytes: Option<u64>,
+    options: DownloadOptions,
+    progress: impl FnMut(u64, u64),
+    slot: &FailureSlot,
+) -> Result<DownloadResult, Error> {
     let resume_url = identity
         .filter(|_| request.expected_sha256.is_some())
         .unwrap_or(request.url);
-    download_inner(client, request, resume_url, max_bytes, progress, slot).map_err(|message| {
+    let part_path = request.part_path.to_path_buf();
+    let outcome = download_inner(
+        client, request, resume_url, max_bytes, options, progress, slot,
+    );
+    if options.discard_partial_on_cancel && matches!(&outcome, Err(message) if message == CANCELLED)
+    {
+        discard_partial(&part_path);
+    }
+    outcome.map_err(|message| {
         let code = if message == CANCELLED {
             ErrorCode::Cancelled
         } else if message.starts_with(IO_PREFIX) {
@@ -355,6 +438,7 @@ fn download_inner(
     request: DownloadRequest<'_>,
     resume_url: &str,
     max_bytes: Option<u64>,
+    options: DownloadOptions,
     mut progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, String> {
@@ -405,8 +489,19 @@ fn download_inner(
                 return Err(budget.exceeded(slot));
             }
         }
-        let (offset, stored_etag) =
-            resume_state(request.part_path, &metadata_path, resume_url, &expected)?;
+        let Resume {
+            offset,
+            etag: stored_etag,
+            total: stored_total,
+        } = resume_state(
+            request.part_path,
+            &metadata_path,
+            resume_url,
+            &expected,
+            options.resume_without_strong_etag,
+        )?;
+        // A weak resume has no ETag to send as If-Range; the saved total is its only proof.
+        let weak_total = (offset > 0 && stored_etag.is_none()).then_some(stored_total);
         // Byte ranges and the final file hash must describe the same wire
         // representation; disallow transparent content-encoding changes.
         let mut req = Request::get(request.url).header("Accept-Encoding", "identity");
@@ -414,9 +509,10 @@ fn download_inner(
             req = req.secret_header("Authorization", authorization);
         }
         if offset > 0 {
-            req = req
-                .header("Range", format!("bytes={offset}-"))
-                .header("If-Range", stored_etag.as_deref().unwrap_or_default());
+            req = req.header("Range", format!("bytes={offset}-"));
+            if let Some(etag) = stored_etag.as_deref() {
+                req = req.header("If-Range", etag);
+            }
         }
 
         if let Some(budget) = &budget {
@@ -504,6 +600,7 @@ fn download_inner(
             content_range.as_deref(),
             response_etag.as_deref(),
             content_length,
+            weak_total,
         )?;
         if plan == ResponsePlan::RetryFromZero {
             cleanup_poisoned(request.part_path, &metadata_path);
@@ -634,12 +731,23 @@ pub fn part_path_for(dest_path: &Path) -> PathBuf {
     PathBuf::from(value)
 }
 
+/// What a `.part` on disk lets the next request resume from.
+struct Resume {
+    /// Bytes already in the `.part`; `0` means start from zero.
+    offset: u64,
+    /// The saved strong ETag, sent as `If-Range`. `None` with `offset > 0` is a weak resume.
+    etag: Option<String>,
+    /// The total size the saved resume record was written with.
+    total: u64,
+}
+
 fn resume_state(
     part: &Path,
     metadata: &Path,
     url: &str,
     expected_sha256: &Option<String>,
-) -> Result<(u64, Option<String>), String> {
+    weak_ok: bool,
+) -> Result<Resume, String> {
     let offset = match fs::metadata(part) {
         Ok(metadata) => metadata.len(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
@@ -647,21 +755,41 @@ fn resume_state(
     };
     if offset == 0 {
         let _ = fs::remove_file(metadata);
-        return Ok((0, None));
+        return Ok(Resume {
+            offset: 0,
+            etag: None,
+            total: 0,
+        });
     }
-    let resume = fs::read(metadata)
+    let record = fs::read(metadata)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<ResumeMetadata>(&bytes).ok())
         .filter(|resume| {
-            resume.url == url
-                && resume.expected_sha256.as_deref() == expected_sha256.as_deref()
-                && strong_etag(&resume.etag).is_some()
+            resume.url == url && resume.expected_sha256.as_deref() == expected_sha256.as_deref()
         });
-    if let Some(resume) = resume {
-        return Ok((offset, Some(resume.etag)));
+    if let Some(resume) = record {
+        if strong_etag(&resume.etag).is_some() {
+            return Ok(Resume {
+                offset,
+                etag: Some(resume.etag),
+                total: resume.total,
+            });
+        }
+        // Weak resume: only with the opt-in and a pin, and only when a partial is actually short.
+        if weak_ok && expected_sha256.is_some() && resume.total > offset {
+            return Ok(Resume {
+                offset,
+                etag: None,
+                total: resume.total,
+            });
+        }
     }
     cleanup_poisoned(part, metadata);
-    Ok((0, None))
+    Ok(Resume {
+        offset: 0,
+        etag: None,
+        total: 0,
+    })
 }
 
 fn completed_partial_candidate(
@@ -830,5 +958,99 @@ mod cap_tests {
         assert!(is_connectivity_error(
             "download request failed: connection reset"
         ));
+    }
+}
+
+#[cfg(test)]
+mod weak_resume_tests {
+    use super::*;
+
+    const PIN: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    const URL: &str = "https://models.example.test/f.bin";
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("rk-models-weak-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_weak_resume_continues_only_at_the_same_total_and_exact_offset() {
+        let ok = plan_response(
+            10,
+            None,
+            206,
+            Some("bytes 10-19/20"),
+            None,
+            Some(10),
+            Some(20),
+        );
+        assert_eq!(
+            ok,
+            Ok(ResponsePlan::Append {
+                offset: 10,
+                total: 20
+            })
+        );
+        let changed_total = plan_response(
+            10,
+            None,
+            206,
+            Some("bytes 10-19/21"),
+            None,
+            Some(10),
+            Some(20),
+        );
+        assert_eq!(changed_total, Ok(ResponsePlan::RetryFromZero));
+        // Without the opt-in a response with no strong ETag still restarts from zero.
+        let default = plan_response(10, None, 206, Some("bytes 10-19/20"), None, Some(10), None);
+        assert_eq!(default, Ok(ResponsePlan::RetryFromZero));
+        let shifted = plan_response(
+            10,
+            None,
+            206,
+            Some("bytes 11-19/20"),
+            None,
+            Some(9),
+            Some(20),
+        );
+        assert_eq!(shifted, Ok(ResponsePlan::RetryFromZero));
+    }
+
+    #[test]
+    fn a_weak_partial_is_kept_only_when_pinned_and_opted_in() {
+        let dir = temp_dir("state");
+        let part = dir.join("f.part");
+        let meta = metadata_path(&part);
+        let record = ResumeMetadata {
+            url: URL.into(),
+            expected_sha256: Some(PIN.into()),
+            etag: String::new(),
+            total: 20,
+        };
+        let setup = || {
+            fs::write(&part, vec![1u8; 10]).unwrap();
+            fs::write(&meta, serde_json::to_vec(&record).unwrap()).unwrap();
+        };
+        let pinned = Some(PIN.to_string());
+
+        setup();
+        let kept = resume_state(&part, &meta, URL, &pinned, true).unwrap();
+        assert_eq!((kept.offset, kept.etag.clone(), kept.total), (10, None, 20));
+        assert_eq!(fs::metadata(&part).unwrap().len(), 10);
+
+        setup();
+        let not_opted_in = resume_state(&part, &meta, URL, &pinned, false).unwrap();
+        assert_eq!(not_opted_in.offset, 0);
+        assert!(!part.exists());
+
+        setup();
+        let unpinned = resume_state(&part, &meta, URL, &None, true).unwrap();
+        assert_eq!(unpinned.offset, 0);
+        assert!(!part.exists());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

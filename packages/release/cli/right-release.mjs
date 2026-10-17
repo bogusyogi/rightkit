@@ -22,10 +22,17 @@ const commands = new Map([
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
+  ["init", "init-command.mjs"],
+  ["pe", "pe-content.mjs"],
+  ["icons", "icon-pack.mjs"],
   ["recipe-build", "recipe-build.mjs"],
   ["signing-agent", "signing-agent-command.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
+  ["test", "test-command.mjs"],
+  ["web-build", "web-build.mjs"],
+  ["license-notices", "npm-license-notices.mjs"],
+  ["toolchain", "toolchain-swift.mjs"],
   ["github", "github-release.mjs"],
   ["cargo-target", "cargo-target.mjs"],
   ["qa", "release-qa-command.mjs"],
@@ -35,6 +42,8 @@ const commands = new Map([
   ["ownership-mandatory", "ownership-mandatory-set.mjs"],
   ["swift-package", "swift-package-command.mjs"],
   ["bundle-scan", "runtime-bundle-scan.mjs"],
+  ["check-release-dependencies", "release-dependencies-command.mjs"],
+  ["dist-scan", "dist-scan.mjs"],
   ["identity-scan", "packaged-app-identity.mjs"],
   ["apple-profile-create", "apple-profile-create.mjs"],
 ]);
@@ -47,7 +56,7 @@ if (first === "dev") {
     process.exitCode = 1;
   });
 } else {
-const githubBuildCommands = new Set(["release", "build", "package", "swift-package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target"]);
+const githubBuildCommands = new Set(["release", "build", "package", "swift-package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target", "web-build", "test"]);
 
 try {
   if (githubBuildCommands.has(first)
@@ -124,6 +133,8 @@ if (first === "--version" || first === "-v") {
   runBinary("bash", [path.join(packageRoot, "lsclean.sh"), ...args.slice(1)]);
 } else if (first === "generate-dmg-background") {
   runBinary("python3", [path.join(packageRoot, "generate-dmg-background.py"), ...args.slice(1)]);
+} else if (first === "build" && args.includes("--web")) {
+  run("web-build.mjs", args.slice(1).filter((arg) => arg !== "--web"));
 } else if (commands.has(first)) {
   run(commands.get(first), args.slice(1));
 } else if (first.startsWith("-")) {
@@ -183,11 +194,15 @@ function printHelp() {
   console.log(`right-release <command> [options]
 
 Commands:
+  pe digest <file> [--algorithm sha256|sha384|sha512] [--json] | pe imports <file> [--allow dll,...] [--allow-file <path>]  Signature-independent PE content digest; import-closure check
+  icons ico|icns --out <file> --frame <PNG>... [--dir <folder>]  Pack hand-tuned per-size PNG frames into an ICO or ICNS
+  init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]  Rename the desktop app template into a real app, in place
   stage-sidecar [--config <file>] [--target <triple>] [--json]  Stage declarative sidecars into src-tauri/binaries (Tauri externalBin naming)
   recipe-build --plan <json> | --plan-file <path> [--app-root <dir>]  Run a package recipe: prepare steps, the Tauri build, postBuild steps (argv, no shell, fail closed)
   dmg build --app <.app> --out <dmg> --volname <name> [--background <png>] [--spec <appdmg.json>]
             [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h] [--window-position x,y]
-                                                      Build branded UDZO image without Finder
+            [--sign [--identifier <codesign-identifier>] [--receipt <path>]]
+                                                      Build branded UDZO image without Finder; --sign then Developer ID signs the image (secure timestamp, no hardened runtime; never notarizes)
   install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id <id>] [--dest /Applications]
               [--relaunch|--no-relaunch] [--json]
                                                       Verify a signed DMG, quit, replace & relaunch hidden; no UI, no osascript (macOS)
@@ -196,12 +211,21 @@ Commands:
                                                       Windows: run the installer in place at the fixed folder; payload-only rollback (never the whole folder, user data beside the app is never copied)
   build [--platform mac|win] [--skip-checks] [--resume-from <phase>]
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
+  build --web [--config <file>] [--dry-run]            Web frontend build only (config web.build steps); no Tauri, signing or packaging (alias: web-build)
+  test [--config <file>] [--suite <name>[,<name>]]... [--runner <name>] [--list] [--json] [-- <args>]
+                                                      Run the app's declared test suites (config tests.suites / tests.runners) in order; stops at the first failure
+  license-notices npm [--config <file>] [--output <file>] [--product-name <name>] [--check]
+                                                      Write the third-party npm license appendix HTML from pnpm licenses (config legal.npmNotices); --check only compares
+  toolchain swift --version <x.y.z> --sha256 <pin> [--url <https url>] [--github-env] [--json]
+                                                      Windows: install the pinned swift.org Swift toolchain (sha256 verified before it runs), check swift --version, find the runtime bin; --github-env exports what the installer changed to GITHUB_ENV / GITHUB_PATH
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]
                                                       Incremental unsigned build & optional local install
   swift-package <windows-stage|msix|mac-app> --config <swift-package.json> [--dry-run] [--no-sign] [--sign] [--notarize] [--profile <name>]
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
   bundle-scan [--allow-name <basename>]... <bundle-root>...
                                                       Fail when a bundle carries Node/Python runtimes or script sources
+  dist-scan --dist <dir> --forbid <string>... [--forbid-file <path>] [--forbid-name <regex>]... [--ext js,css,...]
+                                                      Fail when a built web dist/ carries a forbidden marker string or mock/fixture chunk name (dev, mock or fixture code in release)
   sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]
                                                       Developer ID sign an existing CI dev artifact per file with fixed identifiers; never builds, notarizes or publishes (macOS)
   sign-candidate --platform win|mac --artifact <dir> --candidate-receipt <receipt.json> --out <binding.json> [--manifest <sign.json>] [--publisher <subject>] [--dry-run]
@@ -218,6 +242,7 @@ Commands:
                                                       Upload sealed bytes to R2 & register RightApps
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
+  check-release-dependencies [--platform mac|win|linux | --all-targets]  Check app-forbidden release crates
   publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish
   publish npm --package @rightkit/<name> --publish --tarball <gated.tgz>
                                                       Publish the gated tarball with the Keychain token
@@ -268,7 +293,8 @@ Commands:
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
   mirror-root-artifact --file <path> --package-root <dir>
-                                                      Persist artifact in RIGHT_RELEASE_ARTIFACT_DIR
+  mirror-root-artifact --config <file> --platform mac|win [--package-root <dir>]
+                                                      Persist artifact(s) in RIGHT_RELEASE_ARTIFACT_DIR (config form: targets.<platform>.mirror entries, optional pruneSuffix)
   github --release <id> --tier patch|update --platform mac|win [--config <file>] [--repo owner/repo] [--dry-run]
                                                       Same checks and publisher as upload (explicit tier, github-releases provider + configured repository)
   github --addon <config> --platform mac|win [--repo owner/repo] [--dry-run]

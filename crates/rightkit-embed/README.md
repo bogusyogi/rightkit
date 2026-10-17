@@ -77,6 +77,13 @@ let vectors = embedder.embed_batch(["first text", "second text"])?;
 - Core ML bundle (`EmbeddingGemma2Text.mlpackage`): macOS 15+ only, through the Core ML framework directly (no ONNX Runtime).
 - Accelerators (`Auto`, `DirectMl`, `CoreMl`): DirectML on Windows, CoreML on macOS, through `rightkit-onnx`. Needs a matching ONNX Runtime build, and the accelerator must pass the load-time vector parity check against CPU.
 
+## Vector helpers and model directories
+
+- `VectorStore::resident_index(model_id)` returns a `ResidentIndex`: an in-memory int8 snapshot of one model's vectors (per-row `i8` codes and an `f32` scale). Its `nearest(query, limit)` ranks by cosine on the dequantised rows. It does not see writes made after it was built.
+- `reciprocal_rank_fusion(&[&[K]], k)` fuses ranked lists by reciprocal rank (`RRF_K` = 60 is the conventional `k`). It is pure Rust with no feature gate.
+- `bundle_files(dir)` names the files the Core ML, E40 or Q4 layout requires, checks they exist, and returns `None` when `dir` is none of them.
+- `installed_model_dir(exe, subdir)` returns `<resources>/<subdir>` for an installed app: `Contents/Resources` in a macOS bundle, the executable's directory on Windows, `<exe dir>/resources` elsewhere. It returns the candidate without checking it exists.
+
 ## Known limits
 
 - **DirectML currently fails the parity check for EmbeddingGemma 2 Q4 on the hardware measured** (Windows laptop, RTX 4070 and Intel Iris Xe, ONNX Runtime DirectML 1.24.4): cosine to the CPU vector was 0.58 at about 20 tokens, 0.59 at 40, 0.66 at 100 and 0.71-0.72 at 400, against about 0.999 between two correct runs. The output was finite, non-zero and faster than CPU, so only the parity check catches it. As a result `Auto` on Windows resolves to CPU with a recorded reason, and an explicit `DirectMl` returns `EmbedError::AcceleratorParity`. Other hardware or runtime versions are unmeasured and are admitted only if they pass.

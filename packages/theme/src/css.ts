@@ -1,4 +1,5 @@
 import { resolveBrand, type BrandFile, type Mode } from "./brand.js";
+import { assertCustomProperty, type AliasMap, type TokenPreset } from "./tokens.js";
 
 export type CssFormat = "suite" | "tailwind" | "both";
 
@@ -6,6 +7,11 @@ export interface GenerateOptions {
   format?: CssFormat;
   /** Shown in the generated header, e.g. `assets/brand/brand.json`. */
   source?: string;
+  /**
+   * Prefix for the Tailwind v4 `@theme` names, one per light palette key: `--color-` gives `--color-ink`.
+   * Default `--color-`. Must start with `--`.
+   */
+  tailwindPrefix?: string;
 }
 
 const DARK_SELECTORS = [':root[data-theme="dark"]'];
@@ -46,7 +52,66 @@ export function generateCss(brand: BrandFile, options: GenerateOptions = {}): st
     for (const selector of DARK_SELECTORS) parts.push(block(selector, dark));
   }
   if (format === "tailwind" || format === "both") {
-    parts.push(`@theme {\n${Object.entries(resolveBrand(brand).palette.light).map(([k, v]) => `  --color-${k}: ${v};`).join("\n")}\n}\n`);
+    parts.push(tailwindThemeCss(Object.fromEntries(Object.entries(resolveBrand(brand).palette.light)), { prefix: options.tailwindPrefix }));
   }
   return parts.join("\n");
+}
+
+/** Options for [`tailwindThemeCss`]. */
+export interface TailwindThemeOptions {
+  /** Name prefix for each token key. Default `--color-`. Must start with `--`. */
+  prefix?: string;
+}
+
+/**
+ * A Tailwind v4 `@theme` block from a token record. Each key is taken without its leading `--` and placed
+ * after `prefix`: `{ ink: "#101216" }` -> `--color-ink: #101216;`. Feed [`presetTokens`] output here to
+ * give Tailwind the same palette the suite stylesheet uses. Keys must be plain names (letters, digits, `-`).
+ */
+export function tailwindThemeCss(tokens: Readonly<Record<string, string>>, options: TailwindThemeOptions = {}): string {
+  const prefix = options.prefix ?? "--color-";
+  if (!/^--[A-Za-z0-9_-]*$/.test(prefix)) throw new Error(`Invalid Tailwind theme prefix: ${JSON.stringify(prefix)}`);
+  const lines = Object.entries(tokens).map(([key, value]) => {
+    const name = key.replace(/^--/, "");
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Invalid Tailwind theme token name: ${JSON.stringify(key)}`);
+    return `  ${prefix}${name}: ${value};`;
+  });
+  return `@theme {\n${lines.join("\n")}\n}\n`;
+}
+
+/** Options for [`presetCss`]. */
+export interface PresetCssOptions {
+  /** Attribute on `:root` that selects the preset. Default `data-palette`. */
+  attribute?: string;
+}
+
+/**
+ * One `:root[data-palette="<id>"]` block per preset, holding its base tokens (`presetTokens(preset)`). Accent
+ * overrides are not emitted; apply them at runtime with `applyTokens(presetTokens(preset, accentId))`. Ids and
+ * the attribute must be plain identifiers, and every token name must be a custom property.
+ */
+export function presetCss(presets: readonly TokenPreset[], options: PresetCssOptions = {}): string {
+  const attribute = options.attribute ?? "data-palette";
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(attribute)) throw new Error(`Invalid preset attribute: ${JSON.stringify(attribute)}`);
+  return presets.map((preset) => {
+    if (!/^[A-Za-z0-9_-]+$/.test(preset.id)) throw new Error(`Invalid preset id: ${JSON.stringify(preset.id)}`);
+    const vars = Object.entries(preset.tokens).map(([k, v]) => {
+      assertCustomProperty(k);
+      return `  ${k}: ${v};`;
+    });
+    return `:root[${attribute}="${preset.id}"] {\n${vars.join("\n")}\n}\n`;
+  }).join("\n");
+}
+
+/**
+ * A `:root` block that defines each alias as `var(<target>)`, the same shape `aliasTokens` produces at runtime.
+ * Use it to generate a stylesheet that maps app names (`--color-bg`) onto suite tokens (`--rk-bg`).
+ */
+export function aliasCss(map: AliasMap, selector = ":root"): string {
+  const lines = Object.entries(map).map(([alias, target]) => {
+    assertCustomProperty(alias);
+    assertCustomProperty(target);
+    return `  ${alias}: var(${target});`;
+  });
+  return `${selector} {\n${lines.join("\n")}\n}\n`;
 }

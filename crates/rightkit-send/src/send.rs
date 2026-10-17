@@ -1,6 +1,6 @@
 //! Sending: `prepare-upload` to a peer, then each accepted file as an upload.
 
-use super::error::{Error, peer_io};
+use super::error::{peer_io, Error};
 use super::net::{self, Wire};
 use super::proto::{
     self, DeviceInfo, FileMeta, PrepareUploadRequest, PrepareUploadResponse, PulseExtra,
@@ -44,6 +44,20 @@ pub struct Entry {
     pub size: u64,
     pub mime: String,
     source: Source,
+}
+
+impl Entry {
+    /// Opens the entry's content for reading: the file from disk, or the message text.
+    ///
+    /// Each call returns a fresh reader positioned at the start. A file that cannot be opened
+    /// (moved, deleted, permission) returns the I/O error; nothing is cached, so a changed file is
+    /// read as it is now.
+    pub fn open_reader(&self) -> io::Result<Box<dyn Read + Send>> {
+        match &self.source {
+            Source::Text(text) => Ok(Box::new(io::Cursor::new(text.clone().into_bytes()))),
+            Source::File(path) => Ok(Box::new(File::open(path)?)),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -532,5 +546,34 @@ mod tests {
             expand(&[SendItem::Path("/definitely/not/here/rightkit".into())]),
             Err(Error::Unreadable { .. })
         ));
+    }
+
+    #[test]
+    fn open_reader_reads_text_and_files_and_reports_missing_files() {
+        let entries = expand(&[SendItem::Text("hello".into())]).unwrap();
+        let mut body = String::new();
+        entries[0]
+            .open_reader()
+            .unwrap()
+            .read_to_string(&mut body)
+            .unwrap();
+        assert_eq!(body, "hello");
+
+        let dir = std::env::temp_dir().join(format!("rk-send-reader-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.txt");
+        std::fs::write(&path, b"file body").unwrap();
+        let entries = expand(&[SendItem::Path(path.clone())]).unwrap();
+        let mut bytes = Vec::new();
+        entries[0]
+            .open_reader()
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"file body");
+
+        std::fs::remove_file(&path).unwrap();
+        assert!(entries[0].open_reader().is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

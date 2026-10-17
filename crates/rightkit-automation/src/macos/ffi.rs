@@ -194,6 +194,9 @@ impl Cf {
             Some(Cf(r))
         }
     }
+    /// Retains `r`. The caller guarantees `r` is a live CoreFoundation object or null; a
+    /// null pointer yields `None` and is never dereferenced.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn retain(r: CFTypeRef) -> Option<Cf> {
         if r.is_null() {
             None

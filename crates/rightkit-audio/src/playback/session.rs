@@ -343,6 +343,12 @@ impl OutputControl {
         self.shared.played_samples()
     }
 
+    /// Interleaved samples taken from the queue since open or the last flush, before latency
+    /// adjustment. Reaches the pushed count once the device has consumed everything.
+    pub(crate) fn consumed_samples(&self) -> u64 {
+        self.shared.consumed_samples()
+    }
+
     pub fn played_frames(&self) -> u64 {
         self.shared.played_samples() / self.shared.channels as u64
     }

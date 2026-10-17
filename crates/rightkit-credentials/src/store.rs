@@ -509,6 +509,21 @@ impl Store {
         self.guard.is_none() && self.backend.durable()
     }
 
+    /// A fresh random key of `bytes` (16..=1024) random bytes from the OS CSPRNG, as standard
+    /// base64 text, the same form [`Store::get_or_create_key`] stores. Nothing is stored; use it
+    /// for a rotation key (`begin_rotation`). An RNG failure is an error, never a weak key.
+    pub fn generate_key(bytes: usize) -> Result<Secret> {
+        if !(16..=1024).contains(&bytes) {
+            return Err(Error::Invalid {
+                what: "key length",
+                reason: "must be 16..=1024 bytes".into(),
+            });
+        }
+        let mut raw = zeroize::Zeroizing::new(vec![0u8; bytes]);
+        getrandom::fill(&mut raw).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
+        Ok(Secret::from_string(base64_standard(&raw)))
+    }
+
     /// Get-or-create a random key (SQLCipher DB key etc.), returned as standard base64 text
     /// (compatible with the `<prefix>/<account>` shape). A read failure is NEVER treated as absence: only an
     /// authoritative "absent" mints, and creation is add-if-absent so concurrent processes adopt
@@ -526,9 +541,7 @@ impl Store {
         if let Some(existing) = self.get(account)?.filter(|s| !s.is_empty()) {
             return Ok((existing, false));
         }
-        let mut raw = zeroize::Zeroizing::new(vec![0u8; bytes]);
-        getrandom::fill(&mut raw).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
-        let fresh = Secret::from_string(base64_standard(&raw));
+        let fresh = Self::generate_key(bytes)?;
         if self.add_if_absent(account, &fresh)? {
             return Ok((fresh, true));
         }
@@ -562,7 +575,17 @@ impl rightkit_app_settings::SecretProbe for Store {
 
 #[cfg(test)]
 mod base64_tests {
-    use super::base64_standard;
+    use super::{base64_standard, Store};
+
+    #[test]
+    fn generate_key_is_fresh_sized_and_bounded() {
+        let a = Store::generate_key(32).unwrap();
+        let b = Store::generate_key(32).unwrap();
+        assert_eq!(a.len(), 44);
+        assert!(!a.ct_eq(&b));
+        assert!(Store::generate_key(15).is_err());
+        assert!(Store::generate_key(1025).is_err());
+    }
 
     #[test]
     fn matches_rfc4648_vectors() {

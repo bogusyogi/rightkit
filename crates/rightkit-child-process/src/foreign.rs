@@ -41,7 +41,7 @@ use std::{
     num::NonZeroU32,
     path::PathBuf,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 /// When a process started, in the host's own unit (macOS: seconds and microseconds; Linux:
@@ -81,6 +81,25 @@ pub enum AdoptedSignal {
     Graceful,
     /// `SIGKILL`.
     Force,
+}
+
+/// What `sys::signal` delivers: the public [`AdoptedSignal`] plus suspend and resume, which
+/// are separate methods so the public enum stays exhaustive and unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Delivery {
+    Graceful,
+    Force,
+    Stop,
+    Continue,
+}
+
+impl From<AdoptedSignal> for Delivery {
+    fn from(signal: AdoptedSignal) -> Self {
+        match signal {
+            AdoptedSignal::Graceful => Self::Graceful,
+            AdoptedSignal::Force => Self::Force,
+        }
+    }
 }
 
 /// The outcome of [`AdoptedIdentity::signal`].
@@ -147,6 +166,42 @@ impl AdoptedIdentity {
         seen.start == self.start
     }
 
+    /// Verifies a pid recorded by an earlier run of this program as Unix epoch milliseconds.
+    /// Returns the identity (with the host's exact start token) when the pid names a process
+    /// that started within `tolerance` of `recorded_unix_ms`, and `None` when the pid names no
+    /// process, names one that started at a different time (a recycled pid), or the host cannot
+    /// report start times. Epoch milliseconds are a coarse name, so the tolerance matters: a
+    /// start that is off by more than it is refused.
+    pub fn from_recorded_unix_ms(
+        pid: NonZeroU32,
+        recorded_unix_ms: u64,
+        tolerance: Duration,
+    ) -> io::Result<Option<Self>> {
+        let Some(current) = Self::capture(pid)? else {
+            return Ok(None);
+        };
+        let Some(started) = current.start_time() else {
+            return Ok(None);
+        };
+        let Some(recorded) =
+            SystemTime::UNIX_EPOCH.checked_add(Duration::from_millis(recorded_unix_ms))
+        else {
+            return Ok(None);
+        };
+        let gap = match started.duration_since(recorded) {
+            Ok(gap) => gap,
+            Err(early) => early.duration(),
+        };
+        Ok((gap <= tolerance).then_some(current))
+    }
+
+    /// When the process started, as a wall-clock time: exact on macOS (microseconds) and
+    /// Windows (100 ns); on Linux, the boot time plus the start ticks (one clock tick of
+    /// resolution). `None` where the host reports no start time or the value is out of range.
+    pub fn start_time(&self) -> Option<SystemTime> {
+        sys::start_time(self.start)
+    }
+
     /// Whether the pid still names the remembered process.
     pub fn verify(&self) -> io::Result<IdentityCheck> {
         Ok(match sys::read(self.pid())? {
@@ -165,7 +220,29 @@ impl AdoptedIdentity {
                 "refusing to signal this process",
             ));
         }
-        sys::signal(self, signal)
+        sys::signal(self, signal.into())
+    }
+
+    /// Suspends the process (`SIGSTOP`) only if the pid still names the remembered process.
+    /// Unix only; Windows returns `Unsupported`. Never signals this process (`InvalidInput`).
+    pub fn suspend(&self) -> io::Result<SignalResult> {
+        self.deliver(Delivery::Stop)
+    }
+
+    /// Resumes a process stopped by [`suspend`](Self::suspend) (`SIGCONT`) only if the pid
+    /// still names the remembered process. Unix only; Windows returns `Unsupported`.
+    pub fn resume(&self) -> io::Result<SignalResult> {
+        self.deliver(Delivery::Continue)
+    }
+
+    fn deliver(&self, delivery: Delivery) -> io::Result<SignalResult> {
+        if self.pid() == std::process::id() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "refusing to signal this process",
+            ));
+        }
+        sys::signal(self, delivery)
     }
 
     /// The descendants of this process, parents before children, each with its own identity.
@@ -257,6 +334,101 @@ pub fn sweep_descendants(root: &AdoptedIdentity, grace: Duration) -> io::Result<
     sweep(&targets, grace)
 }
 
+/// Suspends the current process with `SIGTSTP` (the terminal Ctrl-Z stop), so a shell or TUI
+/// can hand the terminal back and resume on `SIGCONT`. Returns once the process is continued.
+/// Unix only.
+#[cfg(unix)]
+pub fn suspend_current_process() -> io::Result<()> {
+    // SAFETY: raise takes a plain signal number.
+    if unsafe { libc::raise(libc::SIGTSTP) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Windows has no `SIGTSTP`: returns `Unsupported` without stopping anything.
+#[cfg(not(unix))]
+pub fn suspend_current_process() -> io::Result<()> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+/// The Unix signal number for `signal`.
+#[cfg(unix)]
+fn unix_signal_number(delivery: Delivery) -> libc::c_int {
+    match delivery {
+        Delivery::Graceful => libc::SIGTERM,
+        Delivery::Force => libc::SIGKILL,
+        Delivery::Stop => libc::SIGSTOP,
+        Delivery::Continue => libc::SIGCONT,
+    }
+}
+
+/// The process groups that belong to session `sid` (the session id is the pid of its leader),
+/// one entry per group, excluding this process's own group. Found by one scan of the process
+/// table; a group that starts after the scan is not listed.
+#[cfg(unix)]
+pub(crate) fn session_groups(sid: NonZeroU32) -> io::Result<Vec<libc::pid_t>> {
+    let wanted = sid.get() as libc::pid_t;
+    // SAFETY: getpgrp takes no arguments.
+    let own_group = unsafe { libc::getpgrp() };
+    let mut groups: Vec<libc::pid_t> = Vec::new();
+    for pid in sys::list_pids()? {
+        let pid = pid as libc::pid_t;
+        // SAFETY: getsid and getpgid take a pid and return -1 when it names no process.
+        if unsafe { libc::getsid(pid) } != wanted {
+            continue;
+        }
+        let group = unsafe { libc::getpgid(pid) };
+        if group > 0 && group != own_group && !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    Ok(groups)
+}
+
+/// Sends `signal` to every process group in session `sid` (see [`session_groups`]). Returns
+/// `true` when at least one group was found and reached. Unix only. Best effort: the groups are
+/// found by a process-table scan and signalled by group id, so a group that exits and whose id
+/// is reused between the scan and the signal can be hit. Use it for a session the caller
+/// created (a pseudo-terminal leader), not for an arbitrary session.
+#[cfg(unix)]
+pub fn signal_session(sid: NonZeroU32, signal: AdoptedSignal) -> io::Result<bool> {
+    signal_session_with(sid, signal.into())
+}
+
+/// Suspends (`SIGSTOP`) every process group in session `sid`; same contract as
+/// [`signal_session`]. Unix only.
+#[cfg(unix)]
+pub fn suspend_session(sid: NonZeroU32) -> io::Result<bool> {
+    signal_session_with(sid, Delivery::Stop)
+}
+
+/// Resumes (`SIGCONT`) every process group in session `sid`; same contract as
+/// [`signal_session`]. Unix only.
+#[cfg(unix)]
+pub fn resume_session(sid: NonZeroU32) -> io::Result<bool> {
+    signal_session_with(sid, Delivery::Continue)
+}
+
+#[cfg(unix)]
+fn signal_session_with(sid: NonZeroU32, delivery: Delivery) -> io::Result<bool> {
+    let number = unix_signal_number(delivery);
+    let mut reached = false;
+    for group in session_groups(sid)? {
+        // SAFETY: kill takes two integers; a negative pid names a process group.
+        if unsafe { libc::kill(-group, number) } == 0 {
+            reached = true;
+            continue;
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error);
+        }
+    }
+    Ok(reached)
+}
+
 /// Waits until `deadline` for each pending target to stop being the remembered process; those
 /// that did are moved to `report.terminated`.
 fn drain(
@@ -286,7 +458,7 @@ fn drain(
 mod sys {
     use super::StartToken;
     #[cfg(not(windows))]
-    use super::{AdoptedIdentity, AdoptedSignal, SignalResult};
+    use super::{AdoptedIdentity, SignalResult};
     #[cfg(not(windows))]
     use std::io;
     use std::path::PathBuf;
@@ -298,6 +470,64 @@ mod sys {
         /// The parent pid when the host reports it with the process (Unix); Windows reads it
         /// from the process table only.
         pub(super) parent: Option<u32>,
+    }
+
+    /// Converts a host start token to wall-clock time (see `AdoptedIdentity::start_time`).
+    #[cfg(target_os = "macos")]
+    pub(super) fn start_time(start: StartToken) -> Option<std::time::SystemTime> {
+        // macOS tokens are the kernel's start time: seconds and microseconds since the epoch.
+        let micros = u32::try_from(start.minor).ok()?;
+        std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
+            start.major,
+            micros.checked_mul(1000)?,
+        ))
+    }
+
+    /// Linux tokens are clock ticks since boot: boot time (`btime` in /proc/stat) plus ticks.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub(super) fn start_time(start: StartToken) -> Option<std::time::SystemTime> {
+        // SAFETY: sysconf takes a plain name constant and returns a value.
+        let hertz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?;
+        if hertz == 0 {
+            return None;
+        }
+        let boot = std::fs::read_to_string("/proc/stat")
+            .ok()?
+            .lines()
+            .find_map(|line| line.strip_prefix("btime "))
+            .and_then(|value| value.trim().parse::<u64>().ok())?;
+        let since_boot = std::time::Duration::new(
+            start.major / hertz,
+            u32::try_from((start.major % hertz) * 1_000_000_000 / hertz).ok()?,
+        );
+        std::time::SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(boot))?
+            .checked_add(since_boot)
+    }
+
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+    ))]
+    pub(super) fn start_time(_start: StartToken) -> Option<std::time::SystemTime> {
+        None
+    }
+
+    /// Windows tokens are FILETIME: 100 ns ticks since 1601-01-01.
+    #[cfg(windows)]
+    pub(super) fn start_time(start: StartToken) -> Option<std::time::SystemTime> {
+        /// 1601-01-01 to 1970-01-01 in 100 ns ticks.
+        const EPOCH_OFFSET_TICKS: u64 = 116_444_736_000_000_000;
+        let since_unix = start.major.checked_sub(EPOCH_OFFSET_TICKS)?;
+        std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
+            since_unix / 10_000_000,
+            u32::try_from((since_unix % 10_000_000) * 100).ok()?,
+        ))
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub(super) fn start_time(_start: StartToken) -> Option<std::time::SystemTime> {
+        None
     }
 
     #[cfg(unix)]
@@ -348,7 +578,7 @@ mod sys {
     #[cfg(unix)]
     pub(super) fn signal(
         identity: &AdoptedIdentity,
-        signal: AdoptedSignal,
+        signal: super::Delivery,
     ) -> io::Result<SignalResult> {
         use super::IdentityCheck;
         match identity.verify()? {
@@ -357,10 +587,7 @@ mod sys {
             IdentityCheck::Same => {}
         }
         let pid = i32::try_from(identity.pid()).map_err(io::Error::other)?;
-        let number = match signal {
-            AdoptedSignal::Graceful => libc::SIGTERM,
-            AdoptedSignal::Force => libc::SIGKILL,
-        };
+        let number = super::unix_signal_number(signal);
         // SAFETY: kill takes two integers; the pid was proven to be the remembered process
         // just above (see the module documentation for the residual gap).
         if unsafe { libc::kill(pid, number) } == 0 {
@@ -386,7 +613,7 @@ mod sys {
     }
 
     #[cfg(target_os = "macos")]
-    fn list_pids() -> io::Result<Vec<u32>> {
+    pub(super) fn list_pids() -> io::Result<Vec<u32>> {
         /// `PROC_ALL_PIDS` from `<libproc.h>`.
         const PROC_ALL_PIDS: u32 = 1;
         let size = std::mem::size_of::<libc::pid_t>();
@@ -418,7 +645,7 @@ mod sys {
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn list_pids() -> io::Result<Vec<u32>> {
+    pub(super) fn list_pids() -> io::Result<Vec<u32>> {
         Ok(std::fs::read_dir("/proc")?
             .flatten()
             .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
@@ -429,13 +656,13 @@ mod sys {
         unix,
         not(any(target_os = "macos", target_os = "linux", target_os = "android"))
     ))]
-    fn list_pids() -> io::Result<Vec<u32>> {
+    pub(super) fn list_pids() -> io::Result<Vec<u32>> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 
     #[cfg(windows)]
     mod windows_impl {
-        use super::super::{AdoptedIdentity, AdoptedSignal, SignalResult, StartToken};
+        use super::super::{AdoptedIdentity, SignalResult, StartToken};
         use super::Seen;
         use crate::process_windows::os_error;
         use std::{io, path::PathBuf};
@@ -527,8 +754,15 @@ mod sys {
 
         pub(in super::super) fn signal(
             identity: &AdoptedIdentity,
-            _signal: AdoptedSignal,
+            signal: super::super::Delivery,
         ) -> io::Result<SignalResult> {
+            if matches!(
+                signal,
+                super::super::Delivery::Stop | super::super::Delivery::Continue
+            ) {
+                // Windows has no portable suspend or resume of another process.
+                return Err(io::Error::from(io::ErrorKind::Unsupported));
+            }
             let access =
                 PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE;
             let Some(process) = open(identity.pid(), access)? else {
@@ -576,11 +810,76 @@ mod sys {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
     #[cfg(not(any(unix, windows)))]
-    pub(super) fn signal(_: &AdoptedIdentity, _: AdoptedSignal) -> io::Result<SignalResult> {
+    pub(super) fn signal(_: &AdoptedIdentity, _: super::Delivery) -> io::Result<SignalResult> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
     #[cfg(not(any(unix, windows)))]
     pub(super) fn process_pairs() -> io::Result<Vec<(u32, u32)>> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+}
+
+#[cfg(all(test, unix))]
+mod suspend_resume_tests {
+    use super::{AdoptedIdentity, SignalResult};
+    use std::{
+        num::NonZeroU32,
+        process::{Command, Stdio},
+        thread,
+        time::Duration,
+    };
+
+    fn state(pid: u32) -> String {
+        let out = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn wait_for(pid: u32, stopped: bool) -> bool {
+        for _ in 0..100 {
+            if state(pid).starts_with('T') == stopped {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    #[test]
+    fn suspend_then_resume_stops_and_continues_the_identified_process() {
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = NonZeroU32::new(child.id()).unwrap();
+        let identity = AdoptedIdentity::capture(pid)
+            .expect("capture")
+            .expect("identity");
+        assert_eq!(identity.suspend().unwrap(), SignalResult::Delivered);
+        assert!(wait_for(pid.get(), true), "process did not stop");
+        assert_eq!(identity.resume().unwrap(), SignalResult::Delivered);
+        assert!(wait_for(pid.get(), false), "process did not continue");
+        child.kill().expect("kill");
+        let _ = child.wait();
+        assert_eq!(identity.suspend().unwrap(), SignalResult::Gone);
+    }
+
+    #[test]
+    fn suspend_and_resume_refuse_this_process() {
+        let pid = NonZeroU32::new(std::process::id()).unwrap();
+        let identity = AdoptedIdentity::capture(pid)
+            .expect("capture")
+            .expect("identity");
+        assert_eq!(
+            identity.suspend().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            identity.resume().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
     }
 }

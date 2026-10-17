@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Resident int8 vector index.** New `ResidentIndex` (`src/resident.rs`) and `VectorStore::resident_index(model_id)`: one read of a model's vectors into memory, each row quantised to `i8` with one `f32` scale (`absmax / 127`). `ResidentIndex::nearest(query, limit)` scores by cosine on the dequantised rows and orders ties by key, like `VectorStore::nearest`, without a SQLite scan per query. It is a snapshot: later writes are not seen. Written, unverified: not compiled or run.
+- **Reciprocal-rank fusion.** New `reciprocal_rank_fusion(&[&[K]], k)` and `RRF_K` (60) in `src/fusion.rs`: sums `1 / (k + rank)` per item over ranked lists, returns best first, ties in first-appearance order. No feature gate and no dependency. Written, unverified.
+- **Model bundle files.** New `bundle_files(dir) -> Result<Option<Vec<String>>, EmbedError>` lists the files the Core ML, E40 or Q4 layout requires and checks each exists (`MissingArtifact` otherwise); `None` when `dir` is none of them. Written, unverified.
+- **Installed model directory.** New `installed_model_dir(exe, subdir) -> Option<PathBuf>`: the resources directory of `rightkit_onnx::installed_resource_dir(exe)` joined with a single plain `subdir` name. Returns the candidate without an existence check. Requires `rightkit-onnx` 0.2.6 (see the crate's `Cargo.toml`, whose requirement is still `0.2.2`). Written, unverified.
+- No change to existing behaviour or public types.
+
 ## 0.6.0
 
 - **Flat schema-2 bundle manifest (E40).** A bundle with a top-level `manifest.json` (`"schema": 2`) names its graphs, weights and token table: `graphs.query` (batch 1, lengths 16 to 512, a `file` template such as `model_{L}.onnx`), `graphs.ingest` (entries of batch 4 and 8, lengths 32, 128, 512, templates such as `ingest-b8_{L}.onnx`), `weights` (the one `model.onnx_data` every graph references; weights are never copied) and `token_table`. The manifest is parsed strictly: an unknown or missing schema version, a malformed entry, a template without `{L}`, a file name with a path part, an unknown token-table format, a `dtype_out` other than float16, a duplicate ingest batch or any listed file that is missing fails `load`. A bundle with no manifest is the legacy layout (`model_<L>.onnx` for 32 to 512, fp16 table, no ingest graphs) and loads unchanged. `pipeline_id()` and the parity cache key now hash every file the manifest names (manifest, query and ingest graphs, weights, table files, tokenizer).

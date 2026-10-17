@@ -21,6 +21,7 @@ mod android;
 mod archive;
 #[cfg(feature = "support-bundle")]
 mod bundle;
+pub mod dump_helper;
 mod hook;
 mod native;
 mod pending;

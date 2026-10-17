@@ -7,10 +7,13 @@ mod client;
 mod config;
 #[cfg(feature = "contract")]
 mod contract;
+#[cfg(feature = "doctor")]
+mod doctor_probe;
 mod error;
 #[cfg(feature = "ffi")]
 #[allow(unsafe_code)]
 pub mod ffi;
+mod inline;
 #[cfg(feature = "store")]
 pub mod pool;
 #[cfg(feature = "store")]
@@ -34,19 +37,26 @@ pub use client::{
 #[cfg(feature = "store")]
 pub use config::{
     ArtifactNames, ColumnType, Ext, ExtColumn, ProgressPolicy, StatusModel, StoreConfig, StoreHook,
+    DEFAULT_JOBS_TABLE,
 };
 #[cfg(feature = "contract")]
 pub use contract::{
     parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, Flags,
     JobCommands, Outcome, PayloadMapper, ServeReport, Sink, JOB_METHODS,
 };
+#[cfg(feature = "doctor")]
+pub use doctor_probe::{
+    parse_doctor, run_doctor, DoctorOptions, DoctorProbe, DEFAULT_DOCTOR_TIMEOUT,
+    DOCTOR_CLEANUP_TIMEOUT, MAX_DOCTOR_BYTES, MAX_DOCTOR_CACHE_ENTRIES,
+};
 #[cfg(feature = "store")]
 pub use error::OpenFailure;
 pub use error::{
     ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, CURSOR_MISMATCH, DB_UNREADABLE,
     DELIVERY_UNKNOWN, HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS,
-    STALE_ATTEMPT, STALLED, SUPERSEDED,
+    REVISION_CONFLICT, STALE_ATTEMPT, STALLED, SUPERSEDED,
 };
+pub use inline::{InlineCancelRegistry, InlineJobGuard};
 #[cfg(feature = "store")]
 pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};
 #[cfg(feature = "store")]
@@ -68,13 +78,14 @@ pub use service::DispatcherHandler;
 #[cfg(feature = "store")]
 pub use store::{
     Admitted, Adoption, Artifact, CancelToken, ClaimScope, Cursor, DeferredFlush, DeferredKind,
-    DeferredOp, DeleteLater, DeleteOptions, DeleteReport, Event, FlushReport, ImportOptions,
-    ImportRecord, Imported, Job, JobRecord, JobStore, ListFilter, ListPage, NewJob, OpenRecovery,
-    ProgressStats, ProvisionalJob, PrunePolicy, PruneReport, Recovery, Resolution, Settlement,
-    SettlementShutdown, Submission, SubmissionRecord, SubmitOptions, Submitted, Transition,
-    UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE, FAILED, MAX_DEFERRED_OPS, MAX_EVENTS,
-    MAX_IMPORT_BATCH, MAX_PENDING_SETTLEMENTS, MAX_PENDING_SETTLEMENT_BYTES, META_TABLE,
-    PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
+    DeferredOp, DeleteLater, DeleteOptions, DeleteReport, Event, Expect, FlushReport,
+    ImportOptions, ImportRecord, Imported, Job, JobRecord, JobStore, JobTable, ListFilter,
+    ListPage, NewJob, OpenRecovery, ProgressStats, ProvisionalJob, PrunePolicy, PruneReport,
+    Recovery, Resolution, Settlement, SettlementShutdown, Submission, SubmissionRecord,
+    SubmitOptions, Submitted, Transition, UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE,
+    FAILED, MAX_DEFERRED_OPS, MAX_EVENTS, MAX_IMPORT_BATCH, MAX_PENDING_SETTLEMENTS,
+    MAX_PENDING_SETTLEMENT_BYTES, META_TABLE, PATH_OUTSIDE_ROOT, QUEUED, RUNNING,
+    SUBMISSIONS_TABLE,
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{

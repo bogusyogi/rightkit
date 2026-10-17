@@ -94,3 +94,10 @@ file = "src/playback/session.rs"
 holds = ["memory"]
 scale = "one cpal host enumeration per call: a Vec of OutputDeviceInfo returned to the caller; no stream is opened and nothing is retained after the call"
 release = "function return"
+
+[[package.metadata.rightkit.resources]]
+api = "play_once"
+file = "src/playback/oneshot.rs"
+holds = ["thread", "memory"]
+scale = "one OutputSession (cpal output stream, its ring and callback thread) plus the decoded file: mono f32 at file rate and a device-rate interleaved copy, about (samples x device channels + samples) x 4 bytes for the file length; the call blocks for the file duration"
+release = "function return (the OutputSession drops before play_once returns)"

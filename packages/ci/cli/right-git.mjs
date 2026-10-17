@@ -6,6 +6,7 @@ import { syncCommand } from "../sync.mjs";
 import { driftCommand, driftAll } from "../drift.mjs";
 import { adoptCommand } from "../adopt.mjs";
 import { uninstallCommand } from "../uninstall.mjs";
+import { artifactsCommand } from "../artifacts.mjs";
 
 const commands = new Map([
   ["install", runInstall],
@@ -13,6 +14,7 @@ const commands = new Map([
   ["drift", runDrift],
   ["adopt", runAdopt],
   ["uninstall", runUninstall],
+  ["artifacts", (argv) => artifactsCommand(argv)],
 ]);
 
 // F7 fix: flags that are always boolean and must never consume the next
@@ -213,6 +215,8 @@ Commands:
   drift --all [workspace-root]                        Drift-check + re-check visibility for every managed repo found
   adopt <repo-path> [--out <dir>]                      Map an existing repo's workflows onto right-git lanes for review
   uninstall <repo-path>                                Remove every right-git-managed workflow file
+  artifacts fetch --run <id> --out <dir> [--name <glob>] [--repo owner/repo] [--expect-sha256 <hex> [--file <path>]] [--receipt <file>] [--json]
+                                                      Download a run's artifacts via gh, merge them, verify the sha256 pin, write a JSON receipt
 
 Public-repo only: install/sync refuse private, internal, or unconfirmed-visibility repos. No override flag (invariant I1).`);
 }

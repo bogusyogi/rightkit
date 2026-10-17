@@ -21,7 +21,7 @@
 /* Windows / Linux caption buttons. */
 .rk-caption { display: flex; align-self: stretch; }
 .rk-caption__btn { display: flex; align-items: center; justify-content: center; }
-.rk-body { flex: 1; min-height: 0; display: flex; }
+.rk-body { flex: 1; min-height: 0; display: flex; position: relative; }
 .rk-side[hidden] { display: none; }
 .rk-side { width: var(--rk-sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0; }
 .rk-plane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -111,3 +111,30 @@
 .rk-toast__glyph { display: grid; place-items: center; flex: none; }
 .rk-toast__msg { flex: 1; min-width: 0; overflow: hidden; }
 .rk-toast__x { flex: none; }
+
+/* ---- 0.6.9 additions: layout only (colour, type and motion are in shell.visual.css) ---------------------------- */
+.rk-toasts[data-placement="top-end"] { top: var(--rk-toast-top-end-offset, 3rem); bottom: auto; left: auto; right: var(--rk-toast-end-offset, 3.5rem); translate: none; }
+.rk-popover { position: fixed; z-index: 81; overflow-y: auto; }
+.rk-skeleton { display: block; }
+.rk-skeleton-rows { display: grid; }
+.rk-check { position: relative; display: inline-flex; align-items: center; }
+.rk-check__box { display: grid; place-items: center; flex: none; }
+.rk-check__input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; clip: rect(0 0 0 0); clip-path: inset(50%); }
+.rk-select { appearance: none; }
+.rk-notice { display: flex; align-items: flex-start; }
+.rk-notice__body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rk-notice__action { flex: none; }
+.rk-progress { position: relative; overflow: hidden; }
+.rk-progress__fill { display: block; height: 100%; }
+.rk-recorder { display: inline-flex; align-items: center; justify-content: center; }
+.rk-palette__scope { flex: none; }
+.rk-palette__sub { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.rk-palette__type { flex: none; }
+.rk-swatches { display: inline-flex; flex: none; width: 18px; height: 12px; }
+.rk-swatches i { flex: 1 1 0; min-width: 0; display: block; }
+.rk-appearance__opt { display: inline-flex; align-items: center; }
+.rk-group__toggle { display: inline-flex; align-items: center; }
+.rk-item-row { display: flex; align-items: center; }
+.rk-item-row > .rk-item { flex: 1 1 auto; min-width: 0; }
+.rk-side-resizer { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 2; }
+.rk-shell.is-narrow .rk-side-resizer { display: none; }

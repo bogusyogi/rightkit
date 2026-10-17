@@ -92,6 +92,7 @@ impl OpenAiCompatProvider {
         stream: bool,
     ) -> Result<(Request, Option<String>, Value), LlmError> {
         req.check_images()?;
+        req.check_schema()?;
         let mut body = build_body(req, stream, self.max_tokens_field);
         req.extra_body.merge_into(&mut body)?;
         // Replay after 429/5xx is safe: a chat completion has no server-side effect and
@@ -187,7 +188,7 @@ impl std::fmt::Debug for OpenAiCompatProvider {
         // The credential source and HTTP client are omitted: neither prints a key.
         f.debug_struct("OpenAiCompatProvider")
             .field("id", &self.id)
-            .field("base_url", &self.base_url)
+            .field("base_url", &crate::generation::redact_url(&self.base_url))
             .field("requires_credential", &self.requires_credential)
             .field("max_tokens_field", &self.max_tokens_field)
             .finish_non_exhaustive()
@@ -238,6 +239,13 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
                 json!({"type": "function", "function": {"name": name}}),
             );
         }
+    }
+    if let Some(s) = req.response_schema() {
+        body.insert(
+            "response_format".into(),
+            json!({"type": "json_schema", "json_schema": {
+                "name": s.name, "schema": s.schema, "strict": s.strict}}),
+        );
     }
     if stream {
         body.insert("stream".into(), json!(true));

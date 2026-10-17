@@ -21,6 +21,7 @@ const DELETE: u32 = 0x0001_0000;
 // Files are opened without FILE_SHARE_DELETE on purpose: removal and publication go through
 // handle-based disposition and rename, so nobody needs delete sharing on a file.
 const SHARE_READ_WRITE: u32 = 3;
+const FILE_SHARE_READ: u32 = 1;
 // Directories default to the same, so a pinned directory (and every ancestor) cannot be renamed
 // or deleted under the pin, and `StateDir::path()` stays true. `allow_rename_while_open`
 // switches directories to this.
@@ -39,6 +40,8 @@ const SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
 const ATTRIBUTE_DIRECTORY: u32 = 0x10;
 const ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 const FILE_ATTRIBUTE_TAG_INFO: i32 = 9;
+const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000_000C;
+const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
 const FILE_DISPOSITION_INFO: i32 = 4;
 const FILE_RENAME_INFORMATION: i32 = 10;
 const FILE_ID_BOTH_DIRECTORY_INFO: i32 = 10;
@@ -180,7 +183,7 @@ pub struct Dir {
     config: Config,
 }
 
-fn attributes(file: &File, shown: &Path) -> Result<u32> {
+fn raw_attributes(file: &File, shown: &Path) -> Result<AttributeTagInfo> {
     let mut info = AttributeTagInfo {
         attributes: 0,
         tag: 0,
@@ -197,10 +200,64 @@ fn attributes(file: &File, shown: &Path) -> Result<u32> {
     {
         return Err(FsError::io(shown, io::Error::last_os_error()));
     }
+    Ok(info)
+}
+
+/// The attributes of an opened child, refusing any reparse point.
+fn attributes(file: &File, shown: &Path) -> Result<u32> {
+    let info = raw_attributes(file, shown)?;
     if info.attributes & ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(FsError::Symlink(shown.to_path_buf()));
     }
     Ok(info.attributes)
+}
+
+/// The attributes of an opened child that must be a symlink or a junction (a mount point): the one
+/// kind of reparse point [`Dir::remove_link`] may delete. Anything else is refused.
+fn link_attributes(file: &File, shown: &Path) -> Result<u32> {
+    let info = raw_attributes(file, shown)?;
+    let is_link = info.attributes & ATTRIBUTE_REPARSE_POINT != 0
+        && matches!(
+            info.tag,
+            IO_REPARSE_TAG_SYMLINK | IO_REPARSE_TAG_MOUNT_POINT
+        );
+    if !is_link {
+        return Err(FsError::io(
+            shown,
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the entry is not a symlink or junction",
+            ),
+        ));
+    }
+    Ok(info.attributes)
+}
+
+/// What an opened child must be: an ordinary entry, or the reparse point itself.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Check {
+    /// Refuse a reparse point (every ordinary child open).
+    NoReparse,
+    /// Require a symlink or junction and keep it open as the link itself (link removal).
+    ReparseLink,
+}
+
+/// Mark an open child (opened with `DELETE`) for deletion through that handle.
+fn mark_delete(file: &File, name: &str) -> Result<()> {
+    let delete: u8 = 1; // FILE_DISPOSITION_INFO.DeleteFile is BOOLEAN, not BOOL.
+                        // SAFETY: live child handle, opened without reparse traversal or delete sharing.
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FILE_DISPOSITION_INFO,
+            (&delete as *const u8).cast(),
+            1,
+        )
+    } == 0
+    {
+        return Err(FsError::io(name, io::Error::last_os_error()));
+    }
+    Ok(())
 }
 
 pub(super) fn valid_component(name: &str, limit: usize) -> bool {
@@ -290,6 +347,27 @@ impl Dir {
         disposition: u32,
         options: u32,
     ) -> Result<File> {
+        self.open_at_with(
+            entry_name,
+            access,
+            disposition,
+            options,
+            SHARE_READ_WRITE,
+            Check::NoReparse,
+        )
+    }
+
+    /// [`open_at`](Self::open_at) with the file share mode (directories always use the configured
+    /// directory share) and what the opened child must be.
+    fn open_at_with(
+        &self,
+        entry_name: &OsStr,
+        access: u32,
+        disposition: u32,
+        options: u32,
+        share_file: u32,
+        check: Check,
+    ) -> Result<File> {
         let shown = Path::new(entry_name);
         let mut wide = component(entry_name)?;
         let len = u16::try_from(wide.len() * 2)
@@ -348,7 +426,7 @@ impl Dir {
                 if directory {
                     self.config.directory_share
                 } else {
-                    SHARE_READ_WRITE
+                    share_file
                 },
                 native_disposition,
                 options | OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT,
@@ -361,7 +439,8 @@ impl Dir {
             let error =
                 io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
             if create_only && error.kind() == io::ErrorKind::AlreadyExists {
-                return self.open_at(entry_name, access, FILE_OPEN, options);
+                return self
+                    .open_at_with(entry_name, access, FILE_OPEN, options, share_file, check);
             }
             return Err(if error.kind() == io::ErrorKind::AlreadyExists {
                 FsError::AlreadyExists(shown.to_path_buf())
@@ -377,7 +456,11 @@ impl Dir {
         const FILE_CREATED: usize = 2;
         // SAFETY: successful NtCreateFile transfers ownership of this handle.
         let file = unsafe { File::from_raw_handle(raw) };
-        if let Err(error) = attributes(&file, shown) {
+        let checked = match check {
+            Check::NoReparse => attributes(&file, shown),
+            Check::ReparseLink => link_attributes(&file, shown),
+        };
+        if let Err(error) = checked {
             if security.is_some() && status.information == FILE_CREATED {
                 let _ = discard_unverified_owner_only(&file, shown);
             }
@@ -400,7 +483,9 @@ impl Dir {
         Ok(file)
     }
 
-    pub fn pin(path: &Path, create: bool, options: &StateOptions) -> Result<Self> {
+    /// `_shared` is the unix "do not require a private directory" policy; Windows checks no ACL or
+    /// mode on an existing directory, so it has no effect here.
+    pub fn pin(path: &Path, create: bool, options: &StateOptions, _shared: bool) -> Result<Self> {
         let config = Config::from_options(options);
         if path.as_os_str().is_empty() {
             return Err(FsError::BadName(String::new()));
@@ -472,7 +557,7 @@ impl Dir {
         Ok(pinned)
     }
 
-    pub fn child(&self, name: &str, _policy: SyncPolicy) -> Result<Self> {
+    pub fn child(&self, name: &str, _policy: SyncPolicy, _shared: bool) -> Result<Self> {
         // Created write-through: the directory entry is committed with the creation.
         let file = self.open_at(
             OsStr::new(name),
@@ -490,6 +575,9 @@ impl Dir {
             Err(e) => return Err(e),
         };
         let m = file.metadata().map_err(|e| FsError::io(name, e))?;
+        // The volume serial number and file index of the opened entry, so two names for one file
+        // (or one file seen twice) compare equal as they do on unix.
+        let key = crate::file_key::FileKey::of_file(&file, Path::new(name))?;
         Ok(Some(EntryStat {
             kind: if m.is_dir() {
                 EntryKind::Dir
@@ -499,8 +587,8 @@ impl Dir {
                 EntryKind::Other
             },
             size: m.len(),
-            dev: 0,
-            ino: 0,
+            dev: key.volume,
+            ino: key.index,
             mode: 0,
             modified_unix_ms: m
                 .modified()
@@ -511,8 +599,22 @@ impl Dir {
         }))
     }
 
-    pub fn open_read(&self, name: &str) -> Result<File> {
-        self.open_at(OsStr::new(name), 1, FILE_OPEN, NON_DIRECTORY_FILE)
+    /// Open a regular child for reading. `share_read_only` opens with `FILE_SHARE_READ` alone, so no
+    /// other handle may write, delete or rename the file while this one is open (and the open fails
+    /// with a sharing violation while somebody holds it for write).
+    pub fn open_read_with(&self, name: &str, share_read_only: bool) -> Result<File> {
+        self.open_at_with(
+            OsStr::new(name),
+            1,
+            FILE_OPEN,
+            NON_DIRECTORY_FILE,
+            if share_read_only {
+                FILE_SHARE_READ
+            } else {
+                SHARE_READ_WRITE
+            },
+            Check::NoReparse,
+        )
     }
 
     pub fn create_new(&self, name: &str) -> Result<File> {
@@ -598,20 +700,35 @@ impl Dir {
             FILE_OPEN,
             NON_DIRECTORY_FILE | FILE_WRITE_THROUGH,
         )?;
-        let delete: u8 = 1; // FILE_DISPOSITION_INFO.DeleteFile is BOOLEAN, not BOOL.
-                            // SAFETY: live child handle, opened without reparse traversal or delete sharing.
-        if unsafe {
-            SetFileInformationByHandle(
-                file.as_raw_handle(),
-                FILE_DISPOSITION_INFO,
-                (&delete as *const u8).cast(),
-                1,
-            )
-        } == 0
-        {
-            return Err(FsError::io(name, io::Error::last_os_error()));
-        }
-        Ok(())
+        mark_delete(&file, name)
+    }
+
+    /// Remove an empty directory child through a handle opened without reparse traversal, so a
+    /// junction or symlink at `name` is refused ([`FsError::Symlink`]) and never followed. A directory
+    /// that still holds entries fails with the OS error (`ERROR_DIR_NOT_EMPTY`).
+    pub fn remove_dir(&self, name: &str) -> Result<()> {
+        let dir = self.open_at(
+            OsStr::new(name),
+            DELETE,
+            FILE_OPEN,
+            DIRECTORY_FILE | FILE_WRITE_THROUGH,
+        )?;
+        mark_delete(&dir, name)
+    }
+
+    /// Remove a symlink or junction child itself: the entry is opened as the reparse point
+    /// (`FILE_OPEN_REPARSE_POINT`) and deleted through that handle, so its target is never opened,
+    /// touched or removed. Anything that is not a symlink or junction is refused as `InvalidInput`.
+    pub fn remove_link(&self, name: &str) -> Result<()> {
+        let link = self.open_at_with(
+            OsStr::new(name),
+            DELETE,
+            FILE_OPEN,
+            FILE_WRITE_THROUGH,
+            SHARE_READ_WRITE_DELETE,
+            Check::ReparseLink,
+        )?;
+        mark_delete(&link, name)
     }
 
     /// There is no directory flush on Windows, so this does nothing and says so (`None`): the

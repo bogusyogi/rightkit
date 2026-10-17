@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Additive. No existing public item changes; no exhaustive enum gains a variant. Requests: Orthic-Labs/rightkit#423 (Pulse, BOM part), #531 (Pulse, capped read part), #191 (Pulse, documented behaviour). Not compiled when written; verification is the CI run.
+
+- **New: `StoreOptions::utf8_bom(bool)`, `ReadOptions::utf8_bom(bool)` and `FileBackend::utf8_bom(bool)`** (default `false`). With `true`, a leading UTF-8 byte order mark is removed on read (the main file and `<path>.bak`) and every write puts one back. With the default, a BOM file is damaged JSON and goes through `OnCorrupt` as before. Tests: `tests/bom_and_cap.rs`.
+- **New: `ReadOptions::max_bytes(limit)`** (#531). The free `read_with_options` / `read_with_defaults` refuse a file (main, or `.bak` when used) longer than `limit` with `Error::Invalid`, checked before the file is read. The file is not quarantined or written. Default: no limit. Earlier entries that say the free read is not limited are superseded by this one.
+- **Documented, no code change (#191):** a newer schema version, an oversized file and undeclared keys are already covered: `OnRefused::ReadOnlyDefaults` (defaults, file untouched, `writable()` false), `StoreOptions::max_bytes` under it, and `allow_unknown_keys` with `KeyOrder::Preserve`. A damaged file is not covered by `OnRefused`; `OnCorrupt::Refuse` returns `Error::Corrupt` from `open`, and the free read returns defaults without touching it.
+- **Already present (#251):** the connection-scoped SQL backend, feature `sql`, is in 0.2.3 (`SqlSettings`).
+
 ## 0.2.3
 
 Additive, behind the new cargo feature `sql` (off by default). With it off the crate builds and behaves exactly as 0.2.2. Request: Orthic-Labs/rightkit#251 (MailRight, bogusyogi/mailright#69). Not compiled when written; verification is the CI run (`Cargo.lock` is regenerated there).

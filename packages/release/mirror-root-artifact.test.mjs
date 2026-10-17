@@ -111,3 +111,48 @@ test("rejects unsafe names and symlinked managed ancestors", () => {
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
+
+test("config form mirrors targets.<platform>.mirror and prunes stale installers by suffix", () => {
+  const temp = mkdtempSync(path.join(TEST_TMP, "right-release-mirror-config-"));
+  try {
+    git(temp, "init", "app");
+    const root = path.join(temp, "app");
+    const managed = path.join(temp, "managed");
+    mkdirSync(path.join(root, "target"), { recursive: true });
+    mkdirSync(managed, { recursive: true });
+    writeFileSync(path.join(root, "target", "App_2.0.0_x64-setup.exe"), "new-installer");
+    writeFileSync(path.join(managed, "App_1.0.0_x64-setup.exe"), "old-installer");
+    writeFileSync(path.join(managed, "keep.txt"), "unrelated");
+    writeFileSync(path.join(root, "right-release.config.mjs"), `export default { targets: { win: { mirror: [{ file: "target/App_2.0.0_x64-setup.exe", pruneSuffix: "-setup.exe" }] } } };\n`);
+
+    const run = (...extra) => execFileSync(process.execPath, [helper, "--config", path.join(root, "right-release.config.mjs"), ...extra], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, RIGHT_RELEASE_ARTIFACT_DIR: managed } });
+    run("--platform", "win");
+
+    assert.equal(readFileSync(path.join(managed, "App_2.0.0_x64-setup.exe"), "utf8"), "new-installer");
+    assert.equal(existsSync(path.join(managed, "App_1.0.0_x64-setup.exe")), false);
+    assert.equal(readFileSync(path.join(managed, "keep.txt"), "utf8"), "unrelated");
+    assert.equal(existsSync(path.join(root, "App_2.0.0_x64-setup.exe")), false);
+    assert.throws(() => run("--platform", "mac"), /targets\.mac\.mirror declares no files/);
+    assert.throws(() => run(), /Usage/);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("config form refuses escaping files, unknown entry keys and a pruneSuffix that is not a suffix", () => {
+  const temp = mkdtempSync(path.join(TEST_TMP, "right-release-mirror-config-guards-"));
+  try {
+    git(temp, "init", "app");
+    const root = path.join(temp, "app");
+    const managed = path.join(temp, "managed");
+    mkdirSync(path.join(root, "target"), { recursive: true });
+    writeFileSync(path.join(root, "target", "App.dmg"), "x");
+    const configure = (mirror) => {
+      writeFileSync(path.join(root, "right-release.config.mjs"), `export default { targets: { mac: { mirror: ${JSON.stringify(mirror)} } } };\n`);
+      return () => execFileSync(process.execPath, [helper, "--config", path.join(root, "right-release.config.mjs"), "--platform", "mac"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, RIGHT_RELEASE_ARTIFACT_DIR: managed } });
+    };
+    assert.throws(configure(["../outside.dmg"]), /app-relative file/);
+    assert.throws(configure([{ file: "target/App.dmg", shell: true }]), /app-relative file/);
+    assert.throws(configure([{ file: "target/App.dmg", pruneSuffix: ".zip" }]), /pruneSuffix/);
+    configure(["target/App.dmg"])();
+    assert.equal(readFileSync(path.join(managed, "App.dmg"), "utf8"), "x");
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});

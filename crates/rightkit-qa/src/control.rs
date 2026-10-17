@@ -1329,17 +1329,12 @@ impl Control {
         self.rpc("health", json!({}))
     }
     /// Resize hidden native content without screen clamping or activation.
-    /// Returns measured CSS dimensions; this effect is never automatically replayed.
+    /// Waits for two matching page measurements 500 ms apart, after shell placement.
+    /// Returns measured CSS dimensions; Windows or visible windows may report OS size limits.
+    /// Unsettled sizes or placement timeouts are errors; this effect is never replayed.
     pub fn set_viewport(&self, width: u32, height: u32) -> Result<(u32, u32)> {
         let v = self.json("set_viewport", json!({"width": width, "height": height}))?;
-        let dimension = |key: &str| {
-            v.get(key)
-                .and_then(Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok())
-                .filter(|n| *n > 0)
-                .ok_or_else(|| Error(format!("set_viewport returned invalid {key}")))
-        };
-        Ok((dimension("innerWidth")?, dimension("innerHeight")?))
+        settled_viewport_size(&v)
     }
     /// Make the window key and focused (see `LaunchSpec::focus`). Opt-in; also callable mid-run.
     pub fn focus_window(&self) -> Result<Value> {
@@ -1509,6 +1504,89 @@ impl Control {
         self.click(x, y, "left", 1)
     }
 
+    /// Click `selector`, then wait for `done_js` (a JS body, see [`Control::wait_eval`]) to become
+    /// truthy; when the wait times out, click again. For controls that drop the first click
+    /// (an unfocused window, a control still mounting). Gives up after `attempts` clicks.
+    pub fn click_until(
+        &self,
+        selector: &str,
+        done_js: &str,
+        attempts: u32,
+        wait: Duration,
+    ) -> Result<Value> {
+        let mut last = String::new();
+        for _ in 0..attempts.max(1) {
+            self.click_selector(selector)?;
+            match self.wait_eval(done_js, wait) {
+                Ok(v) => return Ok(v),
+                Err(e) => last = e.0,
+            }
+        }
+        err(format!(
+            "click_until `{selector}`: `{done_js}` never became true after {} click(s): {last}",
+            attempts.max(1)
+        ))
+    }
+
+    /// The live app log (stdout and stderr) while the app runs. [`Control::stop`] copies it into
+    /// the evidence directory; this path is the source.
+    pub fn live_log_path(&self) -> &Path {
+        &self.raw_log
+    }
+
+    /// The last `max_chars` bytes of the live app log (empty when it is unreadable).
+    pub fn log_tail(&self, max_chars: usize) -> String {
+        fs::read(&self.raw_log)
+            .map(|b| crate::util::tail(&String::from_utf8_lossy(&b), max_chars))
+            .unwrap_or_default()
+    }
+
+    /// Start recording uncaught page errors and unhandled promise rejections into
+    /// `window.__rkPageErrors`. Idempotent. Errors raised before this call are not recorded.
+    pub fn record_page_errors(&self) -> Result<()> {
+        self.eval(
+            "if (!window.__rkPageErrorsInstalled) { window.__rkPageErrorsInstalled = true; \
+             window.__rkPageErrors = window.__rkPageErrors || []; \
+             window.addEventListener('error', function (e) { window.__rkPageErrors.push({kind: 'error', \
+             message: String(e.message || ''), source: String(e.filename || ''), line: e.lineno || 0}); }); \
+             window.addEventListener('unhandledrejection', function (e) { var r = e.reason; \
+             window.__rkPageErrors.push({kind: 'unhandledrejection', message: String((r && r.message) || r)}); }); } \
+             return true;",
+        )?;
+        Ok(())
+    }
+
+    /// Page errors recorded by [`Control::record_page_errors`], oldest first.
+    pub fn page_errors(&self) -> Result<Vec<Value>> {
+        let v = self.eval("return window.__rkPageErrors || [];")?;
+        Ok(v.as_array().cloned().unwrap_or_default())
+    }
+
+    /// Failure evidence for a scenario, written to `dir/<label>-failure.json`: the page URL, the
+    /// recorded page errors, the live log tail and, when `screenshot` is true, a PNG next to it.
+    /// Pass `screenshot = false` in a functional run: a capture is refused there. Returns the JSON path.
+    pub fn failure_evidence(&self, dir: &Path, label: &str, screenshot: bool) -> Result<PathBuf> {
+        fs::create_dir_all(dir)?;
+        let url = self.eval("return location.href;").unwrap_or(Value::Null);
+        let page_errors = self.page_errors().unwrap_or_default();
+        let shot = if screenshot {
+            let png = dir.join(format!("{label}-failure.png"));
+            self.screenshot_to(&png)?;
+            Some(png.display().to_string())
+        } else {
+            None
+        };
+        let body = json!({
+            "url": url,
+            "pageErrors": page_errors,
+            "logTail": self.log_tail(4000),
+            "screenshot": shot,
+        });
+        let path = dir.join(format!("{label}-failure.json"));
+        fs::write(&path, serde_json::to_vec_pretty(&body).unwrap_or_default())?;
+        Ok(path)
+    }
+
     /// Wait until a JS function body returns something truthy; bounded. One round trip: the app
     /// waits in the page (DOM mutations, events, a short timer) and replies the moment it holds.
     /// An app on an older driver without the `wait` method is polled every 25 ms instead.
@@ -1648,9 +1726,44 @@ impl Drop for Control {
     }
 }
 
+// Keep wire validation shared by the public client and protocol regression tests.
+fn settled_viewport_size(v: &Value) -> Result<(u32, u32)> {
+    if v.get("settled").and_then(Value::as_bool) != Some(true)
+        || v.get("placementTimedOut").and_then(Value::as_bool) != Some(false)
+    {
+        return err(format!("set_viewport did not settle after placement: {v}"));
+    }
+    let dimension = |key: &str| {
+        v.get(key)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0)
+            .ok_or_else(|| Error(format!("set_viewport returned invalid {key}")))
+    };
+    Ok((dimension("innerWidth")?, dimension("innerHeight")?))
+}
+
 #[cfg(test)]
 mod launch_path_tests {
     use super::*;
+
+    #[test]
+    fn viewport_requires_confirmed_settling_and_placement() {
+        let good = json!({"innerWidth": 1440, "innerHeight": 789, "settled": true, "placementTimedOut": false});
+        assert_eq!(settled_viewport_size(&good).unwrap(), (1440, 789));
+        for (key, value) in [
+            ("settled", json!(false)),
+            ("settled", Value::Null),
+            ("placementTimedOut", json!(true)),
+            ("placementTimedOut", Value::Null),
+            ("innerWidth", json!(0)),
+            ("innerHeight", json!(4294967296u64)),
+        ] {
+            let mut reply = good.clone();
+            reply[key] = value;
+            assert!(settled_viewport_size(&reply).is_err(), "{reply}");
+        }
+    }
 
     #[test]
     fn windows_foreground_is_classified_without_a_windows_host() {

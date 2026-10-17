@@ -1,0 +1,489 @@
+//! A deterministic ZIP writer that stores entries uncompressed.
+//!
+//! [`StoredZipWriter`] writes the *stored* method only (method 0, no compression), which is what a
+//! QA bundle, a test fixture or an evidence archive needs: the same entries in the same order give the
+//! same bytes, on every platform and every run. Nothing varies: the timestamp of every entry is the
+//! DOS epoch (1980-01-01 00:00:00), there are no extra fields and no comments, the host and the
+//! attributes are fixed (Unix `0644` for a file, `0755` for a directory), and entries appear in the
+//! order they were added. There is no compression and no ZIP64: an archive of more than 65 535
+//! entries, or with any entry, local-header offset or central directory beyond 4 GiB - 1, is refused
+//! with `InvalidInput` rather than written wrongly.
+//!
+//! Entry names are checked, since a name is the part of an archive that attacks the program that
+//! unpacks it: a name must be non-empty, relative, use `/` only (no `\`, no drive prefix), have no
+//! empty, `.` or `..` component, no NUL or control character, fit in 65 535 bytes, and be unique
+//! (compared byte for byte). Names are written as UTF-8 and flagged as such (general-purpose bit 11).
+//!
+//! [`crc32`] is the standard IEEE CRC-32 (the one ZIP stores) computed inline; this crate adds no
+//! dependency for it.
+
+use std::collections::HashSet;
+use std::io::{self, Write};
+
+/// The DOS time of every entry: 00:00:00.
+const DOS_TIME: u16 = 0;
+/// The DOS date of every entry: 1980-01-01 (year 0, month 1, day 1).
+const DOS_DATE: u16 = (1 << 5) | 1;
+/// General-purpose flag bit 11: the name is UTF-8.
+const FLAG_UTF8: u16 = 0x0800;
+/// "Version needed to extract": 2.0, the first that supports directories and stored entries alike.
+const VERSION_NEEDED: u16 = 20;
+/// "Version made by": host Unix (3), specification 2.0.
+const VERSION_MADE_BY: u16 = (3 << 8) | 20;
+const FILE_ATTRIBUTES: u32 = 0o100_644 << 16;
+const DIR_ATTRIBUTES: u32 = (0o040_755 << 16) | 0x10;
+const MAX_ENTRIES: usize = 0xFFFF;
+const MAX_U32: u64 = 0xFFFF_FFFF;
+
+const SIG_LOCAL: u32 = 0x0403_4b50;
+const SIG_CENTRAL: u32 = 0x0201_4b50;
+const SIG_END: u32 = 0x0605_4b50;
+
+const CRC_TABLE: [u32; 256] = {
+    let mut table = [0u32; 256];
+    let mut n = 0;
+    while n < 256 {
+        let mut c = n as u32;
+        let mut k = 0;
+        while k < 8 {
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
+            k += 1;
+        }
+        table[n] = c;
+        n += 1;
+    }
+    table
+};
+
+/// The IEEE CRC-32 of `bytes` (polynomial `0xEDB88320`, initial value and final XOR `0xFFFFFFFF`), the
+/// checksum a ZIP entry stores. `crc32(b"123456789")` is `0xCBF43926`.
+pub fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for byte in bytes {
+        crc = CRC_TABLE[((crc ^ u32::from(*byte)) & 0xFF) as usize] ^ (crc >> 8);
+    }
+    !crc
+}
+
+fn invalid(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message.into())
+}
+
+/// Check one entry name; see the module docs for the rules. `directory` names may end in one `/`.
+fn check_name(name: &str, directory: bool) -> io::Result<()> {
+    let body = if directory {
+        name.strip_suffix('/').unwrap_or(name)
+    } else {
+        name
+    };
+    if body.is_empty() {
+        return Err(invalid("a ZIP entry name is empty"));
+    }
+    if name.len() > 0xFFFF {
+        return Err(invalid("a ZIP entry name is longer than 65535 bytes"));
+    }
+    if name.starts_with('/') || name.contains('\\') {
+        return Err(invalid(format!(
+            "ZIP entry name {name:?} is absolute or uses a backslash"
+        )));
+    }
+    if name.chars().any(|c| c.is_control()) {
+        return Err(invalid(format!(
+            "ZIP entry name {name:?} has a control character"
+        )));
+    }
+    let bytes = body.as_bytes();
+    // `C:` or `C:x` as the first component is a drive prefix on Windows.
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return Err(invalid(format!(
+            "ZIP entry name {name:?} has a drive prefix"
+        )));
+    }
+    for component in body.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err(invalid(format!(
+                "ZIP entry name {name:?} has an empty, `.` or `..` component"
+            )));
+        }
+    }
+    Ok(())
+}
+
+struct Entry {
+    name: String,
+    crc: u32,
+    size: u32,
+    offset: u32,
+    directory: bool,
+}
+
+/// Writes a stored ZIP archive to `W`. Add entries, then [`finish`](Self::finish). Nothing is
+/// flushed or synced: wrap a file in [`crate::AtomicWriter`] (or write the finished bytes with
+/// [`crate::atomic_write`]) when the archive must appear whole.
+pub struct StoredZipWriter<W: Write> {
+    out: W,
+    written: u64,
+    entries: Vec<Entry>,
+    seen: HashSet<String>,
+}
+
+impl<W: Write> StoredZipWriter<W> {
+    /// A writer that appends to `out` from its current position (the archive starts there).
+    pub fn new(out: W) -> Self {
+        Self {
+            out,
+            written: 0,
+            entries: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+
+    fn put(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.out.write_all(bytes)?;
+        self.written += bytes.len() as u64;
+        Ok(())
+    }
+
+    fn register(&mut self, name: &str, directory: bool) -> io::Result<String> {
+        check_name(name, directory)?;
+        if self.entries.len() >= MAX_ENTRIES {
+            return Err(invalid(
+                "a ZIP archive without ZIP64 holds at most 65535 entries",
+            ));
+        }
+        let stored = if directory && !name.ends_with('/') {
+            format!("{name}/")
+        } else {
+            name.to_string()
+        };
+        if stored.len() > 0xFFFF {
+            return Err(invalid("a ZIP entry name is longer than 65535 bytes"));
+        }
+        // A file `a` and a directory `a/` are different names but cannot both be unpacked.
+        let twin = if directory {
+            stored.trim_end_matches('/').to_string()
+        } else {
+            format!("{stored}/")
+        };
+        if self.seen.contains(&stored) || self.seen.contains(&twin) {
+            return Err(invalid(format!("ZIP entry name {name:?} is already used")));
+        }
+        self.seen.insert(stored.clone());
+        Ok(stored)
+    }
+
+    /// Add a file entry holding `data`.
+    ///
+    /// Errors (`InvalidInput`): a bad or duplicate name, `data` of 4 GiB or more, an archive past the
+    /// ZIP limits, or a local-header offset past 4 GiB. A failed write is the writer's error.
+    pub fn add_file(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
+        let size = u32::try_from(data.len())
+            .map_err(|_| invalid("a ZIP entry without ZIP64 is under 4 GiB"))?;
+        let stored = self.register(name, false)?;
+        self.write_local(stored, data, size, false)
+    }
+
+    /// Add a directory entry (`name` with or without a trailing `/`; the stored name ends in `/`).
+    pub fn add_dir(&mut self, name: &str) -> io::Result<()> {
+        let stored = self.register(name, true)?;
+        self.write_local(stored, &[], 0, true)
+    }
+
+    fn write_local(
+        &mut self,
+        name: String,
+        data: &[u8],
+        size: u32,
+        directory: bool,
+    ) -> io::Result<()> {
+        let offset = u32::try_from(self.written)
+            .map_err(|_| invalid("a ZIP entry starts past 4 GiB, which needs ZIP64"))?;
+        let crc = crc32(data);
+        let name_bytes = name.as_bytes();
+        let mut header = Vec::with_capacity(30 + name_bytes.len());
+        header.extend_from_slice(&SIG_LOCAL.to_le_bytes());
+        header.extend_from_slice(&VERSION_NEEDED.to_le_bytes());
+        header.extend_from_slice(&FLAG_UTF8.to_le_bytes());
+        header.extend_from_slice(&0u16.to_le_bytes()); // method: stored
+        header.extend_from_slice(&DOS_TIME.to_le_bytes());
+        header.extend_from_slice(&DOS_DATE.to_le_bytes());
+        header.extend_from_slice(&crc.to_le_bytes());
+        header.extend_from_slice(&size.to_le_bytes()); // compressed size
+        header.extend_from_slice(&size.to_le_bytes()); // uncompressed size
+        header.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        header.extend_from_slice(&0u16.to_le_bytes()); // extra field length
+        header.extend_from_slice(name_bytes);
+        self.put(&header)?;
+        self.put(data)?;
+        self.entries.push(Entry {
+            name,
+            crc,
+            size,
+            offset,
+            directory,
+        });
+        Ok(())
+    }
+
+    /// Write the central directory and end record and return the underlying writer. The archive is
+    /// complete only after this succeeds.
+    pub fn finish(mut self) -> io::Result<W> {
+        let directory_offset = u32::try_from(self.written).map_err(|_| {
+            invalid("the ZIP central directory starts past 4 GiB, which needs ZIP64")
+        })?;
+        let mut central = Vec::new();
+        for entry in &self.entries {
+            let name = entry.name.as_bytes();
+            central.extend_from_slice(&SIG_CENTRAL.to_le_bytes());
+            central.extend_from_slice(&VERSION_MADE_BY.to_le_bytes());
+            central.extend_from_slice(&VERSION_NEEDED.to_le_bytes());
+            central.extend_from_slice(&FLAG_UTF8.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes()); // method: stored
+            central.extend_from_slice(&DOS_TIME.to_le_bytes());
+            central.extend_from_slice(&DOS_DATE.to_le_bytes());
+            central.extend_from_slice(&entry.crc.to_le_bytes());
+            central.extend_from_slice(&entry.size.to_le_bytes());
+            central.extend_from_slice(&entry.size.to_le_bytes());
+            central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes()); // extra field length
+            central.extend_from_slice(&0u16.to_le_bytes()); // comment length
+            central.extend_from_slice(&0u16.to_le_bytes()); // disk number start
+            central.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
+            let attributes = if entry.directory {
+                DIR_ATTRIBUTES
+            } else {
+                FILE_ATTRIBUTES
+            };
+            central.extend_from_slice(&attributes.to_le_bytes());
+            central.extend_from_slice(&entry.offset.to_le_bytes());
+            central.extend_from_slice(name);
+        }
+        let directory_size = u32::try_from(central.len())
+            .ok()
+            .filter(|size| u64::from(*size) + u64::from(directory_offset) <= MAX_U32)
+            .ok_or_else(|| {
+                invalid("the ZIP central directory ends past 4 GiB, which needs ZIP64")
+            })?;
+        let count = self.entries.len() as u16;
+        let mut end = Vec::with_capacity(22);
+        end.extend_from_slice(&SIG_END.to_le_bytes());
+        end.extend_from_slice(&0u16.to_le_bytes()); // this disk
+        end.extend_from_slice(&0u16.to_le_bytes()); // disk with the central directory
+        end.extend_from_slice(&count.to_le_bytes());
+        end.extend_from_slice(&count.to_le_bytes());
+        end.extend_from_slice(&directory_size.to_le_bytes());
+        end.extend_from_slice(&directory_offset.to_le_bytes());
+        end.extend_from_slice(&0u16.to_le_bytes()); // comment length
+        self.put(&central)?;
+        self.put(&end)?;
+        Ok(self.out)
+    }
+}
+
+/// The bytes of a stored ZIP archive holding `entries` in order, each `(name, bytes)` a file; a name
+/// ending in `/` with empty bytes is a directory entry. Same rules and limits as
+/// [`StoredZipWriter`].
+pub fn stored_zip_bytes(entries: &[(&str, &[u8])]) -> io::Result<Vec<u8>> {
+    let mut writer = StoredZipWriter::new(Vec::new());
+    for (name, data) in entries {
+        if name.ends_with('/') {
+            if !data.is_empty() {
+                return Err(invalid(format!("directory entry {name:?} has content")));
+            }
+            writer.add_dir(name)?;
+        } else {
+            writer.add_file(name, data)?;
+        }
+    }
+    writer.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn le16(bytes: &[u8], at: usize) -> u16 {
+        u16::from_le_bytes([bytes[at], bytes[at + 1]])
+    }
+
+    fn le32(bytes: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    }
+
+    #[test]
+    fn crc32_matches_the_standard_vectors() {
+        assert_eq!(crc32(b""), 0);
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+        assert_eq!(crc32(b"a"), 0xE8B7_BE43);
+        assert_eq!(
+            crc32(b"The quick brown fox jumps over the lazy dog"),
+            0x414F_A339
+        );
+        assert_eq!(crc32(&[0u8; 32]), 0x190A_55AD);
+    }
+
+    #[test]
+    fn two_writes_of_the_same_entries_are_byte_identical() {
+        let entries: [(&str, &[u8]); 3] = [
+            ("a.txt", b"alpha"),
+            ("dir/", b""),
+            ("dir/b.bin", &[0, 1, 2, 3, 255]),
+        ];
+        let first = stored_zip_bytes(&entries).unwrap();
+        let second = stored_zip_bytes(&entries).unwrap();
+        assert_eq!(first, second);
+        // Nothing wall-clock or host dependent is in the bytes: pin the whole archive's length and
+        // one stable field of each header.
+        assert_eq!(le32(&first, 0), SIG_LOCAL);
+        assert_eq!(le16(&first, 10), DOS_TIME);
+        assert_eq!(le16(&first, 12), DOS_DATE);
+    }
+
+    #[test]
+    fn the_layout_parses_back_to_the_entries() {
+        let bytes =
+            stored_zip_bytes(&[("a.txt", b"alpha"), ("sub/", b""), ("sub/b", b"beta!")]).unwrap();
+        // End of central directory is the last 22 bytes.
+        let end = bytes.len() - 22;
+        assert_eq!(le32(&bytes, end), SIG_END);
+        assert_eq!(le16(&bytes, end + 8), 3, "entries on this disk");
+        assert_eq!(le16(&bytes, end + 10), 3, "entries in total");
+        let directory_size = le32(&bytes, end + 12) as usize;
+        let directory_offset = le32(&bytes, end + 16) as usize;
+        assert_eq!(directory_offset + directory_size, end);
+        assert_eq!(le16(&bytes, end + 20), 0, "no comment");
+
+        let mut at = directory_offset;
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            assert_eq!(le32(&bytes, at), SIG_CENTRAL);
+            assert_eq!(le16(&bytes, at + 8), FLAG_UTF8);
+            assert_eq!(le16(&bytes, at + 10), 0, "stored");
+            let crc = le32(&bytes, at + 16);
+            let size = le32(&bytes, at + 20) as usize;
+            assert_eq!(le32(&bytes, at + 24) as usize, size);
+            let name_len = le16(&bytes, at + 28) as usize;
+            assert_eq!(le16(&bytes, at + 30), 0, "no extra field");
+            let offset = le32(&bytes, at + 42) as usize;
+            let name = std::str::from_utf8(&bytes[at + 46..at + 46 + name_len]).unwrap();
+            // The local header at that offset names the same entry, then comes the data.
+            assert_eq!(le32(&bytes, offset), SIG_LOCAL);
+            assert_eq!(le32(&bytes, offset + 14), crc);
+            assert_eq!(le16(&bytes, offset + 26) as usize, name_len);
+            let data_at = offset + 30 + name_len;
+            let data = &bytes[data_at..data_at + size];
+            assert_eq!(crc32(data), crc);
+            seen.push((name.to_string(), data.to_vec()));
+            at += 46 + name_len;
+        }
+        assert_eq!(at, end);
+        assert_eq!(
+            seen,
+            [
+                ("a.txt".to_string(), b"alpha".to_vec()),
+                ("sub/".to_string(), Vec::new()),
+                ("sub/b".to_string(), b"beta!".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_archive_is_just_the_end_record() {
+        let bytes = stored_zip_bytes(&[]).unwrap();
+        assert_eq!(bytes.len(), 22);
+        assert_eq!(le32(&bytes, 0), SIG_END);
+        assert_eq!(le16(&bytes, 10), 0);
+    }
+
+    #[test]
+    fn directories_get_a_trailing_slash_and_directory_attributes() {
+        let mut writer = StoredZipWriter::new(Vec::new());
+        writer.add_dir("d").unwrap();
+        let bytes = writer.finish().unwrap();
+        let end = bytes.len() - 22;
+        let at = le32(&bytes, end + 16) as usize;
+        let name_len = le16(&bytes, at + 28) as usize;
+        assert_eq!(&bytes[at + 46..at + 46 + name_len], b"d/");
+        assert_eq!(le32(&bytes, at + 38), DIR_ATTRIBUTES);
+    }
+
+    #[test]
+    fn unsafe_names_are_refused() {
+        let mut writer = StoredZipWriter::new(Vec::new());
+        for bad in [
+            "",
+            "/",
+            "/etc/passwd",
+            "../x",
+            "a/../b",
+            "a/./b",
+            "a//b",
+            "a\\b",
+            "C:\\x",
+            "C:x",
+            "c:/x",
+            "a\0b",
+            "a\nb",
+            "trailing//",
+        ] {
+            let err = writer.add_file(bad, b"x").unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{bad:?}");
+        }
+        let long = "n".repeat(0x10000);
+        assert!(writer.add_file(&long, b"x").is_err());
+        // Nothing was written by the refusals.
+        assert_eq!(writer.finish().unwrap().len(), 22);
+    }
+
+    #[test]
+    fn duplicate_names_and_a_file_directory_clash_are_refused() {
+        let mut writer = StoredZipWriter::new(Vec::new());
+        writer.add_file("a", b"1").unwrap();
+        assert!(writer.add_file("a", b"2").is_err());
+        assert!(
+            writer.add_dir("a").is_err(),
+            "a file `a` and a directory `a/`"
+        );
+        writer.add_dir("d").unwrap();
+        assert!(writer.add_dir("d/").is_err());
+        assert!(writer.add_file("d", b"x").is_err());
+        // Names that merely share a prefix are fine, and case differences are different bytes.
+        writer.add_file("ab", b"3").unwrap();
+        writer.add_file("A", b"4").unwrap();
+    }
+
+    #[test]
+    fn utf8_names_are_stored_as_utf8() {
+        let bytes = stored_zip_bytes(&[("r\u{e9}sum\u{e9}.txt", b"x")]).unwrap();
+        let name = "r\u{e9}sum\u{e9}.txt".as_bytes();
+        assert_eq!(le16(&bytes, 6), FLAG_UTF8);
+        assert_eq!(&bytes[30..30 + name.len()], name);
+    }
+
+    #[test]
+    fn a_directory_entry_with_content_is_refused_by_the_helper() {
+        assert!(stored_zip_bytes(&[("d/", b"x")]).is_err());
+    }
+
+    #[test]
+    fn a_failing_sink_surfaces_its_error() {
+        struct Full;
+        impl Write for Full {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::StorageFull))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer = StoredZipWriter::new(Full);
+        assert_eq!(
+            writer.add_file("a", b"x").unwrap_err().kind(),
+            io::ErrorKind::StorageFull
+        );
+    }
+}

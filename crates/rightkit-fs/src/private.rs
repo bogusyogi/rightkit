@@ -69,9 +69,31 @@ fn restrict_owner_only_impl(_path: &Path) -> Result<()> {
 /// True when no group/other access exists on unix: no group or other mode bits and, on macOS, no
 /// extended ACL (an `allow` entry is evaluated before the mode bits). On macOS an entry that
 /// cannot be opened to read its ACL is reported as not owner-only, because that cannot be
-/// proven. On Windows this reads the entry's owner and DACL through a no-reparse handle: it is
-/// true only for an object owned by this process's `TokenUser` with the exact protected
-/// owner-only DACL. Unsupported ACL filesystems and unreadable security metadata are errors.
+/// proven.
+///
+/// On Windows this is a **verify-only trust check**: it reads the entry's owner and DACL through a
+/// no-reparse handle and is true when the owner is this process's `TokenUser` (or an enabled
+/// owner-capable group of its token, in practice Administrators in an elevated token) **and** the DACL
+/// grants access only to principals that cannot be a foreign party:
+///
+/// - the current user,
+/// - `NT AUTHORITY\SYSTEM` (`S-1-5-18`),
+/// - `BUILTIN\Administrators` (`S-1-5-32-544`),
+/// - `CREATOR OWNER` (`S-1-3-0`) when the entry is inherit-only (it grants nothing on this object and
+///   is replaced by the creator in what inherits it).
+///
+/// The ACEs may be explicit or **inherited**, and the DACL need not be protected, so a file or
+/// directory made below `%LOCALAPPDATA%` (whose ACL is `SYSTEM`, `Administrators` and the user,
+/// inherited) is owner-only without the crate having rewritten its ACL (rightkit#676, rightkit#517).
+/// Any `allow` ACE for another user, `Everyone`, `Users`, `Authenticated Users` or any other
+/// principal makes the answer `false`, as do a missing (NULL) DACL, an unreadable ACE and any ACE type
+/// this check does not understand (it fails closed). `deny` ACEs cannot widen access and are ignored.
+/// Unsupported ACL filesystems and unreadable security metadata are errors.
+///
+/// This is a read of the state now, not a guarantee for later: whoever may change the DACL can change
+/// the answer. The exact form this crate itself writes (one protected ACE for the user) is checked by
+/// [`is_owner_only_strict`]; the objects this crate creates are verified against that stricter form
+/// before any byte is written.
 pub fn is_owner_only(path: &Path) -> Result<bool> {
     #[cfg(unix)]
     {
@@ -89,12 +111,146 @@ pub fn is_owner_only(path: &Path) -> Result<bool> {
     #[cfg(windows)]
     {
         let file = open_owner_only_handle(path, false)?;
-        is_owner_only_handle(&file, path)
+        Ok(private_trust_handle(&file, path, true)? == Trust::Private)
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         Ok(true)
+    }
+}
+
+/// The exact owner-only form this crate writes. Unix: the same as [`is_owner_only`]. Windows: true
+/// only for an object owned by this process's `TokenUser` (or an enabled owner-capable token group)
+/// whose DACL is **protected** and holds exactly one ACE, a full-control `allow` for the current user
+/// (inheritable on a directory). Unlike [`is_owner_only`] it rejects an inherited ACL and an extra
+/// `SYSTEM` or `Administrators` ACE, so it is `false` for a file this crate did not harden.
+pub fn is_owner_only_strict(path: &Path) -> Result<bool> {
+    #[cfg(windows)]
+    {
+        let file = open_owner_only_handle(path, false)?;
+        is_owner_only_handle(&file, path)
+    }
+    #[cfg(not(windows))]
+    {
+        is_owner_only(path)
+    }
+}
+
+/// [`is_owner_only`] as a checked call: `Ok(())` when `path` is owner-only and owned by the current
+/// user, else the reason. For a caller that must refuse rather than branch (a trust check on a file
+/// or directory it did not make, such as a runtime store below `%LOCALAPPDATA%`).
+///
+/// - [`FsError::NotOwned`]: owned by somebody else (Unix: `st_uid` is not the effective user;
+///   Windows: the owner is neither the token user nor an enabled owner-capable group).
+/// - [`FsError::TooPermissive`]: another principal can reach it (Unix mode bits or, on macOS, an
+///   ACL `allow` entry; Windows: an `allow` ACE as described on [`is_owner_only`]).
+/// - [`FsError::Symlink`]: `path` is a symlink or reparse point (never followed).
+///
+/// Nothing is changed or repaired; [`restrict_owner_only`] is the repair.
+pub fn verify_owner_only(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::symlink_metadata(path).map_err(|e| FsError::io(path, e))?;
+        if meta.file_type().is_symlink() {
+            return Err(FsError::Symlink(path.to_path_buf()));
+        }
+        // SAFETY: geteuid has no preconditions.
+        if meta.uid() != unsafe { libc::geteuid() } {
+            return Err(FsError::NotOwned(path.to_path_buf()));
+        }
+        if is_owner_only(path)? {
+            Ok(())
+        } else {
+            Err(FsError::TooPermissive(path.to_path_buf()))
+        }
+    }
+    #[cfg(windows)]
+    {
+        let file = open_owner_only_handle(path, false)?;
+        match private_trust_handle(&file, path, true)? {
+            Trust::Private => Ok(()),
+            Trust::ForeignOwner => Err(FsError::NotOwned(path.to_path_buf())),
+            Trust::ForeignAccess => Err(FsError::TooPermissive(path.to_path_buf())),
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// What a DACL inspection concluded (Windows).
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Trust {
+    Private,
+    ForeignOwner,
+    ForeignAccess,
+}
+
+/// What an ACE does, from its type byte: `Allow` (`ACCESS_ALLOWED` and the callback form, whose
+/// trustee SID sits right after the access mask), `Deny` (the four deny types, which cannot widen
+/// access) or `Other` (object, compound and every unknown type: not understood, so not trusted).
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AceKind {
+    Allow,
+    Deny,
+    Other,
+}
+
+#[cfg(any(windows, test))]
+fn ace_kind(ace_type: u8) -> AceKind {
+    match ace_type {
+        0 | 9 => AceKind::Allow,
+        1 | 6 | 10 | 12 => AceKind::Deny,
+        _ => AceKind::Other,
+    }
+}
+
+/// `INHERIT_ONLY_ACE`: the ACE grants nothing on this object, only on what inherits it.
+#[cfg(any(windows, test))]
+const INHERIT_ONLY_ACE: u8 = 0x08;
+
+/// Whether an `allow` ACE for this trustee leaves the object owner-only: the current user, SYSTEM
+/// (`S-1-5-18`), BUILTIN\Administrators (`S-1-5-32-544`), or CREATOR OWNER (`S-1-3-0`) on an
+/// inherit-only ACE. `authority` is the 48-bit identifier authority.
+#[cfg(any(windows, test))]
+fn trustee_is_acceptable(
+    is_current_user: bool,
+    authority: u64,
+    sub_authorities: &[u32],
+    ace_flags: u8,
+) -> bool {
+    if is_current_user {
+        return true;
+    }
+    match (authority, sub_authorities) {
+        (5, [18]) | (5, [32, 544]) => true,
+        (3, [0]) => ace_flags & INHERIT_ONLY_ACE != 0,
+        _ => false,
+    }
+}
+
+/// Whether one ACE leaves the object owner-only: a `deny` ACE always does (it cannot widen access);
+/// an `allow` ACE does when its trustee is acceptable ([`trustee_is_acceptable`]); an ACE of any
+/// other type, or an `allow` ACE whose trustee could not be read (`None`), does not (fail closed).
+/// `trustee` is `(is_current_user, authority, sub_authorities)`.
+#[cfg(any(windows, test))]
+fn ace_is_acceptable(ace_type: u8, ace_flags: u8, trustee: Option<(bool, u64, &[u32])>) -> bool {
+    match ace_kind(ace_type) {
+        AceKind::Deny => true,
+        AceKind::Other => false,
+        AceKind::Allow => match trustee {
+            Some((is_user, authority, subs)) => {
+                trustee_is_acceptable(is_user, authority, subs, ace_flags)
+            }
+            None => false,
+        },
     }
 }
 
@@ -646,12 +802,26 @@ fn require_persistent_acls(file: &std::fs::File, shown: &Path) -> crate::error::
     Ok(())
 }
 
-/// Returns false for a readable but non-private descriptor. Query and metadata errors propagate.
+/// The strict verdict: the exact protected single-ACE form this crate writes. False for a readable
+/// but non-private descriptor. Query and metadata errors propagate.
 #[cfg(windows)]
 pub(crate) fn is_owner_only_handle(
     file: &std::fs::File,
     shown: &Path,
 ) -> crate::error::Result<bool> {
+    private_trust_handle(file, shown, false).map(|trust| trust == Trust::Private)
+}
+
+/// Inspect the owner and DACL of an open handle. `tolerant` false is the strict form (protected DACL,
+/// exactly one full-control ACE for the current user); `tolerant` true accepts inherited and
+/// unprotected DACLs whose every `allow` ACE names the current user, SYSTEM, Administrators (or an
+/// inherit-only CREATOR OWNER), see [`is_owner_only`].
+#[cfg(windows)]
+fn private_trust_handle(
+    file: &std::fs::File,
+    shown: &Path,
+    tolerant: bool,
+) -> crate::error::Result<Trust> {
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
     #[repr(C)]
@@ -712,76 +882,16 @@ pub(crate) fn is_owner_only_handle(
     const SID_HEADER_SIZE: usize = 8;
     const SID_MAX_SUB_AUTHORITIES: u8 = 15;
 
-    require_persistent_acls(file, shown)?;
-    let token = current_process_token_user(shown)?;
-    // SAFETY: TOKEN_USER starts with a SID pointer inside the retained allocation.
-    let sid = unsafe { *(token.as_ptr().cast::<*mut c_void>()) };
-    let mut owner = std::ptr::null_mut();
-    let mut dacl = std::ptr::null_mut();
-    let mut descriptor = std::ptr::null_mut();
-    // SAFETY: live handle; returned pointers live until LocalFree(descriptor).
-    let result = unsafe {
-        GetSecurityInfo(
-            file.as_raw_handle(),
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-            &mut owner,
-            std::ptr::null_mut(),
-            &mut dacl,
-            std::ptr::null_mut(),
-            &mut descriptor,
-        )
-    };
-    if result != 0 {
-        return Err(FsError::io(
-            shown,
-            std::io::Error::from_raw_os_error(result as i32),
-        ));
-    }
-    let check = (|| -> crate::error::Result<bool> {
-        if descriptor.is_null() || owner.is_null() || dacl.is_null() {
-            return Ok(false);
-        }
-        let directory = file
-            .metadata()
-            .map_err(|error| FsError::io(shown, error))?
-            .is_dir();
-        let mut control = 0;
-        let mut revision = 0;
-        // SAFETY: descriptor came from GetSecurityInfo and remains live for this query.
-        if unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } == 0 {
-            return Err(FsError::io(shown, std::io::Error::last_os_error()));
-        }
-        if control & SE_DACL_PROTECTED == 0 {
-            return Ok(false);
-        }
-        // The owner is the current user, or an enabled token group (Administrators when
-        // elevated). The single ACE below still has to name the current user.
-        if !owner_matches_token(owner, sid, shown)? {
-            return Ok(false);
-        }
-        // SAFETY: native validator rejects malformed ACL data before indexed access.
-        if unsafe { IsValidAcl(dacl) } == 0 {
-            return Ok(false);
-        }
-        let mut info = AclSizeInformation {
-            ace_count: 0,
-            acl_bytes_in_use: 0,
-            acl_bytes_free: 0,
-        };
-        // SAFETY: valid ACL and correctly sized output structure.
-        if unsafe {
-            GetAclInformation(
-                dacl,
-                (&mut info as *mut AclSizeInformation).cast(),
-                std::mem::size_of::<AclSizeInformation>() as u32,
-                ACL_SIZE_INFORMATION,
-            )
-        } == 0
-        {
-            return Err(FsError::io(shown, std::io::Error::last_os_error()));
-        }
-        if info.ace_count != 1 {
+    /// The strict form: exactly one ACE, a full-control `allow` for `sid`, with the inherit flags the
+    /// object kind needs and nothing else.
+    fn strict_single_ace(
+        dacl: *mut c_void,
+        count: u32,
+        directory: bool,
+        sid: *mut c_void,
+        shown: &Path,
+    ) -> crate::error::Result<bool> {
+        if count != 1 {
             return Ok(false);
         }
         let mut ace = std::ptr::null_mut();
@@ -833,6 +943,169 @@ pub(crate) fn is_owner_only_handle(
         }
         // SAFETY: both SID pointers remain valid for this final identity check.
         Ok(mask == FILE_ALL_ACCESS && unsafe { EqualSid(ace_sid, sid) } != 0)
+    }
+
+    /// The trustee of an `allow` ACE: `(is the current user, identifier authority, sub-authorities)`,
+    /// or `None` when the ACE is too short or its SID is malformed.
+    fn read_trustee(
+        ace: *mut c_void,
+        ace_size: usize,
+        sid: *mut c_void,
+    ) -> Option<(bool, u64, Vec<u32>)> {
+        if ace_size < ACCESS_ALLOWED_ACE_PREFIX + SID_HEADER_SIZE {
+            return None;
+        }
+        let bytes = ace.cast::<u8>();
+        // SAFETY: the ACE is at least prefix + SID header long (checked above).
+        let sub_authorities = unsafe { *bytes.add(ACCESS_ALLOWED_ACE_PREFIX + 1) };
+        if sub_authorities > SID_MAX_SUB_AUTHORITIES {
+            return None;
+        }
+        let declared = SID_HEADER_SIZE + usize::from(sub_authorities) * 4;
+        if declared > ace_size - ACCESS_ALLOWED_ACE_PREFIX {
+            return None;
+        }
+        // SAFETY: the complete declared SID lies inside this native-validated ACE.
+        let ace_sid = unsafe { bytes.add(ACCESS_ALLOWED_ACE_PREFIX) }.cast::<c_void>();
+        if unsafe { IsValidSid(ace_sid) } == 0 {
+            return None;
+        }
+        let mut authority = 0u64;
+        let mut subs = Vec::with_capacity(usize::from(sub_authorities));
+        // SAFETY: authority bytes and each sub-authority lie inside the declared SID.
+        unsafe {
+            for i in 0..6 {
+                authority =
+                    (authority << 8) | u64::from(*bytes.add(ACCESS_ALLOWED_ACE_PREFIX + 2 + i));
+            }
+            for i in 0..usize::from(sub_authorities) {
+                subs.push(std::ptr::read_unaligned(
+                    bytes
+                        .add(ACCESS_ALLOWED_ACE_PREFIX + SID_HEADER_SIZE + 4 * i)
+                        .cast::<u32>(),
+                ));
+            }
+        }
+        // SAFETY: both SIDs are valid for this comparison.
+        let is_user = unsafe { EqualSid(ace_sid, sid) } != 0;
+        Some((is_user, authority, subs))
+    }
+
+    /// The tolerant form: every `allow` ACE must name an acceptable trustee (`ace_is_acceptable`).
+    fn tolerant_dacl_verdict(
+        dacl: *mut c_void,
+        count: u32,
+        sid: *mut c_void,
+        shown: &Path,
+    ) -> crate::error::Result<Trust> {
+        for index in 0..count {
+            let mut ace = std::ptr::null_mut();
+            // SAFETY: `index` is below the count of a native-validated ACL.
+            if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+                return Err(FsError::io(shown, std::io::Error::last_os_error()));
+            }
+            if ace.is_null() {
+                return Ok(Trust::ForeignAccess);
+            }
+            // SAFETY: GetAce returned an ACE from native-validated ACL storage.
+            let header = unsafe { &*(ace.cast::<AceHeader>()) };
+            let trustee = if ace_kind(header.ace_type) == AceKind::Allow {
+                read_trustee(ace, usize::from(header.ace_size), sid)
+            } else {
+                None
+            };
+            let view = trustee
+                .as_ref()
+                .map(|(user, authority, subs)| (*user, *authority, subs.as_slice()));
+            if !ace_is_acceptable(header.ace_type, header.ace_flags, view) {
+                return Ok(Trust::ForeignAccess);
+            }
+        }
+        Ok(Trust::Private)
+    }
+
+    require_persistent_acls(file, shown)?;
+    let token = current_process_token_user(shown)?;
+    // SAFETY: TOKEN_USER starts with a SID pointer inside the retained allocation.
+    let sid = unsafe { *(token.as_ptr().cast::<*mut c_void>()) };
+    let mut owner = std::ptr::null_mut();
+    let mut dacl = std::ptr::null_mut();
+    let mut descriptor = std::ptr::null_mut();
+    // SAFETY: live handle; returned pointers live until LocalFree(descriptor).
+    let result = unsafe {
+        GetSecurityInfo(
+            file.as_raw_handle(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if result != 0 {
+        return Err(FsError::io(
+            shown,
+            std::io::Error::from_raw_os_error(result as i32),
+        ));
+    }
+    let check = (|| -> crate::error::Result<Trust> {
+        if descriptor.is_null() || owner.is_null() {
+            return Ok(Trust::ForeignOwner);
+        }
+        // A NULL DACL grants everyone full access.
+        if dacl.is_null() {
+            return Ok(Trust::ForeignAccess);
+        }
+        let directory = file
+            .metadata()
+            .map_err(|error| FsError::io(shown, error))?
+            .is_dir();
+        let mut control = 0;
+        let mut revision = 0;
+        // SAFETY: descriptor came from GetSecurityInfo and remains live for this query.
+        if unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } == 0 {
+            return Err(FsError::io(shown, std::io::Error::last_os_error()));
+        }
+        if !tolerant && control & SE_DACL_PROTECTED == 0 {
+            return Ok(Trust::ForeignAccess);
+        }
+        // The owner is the current user, or an enabled token group (Administrators when
+        // elevated). The strict form's single ACE below still has to name the current user.
+        if !owner_matches_token(owner, sid, shown)? {
+            return Ok(Trust::ForeignOwner);
+        }
+        // SAFETY: native validator rejects malformed ACL data before indexed access.
+        if unsafe { IsValidAcl(dacl) } == 0 {
+            return Ok(Trust::ForeignAccess);
+        }
+        let mut info = AclSizeInformation {
+            ace_count: 0,
+            acl_bytes_in_use: 0,
+            acl_bytes_free: 0,
+        };
+        // SAFETY: valid ACL and correctly sized output structure.
+        if unsafe {
+            GetAclInformation(
+                dacl,
+                (&mut info as *mut AclSizeInformation).cast(),
+                std::mem::size_of::<AclSizeInformation>() as u32,
+                ACL_SIZE_INFORMATION,
+            )
+        } == 0
+        {
+            return Err(FsError::io(shown, std::io::Error::last_os_error()));
+        }
+        if tolerant {
+            return tolerant_dacl_verdict(dacl, info.ace_count, sid, shown);
+        }
+        let private = strict_single_ace(dacl, info.ace_count, directory, sid, shown)?;
+        Ok(if private {
+            Trust::Private
+        } else {
+            Trust::ForeignAccess
+        })
     })();
     // SAFETY: GetSecurityInfo allocated this descriptor on success, including all returned views.
     unsafe { LocalFree(descriptor) };
@@ -1408,5 +1681,140 @@ mod owner_policy_tests {
         let groups = [(ADMINS, SE_GROUP_OWNER | SE_GROUP_ENABLED)];
         assert!(!trusted(&OTHER_USER, &groups));
         assert!(!trusted(&SYSTEM, &groups));
+    }
+}
+
+/// The tolerant DACL policy (rightkit#517 / #676), pure so it runs on every platform: which ACEs may
+/// appear on an object that still counts as owner-only.
+#[cfg(test)]
+mod dacl_policy_tests {
+    use super::*;
+
+    const SYSTEM: (u64, &[u32]) = (5, &[18]);
+    const ADMINS: (u64, &[u32]) = (5, &[32, 544]);
+    const CREATOR_OWNER: (u64, &[u32]) = (3, &[0]);
+    const EVERYONE: (u64, &[u32]) = (1, &[0]);
+    const USERS: (u64, &[u32]) = (5, &[32, 545]);
+    const AUTH_USERS: (u64, &[u32]) = (5, &[11]);
+    const INTERACTIVE: (u64, &[u32]) = (5, &[4]);
+    const OTHER_USER: (u64, &[u32]) = (5, &[21, 1, 2, 3, 1002]);
+    const ALLOW: u8 = 0;
+    const DENY: u8 = 1;
+    const INHERITED: u8 = 0x10;
+    const OICI: u8 = 0x03;
+
+    fn allow(trustee: (u64, &[u32]), is_user: bool, flags: u8) -> bool {
+        ace_is_acceptable(ALLOW, flags, Some((is_user, trustee.0, trustee.1)))
+    }
+
+    #[test]
+    fn the_current_user_system_and_administrators_are_accepted_inherited_or_explicit() {
+        // %LOCALAPPDATA% inherits exactly these three.
+        assert!(allow(OTHER_USER, true, INHERITED | OICI));
+        assert!(allow(SYSTEM, false, INHERITED | OICI));
+        assert!(allow(ADMINS, false, INHERITED | OICI));
+        assert!(allow(SYSTEM, false, 0));
+        assert!(allow(ADMINS, false, OICI));
+    }
+
+    #[test]
+    fn another_user_or_a_broad_group_is_rejected_whatever_the_flags() {
+        for (name, trustee) in [
+            ("other user", OTHER_USER),
+            ("Everyone", EVERYONE),
+            ("Users", USERS),
+            ("Authenticated Users", AUTH_USERS),
+            ("INTERACTIVE", INTERACTIVE),
+        ] {
+            for flags in [0, INHERITED, OICI, INHERITED | OICI, INHERIT_ONLY_ACE] {
+                assert!(!allow(trustee, false, flags), "{name} flags {flags:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn creator_owner_counts_only_when_inherit_only() {
+        assert!(allow(CREATOR_OWNER, false, INHERIT_ONLY_ACE | OICI));
+        assert!(!allow(CREATOR_OWNER, false, OICI));
+        assert!(!allow(CREATOR_OWNER, false, 0));
+    }
+
+    #[test]
+    fn deny_aces_are_ignored_and_unknown_types_fail_closed() {
+        for deny in [1u8, 6, 10, 12] {
+            assert!(ace_is_acceptable(deny, 0, None), "deny type {deny}");
+            assert!(ace_is_acceptable(
+                deny,
+                0,
+                Some((false, EVERYONE.0, EVERYONE.1))
+            ));
+        }
+        // Object allow (5), compound allow (4), unknown (0x7f), system audit (2), mandatory label (17).
+        for other in [2u8, 3, 4, 5, 7, 8, 11, 13, 14, 15, 16, 17, 0x7f, 0xff] {
+            assert!(
+                !ace_is_acceptable(other, 0, Some((true, 5, &[18]))),
+                "type {other}"
+            );
+        }
+        assert_eq!(ace_kind(ALLOW), AceKind::Allow);
+        assert_eq!(ace_kind(9), AceKind::Allow);
+        assert_eq!(ace_kind(DENY), AceKind::Deny);
+    }
+
+    #[test]
+    fn an_allow_ace_with_an_unreadable_trustee_is_rejected() {
+        assert!(!ace_is_acceptable(ALLOW, 0, None));
+        assert!(!ace_is_acceptable(9, OICI, None));
+    }
+
+    #[test]
+    fn a_broad_trustee_cannot_pose_as_the_current_user_by_authority() {
+        // Only the explicit `is_current_user` bit (an `EqualSid` against the token) counts.
+        assert!(!allow(EVERYONE, false, 0));
+        assert!(!allow((5, &[18, 1]), false, 0));
+        assert!(!allow((5, &[32, 544, 1]), false, 0));
+        assert!(!allow((5, &[]), false, 0));
+        assert!(!allow((6, &[18]), false, 0));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod verify_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_private_file_verifies_and_a_broad_one_is_too_permissive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::fs::write(&path, b"x").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        verify_owner_only(&path).unwrap();
+        assert!(is_owner_only_strict(&path).unwrap());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(matches!(
+            verify_owner_only(&path),
+            Err(FsError::TooPermissive(_))
+        ));
+        assert!(!is_owner_only_strict(&path).unwrap());
+    }
+
+    #[test]
+    fn a_symlink_is_never_followed_by_the_verify() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("t");
+        std::fs::write(&target, b"x").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let link = dir.path().join("l");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(matches!(verify_owner_only(&link), Err(FsError::Symlink(_))));
+    }
+
+    #[test]
+    fn a_missing_path_is_an_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(verify_owner_only(&dir.path().join("absent"))
+            .unwrap_err()
+            .is_not_found());
     }
 }

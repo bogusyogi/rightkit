@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, OptionalExtension, Row};
+use rightkit_db::rusqlite::{self, params, Connection, OptionalExtension, Row};
 use rightkit_db::{
     column_exists, write_txn, DbError, DbOptions, DurabilityProfile, RecoveryAction,
     RecoveryPolicy, StorageProblem, UnreadableCause, UnreadablePolicy,
@@ -37,6 +37,8 @@ pub use deferred::{
     Admitted, DeferredFlush, DeferredKind, DeferredOp, DeleteLater, ProvisionalJob,
     MAX_DEFERRED_OPS,
 };
+mod table;
+pub use table::{Expect, JobTable};
 mod settle;
 pub(crate) use settle::{is_storage_error, projected, LifecycleEvent, Settle, SettleRequest};
 pub use settle::{
@@ -44,10 +46,29 @@ pub use settle::{
     MAX_PENDING_SETTLEMENT_BYTES,
 };
 
+/// Indexes of the job table `t`. The default table keeps the names every earlier version used.
+fn core_index_sql(t: &str) -> String {
+    let (status, created, both) = if t == crate::config::DEFAULT_JOBS_TABLE {
+        (
+            "jobs_status".to_string(),
+            "rk_jobs_created".to_string(),
+            "rk_jobs_status_created".to_string(),
+        )
+    } else {
+        (
+            format!("{t}_status"),
+            format!("rk_{t}_created"),
+            format!("rk_{t}_status_created"),
+        )
+    };
+    format!(
+        "CREATE INDEX IF NOT EXISTS {status} ON {t}(status);
+CREATE INDEX IF NOT EXISTS {created} ON {t}(created_at);
+CREATE INDEX IF NOT EXISTS {both} ON {t}(status, created_at);"
+    )
+}
+
 const CORE_SCHEMA: &str = "
-CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
-CREATE INDEX IF NOT EXISTS rk_jobs_created ON jobs(created_at);
-CREATE INDEX IF NOT EXISTS rk_jobs_status_created ON jobs(status, created_at);
 CREATE TABLE IF NOT EXISTS job_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id TEXT NOT NULL,
@@ -562,7 +583,7 @@ pub struct OpenRecovery {
 pub struct JobStore {
     conn: Mutex<Connection>,
     cfg: StoreConfig,
-    select: String,
+    table: JobTable,
     adoption: Adoption,
     /// The connection runs in WAL mode (relaxed progress durability is only safe there).
     wal: bool,
@@ -681,15 +702,11 @@ impl JobStore {
             .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
             .map(|m| m.eq_ignore_ascii_case("wal"))
             .unwrap_or(false);
-        let mut select = COLS.to_string();
-        for c in &cfg.columns {
-            select.push_str(", ");
-            select.push_str(&c.name);
-        }
+        let table = JobTable::from_validated(&cfg);
         let store = Self {
             conn: Mutex::new(conn),
             cfg,
-            select,
+            table,
             adoption,
             wal,
             base_sync: options.durability,
@@ -718,29 +735,30 @@ impl JobStore {
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// The job table's operations without this store's connection: pass them a connection or
+    /// transaction of your own to commit job writes together with the app's (see [`JobTable`]).
+    /// The same configuration, so the same table, columns, status model and hook.
+    pub fn table(&self) -> &JobTable {
+        &self.table
+    }
+
+    /// The job table name (see [`StoreConfig::jobs_table`]).
+    fn jt(&self) -> &str {
+        self.table.name()
+    }
+
     fn record_row(&self, r: &Row) -> rusqlite::Result<JobRecord> {
-        let mut job = row(r)?;
-        if !self.cfg.includes_retryable() {
-            if let Some(Value::Object(o)) = &mut job.error {
-                o.remove("retryable");
-            }
-        }
-        let mut ext = Ext::new();
-        for (i, c) in self.cfg.columns.iter().enumerate() {
-            let v: rusqlite::types::Value = r.get(NCORE + i)?;
-            ext.insert(c.name.clone(), c.decode(v));
-        }
-        Ok(JobRecord { job, ext })
+        self.table.record_row(r)
     }
 
     fn load(&self, conn: &Connection, job_id: &str) -> JobResult<JobRecord> {
-        conn.query_row(
-            &format!("SELECT {} FROM jobs WHERE job_id=?1", self.select),
-            [job_id],
-            |r| self.record_row(r),
-        )
-        .optional()?
-        .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))
+        self.table.load(conn, job_id)
+    }
+
+    /// Jobs whose due column (see [`StoreConfig::due_column`]) is `<= now`, oldest due first:
+    /// [`JobTable::due`] on the store's connection. `now` is injected.
+    pub fn due(&self, now: &Value, limit: usize) -> JobResult<Vec<JobRecord>> {
+        self.table.due(&self.c(), now, limit)
     }
 
     /// Run `f` inside one write transaction on the store's connection (app-owned
@@ -800,7 +818,7 @@ impl JobStore {
         opts: &SubmitOptions,
         preset_id: Option<&str>,
     ) -> JobResult<Submitted> {
-        let (names, vals) = self.encode_new_ext(ext)?;
+        let (names, vals) = self.table.encode_new_ext(ext)?;
         if opts.single_flight.as_deref() == Some("") {
             return Err(JobError::bad_input("single-flight key is empty"));
         }
@@ -809,7 +827,11 @@ impl JobStore {
         if let Some(rid) = &n.request_id {
             let found = tx
                 .query_row(
-                    &format!("SELECT {} FROM jobs WHERE request_id=?1", self.select),
+                    &format!(
+                        "SELECT {} FROM {} WHERE request_id=?1",
+                        self.table.select(),
+                        self.jt()
+                    ),
                     [rid],
                     |r| self.record_row(r),
                 )
@@ -827,50 +849,9 @@ impl JobStore {
             Some(p) => self.prune_in(&tx, p)?,
             None => PruneReport::default(),
         };
-        let (id, rec) = self.insert_new(&tx, n, &names, vals, preset_id)?;
-        let class = match opts.recovery {
-            Recovery::Resume => self.cfg.kind_recovery(&n.kind).unwrap_or(Recovery::Resume),
-            other => other,
-        };
-        if class != Recovery::default() || opts.single_flight.is_some() {
-            tx.execute(
-                "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
-                params![id, class.as_str(), opts.single_flight],
-            )?;
-        }
-        let mut superseded = Vec::new();
-        if let Some(key) = &opts.single_flight {
-            let old: Vec<String> = {
-                let mut st = tx.prepare(&format!(
-                    "SELECT j.job_id FROM rk_job_meta m JOIN jobs j ON j.job_id=m.job_id \
-                     WHERE m.flight_key=?1 AND m.job_id<>?2 AND j.status IN {} \
-                     ORDER BY j.created_at, j.rowid",
-                    // A held job waits for a person: a newer submit never replaces it.
-                    self.cfg.statuses.sql_set_unheld()
-                ))?;
-                let rows = st
-                    .query_map(params![key, id], |r| r.get::<_, String>(0))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                rows
-            };
-            for old_id in old {
-                let before = self.load(&tx, &old_id)?;
-                let err = JobError::superseded(&id);
-                let t = Transition::to(CANCELLED)
-                    .error(Some(err.to_json_with(self.cfg.includes_retryable())));
-                self.exec(&tx, &before, &t)?;
-                add_event_on(
-                    &tx,
-                    &old_id,
-                    None,
-                    "superseded",
-                    None,
-                    None,
-                    Some(&err.message),
-                )?;
-                superseded.push(old_id);
-            }
-        }
+        let (rec, superseded) = self
+            .table
+            .insert_flow(&tx, n, opts, preset_id, &names, vals)?;
         tx.commit()?;
         drop(conn);
         for old_id in &superseded {
@@ -888,70 +869,6 @@ impl JobStore {
         })
     }
 
-    /// Validate and encode the ext values of a new job: `(column names, encoded values)`.
-    fn encode_new_ext(&self, ext: &Ext) -> JobResult<(Vec<String>, Vec<rusqlite::types::Value>)> {
-        let mut names = Vec::new();
-        let mut vals: Vec<rusqlite::types::Value> = Vec::new();
-        for (k, v) in ext {
-            let c = self
-                .cfg
-                .column_named(k)
-                .ok_or_else(|| JobError::bad_input(format!("unknown ext column: {k}")))?;
-            names.push(c.name.clone());
-            vals.push(c.encode(v)?);
-        }
-        if let Some(c) = self
-            .cfg
-            .columns
-            .iter()
-            .find(|c| c.required() && !ext.contains_key(&c.name))
-        {
-            return Err(JobError::bad_input(format!("ext.{} required", c.name)));
-        }
-        Ok((names, vals))
-    }
-
-    /// Insert a job in the initial status on `tx` and run `StoreHook::on_create`.
-    fn insert_new(
-        &self,
-        tx: &Connection,
-        n: &NewJob,
-        names: &[String],
-        vals: Vec<rusqlite::types::Value>,
-        preset_id: Option<&str>,
-    ) -> JobResult<(String, JobRecord)> {
-        let id = preset_id
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let t = now();
-        let mut cols =
-            "job_id, request_id, kind, request_json, status, attempts, created_at, updated_at"
-                .to_string();
-        let mut ph = "?1,?2,?3,?4,?5,0,?6,?6".to_string();
-        for (i, name) in names.iter().enumerate() {
-            cols.push_str(&format!(", {name}"));
-            ph.push_str(&format!(",?{}", 7 + i));
-        }
-        let mut all: Vec<rusqlite::types::Value> = vec![
-            id.clone().into(),
-            n.request_id.clone().into(),
-            n.kind.clone().into(),
-            n.request.to_string().into(),
-            self.cfg.statuses.initial().to_string().into(),
-            t.into(),
-        ];
-        all.extend(vals);
-        tx.execute(
-            &format!("INSERT INTO jobs ({cols}) VALUES ({ph})"),
-            params_from_iter(all),
-        )?;
-        let rec = self.load(tx, &id)?;
-        if let Some(h) = &self.cfg.hook {
-            h.on_create(tx, &rec)?;
-        }
-        Ok((id, rec))
-    }
-
     /// Record a submission that was refused before it could run (for example an entitlement
     /// check the app made first) as a `failed` job carrying `error`, so it shows in the job list
     /// with its reason. The insert, `StoreHook::on_create`, the move to `failed`
@@ -959,26 +876,28 @@ impl JobStore {
     /// never leaves a runnable job behind. A repeated `request_id` returns the existing job
     /// unchanged. Nothing is ever handed to a handler.
     pub fn submit_rejected(&self, n: &NewJob, ext: &Ext, error: &JobError) -> JobResult<JobRecord> {
-        let (names, vals) = self.encode_new_ext(ext)?;
+        let (names, vals) = self.table.encode_new_ext(ext)?;
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
         if let Some(rid) = &n.request_id {
-            let found = tx
-                .query_row(
-                    &format!("SELECT {} FROM jobs WHERE request_id=?1", self.select),
-                    [rid],
-                    |r| self.record_row(r),
-                )
-                .optional()?;
-            if let Some(j) = found {
+            if let Some(j) = self.table.find_by_request(&tx, rid)? {
                 return Ok(j);
             }
         }
-        let (id, rec) = self.insert_new(&tx, n, &names, vals, None)?;
+        let (id, rec) = self.table.insert_new(&tx, n, &names, vals, None)?;
         let t =
             Transition::to(FAILED).error(Some(error.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &rec, &t)?;
-        add_event_on(&tx, &id, None, "rejected", None, None, Some(&error.message))?;
+        add_event_on(
+            self.jt(),
+            &tx,
+            &id,
+            None,
+            "rejected",
+            None,
+            None,
+            Some(&error.message),
+        )?;
         tx.commit()?;
         drop(conn);
         self.settle(&id, false);
@@ -995,8 +914,11 @@ impl JobStore {
     pub(crate) fn run_class(&self, job_id: &str) -> JobResult<(Recovery, i64)> {
         self.c()
             .query_row(
-                "SELECT j.attempt_gen, m.recovery FROM jobs j \
-                 LEFT JOIN rk_job_meta m ON m.job_id=j.job_id WHERE j.job_id=?1",
+                &format!(
+                    "SELECT j.attempt_gen, m.recovery FROM {} j \
+                     LEFT JOIN rk_job_meta m ON m.job_id=j.job_id WHERE j.job_id=?1",
+                    self.jt()
+                ),
                 [job_id],
                 |r| {
                     let gen: i64 = r.get(0)?;
@@ -1025,6 +947,7 @@ impl JobStore {
         let t = Transition::to(FAILED).error(Some(err.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &before, &t)?;
         let ev = add_event_on(
+            self.jt(),
             &tx,
             job_id,
             None,
@@ -1121,10 +1044,11 @@ impl JobStore {
             format_utc(secs.saturating_sub(d.as_secs().min(i64::MAX as u64) as i64))
         });
         let doomed: Vec<String> = {
-            let mut st = conn.prepare(
-                "SELECT job_id, updated_at FROM jobs WHERE status IN ('complete','failed','cancelled') \
+            let mut st = conn.prepare(&format!(
+                "SELECT job_id, updated_at FROM {} WHERE status IN ('complete','failed','cancelled') \
                  ORDER BY created_at DESC, rowid DESC",
-            )?;
+                self.jt()
+            ))?;
             let rows = st
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1168,7 +1092,7 @@ impl JobStore {
             conn.execute("DELETE FROM rk_job_deleting WHERE job_id=?1", [id])?;
         }
         for id in &doomed {
-            conn.execute("DELETE FROM jobs WHERE job_id=?1", [id])?;
+            conn.execute(&format!("DELETE FROM {} WHERE job_id=?1", self.jt()), [id])?;
         }
         report.jobs = doomed;
         Ok(report)
@@ -1215,9 +1139,10 @@ impl JobStore {
             ClaimScope::All => String::new(),
         };
         let mut st = conn.prepare(&format!(
-            "SELECT a.path FROM {} a JOIN jobs j ON j.job_id=a.job_id {filter} \
+            "SELECT a.path FROM {} a JOIN {} j ON j.job_id=a.job_id {filter} \
              ORDER BY j.created_at, j.rowid, a.created_at, a.rowid",
             self.cfg.artifacts.table,
+            self.jt(),
         ))?;
         let mut all = st
             .query_map([], |r| r.get::<_, String>(0))?
@@ -1225,7 +1150,10 @@ impl JobStore {
         drop(st);
         if scope == ClaimScope::All {
             if let Some(root) = self.cfg.scratch_root_path() {
-                let mut st = conn.prepare("SELECT job_id FROM jobs ORDER BY created_at, rowid")?;
+                let mut st = conn.prepare(&format!(
+                    "SELECT job_id FROM {} ORDER BY created_at, rowid",
+                    self.jt()
+                ))?;
                 let ids = st
                     .query_map([], |r| r.get::<_, String>(0))?
                     .collect::<Result<Vec<_>, _>>()?;
@@ -1243,7 +1171,8 @@ impl JobStore {
                 ClaimScope::All => String::new(),
             };
             let mut st = conn.prepare(&format!(
-                "SELECT request_id FROM jobs WHERE request_id IS NOT NULL {filter}                  ORDER BY created_at, rowid"
+                "SELECT request_id FROM {jobs} WHERE request_id IS NOT NULL {filter}                  ORDER BY created_at, rowid",
+                jobs = self.jt()
             ))?;
             let rids = st
                 .query_map([], |r| r.get::<_, String>(0))?
@@ -1284,7 +1213,11 @@ impl JobStore {
     pub fn record_by_request(&self, request_id: &str) -> JobResult<JobRecord> {
         self.c()
             .query_row(
-                &format!("SELECT {} FROM jobs WHERE request_id=?1", self.select),
+                &format!(
+                    "SELECT {} FROM {} WHERE request_id=?1",
+                    self.table.select(),
+                    self.jt()
+                ),
                 [request_id],
                 |r| self.record_row(r),
             )
@@ -1316,7 +1249,8 @@ impl JobStore {
     pub fn non_terminal_ids(&self) -> JobResult<Vec<String>> {
         let conn = self.c();
         let mut st = conn.prepare(&format!(
-            "SELECT job_id FROM jobs WHERE status IN {} ORDER BY created_at, rowid",
+            "SELECT job_id FROM {} WHERE status IN {} ORDER BY created_at, rowid",
+            self.jt(),
             self.cfg.statuses.sql_set()
         ))?;
         let ids = st
@@ -1328,74 +1262,7 @@ impl JobStore {
     /// Apply `t` to `before` on `conn` (inside the caller's transaction) and
     /// fire hooks. `before` must be non-terminal.
     fn exec(&self, conn: &Connection, before: &JobRecord, t: &Transition) -> JobResult<JobRecord> {
-        self.exec_in(conn, before, t, false)
-    }
-
-    /// [`JobStore::exec`]; `force` skips the status model's move check (hold and resolve, which
-    /// check their own preconditions).
-    fn exec_in(
-        &self,
-        conn: &Connection,
-        before: &JobRecord,
-        t: &Transition,
-        force: bool,
-    ) -> JobResult<JobRecord> {
-        let model = &self.cfg.statuses;
-        if let Some(to) = &t.to {
-            if !force && !model.can_move(&before.job.status, to) {
-                return Err(JobError::new(
-                    "illegal_transition",
-                    format!(
-                        "job {} cannot move from {} to {to}",
-                        before.job.job_id, before.job.status
-                    ),
-                ));
-            }
-        }
-        let mut sets = vec!["updated_at=?2".to_string()];
-        let mut vals: Vec<rusqlite::types::Value> =
-            vec![before.job.job_id.clone().into(), now().into()];
-        let mut bind = |sets: &mut Vec<String>, col: &str, v: rusqlite::types::Value| {
-            vals.push(v);
-            sets.push(format!("{col}=?{}", vals.len()));
-        };
-        if let Some(to) = &t.to {
-            bind(&mut sets, "status", to.clone().into());
-        }
-        if t.count_attempt {
-            sets.push("attempts=attempts+1".into());
-        }
-        for (k, v) in &t.ext {
-            let c = self
-                .cfg
-                .column_named(k)
-                .ok_or_else(|| JobError::bad_input(format!("unknown ext column: {k}")))?;
-            bind(&mut sets, &c.name, c.encode(v)?);
-        }
-        if let Some(e) = &t.error {
-            bind(
-                &mut sets,
-                "error_json",
-                e.as_ref().map(|v| v.to_string()).into(),
-            );
-        }
-        if let Some(r) = &t.result {
-            bind(&mut sets, "result_json", r.to_string().into());
-        }
-        conn.execute(
-            &format!("UPDATE jobs SET {} WHERE job_id=?1", sets.join(", ")),
-            params_from_iter(vals),
-        )?;
-        let after = self.load(conn, &before.job.job_id)?;
-        if let Some(h) = &self.cfg.hook {
-            if t.count_attempt {
-                h.on_attempt(conn, &after, after.job.attempts)?;
-            }
-            if after.job.status != before.job.status {
-                h.on_transition(conn, before, &after)?;
-            }
-        }
-        Ok(after)
+        self.table.exec(conn, before, t)
     }
 
     /// Validate and apply a transition in one write transaction with the
@@ -1435,7 +1302,7 @@ impl JobStore {
     pub fn generation(&self, job_id: &str) -> JobResult<i64> {
         self.c()
             .query_row(
-                "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+                &format!("SELECT attempt_gen FROM {} WHERE job_id=?1", self.jt()),
                 [job_id],
                 |r| r.get(0),
             )
@@ -1450,9 +1317,13 @@ impl JobStore {
     pub fn fence(&self, job_id: &str, generation: i64) -> JobResult<i64> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, Some(generation))?;
+        check_fence(self.jt(), &tx, job_id, Some(generation))?;
         tx.execute(
-            "UPDATE jobs SET attempt_gen=attempt_gen+1, updated_at=?2 WHERE job_id=?1",
+            &format!(
+                "UPDATE {} SET attempt_gen=attempt_gen+1, updated_at=?2{} WHERE job_id=?1",
+                self.jt(),
+                self.table.rev_bump()
+            ),
             params![job_id, now()],
         )?;
         let next = generation + 1;
@@ -1479,7 +1350,7 @@ impl JobStore {
             Some(r) => Ok(r),
             // Terminal jobs still accept extension data (e.g. a final cost).
             None => self.write(|conn| {
-                check_fence(conn, job_id, fence)?;
+                check_fence(self.jt(), conn, job_id, fence)?;
                 let before = self.load(conn, job_id)?;
                 self.exec(conn, &before, &t)
             }),
@@ -1520,16 +1391,22 @@ impl JobStore {
             return Ok(None);
         }
         self.refuse_held(&before)?;
-        let after = self.exec(&tx, &before, &t)?;
+        self.exec(&tx, &before, &t)?;
         tx.execute(
-            "UPDATE jobs SET attempt_gen=attempt_gen+1 WHERE job_id=?1",
+            &format!(
+                "UPDATE {} SET attempt_gen=attempt_gen+1{} WHERE job_id=?1",
+                self.jt(),
+                self.table.rev_bump()
+            ),
             [job_id],
         )?;
         let generation: i64 = tx.query_row(
-            "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+            &format!("SELECT attempt_gen FROM {} WHERE job_id=?1", self.jt()),
             [job_id],
             |r| r.get(0),
         )?;
+        // Reload so the record carries the revision after the generation bump too.
+        let after = self.load(&tx, job_id)?;
         tx.commit()?;
         drop(conn);
         // A new attempt starts a fresh progress interval; older pending ticks are stale.
@@ -1555,9 +1432,13 @@ impl JobStore {
     fn refund_attempt_in(&self, job_id: &str, fence: Option<i64>) -> JobResult<()> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
+        check_fence(self.jt(), &tx, job_id, fence)?;
         tx.execute(
-            "UPDATE jobs SET attempts=MAX(attempts-1,0), updated_at=?2 WHERE job_id=?1",
+            &format!(
+                "UPDATE {} SET attempts=MAX(attempts-1,0), updated_at=?2{} WHERE job_id=?1",
+                self.jt(),
+                self.table.rev_bump()
+            ),
             params![job_id, now()],
         )?;
         tx.commit()?;
@@ -1582,10 +1463,14 @@ impl JobStore {
     fn record_error_in(&self, job_id: &str, fence: Option<i64>, error: &JobError) -> JobResult<()> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
+        check_fence(self.jt(), &tx, job_id, fence)?;
         self.flush_pending_in(&tx, job_id)?;
         tx.execute(
-            "UPDATE jobs SET error_json=?2, updated_at=?3 WHERE job_id=?1",
+            &format!(
+                "UPDATE {} SET error_json=?2, updated_at=?3{} WHERE job_id=?1",
+                self.jt(),
+                self.table.rev_bump()
+            ),
             params![
                 job_id,
                 error
@@ -1670,12 +1555,7 @@ impl JobStore {
     // ------------------------------------------------ external submissions ----
 
     fn external_col(&self) -> JobResult<&str> {
-        self.cfg.external_id.as_deref().ok_or_else(|| {
-            JobError::new(
-                "not_configured",
-                "store has no external id column (StoreConfig::external_id)",
-            )
-        })
+        self.table.external_col()
     }
 
     /// Decide, in one write transaction, how to drive the job's external
@@ -1714,55 +1594,14 @@ impl JobStore {
         fence: Option<i64>,
         max_attempts: i64,
     ) -> JobResult<Option<Submission>> {
-        let col = self.external_col()?.to_string();
+        self.table.external_col()?;
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
-        }
-        // Counting an attempt on a held job would reserve spend for a submission nobody may make.
-        self.refuse_held(&before)?;
-        if let Some(x) = before.ext_str(&col) {
-            return Ok(Some(Submission::Resume {
-                external_id: x.to_string(),
-                attempt: before.job.attempts,
-            }));
-        }
-        let pending: Option<String> = tx
-            .query_row(
-                "SELECT idempotency_key FROM rk_job_submissions WHERE job_id=?1 AND attempt=?2 AND state='pending'",
-                params![job_id, before.job.attempts],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(key) = pending {
-            return Ok(Some(Submission::Submit {
-                attempt: before.job.attempts,
-                idempotency_key: key,
-                replay: true,
-            }));
-        }
-        if before.job.attempts >= max_attempts.max(1) {
-            return Ok(Some(Submission::Exhausted {
-                attempts: before.job.attempts,
-            }));
-        }
-        let after = self.exec(&tx, &before, &Transition::keep().count_attempt())?;
-        let attempt = after.job.attempts;
-        let key = format!("{job_id}:{attempt}");
-        let t = now();
-        tx.execute(
-            "INSERT OR REPLACE INTO rk_job_submissions (job_id, attempt, idempotency_key, state, created_at, updated_at) VALUES (?1,?2,?3,'pending',?4,?4)",
-            params![job_id, attempt, key, t],
-        )?;
+        let out =
+            self.table
+                .begin_submission(&tx, job_id, Expect::fence_only(fence), max_attempts)?;
         tx.commit()?;
-        Ok(Some(Submission::Submit {
-            attempt,
-            idempotency_key: key,
-            replay: false,
-        }))
+        Ok(out)
     }
 
     /// The external system accepted the current attempt: store its id (and
@@ -1794,26 +1633,18 @@ impl JobStore {
         external_id: &str,
         to: Option<&str>,
     ) -> JobResult<Option<JobRecord>> {
-        let col = self.external_col()?.to_string();
+        self.table.external_col()?;
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
-        }
-        let t = Transition {
-            to: to.map(Into::into),
-            ..Transition::default()
-        }
-        .set(col, external_id);
-        let after = self.exec(&tx, &before, &t)?;
-        tx.execute(
-            "UPDATE rk_job_submissions SET state='accepted', external_id=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-            params![job_id, after.job.attempts, external_id, now()],
+        let out = self.table.accept_submission(
+            &tx,
+            job_id,
+            Expect::fence_only(fence),
+            external_id,
+            to,
         )?;
         tx.commit()?;
-        Ok(Some(after))
+        Ok(out)
     }
 
     /// The current attempt is confirmed failed (or was rejected): forget the
@@ -1846,40 +1677,18 @@ impl JobStore {
         error: &JobError,
         to: Option<&str>,
     ) -> JobResult<Option<JobRecord>> {
-        let col = self.external_col()?.to_string();
+        self.table.external_col()?;
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
-        }
-        let t = Transition {
-            to: to.map(Into::into),
-            ..Transition::default()
-        }
-        .set(col, Value::Null)
-        .error(Some(error.to_json_with(self.cfg.includes_retryable())));
-        let after = self.exec(&tx, &before, &t)?;
-        tx.execute(
-            "UPDATE rk_job_submissions SET state='failed', error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-            params![job_id, before.job.attempts, error.to_json_with(self.cfg.includes_retryable()).to_string(), now()],
-        )?;
+        let out = self
+            .table
+            .fail_submission(&tx, job_id, Expect::fence_only(fence), error, to)?;
         tx.commit()?;
-        Ok(Some(after))
+        Ok(out)
     }
 
     fn refuse_held(&self, rec: &JobRecord) -> JobResult<()> {
-        if self.cfg.statuses.is_held(&rec.job.status) {
-            return Err(JobError::new(
-                "illegal_transition",
-                format!(
-                    "job {} is held in {}; only resolve can move it",
-                    rec.job.job_id, rec.job.status
-                ),
-            ));
-        }
-        Ok(())
+        self.table.refuse_held(rec)
     }
 
     /// The outcome of the current submission attempt is unknown (the request may or may not
@@ -1917,29 +1726,21 @@ impl JobStore {
         error: &JobError,
         to: &str,
     ) -> JobResult<Option<JobRecord>> {
-        self.external_col()?;
-        if !self.cfg.statuses.is_held(to) {
-            return Err(JobError::bad_input(format!("{to} is not a held status")));
-        }
+        self.table.external_col()?;
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
-        }
-        self.refuse_held(&before)?;
-        self.flush_pending_in(&tx, job_id)?;
-        let ej = error.to_json_with(self.cfg.includes_retryable());
-        let t = Transition::to(to).error(Some(ej.clone()));
-        let after = self.exec_in(&tx, &before, &t, true)?;
-        tx.execute(
-            "UPDATE rk_job_submissions SET error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-            params![job_id, before.job.attempts, ej.to_string(), now()],
+        let out = self.table.hold_submission_on(
+            &tx,
+            job_id,
+            &Expect::fence_only(fence),
+            error,
+            to,
+            &|c, id| self.flush_pending_in(c, id),
         )?;
-        add_event_on(&tx, job_id, None, "held", None, None, Some(&error.message))?;
-        tx.commit()?;
-        Ok(Some(after))
+        if out.is_some() {
+            tx.commit()?;
+        }
+        Ok(out)
     }
 
     /// Settle a held job, in one transaction with `StoreHook::on_transition` and
@@ -1957,62 +1758,13 @@ impl JobStore {
     ///
     /// `to` is ignored by the last two. A hook error rolls everything back and the job stays held.
     pub fn resolve(&self, job_id: &str, r: &Resolution, to: Option<&str>) -> JobResult<JobRecord> {
-        let model = &self.cfg.statuses;
-        if matches!(r, Resolution::Resubmit) {
-            match to {
-                Some(t)
-                    if model.is_known(t) && !StatusModel::is_terminal(t) && !model.is_held(t) => {}
-                _ => {
-                    return Err(JobError::bad_input(
-                        "resubmit needs a known, non-terminal, non-held target status",
-                    ))
-                }
-            }
-        }
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        let before = self.load(&tx, job_id)?;
-        if !model.is_held(&before.job.status) {
-            return Err(JobError::new(
-                "illegal_transition",
-                format!(
-                    "job {job_id} is {}, not held; only a held job can be resolved",
-                    before.job.status
-                ),
-            ));
-        }
-        self.flush_pending_in(&tx, job_id)?;
-        let includes = self.cfg.includes_retryable();
-        let (t, sub_state, label) = match r {
-            Resolution::Resubmit => {
-                let mut t = Transition::to(to.unwrap_or_default());
-                if let Some(col) = self.cfg.external_id.as_deref() {
-                    t = t.set(col, Value::Null);
-                }
-                (t, "failed", "resubmit")
-            }
-            Resolution::Abandon(e) => (
-                Transition::to(FAILED).error(Some(e.to_json_with(includes))),
-                "failed",
-                "abandon",
-            ),
-            Resolution::Adopt(v) => (
-                Transition::to(COMPLETE).result(v.clone()).error(None),
-                "accepted",
-                "adopt",
-            ),
-        };
-        let after = self.exec_in(&tx, &before, &t, true)?;
-        if self.cfg.external_id.is_some() {
-            tx.execute(
-                "UPDATE rk_job_submissions SET state=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-                params![job_id, before.job.attempts, sub_state, now()],
-            )?;
-        }
-        add_event_on(&tx, job_id, None, "resolved", None, None, Some(label))?;
-        if let Some(h) = &self.cfg.hook {
-            h.on_resolve(&tx, &after, after.job.attempts, r)?;
-        }
+        let after = self
+            .table
+            .resolve_on(&tx, job_id, &Expect::default(), r, to, &|c, id| {
+                self.flush_pending_in(c, id)
+            })?;
         tx.commit()?;
         drop(conn);
         if after.job.is_terminal() {
@@ -2056,7 +1808,11 @@ impl JobStore {
         }
         if j.acked_by.is_none() {
             self.c().execute(
-                "UPDATE jobs SET acked_by=?2, acked_at=?3, updated_at=?3 WHERE job_id=?1",
+                &format!(
+                    "UPDATE {} SET acked_by=?2, acked_at=?3, updated_at=?3{} WHERE job_id=?1",
+                    self.jt(),
+                    self.table.rev_bump()
+                ),
                 params![job_id, consumer, now()],
             )?;
         }
@@ -2087,9 +1843,9 @@ impl JobStore {
     ) -> JobResult<Event> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, Some(generation))?;
+        check_fence(self.jt(), &tx, job_id, Some(generation))?;
         self.flush_pending_in(&tx, job_id)?;
-        let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
+        let ev = add_event_on(self.jt(), &tx, job_id, None, stage, None, progress, message)?;
         tx.commit()?;
         drop(conn);
         self.after_write();
@@ -2141,9 +1897,9 @@ impl JobStore {
         }
         let out = (|| -> JobResult<Event> {
             let tx = write_txn(&mut conn)?;
-            check_fence(&tx, job_id, Some(generation))?;
+            check_fence(self.jt(), &tx, job_id, Some(generation))?;
             self.flush_pending_in(&tx, job_id)?;
-            let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
+            let ev = add_event_on(self.jt(), &tx, job_id, None, stage, None, progress, message)?;
             tx.commit()?;
             Ok(ev)
         })();
@@ -2217,7 +1973,7 @@ impl JobStore {
         };
         let current: Option<i64> = conn
             .query_row(
-                "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+                &format!("SELECT attempt_gen FROM {} WHERE job_id=?1", self.jt()),
                 [job_id],
                 |r| r.get(0),
             )
@@ -2226,6 +1982,7 @@ impl JobStore {
             return Ok(());
         }
         add_event_on(
+            self.jt(),
             conn,
             job_id,
             None,
@@ -2275,7 +2032,16 @@ impl JobStore {
         }
         let conn = self.c();
         self.flush_pending_in(&conn, job_id)?;
-        add_event_on(&conn, job_id, status, stage, attempt, progress, message)
+        add_event_on(
+            self.jt(),
+            &conn,
+            job_id,
+            status,
+            stage,
+            attempt,
+            progress,
+            message,
+        )
     }
 
     /// Events with `seq > after`, in order. Poll with the last seen `seq` to stream.
@@ -2351,7 +2117,7 @@ impl JobStore {
         };
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, Some(generation))?;
+        check_fence(self.jt(), &tx, job_id, Some(generation))?;
         self.insert_artifact(&tx, &a)?;
         tx.commit()?;
         Ok(a)
@@ -2434,13 +2200,13 @@ impl JobStore {
 }
 
 /// Reject a write from a superseded attempt. `None` is an unfenced store call.
-fn check_fence(conn: &Connection, job_id: &str, fence: Option<i64>) -> JobResult<()> {
+fn check_fence(table: &str, conn: &Connection, job_id: &str, fence: Option<i64>) -> JobResult<()> {
     let Some(expected) = fence else {
         return Ok(());
     };
     let current: i64 = conn
         .query_row(
-            "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+            &format!("SELECT attempt_gen FROM {table} WHERE job_id=?1"),
             [job_id],
             |r| r.get(0),
         )
@@ -2454,7 +2220,11 @@ fn check_fence(conn: &Connection, job_id: &str, fence: Option<i64>) -> JobResult
 }
 
 /// Append one event on `conn` (a connection or a transaction).
+// The columns of one event row are passed individually by every caller; a struct would only
+// restate them at each call site.
+#[allow(clippy::too_many_arguments)]
 fn add_event_on(
+    table: &str,
     conn: &Connection,
     job_id: &str,
     status: Option<&str>,
@@ -2465,7 +2235,7 @@ fn add_event_on(
 ) -> JobResult<Event> {
     let (row_status, row_attempt): (String, i64) = conn
         .query_row(
-            "SELECT status, attempts FROM jobs WHERE job_id=?1",
+            &format!("SELECT status, attempts FROM {table} WHERE job_id=?1"),
             [job_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -2498,10 +2268,11 @@ fn add_event_on(
 /// Create or additively adopt the schema. Never drops or rewrites data.
 /// SQLite errors are the outer result (so busy is retried); schema refusals the inner.
 fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResult<Adoption>> {
+    let jt = cfg.jobs_table.as_str();
     let existed: bool = conn
         .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'",
-            [],
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+            [jt],
             |_| Ok(true),
         )
         .optional()?
@@ -2512,10 +2283,9 @@ fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResu
     };
     // Refuse before touching anything: a required column the app did not
     // declare would make every insert fail.
-    let mut st =
-        conn.prepare("SELECT name, \"notnull\", dflt_value FROM pragma_table_info('jobs')")?;
+    let mut st = conn.prepare("SELECT name, \"notnull\", dflt_value FROM pragma_table_info(?1)")?;
     let cols = st
-        .query_map([], |r| {
+        .query_map([jt], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, i64>(1)?,
@@ -2538,13 +2308,13 @@ fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResu
         return Ok(Err(JobError::new(
             "schema",
             format!(
-                "jobs has NOT NULL columns without defaults that are not declared: {} (declare them with StoreConfig::column)",
+                "{jt} has NOT NULL columns without defaults that are not declared: {} (declare them with StoreConfig::column)",
                 undeclared.join(", ")
             ),
         )));
     }
-    let mut ddl = String::from(
-        "CREATE TABLE IF NOT EXISTS jobs (
+    let mut ddl = format!(
+        "CREATE TABLE IF NOT EXISTS {jt} (
   job_id TEXT PRIMARY KEY,
   request_id TEXT UNIQUE,
   kind TEXT NOT NULL,
@@ -2557,7 +2327,7 @@ fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResu
   acked_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  attempt_gen INTEGER NOT NULL DEFAULT 0",
+  attempt_gen INTEGER NOT NULL DEFAULT 0"
     );
     for c in &cfg.columns {
         ddl.push_str(",\n  ");
@@ -2565,6 +2335,7 @@ fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResu
     }
     ddl.push_str("\n);");
     conn.execute_batch(&ddl)?;
+    conn.execute_batch(&core_index_sql(jt))?;
     conn.execute_batch(CORE_SCHEMA)?;
     let a = &cfg.artifacts;
     conn.execute_batch(&format!(
@@ -2588,28 +2359,28 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
     }
     // Columns later schemas (or the other app's schema) may lack.
     let mut wanted: Vec<(String, String, String)> = vec![
-        ("jobs".into(), "acked_by".into(), "TEXT".into()),
-        ("jobs".into(), "acked_at".into(), "TEXT".into()),
+        (jt.into(), "acked_by".into(), "TEXT".into()),
+        (jt.into(), "acked_at".into(), "TEXT".into()),
         ("job_events".into(), "progress".into(), "REAL".into()),
         (
-            "jobs".into(),
+            jt.into(),
             "attempt_gen".into(),
             "INTEGER NOT NULL DEFAULT 0".into(),
         ),
     ];
     for c in &cfg.columns {
-        if c.required() && !has_col(conn, "jobs", &c.name)? {
+        if c.required() && !has_col(conn, jt, &c.name)? {
             return Ok(Err(JobError::new(
                 "schema",
                 format!(
-                    "existing jobs table lacks NOT NULL column {} and it has no default to add it with",
+                    "existing {jt} table lacks NOT NULL column {} and it has no default to add it with",
                     c.name
                 ),
             )));
         }
         let d = c.ddl().unwrap_or_default();
         let decl = d[c.name.len()..].trim().to_string();
-        wanted.push(("jobs".into(), c.name.clone(), decl));
+        wanted.push((jt.into(), c.name.clone(), decl));
     }
     for (table, col, decl) in wanted {
         if has_col(conn, &table, &col)? {
@@ -2622,6 +2393,14 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
             Err(_) if has_col(conn, &table, &col)? => {}
             Err(e) => return Err(e),
         }
+    }
+    // Extra UNIQUE constraints go last: they may name columns added just above.
+    for cols in &cfg.unique {
+        conn.execute_batch(&format!(
+            "CREATE UNIQUE INDEX IF NOT EXISTS {jt}_uq_{name} ON {jt}({list});",
+            name = cols.join("_"),
+            list = cols.join(", ")
+        ))?;
     }
     Ok(Ok(adoption))
 }

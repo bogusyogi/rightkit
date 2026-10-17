@@ -6,6 +6,7 @@ use crate::ServiceError;
 pub const STATUS_TABLE: &[(&str, u16)] = &[
     ("bad_request", 400),
     (ERROR_UNAUTHENTICATED, 401),
+    (ERROR_RATE_LIMITED, 429),
     (ERROR_FORBIDDEN, 403),
     (ERROR_NOT_ALLOWED, 403),
     (ERROR_REVISION_CONFLICT, 409),

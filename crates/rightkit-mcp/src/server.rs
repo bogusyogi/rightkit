@@ -201,6 +201,31 @@ impl CallHandle {
         (shared.notify)(json!({"jsonrpc":"2.0","method":"notifications/progress","params":params}))
     }
 
+    /// As [`notify_progress`](Self::notify_progress) with exact JSON numbers, so a whole-number
+    /// progress goes out as `3`, not `3.0` (`serde_json::Number::from(3u64)`). A `Number` built
+    /// from an `f64` keeps its fractional spelling.
+    pub fn notify_progress_number(
+        &self,
+        progress: serde_json::Number,
+        total: Option<serde_json::Number>,
+        message: Option<&str>,
+    ) -> bool {
+        let Some(shared) = &self.shared else {
+            return false;
+        };
+        let Some(token) = &shared.progress_token else {
+            return false;
+        };
+        let mut params = json!({"progressToken": token, "progress": progress});
+        if let Some(total) = total {
+            params["total"] = Value::Number(total);
+        }
+        if let Some(message) = message {
+            params["message"] = json!(message);
+        }
+        (shared.notify)(json!({"jsonrpc":"2.0","method":"notifications/progress","params":params}))
+    }
+
     /// Emits any server-to-client notification. Returns `false` when it could not be sent.
     pub fn notify(&self, method: &str, params: Value) -> bool {
         match &self.shared {
@@ -258,7 +283,46 @@ pub struct TransformInfo<'a> {
     pub transport: ServerTransport,
 }
 
-type ResponseTransform = Arc<dyn Fn(&TransformInfo<'_>, &mut Value) + Send + Sync>;
+/// Context for the transform set with [`ServerHost::with_request_transform`]: the
+/// [`TransformInfo`] plus the request frame being answered (one item of a batch), for
+/// per-request rewrites such as gating on `params._meta` or the negotiated protocol version.
+///
+/// `Debug` omits the request contents (tool arguments may hold secrets); it prints only the
+/// method, transport and the number of top-level members of the request.
+#[derive(Clone, Copy)]
+pub struct TransformContext<'a> {
+    info: TransformInfo<'a>,
+    request: &'a Value,
+}
+
+impl<'a> TransformContext<'a> {
+    /// Method and transport, as given to [`ServerHost::with_response_transform`].
+    pub fn info(&self) -> &TransformInfo<'a> {
+        &self.info
+    }
+
+    /// The request frame being answered.
+    pub fn request(&self) -> &'a Value {
+        self.request
+    }
+}
+
+impl std::fmt::Debug for TransformContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let args = self.request.get("params").map_or(0, |p| match p {
+            Value::Object(o) => o.len(),
+            Value::Array(a) => a.len(),
+            _ => 1,
+        });
+        f.debug_struct("TransformContext")
+            .field("method", &self.info.method)
+            .field("transport", &self.info.transport)
+            .field("param_count", &args)
+            .finish_non_exhaustive()
+    }
+}
+
+type ResponseTransform = Arc<dyn Fn(&TransformContext<'_>, &mut Value) + Send + Sync>;
 
 fn merge_json(base: &mut Value, over: &Value) {
     match (base, over) {
@@ -310,6 +374,21 @@ pub enum BatchPolicy {
     Reject,
     /// No response & no handler calls (Membrane).
     Ignore,
+}
+
+/// How strictly incoming JSON-RPC frames are validated (see
+/// [`ServerHost::with_request_validation`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RequestValidation {
+    /// Malformed frames are dropped without a reply, as before (default).
+    #[default]
+    Lenient,
+    /// Reply `-32600 Invalid Request` to a non-object frame, an object without a string
+    /// `method`, an `id` that is not a string or number (`null` is allowed only with
+    /// `IdPolicy::NullResponse`), `params` that is present but not an object, and an empty
+    /// batch. The reply carries the request's `id` when that is a string or number, else `null`.
+    /// Handlers are never invoked for such a frame.
+    Strict,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -407,6 +486,8 @@ struct Inner {
     response_hook: Option<ResponseHook>,
     response_transform: Option<ResponseTransform>,
     cancelled_response: CancelledResponse,
+    request_validation: RequestValidation,
+    batch_policy_versions: Vec<(String, BatchPolicy)>,
 }
 
 #[derive(Clone)]
@@ -422,16 +503,36 @@ struct Ctx {
     /// Present only under concurrent stdio serving.
     live: Option<Arc<Live>>,
     call: CallHandle,
+    /// Protocol version of this connection: the version answered by the last successful
+    /// `initialize` (stdio) or the `MCP-Protocol-Version` header (HTTP). Shared by clones.
+    version: Arc<Mutex<Option<String>>>,
 }
 
 impl Ctx {
     fn new(request: RequestContext, run: String) -> Self {
+        let version = request
+            .metadata
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         Ctx {
             request,
             run,
             live: None,
             call: CallHandle::default(),
+            version: Arc::new(Mutex::new(version)),
         }
+    }
+
+    fn protocol_version(&self) -> Option<String> {
+        self.version
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn set_protocol_version(&self, version: &str) {
+        *self.version.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.to_string());
     }
 }
 
@@ -598,6 +699,8 @@ impl ServerHost {
                 response_hook: None,
                 response_transform: None,
                 cancelled_response: CancelledResponse::default(),
+                request_validation: RequestValidation::default(),
+                batch_policy_versions: Vec::new(),
             }),
         }
     }
@@ -620,6 +723,8 @@ impl ServerHost {
             response_hook: i.response_hook.clone(),
             response_transform: i.response_transform.clone(),
             cancelled_response: i.cancelled_response,
+            request_validation: i.request_validation,
+            batch_policy_versions: i.batch_policy_versions.clone(),
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -678,10 +783,29 @@ impl ServerHost {
         self,
         transform: impl Fn(&TransformInfo<'_>, &mut Value) + Send + Sync + 'static,
     ) -> Self {
+        self.rebuild(|i| {
+            i.response_transform = Some(Arc::new(move |ctx, result| transform(ctx.info(), result)))
+        })
+    }
+
+    /// Like [`ServerHost::with_response_transform`] (replacing it; the last one set wins), but the
+    /// closure also sees the request frame it answers through [`TransformContext::request`], for
+    /// per-request rewrites such as `_meta` or protocol-version gating. Each batch item is its
+    /// own request.
+    pub fn with_request_transform(
+        self,
+        transform: impl Fn(&TransformContext<'_>, &mut Value) + Send + Sync + 'static,
+    ) -> Self {
         self.rebuild(|i| i.response_transform = Some(Arc::new(transform)))
     }
 
-    fn transform(&self, method: Option<&str>, reply: &mut Value, transport: ServerTransport) {
+    fn transform(
+        &self,
+        request: &Value,
+        method: Option<&str>,
+        reply: &mut Value,
+        transport: ServerTransport,
+    ) {
         let Some(transform) = &self.inner.response_transform else {
             return;
         };
@@ -689,7 +813,10 @@ impl ServerHost {
             return;
         };
         let mut working = original.clone();
-        let info = TransformInfo { method, transport };
+        let info = TransformContext {
+            info: TransformInfo { method, transport },
+            request,
+        };
         let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             transform(&info, &mut working)
         }))
@@ -697,6 +824,75 @@ impl ServerHost {
         if ok {
             reply["result"] = working;
         }
+    }
+
+    /// Sets frame validation ([`RequestValidation::Lenient`] by default). Applies to every
+    /// transport and to `dispatch*`; each batch item is validated on its own.
+    pub fn with_request_validation(self, validation: RequestValidation) -> Self {
+        self.rebuild(|i| i.request_validation = validation)
+    }
+
+    /// Overrides [`ServerOptions::batch_policy`] for connections that negotiated `version`
+    /// (for example `Reject` for `2025-06-18`, which dropped JSON-RPC batching, while
+    /// `2025-03-26` keeps `Process`). Repeatable; the last entry for one version wins. The
+    /// version is the one answered by `initialize` on this stdio run, the `MCP-Protocol-Version`
+    /// header on HTTP, or `RequestContext::metadata["protocolVersion"]` for `dispatch*`. A
+    /// connection with no known version, or one not listed, uses `ServerOptions::batch_policy`.
+    pub fn with_batch_policy_for_version(
+        self,
+        version: impl Into<String>,
+        policy: BatchPolicy,
+    ) -> Self {
+        let version = version.into();
+        self.rebuild(move |i| {
+            i.batch_policy_versions.retain(|(v, _)| *v != version);
+            i.batch_policy_versions.push((version, policy));
+        })
+    }
+
+    fn batch_policy(&self, ctx: &Ctx) -> BatchPolicy {
+        if !self.inner.batch_policy_versions.is_empty() {
+            if let Some(version) = ctx.protocol_version() {
+                if let Some((_, policy)) = self
+                    .inner
+                    .batch_policy_versions
+                    .iter()
+                    .find(|(v, _)| *v == version)
+                {
+                    return *policy;
+                }
+            }
+        }
+        self.inner.options.batch_policy
+    }
+
+    /// `Some(error reply)` when strict validation rejects `msg` (one frame or batch item).
+    fn invalid_request(&self, msg: &Value, transport: ServerTransport) -> Option<Value> {
+        if self.inner.request_validation != RequestValidation::Strict {
+            return None;
+        }
+        let valid_id = |id: &Value| id.is_string() || id.is_number();
+        let null_ok = self.inner.options.id_policy == IdPolicy::NullResponse;
+        let id_ok = |id: &Value| valid_id(id) || (null_ok && id.is_null());
+        let bad = match msg.as_object() {
+            None => true,
+            Some(o) => {
+                !o.get("method").is_some_and(Value::is_string)
+                    || o.get("id").is_some_and(|id| !id_ok(id))
+                    || o.get("params").is_some_and(|p| !p.is_object())
+            }
+        };
+        if !bad {
+            return None;
+        }
+        let id = msg
+            .get("id")
+            .filter(|id| valid_id(id))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let reply = rpc_error(&id, -32600, "Invalid Request");
+        self.observe(None, &reply, transport);
+        Some(reply)
     }
 
     /// Chooses whether a request cancelled by the client still gets a reply (default: no, per
@@ -760,7 +956,8 @@ impl ServerHost {
     ) -> Option<Value> {
         let ctx = Ctx::new(context.clone(), next_id("mcps"));
         if let Value::Array(items) = request {
-            return match self.inner.options.batch_policy {
+            return match self.batch_policy(&ctx) {
+                BatchPolicy::Process if items.is_empty() => self.empty_batch(&ctx),
                 BatchPolicy::Process => {
                     let futures = items.iter().map(|item| {
                         Box::pin(self.dispatch_async_one(item, &ctx))
@@ -805,9 +1002,13 @@ impl ServerHost {
     }
 
     async fn dispatch_async_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        if let Some(invalid) = self.invalid_request(msg, ctx.request.transport) {
+            return Some(invalid);
+        }
         let mut reply = self.dispatch_async_one_inner(msg, ctx).await;
         if let Some(r) = &mut reply {
             self.transform(
+                msg,
                 msg.get("method").and_then(Value::as_str),
                 r,
                 ctx.request.transport,
@@ -1189,6 +1390,12 @@ impl ServerHost {
             let method = msg.get("method").and_then(Value::as_str);
             let has_id = msg.get("id").is_some_and(|id| !id.is_null());
             if method == Some("notifications/cancelled") && !has_id {
+                if let Some(invalid) = self.invalid_request(&msg, ServerTransport::Stdio) {
+                    if let Err(e) = write_line(&invalid) {
+                        return fail(e);
+                    }
+                    continue;
+                }
                 if let (Some(live), Some(request_id)) =
                     (&ctx.live, msg.pointer("/params/requestId"))
                 {
@@ -1233,7 +1440,8 @@ impl ServerHost {
 
     fn dispatch_frame(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
         if let Value::Array(items) = msg {
-            return match self.inner.options.batch_policy {
+            return match self.batch_policy(ctx) {
+                BatchPolicy::Process if items.is_empty() => self.empty_batch(ctx),
                 BatchPolicy::Process => {
                     let replies: Vec<Value> = items
                         .iter()
@@ -1252,6 +1460,12 @@ impl ServerHost {
             };
         }
         self.handle_one(msg, ctx)
+    }
+
+    /// An empty batch: dropped as before, or `-32600` under strict validation.
+    fn empty_batch(&self, ctx: &Ctx) -> Option<Value> {
+        (self.inner.request_validation == RequestValidation::Strict)
+            .then(|| self.observed_error(ctx.request.transport, -32600, "Invalid Request"))
     }
 
     fn method_not_found(&self, id: &Value, method: &str) -> Value {
@@ -1298,6 +1512,9 @@ impl ServerHost {
     }
 
     fn handle_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        if let Some(invalid) = self.invalid_request(msg, ctx.request.transport) {
+            return Some(invalid);
+        }
         let scoped = self.scope_call(msg, ctx);
         let ctx = scoped.as_ref().map_or(ctx, |(c, _)| c);
         let mut reply = self.handle_one_inner(msg, ctx)?;
@@ -1308,6 +1525,7 @@ impl ServerHost {
             return None;
         }
         self.transform(
+            msg,
             msg.get("method").and_then(Value::as_str),
             &mut reply,
             ctx.request.transport,
@@ -1334,7 +1552,18 @@ impl ServerHost {
         };
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         let out = match method {
-            "initialize" => self.initialize(&params),
+            "initialize" => {
+                let result = self.initialize(&params);
+                if let Some(version) = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|r| r.get("protocolVersion"))
+                    .and_then(Value::as_str)
+                {
+                    ctx.set_protocol_version(version);
+                }
+                result
+            }
             "ping" => Ok(json!({})),
             "tools/list" => self.tools_list(msg, ctx),
             "tools/call" => self.tools_call(msg, &params, ctx),
@@ -1886,6 +2115,7 @@ fn handle_http(
         body.extend_from_slice(&tmp[..n]);
     }
     let session = hdr("mcp-session-id");
+    let header_version = hdr("mcp-protocol-version");
     if let Some(sid) = &session {
         if !sessions
             .lock()
@@ -1919,6 +2149,9 @@ fn handle_http(
         },
         run.to_string(),
     );
+    if let Some(version) = &header_version {
+        ctx.set_protocol_version(version);
+    }
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let (reply, new_sid) = match host.handle_any(msg, &ctx) {
         Ok(pair) => pair,

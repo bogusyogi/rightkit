@@ -259,3 +259,27 @@ test("F1: prepare and postBuild steps and --plan-file plans are scanned, and an 
   assert.throws(() => expandRecipeBuildCommands({ cmd: "node", args: ["recipe-build.mjs", "--plan", "{not json"] }), { code: "RECIPE_BUILD_PLAN_INVALID" });
   assert.deepEqual(expandRecipeBuildCommands({ cmd: "pnpm", args: ["tauri", "build"] }), [{ cmd: "pnpm", args: ["tauri", "build"] }]);
 });
+
+test("macPackage updater emits create-mac-updater first in postSign, from the signed app", () => {
+  const out = expandMacPackageTarget(macTarget({ macPackage: { updater: true } }), { appRoot });
+  assert.equal(out.postSign.length, 1);
+  assert.equal(out.postSign[0].cmd, process.execPath);
+  assert.match(out.postSign[0].args[0], /create-mac-updater\.mjs$/);
+  assert.deepEqual(out.postSign[0].args.slice(1), ["--app", out.notarize.app, "--output", "Demo.app.tar.gz"]);
+  // An explicit output, and an app-declared postSign (single command or list) runs after the updater.
+  const custom = expandMacPackageTarget(macTarget({ macPackage: { updater: "dist/Demo.app.tar.gz" }, postSign: { cmd: "echo", args: ["done"] } }), { appRoot });
+  assert.deepEqual(custom.postSign.map((c) => c.cmd), [process.execPath, "echo"]);
+  assert.equal(custom.postSign[0].args.at(-1), "dist/Demo.app.tar.gz");
+  const listed = expandMacPackageTarget(macTarget({ macPackage: { updater: true }, postSign: [{ cmd: "a" }, { cmd: "b" }] }), { appRoot });
+  assert.deepEqual(listed.postSign.map((c) => c.cmd), [process.execPath, "a", "b"]);
+});
+
+test("macPackage without updater leaves postSign alone and refuses a bad updater value", () => {
+  assert.equal(expandMacPackageTarget(macTarget(), { appRoot }).postSign, undefined);
+  assert.equal(expandMacPackageTarget(macTarget({ macPackage: { updater: false } }), { appRoot }).postSign, undefined);
+  const keep = { cmd: "echo" };
+  assert.deepEqual(expandMacPackageTarget(macTarget({ macPackage: { updater: false }, postSign: keep }), { appRoot }).postSign, keep);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { updater: 1 } }), { appRoot }), /updater must be true/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { updater: "out.zip" } }), { appRoot }), /\.tar\.gz/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { updater: "../out.tar.gz" } }), { appRoot }), /stay inside the app/);
+});

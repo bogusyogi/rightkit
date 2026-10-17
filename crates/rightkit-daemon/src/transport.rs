@@ -7,8 +7,9 @@ use crate::suite::Suite;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 
-/// Outcome of accepting one connection.
-pub(crate) enum Accepted {
+/// Outcome of [`Listener::accept`]: an authenticated connection, a rejected peer, or one that
+/// left before it could be identified.
+pub enum Accepted {
     /// The peer was authenticated as the current user.
     Conn(Conn),
     /// The peer failed OS-level authentication and was closed unread. The reason is the
@@ -22,8 +23,8 @@ pub(crate) enum Accepted {
 /// Default for [`HostOptions::max_pipe_instances`](crate::HostOptions::max_pipe_instances).
 pub const DEFAULT_MAX_PIPE_INSTANCES: u32 = 16;
 
-/// An accepted or connected duplex stream.
-pub(crate) struct Conn {
+/// An accepted or connected duplex stream. `peer` is who the OS reports on the other end.
+pub struct Conn {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     /// Non-blocking: has the peer closed its end? Safe to call from another thread.
@@ -749,7 +750,8 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{connect, connect_expecting, current_uid, Listener};
+pub use imp::Listener;
+pub(crate) use imp::{connect, connect_expecting, current_uid};
 
 /// Is process `pid` alive? A dead pid marks a discovery record stale and a
 /// takeover request abandoned. Hardened from HeardRight's version: pid 0 and

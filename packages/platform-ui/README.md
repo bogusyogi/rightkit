@@ -186,6 +186,15 @@ useDismiss(() => void exit.close(), { enabled: exit.isOpen, escapeTarget: dialog
 
 `rankCommands` scores substring, keyword, hint and subsequence matches (higher is better, stable, empty query keeps input order). It is not ViewRight's scorer (subsequence only, lower first): adopting it changes the order results appear in. Pass `onActivate` the `run` you want; grouping into sections stays in your JSX. An app that wants the shared look and resets on typing sets `wrap: true`, `homeEnd: true`, `resetKey: q`, `hoverSelects: "after-pointer-move"`.
 
+### Unreleased helpers
+
+- `isTauri()` (root): Tauri WebView detection, without loading `plugin-os`.
+- `blockNativeContextMenu(doc?)` (root, `./headless`): suppress the native context menu; returns the uninstall.
+- `relativeTimeFrom(ms, now?)` (root, `./headless`): short "N minutes ago" text.
+- `useFocusTrap(ref, active, { scope: "document", skipUnrendered: true })`: a trap that still holds while focus is on a backdrop, and ignores controls with no layout box.
+- `useDismiss(fn, { isInside, onFocusOut: true })`: `isInside` treats several elements as one panel; `onFocusOut` dismisses with reason `"focus"` when focus leaves the panel and never cancels the Tab.
+- `createToastBus({ dedupe: true, max: 3 })` and `toast(message, { id: "save" })`: dedupe plain toasts, cap the live stack, and replace a toast by key. Call `bus.dismiss(id)` on every removal so dedupe and `max` stay accurate.
+
 ## Reduced motion
 
 `@rightkit/platform-ui` ships no stylesheet and runs no animation, so it has no `prefers-reduced-motion` handling of its own to opt out of. The visual stylesheet that does is `@rightkit/react-shell/shell.css`: it honours `prefers-reduced-motion: reduce` by default and a host sets `data-rk-motion="full"` on the root to opt out (see that README). Opting out removes an accessibility accommodation and is the host's decision.

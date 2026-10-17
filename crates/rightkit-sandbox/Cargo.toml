@@ -50,6 +50,14 @@ scale = "bounded 20 ms polling for the SIGTERM grace and a 2 s settle after SIGK
 release = "function return"
 
 [[package.metadata.rightkit.resources]]
+api = "PinHandle"
+file = "src/pins.rs"
+holds = ["memory"]
+scale = "one process-wide table entry per distinct pinned interpreter root (one path and a user count), reference counted across handles; the entry, and on Windows its ALL APPLICATION PACKAGES read ACE, is removed when the last handle for that root drops or PinHandle::release_all runs, so the table is bounded by the pins callers hold"
+release = "Drop"
+static_note = "TABLE in pins.rs is a OnceLock<Mutex<PinTable>> reachable only through PinHandle (and the spawn paths that read the pinned roots): an entry exists only while a handle pins its root and the last handle's Drop (or release_all) removes it, so it is empty when no pin is held; it holds no thread"
+
+[[package.metadata.rightkit.resources]]
 api = "AppContainerAncestorLease"
 file = "src/windows_ancestors.rs"
 holds = ["memory"]
@@ -61,6 +69,6 @@ static_note = "REGISTRY in windows_ancestors.rs is a OnceLock<Mutex<HashMap>> re
 api = "ConfinedChild"
 file = "src/windows_appcontainer.rs"
 holds = ["child", "memory"]
-scale = "one confined child process in its own kill-on-close Job Object, its AppContainer profile and its per-command ACL grant leases, shared with the child so the grants live exactly as long as it does (only when Job setup fails and the suspended child cannot be confirmed dead does Drop deliberately retain its handles and leases, once per such failure); bounded sleeps only retry profile creation (8 x 50 ms) and launch-alias settling per call. ConfinedChild is pub(crate); the public holder is SandboxedChild (spawn.rs)"
+scale = "one confined child process in its own kill-on-close Job Object, its AppContainer profile and its per-command ACL grant and deny leases (plus its loopback lease and, for a piped spawn, one stdin pipe handle), shared with the child so the grants live exactly as long as it does (only when Job setup fails and the suspended child cannot be confirmed dead does Drop deliberately retain its handles and leases, once per such failure); bounded sleeps only retry profile creation (8 x 50 ms) and launch-alias settling per call. ConfinedChild is pub(crate); the public holders are SandboxedChild (spawn.rs) and, for a reusable container whose leases outlive any one child, AppContainerProfile (dropped, with its last child, it releases them)"
 release = "Drop"
-static_note = "lease_registry (a OnceLock<Mutex<HashMap>>) holds one reference-counted entry per live ACL grant and drops it with the last GrantLease; ACL_GRANT_LOCK is a Mutex<()> with no data and the SEQUENCE counters are single atomics, so nothing here grows beyond the grants a held child owns and no thread is held"
+static_note = "lease_registry (a OnceLock<Mutex<HashMap>>) holds one reference-counted entry per live ACL grant or deny and drops it with the last GrantLease; loopback_registry (a OnceLock<Mutex<LoopbackRegistry>>) holds one reference-counted entry per container whose loopback exemption a held child owns, removed with the last LoopbackLease, plus a set of containers whose exemption failed (at most one entry per distinct grant-set profile, never retried); loopback_api is a OnceLock holding two resolved function pointers; ACL_GRANT_LOCK is a Mutex<()> with no data and the SEQUENCE counters are single atomics, so nothing here grows beyond the grants a held child or AppContainerProfile owns and no thread is held"

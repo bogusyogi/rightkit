@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Additive. Every new option defaults to the 0.2.8 behaviour.
+
+- `isTauri()` (root): true inside a Tauri WebView. Pure detection; never loads `plugin-os`.
+- `blockNativeContextMenu(doc?)` (root, `./headless`): suppresses the native `contextmenu` in the capture phase; returns the uninstall. Idempotent per document.
+- `relativeTimeFrom(ms, now?)` (root, `./headless`): "just now" / "N minutes|hours|days ago", ported from ViewRight. `now` defaults to `Date.now()`.
+- `useFocusTrap` / `attachFocusTrap`: `scope: "element" | "document"` (document: capture-phase Tab on the document, so the trap holds while focus is on a backdrop); `skipUnrendered: boolean` (drops controls whose `getClientRects()` is empty).
+- `useDismiss` / `attachDismiss`: `isInside(target: Node) => boolean` for a panel spread over several elements; `onFocusOut: boolean` dismisses with the new reason `"focus"` when focus leaves the panel (focusout to an outside target, or a Tab after which focus is outside). The Tab is never prevented.
+- `createToastBus({ dedupe, max })`: `dedupe` suppresses an identical plain toast (no action, no `id`) while it is live; `max` dismisses the oldest live toast before a push that would exceed it. A toast is live until `bus.dismiss(id)`; viewports must call it on every removal.
+- `toast(message, { id })` and `bus.push(..., { id })`: replace-by-key. A push with a live `id` dismisses that toast first. Keyed and action toasts are never deduplicated. Existing callers compile unchanged.
+- Docs: the README states that platform-ui has no stylesheet and no motion handling, and points to `@rightkit/app-shell`'s `data-rk-motion="full"` opt-out.
+
 ## 0.2.8
 
 Additive. Defaults equal 0.2.7; nothing changes for an app that calls none of the new options.
@@ -25,9 +38,6 @@ Additive. Defaults equal 0.2.7; nothing changes for an app that calls none of th
 Added (default equals 0.2.4):
 - `useExitTransition` `dismissWhilePending: "ignore" | "exit"` for `closeAfter: "settled"`. With `"exit"` a plain `close()` while an action is pending starts the exit at once; the action keeps running and its settling starts no second exit and no second `onClosed`. A later rejection goes only to the promise returned by the original `close(action)`.
 
-## Unreleased
-
-Docs only: the README states that platform-ui has no stylesheet and no motion handling, and points to `@rightkit/app-shell`'s `data-rk-motion="full"` opt-out.
 
 ## 0.2.4
 

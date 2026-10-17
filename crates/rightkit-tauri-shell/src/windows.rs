@@ -192,10 +192,16 @@ pub fn builder<'a>(
     let state = app.state::<ShellState>();
     let nav = Arc::clone(&state.nav);
     let opener = Arc::clone(&state.opener);
+    let (opener_app, opener_label) = (app.clone(), label.to_owned());
     let b = WebviewWindowBuilder::new(app, label, url)
         .visible(false)
         .on_new_window(move |url, features| {
-            match nav.decide_window_open(&url, features.size().is_some(), None) {
+            // The opening page: this window's current URL. Unknown (the window is not registered yet)
+            // defers to the origin allow-list.
+            let from = opener_app
+                .get_webview_window(&opener_label)
+                .and_then(|w| w.url().ok());
+            match nav.decide_window_open(&url, features.size().is_some(), from.as_ref()) {
                 WindowOpenDecision::External { url } => {
                     let _ = open_checked(opener.as_ref(), &url);
                     NewWindowResponse::Deny

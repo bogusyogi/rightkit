@@ -1,3 +1,4 @@
+use crate::resident::ResidentIndex;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use thiserror::Error;
@@ -194,6 +195,33 @@ impl VectorStore {
         Ok(candidates)
     }
 
+    /// Snapshot of every vector stored for `model_id`, quantised to int8 and held in memory.
+    /// One full read of the table; writes made after the call are not in the index. See
+    /// [`ResidentIndex`] for the layout and the error it carries.
+    pub fn resident_index(&self, model_id: &str) -> Result<ResidentIndex, VectorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT key, dimensions, vector FROM rightkit_vectors
+             WHERE model_id=?1 ORDER BY key",
+        )?;
+        let rows = stmt.query_map(params![model_id], |row| {
+            let key: String = row.get(0)?;
+            let dimensions: i64 = row.get(1)?;
+            let bytes: Vec<u8> = row.get(2)?;
+            Ok((key, dimensions, bytes))
+        })?;
+        let mut vectors = Vec::new();
+        for row in rows {
+            let (key, dimensions, bytes) = row?;
+            if dimensions != self.dimension as i64 {
+                return Err(VectorError::Malformed { key });
+            }
+            let vector = decode(&bytes, self.dimension)
+                .map_err(|_| VectorError::Malformed { key: key.clone() })?;
+            vectors.push((key, vector));
+        }
+        ResidentIndex::from_vectors(self.dimension, vectors)
+    }
+
     pub fn remove(&self, key: &str) -> Result<bool, VectorError> {
         Ok(self
             .conn
@@ -228,7 +256,7 @@ pub fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
     }
 }
 
-fn validate(vector: &[f32], dimension: usize) -> Result<(), VectorError> {
+pub(crate) fn validate(vector: &[f32], dimension: usize) -> Result<(), VectorError> {
     if vector.len() != dimension {
         return Err(VectorError::Dimension {
             expected: dimension,

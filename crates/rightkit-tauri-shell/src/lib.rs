@@ -48,6 +48,8 @@ pub mod stream;
 pub mod tray;
 pub mod watchdog;
 pub mod window_state;
+#[cfg(all(feature = "qa-probes", not(debug_assertions)))]
+compile_error!("rightkit-tauri-shell: the `qa-probes` feature is for development and QA builds only; a build without debug assertions (release) must not enable it");
 /// The `windows` / `webview2-com` generation selected by `wv2-0_38` / `wv2-0_39`.
 #[cfg(windows)]
 pub(crate) mod winapi {
@@ -235,6 +237,8 @@ pub struct ShellBuilder {
     on_presence: Option<PresenceCallback>,
     #[cfg(feature = "engine")]
     engine: Option<engine::EngineSpec>,
+    #[cfg(feature = "engine")]
+    engine_policy: engine::EnginePolicy,
 }
 
 pub struct Shell {
@@ -293,6 +297,8 @@ impl Shell {
             on_presence: None,
             #[cfg(feature = "engine")]
             engine: None,
+            #[cfg(feature = "engine")]
+            engine_policy: Default::default(),
         }
     }
 }
@@ -618,6 +624,18 @@ impl ShellBuilder {
     #[cfg(feature = "engine")]
     pub fn engine(mut self, spec: engine::EngineSpec) -> Self {
         self.engine = Some(spec);
+        self.engine_policy = Default::default();
+        self
+    }
+    /// Engine wiring with native method/deadline policy & optional bounded supervision.
+    #[cfg(feature = "engine")]
+    pub fn engine_with_policy(
+        mut self,
+        spec: engine::EngineSpec,
+        policy: engine::EnginePolicy,
+    ) -> Self {
+        self.engine = Some(spec);
+        self.engine_policy = policy;
         self
     }
     pub fn build(self) -> Shell {
@@ -968,10 +986,12 @@ fn setup(
         quit_label: t.quit_label.clone(),
     });
     #[cfg(feature = "engine")]
-    let engine = cfg
-        .engine
-        .clone()
-        .map(|s| Arc::new(engine::EngineHost::new(s)));
+    let engine = cfg.engine.clone().map(|s| {
+        Arc::new(engine::EngineHost::with_policy(
+            s,
+            cfg.engine_policy.clone(),
+        ))
+    });
     // A lifecycle-only host owns its cache: repair is off unless it asked for it.
     let cache_repair = if lifecycle::repair_cache_enabled(cfg.repair_cache, cfg.lifecycle_only) {
         let dir = cfg
@@ -1122,6 +1142,60 @@ fn setup(
     #[cfg(feature = "engine")]
     if let Some(engine) = engine {
         let handle = app.clone();
+        let lifecycle_events = engine.subscribe_lifecycle();
+        let supervised = lifecycle_events.is_some();
+        if let Some(events) = lifecycle_events {
+            let handle = app.clone();
+            let host = Arc::downgrade(&engine);
+            std::thread::Builder::new()
+                .name("rk-shell-engine-events".into())
+                .spawn(move || {
+                    use tauri::Emitter;
+                    loop {
+                        let Some(host) = host.upgrade() else { break };
+                        if host.is_shutting_down() { break; }
+                        match events.recv_timeout(std::time::Duration::from_millis(250)) {
+                            Ok(event) => {
+                                let _ = handle.emit(EVENT_ENGINE, serde_json::json!({
+                                    "call": "$lifecycle", "event": host.lifecycle(), "supervisor": event
+                                }));
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                })?;
+        }
+        if let Some(events) = engine.subscribe_events() {
+            let handle = app.clone();
+            let host = Arc::downgrade(&engine);
+            std::thread::Builder::new()
+                .name("rk-shell-engine-unsolicited".into())
+                .spawn(move || {
+                    use tauri::Emitter;
+                    loop {
+                        let Some(host) = host.upgrade() else { break };
+                        if host.is_shutting_down() {
+                            break;
+                        }
+                        match events.recv_timeout(std::time::Duration::from_millis(250)) {
+                            Ok(frame) => {
+                                let _ = handle.emit(
+                                    EVENT_ENGINE,
+                                    engine::EngineEvent {
+                                        call: "$unsolicited".into(),
+                                        id: None,
+                                        tag: None,
+                                        event: frame["event"].clone(),
+                                    },
+                                );
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                })?;
+        }
         std::thread::Builder::new()
             .name("rk-shell-engine".into())
             .spawn(move || {
@@ -1133,10 +1207,12 @@ fn setup(
                     }
                 };
                 engine.set_lifecycle(payload.clone());
-                let _ = handle.emit(
-                    EVENT_ENGINE,
-                    serde_json::json!({"call": "$lifecycle", "event": payload}),
-                );
+                if !supervised {
+                    let _ = handle.emit(
+                        EVENT_ENGINE,
+                        serde_json::json!({"call": "$lifecycle", "event": payload}),
+                    );
+                }
             })?;
     }
 
@@ -1176,6 +1252,8 @@ macro_rules! handler {
             $crate::commands::rk_shell_clipboard_read,
             $crate::commands::rk_shell_clipboard_write,
             $crate::commands::rk_shell_engine_call,
+            $crate::commands::rk_shell_engine_call_tagged,
+            $crate::commands::rk_shell_engine_status,
             $crate::commands::rk_shell_traffic_lights,
             $crate::commands::rk_shell_quit,
             $crate::commands::rk_shell_finish_quit,

@@ -15,14 +15,61 @@ pub const EXTERNAL_SCHEMES: &[&str] = &["http", "https", "mailto"];
 /// Schemes a webview loads in place (the app's own content and in-page documents).
 const INTERNAL_SCHEMES: &[&str] = &["tauri", "asset", "ipc", "about", "blob", "data", "http-ipc"];
 
-/// OAuth authorization origins allowed to open as an in-app popup (CodeRight list).
+/// OAuth authorization origins allowed to open as an in-app popup (CodeRight list, plus the Atlassian
+/// and Salesforce sign-in origins). An app adds its own through [`NavPolicy::popup_origins`] or
+/// [`popup_origins_from_json`].
 pub const OAUTH_POPUP_ORIGINS: &[&str] = &[
     "https://github.com",
     "https://accounts.google.com",
     "https://slack.com",
     "https://login.microsoftonline.com",
     "https://appleid.apple.com",
+    "https://mcp.atlassian.com",
+    "https://auth.atlassian.com",
+    "https://login.salesforce.com",
+    "https://test.salesforce.com",
 ];
+
+/// Headers removed from an OAuth popup's response: a cross-origin opener policy severs `window.opener`,
+/// which breaks the OAuth `postMessage` hand-back.
+const COOP_HEADERS: &[&str] = &[
+    "cross-origin-opener-policy",
+    "cross-origin-opener-policy-report-only",
+];
+
+/// Remove the cross-origin opener policy headers (case-insensitively) from a response's header map.
+/// `None` in, `None` out. For a webview response hook on an OAuth popup.
+pub fn strip_coop_headers(
+    headers: Option<&std::collections::BTreeMap<String, Vec<String>>>,
+) -> Option<std::collections::BTreeMap<String, Vec<String>>> {
+    headers.map(|h| {
+        h.iter()
+            .filter(|(name, _)| !COOP_HEADERS.contains(&name.to_ascii_lowercase().as_str()))
+            .map(|(name, values)| (name.clone(), values.clone()))
+            .collect()
+    })
+}
+
+/// Parse an app-settings `popup_allowed_origins` value (a JSON array of origin strings) into popup
+/// origins. Invalid entries are ignored: anything that is not a bare `https://host[:port]` origin in
+/// canonical form, or a non-array value, yields no entry. Duplicates are dropped.
+pub fn popup_origins_from_json(raw: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        let Some(text) = item.as_str() else { continue };
+        let Ok(url) = Url::parse(text) else { continue };
+        if url.scheme() != "https" || origin_of(&url).as_deref() != Some(text) {
+            continue;
+        }
+        if !out.iter().any(|o| o == text) {
+            out.push(text.to_string());
+        }
+    }
+    out
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -190,21 +237,39 @@ impl NavPolicy {
     }
 
     /// Decide a page-initiated `window.open` / `target=_blank`.
-    /// `popup_shaped` is true for a sized popup request; only those from a pinned origin to an
-    /// allow-listed HTTPS origin become windows, everything else leaves for the browser.
+    /// `popup_shaped` is true for a sized popup request; only those from a trusted opener to an
+    /// allow-listed HTTPS origin become windows, everything else leaves for the browser. A non-web
+    /// scheme is `Deny`; ask [`NavPolicy::protocol_consent_scheme`] whether it needs person consent.
     pub fn decide_window_open(
         &self,
         url: &Url,
         popup_shaped: bool,
         opener: Option<&Url>,
     ) -> WindowOpenDecision {
+        self.decide_window_open_pinned(url, popup_shaped, opener, None)
+    }
+
+    /// [`NavPolicy::decide_window_open`] with the app's pinned server origin (`scheme://host[:port]`).
+    /// When `pinned_origin` is `Some`, a popup opens only when the opener's origin equals it (an unknown
+    /// opener is external); when `None`, an unknown opener defers to the origin allow-list and a known
+    /// one must be served in place.
+    pub fn decide_window_open_pinned(
+        &self,
+        url: &Url,
+        popup_shaped: bool,
+        opener: Option<&Url>,
+        pinned_origin: Option<&str>,
+    ) -> WindowOpenDecision {
         if !EXTERNAL_SCHEMES.contains(&url.scheme()) {
             return WindowOpenDecision::Deny;
         }
         if popup_shaped && url.scheme() == "https" {
             let target = origin_of(url);
-            // Wry reports only the target; when the opener is unknown the origin allow-list decides.
-            let from_trusted = opener.is_none_or(|o| self.serves_in_place(o));
+            // Wry reports only the target.
+            let from_trusted = match pinned_origin {
+                Some(pin) => opener.and_then(origin_of).as_deref() == Some(pin),
+                None => opener.is_none_or(|o| self.serves_in_place(o)),
+            };
             if from_trusted && target.is_some_and(|t| self.popup_origins.contains(&t)) {
                 return WindowOpenDecision::Popup;
             }
@@ -212,5 +277,21 @@ impl NavPolicy {
         WindowOpenDecision::External {
             url: url.to_string(),
         }
+    }
+
+    /// The scheme of a non-web `window.open` target (for example `zoom:` or `ms-settings:`) that an app
+    /// with a consent surface may confirm with the person before handing it to the system. `None` for
+    /// web schemes and for schemes the shell serves or refuses outright (internal, `file:`, `javascript:`).
+    /// [`NavPolicy::decide_window_open`] returns `Deny` for every such target either way.
+    pub fn protocol_consent_scheme(&self, url: &Url) -> Option<String> {
+        let scheme = url.scheme();
+        if EXTERNAL_SCHEMES.contains(&scheme)
+            || INTERNAL_SCHEMES.contains(&scheme)
+            || NEVER_INTERNAL.contains(&scheme)
+            || self.internal_schemes.iter().any(|s| s == scheme)
+        {
+            return None;
+        }
+        Some(scheme.to_string())
     }
 }

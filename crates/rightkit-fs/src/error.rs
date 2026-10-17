@@ -12,12 +12,17 @@ pub enum PostPublishStep {
     /// unlink (the fallback where the kernel has no exclusive rename). The content is published and
     /// complete; a leftover temp name remains, which [`crate::sweep_stale_temps`] reclaims.
     TempCleanup,
+    /// Removing the old tree a directory publication displaced ([`crate::publish_dir::publish_dir`]). The new
+    /// directory is in place and complete; the displaced one remains under a sibling name that
+    /// the error's source describes, and the caller may remove it.
+    OldTreeCleanup,
 }
 
 impl std::fmt::Display for PostPublishStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::TempCleanup => "removing the temp file",
+            Self::OldTreeCleanup => "removing the replaced directory",
         })
     }
 }
@@ -43,6 +48,11 @@ pub enum FsError {
     NotAFile(PathBuf),
     #[error("{0} is not owned by the current user")]
     NotOwned(PathBuf),
+    /// A file that was required to have exactly one name has more than one hard link, so another
+    /// path (possibly outside the approved folder) reaches the same bytes. See
+    /// [`crate::handle::ReadOptions::require_single_link`].
+    #[error("{0} has more than one hard link")]
+    HardLinked(PathBuf),
     #[error("{0} is writable by group or others")]
     TooPermissive(PathBuf),
     /// A private (owner-only) file or directory was asked for where its owner-only guarantee cannot
@@ -164,7 +174,10 @@ impl FsError {
             | Self::DirSyncFailed { source, .. } => source.kind(),
             Self::Symlink(_) | Self::NotAFile(_) | Self::BadName(_) => K::InvalidInput,
             Self::NotADirectory(_) => K::NotADirectory,
-            Self::NotOwned(_) | Self::TooPermissive(_) | Self::UnsafeAcl(_) => K::PermissionDenied,
+            Self::NotOwned(_)
+            | Self::TooPermissive(_)
+            | Self::UnsafeAcl(_)
+            | Self::HardLinked(_) => K::PermissionDenied,
             Self::IdentityChanged(_) => K::Other,
             Self::AlreadyExists(_) => K::AlreadyExists,
             Self::TooLarge { .. } => K::FileTooLarge,
@@ -238,6 +251,10 @@ mod tests {
             (FsError::NotAFile(p.clone()), io::ErrorKind::InvalidInput),
             (
                 FsError::NotOwned(p.clone()),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (
+                FsError::HardLinked(p.clone()),
                 io::ErrorKind::PermissionDenied,
             ),
             (

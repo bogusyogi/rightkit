@@ -129,6 +129,15 @@ See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 retries, the total budget) against in-process listeners; its `dev-worker-override` tests run when the
 feature is enabled, and one test checks that the allowance is ignored when it is not.
 
+## Runner probes, tiered fit and download options (unreleased)
+
+- `probe::ProbeRunner` (an async `run(program, args)` returning stdout and exit status) lets a confined caller run every probe child through its own adapter. `Hardware::probe_with_runner(&runner)` runs `nvidia-smi` plus `wmic` (Windows) or `system_profiler` (macOS) through it; RAM comes from `hardware::total_memory_bytes()`, which reads the OS in-process (macOS: `sysctlbyname`). The runner must bound each probe itself; the crate has no runtime to time it out.
+- `probe::detect_inference_runtimes(&runner)` runs `--version` for `ollama`, `llama-server` and `vllm` and returns detected/version/install hint for each.
+- Pure parsers on captured output: `parse_nvidia_smi_csv`, `parse_wmic_video`, `parse_system_profiler_displays`, `parse_memory` (GB).
+- `TieredRequirements { min_memory_gb, recommended_memory_gb, min_vram_gb, recommended_vram_gb }` and `Hardware::tiered_fit(&req)` return `TieredFit { verdict: FitVerdict::{Good, Caution, Unknown, TooLarge}, confidence: FitConfidence::{High, Medium, Low}, reason, detected_memory_gb, detected_vram_gb }`. RAM and VRAM are compared against the recommended and minimum figures; `Requirements` and `estimate_fit` are unchanged.
+- `download::download_resumable_with_options(client, request, max_bytes, DownloadOptions, progress)` adds two opt-ins to the default download. `discard_partial_on_cancel` deletes the `.part` and its resume record on cancel. `resume_without_strong_etag` resumes when the server sends only a weak ETag, `Last-Modified` or nothing; it applies only when the request pins a sha256 and the response continues at the saved offset with the saved total, and a same-size splice then fails the pin (`ErrorCode::HashMismatch`). Without the pin it is ignored.
+- Byte-range resume still requires a strong ETag by default. A weak ETag restarts from zero (documented on `download_resumable`).
+
 ## Shared Whisper model
 
 One Whisper large-v3-turbo model serves HeardRight and ScrapeRight. Both apps

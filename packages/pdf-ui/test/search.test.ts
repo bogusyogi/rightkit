@@ -81,3 +81,22 @@ describe("findLiteralMatches optional hyphen joining", () => {
     expect(findLiteralMatches("end - 5", "end5", { joinHyphenated: true })).toEqual([]);
   });
 });
+
+describe("findLiteralMatches special folds", () => {
+  it("matches ß only against ß: lower case has no full case fold to SS", () => {
+    expect(findLiteralMatches("Straße", "straße")).toEqual([{ start: 0, end: 6 }]);
+    expect(findLiteralMatches("STRASSE", "straße")).toEqual([]);
+    expect(findLiteralMatches("Straße x", "x")).toEqual([{ start: 7, end: 8 }]);
+  });
+
+  it("keeps offsets exact after a ligature, which lower-cases to itself", () => {
+    expect(findLiteralMatches("ﬁx", "x")).toEqual([{ start: 1, end: 2 }]);
+    expect(findLiteralMatches("ﬁ ﬁx", "ﬁx")).toEqual([{ start: 2, end: 4 }]);
+    expect(findLiteralMatches("ﬁ fi", "fi")).toEqual([{ start: 2, end: 4 }]);
+  });
+
+  it("collapses whitespace runs around a ß or İ match", () => {
+    expect(slice("Straße  İst", "straße İst")).toEqual(["Straße  İst"]);
+    expect(slice("İ  ß  x", "İ ß")).toEqual(["İ  ß"]);
+  });
+});

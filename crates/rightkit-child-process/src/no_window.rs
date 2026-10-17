@@ -6,6 +6,22 @@
 /// composes its own flags can OR it in.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// The Windows `CREATE_BREAKAWAY_FROM_JOB` creation flag, exposed on every platform so a caller
+/// that composes its own flags (for example a deliberately detached replacement process) can OR
+/// it in. It asks the new process to leave the creator's job object; the launch fails with
+/// access denied when that job forbids breakaway.
+pub const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+/// A `std::process::Command` for `program` that already has the no-window flag set on Windows,
+/// returned by value so it chains: `command_std("git").args(["status"]).output()`. Same effect as
+/// `Command::new(program)` followed by [`NoWindow::no_window`]. The async variant is
+/// `tokio_support::command` (feature `tokio`).
+pub fn command_std(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command.no_window();
+    command
+}
+
 /// Suppresses the child's console window on Windows. A no-op elsewhere.
 ///
 /// On Windows this calls `creation_flags(CREATE_NO_WINDOW)`, which *replaces* any creation
@@ -35,6 +51,20 @@ mod tests {
     #[test]
     fn the_flag_value_is_the_windows_constant() {
         assert_eq!(CREATE_NO_WINDOW, 0x0800_0000);
+    }
+
+    #[test]
+    fn breakaway_flag_is_the_windows_constant() {
+        assert_eq!(CREATE_BREAKAWAY_FROM_JOB, 0x0100_0000);
+    }
+
+    #[test]
+    fn command_std_returns_a_ready_command_by_value() {
+        let command = command_std(if cfg!(windows) { "cmd" } else { "true" });
+        assert_eq!(
+            command.get_program(),
+            if cfg!(windows) { "cmd" } else { "true" }
+        );
     }
 
     #[test]

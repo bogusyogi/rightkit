@@ -5,9 +5,11 @@
 //! Donor: ViewRight `traffic_lights` (capture the macOS-default button origins once, apply a
 //! horizontal/vertical offset, re-assert after resize/focus because AppKit resets them).
 
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 use serde::Serialize;
 use tauri::{WebviewWindow, WebviewWindowBuilder, Wry};
 
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 use crate::error::ShellError;
 
 /// Style a builder for the frameless look. No-op when `frameless` is false.
@@ -74,6 +76,21 @@ impl TrafficLights {
         #[cfg(not(target_os = "macos"))]
         let _ = (window, dx, dy);
     }
+    /// Place the close / minimise / zoom buttons at an absolute inset instead of a relative offset: the
+    /// close button's top-left corner sits `x` points from the window's left edge and `y` points from its
+    /// top (y down), and the other two keep the macOS spacing. Replaces the last `set_offset` (and the
+    /// reverse), and is re-asserted by [`TrafficLights::reapply`]. No-op off macOS.
+    pub fn set_inset(&self, window: &WebviewWindow<Wry>, x: f64, y: f64) {
+        #[cfg(target_os = "macos")]
+        {
+            let inner = std::sync::Arc::clone(&self.inner);
+            macos::dispatch(window, move |window| {
+                macos::apply_inset(window, x, y, &inner)
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (window, x, y);
+    }
     /// Re-assert the last offset (call from resize / focus / fullscreen events).
     pub fn reapply(&self, window: &WebviewWindow<Wry>) {
         #[cfg(target_os = "macos")]
@@ -99,7 +116,8 @@ impl TrafficLights {
 }
 
 /// One standard window button's frame in its superview's coordinates (AppKit points, origin at the
-/// bottom-left) and whether it is hidden.
+/// bottom-left) and whether it is hidden. QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ButtonFrame {
     pub x: f64,
@@ -109,6 +127,7 @@ pub struct ButtonFrame {
     pub hidden: bool,
 }
 
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 impl ButtonFrame {
     /// Map an AppKit frame (`origin`, `size`) and hidden flag to the typed struct. Pure.
     pub fn new(origin: (f64, f64), size: (f64, f64), hidden: bool) -> Self {
@@ -123,6 +142,8 @@ impl ButtonFrame {
 }
 
 /// The three standard window buttons, read without changing anything. See [`button_frames`].
+/// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ButtonFrames {
     pub close: ButtonFrame,
@@ -132,6 +153,7 @@ pub struct ButtonFrames {
     pub window_visible: bool,
 }
 
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 impl ButtonFrames {
     /// `[close, miniaturize, zoom]`.
     pub fn buttons(&self) -> [ButtonFrame; 3] {
@@ -156,6 +178,9 @@ impl ButtonFrames {
 /// already on the main thread and otherwise queued to it with a 5 s wait. Errors: `Other` when the
 /// window has no NSWindow or a button, `Timeout` when the main thread does not answer. On every
 /// platform other than macOS it returns [`ShellError::Unsupported`].
+///
+/// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build (a release build refuses the feature).
+#[cfg(all(feature = "qa-probes", debug_assertions))]
 pub fn button_frames(window: &WebviewWindow<Wry>) -> Result<ButtonFrames, ShellError> {
     #[cfg(target_os = "macos")]
     {
@@ -178,6 +203,7 @@ mod macos {
     use objc2_foundation::NSPoint;
     use tauri::{WebviewWindow, Wry};
 
+    #[cfg(all(feature = "qa-probes", debug_assertions))]
     use crate::error::ShellError;
 
     const KINDS: [NSWindowButton; 3] = [
@@ -190,6 +216,8 @@ mod macos {
     pub struct Inner {
         defaults: Mutex<Option<[NSPoint; 3]>>,
         offset: Mutex<(f64, f64)>,
+        /// The last absolute inset (`set_inset`); `None` while a relative offset is in force.
+        inset: Mutex<Option<(f64, f64)>>,
     }
 
     extern "C" {
@@ -231,6 +259,7 @@ mod macos {
     }
 
     /// Read the three buttons on the main thread (see [`super::button_frames`]).
+    #[cfg(all(feature = "qa-probes", debug_assertions))]
     pub fn frames(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, ShellError> {
         use tauri::Manager;
         if window
@@ -255,6 +284,7 @@ mod macos {
             .map_err(ShellError::Other)
     }
 
+    #[cfg(all(feature = "qa-probes", debug_assertions))]
     fn read(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, String> {
         let win = ns_window(window).ok_or("no NSWindow for this window")?;
         let mut out = [super::ButtonFrame::new((0.0, 0.0), (0.0, 0.0), false); 3];
@@ -308,6 +338,45 @@ mod macos {
             });
         }
         *inner.offset.lock().unwrap_or_else(|e| e.into_inner()) = (dx, dy);
+        *inner.inset.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Absolute placement: the close button's top-left corner sits `x` points from the window's left
+    /// edge and `y` points from its top (y down); the other two keep the macOS spacing.
+    pub fn apply_inset(window: &WebviewWindow<Wry>, x: f64, y: f64, inner: &Inner) {
+        let Some(win) = ns_window(window) else { return };
+        let mut buttons = Vec::with_capacity(3);
+        for k in KINDS {
+            match win.standardWindowButton(k) {
+                Some(b) => buttons.push(b),
+                None => return,
+            }
+        }
+        let base = {
+            let mut d = inner.defaults.lock().unwrap_or_else(|e| e.into_inner());
+            *d.get_or_insert_with(|| {
+                let mut o = [NSPoint { x: 0.0, y: 0.0 }; 3];
+                for (i, b) in buttons.iter().enumerate() {
+                    o[i] = b.frame().origin;
+                }
+                o
+            })
+        };
+        for (i, b) in buttons.iter().enumerate() {
+            // SAFETY: `b` is a live NSButton owned by the window's titlebar view; AppKit
+            // keeps its superview alive for the duration of this main-thread call.
+            let Some(container) = (unsafe { b.superview() }) else {
+                return;
+            };
+            let container_height = container.frame().size.height;
+            let button_height = b.frame().size.height;
+            // AppKit's origin is bottom-left, so the top-down inset is converted here.
+            b.setFrameOrigin(NSPoint {
+                x: x + (base[i].x - base[0].x),
+                y: container_height - y - button_height,
+            });
+        }
+        *inner.inset.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y));
     }
 
     pub fn reapply(window: &WebviewWindow<Wry>, inner: &Inner) {
@@ -317,13 +386,19 @@ mod macos {
             .unwrap_or_else(|e| e.into_inner())
             .is_some()
         {
-            let (dx, dy) = *inner.offset.lock().unwrap_or_else(|e| e.into_inner());
-            apply(window, dx, dy, inner);
+            let inset = *inner.inset.lock().unwrap_or_else(|e| e.into_inner());
+            match inset {
+                Some((x, y)) => apply_inset(window, x, y, inner),
+                None => {
+                    let (dx, dy) = *inner.offset.lock().unwrap_or_else(|e| e.into_inner());
+                    apply(window, dx, dy, inner);
+                }
+            }
         }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "qa-probes", debug_assertions))]
 mod tests {
     use super::*;
 

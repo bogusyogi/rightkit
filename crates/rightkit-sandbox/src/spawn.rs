@@ -6,7 +6,7 @@ use crate::{
     ResourceKind, SandboxCommand, SandboxError, SandboxPolicy,
 };
 use rightkit_child_process::OwnedCommand;
-use std::io::Read;
+use std::io::{Read, Write};
 #[cfg(windows)]
 use std::os::windows::io::OwnedHandle;
 use std::process::{Command, ExitStatus, Stdio};
@@ -29,6 +29,7 @@ pub struct Sandbox {
 /// kills the whole process tree (via `rightkit-child-process` ownership).
 pub struct SandboxedChild {
     inner: Inner,
+    stdin: Option<Box<dyn Write + Send>>,
     stdout: Option<Box<dyn Read + Send>>,
     stderr: Option<Box<dyn Read + Send>>,
     source: DenialSource,
@@ -205,29 +206,45 @@ impl Sandbox {
     }
 
     /// Reserve, confine, spawn. Reservation happens before any process exists;
-    /// a denial (e.g. `Strict`) returns `SandboxError::ResourceDenied`.
+    /// a denial (e.g. `Strict`) returns `SandboxError::ResourceDenied`. The child's stdin is
+    /// the null device; [`Sandbox::spawn_piped`] gives it a pipe.
     pub fn spawn(
         &self,
         policy: &SandboxPolicy,
         command: SandboxCommand,
+    ) -> Result<SandboxedChild, SandboxError> {
+        self.spawn_confined(policy, command, false)
+    }
+
+    /// As [`Sandbox::spawn`], with stdin a pipe: [`SandboxedChild::take_stdin`] hands the write
+    /// end to the caller, and dropping it is the child's end-of-input. For interactive and
+    /// background shells that are fed input after they start. Confinement is identical.
+    pub fn spawn_piped(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+    ) -> Result<SandboxedChild, SandboxError> {
+        self.spawn_confined(policy, command, true)
+    }
+
+    fn spawn_confined(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+        piped_stdin: bool,
     ) -> Result<SandboxedChild, SandboxError> {
         policy.validate()?;
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
         #[cfg(windows)]
         {
-            let spawned = crate::windows_appcontainer::spawn(policy, &command)?;
-            Ok(SandboxedChild {
-                inner: Inner::Confined(spawned.child),
-                stdout: Some(Box::new(spawned.stdout)),
-                stderr: Some(Box::new(spawned.stderr)),
-                source: DenialSource::WindowsAppContainer,
-                _reservation: reservation,
-                _job: None,
-            })
+            let spawned = crate::windows_appcontainer::spawn(policy, &command, piped_stdin)?;
+            Ok(confined_child(spawned, reservation))
         }
         #[cfg(not(windows))]
         {
+            // Pinned read roots join the policy's read and execute roots.
+            let policy = with_pins(policy);
             // windowless: `finish` spawns it through OwnedCommand (CREATE_NO_WINDOW on Windows).
             let mut cmd = Command::new(&command.program);
             cmd.args(&command.args);
@@ -235,9 +252,47 @@ impl Sandbox {
                 cmd.current_dir(cwd);
             }
             apply_env(&mut cmd, &policy.env, &command.env);
-            let source = confine(&mut cmd, policy)?;
-            finish(cmd, reservation, source)
+            let source = confine(&mut cmd, &policy)?;
+            finish(cmd, reservation, source, piped_stdin)
         }
+    }
+
+    /// Spawn `command` in a reusable [`crate::AppContainerProfile`] (Windows). `env` scrubs and
+    /// builds the child's environment as [`SandboxPolicy::env()`] does for [`Sandbox::spawn`].
+    #[cfg(windows)]
+    pub fn spawn_in_profile(
+        &self,
+        profile: &crate::AppContainerProfile,
+        command: SandboxCommand,
+        env: &EnvPolicy,
+    ) -> Result<SandboxedChild, SandboxError> {
+        self.spawn_in_profile_with(profile, command, env, false)
+    }
+
+    /// As [`Sandbox::spawn_in_profile`], with stdin a pipe (see [`Sandbox::spawn_piped`]).
+    #[cfg(windows)]
+    pub fn spawn_piped_in_profile(
+        &self,
+        profile: &crate::AppContainerProfile,
+        command: SandboxCommand,
+        env: &EnvPolicy,
+    ) -> Result<SandboxedChild, SandboxError> {
+        self.spawn_in_profile_with(profile, command, env, true)
+    }
+
+    #[cfg(windows)]
+    fn spawn_in_profile_with(
+        &self,
+        profile: &crate::AppContainerProfile,
+        command: SandboxCommand,
+        env: &EnvPolicy,
+        piped_stdin: bool,
+    ) -> Result<SandboxedChild, SandboxError> {
+        validate_command(&command)?;
+        let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
+        let spawned =
+            crate::windows_appcontainer::spawn_in_profile(profile, &command, env, piped_stdin)?;
+        Ok(confined_child(spawned, reservation))
     }
 
     /// Spawn a network-denied AppContainer child with two inherited named-pipe
@@ -287,6 +342,7 @@ impl Sandbox {
         Ok(WindowsPipeSpawn {
             child: SandboxedChild {
                 inner: Inner::Confined(spawned.child),
+                stdin: None,
                 stdout: spawned
                     .stdout
                     .map(|stream| Box::new(stream) as Box<dyn Read + Send>),
@@ -320,7 +376,7 @@ impl Sandbox {
             cmd.current_dir(cwd);
         }
         apply_env(&mut cmd, env, &command.env);
-        finish(cmd, reservation, DenialSource::Unknown)
+        finish(cmd, reservation, DenialSource::Unknown, false)
     }
 
     #[cfg(feature = "pty")]
@@ -344,7 +400,9 @@ impl Sandbox {
                 p.validate().map_err(PtyError::Sandbox)?;
                 #[cfg(target_os = "macos")]
                 {
-                    crate::seatbelt::wrap_argv(p, &command.program, &command.args)
+                    let p = with_pins(p);
+                    crate::seatbelt::try_wrap_argv(&p, &command.program, &command.args)
+                        .map_err(|e| PtyError::Sandbox(e.into()))?
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -399,14 +457,49 @@ fn confine(_cmd: &mut Command, _policy: &SandboxPolicy) -> Result<DenialSource, 
     ))
 }
 
+/// The policy with every pinned read root added to its read and execute roots.
+#[cfg(not(windows))]
+fn with_pins(policy: &SandboxPolicy) -> std::borrow::Cow<'_, SandboxPolicy> {
+    let pinned = crate::pins::pinned_read_roots();
+    if pinned.is_empty() {
+        return std::borrow::Cow::Borrowed(policy);
+    }
+    let mut merged = policy.clone();
+    merged.exec_paths.extend(pinned);
+    std::borrow::Cow::Owned(merged)
+}
+
+#[cfg(windows)]
+fn confined_child(
+    spawned: crate::windows_appcontainer::ConfinedSpawn,
+    reservation: Reservation,
+) -> SandboxedChild {
+    SandboxedChild {
+        inner: Inner::Confined(spawned.child),
+        stdin: spawned
+            .stdin
+            .map(|file| Box::new(file) as Box<dyn Write + Send>),
+        stdout: Some(Box::new(spawned.stdout)),
+        stderr: Some(Box::new(spawned.stderr)),
+        source: DenialSource::WindowsAppContainer,
+        _reservation: reservation,
+        _job: None,
+    }
+}
+
 fn finish(
     mut cmd: Command,
     reservation: Reservation,
     source: DenialSource,
+    piped_stdin: bool,
 ) -> Result<SandboxedChild, SandboxError> {
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(if piped_stdin {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     let mut inner = OwnedCommand::from_command(cmd);
     inner.windows_hide();
     let mut child = inner.spawn()?;
@@ -416,6 +509,9 @@ fn finish(
             .and_then(|j| j.assign_process_id(child.id()).map(|_| j))
             .ok();
     Ok(SandboxedChild {
+        stdin: child
+            .take_stdin()
+            .map(|w| Box::new(w) as Box<dyn Write + Send>),
         stdout: child
             .take_stdout()
             .map(|r| Box::new(r) as Box<dyn Read + Send>),
@@ -475,6 +571,23 @@ impl SandboxedChild {
             Inner::Owned(c) => c.id(),
             #[cfg(windows)]
             Inner::Confined(c) => c.id(),
+        }
+    }
+
+    /// Take the write end of the child's stdin (a [`Sandbox::spawn_piped`] child only). Dropping
+    /// it, or the child, ends the child's input.
+    pub fn take_stdin(&mut self) -> Option<Box<dyn Write + Send>> {
+        self.stdin.take()
+    }
+
+    /// Whether the child's container holds the Windows loopback exemption
+    /// ([`SandboxPolicy::loopback()`]). Always `false` elsewhere, and on Windows whenever the
+    /// exemption could not be established (it needs an elevated process).
+    pub fn loopback_exempt(&self) -> bool {
+        match &self.inner {
+            #[cfg(windows)]
+            Inner::Confined(c) => c.loopback_exempt(),
+            Inner::Owned(_) => false,
         }
     }
 
@@ -553,7 +666,8 @@ impl SandboxedChild {
     }
 
     /// Wait up to `timeout` for the child, collecting stdout/stderr with each
-    /// stream capped at [`DEFAULT_OUTPUT_CAP`].
+    /// stream capped at [`DEFAULT_OUTPUT_CAP`]. A stdin pipe still held (see
+    /// [`Sandbox::spawn_piped`]) is closed first.
     ///
     /// The deadline covers the whole process tree and its pipes: if the child
     /// outlives `timeout`, or a descendant still holds stdout/stderr open at
@@ -569,6 +683,9 @@ impl SandboxedChild {
         timeout: Duration,
         cap_per_stream: usize,
     ) -> std::io::Result<SandboxOutput> {
+        // As `std::process::Child::wait_with_output`: a stdin the caller did not take is closed
+        // first, so a child that reads until end-of-input is not left waiting for the deadline.
+        drop(self.stdin.take());
         let deadline = Instant::now() + timeout;
         let (tx, rx) = mpsc::channel();
         spawn_reader(

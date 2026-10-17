@@ -106,6 +106,105 @@ pub fn parse_retry_after_at(value: &str, now: SystemTime) -> Option<Duration> {
     Some(at.duration_since(now).unwrap_or(Duration::ZERO))
 }
 
+/// Parse a rate-limit reset value (`X-RateLimit-Reset` and similar) into the wait it names,
+/// measured from `now`. Accepted forms: whole Unix epoch seconds (`1760000000`) and an ISO-8601
+/// instant with `T` (or a space) and either `Z` or a `±HH:MM` offset, fractional seconds
+/// allowed (`2026-10-18T10:00:00Z`). A reset already past is `Duration::ZERO`; any other text
+/// is `None`. A bare small integer is read as epoch seconds, so a delta-seconds value is not
+/// accepted here; use [`parse_retry_after_at`] for those.
+pub fn parse_rate_limit_reset_at(value: &str, now: SystemTime) -> Option<Duration> {
+    let v = value.trim();
+    let at = if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) {
+        let secs: u64 = v.parse().ok()?;
+        UNIX_EPOCH.checked_add(Duration::from_secs(secs))?
+    } else {
+        parse_iso8601_instant(v)?
+    };
+    Some(at.duration_since(now).unwrap_or(Duration::ZERO))
+}
+
+/// [`parse_rate_limit_reset_at`] against the current clock.
+pub fn parse_rate_limit_reset(value: &str) -> Option<Duration> {
+    parse_rate_limit_reset_at(value, SystemTime::now())
+}
+
+/// `YYYY-MM-DD[T ]HH:MM:SS[.fraction](Z|±HH:MM)`, fraction ignored.
+fn parse_iso8601_instant(v: &str) -> Option<SystemTime> {
+    let b = v.as_bytes();
+    if b.len() < 20 {
+        return None;
+    }
+    let num = |s: Option<&str>| -> Option<i64> {
+        let s = s?;
+        if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()) {
+            s.parse().ok()
+        } else {
+            None
+        }
+    };
+    if b[4] != b'-' || b[7] != b'-' || !matches!(b[10], b'T' | b't' | b' ') {
+        return None;
+    }
+    if b[13] != b':' || b[16] != b':' {
+        return None;
+    }
+    let year = num(v.get(0..4))?;
+    let month = num(v.get(5..7))?;
+    let day = num(v.get(8..10))?;
+    let hour = num(v.get(11..13))?;
+    let minute = num(v.get(14..16))?;
+    let second = num(v.get(17..19))?;
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    let mut i = 19;
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        let start = i;
+        while b.get(i).is_some_and(|c| c.is_ascii_digit()) {
+            i += 1;
+        }
+        if i == start {
+            return None;
+        }
+    }
+    let offset: i64 = match *b.get(i)? {
+        b'Z' | b'z' => {
+            i += 1;
+            0
+        }
+        sign @ (b'+' | b'-') => {
+            if b.get(i + 3) != Some(&b':') {
+                return None;
+            }
+            let oh = num(v.get(i + 1..i + 3))?;
+            let om = num(v.get(i + 4..i + 6))?;
+            i += 6;
+            let secs = oh * 3600 + om * 60;
+            if sign == b'-' {
+                -secs
+            } else {
+                secs
+            }
+        }
+        _ => return None,
+    };
+    if i != b.len() {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second - offset;
+    if secs < 0 {
+        return None;
+    }
+    Some(UNIX_EPOCH + Duration::from_secs(secs as u64))
+}
+
 fn month_number(m: &str) -> Option<i64> {
     const MONTHS: [&str; 12] = [
         "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
@@ -253,5 +352,31 @@ mod tests {
         assert!(!p.defers(None));
         p.honor_retry_after = false;
         assert!(!p.defers(Some(Duration::from_secs(3600))));
+    }
+
+    #[test]
+    fn rate_limit_reset_epoch_and_iso_forms() {
+        // 2026-10-18T10:00:00Z is 1792317600 seconds after the epoch.
+        let now = UNIX_EPOCH + Duration::from_secs(1_792_317_600 - 90);
+        let want = Some(Duration::from_secs(90));
+        assert_eq!(parse_rate_limit_reset_at("1792317600", now), want);
+        assert_eq!(parse_rate_limit_reset_at("2026-10-18T10:00:00Z", now), want);
+        assert_eq!(
+            parse_rate_limit_reset_at("2026-10-18T12:00:00+02:00", now),
+            want
+        );
+        assert_eq!(
+            parse_rate_limit_reset_at("2026-10-18 10:00:00.250Z", now),
+            Some(Duration::from_secs(90))
+        );
+        assert_eq!(
+            parse_rate_limit_reset_at("2026-10-18T10:00:00-02:00", now),
+            Some(Duration::from_secs(90 + 7200))
+        );
+        assert_eq!(parse_rate_limit_reset_at("1000", now), Some(Duration::ZERO));
+        assert_eq!(parse_rate_limit_reset_at("2026-13-18T10:00:00Z", now), None);
+        assert_eq!(parse_rate_limit_reset_at("2026-10-18T10:00:00", now), None);
+        assert_eq!(parse_rate_limit_reset_at("soon", now), None);
+        assert_eq!(parse_rate_limit_reset_at("", now), None);
     }
 }

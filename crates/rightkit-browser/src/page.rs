@@ -1,8 +1,9 @@
 use crate::cdp_ext::{
-    command_for, download_params, page_scale_params, parse_ax_tree, run_interceptor, AxNode,
-    DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest, PageException,
-    PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
+    command_for, download_params, page_scale_params, parse_ax_tree, run_interceptor, summarize_ax,
+    AxNode, AxSummary, DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest,
+    PageException, PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
 };
+use crate::design_mode::{self, DesignModeBridge, DesignModeSession, NativeGestureLatch};
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
 use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard, LifecycleKind};
@@ -20,7 +21,11 @@ use chromiumoxide::cdp::browser_protocol::inspector::{
 };
 use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
-use chromiumoxide::cdp::js_protocol::runtime::{EventConsoleApiCalled, EventExceptionThrown};
+use chromiumoxide::cdp::browser_protocol::page::CreateIsolatedWorldParams;
+use chromiumoxide::cdp::js_protocol::runtime::{
+    AddBindingParams, EvaluateParams, EventBindingCalled, EventConsoleApiCalled,
+    EventExceptionThrown, ExecutionContextId,
+};
 use chromiumoxide::page::{Page, ScreenshotParams};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -55,11 +60,22 @@ pub struct ObservedNode {
     /// `r<epoch>.<n>`; valid only while the page stays unchanged.
     pub node_ref: String,
     pub role: String,
+    /// Masked (`••••••••`) when `sensitive` is true.
     pub name: String,
     pub tag: String,
     pub selector: String,
     pub visible: bool,
     pub disabled: bool,
+    /// True for password-like fields (`type=password`, `current-password`, `new-password`).
+    /// Their name is masked; callers should mask any value they show.
+    pub sensitive: bool,
+    /// CDP frame id of the document the node was read from. An observation reads the main
+    /// document only (iframe contents are not enumerated, see the changelog), so this is the
+    /// main frame's id for every node; it does not make iframe controls observable.
+    pub frame_id: String,
+    /// Stable across consecutive observations of the same document for the same selector.
+    /// `0` when the node has no selector (such nodes cannot be targeted by ref either).
+    pub stable_id: u64,
     pub bounds: Rect,
 }
 
@@ -71,10 +87,27 @@ pub struct Observation {
     pub title: String,
     pub viewport: Rect,
     pub nodes: Vec<ObservedNode>,
+    /// Accessibility summary of the main frame, bounded to depth [`OBSERVE_AX_DEPTH`].
+    pub ax: Vec<AxSummary>,
     pub console_errors: usize,
     /// Refs/roles/names added, removed, or changed since the previous observation.
     pub added: Vec<String>,
     pub removed: Vec<String>,
+}
+
+/// Depth bound for the accessibility summary in an [`Observation`].
+pub const OBSERVE_AX_DEPTH: u32 = 12;
+
+/// How long a history traversal waits for a navigation event before returning. A traversal
+/// that fires no navigation (bfcache restore, same-document entry) must not hang the caller.
+const HISTORY_NAVIGATION_WAIT: Duration = Duration::from_secs(10);
+
+/// Screenshot options for [`BrowserPage::screenshot_with`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScreenshotOptions {
+    /// Capture with a transparent background. Pair with
+    /// [`BrowserPage::set_transparent_background`] for a fully transparent page.
+    pub omit_background: bool,
 }
 
 /// What an action addresses.
@@ -124,6 +157,9 @@ struct ObsState {
     fingerprint: String,
     refs: HashMap<String, RefEntry>,
     previous: HashMap<String, String>,
+    /// Stable ids of the previous observation's selectors (bounded by its node count).
+    stable: HashMap<String, u64>,
+    next_stable: u64,
 }
 
 /// What the request-interception pump has done on one page. Reported when a navigation
@@ -164,6 +200,8 @@ impl InterceptStats {
 
 pub struct BrowserPage {
     id: String,
+    /// CDP target id: the stable identity of the tab (`id` is the session's own sequence).
+    target_id: String,
     inner: Page,
     console: Arc<Mutex<Vec<ConsoleLine>>>,
     obs: StdMutex<ObsState>,
@@ -184,6 +222,10 @@ pub struct BrowserPage {
     fixture_fetch_owner: bool,
     exceptions: Arc<StdMutex<Vec<PageException>>>,
     exception_tx: broadcast::Sender<PageException>,
+    /// Latest native input gesture (pointer press, key down) this page dispatched.
+    design_gesture: Arc<NativeGestureLatch>,
+    /// Isolated-world context of the design-mode picker, once enabled.
+    design_context: StdMutex<Option<ExecutionContextId>>,
 }
 
 /// Buffered capacity of an exception subscription; a slower receiver sees `Lagged`.
@@ -304,8 +346,10 @@ impl BrowserPage {
             );
             pump_running = true;
         }
+        let target_id = inner.target_id().as_ref().to_string();
         Ok(Self {
             id,
+            target_id,
             inner,
             console,
             obs: StdMutex::new(ObsState::default()),
@@ -322,11 +366,25 @@ impl BrowserPage {
             fixture_fetch_owner,
             exceptions,
             exception_tx,
+            design_gesture: Arc::new(NativeGestureLatch::new()),
+            design_context: StdMutex::new(None),
         })
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// The CDP target id of this tab. Unlike [`BrowserPage::id`], it is Chrome's own identity
+    /// for the tab and does not change when the session renumbers pages.
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    /// Frame ids of every frame in the page (CDP `Page.getFrameTree`), read-only.
+    pub async fn frames(&self) -> Result<Vec<String>> {
+        let frames = self.inner.frames().await.map_err(cdp)?;
+        Ok(frames.iter().map(|f| f.as_ref().to_string()).collect())
     }
 
     /// Install (or with `None`, remove) a caller hook that answers every request this page
@@ -373,13 +431,46 @@ impl BrowserPage {
     /// The page's full accessibility tree (`Accessibility.getFullAXTree`), root frame, in CDP
     /// order. Ignored nodes are included and flagged. Read-only.
     pub async fn accessibility_tree(&self) -> Result<Vec<AxNode>> {
-        let r = self
-            .inner
-            .execute(GetFullAxTreeParams::default())
-            .await
-            .map_err(cdp)?;
+        self.ax_tree(None).await
+    }
+
+    /// The accessibility tree cut off below `depth` (root is depth 0). Use it on heavy pages,
+    /// where the full tree costs too much. Read-only, like [`BrowserPage::accessibility_tree`].
+    pub async fn accessibility_tree_with(&self, depth: u32) -> Result<Vec<AxNode>> {
+        self.ax_tree(Some(depth)).await
+    }
+
+    async fn ax_tree(&self, depth: Option<u32>) -> Result<Vec<AxNode>> {
+        let params = GetFullAxTreeParams {
+            depth: depth.map(i64::from),
+            ..Default::default()
+        };
+        let r = self.inner.execute(params).await.map_err(cdp)?;
         let wire = serde_json::to_value(&r.result).map_err(cdp)?;
         Ok(parse_ax_tree(&wire))
+    }
+
+    /// Make the page background transparent (`Emulation.setDefaultBackgroundColorOverride`
+    /// with alpha 0), or restore Chrome's default with `false`. Pair with
+    /// [`BrowserPage::screenshot_with`] and `omit_background` to capture alpha. Like
+    /// [`BrowserPage::set_page_scale`], this changes rendering only and is not admitted.
+    pub async fn set_transparent_background(&self, transparent: bool) -> Result<()> {
+        use chromiumoxide::cdp::browser_protocol::dom::Rgba;
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDefaultBackgroundColorOverrideParams;
+        let params = if transparent {
+            SetDefaultBackgroundColorOverrideParams::builder()
+                .color(Rgba {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: Some(0.0),
+                })
+                .build()
+        } else {
+            SetDefaultBackgroundColorOverrideParams::builder().build()
+        };
+        self.inner.execute(params).await.map_err(cdp)?;
+        Ok(())
     }
 
     /// Uncaught exceptions and unhandled rejections seen so far (`Runtime.exceptionThrown`),
@@ -488,6 +579,8 @@ impl BrowserPage {
         o.epoch += 1;
         o.refs.clear();
         o.fingerprint.clear();
+        // A navigation starts a new document: its selectors do not carry stable ids over.
+        o.stable.clear();
     }
 
     /// Waits until this new tab's own first navigation (to about:blank) has committed.
@@ -577,7 +670,13 @@ impl BrowserPage {
             .await
             .map_err(cdp)?;
         tokio::time::sleep(Duration::from_millis(150)).await;
-        self.inner.wait_for_navigation().await.map_err(cdp)?;
+        // Bounded: a traversal that fires no navigation event (bfcache, same-document entry)
+        // returns once the wait elapses; the page is then read as it is.
+        if let Ok(waited) =
+            tokio::time::timeout(HISTORY_NAVIGATION_WAIT, self.inner.wait_for_navigation()).await
+        {
+            waited.map_err(cdp)?;
+        }
         self.invalidate();
         Ok(())
     }
@@ -635,10 +734,99 @@ impl BrowserPage {
         Ok(())
     }
 
+    // ---- design mode -----------------------------------------------------
+
+    /// Enable the element picker for the current document. It runs in a fresh isolated world
+    /// and reports through a `Runtime.addBinding` function bound only to that world, so page
+    /// script can neither see nor forge picker messages. Prompt submissions are delivered only
+    /// when one native input gesture (a pointer press or key down this page dispatched)
+    /// authorizes them; see [`DesignModeBridge`]. Call once per document; navigation ends the
+    /// picker and requires a new call with a new nonce.
+    pub async fn enable_design_mode(&self, nonce: &str) -> Result<DesignModeSession> {
+        let script = design_mode::build_design_mode_script(nonce)?;
+        let mut bridge = DesignModeBridge::new(nonce)?;
+        let frame_id = self
+            .inner
+            .mainframe()
+            .await
+            .map_err(cdp)?
+            .ok_or_else(|| BrowserError::Invalid("no main frame".into()))?;
+        let mut events = self
+            .inner
+            .event_listener::<EventBindingCalled>()
+            .await
+            .map_err(cdp)?;
+        let mut add = AddBindingParams::new(bridge.binding_name());
+        add.execution_context_name = Some(bridge.world_name());
+        self.inner.execute(add).await.map_err(cdp)?;
+        let mut world = CreateIsolatedWorldParams::new(frame_id);
+        world.world_name = Some(bridge.world_name());
+        world.grant_univeral_access = Some(false);
+        let context = self
+            .inner
+            .execute(world)
+            .await
+            .map_err(cdp)?
+            .result
+            .execution_context_id;
+        *self.design_context.lock().unwrap() = Some(context);
+        let eval = EvaluateParams::builder()
+            .expression(script)
+            .context_id(context)
+            .build()
+            .map_err(BrowserError::Invalid)?;
+        self.inner.execute(eval).await.map_err(cdp)?;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let gesture = self.design_gesture.clone();
+        let pump = tokio::spawn(async move {
+            while let Some(e) = events.next().await {
+                let marker = bridge.accept(
+                    &e.name,
+                    &e.payload,
+                    e.execution_context_id == context,
+                    &gesture,
+                    design_mode::now_ms(),
+                );
+                if let Some(marker) = marker {
+                    if tx.send(marker).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        self.pumps.lock().unwrap().push(pump);
+        Ok(DesignModeSession { events: rx })
+    }
+
+    /// Show the outcome of a submission in the picker popup (`window.__omniOnDesignResult`
+    /// in the picker's isolated world).
+    pub async fn design_mode_result(&self, id: u64, ok: bool, message: &str) -> Result<()> {
+        let context = (*self.design_context.lock().unwrap())
+            .ok_or_else(|| BrowserError::Invalid("design mode is not enabled".into()))?;
+        let arg = serde_json::json!({"id": id, "ok": ok, "message": message});
+        let eval = EvaluateParams::builder()
+            .expression(format!(
+                "window.__omniOnDesignResult && window.__omniOnDesignResult({arg})"
+            ))
+            .context_id(context)
+            .build()
+            .map_err(BrowserError::Invalid)?;
+        self.inner.execute(eval).await.map_err(cdp)?;
+        Ok(())
+    }
+
     // ---- observation -----------------------------------------------------
 
     pub async fn observe(&self) -> Result<Observation> {
         let _l = self.lane.lock().await;
+        let frame_id = self
+            .inner
+            .mainframe()
+            .await
+            .map_err(cdp)?
+            .map(|f| f.as_ref().to_string())
+            .unwrap_or_default();
+        let ax = summarize_ax(&self.ax_tree(Some(OBSERVE_AX_DEPTH)).await?);
         let raw: Vec<RawNode> = self
             .inner
             .evaluate(OBSERVE_JS)
@@ -672,6 +860,7 @@ impl BrowserPage {
             let epoch = o.epoch;
             o.refs.clear();
             let mut cur = HashMap::new();
+            let mut cur_stable: HashMap<String, u64> = HashMap::new();
             let mut nodes = Vec::new();
             for (i, n) in raw.into_iter().enumerate() {
                 let name = if n.sensitive {
@@ -680,6 +869,20 @@ impl BrowserPage {
                     n.name.clone()
                 };
                 let node_ref = format!("r{epoch}.{}", i + 1);
+                let stable_id = if n.selector.is_empty() {
+                    0
+                } else {
+                    let existing = o.stable.get(&n.selector).copied();
+                    let id = match existing {
+                        Some(id) => id,
+                        None => {
+                            o.next_stable += 1;
+                            o.next_stable
+                        }
+                    };
+                    cur_stable.insert(n.selector.clone(), id);
+                    id
+                };
                 if !n.selector.is_empty() {
                     o.refs.insert(
                         node_ref.clone(),
@@ -700,9 +903,13 @@ impl BrowserPage {
                     selector: n.selector,
                     visible: n.visible,
                     disabled: n.disabled,
+                    sensitive: n.sensitive,
+                    frame_id: frame_id.clone(),
+                    stable_id,
                     bounds: n.bounds,
                 });
             }
+            o.stable = cur_stable;
             let added = cur
                 .keys()
                 .filter(|k| !o.previous.contains_key(*k))
@@ -731,6 +938,7 @@ impl BrowserPage {
             title: self.title().await,
             viewport,
             nodes,
+            ax,
             console_errors,
             added,
             removed,
@@ -837,6 +1045,9 @@ impl BrowserPage {
         button: MouseButton,
         click_count: i64,
     ) -> Result<()> {
+        if matches!(kind, DispatchMouseEventType::MousePressed) {
+            self.design_gesture.stamp();
+        }
         let mut p = DispatchMouseEventParams::new(kind.clone(), x, y);
         p.button = Some(button);
         p.click_count = Some(click_count);
@@ -982,6 +1193,60 @@ impl BrowserPage {
         Ok(())
     }
 
+    /// Programmatic scroll (`scrollBy`) of the element at `target`, or of the window when
+    /// `None`. Use it where a wheel event at the element's centre is wrong: a covered element,
+    /// or one that is not scrollable under the pointer. Selectors and refs must resolve to one
+    /// element; a point scrolls the element under it. No element at a point is an error.
+    pub async fn scroll_by(&self, target: Option<&Target>, dx: f64, dy: f64) -> Result<()> {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err(BrowserError::Invalid(format!(
+                "scroll offsets must be finite, got dx={dx} dy={dy}"
+            )));
+        }
+        self.admit(
+            ActionKind::Wheel,
+            None,
+            target.map(describe),
+            Some(format!("scroll_by dx={dx} dy={dy}")),
+        )
+        .await?;
+        let _l = self.lane.lock().await;
+        let offset = format!("{{left:{dx},top:{dy}}}");
+        let found = match target {
+            None => {
+                self.eval_internal(&format!(
+                    "(()=>{{window.scrollBy({offset});return true}})()"
+                ))
+                .await?
+            }
+            Some(Target::Point(x, y)) => {
+                if !x.is_finite() || !y.is_finite() {
+                    return Err(BrowserError::Invalid(format!(
+                        "scroll point must be finite, got {x},{y}"
+                    )));
+                }
+                self.eval_internal(&format!(
+                    "(()=>{{const e=document.elementFromPoint({x},{y});if(!e)return false;e.scrollBy({offset});return true}})()"
+                ))
+                .await?
+            }
+            Some(t) => {
+                let sel = self.resolve(t).await?.expect("selector");
+                self.eval_internal(&format!(
+                    "(()=>{{const e=document.querySelector({});if(!e)return false;e.scrollBy({offset});return true}})()",
+                    js(&sel)
+                ))
+                .await?
+            }
+        };
+        if found.as_bool() != Some(true) {
+            return Err(BrowserError::NoElement(
+                target.map(describe).unwrap_or_default(),
+            ));
+        }
+        Ok(())
+    }
+
     // ---- real keyboard input ---------------------------------------------
 
     async fn key_event(
@@ -991,6 +1256,12 @@ impl BrowserPage {
         mods: i64,
         with_text: bool,
     ) -> Result<()> {
+        if matches!(
+            kind,
+            DispatchKeyEventType::KeyDown | DispatchKeyEventType::RawKeyDown
+        ) {
+            self.design_gesture.stamp();
+        }
         let mut p = DispatchKeyEventParams::new(kind);
         p.modifiers = Some(mods);
         p.key = Some(d.key.clone());
@@ -1201,10 +1472,17 @@ impl BrowserPage {
     }
 
     pub async fn screenshot(&self) -> Result<Vec<u8>> {
+        self.screenshot_with(ScreenshotOptions::default()).await
+    }
+
+    /// PNG screenshot of the viewport with options; `ScreenshotOptions::default()` matches
+    /// [`BrowserPage::screenshot`].
+    pub async fn screenshot_with(&self, options: ScreenshotOptions) -> Result<Vec<u8>> {
         self.inner
             .screenshot(
                 ScreenshotParams::builder()
                     .format(CaptureScreenshotFormat::Png)
+                    .omit_background(options.omit_background)
                     .build(),
             )
             .await

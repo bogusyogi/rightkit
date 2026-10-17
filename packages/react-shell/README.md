@@ -88,8 +88,10 @@ Visual components take `className` for their root and `slots` for named regions.
 | `ConfirmDialog`, `PromptDialog`, `ActionDialog` | `root` (surface), `header`, `body`, `footer`, `overlay` |
 | `Dialog` | `root`, `header`, `body` (wrapper rendered only when set), `footer`, `overlay` |
 | `ContextMenu` | `root`, `item`, `separator`, `label`, `lead`, `scrim` |
-| `CommandPalette` | `root`, `field`, `input`, `list`, `group`, `option`, `empty`, `icon` |
+| `CommandPalette` | `root`, `field`, `input`, `list`, `group`, `option`, `empty`, `icon`, `scope`, `type`, `sublabel` |
 | `ToastViewport` | `root`, `toast`, `message`, `action`, `dismiss`, `glyph` |
+| `ShortcutHelp` | `root`, `title`, `grid`, `section`, `item`, `keys` |
+| `Popover` | `root` |
 | `Titlebar` | `root`, `side`, `lights`, `title`, `drag`, `end` (wraps the end content), `caption` |
 | `AppShell` | `root`, `titlebar`, `sidebar`, `sidebarFoot`, `body`, `plane` |
 
@@ -99,6 +101,7 @@ Visual components take `className` for their root and `slots` for named regions.
 
 - `defaultChoice` (default `"system"`): used when nothing is stored.
 - `alwaysPaintDataTheme` (default `true`): `system` resolves to `light` or `dark` and `data-theme` is always set to that value. Pass `false` to keep the old behaviour, where `system` removes `data-theme` and CSS alone decides.
+- `darkRemovesAttribute` (default `false`): a resolved dark theme removes `data-theme` and only light writes it, for stylesheets whose default is dark. `applyStoredThemeSync` and `themeBootScript` take the same option.
 - `systemMedia`: the OS colour-scheme query. The store listens to it itself, so `data-theme` follows the OS even with no React mounted. `store.resolved()` returns the current light or dark value, and `store.dispose()` detaches the listener.
 
 #### Avoid the light flash: call `applyStoredThemeSync` before render
@@ -230,7 +233,32 @@ Opting out removes an accessibility accommodation for people who asked their sys
 
 ### Palette and toast tokens
 
-`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `ShellProvider toastPlacement` and `ToastViewport placement` take `"bottom-center"` (default, markup unchanged) or `"top-center"`; the latter sets `data-placement="top-center"` on the live region, anchors it with `top: var(--rk-toast-top-offset, 16px)` (so `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)` puts it 12px under the titlebar) and slides rows in from above (0.6.8). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
+`--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-top-end-offset` (default `3rem`) and `--rk-toast-end-offset` (default `3.5rem`) place `ToastViewport placement="top-end"` (top right). `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `ShellProvider toastPlacement` and `ToastViewport placement` take `"bottom-center"` (default, markup unchanged) or `"top-center"`; the latter sets `data-placement="top-center"` on the live region, anchors it with `top: var(--rk-toast-top-offset, 16px)` (so `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)` puts it 12px under the titlebar) and slides rows in from above (0.6.8). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
+
+### Additions (0.6.9, unreleased)
+
+Every addition is optional. The CHANGELOG lists them with their defaults.
+
+| Area | API | Notes |
+|---|---|---|
+| Errors | `ErrorBoundary resetKey` | The error clears when the key changes (`Object.is`). |
+| Menus | `ContextMenu anchor`, `placement` | Opens from an element or rectangle; `bottom-start`, `bottom-end`, `top-start`, `top-end`; flips when it would overflow. `anchorPoint()` is the pure placement function. |
+| Menus | `Popover` | Anchored panel for arbitrary content. Outside press ignores the anchor, so the opener's own click toggles it. Escape and resize or scroll close it. |
+| Appearance | `AppearanceMenu presets / preset / onPresetChange / fonts / font / onFontChange`, `applyBodyFont(family)` | Presets show a swatch (up to three colours); fonts show their face. The app applies the choice. |
+| Shortcuts | `ShortcutRecorder`, `chordFromEvent(event, platform)` | The recorder takes the next chord; Escape cancels, Backspace clears. Host dialogs should pass `escape={false}`. |
+| Shortcuts | `mod+digit`, `mod+arrow` | Pseudo-keys match any digit or any arrow. Read `event.key` in `run`. |
+| Shortcuts | `conflicts()` `kind`, `list()` `unassigned`, `suspend()`, `resume()` | A prefix conflict is a one-press chord that starts a sequence. Suspend stops every binding for modal capture. |
+| Dialogs | `ModalShell`/`Dialog` `escape`, `dismissible` | `dismissible` may be a function: a `false` return refuses the dismissal before the exit animation. `PromptDialog secret` masks the input. |
+| Toasts | `ToastViewport placement="top-end"`, `dedupe="newest"`, `maxVisible` | `ShellProvider toastOptions` passes the last two. |
+| Palette | `CommandPalette query / onQueryChange / activeIndex / onActiveChange / onRun / groupOrder / renderRow / scopeLabel`, `Command.kind`, `Command.sublabel` | Controlled mode when `query` or `activeIndex` is given. Home and End move the highlight only while the field is empty. |
+| Help | `ShortcutHelp slots`, `renderGroup` | `renderGroup(group, defaultSection)` returns the section it replaces. |
+| Layout | `AppShell sidebarResizable`, `onSidebarWidthChange`, `ShellLabels.resizeSidebar` | Drag or arrow keys; `storageKey` persists the width. |
+| Navigation | `NavList itemProps`, `itemCheck`, `collapsedGroups`, `onToggleGroup`, `renderTwisty`; `NavItem.ariaLabel` | `itemProps` carries drop-target handlers and a highlight class; click and keys stay the shell's. |
+| Controls | `Card onClick / label / flush / selected`, `Checkbox`, `Select`, `Slider`, `Notice`, `ProgressBar`, `Skeleton`, `SkeletonRows` | A clickable card is a button with Enter and Space. `Notice` `warn` and `bad` announce as alerts. |
+| State | `usePersistedState(key, initial)` | `key` null keeps it in memory. Reads and writes never throw. |
+| Platform | `installHoverGuard()` | Sets `data-rk-pointer` so hover washes stop when the pointer leaves the window (WebView2). Returns the detach function. |
+
+Tokens: `--rk-wash-hover`, `--rk-wash-press` (hover and press washes), `--rk-line-2` (hairline), `--rk-font-body` (set by `applyBodyFont`), `--rk-toast-top-end-offset`, `--rk-toast-end-offset`.
 
 ## Adopting with a locked UI
 

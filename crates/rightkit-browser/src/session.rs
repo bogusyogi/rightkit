@@ -1,3 +1,4 @@
+use crate::cdp_ext::{DownloadBehavior, RequestInterceptor};
 use crate::config::{
     reject_real_browser_profile, resolve_executable, validate_extra_args, validate_profile_dir,
     validate_profile_name, LaunchOptions, ProfileSpec,
@@ -347,6 +348,15 @@ fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, Path
             ))
         }
     }
+}
+
+/// What to install on a page before its first navigation; see `BrowserSession::new_page_with`.
+#[derive(Default)]
+pub struct PageSetup {
+    /// Request interceptor (see `BrowserPage::set_request_interceptor`).
+    pub interceptor: Option<RequestInterceptor>,
+    /// Download behaviour (see `BrowserPage::set_download_behavior`).
+    pub download: Option<DownloadBehavior>,
 }
 
 /// One Chrome process with any number of pages.
@@ -1008,6 +1018,37 @@ impl BrowserSession {
 
     /// Open a new page (tab), make it current, and navigate to `url`.
     pub async fn new_page(&self, url: &str) -> Result<Arc<BrowserPage>> {
+        let page = self.open_tab().await?;
+        if url != "about:blank" {
+            // The tab's own about:blank must have committed, or it discards this navigation.
+            page.settle_initial_document().await;
+            self.navigate_new_page(&page, url).await?;
+        }
+        Ok(page)
+    }
+
+    /// Open a new page, install `setup` (request interceptor, download behaviour) before its
+    /// first navigation, then navigate to `url`. Unlike `new_page` followed by `goto`, the
+    /// interceptor sees the very first request: the tab's own about:blank commit is waited out
+    /// first, and `url` is only requested once the setup is in place. `about:blank` opens a
+    /// page with the setup installed and no navigation.
+    pub async fn new_page_with(&self, url: &str, setup: PageSetup) -> Result<Arc<BrowserPage>> {
+        let page = self.open_tab().await?;
+        page.settle_initial_document().await;
+        if let Some(hook) = setup.interceptor {
+            page.set_request_interceptor(Some(hook)).await?;
+        }
+        if let Some(behavior) = setup.download {
+            page.set_download_behavior(&behavior).await?;
+        }
+        if url != "about:blank" {
+            self.navigate_new_page(&page, url).await?;
+        }
+        Ok(page)
+    }
+
+    /// Create the tab at about:blank, register it and make it current.
+    async fn open_tab(&self) -> Result<Arc<BrowserPage>> {
         let inner = self
             .browser
             .lock()
@@ -1037,28 +1078,28 @@ impl BrowserSession {
         );
         self.pages.lock().unwrap().push(page.clone());
         *self.current.lock().unwrap() = Some(id);
-        if url != "about:blank" {
-            // The tab's own about:blank must have committed, or it discards this navigation.
-            page.settle_initial_document().await;
-            if let Err(error) = page.goto(url).await {
-                // What Chrome itself said, when it said anything: a navigation that fails
-                // inside the browser leaves no other trace on this side.
-                return Err(match error {
-                    crate::error::BrowserError::Cdp(text) => {
-                        let stderr = self
-                            .proc
-                            .lock()
-                            .unwrap()
-                            .as_ref()
-                            .map(|chrome| chrome.stderr_tail.text())
-                            .unwrap_or_default();
-                        crate::error::BrowserError::Cdp(format!("{text}; chrome stderr: {stderr}"))
-                    }
-                    other => other,
-                });
-            }
-        }
         Ok(page)
+    }
+
+    async fn navigate_new_page(&self, page: &BrowserPage, url: &str) -> Result<()> {
+        if let Err(error) = page.goto(url).await {
+            // What Chrome itself said, when it said anything: a navigation that fails
+            // inside the browser leaves no other trace on this side.
+            return Err(match error {
+                crate::error::BrowserError::Cdp(text) => {
+                    let stderr = self
+                        .proc
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|chrome| chrome.stderr_tail.text())
+                        .unwrap_or_default();
+                    crate::error::BrowserError::Cdp(format!("{text}; chrome stderr: {stderr}"))
+                }
+                other => other,
+            });
+        }
+        Ok(())
     }
 
     pub fn pages(&self) -> Vec<Arc<BrowserPage>> {

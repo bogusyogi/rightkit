@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Added (#619, CodeRight port; additive, defaults unchanged):
+- `OnboardingStep.onContinue(ctx)`: runs before Continue/Finish advances. `false` or a throw keeps the step and shows the error; `void`/`true` advances.
+- `onComplete(result)` now receives `{ completed, skipped, steps }`. `ctx.setResult(value)` stores a per-step value for `result.steps[id]`. Values live for this mount only.
+- Per-step Skip: shown for `skippable` steps that are not the last and whose `canContinue` holds. It advances without marking the step complete; ids are kept in `PersistedOnboardingState.skippedSteps`.
+- `OnboardingStep.continueLabel` for the primary button text. `labels` prop (`OnboardingLabels`: `skip`, `skipStep`, `back`, `continue`, `finish`, `loading`).
+- `licenseStep(backend, { copy })` (`LicenseStepCopy`): `keyLabel`, `activateLabel`, `trialLabel`, `plansLabel`, `noLicenceDetail`. Defaults unchanged.
+- An empty `title` hides the step heading.
+
+Not built or run; verification is the root integration batch.
+
 ## 0.5.0
 
 Additive (Orthic-Labs/rightkit#285). The default (`legalMode="gate"`) is unchanged.

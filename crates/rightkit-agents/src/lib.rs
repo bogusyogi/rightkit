@@ -6,11 +6,15 @@
 //! Nothing in this crate speaks HTTP, links a vendor SDK or uses MCP.
 //!
 //! - [`event`]: the vendor-neutral [`AgentEvent`] stream.
+//! - [`rate_limit`]: rate-limit state (no data, probe failed, unsupported, known).
+//! - [`discovery`]: vendor CLI lookup on `PATH` and bounded version and sign-in probes.
 //! - `claude` (feature `claude`): Claude Code `stream-json` parser, writer and argv builder.
 //! - `codex` (feature `codex`): Codex `app-server` JSON-RPC client over stdio.
 //! - `session` (feature `session`): `Session` over either backend.
 
+pub mod discovery;
 pub mod event;
+pub mod rate_limit;
 
 #[cfg(feature = "claude")]
 pub mod claude;
@@ -20,4 +24,7 @@ pub mod codex;
 #[cfg(feature = "session")]
 pub mod session;
 
-pub use event::{AgentEvent, ParseError, PermissionDenial, UsageCounts};
+pub use event::{
+    AgentEvent, ControlOutcome, ControlResponse, McpServerStatus, ParseError, PermissionDenial,
+    RateLimitInfo, ResultSummary, SessionInit, UnknownPolicy, UsageCounts,
+};

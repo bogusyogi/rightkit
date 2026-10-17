@@ -11,6 +11,15 @@
 //!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
 //! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
 //! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
+//! - [`contain`](mod@contain): [`is_within`], [`contain()`](contain::contain), [`contain_lenient`] and [`Roots`], path containment that
+//!   follows links but refuses to leave a root; with feature `fs`, [`open_confined`] / [`Roots::open_confined`], a no-follow
+//!   open that stays inside the approved folders.
+//! - [`handle`] (feature `fs`): [`final_path`] and [`link_count`] of an open file, and [`open_read_nofollow`].
+//! - [`names`]: [`sanitize_file_name`] for names that come from outside, [`numbered_candidates`], and with feature `fs`
+//!   [`create_unique_file`] / [`create_download_file`].
+//! - [`publish_dir`](mod@publish_dir) (feature `fs`): [`publish_dir()`](publish_dir::publish_dir), an atomic directory replace.
+//! - [`trash`] (feature `fs`): [`move_to_trash`], and `trash::{list, lookup, restore}` (macOS and Windows).
+//! - [`zip`]: [`StoredZipWriter`], a deterministic stored-method ZIP writer, and [`crc32`].
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`replaced`]: [`open_replaced`] / [`read_replaced`], readers that retry, on Windows, an open a concurrent
 //!   replace refused (access denied, sharing violation).
@@ -37,34 +46,49 @@ pub mod append;
 pub mod atomic;
 #[cfg(feature = "fs")]
 pub mod clone;
+pub mod contain;
 #[cfg(feature = "digest")]
 pub mod digest;
 #[cfg(feature = "fs")]
 pub mod error;
+#[cfg(feature = "fs")]
+pub mod file_key;
+#[cfg(feature = "fs")]
+pub mod handle;
 #[cfg(feature = "json")]
 pub mod identity;
 #[cfg(feature = "lock")]
 pub mod lock;
+pub mod names;
 #[cfg(feature = "fs")]
 pub mod netfs;
 pub mod plain;
 #[cfg(feature = "fs")]
 pub mod private;
 #[cfg(feature = "fs")]
+pub mod publish_dir;
+#[cfg(feature = "fs")]
 pub mod replaced;
+#[cfg(feature = "fs")]
+pub mod space;
 #[cfg(feature = "fs")]
 pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
+#[cfg(feature = "fs")]
+pub mod trash;
+#[cfg(feature = "fs")]
+pub mod tree;
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
+pub mod zip;
 
 #[cfg(feature = "app-dirs")]
 pub use app_dirs::{AppDirs, AppDirsError, AppId, Options as AppDirsOptions, Os as AppDirsOs};
 #[cfg(feature = "fs")]
-pub use append::{append_record, AppendOptions};
+pub use append::{append_record, open_private_append, AppendOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use atomic::atomic_write_with_digest;
 #[cfg(feature = "fs")]
@@ -72,21 +96,35 @@ pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_reporting, atomic_write_with,
     atomic_write_with_options, durable_sync, durable_sync_with, publication_durability,
     publish_file, publish_file_first_free, publish_file_with, rename_exclusive,
-    rename_exclusive_reporting, sweep_stale_temps, sweep_stale_temps_report, AtomicOptions,
-    AtomicWriteOptions, AtomicWriter, ExclusiveMethod, Privacy, PublicationDurability, ReplaceMode,
-    RetryPolicy, SweepReport, SyncLevel, SyncPolicy, TempWriter, WriteReport,
+    rename_exclusive_reporting, sweep_stale_temps, sweep_stale_temps_report, try_sync_dir,
+    AtomicOptions, AtomicWriteOptions, AtomicWriter, ExclusiveMethod, Privacy,
+    PublicationDurability, ReplaceMode, RetryPolicy, SweepReport, SyncLevel, SyncPolicy,
+    TempWriter, WriteReport,
 };
 #[cfg(feature = "fs")]
 pub use clone::{
     clone_file_nofollow, clone_or_link_or_copy_nofollow, clone_or_link_or_copy_nofollow_with,
     CloneError, CloneOptions, CloneOutcome,
 };
+pub use contain::{contain, contain_lenient, is_within, ContainError, Roots};
+#[cfg(feature = "fs")]
+pub use contain::{open_confined, ConfinedOptions};
 #[cfg(feature = "fs")]
 pub use error::{FsError, PostPublishStep, Result};
+#[cfg(feature = "fs")]
+pub use file_key::FileKey;
+#[cfg(feature = "fs")]
+pub use handle::{final_path, link_count, open_read_nofollow, ReadOptions};
 #[cfg(feature = "json")]
-pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
+pub use identity::{IdentityStore, Resolution, StableId, Tracked};
 #[cfg(feature = "lock")]
 pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
+#[cfg(feature = "fs")]
+pub use names::{create_download_file, create_unique_file};
+pub use names::{
+    is_windows_reserved_name, numbered_candidates, sanitize_file_name, sanitize_file_name_with,
+    NameOptions,
+};
 #[cfg(feature = "fs")]
 pub use netfs::is_network_filesystem;
 pub use plain::{canonicalize_plain, plain_path};
@@ -96,13 +134,22 @@ pub use private::{
     write_private_executable, write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
+pub use publish_dir::{publish_dir, DirPublishMethod, PublishedDir};
+#[cfg(feature = "fs")]
 pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
+#[cfg(feature = "fs")]
+pub use space::free_bytes;
 #[cfg(feature = "fs")]
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
+#[cfg(feature = "fs")]
+pub use trash::{move_to_trash, TrashEntry, TrashIdentity};
+#[cfg(feature = "fs")]
+pub use tree::{copy_tree, CopyOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use verified::{copy_verified, VerifiedCopy};
+pub use zip::{crc32, stored_zip_bytes, StoredZipWriter};
 
 /// Conservative liveness result used by crash recovery.
 ///

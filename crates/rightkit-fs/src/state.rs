@@ -242,6 +242,9 @@ pub struct StateDir {
     dir: sys::Dir,
     path: PathBuf,
     options: StateOptions,
+    /// Opened by [`StateDir::open_shared`]: the pinned directory (and children found below it) need
+    /// not be private. Inherited by [`StateDir::child`].
+    shared: bool,
 }
 
 impl StateDir {
@@ -253,9 +256,39 @@ impl StateDir {
     /// [`open`](Self::open) with explicit [`StateOptions`].
     pub fn open_with(path: &Path, options: &StateOptions) -> Result<Self> {
         Ok(Self {
-            dir: sys::Dir::pin(path, false, options)?,
+            dir: sys::Dir::pin(path, false, options, false)?,
             path: path.to_path_buf(),
             options: options.clone(),
+            shared: false,
+        })
+    }
+
+    /// Pin an existing directory **that need not be private**: [`open`](Self::open) refuses a
+    /// directory writable by group or others ([`FsError::TooPermissive`]); this accepts it. For a
+    /// directory the user chose and this program does not own the policy of (an attachment folder, a
+    /// downloads folder, a shared workspace), where the private-directory rule would make the pin
+    /// impossible.
+    ///
+    /// Everything else is as strict as [`open`](Self::open): every component is opened without
+    /// following a symlink, the leaf must be a real directory owned by the effective user (Unix), and
+    /// every operation stays descriptor- or handle-relative to the pinned directory, so a swapped or
+    /// symlinked path cannot redirect it. What is given up is only the assumption that nobody else
+    /// can change the directory's *entries*: another user able to write there can create, rename or
+    /// remove names (a world-writable directory without the sticky bit even lets them replace yours).
+    /// Reads still refuse symlinks and non-regular files; write only what you can lose. Children made
+    /// by [`child`](Self::child) inherit this policy. Windows checks no ACL or mode when pinning, so
+    /// there this is the same as [`open`](Self::open).
+    pub fn open_shared(path: &Path) -> Result<Self> {
+        Self::open_shared_with(path, &StateOptions::default())
+    }
+
+    /// [`open_shared`](Self::open_shared) with explicit [`StateOptions`].
+    pub fn open_shared_with(path: &Path, options: &StateOptions) -> Result<Self> {
+        Ok(Self {
+            dir: sys::Dir::pin(path, false, options, true)?,
+            path: path.to_path_buf(),
+            options: options.clone(),
+            shared: true,
         })
     }
 
@@ -268,9 +301,10 @@ impl StateDir {
     /// [`create`](Self::create) with explicit [`StateOptions`].
     pub fn create_with(path: &Path, options: &StateOptions) -> Result<Self> {
         Ok(Self {
-            dir: sys::Dir::pin(path, true, options)?,
+            dir: sys::Dir::pin(path, true, options, false)?,
             path: path.to_path_buf(),
             options: options.clone(),
+            shared: false,
         })
     }
 
@@ -313,9 +347,10 @@ impl StateDir {
     pub fn child(&self, name: &str) -> Result<StateDir> {
         check_name(name, self.options.write_cap())?;
         Ok(Self {
-            dir: self.dir.child(name, self.options.sync)?,
+            dir: self.dir.child(name, self.options.sync, self.shared)?,
             path: self.path.join(name),
             options: self.options.clone(),
+            shared: self.shared,
         })
     }
 
@@ -334,11 +369,8 @@ impl StateDir {
     pub fn read(&self, name: &str, max_bytes: u64) -> Result<Vec<u8>> {
         check_name(name, PLATFORM_NAME_LIMIT)?;
         let path = self.path.join(name);
-        let mut file = self.dir.open_read(name)?;
+        let mut file = self.open_read(name, &crate::handle::ReadOptions::new())?;
         let meta = file.metadata().map_err(|e| FsError::io(&path, e))?;
-        if !meta.is_file() {
-            return Err(FsError::NotAFile(path));
-        }
         if meta.len() > max_bytes {
             return Err(FsError::TooLarge {
                 path,
@@ -361,6 +393,65 @@ impl StateDir {
             });
         }
         Ok(out)
+    }
+
+    /// Open a regular file in this directory for reading and return the handle.
+    ///
+    /// The entry is opened relative to the pinned directory without following a symlink or reparse
+    /// point ([`FsError::Symlink`]); anything that is not a regular file is [`FsError::NotAFile`] (a
+    /// FIFO or device is never waited on); [`ReadOptions`](crate::handle::ReadOptions) adds the
+    /// checks for more than one hard link ([`FsError::HardLinked`]) and, on Windows, read-only sharing
+    /// (no other handle may write, delete or rename the file while it is open). The handle is the
+    /// caller's to read, query ([`crate::handle::final_path`], [`crate::FileKey::of_file`]) and drop.
+    /// Any existing name up to [`PLATFORM_NAME_LIMIT`] can be opened.
+    pub fn open_read(&self, name: &str, options: &crate::handle::ReadOptions) -> Result<File> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        let shown = self.path.join(name);
+        let file = self.dir.open_read_with(name, options.share_read_only)?;
+        crate::handle::finish_read_open(file, &shown, options)
+    }
+
+    /// Remove an **empty directory** child. A symlink, junction or file at `name` is refused (a
+    /// symlink is [`FsError::Symlink`] on Windows and `NotADirectory` on unix: it is never followed
+    /// and never removed here, use [`remove_link`](Self::remove_link)); a directory that still holds
+    /// entries fails with the OS error (`ENOTEMPTY`, `ERROR_DIR_NOT_EMPTY`). Missing is `Ok(false)`.
+    /// Durable like [`remove`](Self::remove): a failed directory sync is [`FsError::DirSyncFailed`]
+    /// with the directory already gone.
+    pub fn remove_dir(&self, name: &str) -> Result<bool> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        match self.dir.remove_dir(name) {
+            Ok(()) => {}
+            Err(e) if e.is_not_found() => return Ok(false),
+            Err(e) => return Err(e),
+        }
+        self.dir
+            .sync(self.options.sync)
+            .map_err(|source| FsError::DirSyncFailed {
+                path: self.path.join(name),
+                source,
+            })?;
+        Ok(true)
+    }
+
+    /// Remove a **symlink or junction** child, the link itself and never its target. Unix unlinks the
+    /// symlink; Windows opens the reparse point (not its target) and deletes it through that handle,
+    /// which removes a junction or directory symlink without touching what it points at. An entry
+    /// that is not a link (a file, a directory) is refused as `InvalidInput`, so this cannot remove
+    /// real content by mistake. Missing is `Ok(false)`. Durable like [`remove`](Self::remove).
+    pub fn remove_link(&self, name: &str) -> Result<bool> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        match self.dir.remove_link(name) {
+            Ok(()) => {}
+            Err(e) if e.is_not_found() => return Ok(false),
+            Err(e) => return Err(e),
+        }
+        self.dir
+            .sync(self.options.sync)
+            .map_err(|source| FsError::DirSyncFailed {
+                path: self.path.join(name),
+                source,
+            })?;
+        Ok(true)
     }
 
     /// Like [`read`](Self::read) but `Ok(None)` when the entry does not exist.
@@ -800,7 +891,9 @@ mod sys {
         sync_dir_file(parent, policy).map(|_| ())
     }
 
-    fn verify(file: &File, shown: &Path) -> Result<libc::stat> {
+    /// `shared` skips the group/other-writable refusal (see `StateDir::open_shared`); the directory
+    /// must still be a directory owned by the effective user.
+    fn verify(file: &File, shown: &Path, shared: bool) -> Result<libc::stat> {
         let st = fstat(file).map_err(|e| FsError::io(shown, e))?;
         if kind_of(st.st_mode as u32) != EntryKind::Dir {
             return Err(FsError::NotADirectory(shown.to_path_buf()));
@@ -809,7 +902,7 @@ mod sys {
         if st.st_uid != unsafe { libc::geteuid() } {
             return Err(FsError::NotOwned(shown.to_path_buf()));
         }
-        if st.st_mode as u32 & 0o022 != 0 {
+        if !shared && st.st_mode as u32 & 0o022 != 0 {
             return Err(FsError::TooPermissive(shown.to_path_buf()));
         }
         Ok(st)
@@ -820,7 +913,7 @@ mod sys {
             self.0.as_raw_fd()
         }
 
-        pub fn pin(path: &Path, create: bool, options: &StateOptions) -> Result<Dir> {
+        pub fn pin(path: &Path, create: bool, options: &StateOptions, shared: bool) -> Result<Dir> {
             use std::path::Component;
             let root = CString::new("/").unwrap();
             let dot = CString::new(".").unwrap();
@@ -871,7 +964,7 @@ mod sys {
                     Err(e) => return Err(e),
                 };
             }
-            let st = verify(&current, path)?;
+            let st = verify(&current, path, shared)?;
             // Defence in depth: the pinned inode must be the one the path names right now.
             match std::fs::symlink_metadata(path) {
                 Ok(before)
@@ -882,7 +975,7 @@ mod sys {
             Ok(Dir(current))
         }
 
-        pub fn child(&self, name: &str, policy: SyncPolicy) -> Result<Dir> {
+        pub fn child(&self, name: &str, policy: SyncPolicy, shared: bool) -> Result<Dir> {
             let c = cname(name)?;
             let shown = Path::new(name);
             let mut created = false;
@@ -894,7 +987,7 @@ mod sys {
                 }
                 Err(e) => return Err(e),
             };
-            verify(&file, shown)?;
+            verify(&file, shown, shared)?;
             let child = Dir(file);
             // The entry lives in this directory; a child this call created is made durable like
             // a write. A child that already exists is returned as it is, with no sync.
@@ -932,14 +1025,18 @@ mod sys {
             }
         }
 
-        pub fn open_read(&self, name: &str) -> Result<File> {
+        /// `share_read_only` is a Windows sharing mode; Unix has no mandatory sharing, so it is
+        /// ignored here. `O_NONBLOCK` keeps a planted FIFO or device from hanging the open; the
+        /// caller (`StateDir::open_read`) refuses a non-regular file and returns the file to
+        /// blocking mode.
+        pub fn open_read_with(&self, name: &str, _share_read_only: bool) -> Result<File> {
             let c = cname(name)?;
             // SAFETY: valid fd and C string.
             let fd = unsafe {
                 libc::openat(
                     self.fd(),
                     c.as_ptr(),
-                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
                 )
             };
             if fd < 0 {
@@ -1019,6 +1116,39 @@ mod sys {
                 return Err(FsError::io(name, io::Error::last_os_error()));
             }
             Ok(())
+        }
+
+        /// `unlinkat(AT_REMOVEDIR)`: removes an empty directory, and fails with `ENOTDIR` for a
+        /// symlink or file at the name, so nothing but a real empty directory goes.
+        pub fn remove_dir(&self, name: &str) -> Result<()> {
+            let c = cname(name)?;
+            // SAFETY: valid fd and C string.
+            if unsafe { libc::unlinkat(self.fd(), c.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+                return Err(FsError::io(name, io::Error::last_os_error()));
+            }
+            Ok(())
+        }
+
+        /// Unlink `name` only when `fstatat(AT_SYMLINK_NOFOLLOW)` says it is a symlink. POSIX has no
+        /// unlink-if-symlink primitive, so a name swapped for another kind between the check and the
+        /// `unlinkat` is unlinked as that kind (a file or symlink name; a directory is refused by
+        /// `unlinkat` without `AT_REMOVEDIR`); the link's target is never touched either way.
+        pub fn remove_link(&self, name: &str) -> Result<()> {
+            let c = cname(name)?;
+            // SAFETY: valid fd, C string, zeroed out-parameter.
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstatat(self.fd(), c.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) }
+                != 0
+            {
+                return Err(FsError::io(name, io::Error::last_os_error()));
+            }
+            if kind_of(st.st_mode as u32) != EntryKind::Symlink {
+                return Err(FsError::io(
+                    name,
+                    io::Error::new(io::ErrorKind::InvalidInput, "the entry is not a symlink"),
+                ));
+            }
+            self.unlink(name)
         }
 
         /// Remove `name` only after comparing the descriptor opened without following links to
@@ -1209,7 +1339,12 @@ mod sys {
     }
 
     impl Dir {
-        pub fn pin(path: &Path, create: bool, _options: &StateOptions) -> Result<Dir> {
+        pub fn pin(
+            path: &Path,
+            create: bool,
+            _options: &StateOptions,
+            _shared: bool,
+        ) -> Result<Dir> {
             reject_links(path)?;
             if create {
                 fs::create_dir_all(path).map_err(|e| FsError::io(path, e))?;
@@ -1223,9 +1358,9 @@ mod sys {
             }
             Ok(Dir(path.to_path_buf()))
         }
-        pub fn child(&self, name: &str, _policy: SyncPolicy) -> Result<Dir> {
+        pub fn child(&self, name: &str, _policy: SyncPolicy, shared: bool) -> Result<Dir> {
             let p = self.0.join(name);
-            Dir::pin(&p, true, &StateOptions::default())
+            Dir::pin(&p, true, &StateOptions::default(), shared)
         }
         pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
             let p = self.0.join(name);
@@ -1255,7 +1390,7 @@ mod sys {
                 Err(e) => Err(FsError::io(p, e)),
             }
         }
-        pub fn open_read(&self, name: &str) -> Result<File> {
+        pub fn open_read_with(&self, name: &str, _share_read_only: bool) -> Result<File> {
             let p = self.0.join(name);
             if let Ok(m) = fs::symlink_metadata(&p) {
                 if is_link(&m) {
@@ -1295,6 +1430,27 @@ mod sys {
         }
         pub fn unlink(&self, name: &str) -> Result<()> {
             fs::remove_file(self.0.join(name)).map_err(|e| FsError::io(self.0.join(name), e))
+        }
+        pub fn remove_dir(&self, name: &str) -> Result<()> {
+            let p = self.0.join(name);
+            match fs::symlink_metadata(&p) {
+                Ok(m) if is_link(&m) => Err(FsError::Symlink(p)),
+                Ok(_) => fs::remove_dir(&p).map_err(|e| FsError::io(p, e)),
+                Err(e) => Err(FsError::io(p, e)),
+            }
+        }
+        pub fn remove_link(&self, name: &str) -> Result<()> {
+            let p = self.0.join(name);
+            match fs::symlink_metadata(&p) {
+                Ok(m) if is_link(&m) => fs::remove_file(&p)
+                    .or_else(|_| fs::remove_dir(&p))
+                    .map_err(|e| FsError::io(p, e)),
+                Ok(_) => Err(FsError::io(
+                    p,
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a link"),
+                )),
+                Err(e) => Err(FsError::io(p, e)),
+            }
         }
         pub fn unlink_regular(&self, name: &str) -> Result<bool> {
             let path = self.0.join(name);
@@ -1386,5 +1542,270 @@ mod tests {
         assert!(check_name(&long, DEFAULT_WRITE_NAME_LEN).is_err());
         assert!(check_name(&"n".repeat(256), PLATFORM_NAME_LIMIT).is_err());
         assert!(check_name("a/b", PLATFORM_NAME_LIMIT).is_err());
+    }
+}
+
+/// `open_shared`, `open_read`, `remove_dir` and `remove_link` (rightkit#613).
+#[cfg(test)]
+mod handle_policy_tests {
+    use super::*;
+    use crate::handle::ReadOptions;
+
+    fn tmp() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn open_read_returns_a_regular_file_handle() {
+        let (_g, root) = tmp();
+        let state = StateDir::create(&root.join("s")).unwrap();
+        state.write("f", b"bytes").unwrap();
+        let mut file = state.open_read("f", &ReadOptions::new()).unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut file, &mut text).unwrap();
+        assert_eq!(text, "bytes");
+        assert!(state
+            .open_read("absent", &ReadOptions::new())
+            .unwrap_err()
+            .is_not_found());
+        for bad in ["", "..", "a/b", "a\0b"] {
+            assert!(matches!(
+                state.open_read(bad, &ReadOptions::new()),
+                Err(FsError::BadName(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn open_read_refuses_a_directory_and_can_require_a_single_link() {
+        let (_g, root) = tmp();
+        let state = StateDir::create(&root.join("s")).unwrap();
+        state.child("sub").unwrap();
+        assert!(matches!(
+            state.open_read("sub", &ReadOptions::new()),
+            Err(FsError::NotAFile(_) | FsError::Io { .. })
+        ));
+        state.write("f", b"x").unwrap();
+        let strict = ReadOptions::new().require_single_link(true);
+        assert!(state.open_read("f", &strict).is_ok());
+        std::fs::hard_link(root.join("s/f"), root.join("s/alias")).unwrap();
+        assert!(matches!(
+            state.open_read("f", &strict),
+            Err(FsError::HardLinked(_))
+        ));
+        assert!(state.open_read("f", &ReadOptions::new()).is_ok());
+    }
+
+    #[test]
+    fn stat_reports_an_identity_that_tells_two_files_apart_and_a_hard_link_together() {
+        let (_g, root) = tmp();
+        let state = StateDir::create(&root.join("s")).unwrap();
+        state.write("a", b"1").unwrap();
+        state.write("b", b"2").unwrap();
+        std::fs::hard_link(root.join("s/a"), root.join("s/a2")).unwrap();
+        let (a, b, a2) = (
+            state.stat("a").unwrap().unwrap(),
+            state.stat("b").unwrap().unwrap(),
+            state.stat("a2").unwrap().unwrap(),
+        );
+        assert!(a.ino != 0 && b.ino != 0, "an identity was reported");
+        assert_ne!((a.dev, a.ino), (b.dev, b.ino));
+        assert_eq!((a.dev, a.ino), (a2.dev, a2.ino));
+    }
+
+    #[test]
+    fn remove_dir_removes_only_an_empty_real_directory() {
+        let (_g, root) = tmp();
+        let state = StateDir::create(&root.join("s")).unwrap();
+        state.child("empty").unwrap();
+        assert!(state.remove_dir("empty").unwrap());
+        assert!(!state.exists("empty").unwrap());
+        assert!(!state.remove_dir("empty").unwrap(), "missing is Ok(false)");
+        // A directory with content stays, with its content.
+        let full = state.child("full").unwrap();
+        full.write("keep", b"x").unwrap();
+        assert!(state.remove_dir("full").is_err());
+        assert_eq!(full.read("keep", 10).unwrap(), b"x");
+        // A file is not a directory.
+        state.write("file", b"x").unwrap();
+        assert!(state.remove_dir("file").is_err());
+        assert!(state.exists("file").unwrap());
+        assert!(matches!(state.remove_dir("../x"), Err(FsError::BadName(_))));
+    }
+
+    #[test]
+    fn remove_link_refuses_content_that_is_not_a_link() {
+        let (_g, root) = tmp();
+        let state = StateDir::create(&root.join("s")).unwrap();
+        state.write("file", b"x").unwrap();
+        state.child("dir").unwrap();
+        assert_eq!(
+            state.remove_link("file").unwrap_err().kind(),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(
+            state.remove_link("dir").unwrap_err().kind(),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert!(state.exists("file").unwrap() && state.exists("dir").unwrap());
+        assert!(!state.remove_link("absent").unwrap());
+    }
+
+    #[cfg(unix)]
+    mod unix {
+        use super::*;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        #[test]
+        fn open_shared_accepts_a_group_writable_directory_that_open_refuses() {
+            let (_g, root) = tmp();
+            let dir = root.join("shared");
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+            assert!(matches!(
+                StateDir::open(&dir),
+                Err(FsError::TooPermissive(_))
+            ));
+            let state = StateDir::open_shared(&dir).unwrap();
+            state.write("f", b"x").unwrap();
+            assert_eq!(state.read("f", 10).unwrap(), b"x");
+        }
+
+        #[test]
+        fn open_shared_still_refuses_a_symlink_and_a_file() {
+            let (_g, root) = tmp();
+            let dir = root.join("real");
+            std::fs::create_dir(&dir).unwrap();
+            symlink(&dir, root.join("link")).unwrap();
+            assert!(matches!(
+                StateDir::open_shared(&root.join("link")),
+                Err(FsError::Symlink(_))
+            ));
+            std::fs::write(root.join("file"), b"x").unwrap();
+            assert!(matches!(
+                StateDir::open_shared(&root.join("file")),
+                Err(FsError::NotADirectory(_))
+            ));
+        }
+
+        #[test]
+        fn a_child_of_a_shared_directory_is_shared_and_of_a_private_one_is_not() {
+            let (_g, root) = tmp();
+            let dir = root.join("shared");
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+            let kid = dir.join("kid");
+            std::fs::create_dir(&kid).unwrap();
+            std::fs::set_permissions(&kid, std::fs::Permissions::from_mode(0o777)).unwrap();
+            assert!(StateDir::open_shared(&dir).unwrap().child("kid").is_ok());
+            let private = root.join("private");
+            std::fs::create_dir(&private).unwrap();
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let pk = private.join("kid");
+            std::fs::create_dir(&pk).unwrap();
+            std::fs::set_permissions(&pk, std::fs::Permissions::from_mode(0o777)).unwrap();
+            assert!(matches!(
+                StateDir::open(&private).unwrap().child("kid"),
+                Err(FsError::TooPermissive(_))
+            ));
+        }
+
+        #[test]
+        fn open_read_refuses_a_symlink_and_never_waits_on_a_fifo() {
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            let (_g, root) = tmp();
+            let state = StateDir::create(&root.join("s")).unwrap();
+            state.write("real", b"x").unwrap();
+            symlink(root.join("s/real"), root.join("s/link")).unwrap();
+            assert!(matches!(
+                state.open_read("link", &ReadOptions::new()),
+                Err(FsError::Symlink(_))
+            ));
+            let fifo = root.join("s/pipe");
+            let c = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+            // SAFETY: valid NUL-terminated path.
+            assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+            assert!(matches!(
+                state.open_read("pipe", &ReadOptions::new()),
+                Err(FsError::NotAFile(_))
+            ));
+            assert!(matches!(state.read("pipe", 10), Err(FsError::NotAFile(_))));
+        }
+
+        #[test]
+        fn remove_link_removes_the_link_and_never_the_target() {
+            let (_g, root) = tmp();
+            let state = StateDir::create(&root.join("s")).unwrap();
+            let outside = root.join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            std::fs::write(outside.join("keep"), b"keep").unwrap();
+            symlink(&outside, root.join("s/dirlink")).unwrap();
+            symlink(root.join("nowhere"), root.join("s/dangling")).unwrap();
+            assert!(state.remove_link("dirlink").unwrap());
+            assert!(state.remove_link("dangling").unwrap());
+            assert!(!state.exists("dirlink").unwrap());
+            assert_eq!(std::fs::read(outside.join("keep")).unwrap(), b"keep");
+            // remove_dir refuses a symlink to a directory and leaves it.
+            symlink(&outside, root.join("s/again")).unwrap();
+            assert!(state.remove_dir("again").is_err());
+            assert!(state.exists("again").unwrap());
+        }
+    }
+
+    #[cfg(windows)]
+    mod windows {
+        use super::*;
+
+        /// A junction needs no privilege: `mklink /J`.
+        fn junction(link: &Path, target: &Path) -> bool {
+            // cmd.exe does not take a verbatim `\\?\` path.
+            let plain = |p: &Path| crate::plain::plain_path(p.to_path_buf());
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(plain(link))
+                .arg(plain(target))
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+
+        #[test]
+        fn a_junction_is_removed_by_remove_link_and_its_target_survives() {
+            let (_g, root) = tmp();
+            let state = StateDir::create(&root.join("s")).unwrap();
+            let outside = root.join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            std::fs::write(outside.join("keep"), b"keep").unwrap();
+            if !junction(&root.join("s").join("j"), &outside) {
+                return; // cmd.exe unavailable in this environment
+            }
+            // The junction is refused everywhere a directory or file is expected.
+            assert!(matches!(state.remove_dir("j"), Err(FsError::Symlink(_))));
+            assert!(matches!(state.child("j"), Err(FsError::Symlink(_))));
+            assert!(state.remove_link("j").unwrap());
+            assert!(std::fs::symlink_metadata(root.join("s").join("j")).is_err());
+            assert_eq!(std::fs::read(outside.join("keep")).unwrap(), b"keep");
+        }
+
+        #[test]
+        fn read_only_sharing_blocks_a_writer_while_the_handle_is_open() {
+            let (_g, root) = tmp();
+            let state = StateDir::create(&root.join("s")).unwrap();
+            state.write("f", b"x").unwrap();
+            let shared = ReadOptions::new().share_read_only(true);
+            let reader = state.open_read("f", &shared).unwrap();
+            let writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(root.join("s").join("f"));
+            assert_eq!(writer.unwrap_err().raw_os_error(), Some(32));
+            drop(reader);
+            assert!(std::fs::OpenOptions::new()
+                .write(true)
+                .open(root.join("s").join("f"))
+                .is_ok());
+        }
     }
 }

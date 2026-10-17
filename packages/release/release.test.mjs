@@ -571,6 +571,65 @@ test("accepts right-git managed CI and unsigned release-candidate workflows", ()
   assert.equal(result.status, 0, result.stderr);
 });
 
+function declaredWorkflowFixture(workflows) {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  const manifest = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["22.13"] }, packageManager: "pnpm@11.24.0", templateVersion: "1.0.0", workflows };
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify(manifest));
+  return { config, root, workflowDir, manifest };
+}
+
+const DECLARED_WORKFLOWS = {
+  "swift-host": { kind: "swift-host", file: "swift-host-tests.yml", os: ["macos-15"], packages: ["packages/SwiftCore"] },
+  build: { kind: "custom", file: "build-windows.yml", on: { push: { branches: ["main"] }, workflow_dispatch: true }, runsOn: "windows-2025", steps: [{ name: "Build", shell: "pwsh", run: "echo build" }] },
+};
+
+test("accepts workflow files declared under the .rightgit.json workflows block only when they equal the canonical render", () => {
+  const { config, root, workflowDir, manifest } = declaredWorkflowFixture(DECLARED_WORKFLOWS);
+  assert.deepEqual(validateManifest(manifest).errors, []);
+  for (const { filename, content } of renderLanes(manifest, root)) writeFileSync(path.join(workflowDir, filename), content);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add declared workflows");
+  const accepted = run(config, "--tier=patch");
+  assert.equal(accepted.status, 0, accepted.stderr);
+
+  writeFileSync(path.join(workflowDir, "undeclared.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add undeclared workflow");
+  const refused = run(config, "--tier=patch");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /declared by \.rightgit\.json/);
+});
+
+test("refuses a null or malformed workflows entry and any declared file that is not the canonical render", () => {
+  const stub = "# Managed by right-git\npermissions:\n  contents: write\njobs: {}\n";
+  const nulled = declaredWorkflowFixture({ extra: null });
+  for (const file of ["ci.yml", "extra.yml"]) writeFileSync(path.join(nulled.workflowDir, file), stub);
+  git(nulled.root, "add", ".");
+  git(nulled.root, "commit", "-m", "null entry");
+  const nullResult = run(nulled.config, "--tier=patch");
+  assert.notEqual(nullResult.status, 0);
+  assert.match(nullResult.stderr, /workflows\.extra to be an object/);
+
+  const malformed = declaredWorkflowFixture({ extra: { kind: "nonsense" } });
+  for (const file of ["ci.yml", "extra.yml"]) writeFileSync(path.join(malformed.workflowDir, file), stub);
+  git(malformed.root, "add", ".");
+  git(malformed.root, "commit", "-m", "malformed entry");
+  const malformedResult = run(malformed.config, "--tier=patch");
+  assert.notEqual(malformedResult.status, 0);
+  assert.match(malformedResult.stderr, /workflows block/);
+
+  const stubbed = declaredWorkflowFixture(DECLARED_WORKFLOWS);
+  for (const { filename, content } of renderLanes(stubbed.manifest, stubbed.root)) writeFileSync(path.join(stubbed.workflowDir, filename), filename === "swift-host-tests.yml" ? stub : content);
+  git(stubbed.root, "add", ".");
+  git(stubbed.root, "commit", "-m", "stub declared workflow");
+  const stubResult = run(stubbed.config, "--tier=patch");
+  assert.notEqual(stubResult.status, 0);
+  assert.match(stubResult.stderr, /not byte-for-byte the @rightkit\/ci render|violates the declared-workflow policy/);
+});
+
 test("rejects workflows that do not exactly match right-git manifest lanes", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);

@@ -47,6 +47,12 @@ export interface ThemeStoreOptions {
    * without React, and notifies subscribers.
    */
   systemMedia?: SystemThemeMedia | null;
+  /**
+   * "Dark is the default" contract (CodeRight): the app's stylesheet treats a missing `data-theme` as dark, so a resolved
+   * dark theme removes the attribute and only light writes `data-theme`. Default `false`: dark writes `data-theme="dark"`.
+   * Applies to `applyStoredThemeSync` and `themeBootScript` with the same option.
+   */
+  darkRemovesAttribute?: boolean;
 }
 
 function defaultStorage(): ThemeStorage | null {
@@ -91,6 +97,7 @@ export function createThemeStore(options: ThemeStoreOptions) {
   const media = options.systemMedia !== undefined ? options.systemMedia : defaultSystemMedia();
   const fallback: ThemeChoice = options.defaultChoice ?? "system";
   const paint = options.alwaysPaintDataTheme ?? true;
+  const darkRemoves = options.darkRemovesAttribute === true;
   const listeners = new Set<(choice: ThemeChoice) => void>();
   let current: ThemeChoice | null = null;
 
@@ -107,6 +114,11 @@ export function createThemeStore(options: ThemeStoreOptions) {
       return;
     }
     const value = choice === "system" ? resolved(choice) : choice;
+    if (value === "dark" && darkRemoves) {
+      if (el.getAttribute && el.getAttribute("data-theme") === null) return;
+      el.removeAttribute("data-theme");
+      return;
+    }
     // Already applied (for example by `applyStoredThemeSync` before first render): no second write.
     if (el.getAttribute && el.getAttribute("data-theme") === value) return;
     el.setAttribute("data-theme", value);
@@ -196,15 +208,25 @@ export function applyStoredThemeSync(options: ThemeStoreOptions): ResolvedTheme 
  * (storage key, light/dark/system, `qaOverride`, `defaultChoice`, `alwaysPaintDataTheme`) and never throws.
  * A strict CSP must allow it with a `'sha256-...'` hash of the exact script text or a nonce on the tag.
  */
-export function themeBootScript(options: Pick<ThemeStoreOptions, "storageKey" | "qaOverride" | "defaultChoice" | "alwaysPaintDataTheme">): string {
+export function themeBootScript(options: Pick<ThemeStoreOptions, "storageKey" | "qaOverride" | "defaultChoice" | "alwaysPaintDataTheme" | "darkRemovesAttribute">): string {
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const qa = options.qaOverride === "light" || options.qaOverride === "dark" ? options.qaOverride : null;
   return (
-    `(function(){try{var k=${json(options.storageKey)},c=${json(options.defaultChoice ?? "system")},p=${options.alwaysPaintDataTheme === false ? "false" : "true"},q=${json(qa)};` +
+    `(function(){try{var k=${json(options.storageKey)},c=${json(options.defaultChoice ?? "system")},p=${options.alwaysPaintDataTheme === false ? "false" : "true"},d=${options.darkRemovesAttribute === true ? "true" : "false"},q=${json(qa)};` +
     `if(q){c=q}else{try{var v=localStorage.getItem(k);if(v==="light"||v==="dark"||v==="system")c=v}catch(_){}}` +
     `var r=document.documentElement;` +
     `if(c==="system"){if(!p){r.removeAttribute("data-theme");return}` +
     `c=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}` +
-    `r.setAttribute("data-theme",c)}catch(_){}})();`
+    `if(c==="dark"&&d){r.removeAttribute("data-theme");return}r.setAttribute("data-theme",c)}catch(_){}})();`
   );
+}
+
+/**
+ * Set or clear the body font token `--rk-font-body` on `root`. Pairs with `AppearanceMenu` `fonts`: the app stores the
+ * chosen family and calls this from `onFontChange`. `null` removes the token so the shell's system stack applies again.
+ */
+export function applyBodyFont(family: string | null, root: { style: { setProperty(n: string, v: string): void; removeProperty(n: string): string } } | null = typeof document === "undefined" ? null : document.documentElement): void {
+  if (!root) return;
+  if (family) root.style.setProperty("--rk-font-body", family);
+  else root.style.removeProperty("--rk-font-body");
 }

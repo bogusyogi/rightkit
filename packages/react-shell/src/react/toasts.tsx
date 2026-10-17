@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { defaultToastBus, type Toast, type ToastBus, type ToastKind } from "../toast.js";
 import { cx } from "./ui.js";
+import { isImplicitDuplicate } from "./toast-dedupe.js";
 import type { SlotClasses } from "./slots.js";
 
 export type ToastSlot = "root" | "toast" | "message" | "action" | "dismiss" | "glyph";
@@ -53,15 +54,24 @@ function ToastRow({ toast, leaving, onDismiss, options }: { toast: Toast; leavin
 }
 
 /** Single mount point for a toast bus: a polite live region, errors announce as alerts. */
-export type ToastPlacement = "top-center" | "bottom-center";
+export type ToastPlacement = "top-center" | "bottom-center" | "top-end";
 
 export interface ToastViewportProps {
   bus?: ToastBus;
   /**
    * Where the stack sits. Default `bottom-center` (the 0.6.x position, markup unchanged). `top-center` sets
    * `data-placement="top-center"` on the live region; `--rk-toast-top-offset` (default 16px) is the distance from the top edge.
+   * `top-end` sets `data-placement="top-end"`: top right, `--rk-toast-top-end-offset` (default 3rem) from the top and
+   * `--rk-toast-end-offset` (default 3.5rem) from the right edge.
    */
   placement?: ToastPlacement;
+  /**
+   * `"newest"`: a toast whose kind, message and action label equal the newest visible row does not add a second row;
+   * the row stays and its timer restarts. A failing poller that repeats one sentence shows one toast. Default: no de-duplication.
+   */
+  dedupe?: "newest";
+  /** Most rows shown at once; the oldest is dropped when a new one arrives. Default 4. */
+  maxVisible?: number;
   /** Extra class on the live region. */
   className?: string;
   /** Extra classes per region: `root` (live region), `toast`, `message`, `action`, `dismiss`, `glyph`. */
@@ -80,20 +90,34 @@ export interface ToastViewportProps {
   renderRow?: (row: ToastRowContext) => ReactNode;
 }
 
-export function ToastViewport({ bus = defaultToastBus, placement, className, slots, roles, rowClassName, exitClassName, exitMs = EXIT_MS, renderGlyph, renderRow }: ToastViewportProps) {
+export function ToastViewport({ bus = defaultToastBus, placement, className, slots, roles, rowClassName, exitClassName, exitMs = EXIT_MS, renderGlyph, renderRow, dedupe, maxVisible = MAX_VISIBLE }: ToastViewportProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [leaving, setLeaving] = useState<ReadonlySet<number>>(() => new Set());
   const timers = useRef(new Map<number, number>());
+  // Mirrors of the state, so a bus event that arrives in the same tick sees the rows it must compare with.
+  const rows = useRef<Toast[]>([]);
+  const leavingIds = useRef<Set<number>>(new Set());
   // Read at call time so changing `exitMs` never re-runs the subscription effect (which clears pending timers).
   const exitMsRef = useRef(exitMs);
   exitMsRef.current = exitMs;
+  const optionsRef = useRef({ dedupe, maxVisible });
+  optionsRef.current = { dedupe, maxVisible };
 
-  const dismiss = useCallback((id: number) => {
+  const commit = useCallback((next: Toast[]) => {
+    rows.current = next;
+    setToasts(next);
+  }, []);
+
+  // Start the exit animation and remove the row afterwards. Never touches the bus.
+  const beginLeave = useCallback((id: number) => {
+    if (leavingIds.current.has(id) || !rows.current.some((x) => x.id === id)) return;
     const ttl = timers.current.get(id);
     if (ttl != null) window.clearTimeout(ttl);
+    leavingIds.current.add(id);
     setLeaving((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     timers.current.set(id, window.setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
+      commit(rows.current.filter((x) => x.id !== id));
+      leavingIds.current.delete(id);
       setLeaving((d) => {
         const n = new Set(d);
         n.delete(id);
@@ -101,22 +125,57 @@ export function ToastViewport({ bus = defaultToastBus, placement, className, slo
       });
       timers.current.delete(id);
     }, exitMsRef.current));
-  }, []);
+  }, [commit]);
+
+  // Viewport-initiated removal (timer, close button, action): leave, then release the bus bookkeeping.
+  // The bus echoes a dismiss event back; beginLeave ignores it because the row is already leaving.
+  const dismiss = useCallback((id: number) => {
+    beginLeave(id);
+    bus.dismiss(id);
+  }, [bus, beginLeave]);
 
   useEffect(() => {
     const pending = timers.current;
+    const ids = leavingIds.current;
     const off = bus.subscribe((event) => {
-      if (event.type === "dismiss") return dismiss(event.id);
+      if (event.type === "dismiss") return beginLeave(event.id);
       const { toast } = event;
-      setToasts((prev) => [...prev.slice(-(MAX_VISIBLE - 1)), toast]);
+      const newest = rows.current[rows.current.length - 1];
+      if (optionsRef.current.dedupe === "newest" && newest && !ids.has(newest.id) && isImplicitDuplicate(newest, toast)) {
+        const running = pending.get(newest.id);
+        if (running != null) window.clearTimeout(running);
+        pending.delete(newest.id);
+        if (toast.ttl > 0) pending.set(newest.id, window.setTimeout(() => dismiss(newest.id), toast.ttl));
+        // The replacement never gets a row, so release its bus entry now or dedupe would count it live forever.
+        bus.dismiss(toast.id);
+        return;
+      }
+      const max = Math.max(1, optionsRef.current.maxVisible);
+      const keep = rows.current.slice(Math.max(0, rows.current.length - (max - 1)));
+      const evicted = rows.current.filter((x) => !keep.includes(x));
+      commit([...keep, toast]);
+      for (const row of evicted) {
+        const running = pending.get(row.id);
+        if (running != null) window.clearTimeout(running);
+        pending.delete(row.id);
+        ids.delete(row.id);
+      }
+      setLeaving((prev) => (evicted.some((x) => prev.has(x.id)) ? new Set([...prev].filter((id) => !evicted.some((x) => x.id === id))) : prev));
+      for (const row of evicted) bus.dismiss(row.id);
       if (toast.ttl > 0) pending.set(toast.id, window.setTimeout(() => dismiss(toast.id), toast.ttl));
     });
     return () => {
       off();
       for (const t of pending.values()) window.clearTimeout(t);
       pending.clear();
+      // Unmount: release every row's bus entry (the subscription is already off, so nothing echoes back).
+      for (const row of rows.current) bus.dismiss(row.id);
+      ids.clear();
+      rows.current = [];
+      setToasts([]);
+      setLeaving(new Set());
     };
-  }, [bus, dismiss]);
+  }, [bus, dismiss, beginLeave, commit]);
 
   const rowOptions: RowOptions = { slots, roles, rowClassName, exitClassName, renderGlyph, renderRow };
   return (

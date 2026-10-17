@@ -31,6 +31,8 @@ export function applyBrand(
   // The accent pair is mode-independent in shell.css; keep it complete whichever mode is applied.
   vars["--rk-brand"] = light["--rk-brand"];
   vars["--rk-brand-dark"] = resolveBrand(brand).palette.dark["brand-action"];
+  // modeVars emits the wordmark font for light only; carry it into dark so applyBrand matches generateCss.
+  if (light["--rk-wordmark-font"] !== undefined) vars["--rk-wordmark-font"] = light["--rk-wordmark-font"];
   const aliases = options.applySuiteAliases ? aliasTokens(SUITE_ALIASES) : {};
   applyTokens({ ...vars, ...aliases }, root);
   return () => {

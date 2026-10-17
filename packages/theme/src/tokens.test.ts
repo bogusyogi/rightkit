@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { aliasTokens, applyTokens, fontTokens, presetTokens, SUITE_ALIASES, type StyleTarget } from "./tokens.js";
 import { applyBrand } from "./runtime.js";
+import { aliasCss, presetCss, tailwindThemeCss } from "./css.js";
 
 function fakeRoot(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -80,6 +81,21 @@ describe("presets and fonts", () => {
       "--rk-wordmark-font": '"Tanker", sans-serif',
     });
   });
+
+  it("maps a body font stack onto --rk-font-body", () => {
+    expect(fontTokens({ body: "Inter, sans-serif" })).toEqual({ "--rk-font-body": "Inter, sans-serif" });
+  });
+});
+
+describe("applyBrand wordmark font", () => {
+  it("writes --rk-wordmark-font in dark mode too, and undo removes it", () => {
+    const brand = { name: "Test", colors: { brand: "#0C6AA5" }, wordmarkFont: '"Tanker", sans-serif' };
+    const root = fakeRoot();
+    const undo = applyBrand(brand, "dark", root);
+    expect(root.values.get("--rk-wordmark-font")).toBe('"Tanker", sans-serif');
+    undo();
+    expect(root.values.has("--rk-wordmark-font")).toBe(false);
+  });
 });
 
 describe("applyBrand suite aliases", () => {
@@ -96,5 +112,36 @@ describe("applyBrand suite aliases", () => {
     undo();
     expect(on.values.has("--ink")).toBe(false);
     expect(on.values.has("--rk-brand")).toBe(false);
+  });
+});
+
+describe("generated token CSS for presets, aliases and Tailwind", () => {
+  const preset = {
+    id: "heardright-dark",
+    mode: "dark" as const,
+    tokens: { "--rk-ink": "#F5F5F7", "--rk-bg": "#101216" },
+    accents: { blue: { "--rk-accent": "#0C6AA5" } },
+  };
+
+  it("emits one data-palette block per preset, base tokens only", () => {
+    const css = presetCss([preset]);
+    expect(css).toBe(':root[data-palette="heardright-dark"] {\n  --rk-ink: #F5F5F7;\n  --rk-bg: #101216;\n}\n');
+  });
+
+  it("honours a custom preset attribute and rejects unsafe ids", () => {
+    expect(presetCss([preset], { attribute: "data-theme-id" })).toContain(':root[data-theme-id="heardright-dark"]');
+    expect(() => presetCss([{ ...preset, id: 'x"]' }])).toThrow(/Invalid preset id/);
+    expect(() => presetCss([preset], { attribute: "data palette" })).toThrow(/Invalid preset attribute/);
+  });
+
+  it("emits alias blocks matching aliasTokens", () => {
+    expect(aliasCss({ "--color-bg": "--rk-bg" })).toBe(":root {\n  --color-bg: var(--rk-bg);\n}\n");
+  });
+
+  it("emits a Tailwind @theme block with a configurable prefix", () => {
+    expect(tailwindThemeCss(presetTokens(preset))).toBe("@theme {\n  --color-rk-ink: #F5F5F7;\n  --color-rk-bg: #101216;\n}\n");
+    expect(tailwindThemeCss({ ink: "#000" }, { prefix: "--tw-" })).toBe("@theme {\n  --tw-ink: #000;\n}\n");
+    expect(() => tailwindThemeCss({ "a b": "#000" })).toThrow(/Invalid Tailwind theme token name/);
+    expect(() => tailwindThemeCss({ ink: "#000" }, { prefix: "color-" })).toThrow(/Invalid Tailwind theme prefix/);
   });
 });

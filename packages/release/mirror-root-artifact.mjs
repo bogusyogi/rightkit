@@ -1,11 +1,24 @@
 #!/usr/bin/env node
-import { copyFileSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+// Two forms:
+//   right-release mirror-root-artifact --file <artifact> --package-root <dir> [--name <filename>]
+//   right-release mirror-root-artifact --config <right-release.config.mjs> --platform mac|win [--package-root <dir>]
+// The config form mirrors every entry of `targets.<platform>.mirror`, a list of `"<app-relative file>"` or
+// `{ file, name?, pruneSuffix? }`. `pruneSuffix` (for example "-setup.exe") then removes the other files with that suffix
+// from the managed directory, so it holds exactly the current artifact. Run it as `targets.<platform>.postSign`.
+// Output goes only to RIGHT_RELEASE_ARTIFACT_DIR (outside the repository); it never writes into the repository root.
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const args = parseArgs(process.argv.slice(2));
-if (!args.file || !args.packageRoot) {
-  console.error("Usage: right-release mirror-root-artifact --file <artifact> --package-root <dir> [--name <filename>]");
+const usage = "Usage: right-release mirror-root-artifact (--file <artifact> --package-root <dir> [--name <filename>] | --config <file> --platform mac|win [--package-root <dir>])";
+if (!args.config && (!args.file || !args.packageRoot)) {
+  console.error(usage);
+  process.exit(2);
+}
+if (args.config && (!args.platform || args.file)) {
+  console.error(usage);
   process.exit(2);
 }
 if (!process.env.RIGHT_RELEASE_ARTIFACT_DIR) {
@@ -13,32 +26,67 @@ if (!process.env.RIGHT_RELEASE_ARTIFACT_DIR) {
   process.exit(2);
 }
 
-const packageRoot = realpathSync(path.resolve(args.packageRoot));
-const source = path.resolve(packageRoot, args.file);
-const name = args.name || path.basename(source);
+let entries;
+let rootArg = args.packageRoot;
+if (args.config) {
+  const configPath = path.resolve(args.config);
+  const loaded = await import(pathToFileURL(configPath).href);
+  const config = loaded.default ?? loaded.config ?? loaded;
+  const declared = config?.targets?.[args.platform]?.mirror;
+  if (!Array.isArray(declared) || declared.length === 0) {
+    console.error(`right-release mirror-root-artifact: targets.${args.platform}.mirror declares no files in ${args.config}`);
+    process.exit(2);
+  }
+  entries = declared.map((item) => (typeof item === "string" ? { file: item } : item));
+  for (const entry of entries) {
+    const unknown = entry && typeof entry === "object" ? Object.keys(entry).filter((key) => !["file", "name", "pruneSuffix"].includes(key)) : ["(not an object)"];
+    if (typeof entry?.file !== "string" || !entry.file.trim() || unknown.length || path.isAbsolute(entry.file) || entry.file.replaceAll("\\", "/").split("/").includes("..")) {
+      console.error(`right-release mirror-root-artifact: each mirror entry is an app-relative file or { file, name?, pruneSuffix? }: ${JSON.stringify(entry)}`);
+      process.exit(2);
+    }
+  }
+  rootArg ??= path.dirname(configPath);
+} else {
+  entries = [{ file: args.file, name: args.name }];
+}
+
+const packageRoot = realpathSync(path.resolve(rootArg));
 const managedOutput = path.resolve(process.env.RIGHT_RELEASE_ARTIFACT_DIR);
 const repoRoot = path.resolve(git(packageRoot, "rev-parse", "--show-toplevel"));
 if (inside(managedOutput, repoRoot)) {
   console.error(`right-release mirror-root-artifact: managed output must be outside repository: ${managedOutput}`);
   process.exit(2);
 }
-if (name !== path.basename(name) || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/.test(name)) {
-  console.error(`right-release mirror-root-artifact: unsafe artifact name: ${name}`);
-  process.exit(2);
-}
-assertSafePath(source);
-if (!statSync(source).isFile()) {
-  console.error(`right-release mirror-root-artifact: source is not a regular file: ${source}`);
-  process.exit(2);
-}
-const destinations = new Set([path.join(managedOutput, name)]);
+const safeName = (name) => name === path.basename(name) && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/.test(name);
 
-for (const destination of destinations) {
-  if (path.resolve(destination) === source) continue;
-  atomicCopy(source, destination);
+for (const entry of entries) {
+  const source = path.resolve(packageRoot, entry.file);
+  const name = entry.name || path.basename(source);
+  if (!safeName(name)) {
+    console.error(`right-release mirror-root-artifact: unsafe artifact name: ${name}`);
+    process.exit(2);
+  }
+  if (entry.pruneSuffix !== undefined && (typeof entry.pruneSuffix !== "string" || !/^[A-Za-z0-9._+-]{1,40}$/.test(entry.pruneSuffix) || !name.endsWith(entry.pruneSuffix))) {
+    console.error(`right-release mirror-root-artifact: pruneSuffix must be a plain suffix of the artifact name: ${entry.pruneSuffix}`);
+    process.exit(2);
+  }
+  assertSafePath(source);
+  if (!statSync(source).isFile()) {
+    console.error(`right-release mirror-root-artifact: source is not a regular file: ${source}`);
+    process.exit(2);
+  }
+  const destination = path.join(managedOutput, name);
+  if (path.resolve(destination) !== source) atomicCopy(source, destination);
+  if (entry.pruneSuffix) {
+    for (const stale of readdirSync(managedOutput)) {
+      if (stale !== name && stale.endsWith(entry.pruneSuffix) && safeName(stale)) {
+        assertSafePath(path.join(managedOutput, stale));
+        rmSync(path.join(managedOutput, stale), { force: true });
+      }
+    }
+  }
+  console.log(`right-release: managed artifact -> ${destination}`);
 }
-
-console.log(`right-release: managed artifact -> ${[...destinations][0]}`);
 
 function git(cwd, ...commandArgs) {
   return execFileSync("git", commandArgs, { cwd, encoding: "utf8" }).trim();

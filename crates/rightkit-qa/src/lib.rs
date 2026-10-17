@@ -35,6 +35,8 @@ pub mod a11y;
 /// Android journeys through `adb` (emulator or USB device); feature `android`.
 #[cfg(feature = "android")]
 pub mod android;
+#[cfg(all(feature = "control", not(debug_assertions)))]
+compile_error!("rightkit-qa control surface cannot be built without debug assertions");
 pub mod audio;
 pub mod binary;
 #[cfg(feature = "browser")]
@@ -42,17 +44,18 @@ pub mod browser;
 pub mod check;
 pub mod config;
 pub mod control;
-/// QA-only in-app control server. Compiled only with the explicit `control` feature, which no
-/// shipped build may enable (see the README section "Migrating from rightkit-qa-driver").
-#[cfg(feature = "control")]
+/// QA-only in-app control server. Compiled only with the explicit `control` feature AND debug
+/// assertions (dev builds, installed dev builds included); a release build cannot carry it.
+#[cfg(all(feature = "control", debug_assertions))]
 pub mod embedded;
 pub mod engine;
 pub mod evidence;
+pub mod frametrace;
 pub mod guard;
 pub mod harness;
 pub mod http;
-/// Tier-2 `InApp` client for the embedded control server (`control` feature only).
-#[cfg(feature = "control")]
+/// Tier-2 `InApp` client for the embedded control server (`control` feature, debug builds only).
+#[cfg(all(feature = "control", debug_assertions))]
 pub mod in_app;
 pub mod inplace;
 pub mod installed;
@@ -69,6 +72,7 @@ pub mod scenario;
 pub mod settings;
 pub mod storage;
 pub mod suite;
+pub mod tart;
 pub mod userdata;
 pub mod util;
 pub mod workspace;

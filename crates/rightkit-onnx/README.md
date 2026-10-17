@@ -218,6 +218,7 @@ Notes:
 - The destination directory is owned by provisioning. `verify_runtime_manifest` rejects unlisted files, so the bundle is staged next to it, verified, then swapped in; a failure keeps the previous bundle.
 - A second call with a matching verified bundle returns `reused: true` and downloads nothing. Verified archives stay in the cache directory for later builds.
 - `provision_runtime_with(&catalog, target, dest, cache, &mut fetch)` takes an explicit catalog and a fetcher (`FnMut(url, sha256, dest_file) -> Result<(), String>`), for offline builds from a pre-staged mirror and for tests.
+- Apps stage the Windows bundle and its `manifest.json` with `rightkit-onnx-provision` (or `provision_runtime`) and keep no nupkg or DLL SHA-256 of their own; the catalog row is the only pin, so it cannot drift. The DirectML licence and notices are `rightkit-ffmpeg/third-party/DirectML-1.15.4-LICENSE.txt` and `DirectML-1.15.4-ThirdPartyNotices.txt`. The rows `onnxruntime-1.24.4-windows-x64-directml` and `directml-1.15.4-windows-x64` stay `pinned` until the DLLs are loaded through this crate on Windows (Orthic-Labs/rightkit#265).
 - The `windows-x64` bundle ships Microsoft's DirectML redistributable under the licence in the catalog notice files; ship those notices with the app.
 
 ## Version policy

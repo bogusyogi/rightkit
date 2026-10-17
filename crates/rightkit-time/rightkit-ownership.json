@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-time",
+  "capabilities": [
+    {
+      "capability": "time-civil",
+      "summary": "RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling RFC 3339, civil date math or HTTP-date formatting.",
+        "No time zone database: named zones and DST rules are not owned here; callers pass a fixed offset."
+      ]
+    }
+  ]
+}

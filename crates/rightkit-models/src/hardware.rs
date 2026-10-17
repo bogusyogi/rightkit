@@ -1,8 +1,9 @@
 //! Host hardware probe and model fit estimate.
 //!
-//! Probe: macOS `sysctl` + `system_profiler -json`; Windows kernel32 FFI for
+//! Probe: macOS `sysctlbyname` + `system_profiler -json`; Windows kernel32 FFI for
 //! RAM and `reg.exe` display-class keys for GPUs; Linux `/proc/meminfo`;
-//! `nvidia-smi` for NVIDIA VRAM on Windows/Linux when present.
+//! `nvidia-smi` for NVIDIA VRAM on Windows/Linux when present. [`probe`](crate::probe) runs the
+//! same queries through an injected [`probe::ProbeRunner`] for confined callers.
 //! `RIGHTKIT_HW_JSON` injects a profile (tests, or hardware of another host);
 //! apps with their own override pass its path or JSON to
 //! [`Hardware::probe_with`] (the crate never reads app env vars).
@@ -386,6 +387,181 @@ impl Hardware {
     }
 }
 
+/// Physical memory in bytes, read in-process: `sysctlbyname("hw.memsize")` on macOS,
+/// `GlobalMemoryStatusEx` on Windows and `/proc/meminfo` elsewhere. `None` when the platform does
+/// not answer. No child process is started.
+pub fn total_memory_bytes() -> Option<u64> {
+    platform_memory_bytes().map(|bytes| bytes as u64)
+}
+
+/// Tiered memory needs of a local model, in GB: the smallest size that runs at all and the size
+/// that runs well, for system RAM and, when the model is GPU-offloaded, for VRAM. Unlike
+/// [`Requirements`], which gives one figure per hardware class, this drives [`Hardware::tiered_fit`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TieredRequirements {
+    pub min_memory_gb: f64,
+    pub recommended_memory_gb: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_vram_gb: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_vram_gb: Option<f64>,
+}
+
+/// Verdict of [`Hardware::tiered_fit`]. `Good` needs every declared resource at its recommended
+/// size; `Caution` means one is between minimum and recommended; `Unknown` means memory could not
+/// be read or a declared VRAM target has no VRAM figure; `TooLarge` means a resource is below its
+/// minimum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FitVerdict {
+    Good,
+    Caution,
+    Unknown,
+    TooLarge,
+}
+
+/// How far a [`FitVerdict`] can be trusted. `High` when the verdict used both a RAM and a VRAM
+/// figure from the host, `Medium` when one of them was missing, `Low` when RAM is unknown and no
+/// VRAM was reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FitConfidence {
+    High,
+    Medium,
+    Low,
+}
+
+/// Result of [`Hardware::tiered_fit`]: the verdict, its confidence, a sentence for the user, and
+/// the host figures it was based on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TieredFit {
+    pub verdict: FitVerdict,
+    pub confidence: FitConfidence,
+    pub reason: String,
+    pub detected_memory_gb: Option<f64>,
+    pub detected_vram_gb: Option<f64>,
+}
+
+impl Hardware {
+    /// Verdict for a model's tiered memory needs against this host. The host figures are its RAM
+    /// and the largest VRAM any GPU reports. A recorded measurement is not consulted here; use
+    /// [`Hardware::estimate_fit`] for `Measured`.
+    pub fn tiered_fit(&self, req: &TieredRequirements) -> TieredFit {
+        let vram = self
+            .gpus
+            .iter()
+            .filter_map(|gpu| gpu.vram_gb)
+            .reduce(f64::max);
+        let memory = self.memory_gb;
+        // A VRAM target is declared when either bound is given. A missing bound takes the other:
+        // a minimum-only target is met exactly when it is met, with nothing between the bounds.
+        let vram_target = req
+            .min_vram_gb
+            .or(req.recommended_vram_gb)
+            .map(|min| (min, req.recommended_vram_gb.unwrap_or(min)));
+        let vram_unmeasured = vram_target.is_some() && vram.is_none();
+        let (verdict, reason, confidence) = match memory {
+            None => (
+                FitVerdict::Unknown,
+                "Total memory could not be detected; verify RAM/VRAM manually.".to_string(),
+                if vram.is_some() {
+                    FitConfidence::Medium
+                } else {
+                    FitConfidence::Low
+                },
+            ),
+            Some(total) => {
+                let ram = band(total, req.min_memory_gb, req.recommended_memory_gb);
+                let gpu = match (vram_target, vram) {
+                    (Some((min, rec)), Some(v)) => Some((v, min, rec, band(v, min, rec))),
+                    _ => None,
+                };
+                let confidence = if vram_unmeasured {
+                    FitConfidence::Medium
+                } else {
+                    FitConfidence::High
+                };
+                let (verdict, reason) = match (ram, gpu) {
+                    (Band::Below, _) => (
+                        FitVerdict::TooLarge,
+                        format!("Detected memory ({total:.1} GB) is below the estimated minimum."),
+                    ),
+                    (_, Some((v, min, _, Band::Below))) => (
+                        FitVerdict::TooLarge,
+                        format!(
+                            "Detected VRAM ({v:.1} GB) is below the estimated minimum of {min:.1} GB."
+                        ),
+                    ),
+                    _ if vram_unmeasured => (
+                        FitVerdict::Unknown,
+                        format!(
+                            "Detected memory ({total:.1} GB) is known, but the model declares a VRAM target and no VRAM was detected; verify GPU memory manually."
+                        ),
+                    ),
+                    (Band::Between, Some((v, min, rec, Band::Between))) => (
+                        FitVerdict::Caution,
+                        format!(
+                            "Detected memory ({total:.1} GB) and VRAM ({v:.1} GB) are between the minimum and the recommended sizes ({min:.1} GB / {rec:.1} GB VRAM)."
+                        ),
+                    ),
+                    (Band::Between, _) => (
+                        FitVerdict::Caution,
+                        format!(
+                            "Detected memory ({total:.1} GB) meets the minimum but not the recommended size."
+                        ),
+                    ),
+                    (_, Some((v, min, rec, Band::Between))) => (
+                        FitVerdict::Caution,
+                        format!(
+                            "Detected VRAM ({v:.1} GB) meets the minimum ({min:.1} GB) but not the recommended {rec:.1} GB."
+                        ),
+                    ),
+                    (_, Some((v, _, rec, _))) => (
+                        FitVerdict::Good,
+                        format!(
+                            "Detected memory ({total:.1} GB) and VRAM ({v:.1} GB) meet the recommended sizes ({rec:.1} GB VRAM)."
+                        ),
+                    ),
+                    (_, None) => (
+                        FitVerdict::Good,
+                        format!(
+                            "Detected memory ({total:.1} GB) meets the recommended size; the model declares no VRAM target."
+                        ),
+                    ),
+                };
+                (verdict, reason, confidence)
+            }
+        };
+        TieredFit {
+            verdict,
+            confidence,
+            reason,
+            detected_memory_gb: memory,
+            detected_vram_gb: vram,
+        }
+    }
+}
+
+/// Where a host figure falls against a tier's minimum and recommended sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Band {
+    Below,
+    Between,
+    Meets,
+}
+
+fn band(value: f64, minimum: f64, recommended: f64) -> Band {
+    if value >= recommended {
+        Band::Meets
+    } else if value >= minimum {
+        Band::Between
+    } else {
+        Band::Below
+    }
+}
+
 /// Profile ids match exactly or modulo the `-unified` suffix, so a recorded
 /// `macos-24gb` measurement applies to the detected `macos-24gb-unified`.
 pub fn profiles_match(recorded: &str, detected: &str) -> bool {
@@ -399,11 +575,30 @@ fn round1(v: f64) -> f64 {
 
 #[cfg(target_os = "macos")]
 fn platform_memory_bytes() -> Option<f64> {
-    let out = std::process::Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    use std::ffi::{c_char, c_int, c_void};
+    extern "C" {
+        fn sysctlbyname(
+            name: *const c_char,
+            oldp: *mut c_void,
+            oldlenp: *mut usize,
+            newp: *mut c_void,
+            newlen: usize,
+        ) -> c_int;
+    }
+    let mut bytes: u64 = 0;
+    let mut len = std::mem::size_of::<u64>();
+    // SAFETY: `hw.memsize` is a NUL-terminated name; `bytes` is an 8-byte buffer and `len` tells the
+    // kernel so; no new value is set (`newp` is null and `newlen` is 0).
+    let status = unsafe {
+        sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&mut bytes as *mut u64).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (status == 0 && len == std::mem::size_of::<u64>()).then_some(bytes as f64)
 }
 
 #[cfg(target_os = "windows")]
@@ -592,5 +787,166 @@ fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
                 backends: vec!["cuda".into(), "vulkan".into()],
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tiered_tests {
+    use super::*;
+
+    fn host(memory_gb: Option<f64>, vram_gb: Option<f64>) -> Hardware {
+        let gpus = vram_gb
+            .map(|vram| Gpu {
+                name: "Test GPU".into(),
+                vram_gb: Some(vram),
+                unified: false,
+                backends: vec!["vulkan".into()],
+            })
+            .into_iter()
+            .collect();
+        Hardware {
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            memory_gb,
+            gpus,
+            profile: String::new(),
+            source: "override".into(),
+            profile_aliases: Vec::new(),
+        }
+    }
+
+    fn tier() -> TieredRequirements {
+        TieredRequirements {
+            min_memory_gb: 8.0,
+            recommended_memory_gb: 16.0,
+            min_vram_gb: Some(6.0),
+            recommended_vram_gb: Some(8.0),
+        }
+    }
+
+    fn outcome(hw: &Hardware, req: &TieredRequirements) -> (FitVerdict, FitConfidence) {
+        let fit = hw.tiered_fit(req);
+        (fit.verdict, fit.confidence)
+    }
+
+    #[test]
+    fn ram_and_vram_pick_good_caution_or_too_large_with_a_confidence() {
+        let req = tier();
+        assert_eq!(
+            outcome(&host(Some(32.0), Some(12.0)), &req),
+            (FitVerdict::Good, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(32.0), Some(7.0)), &req),
+            (FitVerdict::Caution, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(32.0), Some(4.0)), &req),
+            (FitVerdict::TooLarge, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(16.0), Some(8.0)), &req),
+            (FitVerdict::Good, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(10.0), Some(12.0)), &req),
+            (FitVerdict::Caution, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(10.0), None), &req),
+            (FitVerdict::Unknown, FitConfidence::Medium)
+        );
+        assert_eq!(
+            outcome(&host(Some(6.0), Some(12.0)), &req),
+            (FitVerdict::TooLarge, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(6.0), None), &req),
+            (FitVerdict::TooLarge, FitConfidence::Medium)
+        );
+        assert_eq!(
+            outcome(&host(Some(32.0), None), &req),
+            (FitVerdict::Unknown, FitConfidence::Medium)
+        );
+    }
+
+    #[test]
+    fn strong_ram_with_vram_between_minimum_and_recommended_is_caution() {
+        // 64 GB RAM and 8 GB VRAM against an 8 GB minimum / 16 GB recommended VRAM tier.
+        let req = TieredRequirements {
+            min_memory_gb: 16.0,
+            recommended_memory_gb: 32.0,
+            min_vram_gb: Some(8.0),
+            recommended_vram_gb: Some(16.0),
+        };
+        let fit = host(Some(64.0), Some(8.0)).tiered_fit(&req);
+        assert_eq!(fit.verdict, FitVerdict::Caution);
+        assert_eq!(fit.confidence, FitConfidence::High);
+        assert_eq!(
+            outcome(&host(Some(64.0), Some(16.0)), &req),
+            (FitVerdict::Good, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(64.0), Some(4.0)), &req),
+            (FitVerdict::TooLarge, FitConfidence::High)
+        );
+    }
+
+    #[test]
+    fn a_declared_vram_target_without_a_vram_reading_is_unknown() {
+        let req = tier();
+        // RAM is strong and VRAM is missing: Unknown, never Good.
+        let fit = host(Some(64.0), None).tiered_fit(&req);
+        assert_eq!(fit.verdict, FitVerdict::Unknown);
+        assert_eq!(fit.confidence, FitConfidence::Medium);
+        // A known RAM shortfall is still definitive even when VRAM is missing.
+        assert_eq!(
+            outcome(&host(Some(6.0), None), &req),
+            (FitVerdict::TooLarge, FitConfidence::Medium)
+        );
+    }
+
+    #[test]
+    fn a_minimum_only_vram_target_is_met_or_not() {
+        let req = TieredRequirements {
+            min_memory_gb: 8.0,
+            recommended_memory_gb: 16.0,
+            min_vram_gb: Some(6.0),
+            recommended_vram_gb: None,
+        };
+        assert_eq!(
+            outcome(&host(Some(32.0), Some(6.0)), &req),
+            (FitVerdict::Good, FitConfidence::High)
+        );
+        assert_eq!(
+            outcome(&host(Some(32.0), Some(4.0)), &req),
+            (FitVerdict::TooLarge, FitConfidence::High)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_memory_is_unknown_with_confidence_from_vram_only() {
+        let req = tier();
+        assert_eq!(
+            outcome(&host(None, None), &req),
+            (FitVerdict::Unknown, FitConfidence::Low)
+        );
+        assert_eq!(
+            outcome(&host(None, Some(8.0)), &req),
+            (FitVerdict::Unknown, FitConfidence::Medium)
+        );
+    }
+
+    #[test]
+    fn a_model_without_vram_targets_fits_on_ram_alone() {
+        let ram_only = TieredRequirements {
+            min_memory_gb: 8.0,
+            recommended_memory_gb: 16.0,
+            ..TieredRequirements::default()
+        };
+        let fit = host(Some(32.0), Some(12.0)).tiered_fit(&ram_only);
+        assert_eq!(fit.verdict, FitVerdict::Good);
+        assert_eq!(fit.detected_vram_gb, Some(12.0));
+        assert_eq!(fit.detected_memory_gb, Some(32.0));
     }
 }

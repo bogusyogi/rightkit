@@ -38,19 +38,24 @@ pub mod testing;
 
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
-    form_encode, percent_decode, percent_encode, AttemptEvent, Client, ClientConfig, Method,
-    ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent,
-    StreamResponse, TrustRoots,
+    form_encode, percent_decode, percent_decode_component, percent_encode,
+    percent_encode_component, AttemptEvent, Client, ClientConfig, Method, ProxyDiagnostic,
+    ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent, StreamResponse,
+    TrustRoots,
 };
 pub use error::{ErrorClass, HttpError, Phase};
-pub use multipart::Multipart;
+pub use multipart::{Multipart, MultipartRelated};
 pub use netpolicy::{
-    parse_host_ip, parse_legacy_ipv4, AddressClass, AddressPolicy, HostIpKind, IpNet, ParsedHostIp,
+    parse_host_ip, parse_legacy_ipv4, validate_public_https_url, AddressClass, AddressPolicy,
+    HostIpKind, IpNet, ParsedHostIp, ResolveError, UrlPolicyError,
 };
-pub use quota::QuotaSchedule;
-pub use retry::{parse_retry_after, parse_retry_after_at, RetryPolicy};
+pub use quota::{defer_in, remaining_in, QuotaSchedule, QuotaStore};
+pub use retry::{
+    parse_rate_limit_reset, parse_rate_limit_reset_at, parse_retry_after, parse_retry_after_at,
+    RetryPolicy,
+};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
-pub use sse::{SseDecoder, SseEvent, SseReader};
+pub use sse::{EofPolicy, SseDecoder, SseEvent, SseReader};
 #[cfg(feature = "untrusted")]
 pub use untrusted::{
     wrap_untrusted_web_text, wrap_untrusted_web_text_coderight, wrap_untrusted_web_text_with,

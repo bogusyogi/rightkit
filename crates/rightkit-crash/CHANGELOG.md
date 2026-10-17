@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Non-chaining panic hook (rightkit#513).** New `CrashConfig::chain_default_hook(bool)` (default `true`, nothing changes). With `false` the panic hook does not call the previous hook; it writes one fixed stderr line that names the app and says a crash report was recorded, so the panic payload is not printed. Additive: the struct keeps its private fields and `new`. Tests not run here.
+- **Scrub-before-bundle (#227), already in place.** Support bundles scrub every `sample_*` text on its way in (`bundle.rs:119-123`, test `an_unscrubbed_sample_in_the_crash_folder_is_scrubbed_on_its_way_into_the_bundle`). No code change in this entry.
+
 ## 0.3.2
 
 - Android native-crash and ANR records (Orthic-Labs/rightkit#156): `record_android_exits`, `AndroidExit`, `AndroidExitReason`, `reduce_trace`, `unseen_exits`. The Kotlin shell passes the entries of `getHistoricalProcessExitReasons` (crash 4, native crash 5, ANR 6) at launch; each unseen one becomes a redacted report through `record_report`, with a cursor file so it is recorded once. Tombstone traces keep the header and backtrace only (stack contents, memory, registers, memory map, open files and logs are dropped). The OS detects the ANR, so no thread of ours runs and no `unsafe` signal handler exists. No new dependency; the logic is host-tested on every OS, the Android shell side is not built or run. The Windows dump helper and the `support-bundle` and `window-errors` features are not needed on Android (use `--no-default-features`).

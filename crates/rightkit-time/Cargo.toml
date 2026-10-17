@@ -1,0 +1,17 @@
+[package]
+name = "rightkit-time"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Time owner: RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting, std only."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["time", "rfc3339", "http-date", "calendar"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure computation library: date parsing, formatting and calendar arithmetic; spawns no continuous work, no pattern in the runtime-budgets.mjs set matches non-test src"

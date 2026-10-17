@@ -7,6 +7,7 @@
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::{BuildMode, MediaError, VerifiedFfmpeg};
@@ -236,6 +237,64 @@ pub fn transcode_audio_command(
     c
 }
 
+/// What a clip keeps from its input, for [`extract_args`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtractMode {
+    /// `-c copy`: stream copy, no re-encode.
+    Copy,
+    /// `-vn`: drop video and keep the audio streams.
+    AudioOnly,
+}
+
+/// Clip options for [`extract_args`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExtractOptions {
+    /// Seek to this input time before decoding (`-ss`, placed before `-i`).
+    pub start: Option<Duration>,
+    /// Stop after this output duration (`-t`, placed after `-i`).
+    pub duration: Option<Duration>,
+    /// `None` leaves the streams to FFmpeg's defaults (no `-vn` and no `-c copy`).
+    pub mode: Option<ExtractMode>,
+    /// Extra tokens placed after the mode flags and before the output path.
+    pub extra: Vec<OsString>,
+}
+
+/// Seconds for `-ss` and `-t`, with microsecond precision (`1.500000`). A sub-microsecond
+/// remainder is dropped.
+fn seconds_arg(duration: Duration) -> OsString {
+    OsString::from(format!(
+        "{}.{:06}",
+        duration.as_secs(),
+        duration.subsec_micros()
+    ))
+}
+
+/// `-y [-ss S] -i input [-t D] [-vn | -c copy] extra... output`: a clip, audio-only extract or
+/// stream copy from `input` into `output`. Overwrites `output` (`-y`). Paths and extra tokens
+/// stay `OsString`s and are never passed through a shell. The binary is not part of the list:
+/// the caller runs it with [`crate::runner::run_checked`] or a similar call.
+pub fn extract_args(input: &Path, output: &Path, options: &ExtractOptions) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![OsString::from("-y")];
+    if let Some(start) = options.start {
+        args.push(OsString::from("-ss"));
+        args.push(seconds_arg(start));
+    }
+    args.push(OsString::from("-i"));
+    args.push(input.as_os_str().to_owned());
+    if let Some(duration) = options.duration {
+        args.push(OsString::from("-t"));
+        args.push(seconds_arg(duration));
+    }
+    match options.mode {
+        Some(ExtractMode::Copy) => args.extend(["-c", "copy"].map(OsString::from)),
+        Some(ExtractMode::AudioOnly) => args.push(OsString::from("-vn")),
+        None => {}
+    }
+    args.extend(options.extra.iter().cloned());
+    args.push(output.as_os_str().to_owned());
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +341,58 @@ mod tests {
         let mut piped = cmd.clone();
         piped.stdin_piped(true);
         assert_eq!(texts(&piped), ["-i", "a b.wav"]);
+    }
+
+    fn lossy(args: &[OsString]) -> Vec<String> {
+        args.iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn extract_args_orders_seek_input_duration_mode_extra_then_output() {
+        let options = ExtractOptions {
+            start: Some(Duration::from_secs(1)),
+            duration: Some(Duration::from_millis(3_500)),
+            mode: Some(ExtractMode::AudioOnly),
+            extra: vec![OsString::from("-ar"), OsString::from("16000")],
+        };
+        let args = extract_args(Path::new("in clip.mp4"), Path::new("out.m4a"), &options);
+        assert_eq!(
+            lossy(&args),
+            [
+                "-y",
+                "-ss",
+                "1.000000",
+                "-i",
+                "in clip.mp4",
+                "-t",
+                "3.500000",
+                "-vn",
+                "-ar",
+                "16000",
+                "out.m4a"
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_args_copy_and_defaults_carry_no_mode_flag_when_unset() {
+        let copy = ExtractOptions {
+            mode: Some(ExtractMode::Copy),
+            ..ExtractOptions::default()
+        };
+        assert_eq!(
+            lossy(&extract_args(Path::new("a.mkv"), Path::new("b.mkv"), &copy)),
+            ["-y", "-i", "a.mkv", "-c", "copy", "b.mkv"]
+        );
+        assert_eq!(
+            lossy(&extract_args(
+                Path::new("a.mkv"),
+                Path::new("b.mkv"),
+                &ExtractOptions::default()
+            )),
+            ["-y", "-i", "a.mkv", "b.mkv"]
+        );
     }
 }

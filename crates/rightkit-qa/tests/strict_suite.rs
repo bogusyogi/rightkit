@@ -133,6 +133,94 @@ fn mandatory_skip_fails_the_run_but_optional_skip_does_not() {
             && o.reason.as_deref().unwrap_or("").contains("mandatory")));
 }
 
+const OTHER_OS: &str = r#"
+name = "other os"
+requires = ["platform:__OTHER__"]
+[[step]]
+kind = "cli"
+command = "x"
+"#;
+const STRAY: &str = r#"
+name = "stray"
+[[step]]
+kind = "cli"
+command = "x"
+"#;
+
+#[test]
+fn other_platform_scenario_is_skipped_not_failed() {
+    let d = tmp("otheros");
+    let other = if cfg!(windows) { "darwin" } else { "windows" };
+    let body = OTHER_OS.replace("__OTHER__", other);
+    let cfg = app(&d, &[("right", RIGHT), ("other", &body)]);
+    let r = run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &d.join("managed")).unwrap();
+    assert_eq!(r.exit_code, 0, "{:?}", r.outcomes);
+    let o = r.outcomes.iter().find(|o| o.name == "other os").unwrap();
+    assert_eq!(o.status, rightkit_qa::evidence::CheckStatus::Skipped);
+}
+
+fn stray_hooks(
+    pid: std::sync::Arc<std::sync::Mutex<Option<u32>>>,
+) -> rightkit_qa::suite::SuiteHooks {
+    rightkit_qa::suite::SuiteHooks::default().setup(move |ctx, _| {
+        let child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .map_err(|e| rightkit_qa::util::Error(e.to_string()))?;
+        ctx.tracker.register(child.id(), "stray");
+        *pid.lock().unwrap() = Some(child.id());
+        std::mem::forget(child);
+        Ok(())
+    })
+}
+
+#[test]
+fn kill_orphans_reaps_strays_after_teardown_without_failing_the_scenario() {
+    // Default: a stray fails its scenario.
+    let d = tmp("stray-off");
+    let cfg = app(&d, &[("stray", STRAY)]);
+    let pid = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let opts = SuiteOptions {
+        hooks: stray_hooks(pid.clone()),
+        ..Default::default()
+    };
+    let r = run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap();
+    assert_eq!(r.exit_code, 1, "{:?}", r.outcomes);
+
+    // Option on: the scenario passes and the process is gone.
+    let d = tmp("stray-on");
+    let cfg = app(&d, &[("stray", STRAY), ("after", RIGHT)]);
+    let pid = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let opts = SuiteOptions {
+        hooks: stray_hooks(pid.clone()),
+        kill_orphans: true,
+        ..Default::default()
+    };
+    let r = run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap();
+    assert_eq!(r.exit_code, 0, "{:?}", r.outcomes);
+    let p = pid.lock().unwrap().unwrap();
+    assert!(!rightkit_qa::process::is_alive(p), "stray {p} survived");
+}
+
+#[test]
+fn only_matches_the_file_stem_exactly_and_comma_lists() {
+    let d = tmp("only");
+    let cfg = app(&d, &[("alpha-one", RIGHT), ("beta-two", WRONG)]);
+    let run = |only: &str| {
+        let opts = SuiteOptions {
+            only: Some(only.into()),
+            ..Default::default()
+        };
+        run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap()
+    };
+    let r = run("alpha-one");
+    assert_eq!(r.outcomes.len(), 1);
+    assert_eq!(r.exit_code, 0);
+    let r = run("alpha-one,beta-two");
+    assert_eq!(r.outcomes.len(), 2);
+    assert_eq!(r.exit_code, 1);
+}
+
 #[test]
 fn live_run_lock_holder_is_not_displaced_by_a_second_run() {
     let d = tmp("lock");
@@ -227,4 +315,134 @@ fn bundle_executable_is_resolved_from_info_plist_not_the_app_directory_name() {
     fs::write(bare.join("Contents/MacOS/D"), "x").unwrap();
     assert!(resolve_bundle_executable(&bare).is_none());
     let _ = fs::remove_dir_all(&root);
+}
+
+const CUSTOM: &str = r#"
+name = "custom kinds"
+[[step]]
+kind = "mock_admin"
+action = "arm"
+save = "armed"
+  [[step.expect]]
+  path = "url"
+  eq = "http://mock.test"
+[[step]]
+kind = "mock_admin"
+action = "${armed.action}"
+  [[step.expect]]
+  path = "action"
+  eq = "arm"
+"#;
+const CUSTOM_WRONG: &str = r#"
+name = "custom wrong"
+[[step]]
+kind = "mock_admin"
+action = "arm"
+  [[step.expect]]
+  path = "action"
+  eq = "disarm"
+"#;
+
+fn hooks(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> rightkit_qa::suite::SuiteHooks {
+    let (a, b, c) = (log.clone(), log.clone(), log.clone());
+    rightkit_qa::suite::SuiteHooks::default()
+        .step("mock_admin", move |ctx, p| {
+            a.lock().unwrap().push(format!("step {}", ctx.scenario));
+            Ok(serde_json::json!({
+                "action": p.get("action"),
+                "url": ctx.vars.get("mock_url"),
+            }))
+        })
+        .setup(move |ctx, sc| {
+            b.lock().unwrap().push(format!("setup {}", sc.name));
+            ctx.vars
+                .insert("mock_url".into(), serde_json::json!("http://mock.test"));
+            Ok(())
+        })
+        .teardown(move |_, sc| {
+            c.lock().unwrap().push(format!("teardown {}", sc.name));
+            Ok(())
+        })
+}
+
+#[test]
+fn custom_step_kinds_and_scenario_setup_teardown_run_through_the_suite() {
+    let d = tmp("custom");
+    let cfg = app(&d, &[("custom", CUSTOM), ("wrong", CUSTOM_WRONG)]);
+    let log = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+    let opts = SuiteOptions {
+        hooks: hooks(&log),
+        ..Default::default()
+    };
+    let r = run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap();
+    assert_eq!(
+        r.exit_code, 1,
+        "the wrong expectation on a custom kind must fail the run"
+    );
+    let by = |n: &str| r.outcomes.iter().find(|o| o.name == n).unwrap();
+    assert_eq!(
+        by("custom kinds").status,
+        rightkit_qa::evidence::CheckStatus::Passed,
+        "{:?}",
+        by("custom kinds")
+    );
+    assert_eq!(
+        by("custom wrong").status,
+        rightkit_qa::evidence::CheckStatus::Failed
+    );
+    let log = log.lock().unwrap().clone();
+    // Hooks run per scenario, in order: setup, the steps, teardown.
+    assert_eq!(
+        log,
+        vec![
+            "setup custom kinds",
+            "step custom kinds",
+            "step custom kinds",
+            "teardown custom kinds",
+            "setup custom wrong",
+            "step custom wrong",
+            "teardown custom wrong",
+        ]
+    );
+}
+
+#[test]
+fn a_failing_setup_fails_the_scenario_runs_no_steps_and_still_tears_down() {
+    let d = tmp("setupfail");
+    let cfg = app(&d, &[("custom", CUSTOM)]);
+    let log = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+    let mut h = hooks(&log);
+    h = h.setup(|_, _| rightkit_qa::util::err("mock would not start"));
+    let opts = SuiteOptions {
+        hooks: h,
+        ..Default::default()
+    };
+    let r = run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap();
+    assert_eq!(r.exit_code, 1);
+    let reason = r.outcomes[0].reason.clone().unwrap();
+    assert!(
+        reason.contains("scenario setup: mock would not start"),
+        "{reason}"
+    );
+    assert!(r.outcomes[0].steps.is_empty());
+    assert_eq!(*log.lock().unwrap(), vec!["teardown custom kinds"]);
+}
+
+#[test]
+fn a_failing_teardown_fails_an_otherwise_passing_scenario() {
+    let d = tmp("tdfail");
+    let cfg = app(&d, &[("custom", CUSTOM)]);
+    let log = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+    let h = hooks(&log).teardown(|_, _| rightkit_qa::util::err("mock would not stop"));
+    let opts = SuiteOptions {
+        hooks: h,
+        ..Default::default()
+    };
+    let r = run_suite_in_managed_root(&cfg, &opts, &d.join("managed")).unwrap();
+    assert_eq!(r.exit_code, 1);
+    assert!(r.outcomes[0]
+        .reason
+        .clone()
+        .unwrap()
+        .contains("scenario teardown: mock would not stop"));
 }

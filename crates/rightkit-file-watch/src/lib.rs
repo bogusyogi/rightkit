@@ -11,6 +11,7 @@
 pub mod coalesce;
 pub mod native;
 pub mod options;
+pub mod session;
 #[cfg(feature = "async")]
 pub mod subscribe;
 pub mod sync;
@@ -21,6 +22,7 @@ pub use native::{Granularity, TypedOptions, WatchBackend, WatchCursor};
 /// Backend types use exactly this crate's `notify` dependency.
 pub use notify;
 pub use options::{EventFilter, FileSetReceiver, WatchEventKind, WatchEventRecord, WatchOptions};
+pub use session::WatchSessionManager;
 #[cfg(feature = "async")]
 pub use subscribe::{
     DebouncedWatchReceiver, FileWatcher, FileWatcherEvent, FileWatcherSubscriber, Receiver,

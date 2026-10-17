@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed (rightkit#528, active content)
+
+- OOXML packages holding embedded OLE objects or ActiveX controls are refused before any part is parsed, with the new `DocsError::ActiveContent` (wire code `active_content`). Refused parts: any `embeddings/` part, any `activeX/` part, and any part whose name starts with `oleObject`. Pinned by an inline test in `src/package.rs`.
+- External relationships (hyperlinks, external targets) are still not followed and still listed as omitted; they are not refused.
+
 ## 0.1.1 - unreleased
 
 - quick-xml 0.41 to 0.42. Names, attribute values and text now arrive as `&str` and `Cow<str>`, so the `decode()` calls are gone (event content is read through `Deref`, raw and un-normalised exactly as `decode()` returned it), `local` and the new `prefix_of` in `xmlutil` take `&str`, and every `local(e.name().as_ref())` call site is unchanged. The DOCTYPE and entity preflight, the 256-level depth cap, `check_end_names`, entity handling (the five predefined entities and numeric references, nothing else) and attribute normalisation are untouched.

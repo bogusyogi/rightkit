@@ -252,6 +252,26 @@ fn key_authority(value: &Value) -> bool {
     )
 }
 
+/// Pinned third-party Git sources: recorded, never scanned, never a coverage gap.
+fn coverage_notes(value: &Value) -> bool {
+    value.as_array().is_some_and(|list| {
+        list.iter().all(|entry| {
+            fields(
+                entry,
+                &[
+                    ("path", text),
+                    ("status", text),
+                    ("reason", text),
+                    ("fingerprint", text),
+                    ("scanned", boolean),
+                ],
+                &[],
+            ) && field(entry, "status").as_str() == Some("pinned-git-dependency")
+                && field(entry, "scanned").as_bool() == Some(false)
+        })
+    })
+}
+
 fn roots(value: &Value) -> bool {
     value.as_array().is_some_and(|list| {
         list.iter()
@@ -285,6 +305,7 @@ fn metadata(value: &Value) -> bool {
             ("rootFingerprint", digest),
             ("keyAuthority", key_authority),
             ("roots", roots),
+            ("coverageNotes", coverage_notes),
         ],
     )
 }
@@ -303,6 +324,7 @@ fn valid_report(value: &Value) -> bool {
         &[
             ("findings", findings),
             ("covered", covered_findings),
+            ("coverageNotes", coverage_notes),
             ("rows", rows),
             ("warnings", strings),
             ("warning", text),
@@ -538,5 +560,24 @@ mod tests {
             ownership_cache_key(&extra).unwrap_err().code,
             codes::INVALID_INPUTS
         );
+    }
+
+    #[test]
+    fn coverage_notes_accept_only_pinned_unscanned_records() {
+        let good = serde_json::json!([{
+            "path": "Cargo.toml", "status": "pinned-git-dependency",
+            "reason": "git-dependency-source:x", "fingerprint": "https://h/o/r@abc", "scanned": false,
+        }]);
+        assert!(coverage_notes(&good));
+        let mut scanned = good.clone();
+        scanned[0]["scanned"] = serde_json::json!(true);
+        assert!(!coverage_notes(&scanned));
+        let mut status = good.clone();
+        status[0]["status"] = serde_json::json!("complete");
+        assert!(!coverage_notes(&status));
+        let mut missing = good.clone();
+        missing[0].as_object_mut().unwrap().remove("fingerprint");
+        assert!(!coverage_notes(&missing));
+        assert!(coverage_notes(&serde_json::json!([])));
     }
 }

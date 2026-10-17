@@ -460,7 +460,7 @@ test("universal: a thin lipo result and a failing lipo are refused", async () =>
   await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs: bad.fs, run: badRun }) }), { code: "STAGE_SIDECAR_BUILD_FAILED" });
 });
 
-test("universal: command output and machO resources must already carry both archs; ffmpeg and onnxruntime are refused", async () => {
+test("universal: command output and machO resources must already carry both archs", async () => {
   for (const [archs, ok] of [["x86_64 arm64", true], ["arm64", false]]) {
     const { fs, files } = fakeFs({ [at("out", "tool")]: "fat", [at("res", "lib.dylib")]: "fat" });
     const run = (command) => (command === "lipo" ? { status: 0, stdout: `${archs}\n` } : { status: 0, stdout: "", stderr: "" });
@@ -474,8 +474,9 @@ test("universal: command output and machO resources must already carry both arch
       assert.ok(files.has(at("src-tauri", "binaries", `tool-${UNIVERSAL}`)));
     } else await assert.rejects(attempt, { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
   }
-  assert.throws(() => validateSidecarManifest([{ kind: "onnxruntime", version: "1.24.4" }], { target: UNIVERSAL }), /no universal row/);
-  assert.throws(() => validateSidecarManifest([{ kind: "ffmpeg", notices: { dir: "n", sourceOfferContact: "a@b.co" } }], { target: UNIVERSAL }), /no universal row/);
+  // ffmpeg and onnxruntime are lipo-merged from their per-arch catalog rows (#492); see the slice tests below.
+  assert.doesNotThrow(() => validateSidecarManifest([{ kind: "onnxruntime", version: "1.24.4" }], { target: UNIVERSAL }));
+  assert.doesNotThrow(() => validateSidecarManifest([{ kind: "ffmpeg", notices: { dir: "n", sourceOfferContact: "a@b.co" } }], { target: UNIVERSAL }));
 });
 
 // ---- dest, clean, wipeStageDir, remote, directory resources, nested broker, target roots, --check (bogusyogi/rightkit#345) ----
@@ -726,4 +727,320 @@ test("F6: a failed remote fetch or hash mismatch leaves a clean:true destination
   const { fetch } = fetchOf("model-bytes");
   await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...REMOTE, clean: true }], deps: deps({ fs, fetch }) });
   assert.equal(files.get(dest).toString(), "model-bytes");
+});
+
+// ---- #489 pinned-commit source build, #490 prebuilt verification, #491 ffmpeg sources/variants/probes/archive unpack, #492 universal lipo merge ----
+
+const hex = (char) => char.repeat(64);
+const COMMIT = "60c0be6ac8fa71b1a2ae2dd938a31a34a508e774";
+const SOURCE_CMAKE = { kind: "cmake", name: "whisper-cli", repo: "https://github.com/ggml-org/whisper.cpp", commit: COMMIT, target: "whisper-cli", cmakeArgs: ["-DBUILD_SHARED_LIBS=OFF"], platformArgs: { mac: ["-DGGML_METAL=ON"], win: ["-DGGML_CUDA=OFF"] }, smoke: ["--help"] };
+const SRC_DIR = at(".right-release", "cmake", "whisper-cli", "src");
+const BUILD_DIR = at(".right-release", "cmake", "whisper-cli", "build");
+
+/** A fake git + build-tool runner: `git rev-parse HEAD` is empty until the pinned commit is fetched and checked out. */
+function fakeSourceBuild({ files, target = MAC, outputName = "whisper-cli", head: initialHead = "", checkoutHead = COMMIT, dirty = "", produce = true } = {}) {
+  const calls = [];
+  let head = initialHead;
+  const run = (command, args, options) => {
+    calls.push({ command, args, options });
+    if (command === "git") {
+      if (args[0] === "init") files.set(path.join(SRC_DIR, ".git", "HEAD"), Buffer.from("ref"));
+      if (args[0] === "checkout") head = checkoutHead;
+      if (args[0] === "rev-parse") return { status: 0, stdout: `${head}\n`, stderr: "" };
+      if (args[0] === "status") return { status: 0, stdout: dirty, stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "cmake" && args[0] === "--build" && produce) files.set(path.join(BUILD_DIR, "bin", `${outputName}${target === WIN ? ".exe" : ""}`), Buffer.from("whisper-bytes"));
+    if (command === "lipo" && args[0] === "-create") { files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-whisper")); return { status: 0, stdout: "", stderr: "" }; }
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  return { run, calls };
+}
+
+test("cmake kind fetches the pinned commit, configures with per-platform flags, builds, stages <name>-<triple> and smoke-runs it", async () => {
+  const { fs, files, log } = fakeFs();
+  const { run, calls } = fakeSourceBuild({ files });
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest: [SOURCE_CMAKE], deps: deps({ fs, run, host: { os: "macos", arch: "aarch64" } }) });
+  const git = calls.filter((call) => call.command === "git").map((call) => call.args.join(" "));
+  assert.deepEqual(git.slice(0, 5), ["init -q", "remote add origin https://github.com/ggml-org/whisper.cpp", "status --porcelain --ignored", "rev-parse HEAD", `fetch --depth 1 origin ${COMMIT}`], "clean is asserted before any checkout");
+  assert.ok(git.includes("checkout -q --force --detach FETCH_HEAD"));
+  const configure = calls.find((call) => call.command === "cmake" && call.args[0] === "-S");
+  assert.deepEqual(configure.args.slice(0, 5), ["-S", SRC_DIR, "-B", BUILD_DIR, "-DCMAKE_BUILD_TYPE=Release"]);
+  for (const flag of ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DGGML_METAL=ON", "-DBUILD_SHARED_LIBS=OFF"]) assert.ok(configure.args.includes(flag), flag);
+  assert.ok(!configure.args.includes("-DGGML_CUDA=OFF"), "another platform's flags are not passed");
+  assert.ok(calls.every((call) => call.options.shell === undefined), "no shell");
+  assert.deepEqual(calls.find((call) => call.args[0] === "--build").args, ["--build", BUILD_DIR, "--config", "Release", "--target", "whisper-cli", "--parallel"]);
+  assert.equal(fs.readFileSync(at("src-tauri", "binaries", `whisper-cli-${MAC}`)).toString(), "whisper-bytes");
+  assert.deepEqual(result.externalBinNames, ["whisper-cli"]);
+  const [row] = result.files;
+  assert.equal(row.kind, "cmake");
+  assert.equal(row.commit, COMMIT);
+  assert.equal(row.sha256, sha("whisper-bytes"));
+  assert.ok(row.flags.includes("-DGGML_METAL=ON"));
+  assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
+  assert.deepEqual(calls.at(-1).args, ["--help"], "the staged binary was smoke-run");
+  validateStageSidecarReceipt(result.receipt, { target: MAC, names: ["whisper-cli"] });
+});
+
+test("cmake kind reuses a checkout already at the commit, builds the .exe on Windows and the universal build needs both archs", async () => {
+  const win = fakeFs();
+  const winBuild = fakeSourceBuild({ files: win.files, target: WIN, head: COMMIT });
+  await stageSidecars({ appRoot: APP, target: WIN, manifest: [{ ...SOURCE_CMAKE, generator: "Ninja", smoke: undefined }], deps: deps({ fs: { ...win.fs, existsSync: (file) => win.fs.existsSync(file) || file === path.join(SRC_DIR, ".git") }, run: winBuild.run, host: { os: "windows", arch: "x86_64" } }) });
+  const winGit = winBuild.calls.filter((call) => call.command === "git").map((call) => call.args[0]);
+  assert.deepEqual(winGit, ["remote", "status", "rev-parse", "status"], "clean before and after; no fetch when HEAD already is the pinned commit");
+  const configure = winBuild.calls.find((call) => call.args[0] === "-S").args;
+  assert.deepEqual(configure.slice(configure.indexOf("-G"), configure.indexOf("-G") + 2), ["-G", "Ninja"]);
+  assert.ok(configure.includes("-DGGML_CUDA=OFF") && !configure.some((arg) => arg.startsWith("-DCMAKE_OSX")));
+  assert.equal(win.fs.readFileSync(at("src-tauri", "binaries", `whisper-cli-${WIN}.exe`)).toString(), "whisper-bytes");
+
+  const uni = fakeFs();
+  const uniBuild = fakeSourceBuild({ files: uni.files });
+  await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [SOURCE_CMAKE], deps: deps({ fs: uni.fs, run: uniBuild.run, host: { os: "macos", arch: "aarch64" } }) });
+  assert.ok(uniBuild.calls.find((call) => call.args[0] === "-S").args.includes("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"));
+  const thin = fakeFs();
+  const thinBuild = fakeSourceBuild({ files: thin.files });
+  const thinRun = (command, args, options) => (command === "lipo" ? { status: 0, stdout: "arm64\n" } : thinBuild.run(command, args, options));
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [SOURCE_CMAKE], deps: deps({ fs: thin.fs, run: thinRun }) }), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+});
+
+test("cmake kind refuses a checkout that is not the pinned commit, local edits, a failed step, a missing output and a pin mismatch", async () => {
+  const attempt = async (options, manifest = [SOURCE_CMAKE], mutate = (run) => run) => {
+    const { fs, files } = fakeFs();
+    const { run } = fakeSourceBuild({ files, ...options });
+    return stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, run: mutate(run), host: { os: "windows", arch: "x86_64" } }) });
+  };
+  await assert.rejects(attempt({ checkoutHead: "f".repeat(40) }), { code: "STAGE_SIDECAR_SOURCE_MISMATCH" });
+  await assert.rejects(attempt({ head: COMMIT, dirty: " M CMakeLists.txt\n" }), { code: "STAGE_SIDECAR_SOURCE_MISMATCH" });
+  await assert.rejects(attempt({ produce: false }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+  await assert.rejects(attempt({}, [{ ...SOURCE_CMAKE, sha256: hex("a") }]), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  await assert.rejects(attempt({}, [SOURCE_CMAKE], (run) => (command, args, options) => (command === "cmake" && args[0] === "-S" ? { status: 1, stderr: "no compiler" } : run(command, args, options))), { code: "STAGE_SIDECAR_BUILD_FAILED", message: /configure/ });
+  await assert.rejects(attempt({}, [SOURCE_CMAKE], (run) => (command, args, options) => (command === "git" && args[0] === "fetch" ? { status: 128, stderr: "no such commit" } : run(command, args, options))), { code: "STAGE_SIDECAR_BUILD_FAILED", message: /git fetch/ });
+});
+
+test("cmake kind validates strictly: a branch is not a pin, only -D definitions pass, https only", () => {
+  let error;
+  try {
+    validateSidecarManifest([
+      { kind: "cmake", name: "a.exe", repo: "git@github.com:x/y.git", commit: "main", cmakeArgs: ["-DOK=1", "--install-prefix=/x", "-D x=1"], platformArgs: { beos: [] }, generator: "bad;gen", smoke: "x", output: "../o", unknown: 1 },
+      { kind: "cmake", name: "b", repo: "https://example.com/r.git", commit: COMMIT, platformArgs: { mac: "-DX=1" } },
+    ], { target: MAC });
+  } catch (caught) { error = caught; }
+  for (const needle of ["name must be a bare sidecar name", "repo must be an https:// URL", "commit must be a full lowercase 40-hex", "cmakeArgs must be a list of -DNAME=value", "platformArgs.beos", "generator must be a generator name", "smoke must be a list", "output must be relative", "unknown key \"unknown\"", "platformArgs.mac must be a list"]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+  const plan = planSidecarStaging({ manifest: [SOURCE_CMAKE], target: MAC, env: {} });
+  assert.deepEqual(plan.entries[0].outputs, [`src-tauri/binaries/whisper-cli-${MAC}`]);
+  assert.equal(plan.entries[0].commit, COMMIT);
+  assert.equal(plan.entries[0].externalBin, true);
+});
+
+// ---- prebuilt (#490)
+
+const PREBUILT = { kind: "prebuilt", name: "sd-server", manifest: { file: "assets/local-image/runtime-manifest.json", entry: "binaries.{platform}", approvalSha256: "approval_sha256", approvalAlgorithm: "approval_hash_algorithm" } };
+function prebuiltFixture({ binary = "sd-bytes", approval = hex("c"), algorithm = "macho-codesign-strip-linkedit-v1", target = MAC, pinned = sha("sd-bytes"), key = "macos-aarch64", stage = true } = {}) {
+  const name = target === WIN ? `sd-server-${WIN}.exe` : `sd-server-${target}`;
+  const manifest = { binaries: { [key]: { sha256: pinned, approval_sha256: approval, approval_hash_algorithm: algorithm } } };
+  return fakeFs({ [at("assets", "local-image", "runtime-manifest.json")]: JSON.stringify(manifest), ...(stage ? { [at("src-tauri", "binaries", name)]: binary } : {}) });
+}
+
+test("prebuilt verifies the staged binary against the manifest sha256 and the signing-independent approval hash", async () => {
+  const { fs, log } = prebuiltFixture();
+  const seen = [];
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest: [PREBUILT], deps: deps({ fs, approvalDigest: (file, algorithm) => { seen.push([path.relative(APP, file), algorithm]); return hex("c"); } }) });
+  assert.deepEqual(seen, [[path.join("src-tauri", "binaries", `sd-server-${MAC}`), "macho-codesign-strip-linkedit-v1"]]);
+  const [row] = result.files;
+  assert.equal(row.kind, "prebuilt");
+  assert.equal(row.platform, "macos-aarch64");
+  assert.equal(row.approvalSha256, hex("c"));
+  assert.equal(row.changed, false);
+  assert.deepEqual(result.externalBinNames, ["sd-server"]);
+  assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
+  validateStageSidecarReceipt(result.receipt, { target: MAC, names: ["sd-server"] });
+});
+
+test("prebuilt fails closed on a missing binary, a sha256 or approval mismatch, a missing entry and a failing approval hash", async () => {
+  const stage = (fixture, manifest = [PREBUILT], extra = {}, target = MAC) => stageSidecars({ appRoot: APP, target, manifest, deps: deps({ fs: fixture.fs, approvalDigest: () => hex("c"), ...extra }) });
+  await assert.rejects(stage(prebuiltFixture({ stage: false })), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+  await assert.rejects(stage(prebuiltFixture({ pinned: sha("other") })), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.actual === sha("sd-bytes"));
+  await assert.rejects(stage(prebuiltFixture(), [PREBUILT], { approvalDigest: () => hex("d") }), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /signing-independent/ });
+  await assert.rejects(stage(prebuiltFixture({ key: "macos-x86_64" })), { code: "STAGE_SIDECAR_NOT_APPROVED" });
+  await assert.rejects(stage(prebuiltFixture(), [PREBUILT], { approvalDigest: () => { throw Object.assign(new Error("codesign failed"), { code: "APPROVAL_HASH_CODESIGN_FAILED" }); } }), (error) => error.code === "STAGE_SIDECAR_APPROVAL_FAILED" && error.details.causeCode === "APPROVAL_HASH_CODESIGN_FAILED");
+  await assert.rejects(stage(prebuiltFixture({ approval: "nope" })), { code: "STAGE_SIDECAR_NOT_APPROVED" });
+});
+
+test("prebuilt copies `from`, defaults to raw-sha256 off macOS, and refuses a universal target", async () => {
+  const fixture = prebuiltFixture({ target: WIN, key: "windows-x86_64", algorithm: "raw-sha256", stage: false });
+  fixture.files.set(at("build", "sd-server.exe"), Buffer.from("sd-bytes"));
+  const seen = [];
+  const manifest = [{ ...PREBUILT, from: "build/sd-server.exe", manifest: { ...PREBUILT.manifest, approvalAlgorithm: undefined } }];
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest, deps: deps({ fs: fixture.fs, approvalDigest: (file, algorithm) => { seen.push(algorithm); return hex("c"); } }) });
+  assert.deepEqual(seen, ["raw-sha256"]);
+  assert.equal(fixture.fs.readFileSync(at("src-tauri", "binaries", `sd-server-${WIN}.exe`)).toString(), "sd-bytes");
+  assert.equal(result.files[0].changed, true);
+  assert.throws(() => validateSidecarManifest([PREBUILT], { target: UNIVERSAL }), /no universal manifest entry/);
+  assert.throws(() => validateSidecarManifest([{ kind: "prebuilt", name: "x", manifest: { file: "../m.json", entry: "a..b", approvalAlgorithm: "alg", extra: 1 } }], { target: MAC }), (error) => ["must be relative", "dot path", "needs approvalSha256", "unknown key \"extra\""].every((needle) => error.message.includes(needle)));
+});
+
+// ---- remote archives (#491)
+
+test("remote extract unpacks one archive member after the archive digest passes, verifies memberSha256 and stages only the member", async () => {
+  const archive = "zip-bytes";
+  const entry = { kind: "remote", name: "ffmpeg-win", url: "https://example.test/ffmpeg.zip", sha256: sha(archive), extract: "ffmpeg.exe", memberSha256: sha("exe-bytes"), executable: true, dest: "resources/ffmpeg/ffmpeg.exe" };
+  const make = (memberBytes) => {
+    const { fs, files, log } = fakeFs();
+    const { fetch } = fetchOf(archive);
+    const extractMember = ({ archive: file, fileName, destDir }) => { assert.equal(sha(fs.readFileSync(file)), sha(archive)); assert.equal(fileName, "ffmpeg.exe"); const out = path.join(destDir, fileName); files.set(out, Buffer.from(memberBytes)); return out; };
+    return { fs, files, log, deps: deps({ fs, fetch, extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }) };
+  };
+  const ok = make("exe-bytes");
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest: [entry], deps: ok.deps });
+  assert.equal(ok.fs.readFileSync(at("resources", "ffmpeg", "ffmpeg.exe")).toString(), "exe-bytes");
+  assert.equal(result.files[0].archiveSha256, sha(archive));
+  assert.equal(result.files[0].sourceSha256, sha("exe-bytes"));
+  assert.equal(result.files[0].member, "ffmpeg.exe");
+  const bad = make("swapped");
+  await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ ...entry, clean: true }], deps: bad.deps }), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  assert.equal(bad.fs.existsSync(at("resources", "ffmpeg", "ffmpeg.exe")), false, "nothing staged");
+  for (const bogus of [{ extract: "a/b.exe" }, { memberSha256: hex("a"), extract: undefined }, { executable: "yes" }, { memberSha256: "z" }]) {
+    assert.throws(() => validateSidecarManifest([{ ...entry, ...bogus }], { target: WIN }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+  }
+});
+
+// ---- ffmpeg: variants, sources, probes, universal (#491, #492)
+
+function ffmpegCatalog(rows) {
+  const crateDir = path.resolve("/rk-fake-ffmpeg-crate");
+  const row = (tool, variant, arch, bytes, id = `${tool}-${variant}-macos-${arch}`) => ({
+    id, tool, variant, os: "macos", arch, status: "approved", version: "7.1", contentSha256: sha(bytes), sourceSha256: sha("src"),
+    attribution: { noticeFiles: ["notices/LGPL-2.1.txt"], sourceUrl: "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz", licenseSpdx: "LGPL-2.1-or-later", buildProvenance: "recipe" },
+  });
+  return { crateDir, catalog: { schemaVersion: 2, artifacts: rows.map((args) => row(...args)) }, initial: { [path.join(crateDir, "notices", "LGPL-2.1.txt")]: "LGPL text" } };
+}
+const NOTICES = { dir: "src-tauri/resources/third-party/ffmpeg", sourceOfferContact: "https://example.test/source" };
+
+test("ffmpeg variants plus sources: one entry stages the export-ass ffmpeg and the decode ffprobe, fetched, unpacked and checked against the approved rows", async () => {
+  const { crateDir, catalog, initial } = ffmpegCatalog([["ffmpeg", "export-ass", "aarch64", "ass-ffmpeg"], ["ffmpeg", "decode", "aarch64", "decode-ffmpeg"], ["ffprobe", "decode", "aarch64", "decode-ffprobe"]]);
+  const manifest = [{ kind: "ffmpeg", tools: ["ffmpeg", "ffprobe"], variants: { ffmpeg: "export-ass" }, catalog: "c/artifacts.json", notices: NOTICES,
+    sources: { ffmpeg: { url: "https://example.test/ffmpeg.zip", sha256: sha("zip-a"), member: "ffmpeg" }, ffprobe: { url: "https://example.test/ffprobe.zip", sha256: sha("zip-b"), member: "ffprobe" } } }];
+  const run = (members) => {
+    const { fs, files } = fakeFs(initial);
+    const urls = [];
+    const fetch = async (url) => { urls.push(url); return { ok: true, status: 200, arrayBuffer: async () => Buffer.from(url.endsWith("ffmpeg.zip") ? "zip-a" : "zip-b") }; };
+    const extractMember = ({ fileName, destDir }) => { const out = path.join(destDir, fileName); files.set(out, Buffer.from(members[fileName])); return out; };
+    const attempt = () => stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs, fetch, extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {}, loadMediaCatalog: () => ({ catalog, crateDir }) }) });
+    return { fs, urls, attempt };
+  };
+  const ok = run({ ffmpeg: "ass-ffmpeg", ffprobe: "decode-ffprobe" });
+  const result = await ok.attempt();
+  assert.deepEqual(ok.urls, ["https://example.test/ffmpeg.zip", "https://example.test/ffprobe.zip"]);
+  assert.equal(ok.fs.readFileSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)).toString(), "ass-ffmpeg");
+  assert.equal(ok.fs.readFileSync(at("src-tauri", "binaries", `ffprobe-${MAC}`)).toString(), "decode-ffprobe");
+  assert.deepEqual(result.files.map((file) => [file.name, file.variant, file.catalogRow]), [["ffmpeg", "export-ass", `ffmpeg-export-ass-macos-aarch64`], ["ffprobe", "decode", "ffprobe-decode-macos-aarch64"]]);
+  assert.deepEqual(result.externalBinNames, ["ffmpeg", "ffprobe"]);
+  const swapped = run({ ffmpeg: "decode-ffmpeg", ffprobe: "decode-ffprobe" });
+  await assert.rejects(swapped.attempt(), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /approved catalog row ffmpeg-export-ass-macos-aarch64/ });
+  assert.equal(swapped.fs.existsSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)), false, "a swapped archive never stages");
+});
+
+test("ffmpeg sources and probe are validated; a universal target needs per-arch sources", () => {
+  const base = { kind: "ffmpeg", notices: NOTICES, catalog: "c.json" };
+  const source = { url: "https://example.test/f.zip", sha256: hex("a"), member: "ffmpeg" };
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: source }, probe: true }], { target: MAC }));
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: { aarch64: source, x86_64: source } } }], { target: UNIVERSAL }));
+  let error;
+  try {
+    validateSidecarManifest([{ ...base, probe: "yes", sources: { ffmpeg: { url: "http://x/f.zip", sha256: "z", member: "a/b", size: 0, extra: 1 }, ffplay: source } }], { target: MAC });
+  } catch (caught) { error = caught; }
+  for (const needle of ["probe must be a boolean", "sources.ffmpeg.url must be an https:// URL", "sources.ffmpeg.sha256 is required", "sources.ffmpeg.member must be the bare file name", "sources.ffmpeg.size must be a positive integer", "unknown key \"extra\"", "sources.ffplay: not ffmpeg or ffprobe"]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+  assert.throws(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: source } }], { target: UNIVERSAL }), /needs \{ aarch64, x86_64 \} sources for universal-apple-darwin/);
+});
+
+test("ffmpeg probe (opt-in) checks the LGPL configuration and the encoder list, and skips a binary built for another target", async () => {
+  const configuration = (flags) => `ffmpeg version 7.1\nconfiguration: ${flags}\n`;
+  const probeRun = ({ flags = "--disable-gpl --disable-nonfree --disable-autodetect", encoders = " V....D libopenh264           OpenH264\n", fixture, probed }) => (command, args, options) => {
+    if (command === at("src-tauri", "binaries", `ffmpeg-${MAC}`)) { probed.push(args.join(" ")); return { status: 0, stdout: args[0] === "-version" ? configuration(flags) : encoders, stderr: "" }; }
+    return fixture.run(command, args, options);
+  };
+  const stage = (options, host = { os: "macos", arch: "aarch64" }) => {
+    const fixture = ffmpegFixture();
+    const probed = [];
+    const attempt = stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...ffmpegManifest[0], probe: true }], deps: deps({ fs: fixture.fs, run: probeRun({ ...options, fixture, probed }), host, loadMediaCatalog: () => ({ catalog: fixture.catalog, crateDir: fixture.crateDir }) }) });
+    return { attempt, probed };
+  };
+  const ok = stage({});
+  assert.equal((await ok.attempt).files[0].probe, "passed");
+  assert.deepEqual(ok.probed, ["-version", "-hide_banner -encoders"]);
+  const cross = stage({}, { os: "windows", arch: "x86_64" });
+  assert.equal((await cross.attempt).files[0].probe, "skipped-cross-target");
+  assert.deepEqual(cross.probed, []);
+  for (const [options, pattern] of [
+    [{ flags: "--enable-gpl --enable-libx264" }, /--disable-gpl/],
+    [{ flags: "--disable-gpl --disable-nonfree --enable-libx265" }, /--enable-libx265/],
+    [{ encoders: " V....D libx264              H.264\n" }, /libx264 encoder/],
+  ]) await assert.rejects(stage(options).attempt, { code: "STAGE_SIDECAR_FFMPEG_PROBE_FAILED", message: pattern });
+});
+
+test("universal ffmpeg stages each arch slice, runs the stage command per slice with {triple}/{stageDir}, and lipo-merges into <tool>-universal-apple-darwin", async () => {
+  const { crateDir, catalog, initial } = ffmpegCatalog([["ffmpeg", "decode", "aarch64", "arm-ffmpeg", "ffmpeg-arm"], ["ffmpeg", "decode", "x86_64", "x86-ffmpeg", "ffmpeg-x86"]]);
+  const { fs, files, log } = fakeFs(initial);
+  const stageCalls = [];
+  const run = (command, args) => {
+    if (command === "rightkit" && args[0] === "ffmpeg-stage") {
+      stageCalls.push(args);
+      const [, triple, stageDir] = args;
+      files.set(path.resolve(APP, stageDir, `ffmpeg-${triple}`), Buffer.from(triple.startsWith("aarch64") ? "arm-ffmpeg" : "x86-ffmpeg"));
+    }
+    if (command === "lipo" && args[0] === "-create") files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-ffmpeg"));
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const manifest = [{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: NOTICES, stage: { cmd: "rightkit", args: ["ffmpeg-stage", "{triple}", "{stageDir}"] } }];
+  const result = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs, run, loadMediaCatalog: () => ({ catalog, crateDir }) }) });
+  assert.deepEqual(stageCalls, [["ffmpeg-stage", "aarch64-apple-darwin", ".right-release/slices/aarch64-apple-darwin"], ["ffmpeg-stage", "x86_64-apple-darwin", ".right-release/slices/x86_64-apple-darwin"]]);
+  assert.equal(fs.readFileSync(at("src-tauri", "binaries", `ffmpeg-${UNIVERSAL}`)).toString(), "fat-ffmpeg");
+  const [row] = result.files;
+  assert.equal(row.sha256, sha("fat-ffmpeg"));
+  assert.deepEqual(row.slices.map((slice) => [slice.triple, slice.sha256, slice.catalogRow]), [["aarch64-apple-darwin", sha("arm-ffmpeg"), "ffmpeg-arm"], ["x86_64-apple-darwin", sha("x86-ffmpeg"), "ffmpeg-x86"]]);
+  assert.equal(row.catalogRow, "ffmpeg-arm+ffmpeg-x86");
+  const offer = fs.readFileSync(at("src-tauri", "resources", "third-party", "ffmpeg", "FFMPEG-SOURCE-OFFER.txt")).toString();
+  assert.ok(offer.includes("ffmpeg-arm") && offer.includes("ffmpeg-x86"), "one source offer names both slices");
+  assert.deepEqual(log.chmods.filter(([file]) => file.endsWith(`ffmpeg-${UNIVERSAL}.tmp-7`)).map(([, mode]) => mode), [0o755]);
+  validateStageSidecarReceipt(result.receipt, { target: UNIVERSAL, names: ["ffmpeg"] });
+  assert.deepEqual(planSidecarStaging({ manifest, target: UNIVERSAL, env: {} }).entries[0].outputs, [`src-tauri/binaries/ffmpeg-${UNIVERSAL}`]);
+  const thin = { ...fakeFs(initial) };
+  const thinRun = (command, args) => (command === "lipo" && args[0] === "-archs" ? { status: 0, stdout: "arm64\n" } : command === "rightkit" ? (thin.files.set(path.resolve(APP, args[2], `ffmpeg-${args[1]}`), Buffer.from(args[1].startsWith("aarch64") ? "arm-ffmpeg" : "x86-ffmpeg")), { status: 0 }) : command === "lipo" ? (thin.files.set(args[args.indexOf("-output") + 1], Buffer.from("x")), { status: 0 }) : { status: 0 });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs: thin.fs, run: thinRun, loadMediaCatalog: () => ({ catalog, crateDir }) }) }), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+});
+
+test("universal onnxruntime stages the arm64 and x86_64 rows thin and lipo-merges the library; an unapproved arch row refuses", async () => {
+  const arm = Buffer.from("ort-arm");
+  const x86 = Buffer.from("ort-x86");
+  const archives = { "https://example.test/arm.tgz": Buffer.from("arm-archive"), "https://example.test/x86.tgz": Buffer.from("x86-archive") };
+  const row = (arch, bytes, url, extra = {}) => ({ id: `ort-${arch}`, library: "onnxruntime", version: "1.24.4", os: "macos", arch, status: "approved", artifactFileName: "libonnxruntime.1.24.4.dylib", sha256: sha(bytes), archive: { url, sha256: sha(archives[url]) }, licenseSpdx: "MIT", noticeFiles: ["third-party/ONNXRuntime-MIT.txt"], ...extra });
+  const crateDir = path.resolve("/rk-fake-crate");
+  const stage = (x86Extra = {}) => {
+    const { fs, files } = fakeFs({ [path.join(crateDir, "third-party", "ONNXRuntime-MIT.txt")]: "MIT text" });
+    const catalog = { libraries: [row("aarch64", arm, "https://example.test/arm.tgz"), row("x86_64", x86, "https://example.test/x86.tgz", x86Extra)] };
+    const run = (command, args) => {
+      if (command === "lipo" && args[0] === "-create") files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-ort"));
+      if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const extractMember = ({ archive, fileName, destDir }) => { const out = path.join(destDir, fileName); files.set(out, files.get(archive).toString() === "arm-archive" ? arm : x86); return out; };
+    const attempt = stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "onnxruntime", version: "1.24.4", catalog: "cat.json" }], deps: deps({ fs, run, loadNativeCatalog: () => ({ catalog, crateDir }), fetchBytes: async (url) => archives[url], extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }) });
+    return { fs, attempt };
+  };
+  const ok = stage();
+  const result = await ok.attempt;
+  assert.equal(ok.fs.readFileSync(at("src-tauri", "resources", "runtime", "libonnxruntime.1.24.4.dylib")).toString(), "fat-ort");
+  assert.ok(ok.fs.existsSync(at(".right-release", "slices", "aarch64-apple-darwin", "libonnxruntime.1.24.4.dylib")), "the thin slice is staged under .right-release/slices");
+  const [file] = result.files;
+  assert.equal(file.sha256, sha("fat-ort"));
+  assert.equal(file.catalogRow, "ort-aarch64+ort-x86_64");
+  assert.deepEqual(file.slices.map((slice) => [slice.triple, slice.sha256]), [["aarch64-apple-darwin", sha(arm)], ["x86_64-apple-darwin", sha(x86)]]);
+  assert.equal(file.notices.length, 1, "the shared notice is listed once");
+  await assert.rejects(stage({ status: "planned" }).attempt, { code: "STAGE_SIDECAR_NOT_APPROVED", message: /x86_64.*planned/ });
 });

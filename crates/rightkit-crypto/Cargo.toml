@@ -1,0 +1,19 @@
+[package]
+name = "rightkit-crypto"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["hmac", "sha256", "base64", "blake3", "token"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+blake3 = "1.8.7"
+serde_json = "1.0.154"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure computation library: hashing, MAC, encoding and token mint/verify; spawns no continuous work, no pattern in the runtime-budgets.mjs set matches non-test src"

@@ -20,9 +20,53 @@ export interface MenuItem {
   run?: () => void;
 }
 
+/** A rectangle in viewport coordinates (`getBoundingClientRect` shape). */
+export interface AnchorRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Side of the anchor the panel opens on: below or above, aligned to its start or end edge. */
+export type MenuPlacement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
+
+/**
+ * Top-left corner of a panel of `size` opened from `rect`. Below the anchor for `bottom-*`, above for `top-*`; the
+ * other side is used when the chosen one would overflow the viewport and the other side fits. Pure, so it is testable.
+ */
+export function anchorPoint(rect: AnchorRect, placement: MenuPlacement, size: { width: number; height: number }, viewport: { width: number; height: number }, gap = 4): { x: number; y: number } {
+  const end = placement.endsWith("-end");
+  const wantsTop = placement.startsWith("top");
+  const x = end ? rect.right - size.width : rect.left;
+  const below = rect.bottom + gap;
+  const above = rect.top - size.height - gap;
+  const fitsBelow = below + size.height <= viewport.height;
+  const fitsAbove = above >= 0;
+  const y = wantsTop ? (fitsAbove || !fitsBelow ? above : below) : fitsBelow || !fitsAbove ? below : above;
+  return { x, y };
+}
+
+function rectOf(anchor: Element | AnchorRect): AnchorRect {
+  if ("getBoundingClientRect" in anchor) {
+    const r = anchor.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  }
+  return anchor;
+}
+
 export interface ContextMenuProps {
-  x: number;
-  y: number;
+  /** Viewport x of the menu's corner. Ignored when `anchor` is set. */
+  x?: number;
+  /** Viewport y of the menu's corner. Ignored when `anchor` is set. */
+  y?: number;
+  /**
+   * Opens the menu from an element or a rectangle instead of `x`/`y`, for menus that belong to a button. Changing the
+   * anchor position while open is a new position, the same as changing `x`/`y`.
+   */
+  anchor?: Element | AnchorRect;
+  /** Side of `anchor` the menu opens on. Default `bottom-start`. */
+  placement?: MenuPlacement;
   items: readonly MenuItem[];
   onClose: () => void;
   /** Accessible name, e.g. "Document actions". */
@@ -83,8 +127,10 @@ const enabled = (items: readonly MenuItem[]) => items.map((item, i) => (item.dis
  * closes and restores focus. Mouse-down never steals the document selection (Copy/Cut still work).
  */
 export function ContextMenu({
-  x,
-  y,
+  x: propX,
+  y: propY,
+  anchor,
+  placement = "bottom-start",
   items,
   onClose,
   label,
@@ -104,6 +150,9 @@ export function ContextMenu({
 }: ContextMenuProps) {
   // Shortcut labels are drawn for the shell's platform; outside a provider `Kbd` falls back to the host.
   const shellPlatform = useShellOptional()?.platform;
+  const { x, y } = anchor
+    ? anchorPoint(rectOf(anchor), placement, { width, height: items.length * 28 + 12 }, { width: window.innerWidth, height: window.innerHeight })
+    : { x: propX ?? 0, y: propY ?? 0 };
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useRef(`rk-menu-${Math.random().toString(36).slice(2, 8)}`);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);

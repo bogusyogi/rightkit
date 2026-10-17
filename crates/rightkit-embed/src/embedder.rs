@@ -2024,10 +2024,112 @@ fn normalize(mut values: Vec<f32>) -> Vec<f32> {
     values
 }
 
+/// The files a model bundle in `dir` must hold, relative to `dir`, for the layout `load` would
+/// pick: the Core ML package (macOS), the E40 bundle (its manifest and the files it names, or
+/// the legacy graphs) or the single-file Q4 model (`model_q4.onnx`). `None` when `dir` holds none
+/// of these. Every listed file must exist: a missing one is `MissingArtifact`, as in `load`. A
+/// Core ML package on a non-macOS host is an `InvalidConfig` error.
+pub fn bundle_files(dir: &Path) -> Result<Option<Vec<String>>, EmbedError> {
+    let files: Vec<String> = if let Some(files) = coreml_bundle_files(dir)? {
+        files.iter().map(|file| (*file).to_owned()).collect()
+    } else if e40::is_bundle(dir) {
+        e40::artifacts(dir)?
+    } else if dir.join("model_q4.onnx").is_file() {
+        ["model_q4.onnx", "model_q4.onnx_data", "tokenizer.json"]
+            .iter()
+            .map(|file| (*file).to_owned())
+            .collect()
+    } else {
+        return Ok(None);
+    };
+    for file in &files {
+        let path = dir.join(file);
+        if !path.is_file() {
+            return Err(EmbedError::MissingArtifact(path));
+        }
+    }
+    Ok(Some(files))
+}
+
+/// Model directory for `subdir` of an installed application, derived from its executable only:
+/// the resources directory `rightkit_onnx::installed_resource_dir` names, joined with `subdir`.
+/// It returns the candidate without checking that it exists. `None` for a relative executable
+/// path, or when `subdir` is not exactly one plain name (empty, an absolute path, `..`, `.` or a
+/// nested path such as `a/b`).
+///
+/// Layouts, from the executable: macOS `Foo.app/Contents/MacOS/foo` gives
+/// `Foo.app/Contents/Resources/<subdir>`; Windows gives `<exe dir>/<subdir>`; elsewhere
+/// `<exe dir>/resources/<subdir>`. Ship a model beside the app in that place, or pass a
+/// directory the caller resolved itself to `EmbedderConfig::new`.
+pub fn installed_model_dir(executable: &Path, subdir: &str) -> Option<PathBuf> {
+    let mut parts = Path::new(subdir).components();
+    let plain = matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    if !plain {
+        return None;
+    }
+    rightkit_onnx::installed_resource_dir(executable).map(|dir| dir.join(subdir))
+}
+
 pub fn truncate_and_normalize(native: &[f32], dimension: usize) -> Vec<f32> {
     let mut values = native[..native.len().min(dimension)].to_vec();
     values.resize(dimension, 0.0);
     normalize(values)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn installed_model_dir_refuses_relative_and_non_plain_names() {
+        assert_eq!(
+            installed_model_dir(Path::new("app/bin/app"), "models"),
+            None
+        );
+        let exe = if cfg!(windows) {
+            Path::new(r"C:\app\app.exe")
+        } else {
+            Path::new("/opt/app/app")
+        };
+        assert_eq!(installed_model_dir(exe, ""), None);
+        assert_eq!(installed_model_dir(exe, "../models"), None);
+        assert_eq!(installed_model_dir(exe, "/models"), None);
+        assert_eq!(installed_model_dir(exe, "a/b"), None);
+        assert_eq!(installed_model_dir(exe, "./models"), None);
+        let dir = installed_model_dir(exe, "embed").expect("absolute executable");
+        assert!(dir.ends_with("embed"));
+    }
+
+    #[test]
+    fn bundle_files_names_the_q4_layout_and_none_for_an_empty_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(bundle_files(dir.path()).unwrap(), None);
+        for name in ["model_q4.onnx", "model_q4.onnx_data", "tokenizer.json"] {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        assert_eq!(
+            bundle_files(dir.path()).unwrap(),
+            Some(vec![
+                "model_q4.onnx".to_owned(),
+                "model_q4.onnx_data".to_owned(),
+                "tokenizer.json".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn bundle_files_refuses_a_partial_e40_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(e40::TABLE_FILE), b"x").unwrap();
+        std::fs::write(dir.path().join("model_32.onnx"), b"x").unwrap();
+        assert!(matches!(
+            bundle_files(dir.path()),
+            Err(EmbedError::MissingArtifact(_))
+        ));
+    }
 }
 
 #[cfg(test)]

@@ -205,3 +205,37 @@ describe("createThemeStore", () => {
     expect(media.listeners.size).toBe(0);
   });
 });
+
+describe("createThemeStore darkRemovesAttribute (0.6.9)", () => {
+  function attributeRoot() {
+    const attrs = new Map<string, string>();
+    return {
+      attrs,
+      root: {
+        setAttribute: (n: string, v: string) => void attrs.set(n, v),
+        removeAttribute: (n: string) => void attrs.delete(n),
+        getAttribute: (n: string) => attrs.get(n) ?? null,
+      },
+    };
+  }
+
+  it("removes data-theme for dark and writes it only for light", () => {
+    const { attrs, root } = attributeRoot();
+    const store = createThemeStore({ storageKey: "t", storage: memoryStorage({ t: "dark" }), root, systemMedia: null, darkRemovesAttribute: true });
+    store.apply(store.read());
+    expect(attrs.has("data-theme")).toBe(false);
+    store.save("light");
+    expect(attrs.get("data-theme")).toBe("light");
+    store.save("dark");
+    expect(attrs.has("data-theme")).toBe(false);
+    store.dispose();
+  });
+
+  it("keeps writing data-theme=dark by default", () => {
+    const { attrs, root } = attributeRoot();
+    const store = createThemeStore({ storageKey: "t", storage: memoryStorage({ t: "dark" }), root, systemMedia: null });
+    store.apply(store.read());
+    expect(attrs.get("data-theme")).toBe("dark");
+    store.dispose();
+  });
+});

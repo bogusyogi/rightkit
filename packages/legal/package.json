@@ -9,15 +9,22 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" }
+    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
+    "./tooling": { "types": "./dist/tooling.d.ts", "import": "./dist/tooling.js" }
   },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "bin": {
+    "legal-snapshot": "./bin/legal-snapshot.mjs",
+    "generate-npm-license-appendix": "./bin/npm-license-appendix.mjs",
+    "rightkit-legal": "./bin/rightkit-legal.mjs"
+  },
+  "files": ["bin", "dist", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run src && pnpm run test:tooling",
+    "test:tooling": "pnpm run build && node --test test/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

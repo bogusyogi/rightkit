@@ -7,20 +7,26 @@
 //! `rightkit-llm`'s catalogue.
 //!
 //! Units: money is an integer count of micro-units of one currency (1 unit = 1 000 000
-//! micro-units). The ledger stores no currency: every allowance and reservation of a `scope` is
-//! in the caller's one currency. No float is used; every sum is checked and overflow is
+//! micro-units). An allowance holds no currency; a reservation may carry the currency it was
+//! reserved in ([`ReserveOptions::currency`]), stored as given at reserve time and never
+//! rewritten, so a later change of the caller's currency does not change what a settled
+//! reservation reports. No float is used; every sum is checked and overflow is
 //! [`SpendError::Overflow`].
 //!
 //! Allowances are keyed by an opaque `scope` and an opaque `period` string, so a daily cap
 //! (`2026-10-17`), a monthly cap (`2026-10`) and a per-device offline allowance
 //! (`device:dev_abc`) are all allowances of the same kind. A call that must pass several caps
 //! reserves against each (one request id per allowance) and releases the earlier ones if a
-//! later one is refused.
+//! later one is refused. A reservation may also carry an opaque `account` key
+//! ([`ReserveOptions::account`]); [`Ledger::expire_stale_account`] settles the stale leases of
+//! one account only.
 //!
 //! Reservation life: `reserved` -> `in_flight` (just before the wire request) -> `committed`
 //! (actual recorded), or -> `released` (caller gives the estimate back), or -> `expired`
-//! (a stale `reserved` lease). An expired `in_flight` lease is never released: it commits at
-//! its ceiling (the estimate), flagged as an overrun, because the request may have been sent.
+//! (a stale `reserved` lease). An `in_flight` lease whose outcome is unknown is never released:
+//! [`Ledger::commit_unknown`] (and an expired in-flight lease) commits it at its ceiling (the
+//! estimate), flagged `billed_unknown` and as an overrun, because the request may have been
+//! sent.
 //!
 //! Compare-and-swap: every change to an allowance's totals or limit is an `UPDATE ... WHERE
 //! revision = ?` inside one `BEGIN IMMEDIATE` transaction; a lost swap is
@@ -28,9 +34,24 @@
 //!
 //! Overrun: a commit whose actual exceeds its estimate takes the difference from the allowance
 //! and is flagged `over_reservation`; if the allowance cannot cover it the actual is still
-//! recorded and `remaining` goes negative. While any flagged reservation of an allowance lacks
-//! an [`Ledger::acknowledge_overrun`], [`Ledger::reserve`] refuses
-//! ([`SpendError::OverrunUnacknowledged`]). Who may acknowledge is the app's decision.
+//! recorded and `remaining` goes negative. A billed-unknown commit is flagged the same way.
+//! While any flagged reservation of an allowance lacks an [`Ledger::acknowledge_overrun`],
+//! [`Ledger::reserve`] refuses ([`SpendError::OverrunUnacknowledged`]). Who may acknowledge is
+//! the app's decision.
+//!
+//! Caller transactions: every write has an `_in` variant that runs inside a transaction the
+//! caller opened ([`Ledger::begin`]) and neither commits nor rolls it back, so the app's own
+//! sidecar rows and the ledger change commit or roll back together. An `_in` call that fails
+//! undoes its own partial writes (it runs in a savepoint) and leaves the caller's transaction
+//! usable. A caller that holds only a `&Connection` (a store hook, for example) uses the `_on`
+//! variants instead; the connection must already be in a transaction, and one in autocommit
+//! mode is refused with [`SpendError::NoActiveTransaction`].
+//!
+//! Strict mode: by default a repeated `release`, `commit` with the same actual or
+//! `mark_in_flight` is treated as a replay and returns the stored state. With
+//! [`Ledger::with_strict`] they return [`SpendError::InvalidTransition`] instead, for callers
+//! that must see a double settle as a bug. Replay of [`Ledger::reserve`] by request id is
+//! unaffected: it is the idempotency key, not a transition.
 //!
 //! The ledger lives in the app's SQLite file under `spend_*` tables; its schema version is kept
 //! in the table `rightkit_spend_meta`, so the app's own `user_version` is untouched. The daemon
@@ -40,7 +61,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rightkit_db::rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
+use rightkit_db::rusqlite::{
+    params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
+};
 use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
 
 pub use rightkit_db::rusqlite;
@@ -75,7 +98,7 @@ pub enum SpendError {
     RevisionConflict { expected: i64, actual: i64 },
     #[error("allowance exists: an expected revision is required to change it")]
     RevisionRequired,
-    #[error("request id {request_id:?} was already used with a different scope, period, route, price version or estimate")]
+    #[error("request id {request_id:?} was already used with a different scope, period, account, currency, route, price version or estimate")]
     RequestMismatch { request_id: String },
     #[error("no reservation {0:?}")]
     NotFound(String),
@@ -86,6 +109,10 @@ pub enum SpendError {
     },
     #[error("amount overflow")]
     Overflow,
+    /// A `_on` call was given a connection with no open transaction. Begin one (`BEGIN`, or
+    /// `Connection::transaction`) first; the call would otherwise commit on its own.
+    #[error("no transaction is open on the connection; begin one before a `_on` call")]
+    NoActiveTransaction,
 }
 
 /// Where a reservation is in its life.
@@ -160,6 +187,43 @@ impl Allowance {
     }
 }
 
+/// Optional facts stored on a reservation when it is made. Both are opaque, non-empty text when
+/// present and are part of the request-id idempotency check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReserveOptions {
+    /// The account the call is made for, so [`Ledger::expire_stale_account`] can settle one
+    /// account's leases without touching the rest of the scope.
+    pub account: Option<String>,
+    /// The currency the estimate is in (for example `USD`), stored on the reservation as given.
+    pub currency: Option<String>,
+}
+
+impl ReserveOptions {
+    /// Options with an account key.
+    pub fn with_account(account: impl Into<String>) -> Self {
+        Self {
+            account: Some(account.into()),
+            currency: None,
+        }
+    }
+
+    /// Set the currency.
+    pub fn currency(mut self, currency: impl Into<String>) -> Self {
+        self.currency = Some(currency.into());
+        self
+    }
+
+    fn validate(&self) -> Result<()> {
+        if let Some(account) = &self.account {
+            non_empty("account", account)?;
+        }
+        if let Some(currency) = &self.currency {
+            non_empty("currency", currency)?;
+        }
+        Ok(())
+    }
+}
+
 /// One reservation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reservation {
@@ -174,12 +238,41 @@ pub struct Reservation {
     pub state: ReservationState,
     /// Set exactly when `state` is `Committed`.
     pub committed_micro: Option<i64>,
-    /// The actual exceeded the estimate, or an in-flight lease expired and committed at ceiling.
+    /// The actual exceeded the estimate, or the reservation committed at its ceiling because
+    /// the outcome was unknown.
     pub over_reservation: bool,
+    /// Committed at its ceiling with the real cost unknown ([`Ledger::commit_unknown`] or an
+    /// expired in-flight lease). Also flagged `over_reservation`, so it blocks
+    /// [`Ledger::reserve`] until [`Ledger::acknowledge_overrun`]. Read with
+    /// [`Reservation::billed_unknown`].
+    billed_unknown: bool,
+    /// The account key given at reserve time, if any. Read with [`Reservation::account`].
+    account: Option<String>,
+    /// The currency given at reserve time, if any. Never rewritten. Read with
+    /// [`Reservation::currency`].
+    currency: Option<String>,
     pub created_at: i64,
     pub in_flight_at: Option<i64>,
     pub settled_at: Option<i64>,
     pub reason: Option<String>,
+}
+
+impl Reservation {
+    /// Committed at its ceiling with the real cost unknown ([`Ledger::commit_unknown`] or an
+    /// expired in-flight lease).
+    pub fn billed_unknown(&self) -> bool {
+        self.billed_unknown
+    }
+
+    /// The account key given at reserve time, if any.
+    pub fn account(&self) -> Option<&str> {
+        self.account.as_deref()
+    }
+
+    /// The currency given at reserve time, if any. Never rewritten.
+    pub fn currency(&self) -> Option<&str> {
+        self.currency.as_deref()
+    }
 }
 
 /// A reservation with the allowance as it is after the call.
@@ -187,7 +280,8 @@ pub struct Reservation {
 pub struct Outcome {
     pub reservation: Reservation,
     pub allowance: Allowance,
-    /// True when [`Ledger::reserve`] found the request id already stored and wrote nothing.
+    /// True when the call found the work already done (a stored request id on
+    /// [`Ledger::reserve`], or, outside strict mode, a repeated transition) and wrote nothing.
     pub replayed: bool,
 }
 
@@ -223,6 +317,9 @@ pub struct Report {
     pub count_released: i64,
     pub count_expired: i64,
     pub over_reservations: i64,
+    /// Reservations committed at their ceiling with the real cost unknown (also counted in
+    /// `over_reservations`). Read with [`Report::billed_unknown`].
+    billed_unknown: i64,
     pub unacknowledged_overruns: i64,
     /// Estimates of open reservations (`reserved` and `in_flight`).
     pub open_micro: i64,
@@ -237,6 +334,14 @@ pub struct Report {
     pub reconciles: bool,
     /// Ordered by route id.
     pub routes: Vec<RouteTotal>,
+}
+
+impl Report {
+    /// Reservations committed at their ceiling with the real cost unknown (also counted in
+    /// [`Report::over_reservations`]).
+    pub fn billed_unknown(&self) -> i64 {
+        self.billed_unknown
+    }
 }
 
 const SCHEMA_V1: &str = "
@@ -276,19 +381,46 @@ CREATE TABLE spend_overrun_acks (
 );
 ";
 
-const MIGRATIONS: &[Migration] = &[Migration::sql(1, "spend-ledger", SCHEMA_V1)];
+/// Account key, per-reservation currency and the billed-unknown flag. Existing rows keep a NULL
+/// account and currency. The backfill marks only rows that really were committed at their
+/// ceiling by an expired in-flight lease: the reason alone is not enough, since a released or
+/// otherwise settled row can carry the same reason text.
+const SCHEMA_V2: &str = "
+ALTER TABLE spend_reservations ADD COLUMN account TEXT;
+ALTER TABLE spend_reservations ADD COLUMN currency TEXT;
+ALTER TABLE spend_reservations ADD COLUMN billed_unknown INTEGER NOT NULL DEFAULT 0;
+UPDATE spend_reservations SET billed_unknown = 1
+    WHERE reason = 'lease_expired_in_flight'
+      AND state = 'committed'
+      AND over_reservation = 1
+      AND committed_micro = estimated_micro;
+CREATE INDEX spend_reservations_by_account ON spend_reservations (scope, account, state, created_at);
+";
+
+const MIGRATIONS: &[Migration] = &[
+    Migration::sql(1, "spend-ledger", SCHEMA_V1),
+    Migration::sql(2, "spend-account-currency-unknown", SCHEMA_V2),
+];
 
 const ALLOWANCE_COLUMNS: &str =
     "scope, period, limit_micro, reserved_micro, committed_micro, revision, updated_at";
 
 const RESERVATION_COLUMNS: &str = "seq, request_id, scope, period, route_id, price_version, \
     estimated_micro, state, committed_micro, over_reservation, created_at, in_flight_at, \
-    settled_at, reason";
+    settled_at, reason, account, currency, billed_unknown";
 
-/// The ledger. It owns one connection; open a second connection for the app's own queries.
+/// The clock reading and mode one ledger call runs under.
+struct Ctx {
+    now: i64,
+    strict: bool,
+}
+
+/// The ledger. It owns one connection; open a second connection for the app's own queries, or
+/// use [`Ledger::begin`] and the `_in` methods to write the app's rows in the same transaction.
 pub struct Ledger {
     conn: Connection,
     clock: Box<dyn Fn() -> i64 + Send>,
+    strict: bool,
 }
 
 impl Ledger {
@@ -315,7 +447,24 @@ impl Ledger {
         Ok(Self {
             conn,
             clock: Box::new(clock),
+            strict: false,
         })
+    }
+
+    /// Turn strict mode on or off (see the crate docs). Off by default.
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    /// As [`Ledger::with_strict`] on an existing ledger.
+    pub fn set_strict(&mut self, strict: bool) {
+        self.strict = strict;
+    }
+
+    /// Whether strict mode is on.
+    pub fn is_strict(&self) -> bool {
+        self.strict
     }
 
     /// The underlying connection (read-only use).
@@ -323,8 +472,63 @@ impl Ledger {
         &self.conn
     }
 
+    /// Begin a write transaction (`BEGIN IMMEDIATE`) on the ledger's connection for the `_in`
+    /// methods. Write the app's own rows through the same transaction (it derefs to
+    /// [`Connection`]) and call `commit()` once; dropping it rolls everything back, ledger
+    /// changes included. Fails if a transaction is already open on the connection.
+    pub fn begin(&self) -> Result<Transaction<'_>> {
+        Ok(Transaction::new_unchecked(
+            &self.conn,
+            TransactionBehavior::Immediate,
+        )?)
+    }
+
     fn now(&self) -> i64 {
         (self.clock)()
+    }
+
+    fn ctx(&self) -> Ctx {
+        Ctx {
+            now: self.now(),
+            strict: self.strict,
+        }
+    }
+
+    /// Run `f` in its own `BEGIN IMMEDIATE` transaction and commit it if `f` succeeds.
+    fn run<T>(&mut self, f: impl FnOnce(&Connection, &Ctx) -> Result<T>) -> Result<T> {
+        let ctx = self.ctx();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let out = f(&*tx, &ctx)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// Run `f` inside the caller's transaction, in a savepoint so a failure leaves no partial
+    /// write behind.
+    fn run_in<T>(
+        &self,
+        tx: &Transaction<'_>,
+        f: impl FnOnce(&Connection, &Ctx) -> Result<T>,
+    ) -> Result<T> {
+        let ctx = self.ctx();
+        atomic(tx, |conn| f(conn, &ctx))
+    }
+
+    /// Run `f` in a savepoint on a connection the caller has already put in a transaction. A
+    /// connection in autocommit mode is refused: the savepoint would open and commit its own
+    /// transaction, which the caller did not ask for.
+    fn run_on<T>(
+        &self,
+        conn: &Connection,
+        f: impl FnOnce(&Connection, &Ctx) -> Result<T>,
+    ) -> Result<T> {
+        if conn.is_autocommit() {
+            return Err(SpendError::NoActiveTransaction);
+        }
+        let ctx = self.ctx();
+        atomic(conn, |conn| f(conn, &ctx))
     }
 
     /// Create the allowance for `(scope, period)` at revision 1, or change its limit.
@@ -339,62 +543,23 @@ impl Ledger {
         limit_micro: i64,
         expected_revision: Option<i64>,
     ) -> Result<Allowance> {
-        non_empty("scope", scope)?;
-        non_empty("period", period)?;
-        if limit_micro < 0 {
-            return Err(SpendError::BadInput("limit_micro is negative".into()));
-        }
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let out = match get_allowance(&tx, scope, period)? {
-            None => {
-                if let Some(expected) = expected_revision {
-                    return Err(SpendError::RevisionConflict {
-                        expected,
-                        actual: 0,
-                    });
-                }
-                tx.execute(
-                    "INSERT INTO spend_allowances (scope, period, limit_micro, reserved_micro, \
-                     committed_micro, revision, updated_at) VALUES (?1, ?2, ?3, 0, 0, 1, ?4)",
-                    params![scope, period, limit_micro, now],
-                )?;
-                require_allowance(&tx, scope, period)?
-            }
-            Some(current) => {
-                let expected = expected_revision.ok_or(SpendError::RevisionRequired)?;
-                if expected != current.revision {
-                    return Err(SpendError::RevisionConflict {
-                        expected,
-                        actual: current.revision,
-                    });
-                }
-                let spent = spent_total(&current)?;
-                if limit_micro < spent {
-                    return Err(SpendError::AllowanceBelowSpend {
-                        limit_micro,
-                        spent_micro: spent,
-                    });
-                }
-                let next = current
-                    .revision
-                    .checked_add(1)
-                    .ok_or(SpendError::Overflow)?;
-                let changed = tx.execute(
-                    "UPDATE spend_allowances SET limit_micro = ?3, revision = ?4, updated_at = ?5 \
-                     WHERE scope = ?1 AND period = ?2 AND revision = ?6",
-                    params![scope, period, limit_micro, next, now, current.revision],
-                )?;
-                if changed == 0 {
-                    return Err(conflict(&tx, &current)?);
-                }
-                require_allowance(&tx, scope, period)?
-            }
-        };
-        tx.commit()?;
-        Ok(out)
+        self.run(|conn, ctx| {
+            set_allowance_impl(conn, ctx, scope, period, limit_micro, expected_revision)
+        })
+    }
+
+    /// [`Ledger::set_allowance`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn set_allowance_in(
+        &self,
+        tx: &Transaction<'_>,
+        scope: &str,
+        period: &str,
+        limit_micro: i64,
+        expected_revision: Option<i64>,
+    ) -> Result<Allowance> {
+        self.run_in(tx, |conn, ctx| {
+            set_allowance_impl(conn, ctx, scope, period, limit_micro, expected_revision)
+        })
     }
 
     /// The allowance for `(scope, period)`, if any.
@@ -407,10 +572,10 @@ impl Ledger {
         find_reservation(&self.conn, reservation_id)
     }
 
-    /// Hold `estimate_micro` against the allowance before a paid call. Idempotent on
-    /// `request_id`: the same request id with the same scope, period, route, price version and
-    /// estimate returns the stored reservation (`replayed`) and writes nothing; any difference
-    /// is [`SpendError::RequestMismatch`].
+    /// Hold `estimate_micro` against the allowance before a paid call, with no account and no
+    /// currency. Idempotent on `request_id`: the same request id with the same scope, period,
+    /// route, price version and estimate returns the stored reservation (`replayed`) and
+    /// writes nothing; any difference is [`SpendError::RequestMismatch`].
     ///
     /// Checks, first failure wins and writes nothing: stored request id, allowance exists,
     /// no unacknowledged overrun, `estimate <= remaining` (so an estimate equal to the remaining
@@ -424,275 +589,204 @@ impl Ledger {
         price_version: &str,
         estimate_micro: i64,
     ) -> Result<Outcome> {
-        non_empty("scope", scope)?;
-        non_empty("request_id", request_id)?;
-        non_empty("period", period)?;
-        non_empty("route_id", route_id)?;
-        non_empty("price_version", price_version)?;
-        if estimate_micro < 0 {
-            return Err(SpendError::BadInput("estimate_micro is negative".into()));
-        }
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.reserve_with(
+            scope,
+            request_id,
+            period,
+            route_id,
+            price_version,
+            estimate_micro,
+            &ReserveOptions::default(),
+        )
+    }
 
-        if let Some(stored) = find_by_request(&tx, request_id)? {
-            let same = stored.scope == scope
-                && stored.period == period
-                && stored.route_id == route_id
-                && stored.price_version == price_version
-                && stored.estimate_micro == estimate_micro;
-            if !same {
-                return Err(SpendError::RequestMismatch {
-                    request_id: request_id.to_owned(),
-                });
-            }
-            return outcome(&tx, stored, true);
-        }
-
-        let allowance = require_allowance(&tx, scope, period)?;
-        let unacked = unacknowledged_overruns(&tx, scope, period)?;
-        if unacked > 0 {
-            return Err(SpendError::OverrunUnacknowledged { count: unacked });
-        }
-        let remaining = allowance.remaining_micro();
-        if estimate_micro > remaining {
-            return Err(SpendError::AllowanceExceeded {
-                estimate_micro,
-                remaining_micro: remaining,
-            });
-        }
-        let reserved = allowance
-            .reserved_micro
-            .checked_add(estimate_micro)
-            .ok_or(SpendError::Overflow)?;
-        cas_totals(&tx, &allowance, reserved, allowance.committed_micro, now)?;
-        tx.execute(
-            "INSERT INTO spend_reservations (request_id, scope, period, route_id, price_version, \
-             estimated_micro, state, committed_micro, over_reservation, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'reserved', NULL, 0, ?7)",
-            params![
-                request_id,
+    /// [`Ledger::reserve`] with an account key and a currency stored on the reservation. The
+    /// options are part of the idempotency check: a repeat with a different account or
+    /// currency is [`SpendError::RequestMismatch`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn reserve_with(
+        &mut self,
+        scope: &str,
+        request_id: &str,
+        period: &str,
+        route_id: &str,
+        price_version: &str,
+        estimate_micro: i64,
+        options: &ReserveOptions,
+    ) -> Result<Outcome> {
+        self.run(|conn, ctx| {
+            reserve_impl(
+                conn,
+                ctx,
                 scope,
+                request_id,
                 period,
                 route_id,
                 price_version,
                 estimate_micro,
-                now
-            ],
-        )?;
-        let stored = find_by_request(&tx, request_id)?
-            .ok_or_else(|| SpendError::NotFound(request_id.to_owned()))?;
-        let out = outcome(&tx, stored, false)?;
-        tx.commit()?;
-        Ok(out)
+                options,
+            )
+        })
+    }
+
+    /// [`Ledger::reserve_with`] inside the caller's transaction ([`Ledger::begin`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn reserve_in(
+        &self,
+        tx: &Transaction<'_>,
+        scope: &str,
+        request_id: &str,
+        period: &str,
+        route_id: &str,
+        price_version: &str,
+        estimate_micro: i64,
+        options: &ReserveOptions,
+    ) -> Result<Outcome> {
+        self.run_in(tx, |conn, ctx| {
+            reserve_impl(
+                conn,
+                ctx,
+                scope,
+                request_id,
+                period,
+                route_id,
+                price_version,
+                estimate_micro,
+                options,
+            )
+        })
     }
 
     /// `reserved` -> `in_flight`, just before the wire request is written. Calling it again on
-    /// an in-flight reservation changes nothing.
+    /// an in-flight reservation changes nothing, or is [`SpendError::InvalidTransition`] in
+    /// strict mode.
     pub fn mark_in_flight(&mut self, reservation_id: &str) -> Result<Outcome> {
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let res = require_reservation(&tx, reservation_id)?;
-        match res.state {
-            ReservationState::InFlight => return outcome(&tx, res, true),
-            ReservationState::Reserved => {}
-            other => {
-                return Err(SpendError::InvalidTransition {
-                    from: other,
-                    to: ReservationState::InFlight,
-                })
-            }
-        }
-        tx.execute(
-            "UPDATE spend_reservations SET state = 'in_flight', in_flight_at = ?2 \
-             WHERE seq = ?1 AND state = 'reserved'",
-            params![seq_of(reservation_id)?, now],
-        )?;
-        let res = require_reservation(&tx, reservation_id)?;
-        let out = outcome(&tx, res, false)?;
-        tx.commit()?;
-        Ok(out)
+        self.run(|conn, ctx| mark_in_flight_impl(conn, ctx, reservation_id))
+    }
+
+    /// [`Ledger::mark_in_flight`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn mark_in_flight_in(&self, tx: &Transaction<'_>, reservation_id: &str) -> Result<Outcome> {
+        self.run_in(tx, |conn, ctx| {
+            mark_in_flight_impl(conn, ctx, reservation_id)
+        })
     }
 
     /// Record the actual cost of a `reserved` or `in_flight` reservation: the estimate leaves
     /// `reserved` and the actual enters `committed`. An actual above the estimate takes the
     /// difference from the allowance and flags the reservation (`over_reservation`); if the
     /// allowance cannot cover it the actual is still recorded and `remaining` goes negative.
-    /// Committing a committed reservation with the same actual returns it unchanged.
+    /// Committing a committed reservation with the same actual returns it unchanged, or is
+    /// [`SpendError::InvalidTransition`] in strict mode.
     pub fn commit(&mut self, reservation_id: &str, actual_micro: i64) -> Result<Outcome> {
-        if actual_micro < 0 {
-            return Err(SpendError::BadInput("actual_micro is negative".into()));
-        }
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let res = require_reservation(&tx, reservation_id)?;
-        match res.state {
-            ReservationState::Committed if res.committed_micro == Some(actual_micro) => {
-                return outcome(&tx, res, true)
-            }
-            ReservationState::Reserved | ReservationState::InFlight => {}
-            other => {
-                return Err(SpendError::InvalidTransition {
-                    from: other,
-                    to: ReservationState::Committed,
-                })
-            }
-        }
-        let allowance = require_allowance(&tx, &res.scope, &res.period)?;
-        let reserved = allowance
-            .reserved_micro
-            .checked_sub(res.estimate_micro)
-            .filter(|v| *v >= 0)
-            .ok_or(SpendError::Overflow)?;
-        let committed = allowance
-            .committed_micro
-            .checked_add(actual_micro)
-            .ok_or(SpendError::Overflow)?;
-        let after = cas_totals(&tx, &allowance, reserved, committed, now)?;
-        let over = actual_micro > res.estimate_micro;
-        let reason = if !over {
-            None
-        } else if after.remaining_micro() >= 0 {
-            Some("overrun taken from the allowance".to_owned())
-        } else {
-            Some(format!(
-                "overrun exceeds the allowance; remaining {} after commit",
-                after.remaining_micro()
-            ))
-        };
-        tx.execute(
-            "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
-             over_reservation = ?3, settled_at = ?4, reason = ?5 \
-             WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
-            params![
-                seq_of(reservation_id)?,
-                actual_micro,
-                i64::from(over),
-                now,
-                reason
-            ],
-        )?;
-        let res = require_reservation(&tx, reservation_id)?;
-        let out = outcome(&tx, res, false)?;
-        tx.commit()?;
-        Ok(out)
+        self.run(|conn, ctx| commit_impl(conn, ctx, reservation_id, actual_micro))
+    }
+
+    /// [`Ledger::commit`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn commit_in(
+        &self,
+        tx: &Transaction<'_>,
+        reservation_id: &str,
+        actual_micro: i64,
+    ) -> Result<Outcome> {
+        self.run_in(tx, |conn, ctx| {
+            commit_impl(conn, ctx, reservation_id, actual_micro)
+        })
+    }
+
+    /// Commit a `reserved` or `in_flight` reservation at its ceiling (the estimate) because the
+    /// call may have been billed and its real cost is not known. One atomic write: the row is
+    /// `committed` at the estimate and flagged `billed_unknown` and `over_reservation`, so
+    /// [`Ledger::reserve`] on its allowance refuses ([`SpendError::OverrunUnacknowledged`])
+    /// until [`Ledger::acknowledge_overrun`]. `reason` defaults to `billed_unknown`. Repeating
+    /// it on a billed-unknown reservation returns it unchanged (strict mode:
+    /// [`SpendError::InvalidTransition`]); on any other settled reservation it is
+    /// [`SpendError::InvalidTransition`].
+    pub fn commit_unknown(
+        &mut self,
+        reservation_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Outcome> {
+        self.run(|conn, ctx| commit_unknown_impl(conn, ctx, reservation_id, reason))
+    }
+
+    /// [`Ledger::commit_unknown`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn commit_unknown_in(
+        &self,
+        tx: &Transaction<'_>,
+        reservation_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Outcome> {
+        self.run_in(tx, |conn, ctx| {
+            commit_unknown_impl(conn, ctx, reservation_id, reason)
+        })
     }
 
     /// Give a `reserved` or `in_flight` estimate back to the allowance (the call was not made,
-    /// or provably cost nothing). Releasing a released reservation returns it unchanged.
+    /// or provably cost nothing). Releasing a released reservation returns it unchanged, or is
+    /// [`SpendError::InvalidTransition`] in strict mode.
     pub fn release(&mut self, reservation_id: &str, reason: Option<&str>) -> Result<Outcome> {
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let res = require_reservation(&tx, reservation_id)?;
-        match res.state {
-            ReservationState::Released => return outcome(&tx, res, true),
-            ReservationState::Reserved | ReservationState::InFlight => {}
-            other => {
-                return Err(SpendError::InvalidTransition {
-                    from: other,
-                    to: ReservationState::Released,
-                })
-            }
-        }
-        let allowance = require_allowance(&tx, &res.scope, &res.period)?;
-        let reserved = allowance
-            .reserved_micro
-            .checked_sub(res.estimate_micro)
-            .filter(|v| *v >= 0)
-            .ok_or(SpendError::Overflow)?;
-        cas_totals(&tx, &allowance, reserved, allowance.committed_micro, now)?;
-        tx.execute(
-            "UPDATE spend_reservations SET state = 'released', settled_at = ?2, reason = ?3 \
-             WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
-            params![seq_of(reservation_id)?, now, reason],
-        )?;
-        let res = require_reservation(&tx, reservation_id)?;
-        let out = outcome(&tx, res, false)?;
-        tx.commit()?;
-        Ok(out)
+        self.run(|conn, ctx| release_impl(conn, ctx, reservation_id, reason))
     }
 
-    /// Settle stale leases of `scope` (every period). A `reserved` reservation created strictly
-    /// more than `older_than_secs` ago expires and returns its estimate. An `in_flight` one whose
-    /// in-flight time is strictly older commits at its ceiling (the estimate), flagged
-    /// `over_reservation` with reason `lease_expired_in_flight`: it may have been sent, so it is
-    /// never released. A reservation exactly that old is kept.
+    /// [`Ledger::release`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn release_in(
+        &self,
+        tx: &Transaction<'_>,
+        reservation_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Outcome> {
+        self.run_in(tx, |conn, ctx| {
+            release_impl(conn, ctx, reservation_id, reason)
+        })
+    }
+
+    /// Settle stale leases of `scope` (every period, every account). A `reserved` reservation
+    /// created strictly more than `older_than_secs` ago expires and returns its estimate. An
+    /// `in_flight` one whose in-flight time is strictly older commits at its ceiling (the
+    /// estimate), flagged `billed_unknown` and `over_reservation` with reason
+    /// `lease_expired_in_flight`: it may have been sent, so it is never released. A reservation
+    /// exactly that old is kept.
     pub fn expire_stale(&mut self, scope: &str, older_than_secs: i64) -> Result<ExpireReport> {
-        non_empty("scope", scope)?;
-        if older_than_secs < 0 {
-            return Err(SpendError::BadInput("older_than_secs is negative".into()));
-        }
-        let now = self.now();
-        let cutoff = now
-            .checked_sub(older_than_secs)
-            .ok_or(SpendError::Overflow)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let stale: Vec<Reservation> = {
-            let sql = format!(
-                "SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE scope = ?1 AND \
-                 ((state = 'reserved' AND created_at < ?2) OR (state = 'in_flight' AND in_flight_at < ?2)) \
-                 ORDER BY seq"
-            );
-            let mut stmt = tx.prepare(&sql)?;
-            let rows = stmt.query_map(params![scope, cutoff], reservation_from_row)?;
-            rows.collect::<std::result::Result<Vec<_>, _>>()?
-        };
-        let mut report = ExpireReport::default();
-        for res in stale {
-            let allowance = require_allowance(&tx, &res.scope, &res.period)?;
-            let reserved = allowance
-                .reserved_micro
-                .checked_sub(res.estimate_micro)
-                .filter(|v| *v >= 0)
-                .ok_or(SpendError::Overflow)?;
-            let seq = seq_of(&res.reservation_id)?;
-            if res.state == ReservationState::Reserved {
-                cas_totals(&tx, &allowance, reserved, allowance.committed_micro, now)?;
-                tx.execute(
-                    "UPDATE spend_reservations SET state = 'expired', settled_at = ?2, \
-                     reason = 'stale_lease' WHERE seq = ?1 AND state = 'reserved'",
-                    params![seq, now],
-                )?;
-                report.released_micro = report
-                    .released_micro
-                    .checked_add(res.estimate_micro)
-                    .ok_or(SpendError::Overflow)?;
-                report
-                    .expired
-                    .push(require_reservation(&tx, &res.reservation_id)?);
-            } else {
-                let committed = allowance
-                    .committed_micro
-                    .checked_add(res.estimate_micro)
-                    .ok_or(SpendError::Overflow)?;
-                cas_totals(&tx, &allowance, reserved, committed, now)?;
-                tx.execute(
-                    "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
-                     over_reservation = 1, settled_at = ?3, reason = 'lease_expired_in_flight' \
-                     WHERE seq = ?1 AND state = 'in_flight'",
-                    params![seq, res.estimate_micro, now],
-                )?;
-                report.ceiling_micro = report
-                    .ceiling_micro
-                    .checked_add(res.estimate_micro)
-                    .ok_or(SpendError::Overflow)?;
-                report
-                    .committed_at_ceiling
-                    .push(require_reservation(&tx, &res.reservation_id)?);
-            }
-        }
-        tx.commit()?;
-        Ok(report)
+        self.run(|conn, ctx| expire_impl(conn, ctx, scope, None, older_than_secs))
+    }
+
+    /// [`Ledger::expire_stale`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn expire_stale_in(
+        &self,
+        tx: &Transaction<'_>,
+        scope: &str,
+        older_than_secs: i64,
+    ) -> Result<ExpireReport> {
+        self.run_in(tx, |conn, ctx| {
+            expire_impl(conn, ctx, scope, None, older_than_secs)
+        })
+    }
+
+    /// As [`Ledger::expire_stale`], limited to reservations of `scope` made with this
+    /// `account` ([`ReserveOptions::account`]). Reservations with another account, or none, are
+    /// untouched.
+    pub fn expire_stale_account(
+        &mut self,
+        scope: &str,
+        account: &str,
+        older_than_secs: i64,
+    ) -> Result<ExpireReport> {
+        non_empty("account", account)?;
+        self.run(|conn, ctx| expire_impl(conn, ctx, scope, Some(account), older_than_secs))
+    }
+
+    /// [`Ledger::expire_stale_account`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn expire_stale_account_in(
+        &self,
+        tx: &Transaction<'_>,
+        scope: &str,
+        account: &str,
+        older_than_secs: i64,
+    ) -> Result<ExpireReport> {
+        non_empty("account", account)?;
+        self.run_in(tx, |conn, ctx| {
+            expire_impl(conn, ctx, scope, Some(account), older_than_secs)
+        })
     }
 
     /// Record that a person saw a flagged reservation. Until every flagged reservation of an
@@ -700,22 +794,147 @@ impl Ledger {
     /// keeps the first acknowledgement. A reservation that is not flagged is
     /// [`SpendError::BadInput`].
     pub fn acknowledge_overrun(&mut self, reservation_id: &str, note: Option<&str>) -> Result<()> {
-        let now = self.now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let res = require_reservation(&tx, reservation_id)?;
-        if !res.over_reservation {
-            return Err(SpendError::BadInput(format!(
-                "{reservation_id} is not flagged as an overrun"
-            )));
-        }
-        tx.execute(
-            "INSERT OR IGNORE INTO spend_overrun_acks (seq, acknowledged_at, note) VALUES (?1, ?2, ?3)",
-            params![seq_of(reservation_id)?, now, note],
-        )?;
-        tx.commit()?;
-        Ok(())
+        self.run(|conn, ctx| acknowledge_impl(conn, ctx, reservation_id, note))
+    }
+
+    /// [`Ledger::acknowledge_overrun`] inside the caller's transaction ([`Ledger::begin`]).
+    pub fn acknowledge_overrun_in(
+        &self,
+        tx: &Transaction<'_>,
+        reservation_id: &str,
+        note: Option<&str>,
+    ) -> Result<()> {
+        self.run_in(tx, |conn, ctx| {
+            acknowledge_impl(conn, ctx, reservation_id, note)
+        })
+    }
+
+    // Connection-borrowing variants. Each takes a connection the caller has already put in a
+    // transaction (for example `Connection::transaction` deref'd, or `BEGIN` run on
+    // `ledger.connection()`) and runs the operation in a savepoint. A connection in autocommit
+    // mode is refused with [`SpendError::NoActiveTransaction`] and nothing is written.
+
+    /// [`Ledger::set_allowance`] on a connection with an open transaction (see above).
+    pub fn set_allowance_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        period: &str,
+        limit_micro: i64,
+        expected_revision: Option<i64>,
+    ) -> Result<Allowance> {
+        self.run_on(conn, |conn, ctx| {
+            set_allowance_impl(conn, ctx, scope, period, limit_micro, expected_revision)
+        })
+    }
+
+    /// [`Ledger::reserve_with`] on a connection with an open transaction (see above).
+    #[allow(clippy::too_many_arguments)]
+    pub fn reserve_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        request_id: &str,
+        period: &str,
+        route_id: &str,
+        price_version: &str,
+        estimate_micro: i64,
+        options: &ReserveOptions,
+    ) -> Result<Outcome> {
+        self.run_on(conn, |conn, ctx| {
+            reserve_impl(
+                conn,
+                ctx,
+                scope,
+                request_id,
+                period,
+                route_id,
+                price_version,
+                estimate_micro,
+                options,
+            )
+        })
+    }
+
+    /// [`Ledger::mark_in_flight`] on a connection with an open transaction (see above).
+    pub fn mark_in_flight_on(&self, conn: &Connection, reservation_id: &str) -> Result<Outcome> {
+        self.run_on(conn, |conn, ctx| {
+            mark_in_flight_impl(conn, ctx, reservation_id)
+        })
+    }
+
+    /// [`Ledger::commit`] on a connection with an open transaction (see above).
+    pub fn commit_on(
+        &self,
+        conn: &Connection,
+        reservation_id: &str,
+        actual_micro: i64,
+    ) -> Result<Outcome> {
+        self.run_on(conn, |conn, ctx| {
+            commit_impl(conn, ctx, reservation_id, actual_micro)
+        })
+    }
+
+    /// [`Ledger::commit_unknown`] on a connection with an open transaction (see above).
+    pub fn commit_unknown_on(
+        &self,
+        conn: &Connection,
+        reservation_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Outcome> {
+        self.run_on(conn, |conn, ctx| {
+            commit_unknown_impl(conn, ctx, reservation_id, reason)
+        })
+    }
+
+    /// [`Ledger::release`] on a connection with an open transaction (see above).
+    pub fn release_on(
+        &self,
+        conn: &Connection,
+        reservation_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Outcome> {
+        self.run_on(conn, |conn, ctx| {
+            release_impl(conn, ctx, reservation_id, reason)
+        })
+    }
+
+    /// [`Ledger::expire_stale`] on a connection with an open transaction (see above).
+    pub fn expire_stale_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        older_than_secs: i64,
+    ) -> Result<ExpireReport> {
+        self.run_on(conn, |conn, ctx| {
+            expire_impl(conn, ctx, scope, None, older_than_secs)
+        })
+    }
+
+    /// [`Ledger::expire_stale_account`] on a connection with an open transaction (see above).
+    pub fn expire_stale_account_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        account: &str,
+        older_than_secs: i64,
+    ) -> Result<ExpireReport> {
+        non_empty("account", account)?;
+        self.run_on(conn, |conn, ctx| {
+            expire_impl(conn, ctx, scope, Some(account), older_than_secs)
+        })
+    }
+
+    /// [`Ledger::acknowledge_overrun`] on a connection with an open transaction (see above).
+    pub fn acknowledge_overrun_on(
+        &self,
+        conn: &Connection,
+        reservation_id: &str,
+        note: Option<&str>,
+    ) -> Result<()> {
+        self.run_on(conn, |conn, ctx| {
+            acknowledge_impl(conn, ctx, reservation_id, note)
+        })
     }
 
     /// Accounting for one allowance, derived from its reservations.
@@ -738,6 +957,7 @@ impl Ledger {
             count_released: 0,
             count_expired: 0,
             over_reservations: 0,
+            billed_unknown: 0,
             unacknowledged_overruns: unacknowledged_overruns(&self.conn, scope, period)?,
             open_micro: 0,
             forecast_micro: 0,
@@ -758,6 +978,9 @@ impl Ledger {
             }
             if res.over_reservation {
                 report.over_reservations += 1;
+            }
+            if res.billed_unknown {
+                report.billed_unknown += 1;
             }
             if res.state.is_open() {
                 report.open_micro = add(report.open_micro, res.estimate_micro)?;
@@ -788,6 +1011,428 @@ impl Ledger {
             && report.measured_micro == report.allowance.committed_micro;
         report.routes = routes.into_values().collect();
         Ok(report)
+    }
+}
+
+fn set_allowance_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    scope: &str,
+    period: &str,
+    limit_micro: i64,
+    expected_revision: Option<i64>,
+) -> Result<Allowance> {
+    non_empty("scope", scope)?;
+    non_empty("period", period)?;
+    if limit_micro < 0 {
+        return Err(SpendError::BadInput("limit_micro is negative".into()));
+    }
+    match get_allowance(conn, scope, period)? {
+        None => {
+            if let Some(expected) = expected_revision {
+                return Err(SpendError::RevisionConflict {
+                    expected,
+                    actual: 0,
+                });
+            }
+            conn.execute(
+                "INSERT INTO spend_allowances (scope, period, limit_micro, reserved_micro, \
+                 committed_micro, revision, updated_at) VALUES (?1, ?2, ?3, 0, 0, 1, ?4)",
+                params![scope, period, limit_micro, ctx.now],
+            )?;
+            require_allowance(conn, scope, period)
+        }
+        Some(current) => {
+            let expected = expected_revision.ok_or(SpendError::RevisionRequired)?;
+            if expected != current.revision {
+                return Err(SpendError::RevisionConflict {
+                    expected,
+                    actual: current.revision,
+                });
+            }
+            let spent = spent_total(&current)?;
+            if limit_micro < spent {
+                return Err(SpendError::AllowanceBelowSpend {
+                    limit_micro,
+                    spent_micro: spent,
+                });
+            }
+            let next = current
+                .revision
+                .checked_add(1)
+                .ok_or(SpendError::Overflow)?;
+            let changed = conn.execute(
+                "UPDATE spend_allowances SET limit_micro = ?3, revision = ?4, updated_at = ?5 \
+                 WHERE scope = ?1 AND period = ?2 AND revision = ?6",
+                params![scope, period, limit_micro, next, ctx.now, current.revision],
+            )?;
+            if changed == 0 {
+                return Err(conflict(conn, &current)?);
+            }
+            require_allowance(conn, scope, period)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reserve_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    scope: &str,
+    request_id: &str,
+    period: &str,
+    route_id: &str,
+    price_version: &str,
+    estimate_micro: i64,
+    options: &ReserveOptions,
+) -> Result<Outcome> {
+    non_empty("scope", scope)?;
+    non_empty("request_id", request_id)?;
+    non_empty("period", period)?;
+    non_empty("route_id", route_id)?;
+    non_empty("price_version", price_version)?;
+    options.validate()?;
+    if estimate_micro < 0 {
+        return Err(SpendError::BadInput("estimate_micro is negative".into()));
+    }
+
+    if let Some(stored) = find_by_request(conn, request_id)? {
+        let same = stored.scope == scope
+            && stored.period == period
+            && stored.route_id == route_id
+            && stored.price_version == price_version
+            && stored.estimate_micro == estimate_micro
+            && stored.account == options.account
+            && stored.currency == options.currency;
+        if !same {
+            return Err(SpendError::RequestMismatch {
+                request_id: request_id.to_owned(),
+            });
+        }
+        return outcome(conn, stored, true);
+    }
+
+    let allowance = require_allowance(conn, scope, period)?;
+    let unacked = unacknowledged_overruns(conn, scope, period)?;
+    if unacked > 0 {
+        return Err(SpendError::OverrunUnacknowledged { count: unacked });
+    }
+    let remaining = allowance.remaining_micro();
+    if estimate_micro > remaining {
+        return Err(SpendError::AllowanceExceeded {
+            estimate_micro,
+            remaining_micro: remaining,
+        });
+    }
+    let reserved = allowance
+        .reserved_micro
+        .checked_add(estimate_micro)
+        .ok_or(SpendError::Overflow)?;
+    cas_totals(
+        conn,
+        &allowance,
+        reserved,
+        allowance.committed_micro,
+        ctx.now,
+    )?;
+    conn.execute(
+        "INSERT INTO spend_reservations (request_id, scope, period, route_id, price_version, \
+         estimated_micro, state, committed_micro, over_reservation, created_at, account, \
+         currency, billed_unknown) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'reserved', NULL, 0, ?7, ?8, ?9, 0)",
+        params![
+            request_id,
+            scope,
+            period,
+            route_id,
+            price_version,
+            estimate_micro,
+            ctx.now,
+            options.account,
+            options.currency
+        ],
+    )?;
+    let stored = find_by_request(conn, request_id)?
+        .ok_or_else(|| SpendError::NotFound(request_id.to_owned()))?;
+    outcome(conn, stored, false)
+}
+
+fn mark_in_flight_impl(conn: &Connection, ctx: &Ctx, reservation_id: &str) -> Result<Outcome> {
+    let res = require_reservation(conn, reservation_id)?;
+    match res.state {
+        ReservationState::InFlight if !ctx.strict => return outcome(conn, res, true),
+        ReservationState::Reserved => {}
+        other => {
+            return Err(SpendError::InvalidTransition {
+                from: other,
+                to: ReservationState::InFlight,
+            })
+        }
+    }
+    conn.execute(
+        "UPDATE spend_reservations SET state = 'in_flight', in_flight_at = ?2 \
+         WHERE seq = ?1 AND state = 'reserved'",
+        params![seq_of(reservation_id)?, ctx.now],
+    )?;
+    let res = require_reservation(conn, reservation_id)?;
+    outcome(conn, res, false)
+}
+
+fn commit_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    reservation_id: &str,
+    actual_micro: i64,
+) -> Result<Outcome> {
+    if actual_micro < 0 {
+        return Err(SpendError::BadInput("actual_micro is negative".into()));
+    }
+    let res = require_reservation(conn, reservation_id)?;
+    match res.state {
+        ReservationState::Committed if !ctx.strict && res.committed_micro == Some(actual_micro) => {
+            return outcome(conn, res, true)
+        }
+        ReservationState::Reserved | ReservationState::InFlight => {}
+        other => {
+            return Err(SpendError::InvalidTransition {
+                from: other,
+                to: ReservationState::Committed,
+            })
+        }
+    }
+    let allowance = require_allowance(conn, &res.scope, &res.period)?;
+    let reserved = allowance
+        .reserved_micro
+        .checked_sub(res.estimate_micro)
+        .filter(|v| *v >= 0)
+        .ok_or(SpendError::Overflow)?;
+    let committed = allowance
+        .committed_micro
+        .checked_add(actual_micro)
+        .ok_or(SpendError::Overflow)?;
+    let after = cas_totals(conn, &allowance, reserved, committed, ctx.now)?;
+    let over = actual_micro > res.estimate_micro;
+    let reason = if !over {
+        None
+    } else if after.remaining_micro() >= 0 {
+        Some("overrun taken from the allowance".to_owned())
+    } else {
+        Some(format!(
+            "overrun exceeds the allowance; remaining {} after commit",
+            after.remaining_micro()
+        ))
+    };
+    conn.execute(
+        "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
+         over_reservation = ?3, settled_at = ?4, reason = ?5 \
+         WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
+        params![
+            seq_of(reservation_id)?,
+            actual_micro,
+            i64::from(over),
+            ctx.now,
+            reason
+        ],
+    )?;
+    let res = require_reservation(conn, reservation_id)?;
+    outcome(conn, res, false)
+}
+
+fn commit_unknown_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    reservation_id: &str,
+    reason: Option<&str>,
+) -> Result<Outcome> {
+    let res = require_reservation(conn, reservation_id)?;
+    match res.state {
+        ReservationState::Committed if !ctx.strict && res.billed_unknown => {
+            return outcome(conn, res, true)
+        }
+        ReservationState::Reserved | ReservationState::InFlight => {}
+        other => {
+            return Err(SpendError::InvalidTransition {
+                from: other,
+                to: ReservationState::Committed,
+            })
+        }
+    }
+    commit_at_ceiling(conn, ctx.now, &res, reason.unwrap_or("billed_unknown"))?;
+    let res = require_reservation(conn, reservation_id)?;
+    outcome(conn, res, false)
+}
+
+fn release_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    reservation_id: &str,
+    reason: Option<&str>,
+) -> Result<Outcome> {
+    let res = require_reservation(conn, reservation_id)?;
+    match res.state {
+        ReservationState::Released if !ctx.strict => return outcome(conn, res, true),
+        ReservationState::Reserved | ReservationState::InFlight => {}
+        other => {
+            return Err(SpendError::InvalidTransition {
+                from: other,
+                to: ReservationState::Released,
+            })
+        }
+    }
+    let allowance = require_allowance(conn, &res.scope, &res.period)?;
+    let reserved = allowance
+        .reserved_micro
+        .checked_sub(res.estimate_micro)
+        .filter(|v| *v >= 0)
+        .ok_or(SpendError::Overflow)?;
+    cas_totals(
+        conn,
+        &allowance,
+        reserved,
+        allowance.committed_micro,
+        ctx.now,
+    )?;
+    conn.execute(
+        "UPDATE spend_reservations SET state = 'released', settled_at = ?2, reason = ?3 \
+         WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
+        params![seq_of(reservation_id)?, ctx.now, reason],
+    )?;
+    let res = require_reservation(conn, reservation_id)?;
+    outcome(conn, res, false)
+}
+
+fn expire_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    scope: &str,
+    account: Option<&str>,
+    older_than_secs: i64,
+) -> Result<ExpireReport> {
+    non_empty("scope", scope)?;
+    if older_than_secs < 0 {
+        return Err(SpendError::BadInput("older_than_secs is negative".into()));
+    }
+    let cutoff = ctx
+        .now
+        .checked_sub(older_than_secs)
+        .ok_or(SpendError::Overflow)?;
+    let stale: Vec<Reservation> = {
+        let sql = format!(
+            "SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE scope = ?1 AND \
+             (?3 IS NULL OR account = ?3) AND \
+             ((state = 'reserved' AND created_at < ?2) OR (state = 'in_flight' AND in_flight_at < ?2)) \
+             ORDER BY seq"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![scope, cutoff, account], reservation_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut report = ExpireReport::default();
+    for res in stale {
+        let seq = seq_of(&res.reservation_id)?;
+        if res.state == ReservationState::Reserved {
+            let allowance = require_allowance(conn, &res.scope, &res.period)?;
+            let reserved = allowance
+                .reserved_micro
+                .checked_sub(res.estimate_micro)
+                .filter(|v| *v >= 0)
+                .ok_or(SpendError::Overflow)?;
+            cas_totals(
+                conn,
+                &allowance,
+                reserved,
+                allowance.committed_micro,
+                ctx.now,
+            )?;
+            conn.execute(
+                "UPDATE spend_reservations SET state = 'expired', settled_at = ?2, \
+                 reason = 'stale_lease' WHERE seq = ?1 AND state = 'reserved'",
+                params![seq, ctx.now],
+            )?;
+            report.released_micro = report
+                .released_micro
+                .checked_add(res.estimate_micro)
+                .ok_or(SpendError::Overflow)?;
+            report
+                .expired
+                .push(require_reservation(conn, &res.reservation_id)?);
+        } else {
+            commit_at_ceiling(conn, ctx.now, &res, "lease_expired_in_flight")?;
+            report.ceiling_micro = report
+                .ceiling_micro
+                .checked_add(res.estimate_micro)
+                .ok_or(SpendError::Overflow)?;
+            report
+                .committed_at_ceiling
+                .push(require_reservation(conn, &res.reservation_id)?);
+        }
+    }
+    Ok(report)
+}
+
+fn acknowledge_impl(
+    conn: &Connection,
+    ctx: &Ctx,
+    reservation_id: &str,
+    note: Option<&str>,
+) -> Result<()> {
+    let res = require_reservation(conn, reservation_id)?;
+    if !res.over_reservation {
+        return Err(SpendError::BadInput(format!(
+            "{reservation_id} is not flagged as an overrun"
+        )));
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO spend_overrun_acks (seq, acknowledged_at, note) VALUES (?1, ?2, ?3)",
+        params![seq_of(reservation_id)?, ctx.now, note],
+    )?;
+    Ok(())
+}
+
+/// Move an open reservation to `committed` at its estimate, flagged `billed_unknown` and
+/// `over_reservation`: the estimate leaves `reserved` and enters `committed` in one
+/// compare-and-swap, and the row changes in the same transaction.
+fn commit_at_ceiling(conn: &Connection, now: i64, res: &Reservation, reason: &str) -> Result<()> {
+    let allowance = require_allowance(conn, &res.scope, &res.period)?;
+    let reserved = allowance
+        .reserved_micro
+        .checked_sub(res.estimate_micro)
+        .filter(|v| *v >= 0)
+        .ok_or(SpendError::Overflow)?;
+    let committed = allowance
+        .committed_micro
+        .checked_add(res.estimate_micro)
+        .ok_or(SpendError::Overflow)?;
+    cas_totals(conn, &allowance, reserved, committed, now)?;
+    conn.execute(
+        "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
+         over_reservation = 1, billed_unknown = 1, settled_at = ?3, reason = ?4 \
+         WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
+        params![
+            seq_of(&res.reservation_id)?,
+            res.estimate_micro,
+            now,
+            reason
+        ],
+    )?;
+    Ok(())
+}
+
+/// Run `f` in a savepoint on the caller's transaction: release it on success, roll it back on
+/// failure, so a failed ledger call leaves none of its partial writes in the caller's
+/// transaction.
+fn atomic<T>(conn: &Connection, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    conn.execute_batch("SAVEPOINT rightkit_spend_op")?;
+    match f(conn) {
+        Ok(value) => {
+            conn.execute_batch("RELEASE rightkit_spend_op")?;
+            Ok(value)
+        }
+        Err(err) => {
+            // Best effort: the original error is the one to report.
+            let _ = conn.execute_batch("ROLLBACK TO rightkit_spend_op; RELEASE rightkit_spend_op");
+            Err(err)
+        }
     }
 }
 
@@ -836,6 +1481,7 @@ fn reservation_from_row(row: &Row<'_>) -> rusqlite::Result<Reservation> {
         )
     })?;
     let over: i64 = row.get(9)?;
+    let unknown: i64 = row.get(16)?;
     Ok(Reservation {
         reservation_id: format!("res-{seq:08}"),
         request_id: row.get(1)?,
@@ -847,6 +1493,9 @@ fn reservation_from_row(row: &Row<'_>) -> rusqlite::Result<Reservation> {
         state,
         committed_micro: row.get(8)?,
         over_reservation: over != 0,
+        billed_unknown: unknown != 0,
+        account: row.get(14)?,
+        currency: row.get(15)?,
         created_at: row.get(10)?,
         in_flight_at: row.get(11)?,
         settled_at: row.get(12)?,
@@ -1557,5 +2206,681 @@ mod tests {
         );
         let out = ledger.commit(&id, 240).unwrap();
         assert_eq!(out.allowance.remaining_micro(), 760);
+    }
+
+    fn reserve_with(
+        f: &mut Fixture,
+        request: &str,
+        estimate: i64,
+        options: &ReserveOptions,
+    ) -> Result<Outcome> {
+        f.ledger.reserve_with(
+            SCOPE,
+            request,
+            MONTH,
+            "fal-ai/flux",
+            "v1",
+            estimate,
+            options,
+        )
+    }
+
+    fn sidecar(f: &Fixture) {
+        f.ledger
+            .connection()
+            .execute_batch("CREATE TABLE sidecar (note TEXT NOT NULL)")
+            .unwrap();
+    }
+
+    fn sidecar_rows(f: &Fixture) -> i64 {
+        f.ledger
+            .connection()
+            .query_row("SELECT COUNT(*) FROM sidecar", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn commit_unknown_commits_at_the_ceiling_in_one_swap_and_blocks_until_acknowledged() {
+        let mut f = funded(1_000);
+        let r = reserve(&mut f, "r1", 400).unwrap();
+        f.ledger
+            .mark_in_flight(&r.reservation.reservation_id)
+            .unwrap();
+        let before = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        let out = f
+            .ledger
+            .commit_unknown(&r.reservation.reservation_id, Some("timeout after send"))
+            .unwrap();
+        let res = &out.reservation;
+        assert_eq!(res.state, ReservationState::Committed);
+        assert_eq!(res.committed_micro, Some(400));
+        assert!(res.billed_unknown);
+        assert!(res.over_reservation);
+        assert_eq!(res.reason.as_deref(), Some("timeout after send"));
+        assert_eq!(
+            (out.allowance.reserved_micro, out.allowance.committed_micro),
+            (0, 400)
+        );
+        assert_eq!(
+            out.allowance.revision,
+            before.revision + 1,
+            "one compare-and-swap for the whole commit"
+        );
+        assert!(matches!(
+            reserve(&mut f, "r2", 1),
+            Err(SpendError::OverrunUnacknowledged { count: 1 })
+        ));
+        let report = f.ledger.report(SCOPE, MONTH).unwrap();
+        assert_eq!(report.billed_unknown, 1);
+        assert_eq!(report.unacknowledged_overruns, 1);
+        assert!(report.reconciles);
+        f.ledger
+            .acknowledge_overrun(&res.reservation_id, Some("checked the provider bill"))
+            .unwrap();
+        assert!(reserve(&mut f, "r2", 1).is_ok());
+    }
+
+    #[test]
+    fn commit_unknown_works_from_reserved_defaults_its_reason_and_repeats_as_a_replay() {
+        let mut f = funded(1_000);
+        let r = reserve(&mut f, "r1", 250).unwrap().reservation;
+        let out = f.ledger.commit_unknown(&r.reservation_id, None).unwrap();
+        assert_eq!(out.reservation.reason.as_deref(), Some("billed_unknown"));
+        assert_eq!(out.reservation.in_flight_at, None);
+        let again = f.ledger.commit_unknown(&r.reservation_id, None).unwrap();
+        assert!(again.replayed);
+        assert_eq!(again.allowance, out.allowance, "nothing written twice");
+        f.ledger
+            .acknowledge_overrun(&r.reservation_id, None)
+            .unwrap();
+        // The same ceiling as a plain commit is also a replay; another actual is refused.
+        assert!(f.ledger.commit(&r.reservation_id, 250).unwrap().replayed);
+        assert!(matches!(
+            f.ledger.commit(&r.reservation_id, 100),
+            Err(SpendError::InvalidTransition { .. })
+        ));
+        // A reservation settled any other way cannot become billed-unknown.
+        let ok = reserve(&mut f, "r2", 10).unwrap().reservation;
+        f.ledger.release(&ok.reservation_id, None).unwrap();
+        assert!(matches!(
+            f.ledger.commit_unknown(&ok.reservation_id, None),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Released,
+                ..
+            })
+        ));
+        let done = reserve(&mut f, "r3", 10).unwrap().reservation;
+        f.ledger.commit(&done.reservation_id, 5).unwrap();
+        assert!(matches!(
+            f.ledger.commit_unknown(&done.reservation_id, None),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Committed,
+                ..
+            })
+        ));
+        assert!(matches!(
+            f.ledger.commit_unknown("res-00000099", None),
+            Err(SpendError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn an_expired_in_flight_lease_is_billed_unknown() {
+        let mut f = funded(1_000);
+        let r = reserve(&mut f, "r1", 100).unwrap().reservation;
+        f.ledger.mark_in_flight(&r.reservation_id).unwrap();
+        f.clock.fetch_add(500, Ordering::SeqCst);
+        let report = f.ledger.expire_stale(SCOPE, 100).unwrap();
+        assert!(report.committed_at_ceiling[0].billed_unknown);
+        assert_eq!(f.ledger.report(SCOPE, MONTH).unwrap().billed_unknown, 1);
+    }
+
+    #[test]
+    fn account_and_currency_are_stored_and_part_of_the_idempotency_check() {
+        let mut f = funded(1_000);
+        let opts = ReserveOptions::with_account("acct-a").currency("USD");
+        let first = reserve_with(&mut f, "req", 100, &opts).unwrap();
+        assert_eq!(first.reservation.account.as_deref(), Some("acct-a"));
+        assert_eq!(first.reservation.currency.as_deref(), Some("USD"));
+        assert!(reserve_with(&mut f, "req", 100, &opts).unwrap().replayed);
+        for bad in [
+            reserve(&mut f, "req", 100),
+            reserve_with(
+                &mut f,
+                "req",
+                100,
+                &ReserveOptions::with_account("acct-b").currency("USD"),
+            ),
+            reserve_with(
+                &mut f,
+                "req",
+                100,
+                &ReserveOptions::with_account("acct-a").currency("EUR"),
+            ),
+            reserve_with(&mut f, "req", 100, &ReserveOptions::with_account("acct-a")),
+        ] {
+            assert!(matches!(bad, Err(SpendError::RequestMismatch { .. })));
+        }
+        let plain = reserve(&mut f, "plain", 10).unwrap().reservation;
+        assert_eq!((plain.account, plain.currency), (None, None));
+        for bad in [
+            ReserveOptions::with_account(" "),
+            ReserveOptions::default().currency(""),
+        ] {
+            assert!(matches!(
+                reserve_with(&mut f, "bad", 1, &bad),
+                Err(SpendError::BadInput(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn currency_is_fixed_at_reserve_time_through_settlement() {
+        let mut f = funded(1_000);
+        let r = reserve_with(
+            &mut f,
+            "r1",
+            100,
+            &ReserveOptions::default().currency("USD"),
+        )
+        .unwrap()
+        .reservation;
+        f.ledger.mark_in_flight(&r.reservation_id).unwrap();
+        let out = f.ledger.commit(&r.reservation_id, 90).unwrap();
+        assert_eq!(out.reservation.currency.as_deref(), Some("USD"));
+        // The stored value is what a later read returns, whatever the caller uses next.
+        let next = reserve_with(
+            &mut f,
+            "r2",
+            100,
+            &ReserveOptions::default().currency("EUR"),
+        )
+        .unwrap()
+        .reservation;
+        assert_eq!(
+            f.ledger
+                .reservation(&r.reservation_id)
+                .unwrap()
+                .unwrap()
+                .currency
+                .as_deref(),
+            Some("USD")
+        );
+        assert_eq!(next.currency.as_deref(), Some("EUR"));
+    }
+
+    #[test]
+    fn expiry_can_be_limited_to_one_account() {
+        let mut f = funded(10_000);
+        let acct_a = ReserveOptions::with_account("acct-a");
+        let a1 = reserve_with(&mut f, "a1", 100, &acct_a)
+            .unwrap()
+            .reservation;
+        let a2 = reserve_with(&mut f, "a2", 200, &acct_a)
+            .unwrap()
+            .reservation;
+        f.ledger.mark_in_flight(&a2.reservation_id).unwrap();
+        let b = reserve_with(&mut f, "b", 300, &ReserveOptions::with_account("acct-b"))
+            .unwrap()
+            .reservation;
+        let none = reserve(&mut f, "none", 400).unwrap().reservation;
+        f.clock.fetch_add(100, Ordering::SeqCst);
+
+        let report = f.ledger.expire_stale_account(SCOPE, "acct-a", 50).unwrap();
+        assert_eq!(report.expired.len(), 1);
+        assert_eq!(report.expired[0].reservation_id, a1.reservation_id);
+        assert_eq!(report.released_micro, 100);
+        assert_eq!(report.committed_at_ceiling.len(), 1);
+        assert_eq!(
+            report.committed_at_ceiling[0].reservation_id,
+            a2.reservation_id
+        );
+        assert_eq!(report.ceiling_micro, 200);
+        let a = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        assert_eq!((a.reserved_micro, a.committed_micro), (700, 200));
+        for id in [&b.reservation_id, &none.reservation_id] {
+            assert_eq!(
+                f.ledger.reservation(id).unwrap().unwrap().state,
+                ReservationState::Reserved,
+                "another account, or none, is untouched"
+            );
+        }
+        assert_eq!(
+            f.ledger.expire_stale_account(SCOPE, "acct-a", 50).unwrap(),
+            ExpireReport::default()
+        );
+        assert_eq!(
+            f.ledger.expire_stale_account(SCOPE, "nobody", 50).unwrap(),
+            ExpireReport::default()
+        );
+        assert!(matches!(
+            f.ledger.expire_stale_account(SCOPE, " ", 50),
+            Err(SpendError::BadInput(_))
+        ));
+        // Scope-wide expiry still takes every account.
+        assert_eq!(f.ledger.expire_stale(SCOPE, 50).unwrap().expired.len(), 2);
+    }
+
+    #[test]
+    fn strict_mode_turns_replays_into_invalid_transitions() {
+        let mut f = funded(1_000);
+        assert!(!f.ledger.is_strict());
+        f.ledger.set_strict(true);
+        assert!(f.ledger.is_strict());
+
+        let a = reserve(&mut f, "a", 100).unwrap().reservation;
+        assert!(
+            reserve(&mut f, "a", 100).unwrap().replayed,
+            "the request id stays idempotent"
+        );
+        f.ledger.mark_in_flight(&a.reservation_id).unwrap();
+        assert!(matches!(
+            f.ledger.mark_in_flight(&a.reservation_id),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::InFlight,
+                to: ReservationState::InFlight
+            })
+        ));
+        f.ledger.commit(&a.reservation_id, 90).unwrap();
+        assert!(matches!(
+            f.ledger.commit(&a.reservation_id, 90),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Committed,
+                to: ReservationState::Committed
+            })
+        ));
+
+        let b = reserve(&mut f, "b", 100).unwrap().reservation;
+        f.ledger.release(&b.reservation_id, None).unwrap();
+        assert!(matches!(
+            f.ledger.release(&b.reservation_id, None),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Released,
+                to: ReservationState::Released
+            })
+        ));
+
+        let c = reserve(&mut f, "c", 100).unwrap().reservation;
+        f.ledger.commit_unknown(&c.reservation_id, None).unwrap();
+        assert!(matches!(
+            f.ledger.commit_unknown(&c.reservation_id, None),
+            Err(SpendError::InvalidTransition {
+                from: ReservationState::Committed,
+                ..
+            })
+        ));
+
+        // The refused repeats changed nothing.
+        let allowance = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        assert_eq!(
+            (allowance.reserved_micro, allowance.committed_micro),
+            (0, 190)
+        );
+        assert!(f.ledger.report(SCOPE, MONTH).unwrap().reconciles);
+
+        // The `_in` variants follow the same mode.
+        f.ledger
+            .acknowledge_overrun(&c.reservation_id, None)
+            .unwrap();
+        let d = reserve(&mut f, "d", 10).unwrap().reservation;
+        let tx = f.ledger.begin().unwrap();
+        f.ledger.release_in(&tx, &d.reservation_id, None).unwrap();
+        assert!(matches!(
+            f.ledger.release_in(&tx, &d.reservation_id, None),
+            Err(SpendError::InvalidTransition { .. })
+        ));
+        tx.commit().unwrap();
+        assert_eq!(
+            f.ledger
+                .reservation(&d.reservation_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            ReservationState::Released
+        );
+
+        f.ledger.set_strict(false);
+        assert!(f.ledger.release(&d.reservation_id, None).unwrap().replayed);
+        let lenient = Ledger::attach(Connection::open_in_memory().unwrap())
+            .unwrap()
+            .with_strict(true);
+        assert!(lenient.is_strict());
+    }
+
+    #[test]
+    fn every_in_variant_commits_with_the_callers_transaction() {
+        let mut f = fixture();
+        sidecar(&f);
+        let tx = f.ledger.begin().unwrap();
+        f.ledger
+            .set_allowance_in(&tx, SCOPE, MONTH, 10_000, None)
+            .unwrap();
+        let ledger = &f.ledger;
+        let opts = ReserveOptions::default();
+        let acct_x = ReserveOptions::with_account("x");
+        let res = |request: &str, estimate: i64, options: &ReserveOptions| {
+            ledger
+                .reserve_in(&tx, SCOPE, request, MONTH, "r", "v1", estimate, options)
+                .unwrap()
+                .reservation
+                .reservation_id
+        };
+        let a = res("a", 100, &opts);
+        let b = res("b", 200, &opts);
+        let c = res("c", 300, &acct_x);
+        let d = res("d", 50, &opts);
+        let e = res("e", 40, &opts);
+
+        ledger.mark_in_flight_in(&tx, &a).unwrap();
+        ledger.commit_in(&tx, &a, 90).unwrap();
+        ledger.commit_unknown_in(&tx, &b, None).unwrap();
+        ledger.release_in(&tx, &e, Some("skip")).unwrap();
+        tx.execute("INSERT INTO sidecar (note) VALUES ('inside')", [])
+            .unwrap();
+        f.clock.fetch_add(100, Ordering::SeqCst);
+        let by_account = ledger.expire_stale_account_in(&tx, SCOPE, "x", 50).unwrap();
+        assert_eq!(by_account.expired.len(), 1);
+        assert_eq!(by_account.expired[0].reservation_id, c);
+        let by_scope = ledger.expire_stale_in(&tx, SCOPE, 50).unwrap();
+        assert_eq!(by_scope.expired.len(), 1);
+        assert_eq!(by_scope.expired[0].reservation_id, d);
+        ledger
+            .acknowledge_overrun_in(&tx, &b, Some("seen"))
+            .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(sidecar_rows(&f), 1);
+        let a = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        assert_eq!((a.reserved_micro, a.committed_micro), (0, 290));
+        let report = f.ledger.report(SCOPE, MONTH).unwrap();
+        assert!(report.reconciles);
+        assert_eq!(report.unacknowledged_overruns, 0);
+        assert!(reserve(&mut f, "next", 1).is_ok());
+    }
+
+    #[test]
+    fn dropping_the_callers_transaction_rolls_back_ledger_and_sidecar_together() {
+        let mut f = funded(1_000);
+        sidecar(&f);
+        let before = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        {
+            let tx = f.ledger.begin().unwrap();
+            let held = f
+                .ledger
+                .reserve_in(
+                    &tx,
+                    SCOPE,
+                    "r1",
+                    MONTH,
+                    "r",
+                    "v1",
+                    400,
+                    &ReserveOptions::default(),
+                )
+                .unwrap();
+            tx.execute(
+                "INSERT INTO sidecar (note) VALUES (?1)",
+                [&held.reservation.reservation_id],
+            )
+            .unwrap();
+            let id = held.reservation.reservation_id;
+            f.ledger.mark_in_flight_in(&tx, &id).unwrap();
+            f.ledger.commit_in(&tx, &id, 300).unwrap();
+            assert_eq!(
+                f.ledger
+                    .allowance(SCOPE, MONTH)
+                    .unwrap()
+                    .unwrap()
+                    .committed_micro,
+                300,
+                "visible inside the transaction"
+            );
+            drop(tx);
+        }
+        assert_eq!(f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap(), before);
+        assert!(f.ledger.reservation("res-00000001").unwrap().is_none());
+        assert_eq!(sidecar_rows(&f), 0);
+
+        // The same work committed lands everywhere, and the ids restart from the rolled-back
+        // sequence because the AUTOINCREMENT bump rolled back too.
+        let tx = f.ledger.begin().unwrap();
+        let held = f
+            .ledger
+            .reserve_in(
+                &tx,
+                SCOPE,
+                "r1",
+                MONTH,
+                "r",
+                "v1",
+                400,
+                &ReserveOptions::default(),
+            )
+            .unwrap();
+        tx.execute(
+            "INSERT INTO sidecar (note) VALUES (?1)",
+            [&held.reservation.reservation_id],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(sidecar_rows(&f), 1);
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            400
+        );
+    }
+
+    #[test]
+    fn a_failed_in_call_undoes_its_partial_writes_and_keeps_the_transaction_usable() {
+        let mut f = funded(1_000);
+        let id = reserve(&mut f, "r1", 400)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        let before = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        f.ledger
+            .connection()
+            .execute_batch(
+                "CREATE TRIGGER block_settle BEFORE UPDATE ON spend_reservations \
+                 WHEN NEW.state = 'committed' BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+            )
+            .unwrap();
+        let tx = f.ledger.begin().unwrap();
+        // The allowance swap runs first and the row update then aborts: the swap must not stay.
+        assert!(matches!(
+            f.ledger.commit_in(&tx, &id, 300),
+            Err(SpendError::Sqlite(_))
+        ));
+        assert!(matches!(
+            f.ledger.commit_unknown_in(&tx, &id, None),
+            Err(SpendError::Sqlite(_))
+        ));
+        assert_eq!(
+            f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap(),
+            before,
+            "the failed calls left no partial write in the caller's transaction"
+        );
+        // A refused reserve inside the transaction also writes nothing and the tx carries on.
+        assert!(matches!(
+            f.ledger.reserve_in(
+                &tx,
+                SCOPE,
+                "big",
+                MONTH,
+                "r",
+                "v1",
+                10_000,
+                &ReserveOptions::default()
+            ),
+            Err(SpendError::AllowanceExceeded { .. })
+        ));
+        tx.execute_batch("DROP TRIGGER block_settle").unwrap();
+        let out = f.ledger.commit_in(&tx, &id, 300).unwrap();
+        assert_eq!(out.allowance.committed_micro, 300);
+        tx.commit().unwrap();
+        let after = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        assert_eq!((after.reserved_micro, after.committed_micro), (0, 300));
+        assert!(f.ledger.report(SCOPE, MONTH).unwrap().reconciles);
+    }
+
+    #[test]
+    fn begin_refuses_a_second_open_transaction() {
+        let f = funded(10);
+        let tx = f.ledger.begin().unwrap();
+        assert!(f.ledger.begin().is_err());
+        drop(tx);
+        assert!(f.ledger.begin().is_ok());
+    }
+
+    #[test]
+    fn a_version_1_ledger_upgrades_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v1.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE rightkit_spend_meta (\"key\" TEXT PRIMARY KEY, \"value\" TEXT NOT NULL);
+                 INSERT INTO rightkit_spend_meta (\"key\", \"value\") VALUES ('schema', '1');
+                 INSERT INTO spend_allowances VALUES ('s', 'p', 1000, 0, 300, 4, 1);
+                 INSERT INTO spend_reservations (request_id, scope, period, route_id, price_version,
+                     estimated_micro, state, committed_micro, over_reservation, created_at,
+                     in_flight_at, settled_at, reason)
+                 VALUES ('old-ceiling', 's', 'p', 'r', 'v1', 200, 'committed', 200, 1, 10, 11, 99,
+                     'lease_expired_in_flight'),
+                        ('old-plain', 's', 'p', 'r', 'v1', 100, 'committed', 100, 0, 10, 11, 12, NULL);
+                 INSERT INTO spend_overrun_acks (seq, acknowledged_at, note) VALUES (1, 100, NULL);",
+            )
+            .unwrap();
+        }
+        let mut ledger = Ledger::attach(Connection::open(&path).unwrap()).unwrap();
+        let ceiling = ledger.reservation("res-00000001").unwrap().unwrap();
+        assert!(ceiling.billed_unknown);
+        assert_eq!((ceiling.account, ceiling.currency), (None, None));
+        let plain = ledger.reservation("res-00000002").unwrap().unwrap();
+        assert!(!plain.billed_unknown);
+        let out = ledger
+            .reserve_with(
+                "s",
+                "new",
+                "p",
+                "r",
+                "v1",
+                50,
+                &ReserveOptions::with_account("acct").currency("USD"),
+            )
+            .unwrap();
+        assert_eq!(out.reservation.account.as_deref(), Some("acct"));
+    }
+
+    #[test]
+    fn v2_backfill_marks_only_ceiling_commits_not_reason_text() {
+        // Schema v1 rows, then the exact v2 statements (the migration body) run over them.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO spend_allowances (scope, period, limit_micro, reserved_micro, \
+                 committed_micro, revision, updated_at) VALUES ('s', 'p', 1000, 0, 200, 1, 0);
+             INSERT INTO spend_reservations (request_id, scope, period, route_id, price_version,
+                 estimated_micro, state, committed_micro, over_reservation, created_at, settled_at,
+                 reason) VALUES
+                 ('released-with-reason', 's', 'p', 'r', 'v1', 100, 'released', NULL, 0, 10, 11,
+                     'lease_expired_in_flight'),
+                 ('ceiling', 's', 'p', 'r', 'v1', 200, 'committed', 200, 1, 10, 11,
+                     'lease_expired_in_flight'),
+                 ('not-at-ceiling', 's', 'p', 'r', 'v1', 200, 'committed', 100, 0, 10, 11,
+                     'lease_expired_in_flight');",
+        )
+        .unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT request_id, billed_unknown FROM spend_reservations ORDER BY seq")
+            .unwrap();
+        let flags: Vec<(String, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            flags,
+            vec![
+                ("released-with-reason".to_owned(), 0),
+                ("ceiling".to_owned(), 1),
+                ("not-at-ceiling".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn connection_variants_need_an_open_transaction_and_keep_savepoint_isolation() {
+        let f = funded(1_000);
+        let opts = ReserveOptions::default();
+        let conn = f.ledger.connection();
+        // Autocommit: refused, nothing written.
+        assert!(matches!(
+            f.ledger
+                .reserve_on(conn, SCOPE, "r1", MONTH, "fal-ai/flux", "v1", 100, &opts),
+            Err(SpendError::NoActiveTransaction)
+        ));
+        assert!(f.ledger.reservation("res-00000001").unwrap().is_none());
+
+        // Inside the caller's transaction: works; a failed call leaves no partial write and
+        // the transaction stays open and usable.
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let out = f
+            .ledger
+            .reserve_on(conn, SCOPE, "r1", MONTH, "fal-ai/flux", "v1", 100, &opts)
+            .unwrap();
+        assert_eq!(out.reservation.state, ReservationState::Reserved);
+        assert!(matches!(
+            f.ledger
+                .reserve_on(conn, SCOPE, "r2", MONTH, "fal-ai/flux", "v1", 5_000, &opts),
+            Err(SpendError::AllowanceExceeded { .. })
+        ));
+        assert!(!conn.is_autocommit());
+        assert!(f.ledger.reservation("res-00000002").unwrap().is_none());
+        f.ledger
+            .commit_on(conn, &out.reservation.reservation_id, 90)
+            .unwrap();
+        conn.execute_batch("COMMIT").unwrap();
+
+        let report = f.ledger.report(SCOPE, MONTH).unwrap();
+        assert_eq!(report.count_committed, 1);
+        assert_eq!(report.measured_micro, 90);
+        assert!(report.reconciles);
+
+        // A rolled-back transaction takes the ledger writes with it.
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        f.ledger
+            .reserve_on(conn, SCOPE, "r3", MONTH, "fal-ai/flux", "v1", 50, &opts)
+            .unwrap();
+        conn.execute_batch("ROLLBACK").unwrap();
+        assert!(f.ledger.reservation("res-00000003").unwrap().is_none());
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            0
+        );
+    }
+
+    #[test]
+    fn reservation_and_report_fields_are_read_through_accessors() {
+        let mut f = funded(1_000);
+        let opts = ReserveOptions::with_account("acct").currency("USD");
+        let r = reserve_with(&mut f, "req", 100, &opts).unwrap().reservation;
+        assert_eq!(r.account(), Some("acct"));
+        assert_eq!(r.currency(), Some("USD"));
+        assert!(!r.billed_unknown());
+        f.ledger.commit_unknown(&r.reservation_id, None).unwrap();
+        let stored = f.ledger.reservation(&r.reservation_id).unwrap().unwrap();
+        assert!(stored.billed_unknown());
+        assert_eq!(f.ledger.report(SCOPE, MONTH).unwrap().billed_unknown(), 1);
     }
 }

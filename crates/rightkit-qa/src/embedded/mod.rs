@@ -38,15 +38,11 @@
 //!   click 40-50, drag 16, key 20, type 8. `type` dispatches real key down/up events per character.
 //!   set_viewport{width,height,settleMs?} -> {innerWidth,innerHeight,requestedWidth,requestedHeight,
 //!   settled,clamped,placementTimedOut,reason?} (CSS pixels; no activation). innerWidth/innerHeight
-//!   are READ BACK from the page after the request, once two consecutive readings agree (bound
-//!   `settleMs`, default 2000 or `Control::viewport_settle`); never the request echoed. `clamped`:
-//!   settled at a size other than the request. `settled:false` (`reason:"unsettled"`): the size
-//!   was still changing at the bound and the last observed size is returned. It first waits
-//!   (bounded) for the shell's initial window placement, see `viewport.rs`.
-//!   A visible window is clamped by the OS to the display's work area (menu bar/Dock excluded):
-//!   a viewport taller than that comes back smaller with `clamped:true`. macOS control sizes the
-//!   frame without the visible-screen constraint (`UnconstrainedWindow`), so a window that stays
-//!   hidden usually reaches the request; do not rely on it, read `clamped`.
+//!   are READ BACK after two consecutive non-empty readings agree, 500 ms apart (bound
+//!   `settleMs`, default 2000 or `Control::viewport_settle`). A single target match is insufficient.
+//!   `ok:false` reports unsettled readback or placement timeout. `clamped` means confirmed OS limits.
+//!   Hidden macOS windows retain their screen-constraint exemption through deferred layout; mismatches
+//!   are corrected within this request's bound. Showing them restores normal constraints. No activation.
 //!   ax  screenshot{mask?:[selector],inline?:bool} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
 //!   owner-only) or, with `inline:true`, {bytes,masked,encoding:"base64",data} and no file;
 //!   password/one-time-code/data-rk-secret elements and `mask` selectors are
@@ -89,7 +85,9 @@ mod native;
 #[path = "win_view.rs"]
 mod native;
 mod viewport;
-pub use viewport::{PlacementGate, ViewportCfg, ViewportOutcome, ViewportWindow, PLACEMENT_EVENT};
+pub use viewport::{
+    set_viewport, PlacementGate, ViewportCfg, ViewportOutcome, ViewportWindow, PLACEMENT_EVENT,
+};
 
 #[cfg(not(any(target_os = "macos", windows)))]
 mod native {
@@ -353,6 +351,16 @@ impl<R: Runtime> ViewportWindow for NativeWindow<'_, R> {
     }
     fn read(&self, timeout: Duration) -> Result<(f64, f64), String> {
         read_viewport(self.0, timeout)
+    }
+    fn requires_exact_size(&self) -> Result<bool, String> {
+        #[cfg(target_os = "macos")]
+        {
+            native::requires_exact_size(self.0)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(false)
+        }
     }
 }
 
@@ -1277,7 +1285,14 @@ fn route<R: Runtime>(
             let f = commands
                 .get(&name)
                 .ok_or_else(|| format!("unknown command '{name}'"))?;
-            let v = f(app, &params.to_string())?;
+            // The client sends `{name, args}` with `args` as a string (`Control::command`): the
+            // command gets that args text verbatim, not the whole request object (ViewRight #106).
+            let args = match params.get("args") {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Null) | None => String::new(),
+                Some(other) => other.to_string(),
+            };
+            let v = f(app, &args)?;
             Ok(Out::Json(format!(
                 "{{\"ok\":true,\"result\":{}}}",
                 if v.is_empty() { "null".into() } else { v }

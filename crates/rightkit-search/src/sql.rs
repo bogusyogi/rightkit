@@ -8,7 +8,7 @@ use crate::terms::{OpTerm, Query};
 use crate::values::{now_ms, parse_date_ms, parse_relative_ms, parse_size_bytes};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Param {
     Text(String),
     Int(i64),

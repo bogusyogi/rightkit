@@ -15,6 +15,7 @@ Status: written without compiling or running anything (design: heardright `docs/
 | Context handle | `src/context.rs` | `ContextHandle` (object-safe), `ContextHandleExt::with_env`, `handle()`, `StaticContext` (host test double). |
 | Keystore bridge | `src/keystore.rs`, `RightKitKeystore.kt` | Installs the `rightkit-credentials` Android store (`KeystoreBridge` over JNI; AES-256-GCM key stays in `AndroidKeyStore`). |
 | Logcat sink | `src/logcat.rs` | `log_debug`; off unless `RightKit.init(debugLogging = true)`. Debug only; JSONL (`rightkit-logs`) stays the record. |
+| Panic capture | `src/crash.rs` | `install_panic_recorder(dir)` writes a bounded report per Rust panic (location and thread, never the message) to `AppPaths::crash_dir()`; `pending_reports`, `read_report`, `clear_reports` for the next launch. Native signal crashes and AAudio capture are deferred (#156). |
 | Gradle module | `android/` | Packages `jniLibs/<abi>/*.so` and the generated Kotlin; ABIs `arm64-v8a` and `x86_64`; minSdk 28 (a choice, the plan names none). |
 | Scripts | `scripts/` | Toolchain bootstrap and build, both PowerShell and sh, one pins file. See `TOOLCHAIN.md`. |
 

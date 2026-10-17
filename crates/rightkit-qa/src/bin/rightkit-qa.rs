@@ -83,6 +83,8 @@ fn options(a: &Args) -> Result<SuiteOptions> {
         keep_data: a.has("--keep-data"),
         kind: a.value("--kind").map(|k| RunKind::parse(&k)).transpose()?,
         files: a.positionals().into_iter().map(PathBuf::from).collect(),
+        hooks: Default::default(),
+        kill_orphans: a.has("--kill-orphans"),
     })
 }
 

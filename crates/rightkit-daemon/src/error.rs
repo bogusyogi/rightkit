@@ -39,6 +39,10 @@ pub const ERROR_UNAUTHENTICATED: &str = "unauthenticated";
 pub const ERROR_FORBIDDEN: &str = "forbidden";
 /// A write named a stale revision.
 pub const ERROR_REVISION_CONFLICT: &str = "revision_conflict";
+/// Too many failed authentications from this connection, or from all callers together, inside
+/// the failure window ([`crate::fail_limit`]). Not retryable on the same connection; the block
+/// lapses on its own, so wait before reconnecting.
+pub const ERROR_RATE_LIMITED: &str = "rate_limited";
 
 /// Typed wire error. `retryable` means resubmitting the request can succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]

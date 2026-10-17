@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { validateCheckout } from "./checkout.mjs";
+import { validateWorkflows } from "./workflows.mjs";
 
 export const MANIFEST_FILENAME = ".rightgit.json";
 
@@ -82,13 +83,14 @@ const TOP_LEVEL_KEYS = new Set([
   "checkout",
   "defaultBranch",
   "signExisting",
+  "workflows",
 ]);
 // Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
 // relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
 const QA_EVIDENCE_DEFAULT_RETENTION_DAYS = 7;
 const QA_EVIDENCE_MAX_RETENTION_DAYS = 90;
 // Pinned to the same upload-artifact release the rust-hybrid release-candidate template uses.
-const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4";
+export const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4";
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
@@ -235,6 +237,7 @@ export function validateManifest(manifest) {
 
   if (manifest.concurrency !== undefined) validateConcurrency(manifest, lanes, errors);
   validateDevArtifact(manifest, profile, errors);
+  validateWorkflows(manifest, errors);
   validateRegenerate(manifest, lanes, errors);
   validateSignExisting(manifest, lanes, errors);
 
@@ -529,7 +532,7 @@ export function loadManifest(repoPath) {
   return { ok: true, manifest, errors: [], path: manifestPath };
 }
 
-function parsePackageManager(spec) {
+export function parsePackageManager(spec) {
   const match = /^(pnpm|npm|yarn)@(\d+\.\d+\.\d+)$/.exec(spec);
   if (!match) throw new Error(`invalid packageManager spec: ${spec}`);
   const [, name, version] = match;
@@ -593,7 +596,7 @@ function signingMatrix(manifest, platform) {
 }
 
 const AZURE_LOGIN_SHA = "7ddb5af1ef8758cf1353cf3b42f940aee27ba21c"; // v3
-const DOWNLOAD_ARTIFACT_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"; // v4.3.0
+export const DOWNLOAD_ARTIFACT_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"; // v4.3.0
 const UPLOAD_ARTIFACT_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"; // v4
 const ARTIFACT_SIGNING_CLIENT_VERSION = "1.0.128";
 const ARTIFACT_SIGNING_CLIENT_SHA256 = "74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B";

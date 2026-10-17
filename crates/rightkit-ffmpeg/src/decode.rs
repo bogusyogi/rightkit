@@ -1,7 +1,7 @@
 //! Decode an input's audio to interleaved `f32` or `i16` samples held in memory.
 //!
 //! The whole decoded output is buffered (`run_capture_with` reads stdout to the end), so
-//! use it for clips and analysis windows, not for hours of audio in one call. Streaming
+//! set [`DecodeOptions::with_max_duration`] for bounded analysis windows. Streaming
 //! consumers should use [`crate::runner::spawn_streaming`] instead.
 
 use std::{io, path::Path, time::Duration};
@@ -12,6 +12,10 @@ use crate::{
 };
 
 /// Output shape and run policy for [`decode_pcm_f32`].
+///
+/// [`Default`] leaves `sample_rate` and `channels` at zero, which decoding refuses; set
+/// both explicitly. Use [`DecodeOptions::with_max_duration`] and
+/// [`DecodeOptions::with_audio_stream_index`] for the two optional selection bounds.
 #[derive(Clone, Debug)]
 pub struct DecodeOptions {
     /// Output sample rate in Hz; must be non-zero.
@@ -21,6 +25,45 @@ pub struct DecodeOptions {
     pub cancel: CancellationToken,
     /// Deadline from spawn. `None` means no deadline; cancellation still applies.
     pub timeout: Option<Duration>,
+    /// Maximum output duration (`-t`, after input), independent of wall-clock `timeout`.
+    /// Set with [`DecodeOptions::with_max_duration`].
+    pub max_duration: Option<Duration>,
+    /// Zero-based audio stream ordinal in input 0 (`-map 0:a:N`). Set with
+    /// [`DecodeOptions::with_audio_stream_index`].
+    pub audio_stream_index: Option<u32>,
+}
+
+impl Default for DecodeOptions {
+    fn default() -> Self {
+        Self {
+            sample_rate: 0,
+            channels: 0,
+            cancel: CancellationToken::new(),
+            timeout: None,
+            max_duration: None,
+            audio_stream_index: None,
+        }
+    }
+}
+
+impl DecodeOptions {
+    /// Bound the output to `duration` from its start (`-t`); `None` decodes to EOF.
+    /// Must be at least one microsecond; sub-microsecond fractions are truncated to
+    /// FFmpeg's microsecond precision. Decoding refuses shorter durations.
+    #[must_use]
+    pub fn with_max_duration(mut self, duration: Option<Duration>) -> Self {
+        self.max_duration = duration;
+        self
+    }
+
+    /// Select the zero-based audio stream ordinal in input 0 (`-map 0:a:N`), not an
+    /// absolute stream index. `None` keeps FFmpeg's automatic audio selection. An
+    /// explicitly selected stream must exist or decoding fails.
+    #[must_use]
+    pub fn with_audio_stream_index(mut self, index: Option<u32>) -> Self {
+        self.audio_stream_index = index;
+        self
+    }
 }
 
 /// Sample layout the decoder asks FFmpeg for.
@@ -32,11 +75,20 @@ enum Sample {
     S16,
 }
 
-/// The FFmpeg argument vector for a decode. `F32` is unchanged from the original decoder;
-/// `S16` differs only by the codec and the `s16le` container.
+/// Shared input selection, output duration, rate & channel policy for both layouts.
 fn decode_command(input: &Path, options: &DecodeOptions, sample: Sample) -> FfmpegCommand {
     let mut cmd = FfmpegCommand::base("error");
-    cmd.input(input).text("-vn").texts([
+    cmd.input(input);
+    if let Some(index) = options.audio_stream_index {
+        cmd.texts(["-map".to_string(), format!("0:a:{index}")]);
+    }
+    if let Some(duration) = options.max_duration {
+        cmd.texts([
+            "-t".to_string(),
+            format!("{}.{:06}", duration.as_secs(), duration.subsec_micros()),
+        ]);
+    }
+    cmd.text("-vn").texts([
         "-ac".to_string(),
         options.channels.to_string(),
         "-ar".to_string(),
@@ -63,15 +115,26 @@ fn decode_bytes(
             "sample rate and channel count must be non-zero",
         )));
     }
+    if options
+        .max_duration
+        .is_some_and(|duration| duration < Duration::from_micros(1))
+    {
+        return Err(RunError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "maximum decode duration must be at least one microsecond",
+        )));
+    }
     let cmd = decode_command(input, options, sample);
     let run = RunOptions::unbounded(options.cancel.clone()).with_deadline(options.timeout);
     let captured = run_checked_with(binary, &cmd, run)?;
     Ok(captured.stdout)
 }
 
-/// Decode the first audio stream of `input` to `f32` little-endian PCM at
-/// `options.sample_rate` and `options.channels`, returned as interleaved samples. Video is
-/// dropped (`-vn`). Works with any [`FfmpegBinary`], catalog-verified or development.
+/// Decode audio from `input` to `f32` little-endian PCM at `options.sample_rate`
+/// & `options.channels`, returned as interleaved samples. The stream selection and
+/// duration bound set through the builders apply; by default FFmpeg selects the audio
+/// stream and decoding runs to EOF. Video is dropped (`-vn`). Works with any
+/// [`FfmpegBinary`], catalog-verified or development.
 pub fn decode_pcm_f32(
     binary: &dyn FfmpegBinary,
     input: &Path,
@@ -131,6 +194,8 @@ mod argv_tests {
         DecodeOptions {
             sample_rate,
             channels,
+            max_duration: None,
+            audio_stream_index: None,
             cancel: CancellationToken::new(),
             timeout: None,
         }
@@ -195,6 +260,60 @@ mod argv_tests {
         assert_eq!(at("-ac").as_deref(), Some("2"));
         assert_eq!(at("-i").as_deref(), Some("a b.mp4"));
     }
+
+    #[test]
+    fn stream_selection_and_fractional_limit_are_output_options_for_both_layouts() {
+        let mut options = options(16_000, 1);
+        options.max_duration = Some(Duration::new(180, 125_001_999));
+        for index in [0, 2, u32::MAX] {
+            options.audio_stream_index = Some(index);
+            for sample in [Sample::F32, Sample::S16] {
+                let args = argv(&decode_command(Path::new("a b.mkv"), &options, sample));
+                assert_eq!(
+                    &args[BASE.len()..BASE.len() + 6],
+                    [
+                        "-i",
+                        "a b.mkv",
+                        "-map",
+                        &format!("0:a:{index}"),
+                        "-t",
+                        "180.125001"
+                    ]
+                );
+                assert_eq!(args.iter().filter(|arg| *arg == "-map").count(), 1);
+                assert_eq!(args.iter().filter(|arg| *arg == "-t").count(), 1);
+                assert_eq!(args.last().map(String::as_str), Some("pipe:1"));
+            }
+        }
+    }
+
+    #[test]
+    fn duration_and_stream_selection_can_be_set_independently() {
+        let mut options = options(8_000, 1);
+        options.max_duration = Some(Duration::from_micros(1));
+        let args = argv(&decode_command(Path::new("in.wav"), &options, Sample::F32));
+        assert!(!args.iter().any(|arg| arg == "-map"));
+        assert!(args.windows(2).any(|pair| pair == ["-t", "0.000001"]));
+
+        options.max_duration = None;
+        options.audio_stream_index = Some(0);
+        let args = argv(&decode_command(Path::new("in.wav"), &options, Sample::F32));
+        assert!(!args.iter().any(|arg| arg == "-t"));
+        assert!(args.windows(2).any(|pair| pair == ["-map", "0:a:0"]));
+    }
+
+    #[test]
+    fn invalid_duration_is_refused_before_either_decoder_spawns() {
+        let missing = crate::DevFfmpeg::unverified("definitely-not-a-binary");
+        let mut options = options(16_000, 1);
+        for duration in [Duration::ZERO, Duration::from_nanos(999)] {
+            options.max_duration = Some(duration);
+            let f32 = decode_pcm_f32(&missing, Path::new("in.wav"), &options);
+            assert!(matches!(f32, Err(RunError::Io(e)) if e.kind() == io::ErrorKind::InvalidInput));
+            let s16 = decode_pcm_s16(&missing, Path::new("in.wav"), &options);
+            assert!(matches!(s16, Err(RunError::Io(e)) if e.kind() == io::ErrorKind::InvalidInput));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -205,6 +324,8 @@ mod s16_tests {
         DecodeOptions {
             sample_rate,
             channels,
+            max_duration: None,
+            audio_stream_index: None,
             cancel: CancellationToken::new(),
             timeout: Some(Duration::from_secs(60)),
         }
@@ -279,6 +400,8 @@ mod tests {
         DecodeOptions {
             sample_rate,
             channels,
+            max_duration: None,
+            audio_stream_index: None,
             cancel: CancellationToken::new(),
             timeout: Some(Duration::from_secs(20)),
         }

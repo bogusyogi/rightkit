@@ -4,7 +4,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 **Use it** for sign-in and token refresh in a Right Suite app or daemon, when the provider fits one of the descriptors or can be described by an `OAuthConfig`.
 
-**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. Desktop sign-in binds a loopback callback listener on `127.0.0.1` (`src/lib.rs:370`); the crate starts no other server and schedules no background work. It opens a browser only through `browser::SystemBrowser` (the OS default handler) and refuses embedded webviews.
+**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. Desktop sign-in binds a loopback callback listener on `127.0.0.1` only (`OAuthClient::begin_loopback` in `src/lib.rs`); `callback::CallbackListener` is the only other listener, loopback by default and bound elsewhere only through the explicit `CallbackBind::custom_bind_address` opt-in. The crate starts no other server and schedules no background work. It opens a browser only through `browser::SystemBrowser` (the OS default handler) and refuses embedded webviews.
 
 ## Features
 
@@ -54,7 +54,19 @@ Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http
 
 - `pkce`: `PkceVerifier::generate`, `challenge_s256`, `generate_state`, `constant_time_eq`. `S256` only.
 - `callback::CallbackListener::bind(state, CallbackOptions)` then `.wait(timeout, cancel)`: serves `127.0.0.1` and/or `[::1]`, ignores favicon, preflight and wrong-state requests, returns the code once.
-- `gateway::GatewayExchange::new(https_url)?.with_field("resource", ..).exchange(&http, code, verifier, cancel)` posts JSON `{code, code_verifier, ..}` and returns a `TokenSet`.
+- `CallbackBind::redirect_host(host)` (with `CallbackListener::bind_with`): how `redirect_uri` spells the host when the provider registration needs it (`"localhost"` for `http://localhost:1455/auth/callback`). It changes only the text; on a loopback listener it must be `localhost`, `127.0.0.1` or `[::1]`.
+- `CallbackBind::custom_bind_address(ip)`: explicit opt-in to bind another address (WSL, containers). It can expose the port to other machines; the state check, exact path and single use still apply. Multicast is refused; an unspecified address needs `redirect_host`. Only `CallbackListener` offers it: `OAuthClient::begin_loopback` stays on `127.0.0.1`.
+- `.wait_post_json(timeout, cancel, allowed_origin)`: for a provider whose page POSTs the result as CORS-preflighted JSON. Returns the JSON object once. Only a `POST` on the exact path from exactly `allowed_origin` (`https://host[:port]`, never `*`) whose body is a JSON object with the right string `state` ends the flow; a missing or other `Origin` is 403, other methods 405, other paths 404, bad state or body 400, oversized (`MAX_POST_BODY`, 64 KiB), length-less or chunked requests 413/411/400, and the flow continues. A preflight from `allowed_origin` gets `Access-Control-Allow-Origin`, `-Methods`, `-Headers` and, when asked, `Access-Control-Allow-Private-Network`; from any other origin it gets none. Replies never echo the body.
+- `LoopbackAuthorization::wait_code(timeout, cancel)` (from `OAuthClient::begin_loopback`) returns the bare code and the `AuthorizationRequest` (for `code_verifier()`) without exchanging it. Same rules as `finish_loopback`: exact path, constant-time `state` (`StateMismatch`), `access_denied` is `NeedsReauth`; cancel gives `Cancelled`.
+- `gateway::GatewayExchange::new(https_url)?.with_field("resource", ..).exchange(&http, code, verifier, cancel)` posts JSON `{code, code_verifier, ..}` and returns a `TokenSet`. `exchange_tokens` returns `GatewayTokens { token_set, extra }` with the gateway's other fields (`expires_at`, `provider`, `user_id`; `Debug` prints only their names); `exchange_raw` returns the whole object (its `Debug` prints the tokens: never log it).
+- `.with_refresh_endpoint(url)?` then `.refresh(&http, &refresh_secret, &[("provider", "x")], cancel)` posts `{"refresh_token", ..fields}`: 401 or `invalid_grant` is `NeedsReauth`, and a response without a refresh token keeps the one passed in. The exchange's `with_field` values are not sent on refresh.
+
+## Token parameters, revocation and the memory store
+
+- `OAuthClient::with_token_param(name, value)` appends a parameter (RFC 8707 `resource`, `scope`) to the authorization-code exchange and refresh bodies; repeat a name to send several values. The client's own fields (`grant_type`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`, `refresh_token`) cannot be overridden: `with_token_param` refuses them. Values are not redacted in `Debug`; never put a credential there. The `server` module ignores them.
+- Endpoint URLs (authorization, token, device, revocation, gateway) are parsed: HTTPS, or plain HTTP only for the exact hosts `127.0.0.1`, `[::1]`, `localhost`; userinfo (`http://localhost:80@host/`), backslashes and whitespace are refused.
+- `OAuthClient::with_revocation_url(url)` and `OAuthClient::revoke(&Secret, Option<TokenTypeHint>)` (RFC 7009): posts `token`, `token_type_hint`, `client_id`, the client secret if set, and the configured token parameters. Any 2xx is success; an error body sent with HTTP 200 is still an error; the token is scrubbed from error text. Send requests with a client that does not follow redirects.
+- `MemoryTokenStore`: an in-process `TokenStore` for a `credentials::Resolver` when the app persists tokens elsewhere or not at all. Nothing is written to disk; `delete` of an absent account succeeds.
 
 ## Platform support
 

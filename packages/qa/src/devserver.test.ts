@@ -1,11 +1,12 @@
 import { createServer, type Server } from 'node:net';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createServer as createHttpServer } from 'node:http';
 import { TimeoutError } from './cdp.js';
 import { DevServerError, startDevServer, waitForHttp } from './devserver.js';
+import { InstalledAppRefused } from './installed.js';
 import { freePort, isProcessAlive } from './process.js';
 
 /**
@@ -264,5 +265,76 @@ describe('waitForHttp (0.4.8)', () => {
     await expect(waitForHttp('ftp://127.0.0.1/x')).rejects.toThrow('http or https URL');
     await expect(waitForHttp('not a url')).rejects.toThrow('http or https URL');
     await expect(waitForHttp('http://127.0.0.1:1/', { intervalMs: 0 })).rejects.toThrow('intervalMs must be a positive number');
+  });
+});
+
+describe('dev server refuses installed apps', () => {
+  it('refuses a command inside an installed-apps location before anything is spawned', async () => {
+    vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
+    try {
+      const command = process.platform === 'win32' ? 'C:\\Program Files\\CutRight\\cutright.exe' : '/Applications/CutRight.app/Contents/MacOS/CutRight';
+      await expect(startDevServer({ command, readiness: { urls: [], attemptTimeoutMs: 100, totalTimeoutMs: 100, intervalMs: 10 } }))
+        .rejects.toBeInstanceOf(InstalledAppRefused);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('dev server installed-app check follows the spawn cwd and PATH', () => {
+  // installedRoots covers <home>/Applications on macOS, so a temporary HOME gives a writable installed-app location.
+  const darwin = process.platform === 'darwin';
+  let home: string;
+  let appDir: string;
+  beforeAll(async () => {
+    home = await mkdtemp(path.join(tmpdir(), 'rk-qa-home-'));
+    appDir = path.join(home, 'Applications', 'Foo.app', 'Contents', 'MacOS');
+    await mkdir(appDir, { recursive: true });
+    await writeFile(path.join(appDir, 'Foo'), '#!/bin/sh\nexit 0\n');
+    await chmod(path.join(appDir, 'Foo'), 0o755);
+  });
+  afterAll(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  it.runIf(darwin)('a ./Foo command with cwd inside an installed app is refused, not checked against the process directory', async () => {
+    vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
+    vi.stubEnv('HOME', home);
+    try {
+      const error = await startDevServer({ command: './Foo', cwd: appDir, readiness: readiness() }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InstalledAppRefused);
+      expect((error as InstalledAppRefused).path).toBe(path.join(await realpath(appDir), 'Foo'));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.runIf(darwin)('a bare command found on the effective PATH inside an installed app is refused', async () => {
+    vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('PATH', `${appDir}${path.delimiter}${process.env.PATH ?? ''}`);
+    try {
+      const error = await startDevServer({ command: 'Foo', readiness: readiness() }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InstalledAppRefused);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.runIf(darwin)('a PATH passed in options.env is the one searched, and a relative executable in shell mode is checked too', async () => {
+    vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
+    vi.stubEnv('HOME', home);
+    try {
+      const viaEnv = await startDevServer({ command: 'Foo', env: { PATH: appDir }, readiness: readiness() }).catch((caught: unknown) => caught);
+      expect(viaEnv).toBeInstanceOf(InstalledAppRefused);
+      const relativeShell = await startDevServer({ command: './Foo', cwd: appDir, shell: true, readiness: readiness() }).catch((caught: unknown) => caught);
+      expect(relativeShell).toBeInstanceOf(InstalledAppRefused);
+      const hidden = await startDevServer({ command: `true && ${path.join(appDir, 'Foo')}`, shell: true, readiness: readiness() }).catch((caught: unknown) => caught);
+      expect(hidden).toBeInstanceOf(Error);
+      expect(hidden).not.toBeInstanceOf(InstalledAppRefused);
+      expect((hidden as Error).message).toContain('shell syntax');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

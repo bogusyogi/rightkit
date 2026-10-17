@@ -37,10 +37,11 @@ name = "swap"
 path = "tests/swap.rs"
 required-features = ["fs"]
 
+# The failed-acquire cases need the owner record that `json` writes (without it nothing can fail).
 [[test]]
 name = "lock_spawn"
 path = "tests/lock_spawn.rs"
-required-features = ["lock"]
+required-features = ["json"]
 
 # Owner record shapes and `probe_owner`; the owner record needs `json`.
 [[test]]

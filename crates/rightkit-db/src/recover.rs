@@ -38,7 +38,8 @@ pub enum QuarantineStamp {
     Seconds,
     /// The formatter returns the whole suffix, for example `.bad-<n>`. The result must be
     /// non-empty and contain no path separator or NUL, or quarantine fails with
-    /// [`DbError::InvalidQuarantineSuffix`].
+    /// [`DbError::InvalidQuarantineSuffix`]. A name already taken gets `-1`, `-2`, ... appended,
+    /// as for [`QuarantineStamp::Seconds`], so an earlier quarantine is never overwritten.
     Custom(fn(SystemTime) -> String),
 }
 
@@ -212,26 +213,97 @@ pub struct QuarantineOptions {
 /// `-1`, `-2`, ... up to `-(QUARANTINE_NAME_ATTEMPTS - 1)`.
 const QUARANTINE_NAME_ATTEMPTS: u32 = 100;
 
-/// [`quarantine_database`] with full [`QuarantineOptions`]. The same refusal rules apply to the
-/// other stamps: an existing destination is an error, and sidecar failures are errors.
+/// [`quarantine_database`] with full [`QuarantineOptions`]. [`QuarantineStamp::Millis`] refuses an
+/// existing destination, and sidecar failures are errors for every stamp.
 ///
-/// [`QuarantineStamp::Seconds`] names are unique per second, so a second quarantine within the same
-/// second takes `<db>.corrupt-<secs>-1`, `-2`, and so on. A name is claimed with create-new
-/// semantics (`rename_exclusive`, or `link` for [`MoveMode::HardLinkThenRemove`]), never by
-/// check-then-rename, so a concurrent quarantine cannot be overwritten.
+/// [`QuarantineStamp::Seconds`] and [`QuarantineStamp::Custom`] names are unique: a second
+/// quarantine that takes the same name gets `-1`, `-2`, and so on (up to 99 retries), so a
+/// quarantine within the same second takes `<db>.corrupt-<secs>-1`. A name is claimed with
+/// create-new semantics (`rename_exclusive`, or `link` for [`MoveMode::HardLinkThenRemove`]), never
+/// by check-then-rename, so a concurrent quarantine cannot be overwritten.
 pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Result<PathBuf> {
+    quarantine_steps(db, options).map_err(|failure| failure.error)
+}
+
+/// File name suffix of the journal [`quarantine_database_journaled`] keeps while a quarantine is
+/// unfinished: `<db>.quarantine-journal`.
+pub(crate) const QUARANTINE_JOURNAL_SUFFIX: &str = ".quarantine-journal";
+
+/// A failed quarantine. `stranded_at` is `Some(dest)` only when part of the store moved and the
+/// move could not be undone: the main file is then at `dest`, with whatever sidecars moved.
+pub(crate) struct QuarantineFailure {
+    pub(crate) error: DbError,
+    pub(crate) stranded_at: Option<PathBuf>,
+}
+
+impl QuarantineFailure {
+    fn untouched(error: DbError) -> Self {
+        Self {
+            error,
+            stranded_at: None,
+        }
+    }
+}
+
+/// `<db>.quarantine-journal` when an earlier quarantine left it, which means the store is split
+/// between the original path and a quarantine name.
+pub(crate) fn unfinished_quarantine(db: &Path) -> Option<PathBuf> {
+    let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
+    std::fs::symlink_metadata(&journal).ok().map(|_| journal)
+}
+
+/// Quarantine with the steps journaled: the recovery marker `<db>.quarantine-journal` is written
+/// before any file moves, removed once the quarantine finished or was fully undone, and kept when
+/// a partial move could not be undone.
+pub(crate) fn quarantine_database_journaled(
+    db: &Path,
+    stamp: QuarantineStamp,
+    sidecars: SidecarPolicy,
+) -> std::result::Result<PathBuf, QuarantineFailure> {
+    let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
+    let result = quarantine_steps(
+        db,
+        &QuarantineOptions {
+            name: stamp,
+            sidecars,
+            marker: Some(journal.clone()),
+            ..QuarantineOptions::default()
+        },
+    );
+    match &result {
+        Err(failure) if failure.stranded_at.is_some() => {}
+        _ => {
+            let _ = std::fs::remove_file(&journal);
+        }
+    }
+    result
+}
+
+/// One move of a quarantine, kept so it can be undone.
+struct Moved {
+    from: PathBuf,
+    to: PathBuf,
+}
+
+fn quarantine_steps(
+    db: &Path,
+    options: &QuarantineOptions,
+) -> std::result::Result<PathBuf, QuarantineFailure> {
     let name = db
         .file_name()
-        .ok_or(DbError::InvalidDatabasePath)?
+        .ok_or(DbError::InvalidDatabasePath)
+        .map_err(QuarantineFailure::untouched)?
         .to_string_lossy()
         .into_owned();
     let suffix = options.name.suffix(SystemTime::now());
     if suffix.is_empty() || suffix.contains(['/', '\\', '\0']) {
-        return Err(DbError::InvalidQuarantineSuffix(suffix));
+        return Err(QuarantineFailure::untouched(
+            DbError::InvalidQuarantineSuffix(suffix),
+        ));
     }
     let attempts = match options.name {
-        QuarantineStamp::Seconds => QUARANTINE_NAME_ATTEMPTS,
-        _ => 1,
+        QuarantineStamp::Seconds | QuarantineStamp::Custom(_) => QUARANTINE_NAME_ATTEMPTS,
+        QuarantineStamp::Millis => 1,
     };
     let mut last = None;
     for attempt in 0..attempts {
@@ -241,7 +313,7 @@ pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Resul
             continue;
         }
         if let Some(marker) = &options.marker {
-            write_marker(marker, db, &dest)?;
+            write_marker(marker, db, &dest).map_err(QuarantineFailure::untouched)?;
         }
         match move_file(db, &dest, options.move_mode) {
             Ok(()) => {}
@@ -252,27 +324,97 @@ pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Resul
                 last = Some(dest);
                 continue;
             }
-            Err(error) => return Err(DbError::Fs(rightkit_fs::FsError::io(db, error))),
+            Err(error) => {
+                // The main file did not move, so nothing did.
+                return Err(QuarantineFailure::untouched(DbError::Fs(
+                    rightkit_fs::FsError::io(db, error),
+                )));
+            }
         }
+        let mut done = vec![Moved {
+            from: db.to_path_buf(),
+            to: dest.clone(),
+        }];
+        let mut deleted = false;
         for sidecar in ["-wal", "-shm", "-journal"] {
             let from = with_suffix(db, sidecar);
-            match options.sidecars {
+            let step = match options.sidecars {
                 SidecarPolicy::RenameSidecars => {
-                    move_if_present(&from, &with_suffix(&dest, sidecar), options.move_mode)?
+                    let to = with_suffix(&dest, sidecar);
+                    match move_if_present(&from, &to, options.move_mode) {
+                        Ok(true) => {
+                            done.push(Moved { from, to });
+                            Ok(())
+                        }
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
                 }
-                SidecarPolicy::DeleteSidecars => remove_if_present(&from)?,
+                SidecarPolicy::DeleteSidecars => match remove_if_present(&from) {
+                    Ok(removed) => {
+                        deleted |= removed;
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                },
+            };
+            if let Err(error) = step {
+                return Err(undo_quarantine(db, &dest, done, deleted, error, options));
             }
         }
         return Ok(dest);
     }
     let dest = last.unwrap_or_else(|| quarantine_candidate(db, &name, &suffix, 0));
-    Err(DbError::Fs(rightkit_fs::FsError::io(
-        &dest,
-        std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "quarantine destination already exists",
+    Err(QuarantineFailure::untouched(DbError::Fs(
+        rightkit_fs::FsError::io(
+            &dest,
+            std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "quarantine destination already exists",
+            ),
         ),
     )))
+}
+
+/// A sidecar step failed after the main file moved. Move everything back in reverse order. A
+/// deleted sidecar cannot come back, so after one the move is not undone. If any undo step
+/// fails, the journal stays and the failure names where the main file is.
+fn undo_quarantine(
+    db: &Path,
+    dest: &Path,
+    done: Vec<Moved>,
+    deleted: bool,
+    error: DbError,
+    options: &QuarantineOptions,
+) -> QuarantineFailure {
+    let stranded = |reason: String| QuarantineFailure {
+        error: DbError::Fs(rightkit_fs::FsError::io(
+            dest,
+            std::io::Error::other(format!(
+                "quarantine incomplete: {error}; {reason}; the store is split between {} and {}",
+                db.display(),
+                dest.display()
+            )),
+        )),
+        stranded_at: Some(dest.to_path_buf()),
+    };
+    if deleted {
+        return stranded("a deleted sidecar cannot be restored, so the move was not undone".into());
+    }
+    for step in done.iter().rev() {
+        if let Err(e) = unmove_file(&step.to, &step.from, options.move_mode) {
+            return stranded(format!("rolling back {} failed: {e}", step.from.display()));
+        }
+    }
+    if let Some(marker) = &options.marker {
+        let _ = std::fs::remove_file(marker);
+    }
+    QuarantineFailure::untouched(error)
+}
+
+/// Undo [`move_file`]: bring `to` back to `from`, never overwriting.
+fn unmove_file(to: &Path, from: &Path, mode: MoveMode) -> std::io::Result<()> {
+    move_file(to, from, mode)
 }
 
 /// The `attempt`-th destination for a quarantined `db`: `<db><suffix>`, then `<db><suffix>-1`, ...
@@ -309,10 +451,11 @@ fn move_file(from: &Path, to: &Path, mode: MoveMode) -> std::io::Result<()> {
     }
 }
 
-fn move_if_present(from: &Path, to: &Path, mode: MoveMode) -> Result<()> {
+/// `Ok(true)` when the file moved, `Ok(false)` when there was nothing to move.
+fn move_if_present(from: &Path, to: &Path, mode: MoveMode) -> Result<bool> {
     match move_file(from, to, mode) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(DbError::Fs(rightkit_fs::FsError::io(from, error))),
     }
 }
@@ -354,10 +497,11 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn remove_if_present(path: &Path) -> Result<()> {
+/// `Ok(true)` when the file was removed, `Ok(false)` when it was not there.
+fn remove_if_present(path: &Path) -> Result<bool> {
     match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(DbError::Fs(rightkit_fs::FsError::io(path, error))),
     }
 }

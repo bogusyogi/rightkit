@@ -67,7 +67,10 @@ impl RuleSet {
 
 /// Canonical JSON: object keys sorted, no whitespace, numbers and strings as `serde_json`
 /// writes them. Independent of whether `serde_json` keeps map insertion order.
-fn write_canonical(value: &serde_json::Value, out: &mut String) -> Result<(), ReviewError> {
+pub(crate) fn write_canonical(
+    value: &serde_json::Value,
+    out: &mut String,
+) -> Result<(), ReviewError> {
     match value {
         serde_json::Value::Array(items) => {
             out.push('[');

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added: `Entry::open_reader() -> io::Result<Box<dyn Read + Send>>`, a public reader over a prepared entry (file or message text), for a host that streams entries over its own transport (rightkit#537). `Entry.source` stays private.
+
 ## 0.1.0
 
 Initial crate, extracted from Pulse's `core/src/localsend`. First published release.

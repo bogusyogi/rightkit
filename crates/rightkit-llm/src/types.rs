@@ -167,6 +167,9 @@ pub enum CacheMode {
     Auto,
 }
 
+/// Reserved [`ExtraBody`] key that carries a [`SchemaConstraint`]. Never sent on the wire.
+const RESPONSE_SCHEMA_SLOT: &str = "\u{1}rightkit.response_schema";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatRequest {
     pub model: String,
@@ -210,6 +213,32 @@ pub struct ChatRequest {
     pub report_failed_usage: bool,
 }
 
+/// A JSON schema the model's answer must follow. See [`ChatRequest::with_response_schema`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchemaConstraint {
+    /// Name of the schema. 1 to 64 characters from `a-z`, `A-Z`, `0-9`, `_` and `-`.
+    pub name: String,
+    /// A JSON Schema object (`"type": "object"` at the root for both providers).
+    pub schema: Value,
+    /// Ask the provider to enforce the schema strictly. Default `true`.
+    pub strict: bool,
+}
+
+impl SchemaConstraint {
+    pub fn new(name: impl Into<String>, schema: Value) -> Self {
+        Self {
+            name: name.into(),
+            schema,
+            strict: true,
+        }
+    }
+
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+}
+
 impl ChatRequest {
     pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
         Self {
@@ -230,6 +259,59 @@ impl ChatRequest {
             keep_empty_messages: false,
             report_failed_usage: false,
         }
+    }
+
+    /// Request output that follows `schema`, on both providers. Set this request's
+    /// `tools` and `force_tool` to empty first: a schema call uses no other tools, and
+    /// combining them fails with [`LlmError::InvalidRequest`] before anything is sent.
+    ///
+    /// The schema is stored in the request's [`ExtraBody`] slot under a reserved key, so the
+    /// public `ChatRequest` shape is unchanged and existing struct literals keep compiling.
+    /// The key is never merged into the wire body.
+    pub fn with_response_schema(mut self, schema: SchemaConstraint) -> Self {
+        self.extra_body.fields.insert(
+            RESPONSE_SCHEMA_SLOT.to_owned(),
+            json!({"name": schema.name, "schema": schema.schema, "strict": schema.strict}),
+        );
+        self
+    }
+
+    /// The schema set by [`ChatRequest::with_response_schema`], if any.
+    pub(crate) fn response_schema(&self) -> Option<SchemaConstraint> {
+        let v = self.extra_body.fields.get(RESPONSE_SCHEMA_SLOT)?;
+        Some(SchemaConstraint {
+            name: v.get("name")?.as_str()?.to_owned(),
+            schema: v.get("schema")?.clone(),
+            strict: v.get("strict")?.as_bool()?,
+        })
+    }
+
+    /// Check the schema constraint locally before any body is built.
+    pub fn check_schema(&self) -> Result<(), LlmError> {
+        let Some(s) = self.response_schema() else {
+            return Ok(());
+        };
+        let valid_name = !s.name.is_empty()
+            && s.name.len() <= 64
+            && s.name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        if !valid_name {
+            return Err(LlmError::InvalidRequest(
+                "response schema name must be 1 to 64 letters, digits, '_' or '-'".into(),
+            ));
+        }
+        if !s.schema.is_object() {
+            return Err(LlmError::InvalidRequest(
+                "response schema must be a JSON object".into(),
+            ));
+        }
+        if !self.tools.is_empty() || self.force_tool.is_some() {
+            return Err(LlmError::InvalidRequest(
+                "a response schema cannot be combined with tools or force_tool".into(),
+            ));
+        }
+        Ok(())
     }
     /// True when any message carries an image block.
     pub fn has_images(&self) -> bool {
@@ -401,6 +483,9 @@ impl ExtraBody {
             return Ok(());
         };
         for (key, value) in &self.fields {
+            if key == RESPONSE_SCHEMA_SLOT {
+                continue;
+            }
             if object.contains_key(key) && !self.overrides.contains(key) {
                 return Err(LlmError::InvalidRequest(format!(
                     "extra body field '{key}' is already set by the request; use with_extra_override to replace it"
@@ -605,6 +690,17 @@ impl ChatResponse {
             .into_iter()
             .find(|(_, n, _)| *n == name)
             .map(|(_, _, i)| i)
+    }
+    /// The structured answer for a request made with [`ChatRequest::with_response_schema`]:
+    /// the input of the first tool call when there is one (Anthropic), else the text parsed as
+    /// JSON (OpenAI-compatible `json_schema` output). [`LlmError::Malformed`] when neither
+    /// holds. The schema itself is not re-checked here.
+    pub fn schema_output(&self) -> Result<Value, LlmError> {
+        if let Some((_, _, input)) = self.tool_uses().into_iter().next() {
+            return Ok(input.clone());
+        }
+        serde_json::from_str(self.text().trim())
+            .map_err(|e| LlmError::Malformed(format!("schema output is not JSON: {e}")))
     }
 }
 

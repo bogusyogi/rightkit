@@ -9,6 +9,8 @@ pub(crate) mod capture_safety;
 mod events;
 mod ffi;
 
+pub use ffi::Cf;
+
 use crate::model::*;
 use crate::platform::*;
 use crate::proof::FieldText;

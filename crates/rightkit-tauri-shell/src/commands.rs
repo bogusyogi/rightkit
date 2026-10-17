@@ -312,6 +312,65 @@ pub async fn rk_shell_engine_call(
     }
 }
 
+/// Engine lifecycle snapshot without marking the renderer ready.
+#[tauri::command]
+pub fn rk_shell_engine_status(app: AppHandle<Wry>) -> Option<Value> {
+    #[cfg(feature = "engine")]
+    {
+        app.state::<ShellState>()
+            .engine
+            .as_ref()
+            .map(|e| e.lifecycle())
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Tagged engine call with structured errors. Registered even without `engine`.
+#[tauri::command]
+pub async fn rk_shell_engine_call_tagged(
+    method: String,
+    params: Option<Value>,
+    tag: Option<String>,
+    app: AppHandle<Wry>,
+) -> Result<Value, Value> {
+    #[cfg(feature = "engine")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            use crate::engine::EngineCallError;
+            use tauri::Emitter;
+            let engine = app.state::<ShellState>().engine.clone().ok_or_else(
+                || json!({"code": "engine_not_running", "message": "no engine configured", "origin": "supervisor"}),
+            )?;
+            let handle = app.clone();
+            engine
+                .call_tagged(
+                    &method,
+                    params.unwrap_or(Value::Null),
+                    tag,
+                    std::sync::Arc::new(move |event| {
+                        let _ = handle.emit(crate::EVENT_ENGINE, event);
+                    }),
+                )
+                .map_err(|e| {
+                    serde_json::to_value(EngineCallError::from(e)).expect("serializable error")
+                })
+        })
+        .await
+        .map_err(|e| json!({"code": "internal", "message": e.to_string(), "origin": "supervisor"}))?
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        let _ = (method, params, tag, app);
+        Err(
+            json!({"code": "unsupported", "message": "engine feature disabled", "origin": "supervisor"}),
+        )
+    }
+}
+
 #[tauri::command]
 pub fn rk_shell_traffic_lights(
     dx: f64,

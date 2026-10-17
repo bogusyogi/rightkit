@@ -524,3 +524,62 @@ fn unsafe_ids_never_escape_the_store() {
         .is_file());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn notice_only_reply_keeps_system_message() {
+    let mods = [m("notice", |_, _| {
+        Ok(ModuleOutput {
+            system_message: Some("heads up".into()),
+            ..ModuleOutput::default()
+        })
+    })];
+    let r = dispatch(
+        event(Wire::Codex, "codex_stop"),
+        &mods,
+        &DispatchOptions::default(),
+    );
+    assert_eq!(
+        r.reply.stdout.unwrap(),
+        json!({"systemMessage": "heads up"})
+    );
+    assert_eq!(r.reply.exit_code, 0);
+}
+
+#[test]
+fn membrane_store_shares_layout_with_membrane_receipts() {
+    let dir = scratch("membrane-layout");
+    let store = ReceiptStore::membrane(&dir);
+    let start = event(Wire::Claude, "claude_session_start_cwd");
+    let tagged = store.tag_and_record(&start, "orientation", 10_000).unwrap();
+    let id = store.list("acceptance")[0].id.clone();
+    assert!(tagged.ends_with(&format!("[membrane:{id}]")));
+
+    // The file carries Membrane's spellings next to this crate's.
+    let path = dir
+        .join("receipts")
+        .join("acceptance")
+        .join(format!("{id}.json"));
+    let disk: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(disk["harness"], "claude");
+    assert_eq!(disk["state"], "emitted");
+
+    // Membrane's confirm flips `state` to `delivered`; this crate reads it as observed.
+    let mut membrane_flipped = disk.clone();
+    membrane_flipped["state"] = json!("delivered");
+    std::fs::write(&path, membrane_flipped.to_string()).unwrap();
+    assert_eq!(store.list("acceptance")[0].level, DeliveryLevel::Observed);
+
+    // A Membrane-only file with no `wire` or `level` still reads.
+    let membrane_only = json!({
+        "id": "abc123", "session": "acceptance", "harness": "codex",
+        "event": "Stop", "state": "emitted", "ts": 5
+    });
+    let dir_s = dir.join("receipts").join("acceptance");
+    std::fs::write(dir_s.join("abc123.json"), membrane_only.to_string()).unwrap();
+    let listed = store.list("acceptance");
+    let other = listed.iter().find(|r| r.id == "abc123").unwrap();
+    assert_eq!(other.wire, "codex");
+    assert_eq!(other.level, DeliveryLevel::Emitted);
+    assert_eq!(other.chars, 0);
+    std::fs::remove_dir_all(dir).unwrap();
+}

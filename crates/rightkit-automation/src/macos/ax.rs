@@ -439,6 +439,22 @@ impl El {
         let c = Cf::new(out).ok_or(Error::Unsupported("attribute value"))?;
         Ok(attr_value_from_cf(&c))
     }
+    /// Raw attribute copy: the retained CF object and the raw `AXError` code, with no typing, no
+    /// Accessibility-grant pre-check and no error mapping (for callers that log failure classes
+    /// from the code, or read `AXValue`, children arrays and text-marker values as CF
+    /// themselves). `Ok` only when the call returned `kAXErrorSuccess` (0) with a non-null
+    /// object; otherwise `Err(code)`, where `0` means success with no object. Read-only and not
+    /// gated by the interaction switches, like [`El::attribute`]. The returned [`Cf`] releases on
+    /// drop.
+    pub fn copy_attribute_raw(&self, name: &str) -> std::result::Result<Cf, i32> {
+        let k = Cf::string(name);
+        let mut out: CFTypeRef = std::ptr::null();
+        let code = unsafe { AXUIElementCopyAttributeValue((self.0).0, k.0, &mut out) };
+        match (code, Cf::new(out)) {
+            (0, Some(c)) => Ok(c),
+            (code, _) => Err(code),
+        }
+    }
     /// Attribute names the element supports (`AXUIElementCopyAttributeNames`). Read-only and
     /// not gated by the interaction switches, like [`El::attribute`].
     pub fn attribute_names(&self) -> Result<Vec<String>> {

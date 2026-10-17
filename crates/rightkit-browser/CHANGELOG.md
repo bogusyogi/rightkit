@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Doc fix (rightkit#267): the `PINNED_CHROME_FOR_TESTING` comment no longer says every digest is `Sha256Pin::Todo`; the 155.0.8059.39 table carries recorded digests for mac-arm64, mac-x64, linux64 and win64 (plus the win64 headless shell). `Sha256Pin::Todo` still refuses a download.
+
+Additive for the CodeRight and GenRight ports (#463, #575-#579, #641). Nothing removed. Two behaviour changes: `BrowserPage::history` waits at most 10 s, and `observe` makes two more CDP calls (the main frame id and a depth-bounded accessibility tree). `ObservedNode` and `Observation` gain public fields, so code that builds them by struct literal must add the fields; code that only reads them is unaffected.
+
+- `BrowserPage::history` waits at most 10 s for a navigation event after the traversal (#576). A bfcache or same-document traversal returns instead of hanging; the page is read as it is.
+- `BrowserPage::accessibility_tree_with(depth)`: the accessibility tree cut off below `depth` (#577). `accessibility_tree()` is unchanged.
+- `BrowserPage::frames() -> Result<Vec<String>>` lists CDP frame ids (#577). It returns `Result` because the CDP call can fail.
+- `BrowserPage::target_id() -> &str` is the CDP target id, the stable identity of a tab (#577). `id()` is still the session's own sequence.
+- `BrowserSession::new_page_with(url, PageSetup { interceptor, download })` installs the request interceptor and download behaviour before the first navigation, so the interceptor sees the very first request (#578). `new_page` is unchanged.
+- `BrowserPage::scroll_by(target, dx, dy)` runs `scrollBy` on the element, point or window (#579). It is admitted as a wheel-kind effect.
+- `BrowserPage::set_transparent_background(bool)` and `BrowserPage::screenshot_with(ScreenshotOptions { omit_background })` for alpha screenshots (#463). `screenshot()` is unchanged. The motion render and encode owner (rightkit-motion) is not in this crate.
+- `observe` adds, on `ObservedNode`: `sensitive` (password-like fields; the name is already masked), `frame_id` (main frame id), `stable_id` (kept across consecutive observations of the same document for the same selector; `0` without a selector). `Observation` adds `ax: Vec<AxSummary>` (role, name, frame id of the non-ignored nodes of the main frame's accessibility tree, bounded to depth `OBSERVE_AX_DEPTH` = 12) (#575 is partial: `frame_id` always names the main frame, iframe content is not observed, and frame-qualified targeting is not implemented).
+- `design_mode` module (#641): the picker runs in a host-created isolated world and reports through a `Runtime.addBinding` function bound only to that world, so page script cannot read or forge messages (console output is never trusted). `BrowserPage::enable_design_mode(nonce)` returns a `DesignModeSession` event receiver; `design_mode_result` shows the outcome in the popup. `DesignModeBridge::accept` takes a submission only with the right binding, context and nonce, an id above every earlier one (replay rejected), and one `NativeGestureLatch` gesture (a pointer press or key down the page dispatched; consumed per submission, 1.5 s window). Also: `normalize_capture_rect` and `build_design_mode_script(nonce)` (nonce non-empty ASCII alphanumeric; script is `src/design_mode_picker.js`). Replaces the console-marker API (`markers_for_nonce`, `parse_console_marker`, `accept_console_marker`), which was unreleased. The picker cannot read React fiber expandos from the isolated world, so component names are omitted.
+- Not compiled or run yet.
+
 ## 0.3.4
 
 Consented real-session mode (#286, #287). New items on a public enum (`ProfileSpec::ImportedFrom`, `BrowserError::Consent`, `BrowserError::Unsupported`): code that matches those enums exhaustively must add arms. Nothing else changed or removed.

@@ -41,10 +41,7 @@ use std::time::{Duration, Instant};
 use rightkit_db::write_txn;
 use serde_json::{json, Map, Value};
 
-use super::{
-    add_event_on, check_fence, now, Event, Job, JobRecord, JobStore, Transition, CANCELLED,
-    COMPLETE,
-};
+use super::{now, Event, Expect, Job, JobRecord, JobStore, Transition, CANCELLED, COMPLETE};
 use crate::config::StatusModel;
 use crate::error::{JobError, JobResult};
 use crate::runner::{EventSink, JobLock};
@@ -401,25 +398,17 @@ impl JobStore {
     ) -> JobResult<Option<(JobRecord, Option<Event>)>> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
-        check_fence(&tx, job_id, fence)?;
-        let before = self.load(&tx, job_id)?;
-        if before.job.is_terminal() {
-            return Ok(None);
-        }
         // Latest coalesced progress lands before the state change, in the same durable commit.
-        self.flush_pending_in(&tx, job_id)?;
-        let after = self.exec(&tx, &before, t)?;
-        let ev = match event {
-            Some(e) => Some(add_event_on(
-                &tx,
-                job_id,
-                None,
-                &e.stage,
-                None,
-                e.progress,
-                e.message.as_deref(),
-            )?),
-            None => None,
+        let done = self.table.transition_on(
+            &tx,
+            job_id,
+            &Expect::fence_only(fence),
+            t,
+            event,
+            &|c, id| self.flush_pending_in(c, id),
+        )?;
+        let Some((after, ev)) = done else {
+            return Ok(None);
         };
         tx.commit()?;
         drop(conn);

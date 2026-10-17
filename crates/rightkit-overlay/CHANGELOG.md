@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Additive. Code-only: nothing in this section was compiled or run when written.
+
+- `stack` module (#548): `StackLayout`, `stack::stack_above` and `stack::place` lay out a stack of transient windows (approval bubbles) beside an anchor. The stack centres on the anchor, stacks above or below it, one gap apart, keeps `margin` inside the work area and shifts by a persisted drag offset. Pure and tested on every OS.
+- `style_has_no_frame` and `WS_BORDER_BIT`, `WS_DLGFRAME_BIT` (#645): a lone `WS_BORDER` or `WS_DLGFRAME` leaves a window frameless; the whole caption or a `WS_THICKFRAME` frames it. `is_foreign_fullscreen_overhang` combines that with `fills_monitor` (overhang included) and the own-process check. Existing `style_is_borderless` and `is_foreign_borderless_fullscreen` are unchanged.
+- `rects_overlap`, `CoveringCandidate`, `covering_window` and `MAX_COVERING_WALK` (#525): the covering verdict over a z-order walk, from plain values. It skips hidden, own-process and cloaked windows and returns the first overlapping class name, or `"not_topmost"`. The Windows z-order walk that fills the candidates is not added: it needs the `Win32_Graphics_Dwm` and `Win32_System_Threading` windows features, which `Cargo.toml` does not enable.
+
 ## 0.1.2
 
 Additive. Code-only: nothing in this section was compiled or run when written.

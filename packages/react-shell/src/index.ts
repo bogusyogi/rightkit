@@ -6,3 +6,4 @@ export * from "./toast.js";
 export * from "./shortcuts.js";
 export * from "./bridge.js";
 export * from "./commands.js";
+export * from "./hover.js";

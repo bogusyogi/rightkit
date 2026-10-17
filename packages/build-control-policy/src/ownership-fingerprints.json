@@ -672,6 +672,17 @@
       ]
     },
     {
+      "package": "rightkit-crypto",
+      "capability": "crypto-primitives",
+      "summary": "Neutral SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling HMAC, constant-time compare, base64 or approval tokens.",
+        "Not a general cryptography suite: no encryption, signatures or key derivation."
+      ]
+    },
+    {
       "package": "rightkit-daemon",
       "capability": "local-services",
       "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
@@ -1321,6 +1332,17 @@
       ]
     },
     {
+      "package": "rightkit-google-identity",
+      "capability": "google-identity",
+      "summary": "Google sign-in building blocks: PKCE, redirect, token request body, ID-token claim validation and refresh-token store; Android Credential Manager seam",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling Google OAuth request shapes.",
+        "ID-token signatures are not verified here; callers must not grant access on claims alone."
+      ]
+    },
+    {
       "package": "rightkit-hooks",
       "capability": "lifecycle-hooks",
       "summary": "Native pair of @rightkit/hooks: typed Claude Code and Codex hook payloads, a deadline-bound dispatcher that always exits 0, exact per-event output builders, and emitted/observed delivery receipts.",
@@ -1414,6 +1436,17 @@
       "policyNotes": [
         "Blocking HTTP only; reqwest async transport replacement remains P3.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-identity",
+      "capability": "installation-identity",
+      "summary": "Installation identity with clone detection and startup claim, build identity (git rev, dirty flag, profile, channel, UTC stamp), device pairing with signed transcript, owner approval and resume tickets, bearer-token device auth with per-IP rate limit",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of writing their own install ids, pairing transcripts or bearer-token checks.",
+        "Key agreement is out of scope: the caller supplies the shared secret."
       ]
     },
     {
@@ -2946,12 +2979,12 @@
     {
       "package": "rightkit-spend",
       "capability": "spend-ledger",
-      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`) variants, strict transition mode",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only: the ledger tables and reservation state machine are not an ownership fingerprint.",
-        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text and no currency."
+        "Price rows live in rightkit-llm; the ledger stores opaque route and price-version text; an allowance holds no currency and a reservation holds only the currency text the caller passes."
       ]
     },
     {
@@ -3076,6 +3109,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-time",
+      "capability": "time-civil",
+      "summary": "RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling RFC 3339, civil date math or HTTP-date formatting.",
+        "No time zone database: named zones and DST rules are not owned here; callers pass a fixed offset."
       ]
     },
     {

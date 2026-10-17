@@ -47,7 +47,13 @@ Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local tes
 ## Interception, accessibility, exceptions, scale, downloads
 
 - `set_request_interceptor(Some(hook))`: `hook(InterceptedRequest) -> BoxFuture<InterceptDecision>` runs for every request after `NetworkPolicy` (policy refusals are final). Answer `Continue`, `ContinueWith(ContinueOverrides)`, `Fulfill { status, headers, body, phrase }` or `Fail(InterceptFailure)`. Redirect hops are separate requests (`redirected_from` set): pin an origin by checking `url` on each. No answer in 30 s fails the request.
-- `accessibility_tree()` returns the root frame's `Vec<AxNode>`.
+- `accessibility_tree()` returns the root frame's `Vec<AxNode>`; `accessibility_tree_with(depth)` cuts it off below `depth`.
+- `frames()` lists CDP frame ids; `target_id()` is the tab's CDP target id (stable tab identity; `id()` is the session's own sequence).
+- `scroll_by(target, dx, dy)` runs `scrollBy` on an element, a point or the window, for cases where a wheel event at the element is wrong.
+- `set_transparent_background(true)` with `screenshot_with(ScreenshotOptions { omit_background: true })` captures a transparent PNG.
+- `BrowserSession::new_page_with(url, PageSetup { interceptor, download })` installs the interceptor and download behaviour before the first request.
+- `observe` nodes carry `sensitive`, `frame_id` (the main frame; iframe content is not observed), and `stable_id`; the observation carries `ax`, a depth-bounded accessibility summary.
+- `design_mode` holds the element-picker primitives (isolated-world binding bridge, one-shot native-gesture submit gate, capture geometry), `build_design_mode_script(nonce)` and `BrowserPage::enable_design_mode`. Observation covers the main document only; iframe observation is not implemented.
 - `exceptions()` / `subscribe_exceptions()` return `PageException`s from `Runtime.exceptionThrown`, collected from page creation.
 - `set_page_scale(f64)` sets the pinch-zoom page scale.
 - `set_download_behavior(&DownloadBehavior)` sets deny, allow into an explicit directory, allow named by GUID, or default.

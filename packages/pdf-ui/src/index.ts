@@ -6,8 +6,8 @@ export { boundedCanvasDpr, clampScale, highlightSpan, renderPageLimit, viewportR
 export { PdfPasswordCancelledError, MAX_PASSWORD_ATTEMPTS, attachPasswordHandler, createLoadTimer } from "./password.js";
 export { pdfDocumentInit } from "./loader.js";
 export { pdfTextContentSource, renderPdfTextLayer } from "./textLayer.js";
-export { findLiteralMatches } from "./searchUtils.js";
-export type { LiteralMatchOptions, TextMatch } from "./searchUtils.js";
+export { findLiteralMatches, findRegexMatches, regexPatternError, createRegexSearcher, MAX_REGEX_PATTERN_LENGTH, MAX_REGEX_REPEATS, MAX_REGEX_BOUND, MAX_REGEX_TEXT, REGEX_DEADLINE_MS } from "./searchUtils.js";
+export type { LiteralMatchOptions, RegexMatchOptions, TextMatch } from "./searchUtils.js";
 export { thumbnailWindow } from "./thumbnailWindow.js";
 export type { PdfLinkActions } from "./linkService.js";
 export type { LoadTimer, PasswordFlow, PasswordTask, PdfPasswordHandler, PdfPasswordReason } from "./password.js";

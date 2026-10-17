@@ -1,8 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
+import { accessSync, closeSync, constants as fsConstants, existsSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { TimeoutError, validateTimeout } from './cdp.js';
+import { assertNotInstalledApp, type InstalledPlatform } from './installed.js';
 import { freePort, ownedProcessReceipt, spawnOwnedProcess, stopOwnedProcess, type OwnedProcess } from './process.js';
 import {
   defaultDevServerRuntime, readLogTail, rememberDetachedServer, stopRecordedProcess, writeDetachedRecord,
@@ -120,8 +121,83 @@ export class DevServerError extends Error {
 
 function validPort(port: number): boolean { return Number.isInteger(port) && port >= 1 && port <= 65535; }
 
-function validateOptions(options: DevServerOptions) {
+/** Shell syntax that could hide the executable from the installed-app check (quotes, pipes, globs, ~, $ ...). */
+const SHELL_SYNTAX: Record<'posix' | 'win32', RegExp> = {
+  posix: /[;&|<>()$`"'\\\n\r*?[\]{}~]/,
+  win32: /[&|<>()^"%\r\n]/,
+};
+
+function isPathLike(token: string, platform: InstalledPlatform): boolean {
+  return platform === 'win32' ? /[\\/]/.test(token) || /^[A-Za-z]:/.test(token) : token.includes('/');
+}
+
+/** The value of an environment variable by its name, ignoring case on Windows. */
+function envValue(env: NodeJS.ProcessEnv, name: string, platform: InstalledPlatform): string | undefined {
+  if (platform !== 'win32') return env[name];
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
+}
+
+function isRunnableFile(candidate: string, platform: InstalledPlatform): boolean {
+  try {
+    if (!statSync(candidate).isFile()) return false;
+    if (platform !== 'win32') accessSync(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The first file a bare name finds on the effective PATH, searched the way spawn searches it. Undefined when none. */
+function searchPath(name: string, baseCwd: string, env: NodeJS.ProcessEnv, platform: InstalledPlatform): string | undefined {
+  const exts = platform === 'win32' && !path.win32.extname(name)
+    ? ['', ...(envValue(env, 'PATHEXT', platform) ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)]
+    : [''];
+  for (const rawDir of (envValue(env, 'PATH', platform) ?? '').split(path.delimiter)) {
+    // An empty PATH entry means the working directory, as it does for the process that runs the search.
+    const dir = rawDir === '' ? baseCwd : path.resolve(baseCwd, rawDir);
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext);
+      if (isRunnableFile(candidate, platform)) return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolves what the spawn will run, using the same cwd, environment and PATH the spawn gets, and refuses it when it is an
+ * installed app. Returns the command to spawn: the resolved absolute path without shell mode (the exact file checked), or the
+ * command as given in shell mode, where every token the shell may run has been checked and shell syntax is refused.
+ */
+function checkLaunchCommand(options: DevServerOptions): string {
+  const platform = process.platform as InstalledPlatform;
+  const env: NodeJS.ProcessEnv = { ...process.env, ...options.env };
+  const baseCwd = path.resolve(options.cwd ?? process.cwd());
+  const guard = (target: string) => assertNotInstalledApp(target, { what: 'dev server command' });
+  const command = options.command;
+  if (!options.shell) {
+    const target = isPathLike(command, platform) ? path.resolve(baseCwd, command) : searchPath(command, baseCwd, env, platform);
+    if (target === undefined) throw new Error(`dev server command ${command} was not found on the effective PATH`);
+    return guard(target);
+  }
+  const text = [command, ...(options.args ?? []).map((arg) => arg.replaceAll('{port}', '0'))].join(' ');
+  if (SHELL_SYNTAX[platform === 'win32' ? 'win32' : 'posix'].test(text)) {
+    throw new Error('dev server shell command uses shell syntax the installed-app check cannot see through; pass the executable and its arguments without shell mode');
+  }
+  for (const token of text.split(/\s+/).filter(Boolean)) {
+    if (isPathLike(token, platform)) guard(path.resolve(baseCwd, token));
+    else {
+      const found = searchPath(token, baseCwd, env, platform);
+      if (found !== undefined) guard(found);
+    }
+  }
+  return command;
+}
+
+function validateOptions(options: DevServerOptions): string {
   if (typeof options.command !== 'string' || !options.command) throw new Error('command must be a non-empty string');
+  // QA never launches an installed app, whichever launcher is used: refused before anything is spawned, unless installed-QA mode is on.
+  const launchCommand = checkLaunchCommand(options);
   const { readiness } = options;
   validateTimeout(readiness.attemptTimeoutMs);
   validateTimeout(readiness.totalTimeoutMs);
@@ -139,6 +215,7 @@ function validateOptions(options: DevServerOptions) {
   } else if (options.recordPath !== undefined) {
     throw new Error('recordPath requires detached: true');
   }
+  return launchCommand;
 }
 
 /** Binds 127.0.0.1:<port> briefly; true when nothing else holds it. */
@@ -191,7 +268,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * that `freePort` uses; another process can still take the port before the server binds it.
  */
 export async function startDevServer(options: DevServerOptions): Promise<DevServer> {
-  validateOptions(options);
+  const launchCommand = validateOptions(options);
   // Validated above: a detached server has an absolute recordPath, and any other server has none.
   const recordPath = options.detached ? options.recordPath : undefined;
   if (recordPath !== undefined && existsSync(recordPath)) throw new Error(`record already exists at ${recordPath}: stop that server with stopDevServer first`);
@@ -219,17 +296,17 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     floor = port + 1;
     if (!candidates) attempts++;
     const launched = recordPath !== undefined
-      ? await launchDetachedOnce(options, runtime, port, portEnv, attempts, recordPath)
-      : await launchOnce(options, port, portEnv, attempts);
+      ? await launchDetachedOnce(options, launchCommand, runtime, port, portEnv, attempts, recordPath)
+      : await launchOnce(options, launchCommand, port, portEnv, attempts);
     if (launched) return launched;
   }
 }
 
 /** Starts the detached child with stdio on a fresh log file, then closes this process's copy of the descriptor. */
-function spawnDetachedChild(options: DevServerOptions, runtime: DevServerRuntime, port: number, portEnv: string, logPath: string, attempts: number): ChildProcess {
+function spawnDetachedChild(options: DevServerOptions, command: string, runtime: DevServerRuntime, port: number, portEnv: string, logPath: string, attempts: number): ChildProcess {
   const logFd = openSync(logPath, 'w'); // a fresh log per attempt, so an earlier collision cannot be read back as this one's
   try {
-    return runtime.spawn(options.command, (options.args ?? []).map((arg) => arg.replaceAll('{port}', String(port))), {
+    return runtime.spawn(command, (options.args ?? []).map((arg) => arg.replaceAll('{port}', String(port))), {
       cwd: options.cwd,
       env: { ...process.env, ...options.env, [portEnv]: String(port) },
       stdio: ['ignore', logFd, logFd],
@@ -251,10 +328,10 @@ function spawnDetachedChild(options: DevServerOptions, runtime: DevServerRuntime
  * Once ready, its record is written and its identity is kept for stopDevServer({ pid }). Returns undefined after a port
  * collision, once the server it started is stopped.
  */
-async function launchDetachedOnce(options: DevServerOptions, runtime: DevServerRuntime, port: number, portEnv: string, attempts: number, recordPath: string): Promise<DevServer | undefined> {
+async function launchDetachedOnce(options: DevServerOptions, command: string, runtime: DevServerRuntime, port: number, portEnv: string, attempts: number, recordPath: string): Promise<DevServer | undefined> {
   const { readiness } = options;
   const logPath = `${recordPath}.log`;
-  const child = spawnDetachedChild(options, runtime, port, portEnv, logPath, attempts);
+  const child = spawnDetachedChild(options, command, runtime, port, portEnv, logPath, attempts);
   const state: { exit?: { code: number | null; signal: NodeJS.Signals | null }; spawnError?: Error } = {};
   child.on('error', (error) => { state.spawnError ??= error; });
   child.once('exit', (code, signal) => { state.exit = { code, signal }; });
@@ -350,11 +427,11 @@ export async function waitForHttp(url: string, options: WaitForHttpOptions = {})
 }
 
 /** One launch on one port. Returns the ready server, or undefined after a port collision (already stopped). */
-async function launchOnce(options: DevServerOptions, port: number, portEnv: string, attempts: number): Promise<DevServer | undefined> {
+async function launchOnce(options: DevServerOptions, command: string, port: number, portEnv: string, attempts: number): Promise<DevServer | undefined> {
   const { readiness } = options;
   let handle: OwnedProcess;
   try {
-    handle = spawnOwnedProcess(options.command, (options.args ?? []).map((arg) => arg.replaceAll('{port}', String(port))), {
+    handle = spawnOwnedProcess(command, (options.args ?? []).map((arg) => arg.replaceAll('{port}', String(port))), {
       cwd: options.cwd,
       env: { ...process.env, ...options.env, [portEnv]: String(port) },
       stdio: 'pipe',

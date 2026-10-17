@@ -533,6 +533,8 @@ fn trusted_provenance(
 pub struct Scanned {
     pub findings: Vec<Value>,
     pub coverage: Vec<Cov>,
+    /// Pinned third-party Git sources recorded, not examined: `{path, status, reason, fingerprint, scanned}`.
+    pub coverage_notes: Vec<Value>,
     pub deps: Vec<Dep>,
     pub content_digests: Vec<ContentDigest>,
     pub provenance: Vec<Value>,
@@ -625,6 +627,16 @@ fn scan_internal(
     let deps_result = dependencies_from_inventory(app_root, &inventory)?;
     let mut content_digests: Vec<ContentDigest> = deps_result.content_digests;
     let mut deps = deps_result.deps;
+    let mut coverage_notes: Vec<Value> = deps_result
+        .covered
+        .iter()
+        .map(|note| {
+            json!({
+                "path": note.path, "status": note.status, "reason": note.reason,
+                "fingerprint": note.fingerprint, "scanned": note.scanned,
+            })
+        })
+        .collect();
     let capabilities = items(field(manifest, "capabilities"));
     let catalog_owners: HashSet<String> = capabilities
         .iter()
@@ -765,6 +777,10 @@ fn scan_internal(
         for c in &mut coverage {
             c.path = prefix(&c.path);
         }
+        for note in &mut coverage_notes {
+            let path = prefix(str_of(field(note, "path")));
+            note["path"] = json!(path);
+        }
         for d in &mut deps {
             d.file = prefix(&d.file);
         }
@@ -780,6 +796,7 @@ fn scan_internal(
     Ok(Scanned {
         findings,
         coverage,
+        coverage_notes,
         deps,
         content_digests,
         provenance: provenance.classifications,
@@ -1111,6 +1128,12 @@ fn finish(
         content_digests_json(&scanned.content_digests),
     );
     metadata.insert("coverage".into(), coverage_json(&scanned.coverage));
+    if !scanned.coverage_notes.is_empty() {
+        metadata.insert(
+            "coverageNotes".into(),
+            Value::Array(scanned.coverage_notes.clone()),
+        );
+    }
     metadata.insert(
         "provenance".into(),
         Value::Array(scanned.provenance.clone()),
@@ -1127,11 +1150,15 @@ fn finish(
     let ok = !result.violations.iter().any(is_blocking_finding)
         && result.problems.is_empty()
         && coverage.is_empty();
-    json!({
+    let mut report = json!({
         "ok": ok, "rows": rows, "violations": result.violations, "covered": result.covered, "problems": result.problems,
         "warnings": result.warnings, "enrollmentPending": result.enrollment_pending, "findings": scanned.findings,
         "coverage": coverage_json(&coverage), "metadata": Value::Object(metadata),
-    })
+    });
+    if !scanned.coverage_notes.is_empty() {
+        report["coverageNotes"] = Value::Array(scanned.coverage_notes);
+    }
+    report
 }
 
 fn scan_metadata_base(

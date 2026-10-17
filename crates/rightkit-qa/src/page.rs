@@ -21,6 +21,12 @@ fn q(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
+/// DOM role/name locator for QA eval bodies (#469). Prefix an eval body with this script to bind
+/// `QA`, which offers `byRole(role, name?, exact?, scope?)`, `byText`, `name`, `roleOf`, `visible`
+/// and `tag` (a stable `data-rightkit-qa` selector). A pragmatic DOM locator, not a complete ARIA
+/// accessible-name computation.
+pub const ACCESSIBLE_LOCATOR_SCRIPT: &str = include_str!("page/locator.js");
+
 // ----------------------------------------------------------------- frames
 
 /// Index path from the top document to a nested frame (`[]` is the top document).

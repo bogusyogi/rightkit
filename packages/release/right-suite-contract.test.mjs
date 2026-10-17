@@ -114,6 +114,32 @@ function assertMacPackageEntry(packageCommand, scripts, label) {
   assert.doesNotMatch(implementation, /\bpnpm(?:\s+run)?\s+rightkit:package:mac\b/, `${label} rightkit:package:mac must not recurse into itself`);
 }
 
+// Declarative recipe lane (rightkit#345, package-recipe-targets.mjs): `targets.mac.macPackage` and `targets.win.winPackage`
+// replace the legacy `package` / `prePackage` scripts. Notarization is the sibling `targets.mac.notarize { app, file }`,
+// not a key inside macPackage. The generic `tauri` script bypass is still checked by assertReleasePackageScripts.
+function usesRecipeLane(config) {
+  const macPackage = config.targets?.mac?.macPackage;
+  return macPackage !== null && typeof macPackage === "object" && !Array.isArray(macPackage);
+}
+
+function assertMacPackageRecipe(mac, label) {
+  assert.equal(mac.package, undefined, `${label} macPackage replaces targets.mac.package; remove it`);
+  assert.equal(mac.prePackage, undefined, `${label} macPackage replaces targets.mac.prePackage; remove it`);
+  assert.notEqual(mac.dmg, false, `${label} macPackage always builds a DMG; remove dmg: false`);
+  assert.ok(
+    mac.notarize && typeof mac.notarize === "object" && typeof mac.notarize.app === "string" && mac.notarize.app.endsWith(".app")
+      && typeof mac.notarize.file === "string" && mac.notarize.file.endsWith(".dmg"),
+    `${label} R2 release must notarize through targets.mac.notarize { app: "<.app>", file: "<.dmg>" } alongside macPackage`,
+  );
+}
+
+function assertWinPackageRecipe(win, label) {
+  assert.equal(win.prePackage, undefined, `${label} winPackage replaces targets.win.prePackage; remove it`);
+  assert.ok(win.winPackage && typeof win.winPackage === "object" && !Array.isArray(win.winPackage), `${label} must declare targets.win.winPackage as an object`);
+  assert.equal(win.winPackage.sidecars, undefined, `${label} winPackage.sidecars is not supported; declare sidecars through externalBin or mediaSidecar`);
+  assert.equal(win.winPackage.postBuild, undefined, `${label} winPackage.postBuild is not supported; use prepare`);
+}
+
 function assertBuildInputs(config, target, label) {
   resolveConfiguredBuildInputs(config, target, label);
 }
@@ -706,7 +732,13 @@ for (const app of apps) {
         assert.match(updater.key, /\/updates\/(mac|windows)\/current\//, `${app.key} ${platform} updaters must replace the stable current R2 object`);
       }
     }
-    assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
+    // Either lane: a declared macPackage object (recipe) or the legacy targets.mac.package entry point.
+    if (usesRecipeLane(config)) {
+      assertMacPackageRecipe(config.targets.mac, app.key);
+      assertWinPackageRecipe(config.targets.win, app.key);
+    } else {
+      assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
+    }
     for (const installer of config.targets.mac.installer.artifacts) {
       assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
     }
@@ -758,6 +790,8 @@ for (const app of apps) {
       assert.doesNotMatch(instruction, /\$env:RIGHTAPPS_ADMIN_TOKEN|pnpm publish:r2/, `${app.key} ${instructionName} documents obsolete release credentials or publishers`);
     }
     for (const releaseFile of app.releaseFiles) {
+      // Recipe lane: the declared macPackage / winPackage replaces the legacy release script, which may be removed.
+      if (usesRecipeLane(config) && !existsSync(path.join(root, releaseFile))) continue;
       const source = readFileSync(path.join(root, releaseFile), "utf8");
       assert.doesNotMatch(source, /(?:\.\.\/)+tools\/right-release|tools\/right-release\//, `${app.key} ${releaseFile} must consume the installed package`);
       // Storage governance: installers go to RIGHT_RELEASE_ARTIFACT_DIR; the legacy root mirror stays accepted.
@@ -986,7 +1020,7 @@ function findFirstPartyBuildScripts(root) {
     if (!existsSync(dir)) return;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory() && [
-        ".agent", ".audit", ".cache", ".git", ".right-release", "bakeoff", "dist", "docs",
+        ".agent", ".audit", ".build", ".cache", ".git", ".right-release", "bakeoff", "dist", "docs",
         "node_modules", "reference", "target", "tests", "vendor",
       ].includes(entry.name)) continue;
       const full = path.join(dir, entry.name);

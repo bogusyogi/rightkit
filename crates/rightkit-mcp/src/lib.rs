@@ -18,6 +18,7 @@ pub mod client_features;
 pub mod config;
 mod error;
 pub mod events;
+pub mod leased_pool;
 pub mod pool;
 mod raw;
 mod sanitize;
@@ -34,14 +35,18 @@ pub use client_features::{
 };
 pub use error::{McpError, Result};
 pub use events::{EventSink, LifecycleKind, McpEvent};
+pub use leased_pool::{EntrySnapshot, EntryState, Lease, LeasedPool, LeasedPoolConfig};
 pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
 pub use raw::{to_wire_string, RawJson};
 pub use sanitize::{parse_qualified_name, sanitize_tool_name};
 pub use server::{
     Admission, AdmissionHook, AdmissionRequest, AsyncRequestHandler, BatchPolicy, CallHandle,
     CancelledResponse, HttpServeOptions, HttpServer, IdPolicy, InitializeOverrides,
-    InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, ResponseInfo, ServerHost,
-    ServerOptions, ServerTransport, StdioInputMode, ToolProvider, TransformInfo,
+    InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, RequestValidation,
+    ResponseInfo, ServerHost, ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
+    TransformContext, TransformInfo,
 };
-pub use trust::{fingerprint, PendingApproval, ServerSource, TrustDecision, TrustStore};
+pub use trust::{
+    fingerprint, ImportedTrust, PendingApproval, ServerSource, TrustDecision, TrustStore,
+};
 pub use types::*;

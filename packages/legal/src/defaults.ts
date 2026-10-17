@@ -3,8 +3,9 @@ import type { LegalDocumentDescriptor, LegalDocumentRole } from "./core.js";
 
 /**
  * Suite-wide company facts and default policy texts (issue bogusyogi/rightkit#266).
- * Every fact below cites its source. A fact with no source is NOT defaulted: it is a
- * required per-app field (see `refundPolicy`). Never add an unsourced fact.
+ * Every fact below cites its source. A fact with no source is NOT defaulted. The refund term
+ * defaults to the suite 14-day window (`SUITE_REFUND_POLICY`) and is overridable per app.
+ * Never add an unsourced fact.
  */
 
 export interface CompanyAddress {
@@ -51,8 +52,9 @@ export const RIGHT_SUITE_COMPANY_FACTS: Readonly<SuiteCompanyFacts> = Object.fre
 }) as Readonly<SuiteCompanyFacts>;
 
 /**
- * Refund terms are per-app configuration, never a suite default (RK3 Mac lead, 2026-10-17).
- * - `window`: refund request window in days (HeardRight: 14; source
+ * Refund terms. The suite default is the 14-day window (`SUITE_REFUND_POLICY`), per Adrian's
+ * decision recorded 2026-10-17 06:20; an app overrides it with its own `refundPolicy`.
+ * - `window`: refund request window in days (suite default and HeardRight: 14; source
  *   D:\Claude\rightkit\legal\products\heardright\PRODUCT_SCHEDULE.md section 10).
  * - `none`: no refunds except where the law requires, with an optional free trial
  *   (GenRight: 30-day Pro trial, no refunds; per the RK3 Mac lead).
@@ -60,6 +62,9 @@ export const RIGHT_SUITE_COMPANY_FACTS: Readonly<SuiteCompanyFacts> = Object.fre
 export type RefundPolicy =
   | { readonly kind: "window"; readonly days: number }
   | { readonly kind: "none"; readonly trialDays?: number };
+
+/** Suite default refund term: the documented 14-day window wording in `refundBody`. */
+export const SUITE_REFUND_POLICY: Readonly<RefundPolicy> = Object.freeze({ kind: "window", days: 14 });
 
 export type DefaultPolicyKind = "eula" | "privacy" | "refund" | "terms";
 
@@ -69,8 +74,8 @@ export interface DefaultPolicyInput {
   readonly appName: string;
   /** Optional override of the suite support email. */
   readonly supportEmail?: string;
-  /** Required: no suite default. */
-  readonly refundPolicy: RefundPolicy;
+  /** Optional per-app override of the suite refund default (`SUITE_REFUND_POLICY`, 14 days). */
+  readonly refundPolicy?: RefundPolicy;
   /** Overrides for suite facts, only where the app truly differs. */
   readonly facts?: Partial<SuiteCompanyFacts>;
   /** Replaces the default privacy data statement. */
@@ -104,7 +109,7 @@ export function resolveCompanyFacts(input: Pick<DefaultPolicyInput, "supportEmai
 }
 
 export function assertRefundPolicy(policy: RefundPolicy): RefundPolicy {
-  if (!policy || typeof policy !== "object") throw new Error("refundPolicy is required: it has no suite default");
+  if (!policy || typeof policy !== "object") throw new Error("refundPolicy must be an object: { kind: \"window\", days } or { kind: \"none\" }");
   if (policy.kind === "window") {
     if (!Number.isInteger(policy.days) || policy.days < 1) throw new Error("refundPolicy.days must be a positive integer");
   } else if (policy.kind === "none") {
@@ -115,6 +120,11 @@ export function assertRefundPolicy(policy: RefundPolicy): RefundPolicy {
     throw new Error("refundPolicy.kind must be window or none");
   }
   return policy;
+}
+
+/** The app's refund policy when given, else the suite default; always validated. */
+export function effectiveRefundPolicy(input: Pick<DefaultPolicyInput, "refundPolicy">): RefundPolicy {
+  return assertRefundPolicy(input.refundPolicy ?? SUITE_REFUND_POLICY);
 }
 
 function addressBlock(facts: CompanyFacts): string {
@@ -175,7 +185,7 @@ function build(kind: DefaultPolicyKind, input: DefaultPolicyInput, facts: Compan
         title: `${app} Refund Policy`,
         content: [
           `# ${app} Refund Policy`,
-          refundBody(app, facts, assertRefundPolicy(input.refundPolicy)),
+          refundBody(app, facts, effectiveRefundPolicy(input)),
           "## Contact",
           facts.supportEmail,
         ].join("\n\n"),
@@ -200,7 +210,7 @@ export function sha256Hex(text: string): string {
 
 export function renderDefaultPolicy(kind: DefaultPolicyKind, input: DefaultPolicyInput): RenderedPolicyDocument {
   if (typeof input.appName !== "string" || !input.appName.trim()) throw new Error("appName must be a non-empty string");
-  assertRefundPolicy(input.refundPolicy);
+  effectiveRefundPolicy(input);
   const facts = resolveCompanyFacts(input);
   const base = build(kind, input, facts);
   let content = input.replace?.[kind] ?? base.content;

@@ -529,3 +529,43 @@ async fn error_phases() {
         "{err:?}"
     );
 }
+
+fn ten_net() -> Vec<IpNet> {
+    vec!["10.0.0.0/8".parse().unwrap()]
+}
+
+#[tokio::test]
+async fn resolve_vetted_async_denies_ipv4_mapped_form_of_denied_range() {
+    let policy = AddressPolicy::default()
+        .deny_ranges(ten_net())
+        .with_resolver(|h| match h {
+            "mapped.test" => vec!["::ffff:10.2.3.4".parse().unwrap()],
+            _ => vec!["10.2.3.4".parse().unwrap()],
+        });
+    for host in ["mapped.test", "plain.test"] {
+        match policy.resolve_vetted_async(host, 443).await {
+            Err(ResolveError::Blocked { .. }) => {}
+            other => panic!("{host}: expected Blocked, got {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn resolve_vetted_async_denied_public_answer_is_not_hidden_behind_approval() {
+    // A private answer an approval could admit, next to a public address a deny hook refuses:
+    // the whole answer must be Blocked, never Private.
+    let policy = AddressPolicy::default()
+        .deny_if(|a| (a.to_string() == "8.8.8.8").then(|| "denied by hook".to_string()))
+        .with_resolver(|_| vec!["10.2.3.4".parse().unwrap(), "8.8.8.8".parse().unwrap()]);
+    match policy.resolve_vetted_async("mixed.test", 443).await {
+        Err(ResolveError::Blocked { .. }) => {}
+        other => panic!("expected Blocked, got {other:?}"),
+    }
+    // Control: without the denied public address the private answer stays approvable.
+    let policy = AddressPolicy::default()
+        .with_resolver(|_| vec!["10.2.3.4".parse().unwrap(), "8.8.4.4".parse().unwrap()]);
+    match policy.resolve_vetted_async("mixed.test", 443).await {
+        Err(ResolveError::Private { .. }) => {}
+        other => panic!("expected Private, got {other:?}"),
+    }
+}

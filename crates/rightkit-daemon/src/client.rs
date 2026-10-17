@@ -753,7 +753,8 @@ pub struct RetryPolicy {
     /// The request is safe to run twice. When false (the default) a request is
     /// resubmitted only if the host provably did not run it (service unavailable
     /// at connect, or an explicit host handoff); a connection that closed after
-    /// the request was written is returned as-is. A timeout is never replayed.
+    /// the request was written is returned as-is, and a timeout is returned as-is.
+    /// When true, a connection that closed after the write and a timeout are resubmitted too.
     pub idempotent: bool,
 }
 
@@ -766,6 +767,55 @@ impl Default for RetryPolicy {
             request_deadline: Some(DEFAULT_DEADLINE),
             idempotent: false,
         }
+    }
+}
+
+/// One attempt: `call_large`, and when `stop` is given a watcher thread that aborts the connection
+/// once `stop` returns `true` while the call is in flight.
+fn run_attempt(
+    c: &Client,
+    method: &str,
+    params: &Value,
+    stop: Option<&(dyn Fn() -> bool + Sync)>,
+    on_event: &mut dyn FnMut(&Value),
+) -> Result<Value, ServiceError> {
+    let Some(stop) = stop else {
+        return c.call_large(method, params.clone(), on_event);
+    };
+    let done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !done.load(Ordering::SeqCst) {
+                if stop() {
+                    c.abort();
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        });
+        let result = c.call_large(method, params.clone(), on_event);
+        done.store(true, Ordering::SeqCst);
+        result
+    })
+}
+
+/// Sleep for `d`, in slices of at most 25 ms when a stop hook is given, returning early once it
+/// reports `true`.
+fn sleep_unless_stopped(d: Duration, stop: Option<&(dyn Fn() -> bool + Sync)>) {
+    let Some(stop) = stop else {
+        std::thread::sleep(d);
+        return;
+    };
+    let end = Instant::now() + d;
+    loop {
+        if stop() {
+            return;
+        }
+        let now = Instant::now();
+        if now >= end {
+            return;
+        }
+        std::thread::sleep((end - now).min(Duration::from_millis(25)));
     }
 }
 
@@ -787,6 +837,7 @@ impl Client {
             method,
             params,
             policy,
+            None,
             on_event,
         )
     }
@@ -819,8 +870,48 @@ impl Client {
             method,
             params,
             policy,
+            None,
             on_event,
         )
+    }
+
+    /// Retry over a connection source the caller owns, instead of a fresh connection per call:
+    /// `connect` returns a client for each attempt (a held client, a pool, or a closure that
+    /// connects with its own verification). The request goes through [`Client::call_large`], so a
+    /// request or result larger than one frame works, and the same retry rules as
+    /// [`Client::call_retrying`] apply (see [`RetryPolicy::idempotent`]). `connect` gets the
+    /// per-attempt deadline from `policy.request_deadline`.
+    pub fn call_retrying_over<F>(
+        connect: F,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError>
+    where
+        F: Fn(Option<Duration>) -> Result<Client, ConnectError>,
+    {
+        Self::retry_loop(&connect, method, params, policy, None, on_event)
+    }
+
+    /// [`Client::call_retrying_over`] for a call that runs until it is stopped, such as a long event
+    /// subscription. `stop` is checked before each attempt, during the backoff, and while an
+    /// attempt is in flight (a watcher thread aborts the connection once it returns `true`, which
+    /// ends that attempt with `connection_closed` and no further attempt is made). For a call
+    /// with no end, also set `policy.give_up_after` to `Duration::MAX`: the give-up limit counts
+    /// from the first attempt and would otherwise end it.
+    pub fn call_retrying_until<F>(
+        connect: F,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        stop: &(dyn Fn() -> bool + Sync),
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError>
+    where
+        F: Fn(Option<Duration>) -> Result<Client, ConnectError>,
+    {
+        Self::retry_loop(&connect, method, params, policy, Some(stop), on_event)
     }
 
     fn retry_loop(
@@ -828,16 +919,21 @@ impl Client {
         method: &str,
         params: Value,
         policy: RetryPolicy,
+        stop: Option<&(dyn Fn() -> bool + Sync)>,
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
         let started = Instant::now();
+        let stopped = || stop.is_some_and(|f| f());
         let mut last = ServiceError::retryable(ERROR_UNAVAILABLE, "no attempt made");
         for attempt in 0..policy.max_attempts.max(1) {
             if attempt > 0 {
-                if started.elapsed() > policy.give_up_after {
+                if stopped() || started.elapsed() > policy.give_up_after {
                     break;
                 }
-                std::thread::sleep(policy.backoff * attempt.min(8));
+                sleep_unless_stopped(policy.backoff * attempt.min(8), stop);
+                if stopped() {
+                    break;
+                }
             }
             let c = match connect(policy.request_deadline) {
                 Ok(c) => c,
@@ -847,10 +943,14 @@ impl Client {
                 }
                 Err(e) => return Err(e.into_service_error()),
             };
-            match c.call_events(method, params.clone(), on_event) {
+            match run_attempt(&c, method, &params, stop, on_event) {
                 Ok(v) => return Ok(v),
-                // Handoff means the host declined the request; anything else may have run.
-                Err(e) if e.retryable && (e.code == ERROR_HOST_HANDOFF || policy.idempotent) => {
+                // Handoff means the host declined the request. A closed connection or a timeout
+                // may have run it: replayed only when the caller says the request is idempotent.
+                Err(e)
+                    if (e.retryable && (e.code == ERROR_HOST_HANDOFF || policy.idempotent))
+                        || (e.code == ERROR_TIMEOUT && policy.idempotent) =>
+                {
                     last = e
                 }
                 Err(e) => return Err(e),

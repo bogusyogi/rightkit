@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Sanitizer policy hooks (#395): `safeLinkHref(href, { allowTel, allowRelative })` and `sanitizeHtml`/`sanitizeMarkdownHtml(html, { allowTel, allowRelative, resolveImageSrc })`. Both link additions default off; tag, attribute and CSS allowlists are unchanged, and `javascript:`, `data:`, `srcdoc`, event handlers and styles stay refused. `resolveImageSrc` runs on relative image sources only; its return value is host-trusted.
+- `==highlight==` support (`highlight: true` parse option, `remarkHighlight`, rendered as `<mark>`), 8 MiB byte-capped parse cache (`configureMarkdownParseCache`, `getMarkdownParseCacheBytes`), and `renderMarkdownToHtml` (HTML string with the same policies) (#395).
+- `MarkdownRenderer` `components`, `classNames`, `onText`, `linkPolicy`, `htmlPolicy`, `parseOptions` props (#631).
+- `parseToTree(source, options)`: `smartypants`, `frontmatter`, `citations`, `wikiLinks`, `defLists`, `softBreaks: "preserve"`, `emailAutolinks`, `highlight`; bare autolinks carry `data.autolink` (#632). Defaults are unchanged. The cache key includes the options.
+- `CodeBlock` with language label and copy button (#633).
+- Not shipped under #395: Shiki/KaTeX/Mermaid-SVG sanitizer profiles and the full-document visual sanitizer with `<style>` (would admit new tags, attributes or CSS properties the issue does not enumerate).
+
 ## 0.1.6
 
 - Republish with `dist/` present. 0.1.5 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.1.5. `prepack` now builds.

@@ -80,6 +80,9 @@ Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&valu
 
 ## Secrets in errors
 
+`rightkit_http::validate_public_https_url` checks that a URL is plain public `https` before a request (rightkit#374). It reads the string only; the address guard still vets resolved hosts.
+
+
 - No error, `RetryEvent` or `Debug` output echoes a URL's query string or userinfo. URLs render as `scheme://host[:port]/path?[redacted]`, and `scheme://...` text inside lower-layer messages is rewritten the same way. A `Status` body is the server's text and is only scrubbed of secret values.
 - `Request::secret_header(name, value)` sends the header and records its value. `Request::bearer` does the same for the token. Recorded values never appear in `HttpError` text, in `RetryEvent` URLs or reasons, in stream I/O errors, or in `Request`'s `Debug` output. `Request`'s `Debug` prints the body length rather than its bytes.
 - `ClientConfig::redact_values(vec![...])` scrubs configured strings in the same places. Each replaced value appears as `[redacted]`.
@@ -87,6 +90,8 @@ Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&valu
 ## Multipart
 
 `Multipart::new()` (random boundary) or `Multipart::with_boundary(b)` (pinned). Add parts with `text`, `file_bytes` and `file_path`. Pass the form to `Request::multipart`, or call `into_body` and `content_type` yourself. The boundary must be 1 to 70 characters from ASCII letters, digits, `-`, `_`, `.` and `+`. `into_body` fails if the boundary occurs inside a part.
+
+`MultipartRelated` is the `multipart/related` form (RFC 2387) for a metadata part followed by a media part, such as a Google-style upload: `MultipartRelated::new().part("application/json; charset=UTF-8", meta).part("message/rfc822", raw)`, then `Request::multipart_related(form)`. Each part carries only its own `Content-Type`.
 
 ## Timeouts
 
@@ -165,6 +170,10 @@ Windows machines with `<local>` or per-scheme proxies next to a static proxy no 
 - A first-party client uses the proxy too, unless `ClientConfig::proxy_bypass_first_party(true)` sends it direct.
 - A proxy is trusted: it sees destinations and can forward anywhere.
 
+### Loopback and local-first policies
+
+`AddressPolicy::allow_loopback()` admits loopback addresses for every host. `AddressPolicy::local_first()` admits loopback and RFC 1918 IPv4 (not CGNAT or IPv6 unique-local). `AddressPolicy::allow_if_any_host(pred)` is the general form of `allow_if` for every host. None of them admits link-local or metadata destinations, `deny_ranges` or `deny_if`. `AddressPolicy::refuse_mixed_loopback()` refuses a host whose answer mixes loopback with non-loopback addresses, the DNS-rebinding shape.
+
 ## Headers only
 
 `Client::send_headers(&req)` returns `ResponseHead { status, headers, final_url, hops, attempts }` for any status without reading the body (3xx when redirects are off, 4xx, and 5xx after retries). The unread body is dropped, which closes that connection. Redirects, the address policy on every hop, retries and cancellation behave as for `send_any`. `Request::headers_only()` makes `send` and `send_any` skip the body in the same way. `Client::stream_any` returns any status with its headers and a streaming body; `Client::stream` still turns non-2xx into `HttpError::Status`.
@@ -193,7 +202,10 @@ Windows machines with `<local>` or per-scheme proxies next to a static proxy no 
 
 - **Redirects: none by default** (`max_redirects = 0`). A 3xx comes back as the response. Set `ClientConfig::max_redirects` (and `max_redirects_will_error`) to follow them; each hop passes the address policy and strips credentials on a new origin.
 - **Retries: idempotent methods only.** POST and PATCH are never replayed after a 429/5xx unless the request sets `retry_unsafe_statuses(true)`. A connect-phase failure (nothing reached the server) is still retried for every method.
-- **Streams and quiet SSE.** `ClientConfig::response_timeout` (default 60 s) is the time to the response *headers* (first byte), not an idle timeout. Once headers arrive, a stream body has no idle cut unless `recv_body_timeout` (a total body budget, default none) or `stream_timeout` / `Request::timeout` (total lifetime, default none) is set. A server that sends headers and then stays quiet is therefore not cut; one that takes over 60 s to send headers is, so raise or clear `response_timeout` (`None`) for such servers. There is no per-read idle timeout; use `Request::cancel` or `deadline` to bound a stalled stream.
+- **Streams and quiet SSE.** `ClientConfig::response_timeout` (default 60 s) is the time to the response *headers* (first byte), not an idle timeout. Once headers arrive, a stream body has no idle cut unless `recv_body_timeout` (a total body budget, default none) or `stream_timeout` / `Request::timeout` (total lifetime, default none) is set. A server that sends headers and then stays quiet is therefore not cut; one that takes over 60 s to send headers is, so raise or clear `response_timeout` (`None`) for such servers. For a per-read stall limit, set `ClientConfig::idle_timeout`: it applies to streamed bodies in both clients and restarts on every chunk. Use `Request::cancel` or `deadline` for an absolute bound.
+- **Compression.** `Client::compression(false)` (and `AsyncClient::compression(false)`) sends `Accept-Encoding: identity` on each request that sets none, so an SSE or provider stream is not re-encoded by an intermediary. The default (`true`) keeps the transport's own negotiation.
+- **Repeated headers and final URL.** `Response::header_all(name)` (also on `ResponseHead` and `StreamResponse`) yields every value in order, for example several `Set-Cookie` lines. `Response::final_url()` is the URL after the followed redirects. `Response::retry_after()` reads a numeric or HTTP-date `Retry-After`. `StreamResponse::copy_to(writer, max_bytes, progress)` copies a stream into a writer under a byte cap, reporting progress per chunk.
+- **Server-Sent Events framing.** The default decoder follows WHATWG blank-line framing. `SseDecoder::eager()` delivers each `data:` line as its newline arrives, for a daemon that ends frames with a newline rather than a blank line. `SseDecoder::finish()` flushes a final frame that lacks its blank line, and `has_pending()` says whether a stream ended mid-event. `SseReader::eof_policy(EofPolicy::Deliver | Fail)` and `SseStream::eof_policy(...)` make the end-of-stream choice explicit (default `Drop`, the spec behaviour).
 - **Text decoding is lossy UTF-8.** `Response::text()` and error bodies decode as UTF-8 and replace invalid bytes; the `Content-Type` charset is not honoured. For another charset, take `Response::body` bytes and decode them yourself.
 
 ## Hard blocks and spellings
@@ -206,6 +218,8 @@ Windows machines with `<local>` or per-scheme proxies next to a static proxy no 
 - Logging: the vendored `ureq` 3.4.0 documentation describes its `TRACE` level as wire-level debug output that is "NOT REDACTED" (`ureq` 3.4.0, `src/lib.rs:449`). This crate cannot intercept it. Do not enable TRACE for a process that carries secrets in URLs.
 
 ## Vetting for other transports
+
+`AddressPolicy::resolve_vetted_async(host, port)` (feature `async`) is the same check for an async caller, on tokio without `spawn_blocking`. It returns `ResolveError::Private { addr }` for a private address that an approval could admit, `ResolveError::Blocked { addr, class, reason }` for anything that must never be admitted (link-local, metadata, a denied range, a name rule), and `ResolveError::Dns(HttpError)` for a failed or slow lookup. A `Private` answer is given only when every address of the answer is admitted or approvable, so a hard block is never hidden behind an approval.
 
 `AddressPolicy::resolve_vetted(host, port) -> Result<Vec<SocketAddr>, HttpError>` resolves a host once and applies exactly the rules the clients use: the address classes, `deny_ranges`, `deny_if`, `allow_if`, the first-party pin and its private-resolution opt-outs, metadata names, and the denial of names with no address. It returns the same `HttpError::AddressDenied`. A WebSocket, raw TCP or gRPC transport calls it and **must connect to the returned addresses, not look the name up again**. A transport that cannot pin its connection leaves a DNS-rebinding window between the check and its own lookup. The host is treated as reached over HTTPS; requiring TLS under a first-party policy is the caller's job.
 

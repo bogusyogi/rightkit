@@ -45,6 +45,7 @@ import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs";
+import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
@@ -374,6 +375,7 @@ try {
   // A `node recipe-build.mjs --plan <JSON>` prePackage hides each step's `--features` in one argument: the closure and the
   // command token scan see every prepare / build / postBuild step (a plan that cannot be read or validated fails closed).
   const closureCommands = [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, ...commandList(target.postSign), target.gradle].filter(Boolean).flatMap((c) => expandRecipeBuildCommands(c, { root }));
+  assertReleaseDependencies({ root, config, target, commands: closureCommands });
   let treeText;
   try {
     const closure = resolveFeatureClosure({
@@ -1132,9 +1134,13 @@ function signExistingRefusal(source) {
 // The renderer comes from this monorepo's own packages/ci when present, else from the repository's installed @rightkit/ci; with
 // neither the file is refused, because an unverifiable sign-existing.yml must not be accepted.
 async function loadRightKitCiRenderer(root) {
-  const candidates = [pathToFileURL(fileURLToPath(new URL("../ci/sync.mjs", import.meta.url))).href];
+  return (await loadRightKitCiModule(root, "sync.mjs", "renderLanes"))?.renderLanes ?? null;
+}
+
+async function loadRightKitCiModule(root, file, exportName) {
+  const candidates = [pathToFileURL(fileURLToPath(new URL(`../ci/${file}`, import.meta.url))).href];
   try {
-    candidates.push(pathToFileURL(createRequire(path.join(root, "package.json")).resolve("@rightkit/ci/sync.mjs")).href);
+    candidates.push(pathToFileURL(createRequire(path.join(root, "package.json")).resolve(`@rightkit/ci/${file}`)).href);
   } catch {
     // not installed in the repository; the sibling candidate may still apply
   }
@@ -1142,7 +1148,7 @@ async function loadRightKitCiRenderer(root) {
     try {
       if (href.startsWith("file:") && !existsSync(fileURLToPath(href))) continue;
       const loaded = await import(href);
-      if (typeof loaded.renderLanes === "function") return loaded.renderLanes;
+      if (typeof loaded[exportName] === "function") return loaded;
     } catch {
       // try the next candidate
     }
@@ -1164,6 +1170,57 @@ async function signExistingRenderRefusal(root, manifest, source) {
   return null;
 }
 
+
+// `workflows` block entries render from code, so they are admitted only when the block passes @rightkit/ci's own
+// validateWorkflows and each file is byte-for-byte the @rightkit/ci render. With no resolvable @rightkit/ci they are refused.
+async function validateDeclaredWorkflowBlock(root, appName, manifest, declaredFiles) {
+  const validator = (await loadRightKitCiModule(root, "workflows.mjs", "validateWorkflows"))?.validateWorkflows;
+  const renderLanes = await loadRightKitCiRenderer(root);
+  if (!validator || !renderLanes) fail(`${appName} right-git-ci-only policy cannot verify .rightgit.json workflows: @rightkit/ci is not available (install @rightkit/ci as a devDependency)`);
+  const errors = [];
+  validator(manifest, errors);
+  if (errors.length > 0) fail(`${appName} right-git-ci-only policy refuses the .rightgit.json workflows block: ${errors.join("; ")}`);
+  let rendered;
+  try {
+    rendered = renderLanes(manifest, root);
+  } catch (error) {
+    fail(`${appName} right-git-ci-only policy cannot render the .rightgit.json workflows block: ${error.message}`);
+  }
+  for (const file of declaredFiles) {
+    const expected = rendered.find((entry) => entry.filename === file)?.content;
+    const actual = await readFile(path.join(root, ".github", "workflows", file), "utf8");
+    if (typeof expected !== "string" || actual.replace(/\r\n?/g, "\n") !== expected.replace(/\r\n?/g, "\n")) {
+      fail(`${appName} ${file} is not byte-for-byte the @rightkit/ci render of its .rightgit.json workflows entry (run right-git sync)`);
+    }
+  }
+}
+
+// Structural backstop for declared workflows (after render equality): the one top-level permissions block is exactly
+// `contents: read`, no other permissions key exists, no secrets reference, every `uses:` is commit-pinned, and every
+// checkout step sets persist-credentials: false. Steps are split on step-list indentation, not matched as free text.
+function declaredWorkflowPolicyRefusal(appName, workflow, source) {
+  const refuse = (why) => fail(`${appName} right-git managed ${workflow} violates the declared-workflow policy: ${why}`);
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const permissionsAt = lines.flatMap((line, i) => (/^\s*permissions\s*:/.test(line) ? [i] : []));
+  if (permissionsAt.length !== 1 || lines[permissionsAt[0]] !== "permissions:" || lines[permissionsAt[0] + 1] !== "  contents: read" || /^ {2,}\S/.test(lines[permissionsAt[0] + 2] ?? "")) refuse("permissions must be exactly one top-level `contents: read`");
+  if (/\bsecrets\b/i.test(source)) refuse("it references the secrets context");
+  let step = null;
+  const steps = [];
+  for (const line of lines) {
+    if (/^ {6}- /.test(line)) { step = [line]; steps.push(step); }
+    else if (step && (/^ {7,}\S/.test(line) || line === "")) step.push(line);
+    else step = null;
+  }
+  for (const body of steps) {
+    const uses = /^ {6}- uses: (\S+)|^ {8}uses: (\S+)/m.exec(body.join("\n"));
+    if (!uses) continue;
+    const ref = uses[1] ?? uses[2];
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/.test(ref)) refuse(`action ${ref} is not commit-pinned`);
+    if (/^actions\/checkout@/.test(ref) && !body.some((line) => /^ {10}persist-credentials: false\s*$/.test(line))) refuse("a checkout step does not set persist-credentials: false");
+    if (body.some((line) => /persist-credentials:\s*true/.test(line))) refuse("persist-credentials: true");
+  }
+  if (/^\s*(?:- )?uses:/m.test(lines.filter((l) => !steps.some((b) => b.includes(l))).join("\n"))) refuse("a uses: sits outside a step list");
+}
 
 async function validateHostedWorkflows(root, appName, workflows, policy) {
   if (policy !== "right-git-ci-only") {
@@ -1188,15 +1245,29 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     || lanes.some((lane) => !safeLanes.has(lane))) {
     fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci" or "swift-check"`);
   }
-  const expectedWorkflows = lanes.map((lane) => `${lane}.yml`).sort();
+  // Workflows declared under the manifest's `workflows` block (@rightkit/ci workflows.mjs: explicit `file`,
+  // else `<name>.yml`) are managed files too, in addition to the lane files.
+  const declaredWorkflows = manifest?.workflows;
+  if (declaredWorkflows !== undefined && (declaredWorkflows === null || typeof declaredWorkflows !== "object" || Array.isArray(declaredWorkflows))) {
+    fail(`${appName} right-git-ci-only policy requires .rightgit.json workflows to be an object`);
+  }
+  const declaredFiles = Object.entries(declaredWorkflows ?? {}).map(([name, config]) => {
+    if (config === null || typeof config !== "object" || Array.isArray(config)) fail(`${appName} right-git-ci-only policy requires .rightgit.json workflows.${name} to be an object`);
+    const file = typeof config?.file === "string" ? config.file : `${name}.yml`;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.yml$/.test(file)) fail(`${appName} right-git-ci-only policy refuses workflow file name ${JSON.stringify(file)} declared by .rightgit.json`);
+    return file;
+  });
+  const expectedWorkflows = [...new Set([...lanes.map((lane) => `${lane}.yml`), ...declaredFiles])].sort();
   if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {
     fail(`${appName} right-git-ci-only policy requires workflows declared by .rightgit.json; expected ${expectedWorkflows.join(", ")}, got: ${workflows.join(", ")}`);
   }
+  if (declaredFiles.length > 0) await validateDeclaredWorkflowBlock(root, appName, manifest, declaredFiles);
   for (const workflow of expectedWorkflows) {
     const source = await readFile(path.join(root, ".github", "workflows", workflow), "utf8");
     if (!source.startsWith("# Managed by right-git")) {
       fail(`${appName} ${workflow} is not marked as right-git managed`);
     }
+    if (declaredFiles.includes(workflow)) declaredWorkflowPolicyRefusal(appName, workflow, source);
     const jobSpan = (jobName) => {
       const marker = `\n  ${jobName}:\n`;
       const start = source.indexOf(marker);

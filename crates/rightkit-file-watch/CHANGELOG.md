@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added (session manager, rightkit#547)
+
+- `WatchSessionManager` (`session` module, re-exported at the root): owner-keyed watches with `watch(owner, id, path, recursive)`, `unwatch(owner, id)`, `poll(owner, id) -> Vec<ChangeBatch>` and `release_owner(owner)`, for the CodeRight `FsWatchManager` port. Each session is one OS watch whose events fold through `ChangeCoalescer`; `with_debounce` sets the quiet window (default `DEFAULT_DEBOUNCE`), and a session pending longer than `DEFAULT_MAX_WAIT` flushes anyway. Re-watching an existing key replaces it. A backend error or rescan request is reported as a batch whose `changed` includes the watched root, so the caller rescans it. Uses only the existing `notify` dependency.
+
 ### Added (0.4.1, additive)
 
 - `DirWatchSet::watch_batches(dir, cb)`: like `watch`, but the callback receives a `DirBatch { changes: ChangeBatch, lost: bool }`. `lost` is set when the backend reported a buffer overflow, a rescan request or an error, and a batch carrying only the flag is still delivered, so a lost report is no longer log-only. `watch` is unchanged (it still logs gaps). `ChangeBatch` is unchanged.

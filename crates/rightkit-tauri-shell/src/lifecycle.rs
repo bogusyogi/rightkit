@@ -460,6 +460,10 @@ pub(crate) fn on_second_instance(
 }
 
 pub(crate) fn on_menu_event(app: &AppHandle<Wry>, id: &str) {
+    if id == crate::menu::ID_QUIT {
+        request_quit(app, "menu");
+        return;
+    }
     let state = app.state::<ShellState>();
     let _ = app.emit(EVENT_MENU, serde_json::json!({"id": id}));
     if let Some(cb) = &state.on_menu {

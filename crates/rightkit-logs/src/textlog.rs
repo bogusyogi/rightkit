@@ -176,6 +176,33 @@ impl RotatingTextWriter {
     }
 }
 
+/// Raw stderr lines for output that a consumer matches exactly, such as a renderer's
+/// `[app] ...` diagnostics that QA scripts grep. Unlike [`capture_stderr`], nothing is scrubbed:
+/// callers must not pass secrets or personal data here.
+///
+/// Each line is written as `prefix` + `line` + `\n` in one `write_all`, so it stays whole when
+/// other threads write stderr at the same time. A closed or broken stderr is ignored, and nothing
+/// here panics, so the functions are safe to call from an FFI callback.
+#[derive(Debug, Clone, Copy)]
+pub struct StderrLine;
+
+impl StderrLine {
+    /// Write one line to the process's stderr.
+    pub fn write(prefix: &str, line: &str) {
+        let mut bytes = String::with_capacity(prefix.len() + line.len() + 1);
+        bytes.push_str(prefix);
+        bytes.push_str(line);
+        bytes.push('\n');
+        let _ = io::stderr().lock().write_all(bytes.as_bytes());
+    }
+
+    /// Write one line to stderr and append the same unscrubbed line to `mirror`.
+    pub fn write_mirrored(mirror: &RotatingTextWriter, prefix: &str, line: &str) {
+        Self::write(prefix, line);
+        let _ = mirror.write_line(&format!("{prefix}{line}"));
+    }
+}
+
 /// Handle to a thread copying a child process's stderr into a [`RotatingTextWriter`].
 #[derive(Debug)]
 pub struct StderrCapture {
@@ -412,6 +439,17 @@ mod tests {
         w.write_line("second").unwrap();
         assert_eq!(read(&d, "a.log.1"), "first\n");
         assert_eq!(read(&d, "a.log"), "second\n");
+    }
+
+    #[test]
+    fn stderr_line_mirror_keeps_the_text_unscrubbed() {
+        let d = dir("stderr-line");
+        let writer = RotatingTextWriter::new(d.join("diag.log"), 0);
+        StderrLine::write_mirrored(&writer, "[render] ", "frame 3 ok ada@example.com");
+        assert_eq!(
+            read(&d, "diag.log"),
+            "[render] frame 3 ok ada@example.com\n"
+        );
     }
 
     #[test]

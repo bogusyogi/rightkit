@@ -163,6 +163,14 @@ let reply = host.dispatch_checked(&json!({"id":1,"method":"ping"}), &RequestCont
 # let _ = (client, reply); Ok(()) }
 ```
 
+## Unreleased additions
+
+- `ServerHost::with_request_validation(RequestValidation::Strict)` answers malformed frames (non-object frame, missing or non-string `method`, `id` that is not a string or number, non-object `params`, empty batch) with `-32600`; the default `Lenient` drops them as before.
+- `ServerHost::with_batch_policy_for_version(version, BatchPolicy)` sets the batch policy per negotiated protocol version (stdio: the `initialize` answer; HTTP: `MCP-Protocol-Version`; `dispatch*`: `RequestContext::metadata["protocolVersion"]`).
+- `ServerHost::with_request_transform` gives the transform (via `TransformContext::request`) the request it answers; `CallHandle::notify_progress_number` writes whole-number progress as an integer.
+- `LeasedPool<K, V>` is a generic leased pool (refcounted `Lease`, per-key epochs, `evict_idle`, `snapshot`, single-flight `acquire`, `LeasedPoolConfig { reconnect_cooldown, cache_lifetime }`). It has no trust gate; `ConnectionPool` remains the gated client pool.
+- `TrustStore::{gate, gate_stdio, credential_write_allowed, pending_approval, approve_with_fingerprint, deny_with_fingerprint, decide_with_fingerprint, try_load_migrating}` let a host gate before spawn, keep its own fingerprint and migrate another store's file (`ImportedTrust`). Foreign fingerprints never satisfy `decide` (fails closed).
+
 ## Also (0.2.0)
 
 - Public `ServerHost::dispatch(&Value) -> Option<Value>` & `dispatch_with_context(&Value, &RequestContext) -> Option<Value>` route parsed frames without transport I/O.

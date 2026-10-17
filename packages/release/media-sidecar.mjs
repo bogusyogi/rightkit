@@ -3,6 +3,7 @@
 //   targets.mac.mediaSidecar = {
 //     arch: "aarch64",                       // catalog arch (default: build host); one arch per build
 //     variant: "decode",                     // catalog variant (default "decode")
+//     variants: { ffmpeg: "export-ass" },    // optional per-tool variant override (a tool not named uses `variant`)
 //     tools: ["ffmpeg", "ffprobe"],          // default both
 //     stageDir: "src-tauri/binaries",        // Tauri externalBin directory (default)
 //     bundleDir: "Contents/MacOS",           // mac only: where Tauri puts externalBin (or "Contents/Resources")
@@ -26,7 +27,7 @@ export const MEDIA_SIDECAR_TOOLS = Object.freeze(["ffmpeg", "ffprobe"]);
 const PLATFORM_OS = Object.freeze({ mac: "macos", win: "windows", linux: "linux" });
 const ARCHES = new Set(["aarch64", "x86_64"]);
 const SHA256 = /^[0-9a-f]{64}$/;
-const CONFIG_KEYS = new Set(["arch", "variant", "tools", "stageDir", "bundleDir", "notices", "catalog", "stage"]);
+const CONFIG_KEYS = new Set(["arch", "variant", "variants", "tools", "stageDir", "bundleDir", "notices", "catalog", "stage"]);
 const BUNDLE_DIRS = new Set(["Contents/MacOS", "Contents/Resources"]);
 
 const invalid = (code, message) => Object.assign(new Error(message), { code });
@@ -87,6 +88,18 @@ export function validateMediaSidecarConfig(raw, { platform, hostArch = hostCatal
   if (!Array.isArray(tools) || !tools.length || new Set(tools).size !== tools.length || tools.some((tool) => !MEDIA_SIDECAR_TOOLS.includes(tool))) {
     errors.push(`tools must be a non-empty list without duplicates drawn from ${MEDIA_SIDECAR_TOOLS.join(", ")}`);
   }
+  // One entry may mix variants (for example the export-ass ffmpeg with the decode ffprobe): `variants` maps a tool to its variant.
+  let variants;
+  if (raw.variants !== undefined) {
+    if (!isObject(raw.variants) || !Object.keys(raw.variants).length) errors.push("variants must be an object mapping a tool to a catalog variant slug");
+    else {
+      for (const [tool, slug] of Object.entries(raw.variants)) {
+        if (!MEDIA_SIDECAR_TOOLS.includes(tool) || (Array.isArray(tools) && !tools.includes(tool))) errors.push(`variants.${tool}: not one of the configured tools`);
+        if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) errors.push(`variants.${tool} must be a catalog variant slug: ${JSON.stringify(slug)}`);
+      }
+      variants = { ...raw.variants };
+    }
+  }
   const stageDir = relativePath(raw.stageDir ?? "src-tauri/binaries", "stageDir");
   let bundleDir;
   if (os === "macos") {
@@ -109,7 +122,7 @@ export function validateMediaSidecarConfig(raw, { platform, hostArch = hostCatal
     else stage = raw.stage;
   }
   if (errors.length) throw invalid("MEDIA_SIDECAR_CONFIG_INVALID", `invalid mediaSidecar configuration:\n${errors.map((line) => `- ${line}`).join("\n")}`);
-  return { os, arch, variant, tools: [...tools], stageDir, ...(bundleDir ? { bundleDir } : {}), notices, ...(catalog ? { catalog } : {}), ...(stage ? { stage } : {}) };
+  return { os, arch, variant, ...(variants ? { variants } : {}), tools: [...tools], stageDir, ...(bundleDir ? { bundleDir } : {}), notices, ...(catalog ? { catalog } : {}), ...(stage ? { stage } : {}) };
 }
 
 /** `sign.nestedCode` entries for the macOS bundle: the sidecar executables, hardened runtime, no entitlements. */
@@ -126,9 +139,10 @@ export function mediaSidecarNestedCode(config) {
 export function selectSidecarRows(catalog, config) {
   if (!isObject(catalog) || !Array.isArray(catalog.artifacts)) throw invalid("MEDIA_SIDECAR_CATALOG_INVALID", "catalog has no artifacts array");
   return config.tools.map((tool) => {
-    const matches = catalog.artifacts.filter((row) => row.tool === tool && (row.variant ?? "decode") === config.variant
+    const variant = config.variants?.[tool] ?? config.variant;
+    const matches = catalog.artifacts.filter((row) => row.tool === tool && (row.variant ?? "decode") === variant
       && String(row.os).toLowerCase() === config.os && String(row.arch).toLowerCase() === config.arch);
-    const where = `${tool} ${config.variant} ${config.os}/${config.arch}`;
+    const where = `${tool} ${variant} ${config.os}/${config.arch}`;
     if (matches.length === 0) throw invalid("MEDIA_SIDECAR_NO_ROW", `the rightkit-ffmpeg catalog has no ${where} row`);
     if (matches.length > 1) throw invalid("MEDIA_SIDECAR_AMBIGUOUS_ROW", `the rightkit-ffmpeg catalog has ${matches.length} ${where} rows`);
     const [row] = matches;
@@ -152,6 +166,7 @@ export function planMediaSidecar({ config, catalog, crateDir, crateVersion, cata
     artifactId: row.id,
     version: row.version,
     contentSha256: row.contentSha256,
+    ...(config.variants ? { variant: row.variant ?? "decode" } : {}),
     stagedPath: path.resolve(root, config.stageDir, stagedFileName(row.tool, config.os, config.arch)),
     bundledName: bundledFileName(row.tool, config.os),
     ...(config.bundleDir ? { bundlePath: `${config.bundleDir}/${bundledFileName(row.tool, config.os)}` } : {}),
@@ -242,6 +257,7 @@ export function buildMediaSidecarReceipt(plan, preSign, signed, { notices = [], 
         tool: file.tool,
         artifactId: file.artifactId,
         version: file.version,
+        ...(file.variant ? { variant: file.variant } : {}),
         catalogContentSha256: file.contentSha256,
         preSignSha256: file.preSignSha256,
         signedSha256: after.sha256,

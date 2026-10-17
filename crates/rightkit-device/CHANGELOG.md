@@ -2,6 +2,11 @@
 
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
+## Unreleased
+
+Added:
+- `device_id_hash(raw) -> String`: lowercase hex SHA-256 of the raw device id, the only form sent to lease, link and Pro-bridge endpoints (rightkit#609). Local FIPS 180-4 implementation, no new dependency; tests use the FIPS vectors.
+
 ## 0.1.3
 
 Renamed from rightkit-tauri; 0.1.2 remains published under the old name.

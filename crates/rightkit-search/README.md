@@ -57,6 +57,8 @@ let page = compiled.page(
 // its cursor is built from the last kept row, and Cursor::encode gives the transport form.
 ```
 
+Unreleased: `Keyset::range_bound()` adds a redundant `first_col <= ?` (or `>=` for `asc`) bound when a cursor is given, so an index on the first sort column can seek; output is unchanged. `Compiled::page_clauses(&keyset, after)` returns a `PageClauses { where_sql, params, order_by }` for a caller-built statement (a CTE chain with its own `LIMIT`). A sort-key expression may be a scalar subquery, which resolves a tiebreak per row.
+
 **Scan strategy (free text in Rust).** Use this when the text lives outside SQL, for example transcript bodies on disk. SQL applies only the operator filters, and `TextMatcher` checks the free text. Build the matcher from the full query first: it refuses a mixed OR group, and `filters_only` silently drops that group.
 
 ```rust,ignore

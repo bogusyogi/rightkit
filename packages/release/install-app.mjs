@@ -282,6 +282,31 @@ async function keepPreviousBundle(run, fsImpl, bundle, installed) {
   return previous;
 }
 
+// Exclusive per-destination install lock: a lock file beside the installed apps, created O_EXCL. A lock whose pid is dead is
+// stale and taken over once. Held across recovery, staging, journal mutation and cleanup so two installers never share the
+// fixed staging/journal paths.
+const LOCK_NAME = ".rightkit-install.lock";
+// Locks this process currently holds. A lock naming our own pid that is not in this set was leaked (a simulated or
+// aborted install in this process), so it is stale exactly like a dead pid's.
+const heldLocks = new Set();
+function acquireInstallLock({ dest, fsImpl, pid, isAlive }) {
+  const lock = path.join(dest, LOCK_NAME);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      fsImpl.writeFileSync(lock, JSON.stringify({ pid }), { flag: "wx" });
+      heldLocks.add(lock);
+      return () => { heldLocks.delete(lock); try { fsImpl.rmSync(lock, { force: true }); } catch { /* best effort */ } };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw new InstallAppError("lock-failed", `cannot create install lock ${lock}: ${errText(error)}`);
+      let holder = null;
+      try { holder = JSON.parse(fsImpl.readFileSync(lock, "utf8")).pid; } catch { holder = null; }
+      if (Number.isInteger(holder) && isAlive(holder) && !(holder === pid && !heldLocks.has(lock))) throw new InstallAppError("install-locked", `another install holds ${lock} (pid ${holder})`);
+      try { fsImpl.rmSync(lock, { force: true }); } catch { /* retry decides */ }
+    }
+  }
+  throw new InstallAppError("install-locked", `could not take install lock ${lock}`);
+}
+
 // Deterministic roll-forward/back of any interrupted install journal in `dest`. Idempotent.
 export async function recoverInstalls({ dest, appName = null, run, fsImpl, home, now, event, sleep, isAlive = defaultIsAlive, selfPid = process.pid, swapPaths = createSwapPaths() }) {
   let names = [];
@@ -357,7 +382,10 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
 export async function recoverApp(opts, deps = {}) {
   const { execFile = realExecFile, fsImpl = fs, home = os.homedir(), now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), emit = () => {}, isAlive, platform = process.platform, env = process.env, swapPaths = createSwapPaths({ env }) } = deps;
   if (platform !== "darwin") throw new InstallAppError("unsupported", `install-app is not implemented on ${platform}`);
-  const results = await recoverInstalls({ dest: opts.dest, appName: opts.appName, run: (c, a) => execFile(c, a), fsImpl, home, now, event: (name, data = {}) => emit({ event: name, ...data }), sleep, isAlive, swapPaths });
+  const release = acquireInstallLock({ dest: opts.dest, fsImpl, pid: process.pid, isAlive: isAlive ?? defaultIsAlive });
+  let results;
+  try { results = await recoverInstalls({ dest: opts.dest, appName: opts.appName, run: (c, a) => execFile(c, a), fsImpl, home, now, event: (name, data = {}) => emit({ event: name, ...data }), sleep, isAlive, swapPaths }); }
+  finally { release(); }
   emit({ event: "recover-done", dest: opts.dest, recovered: results.length });
   return { ok: true, recovered: results };
 }
@@ -389,6 +417,7 @@ export async function installApp(opts, deps = {}) {
   let mountPoint = null;
   let failedStage = "start";
   let swap = null; // set once the journal exists; tracks which renames happened
+  let releaseLock = () => {};
   let devOldRemoved = false; // a dev install removed the old bundle; nothing can put it back
 
   const removeQuiet = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
@@ -428,6 +457,7 @@ export async function installApp(opts, deps = {}) {
         await detach();
         cleanupExtract();
       } catch { /* exiting anyway */ }
+      releaseLock();
       exit(128 + (os.constants.signals[sig] || 0));
     })();
   };
@@ -455,6 +485,7 @@ export async function installApp(opts, deps = {}) {
     if (!fsImpl.existsSync(inputPath)) throw new InstallAppError(`${inputKind}-missing`, `${inputKind.toUpperCase()} not found: ${inputPath}`);
     if (!fsImpl.existsSync(opts.dest)) throw new InstallAppError("dest-missing", `destination not found: ${opts.dest}`);
 
+    releaseLock = acquireInstallLock({ dest: opts.dest, fsImpl, pid, isAlive });
     await recoverInstalls({ dest: opts.dest, appName: opts.appName, run, fsImpl, home, now, event, sleep, isAlive, selfPid: pid, swapPaths });
 
     let sourceApp = null;
@@ -511,8 +542,9 @@ export async function installApp(opts, deps = {}) {
     // Stage a verified copy on the destination volume so the swap is rename(2) only.
     failedStage = "stage";
     const base = appName.replace(/\.app$/, "");
-    // Staging is never run from: it is verified, then renamed into place. The rollback copy is the fixed `<installed>.previous`.
-    const staged = path.join(opts.dest, `.${base}.rightkit-install-${pid}.app`);
+    // Staging is never run from: it is verified, then renamed into place. Its name is fixed per app (no per-pid sibling), like the
+    // journal beside it; the rollback copy is the fixed `<installed>.previous`.
+    const staged = path.join(opts.dest, `.${base}.rightkit-install.app`);
     // Dev installs keep NO old copy of any kind (Orthic-Labs/rightkit#348): the old bundle is removed, never moved to `.previous`.
     const backup = hadInstalled && !dev ? previousPathOf(installed) : null;
     const journal = journalPathFor(opts.dest, appName);
@@ -634,6 +666,7 @@ export async function installApp(opts, deps = {}) {
     rollbackSwap();
     await detach();
     cleanupExtract();
+    releaseLock();
   }
 }
 

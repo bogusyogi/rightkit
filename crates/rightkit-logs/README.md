@@ -8,7 +8,8 @@ The default build has no Tauri, async-runtime or tracing dependency. Apps supply
 - synchronous serialised append, and a bounded non-blocking async writer (`AsyncWriter`);
 - size rotation to one `.1` predecessor by default, or `JsonlStore::with_generations(n)` for `.1` through `.N`;
 - `RotatingTextWriter` (plain-text rotating log) and `capture_stderr` (prefixed, scrubbed child-process stderr into it);
-- bounded reads from current and rotated JSONL, without loading whole logs;
+- bounded reads from current and rotated JSONL, without loading whole logs, and `tail_bytes` for the last bytes of any log file;
+- `StderrLine` for raw, unscrubbed stderr lines that a consumer matches exactly, and `cap_batch` for a bounded write batch;
 - one bundle-wide recent-event cap, followed by the most-recent-error anchor;
 - recursive privacy redaction, with non-removable secret and content defaults;
 - malformed-row and dropped-event counts, and a warning for a missing file, instead of a failed report;
@@ -36,7 +37,7 @@ Do not use it as a general tracing framework. The `tracing` feature only writes 
 |---|---|---|---|
 | `http` | yes | `ureq` 3.4 (`rustls`) | The HTTPS transport for the consented outbox uploader. Without it the crate has no network dependency, and callers supply their own `Transport`. |
 | `testing` | no | none | `testing::MockServer`, a loopback mock ingest server for app end-to-end tests. |
-| `tracing` | no | `tracing` 0.1 (`std`), `tracing-subscriber` 0.3 (`std`, `registry`, `fmt`, `json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
+| `tracing` | no | `tracing` 0.1 (`std`), `tracing-subscriber` 0.3 (`std`, `registry`, `fmt`, `json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. Also `stderr_layer`, a composable formatted stderr layer that installs no global subscriber. |
 
 Consumers that bring their own transport use `default-features = false`. `default-features = false` builds the event store, collection and consent code with no network dependency.
 
@@ -78,7 +79,16 @@ store.append(&event)?;
 
 `append` returns an error. `append_best_effort` never fails the caller and never prints: it counts the failure, and `JsonlStore::status()` returns the counts and the last message. A failed rotation still appends to the current file up to twice the rotation size, then refuses appends (both counted). The test checks that `EventRecord` serialises with the fields flattened.
 
+`JsonlStore` has three opt-in builders. `with_owner_only(true)` creates the file owner-only (`0600`, or an owner-only DACL on Windows). `with_cross_process_lock()` serialises rotation between processes through a `<file>.lock` sidecar. That lock is advisory `std` file locking, so it excludes only callers that take the same sidecar lock, not a `rightkit-fs` `FileLock` on the same log. `tail_bytes(path, max_bytes)` (or `JsonlStore::tail_bytes`) reads only the last bytes of a file.
+
+`AsyncWriter::flush(timeout)` waits at most `timeout` in total, including while the queue is full. `set_recording(false)` turns `append` off without counting drops. `StderrReporter` with `AsyncWriter::spawn_with_reporter` prints one stderr line for the first failed append of a run. `cap_batch(events, DEFAULT_BATCH_CAP)` keeps the newest 500 records of a batch and leads with a `logs_dropped` record.
+
+Scrubbing: `scrub_text` keeps its output. `scrub_text_counted` returns the scrubbed text and the number of replacements, and it also redacts a credential prefix that ends the input at any length, because the input may be a cut piece of a longer key. `StderrLine` does not scrub: pass only text that is already safe to write.
+
 ## Defaults
+
+`redact_url_text` redacts URL queries, userinfo and OAuth-style secret values in free error text (rightkit#371).
+
 
 `CollectionPolicy::default()`:
 

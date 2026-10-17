@@ -131,10 +131,10 @@ macro_rules! cft_chrome {
 
 /// The Chrome for Testing build this crate version installs.
 ///
-/// TODO(#267): every digest below is [`Sha256Pin::Todo`] because no published digest for these
-/// archives exists in this repository (Google's release list carries none). Until each is
-/// recorded from the real archive, [`ensure_chrome_for_testing`] returns
-/// [`InstallError::DigestNotPinned`] for this table.
+/// Every archive below carries a recorded SHA-256 (computed once from the real archive by
+/// `scripts/chrome-pins.mjs --apply`, because Google publishes no digests for Chrome for Testing).
+/// A new version is pinned only together with its digests; an entry left as [`Sha256Pin::Todo`]
+/// makes [`ensure_chrome_for_testing`] return [`InstallError::DigestNotPinned`] before any download.
 pub const PINNED_CHROME_FOR_TESTING: PinnedChrome = PinnedChrome {
     version: "155.0.8059.39",
     downloads: &[

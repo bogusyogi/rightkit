@@ -455,6 +455,8 @@ enum Mode {
 #[derive(Clone)]
 struct AllowRule {
     hosts: Vec<String>,
+    /// Applies to every host, not only the listed ones (see [`AddressPolicy::allow_if_any_host`]).
+    any_host: bool,
     pred: AllowHook,
 }
 
@@ -476,8 +478,40 @@ pub struct AddressPolicy {
     allow_downgrade: bool,
     /// Accept non-canonical IPv4 host spellings (refused by default).
     allow_legacy_ipv4: bool,
+    /// Refuse a host whose answer mixes loopback with non-loopback addresses.
+    refuse_mixed: bool,
     resolver: Option<ResolverHook>,
 }
+
+/// Why [`AddressPolicy::resolve_vetted_async`] refused a host.
+#[derive(Debug)]
+pub enum ResolveError {
+    /// A private address (RFC 1918, CGNAT or unique-local) that the policy would admit once the
+    /// caller approves it, for example through [`AddressPolicy::allow_private_resolution`].
+    Private { addr: IpAddr },
+    /// Refused outright: link-local or metadata, a denied range, a custom denial, or a name rule.
+    Blocked {
+        addr: Option<IpAddr>,
+        class: Option<AddressClass>,
+        reason: String,
+    },
+    /// The name did not resolve, or the lookup failed.
+    Dns(HttpError),
+}
+
+impl fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResolveError::Private { addr } => {
+                write!(f, "address {addr} is private and needs approval")
+            }
+            ResolveError::Blocked { reason, .. } => write!(f, "address refused: {reason}"),
+            ResolveError::Dns(e) => write!(f, "name lookup failed: {e}"),
+        }
+    }
+}
+
+impl Error for ResolveError {}
 
 impl Default for AddressPolicy {
     fn default() -> Self {
@@ -505,6 +539,7 @@ impl fmt::Debug for AddressPolicy {
             .field("private_resolution_hosts", &self.private_ok)
             .field("allow_insecure_redirects", &self.allow_downgrade)
             .field("allow_legacy_ipv4", &self.allow_legacy_ipv4)
+            .field("refuse_mixed_loopback", &self.refuse_mixed)
             .field("custom_resolver", &self.resolver.is_some())
             .finish()
     }
@@ -521,6 +556,7 @@ impl AddressPolicy {
             private_ok: Vec::new(),
             allow_downgrade: false,
             allow_legacy_ipv4: false,
+            refuse_mixed: false,
             resolver: None,
         }
     }
@@ -625,8 +661,55 @@ impl AddressPolicy {
     {
         self.allow.push(AllowRule {
             hosts: hosts.iter().map(|h| normalize_host(h)).collect(),
+            any_host: false,
             pred: Arc::new(pred),
         });
+        self
+    }
+
+    /// Like [`AddressPolicy::allow_if`], but `pred` applies to every host: any name may reach
+    /// an address for which `pred` is true, even when its class is denied by default. Link-local
+    /// and metadata destinations, `deny_ranges` and `deny_if` still refuse. Use it only when the
+    /// predicate is the whole policy for the destination.
+    pub fn allow_if_any_host<F>(mut self, pred: F) -> Self
+    where
+        F: Fn(&IpAddr) -> bool + Send + Sync + 'static,
+    {
+        self.allow.push(AllowRule {
+            hosts: Vec::new(),
+            any_host: true,
+            pred: Arc::new(pred),
+        });
+        self
+    }
+
+    /// Allow loopback addresses (`127/8`, `::1`, and IPv4 forms embedded in IPv6) for every host,
+    /// for a local-first app whose loopback services are its own. Everything else stays public-only.
+    pub fn allow_loopback(self) -> Self {
+        self.allow_if_any_host(|ip| classify_ip(*ip) == AddressClass::Loopback)
+    }
+
+    /// Local-first policy: loopback plus RFC 1918 IPv4 (`10/8`, `172.16/12`, `192.168/16`) for
+    /// every host, public-only otherwise. Link-local and metadata destinations stay hard-blocked,
+    /// and CGNAT and IPv6 unique-local addresses are not admitted by this rule.
+    pub fn local_first(self) -> Self {
+        self.allow_if_any_host(|ip| {
+            if classify_ip(*ip) == AddressClass::Loopback {
+                return true;
+            }
+            let v4 = match ip {
+                IpAddr::V4(v) => Some(*v),
+                IpAddr::V6(_) => embedded_v4(*ip),
+            };
+            v4.is_some_and(|v| v.is_private())
+        })
+    }
+
+    /// Refuse a host whose DNS answer mixes loopback with non-loopback addresses. A host that
+    /// resolves to both is the shape of a DNS-rebinding attempt against a loopback service, and
+    /// `allow_loopback` or `local_first` would otherwise admit it.
+    pub fn refuse_mixed_loopback(mut self) -> Self {
+        self.refuse_mixed = true;
         self
     }
 
@@ -832,6 +915,22 @@ impl AddressPolicy {
                 "host did not resolve to any address",
             ));
         }
+        if self.refuse_mixed {
+            let loopback = addrs
+                .iter()
+                .any(|ip| classify_ip(*ip) == AddressClass::Loopback);
+            let other = addrs
+                .iter()
+                .any(|ip| classify_ip(*ip) != AddressClass::Loopback);
+            if loopback && other {
+                return Err(denial(
+                    &host,
+                    None,
+                    None,
+                    "host resolves to both loopback and non-loopback addresses",
+                ));
+            }
+        }
         let literal = parse_host_ip(&host).is_some();
         for &ip in &addrs {
             let class = classify_ip(ip);
@@ -878,7 +977,116 @@ impl AddressPolicy {
     fn allowed(&self, host: &str, ip: &IpAddr) -> bool {
         self.allow
             .iter()
-            .any(|rule| rule.hosts.iter().any(|h| h == host) && (rule.pred)(ip))
+            .any(|rule| (rule.any_host || rule.hosts.iter().any(|h| h == host)) && (rule.pred)(ip))
+    }
+
+    #[cfg(feature = "async")]
+    /// True when `ip` is an address an approval could admit: a private class that no
+    /// `deny_ranges` entry or `deny_if` hook refuses.
+    fn approvable(&self, ip: IpAddr) -> bool {
+        classify_ip(ip) == AddressClass::Private && !self.hard_denied(ip)
+    }
+
+    #[cfg(feature = "async")]
+    /// The hard-deny test [`AddressPolicy::vet`] applies: a metadata block, a `deny_ranges`
+    /// entry or a `deny_if` hook, checked on the address and on every IPv4 form embedded in it
+    /// (IPv4-mapped, NAT64 and similar), so no spelling of a denied address is approvable.
+    fn hard_denied(&self, ip: IpAddr) -> bool {
+        hard_block(ip).is_some()
+            || std::iter::once(ip)
+                .chain(embedded_v4s(ip).into_iter().map(IpAddr::V4))
+                .any(|form| {
+                    self.deny_ranges.iter().any(|n| n.contains(&form))
+                        || self.deny_if.iter().any(|hook| hook(&form).is_some())
+                })
+    }
+
+    #[cfg(feature = "async")]
+    /// Map a denial from [`AddressPolicy::vet`] onto the async resolver's error. A private
+    /// address is `Private` only when every address of the answer is either admitted already or
+    /// approvable; anything else is `Blocked`, so a hard block is never hidden behind an approval.
+    fn to_resolve_error(
+        &self,
+        host: &str,
+        denial: AddressDenial,
+        addrs: &[IpAddr],
+    ) -> ResolveError {
+        let ok = |ip: &IpAddr| {
+            !self.hard_denied(*ip)
+                && (classify_ip(*ip) == AddressClass::Public
+                    || self.allowed(host, ip)
+                    || self.approvable(*ip))
+        };
+        match denial.addr {
+            Some(addr)
+                if classify_ip(addr) == AddressClass::Private
+                    && self.approvable(addr)
+                    && addrs.iter().all(|ip| ok(ip)) =>
+            {
+                ResolveError::Private { addr }
+            }
+            _ => ResolveError::Blocked {
+                addr: denial.addr,
+                class: denial.class,
+                reason: denial.reason,
+            },
+        }
+    }
+
+    /// Async form of [`AddressPolicy::resolve_vetted`] for an async caller (tokio, no
+    /// `spawn_blocking`). It applies the same rules and returns the same vetted addresses, and
+    /// it distinguishes the refusals an app can act on: a `Private` address may be approved,
+    /// while `Blocked` (link-local, metadata, a denied range, a name rule) never is. A DNS
+    /// failure or timeout is `Dns`. The lookup is bounded at ten seconds. The same
+    /// connect-to-the-returned-addresses rule as `resolve_vetted` applies.
+    #[cfg(feature = "async")]
+    pub async fn resolve_vetted_async(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Result<Vec<SocketAddr>, ResolveError> {
+        let host = normalize_host(host);
+        self.admit("https", &host)
+            .map_err(|d| self.to_resolve_error(&host, d, &[]))?;
+        let addrs: Vec<IpAddr> = match self.fixed_addrs(&host) {
+            Some(addrs) => addrs,
+            None => match self.resolver_hook() {
+                Some(hook) => hook(&host),
+                None => match tokio::time::timeout(
+                    Duration::from_secs(10),
+                    tokio::net::lookup_host((host.as_str(), port)),
+                )
+                .await
+                {
+                    Ok(Ok(found)) => found.map(|a| a.ip()).collect(),
+                    Ok(Err(_)) => {
+                        return Err(ResolveError::Dns(HttpError::transport(
+                            "host not found",
+                            Phase::Connect,
+                        )))
+                    }
+                    Err(_) => {
+                        return Err(ResolveError::Dns(HttpError::timeout(
+                            "name lookup",
+                            Phase::Connect,
+                        )))
+                    }
+                },
+            },
+        };
+        if addrs.is_empty() {
+            return Err(ResolveError::Dns(HttpError::transport(
+                "host not found",
+                Phase::Connect,
+            )));
+        }
+        match self.vet(&host, addrs.clone()) {
+            Ok(vetted) => Ok(vetted
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, port))
+                .collect()),
+            Err(d) => Err(self.to_resolve_error(&host, d, &addrs)),
+        }
     }
 }
 
@@ -1174,5 +1382,372 @@ mod tests {
             .unwrap_err();
         assert_eq!(d.addr, None);
         assert!(d.reason.contains("did not resolve"), "{d}");
+    }
+}
+
+#[cfg(test)]
+mod loopback_tests {
+    use super::*;
+
+    fn answers(addrs: Vec<IpAddr>) -> AddressPolicy {
+        AddressPolicy::public_web().with_resolver(move |_| addrs.clone())
+    }
+
+    #[test]
+    fn loopback_is_admitted_only_when_allowed() {
+        let lo: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(answers(vec![lo]).resolve_vetted("svc.test", 80).is_err());
+        assert!(answers(vec![lo])
+            .allow_loopback()
+            .resolve_vetted("svc.test", 80)
+            .is_ok());
+    }
+
+    #[test]
+    fn local_first_admits_rfc1918_but_not_cgnat_link_local_or_metadata() {
+        let rfc1918: IpAddr = "192.168.1.5".parse().unwrap();
+        assert!(answers(vec![rfc1918])
+            .local_first()
+            .resolve_vetted("svc.test", 80)
+            .is_ok());
+        let meta: IpAddr = "169.254.169.254".parse().unwrap();
+        assert!(answers(vec![meta])
+            .local_first()
+            .resolve_vetted("svc.test", 80)
+            .is_err());
+        let cgnat: IpAddr = "100.64.0.1".parse().unwrap();
+        assert!(answers(vec![cgnat])
+            .local_first()
+            .resolve_vetted("svc.test", 80)
+            .is_err());
+    }
+
+    #[test]
+    fn mixed_loopback_answers_are_refused_when_asked() {
+        let mixed: Vec<IpAddr> = vec![
+            "127.0.0.1".parse().unwrap(),
+            "93.184.216.34".parse().unwrap(),
+        ];
+        assert!(answers(mixed.clone())
+            .allow_loopback()
+            .resolve_vetted("svc.test", 80)
+            .is_ok());
+        assert!(answers(mixed)
+            .allow_loopback()
+            .refuse_mixed_loopback()
+            .resolve_vetted("svc.test", 80)
+            .is_err());
+    }
+}
+
+/// Why [`validate_public_https_url`] refused a URL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum UrlPolicyError {
+    /// The URL is not `https://`, or it has no `scheme://` separator.
+    NotHttps,
+    /// The authority carries userinfo (`user:pass@host`).
+    Credentials,
+    /// The host is empty.
+    NoHost,
+    /// The host is a non-public address, a local or internal name, or a single-label name.
+    NonPublicHost,
+    /// The authority or host is not a shape this check accepts (a legacy IPv4 spelling such as
+    /// `0x7f.1`, or an unclosed IPv6 bracket).
+    Malformed,
+}
+
+impl fmt::Display for UrlPolicyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotHttps => "URL must use https",
+            Self::Credentials => "URL must not carry credentials",
+            Self::NoHost => "URL has no host",
+            Self::NonPublicHost => "URL host is not a public address",
+            Self::Malformed => "URL is malformed",
+        })
+    }
+}
+
+impl Error for UrlPolicyError {}
+
+/// Check that `url` is a plain public `https` URL: scheme `https` (any case), no userinfo, a
+/// host that is a public IP literal or a multi-label name, and no `localhost`, `.localhost`,
+/// `.local` or `.internal` name. The check reads the string only; it does not resolve the host.
+/// The SSRF guard of [`crate::Client`] still vets the resolved addresses on every request.
+/// Query strings and fragments are allowed and not inspected.
+pub fn validate_public_https_url(url: &str) -> Result<(), UrlPolicyError> {
+    let (scheme, rest) = url.split_once("://").ok_or(UrlPolicyError::NotHttps)?;
+    if !scheme.eq_ignore_ascii_case("https") {
+        return Err(UrlPolicyError::NotHttps);
+    }
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.contains('@') {
+        return Err(UrlPolicyError::Credentials);
+    }
+    // Split the authority into host and optional port first. A bracketed host is an IPv6
+    // literal; anything else splits at the last colon.
+    let (bracketed, raw_host, port) = if let Some(inner) = authority.strip_prefix('[') {
+        let (literal, after) = inner.split_once(']').ok_or(UrlPolicyError::Malformed)?;
+        let port = match after {
+            "" => None,
+            _ => Some(after.strip_prefix(':').ok_or(UrlPolicyError::Malformed)?),
+        };
+        (true, literal, port)
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) => (false, host, Some(port)),
+            None => (false, authority, None),
+        }
+    };
+    if let Some(port) = port {
+        validate_url_port(port)?;
+    }
+    if bracketed {
+        let addr = raw_host
+            .parse::<Ipv6Addr>()
+            .map_err(|_| UrlPolicyError::Malformed)?;
+        return if classify_ip(IpAddr::V6(addr)) == AddressClass::Public {
+            Ok(())
+        } else {
+            Err(UrlPolicyError::NonPublicHost)
+        };
+    }
+    // Normalize before any classification: decode percent escapes, lowercase, and drop the
+    // trailing root dots, so `localhost.` and `%31%32%37.0.0.1` cannot pass as public names.
+    // Delimiters are rejected here, for unbracketed text only.
+    let host = normalize_url_host(raw_host)?;
+    if let Some(parsed) = parse_host_ip(&host) {
+        if parsed.kind == HostIpKind::Ipv4Legacy {
+            return Err(UrlPolicyError::Malformed);
+        }
+        return if classify_ip(parsed.addr) == AddressClass::Public {
+            Ok(())
+        } else {
+            Err(UrlPolicyError::NonPublicHost)
+        };
+    }
+    let local_name = host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal");
+    if local_name || !host.contains('.') {
+        return Err(UrlPolicyError::NonPublicHost);
+    }
+    Ok(())
+}
+
+/// Accept an empty port (the scheme default) or a decimal port in `1..=65535`.
+fn validate_url_port(port: &str) -> Result<(), UrlPolicyError> {
+    if port.is_empty() {
+        return Ok(());
+    }
+    if !port.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(UrlPolicyError::Malformed);
+    }
+    match port.parse::<u16>() {
+        Ok(0) | Err(_) => Err(UrlPolicyError::Malformed),
+        Ok(_) => Ok(()),
+    }
+}
+
+/// Percent-decode a URL host, lowercase it, and strip trailing root dots. Escapes must be
+/// two hex digits and the decoded host must not contain delimiters, controls or whitespace.
+fn normalize_url_host(raw: &str) -> Result<String, UrlPolicyError> {
+    let bytes = raw.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let digits = bytes.get(i + 1..i + 3).ok_or(UrlPolicyError::Malformed)?;
+            if !digits.iter().all(u8::is_ascii_hexdigit) {
+                return Err(UrlPolicyError::Malformed);
+            }
+            let text = std::str::from_utf8(digits).map_err(|_| UrlPolicyError::Malformed)?;
+            decoded.push(u8::from_str_radix(text, 16).map_err(|_| UrlPolicyError::Malformed)?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    let text = String::from_utf8(decoded).map_err(|_| UrlPolicyError::Malformed)?;
+    if text.chars().any(|c| {
+        c.is_control()
+            || c.is_whitespace()
+            || matches!(c, '/' | '\\' | '?' | '#' | '@' | '%' | '[' | ']' | ':')
+    }) {
+        return Err(UrlPolicyError::Malformed);
+    }
+    let host = text.to_ascii_lowercase();
+    let host = host.trim_end_matches('.');
+    if host.is_empty() {
+        return Err(UrlPolicyError::NoHost);
+    }
+    Ok(host.to_string())
+}
+
+#[cfg(test)]
+mod public_url_tests {
+    use super::*;
+
+    #[test]
+    fn plain_public_https_urls_pass() {
+        assert_eq!(
+            validate_public_https_url("https://example.com/path?q=1#frag"),
+            Ok(())
+        );
+        assert_eq!(
+            validate_public_https_url("HTTPS://Example.COM:8443"),
+            Ok(())
+        );
+        assert_eq!(validate_public_https_url("https://93.184.216.34/x"), Ok(()));
+        assert_eq!(
+            validate_public_https_url("https://[2606:4700::1111]/"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn non_https_and_credentials_are_refused() {
+        assert_eq!(
+            validate_public_https_url("http://example.com"),
+            Err(UrlPolicyError::NotHttps)
+        );
+        assert_eq!(
+            validate_public_https_url("example.com"),
+            Err(UrlPolicyError::NotHttps)
+        );
+        assert_eq!(
+            validate_public_https_url("https://user:pw@example.com"),
+            Err(UrlPolicyError::Credentials)
+        );
+    }
+
+    #[test]
+    fn local_and_private_hosts_are_refused() {
+        for url in [
+            "https://localhost/",
+            "https://api.localhost/",
+            "https://printer.local/",
+            "https://db.internal/",
+            "https://intranet/",
+            "https://127.0.0.1/",
+            "https://10.0.0.5/",
+            "https://169.254.169.254/latest",
+            "https://[::1]/",
+            "https://[fd00::1]/",
+        ] {
+            assert_eq!(
+                validate_public_https_url(url),
+                Err(UrlPolicyError::NonPublicHost),
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_ipv4_spellings_and_empty_hosts_are_refused() {
+        assert_eq!(
+            validate_public_https_url("https://0x7f.1/"),
+            Err(UrlPolicyError::Malformed)
+        );
+        assert_eq!(
+            validate_public_https_url("https:///path"),
+            Err(UrlPolicyError::NoHost)
+        );
+        assert_eq!(
+            validate_public_https_url("https://[::1/"),
+            Err(UrlPolicyError::Malformed)
+        );
+    }
+
+    #[test]
+    fn trailing_dot_local_names_are_refused() {
+        for url in [
+            "https://localhost./",
+            "https://LOCALHOST../x",
+            "https://printer.local./",
+            "https://db.internal./",
+            "https://api.localhost./",
+            "https://intranet./",
+            "https://127.0.0.1./",
+        ] {
+            assert_eq!(
+                validate_public_https_url(url),
+                Err(UrlPolicyError::NonPublicHost),
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn percent_encoded_hosts_are_decoded_before_classification() {
+        assert_eq!(
+            validate_public_https_url("https://%31%32%37.0.0.1/"),
+            Err(UrlPolicyError::NonPublicHost)
+        );
+        assert_eq!(
+            validate_public_https_url("https://%31%32%37.0.0.1./"),
+            Err(UrlPolicyError::NonPublicHost)
+        );
+        assert_eq!(
+            validate_public_https_url("https://%6c%6f%63%61%6c%68%6f%73%74/"),
+            Err(UrlPolicyError::NonPublicHost)
+        );
+        assert_eq!(
+            validate_public_https_url("https://%2fexample.com/"),
+            Err(UrlPolicyError::Malformed)
+        );
+        assert_eq!(
+            validate_public_https_url("https://exa%3Fmple.com/"),
+            Err(UrlPolicyError::Malformed)
+        );
+        assert_eq!(
+            validate_public_https_url("https://example%2.com/"),
+            Err(UrlPolicyError::Malformed)
+        );
+        assert_eq!(
+            validate_public_https_url("https://%+1.example.com/"),
+            Err(UrlPolicyError::Malformed)
+        );
+        assert_eq!(
+            validate_public_https_url("https://%25.example.com/"),
+            Err(UrlPolicyError::Malformed)
+        );
+    }
+
+    #[test]
+    fn trailing_dot_public_names_and_valid_ports_pass() {
+        assert_eq!(validate_public_https_url("https://example.com./x"), Ok(()));
+        assert_eq!(
+            validate_public_https_url("https://example.com:443/"),
+            Ok(())
+        );
+        assert_eq!(validate_public_https_url("https://example.com:/"), Ok(()));
+        assert_eq!(
+            validate_public_https_url("https://[2606:4700::1111]:8443/"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn invalid_ports_are_refused() {
+        for url in [
+            "https://example.com:0/",
+            "https://example.com:65536/",
+            "https://example.com:abc/",
+            "https://example.com:+443/",
+            "https://example.com:80:90/",
+            "https://[2606:4700::1111]:0/",
+            "https://[2606:4700::1111]x/",
+        ] {
+            assert_eq!(
+                validate_public_https_url(url),
+                Err(UrlPolicyError::Malformed),
+                "{url}"
+            );
+        }
     }
 }

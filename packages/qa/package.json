@@ -15,10 +15,14 @@
     "./chrome": {
       "types": "./dist/chrome.d.ts",
       "import": "./dist/chrome.js"
-    }
+    },
+    "./ts-register": "./ts-register.mjs",
+    "./ts-hooks": "./ts-hooks.mjs"
   },
   "files": [
     "dist",
+    "ts-register.mjs",
+    "ts-hooks.mjs",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"
@@ -28,7 +32,7 @@
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @rightkit/qa-chrome build && pnpm run build && vitest run && node --test public-storage.test.mjs"
+    "test": "pnpm --filter @rightkit/qa-chrome build && pnpm run build && vitest run && node --test public-storage.test.mjs ts-register.test.mjs"
   },
   "dependencies": {
     "@rightkit/qa-chrome": "0.1.6"

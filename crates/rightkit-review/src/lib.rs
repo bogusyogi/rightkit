@@ -24,14 +24,20 @@
 //!    [`VerdictRecord::verify_current`] refuses a stored verdict once either changed.
 //! 7. [`ladder`] is the autonomy ladder (reviewed, review-light, autonomous) per
 //!    content type and platform, with overridable thresholds and a versioned state.
+//!
+//! Product delivery QA uses [`qa`] for severity-aware checks & persisted reports,
+//! plus [`delivery`] for pure decode/probe/caption rules. These APIs preserve
+//! existing content-pipeline verdict & declared-hold semantics.
 
 #![forbid(unsafe_code)]
 
 mod binding;
+pub mod delivery;
 mod error;
 mod extension;
 mod judge;
 pub mod ladder;
+pub mod qa;
 mod record;
 mod repair;
 mod rules;
