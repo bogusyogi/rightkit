@@ -423,7 +423,7 @@ function denialMessage(blocked) {
   if (blocked.startsWith('github-actions-only:')) {
     return `[HOOK:rustright-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions (RustRight does not run public-repository builds locally).`;
   }
-  return `[HOOK:rustright-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight (`rustright cargo ...`, `rustright rustc ...` or `rustright rustdoc ...`). Cargo or rustup on another host over ssh is allowed.`;
+  return `[HOOK:rustright-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight ("rustright cargo ...", "rustright rustc ..." or "rustright rustdoc ..."). Cargo or rustup on another host over ssh is allowed.`;
 }
 
 export function claudeHookDecision(input) {

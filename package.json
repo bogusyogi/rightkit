@@ -4,11 +4,12 @@
   "description": "Canonical source workspace for shared RightKit npm packages and Rust crates.",
   "packageManager": "pnpm@11.24.0",
   "scripts": {
+    "check:syntax": "node scripts/check-syntax.mjs",
     "test:pdf-ui": "pnpm --filter @rightkit/pdf-ui test",
     "test:doc-render": "pnpm --filter @rightkit/doc-render test",
     "test:settings-ui": "pnpm --filter @rightkit/settings-ui test",
     "test:onboarding": "pnpm --filter @rightkit/onboarding test",
-    "test": "pnpm run test:legal && pnpm run test:legal-ui && pnpm run test:license && pnpm run test:logs && pnpm run test:platform-ui && pnpm run test:tauri && pnpm run test:app-update && pnpm run test:release && pnpm run test:ci && pnpm run test:hooks && pnpm run test:ax && pnpm run test:qa && pnpm run test:doc-render && pnpm run test:pdf-ui && pnpm run test:settings-ui && pnpm run test:onboarding && pnpm run test:theme && pnpm run test:react-shell && pnpm run test:i18n && pnpm run test:media-ui && pnpm run test:qa-chrome && pnpm run test:ownership-approval && pnpm run test:characterization && pnpm run test:infrastructure",
+    "test": "node scripts/check-syntax.mjs && pnpm run test:legal && pnpm run test:legal-ui && pnpm run test:license && pnpm run test:logs && pnpm run test:platform-ui && pnpm run test:tauri && pnpm run test:app-update && pnpm run test:release && pnpm run test:ci && pnpm run test:hooks && pnpm run test:ax && pnpm run test:qa && pnpm run test:doc-render && pnpm run test:pdf-ui && pnpm run test:settings-ui && pnpm run test:onboarding && pnpm run test:theme && pnpm run test:react-shell && pnpm run test:i18n && pnpm run test:media-ui && pnpm run test:qa-chrome && pnpm run test:ownership-approval && pnpm run test:characterization && pnpm run test:infrastructure",
     "test:theme": "pnpm --dir packages/theme test",
     "test:react-shell": "pnpm --dir packages/react-shell test",
     "test:i18n": "pnpm --dir packages/i18n test",
