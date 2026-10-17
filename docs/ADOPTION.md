@@ -35,10 +35,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-automation` | crates.io | 0.4.4 | 0.4.1 | 0 | none | - |
 | `rightkit-browser` | crates.io | 0.3.4 | 0.3.1 | 0 | none | - |
 | `rightkit-cache` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
-| `rightkit-channel-memory` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-channel-memory` | crates.io | 0.2.1 | 0.1.0 | 0 | none | - |
 | `rightkit-child-process` | crates.io | 0.4.3 | 0.4.1 | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-contracts` | crates.io | 0.1.5 | 0.1.5 | 0 | none | - |
+| `rightkit-contracts` | crates.io | 0.1.7 | 0.1.5 | 0 | none | - |
 | `rightkit-crash` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
 | `rightkit-credentials` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
 | `rightkit-daemon` | crates.io | 0.2.7 | 0.2.3 | 0 | none | - |
@@ -64,7 +64,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.2 | 0 | none | - |
 | `rightkit-onnx` | crates.io | 0.2.6 | 0.2.3 | 0 | none | - |
 | `rightkit-overlay` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
-| `rightkit-ownership` | crates.io | 0.3.0 | 0.2.1 | 0 | none | - |
+| `rightkit-ownership` | crates.io | 0.3.1 | 0.2.1 | 0 | none | - |
 | `rightkit-pdf` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-playback` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
@@ -77,7 +77,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-send` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-sidecar` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
 | `rightkit-speech-client` | crates.io | 0.3.6 | 0.3.5 | 0 | none | - |
-| `rightkit-spend` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-spend` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-sync` | crates.io | 0.2.1 | 0.1.1 | 0 | none | - |
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-tauri-shell` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
