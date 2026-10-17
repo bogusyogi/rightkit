@@ -199,7 +199,7 @@ export function renderRuntimeBudgetBody(budget) {
     const host = `${m.host?.os}/${m.host?.arch}${m.host?.model ? ` (${m.host.model})` : ""}`;
     const scale = `${count(m.dataScale?.count)} ${m.dataScale?.unit} (${m.dataScale?.description})`;
     const app = m.scope === "installed" && m.app ? `, app ${m.app.name} ${m.app.version}` : "";
-    const observed = BUDGET_FIGURES.map((k) => `${FIGURE_LABEL[k]} ${m.observed?.[k] === undefined ? "n/a" : FORMAT[k](m.observed[k])}`).join(", ");
+    const observed = BUDGET_FIGURES.map((k) => `${FIGURE_LABEL[k]} ${m.observed?.[k] === undefined || m.observed?.[k] === null ? "n/a (not measurable on this host)" : FORMAT[k](m.observed[k])}`).join(", ");
     out.push(`- Measured: ${host}, ${budget.crate} ${m.crateVersion} at ${String(m.commit).slice(0, 12)}, ${scale}, ${m.scope}${app}, \`${m.command}\`, ${m.date}, evidence ${String(m.evidence?.sha256 ?? "none").slice(0, 12)}: ${observed}.`);
   }
   return out;
@@ -291,6 +291,10 @@ export function measurementStaleness(commit, crateDir, git = defaultGit, deps = 
 
 // ---------------------------------------------------------------- bench evidence
 
+// Figures a host cannot measure by design. macOS has no per-process disk-operation count (rightkit-child-process
+// usage.rs: ru_inblock/ru_oublock stay 0 there), so disk_ops_per_s may be "unavailable" on darwin only.
+export const HOST_UNAVAILABLE_FIGURES = Object.freeze({ darwin: Object.freeze(["diskOpsPerSecond"]) });
+export const figureUnavailableOn = (os, key) => (HOST_UNAVAILABLE_FIGURES[os] ?? []).includes(key);
 const RESULT_NUMBERS = Object.freeze({ resident_bytes: "residentMemoryBytes", idle_cpu_percent: "idleCpuPercent", wakeups_per_s: "wakeupsPerSecond", disk_ops_per_s: "diskOpsPerSecond", scale_count: "scaleCount" });
 const RESULT_WORDS = Object.freeze(["crate", "version", "scale_unit"]);
 
@@ -312,7 +316,8 @@ export function parseBudgetResult(text) {
   for (const key of RESULT_WORDS) { if (!nonEmpty(fields[key])) problems.push(`missing field ${key}`); else value[key] = fields[key]; }
   for (const [key, name] of Object.entries(RESULT_NUMBERS)) {
     const n = Number(fields[key]);
-    if (fields[key] === undefined || fields[key] === "" || !Number.isFinite(n) || n < 0) problems.push(`field ${key} must be a non-negative number`);
+    if (fields[key] === "unavailable" && name !== "residentMemoryBytes" && name !== "scaleCount") value[name] = null;
+    else if (fields[key] === undefined || fields[key] === "" || !Number.isFinite(n) || n < 0) problems.push(`field ${key} must be a non-negative number`);
     else value[name] = n;
   }
   return problems.length ? { ok: false, problems } : { ok: true, problems: [], value };
@@ -412,6 +417,7 @@ function validateMeasurement(m, index) {
   }
   if (!nonEmpty(m.command)) problems.push(`${at} has no command`);
   for (const key of BUDGET_FIGURES) {
+    if (m.observed?.[key] === null && figureUnavailableOn(m.host?.os, key)) continue;
     if (!isNumber(m.observed?.[key]) || m.observed[key] < 0) problems.push(`${at} observed.${key} must be a non-negative number`);
   }
   if (isNumber(m.observed?.residentMemoryBytes) && m.observed.residentMemoryBytes === 0) {
@@ -507,12 +513,12 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
   }
   for (const { m, index } of counted) {
     for (const key of BUDGET_FIGURES) {
-      if (ceilings[key] !== undefined && m.observed[key] > ceilings[key]) {
+      if (ceilings[key] !== undefined && m.observed[key] !== null && m.observed[key] > ceilings[key]) {
         problems.push(`measurement[${index}] on ${m.host.os}/${m.host.arch} exceeds the ${FIGURE_LABEL[key]} ceiling: observed ${m.observed[key]} > ${ceilings[key]}`);
       }
     }
   }
-  const withinCeilings = (m) => BUDGET_FIGURES.every((key) => ceilings[key] !== undefined && m.observed[key] <= ceilings[key]);
+  const withinCeilings = (m) => BUDGET_FIGURES.every((key) => ceilings[key] !== undefined && (m.observed[key] === null ? figureUnavailableOn(m.host?.os, key) : m.observed[key] <= ceilings[key]));
   const atScale = (m) => requiredScale !== null && m.dataScale.unit === requiredScale.unit && m.dataScale.count >= requiredScale.minCount;
   const staleness = new Map();
   const stale = (m) => {
@@ -768,7 +774,7 @@ export function appRuntimeBudgetAdoptionCheck({ appRoot, app, version, cargoLock
       if (evidenceProblems.length) { problems.push(`${crate}: ${evidenceProblems.join("; ")}`); return false; }
       if (m.app.name !== app) { problems.push(`${crate}: measurement[${index}] is for app ${m.app.name}, not ${app}`); return false; }
       if (version && m.app.version !== version) { problems.push(`${crate}: measurement[${index}] was taken at ${app} ${m.app.version}, not the current ${version}`); return false; }
-      const over = BUDGET_FIGURES.filter((k) => m.observed[k] > ceilings[k]);
+      const over = BUDGET_FIGURES.filter((k) => m.observed[k] !== null && m.observed[k] > ceilings[k]);
       if (over.length) { problems.push(`${crate}: measurement[${index}] exceeds ${over.join(", ")}`); return false; }
       if (m.dataScale.unit !== requiredScale.unit || m.dataScale.count < requiredScale.minCount) { problems.push(`${crate}: measurement[${index}] is below the required scale ${requiredScale.minCount} ${requiredScale.unit}`); return false; }
       return true;
@@ -813,6 +819,9 @@ export function recordMeasurement({ crateDir, resultFile, scope, command, descri
   const v = parsed.value;
   if (v.crate !== pkg.name) throw new Error(`bench output is for ${v.crate}, crate is ${pkg.name}`);
   if (v.version !== pkg.version) throw new Error(`bench output is for version ${v.version}, crate is ${pkg.version}`);
+  for (const key of BUDGET_FIGURES) {
+    if (v[key] === null && !figureUnavailableOn(host.os, key)) throw new Error(`bench output rejected: ${key} is unavailable, which is allowed only where the host cannot measure it (${JSON.stringify(HOST_UNAVAILABLE_FIGURES)})`);
+  }
   if (!SCOPES.includes(scope)) throw new Error(`--scope must be one of ${SCOPES.join(", ")}`);
   if (scope === "installed" && !(nonEmpty(app?.name) && nonEmpty(app?.version))) throw new Error("--scope installed needs --app and --app-version");
   if (!nonEmpty(command)) throw new Error("--command (the exact bench command) is required");
