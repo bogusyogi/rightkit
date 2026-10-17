@@ -8,6 +8,7 @@ import { spawnSync } from "./background-process.mjs";
 import { checkApp, checkCommittedAppForTest, evaluate, scanApp, SCANNER_VERSION } from "./ownership.mjs";
 import { canonicalJson, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
 import { ownershipVerdict } from "./ownership-verdict.mjs";
+import { transitiveDependencies } from "./ownership-lockfiles.mjs";
 
 const catalog = { schema: 1, version: "1", capabilities: [
   { package: "@rightkit/browser", capability: "browser", fingerprints: [{ id: "browser.npm.banned", type: "dependency", ecosystem: "npm", name: "puppeteer-core", tier: "block", policy: "banned" }] },
@@ -188,4 +189,80 @@ test("committed scanner uses lockfile blobs & ignores worktree tampering", () =>
     assert.deepEqual(result.findings[0].dependencyPath, ["app", "wrapper", "puppeteer-core"]);
     assert.deepEqual(result.coverage, []);
   });
+});
+
+// Workspace membership decides which manifests must resolve to a lock root.
+function membershipScan(files) {
+  const entries = Object.entries(files).map(([rel, text]) => ({ rel, bytes: Buffer.from(text) }));
+  const manifests = entries.filter((file) => /(?:^|\/)(?:Cargo\.toml|package\.json)$/.test(file.rel));
+  const coverage = [], digests = [];
+  const result = transitiveDependencies("/unused", { files: entries, committed: true }, manifests, new Set(), coverage, digests, []);
+  return { coverage, info: result.info };
+}
+const crateManifest = (name) => `[package]\nname="${name}"\nversion="1.0.0"\n`;
+const cargoWorkspaceFiles = {
+  "Cargo.toml": '[workspace]\nmembers=["crates/*"]\nexclude=["crates/skip"]\n',
+  "Cargo.lock": 'version=4\n[[package]]\nname="a"\nversion="1.0.0"\n',
+  "crates/a/Cargo.toml": crateManifest("a"),
+  "crates/b/Cargo.toml": crateManifest("b"),
+  "crates/skip/Cargo.toml": crateManifest("skip"),
+  "fixtures/f/Cargo.toml": crateManifest("fixture"),
+};
+const unresolvedGaps = (coverage) => coverage.filter((c) => c.reason === "lockfile-root-unresolved").map((c) => c.detail).sort();
+const outsideInfo = (info) => info.filter((i) => i.reason === "manifest-outside-workspace").map((i) => i.detail).sort();
+
+test("Cargo: a workspace member present in the lock resolves with no gap and no info", () => {
+  const { coverage, info } = membershipScan(cargoWorkspaceFiles);
+  assert.ok(!unresolvedGaps(coverage).includes("crates/a/Cargo.toml"));
+  assert.ok(!outsideInfo(info).includes("crates/a/Cargo.toml"));
+});
+test("Cargo: a manifest outside the workspace is info, never a coverage gap", () => {
+  const { coverage, info } = membershipScan(cargoWorkspaceFiles);
+  assert.ok(outsideInfo(info).includes("fixtures/f/Cargo.toml"));
+  assert.ok(!unresolvedGaps(coverage).includes("fixtures/f/Cargo.toml"));
+  assert.ok(info.every((entry) => entry.status === "info"));
+});
+test("Cargo: a path under workspace.exclude is info, never a coverage gap", () => {
+  const { coverage, info } = membershipScan(cargoWorkspaceFiles);
+  assert.ok(outsideInfo(info).includes("crates/skip/Cargo.toml"));
+  assert.ok(!unresolvedGaps(coverage).includes("crates/skip/Cargo.toml"));
+});
+test("Cargo: a member missing from the lock is still a coverage gap", () => {
+  const { coverage, info } = membershipScan(cargoWorkspaceFiles);
+  assert.deepEqual(unresolvedGaps(coverage), ["crates/b/Cargo.toml"]);
+  assert.ok(!outsideInfo(info).includes("crates/b/Cargo.toml"));
+});
+test("Cargo: a path dependency inside the workspace directory is a member, so a missing lock entry stays a gap", () => {
+  const { coverage } = membershipScan({
+    "Cargo.toml": '[package]\nname="root"\nversion="1.0.0"\n[dependencies]\nhelper={path="tools/helper"}\n[workspace]\nmembers=[]\n',
+    "Cargo.lock": 'version=4\n[[package]]\nname="root"\nversion="1.0.0"\n',
+    "tools/helper/Cargo.toml": crateManifest("helper"),
+  });
+  assert.deepEqual(unresolvedGaps(coverage), ["tools/helper/Cargo.toml"]);
+});
+test("Cargo: with no workspace definition every manifest stays a root and an unresolved one is a gap", () => {
+  const { coverage, info } = membershipScan({ "Cargo.toml": crateManifest("a"), "Cargo.lock": 'version=4\n[[package]]\nname="a"\nversion="1.0.0"\n', "sub/Cargo.toml": crateManifest("sub") });
+  assert.deepEqual(unresolvedGaps(coverage), ["sub/Cargo.toml"]);
+  assert.deepEqual(info, []);
+});
+
+const pnpmWorkspaceFiles = {
+  "pnpm-workspace.yaml": "packages:\n  - packages/*\n  # parked\n  - '!packages/parked'\n\noverrides:\n  x: 1.0.0\n",
+  "pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters:\n  .: {}\n  packages/a: {}\npackages: {}\nsnapshots: {}\n",
+  "package.json": json({ name: "root" }),
+  "packages/a/package.json": json({ name: "a" }),
+  "packages/missing/package.json": json({ name: "missing" }),
+  "packages/parked/package.json": json({ name: "parked" }),
+  "tools/x/package.json": json({ name: "x" }),
+};
+test("pnpm: importers resolve, negated and unlisted manifests are info, a member missing from the lock is a gap", () => {
+  const { coverage, info } = membershipScan(pnpmWorkspaceFiles);
+  assert.deepEqual(unresolvedGaps(coverage), ["packages/missing/package.json"]);
+  assert.deepEqual(outsideInfo(info), ["packages/parked/package.json", "tools/x/package.json"]);
+});
+test("pnpm: without pnpm-workspace.yaml every manifest stays a root and an unresolved one is a gap", () => {
+  const { "pnpm-workspace.yaml": _omitted, ...files } = pnpmWorkspaceFiles;
+  const { coverage, info } = membershipScan(files);
+  assert.deepEqual(unresolvedGaps(coverage), ["packages/missing/package.json", "packages/parked/package.json", "tools/x/package.json"]);
+  assert.deepEqual(info, []);
 });

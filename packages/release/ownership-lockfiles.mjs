@@ -89,9 +89,79 @@ function parsePnpmYaml(text) {
   return root;
 }
 
+// Workspace membership: a manifest is a root of a lock only when the lock's workspace owns it.
+// Membership is decided only from a definition we fully understand; anything else (no
+// definition, unsupported glob syntax, unparsable file) returns null = "every manifest is a
+// member", which keeps the unresolved-root gap rather than hiding it.
+const UNSUPPORTED_GLOB = /[\[\]{}\\]/;
+const globPath = (value) => path.posix.normalize(String(value).trim().replace(/^(?:\.\/)+/, "").replace(/\/+$/, "") || ".").replace(/^\.$/, "");
+function matchSegments(pattern, parts) {
+  if (!pattern.length) return !parts.length;
+  if (pattern[0] === "**") { for (let i = 0; i <= parts.length; i++) if (matchSegments(pattern.slice(1), parts.slice(i))) return true; return false; }
+  if (!parts.length) return false;
+  const source = [...pattern[0]].map((c) => c === "*" ? "[^/]*" : c === "?" ? "[^/]" : c.replace(/[.+^$|()]/g, "\\$&")).join("");
+  return new RegExp(`^${source}$`).test(parts[0]) && matchSegments(pattern.slice(1), parts.slice(1));
+}
+function globMatches(glob, rel) {
+  if (UNSUPPORTED_GLOB.test(glob)) throw new Error("unsupported glob syntax");
+  const pattern = globPath(glob), segments = pattern ? pattern.split("/") : [];
+  return matchSegments(segments, rel ? rel.split("/") : []);
+}
+/** A directory or any of its ancestors matches the glob. */
+const underGlob = (glob, rel) => { const parts = rel ? rel.split("/") : []; for (let n = parts.length; n >= 1; n--) if (globMatches(glob, parts.slice(0, n).join("/"))) return true; return false; };
+const stringList = (value) => { if (value === undefined) return []; if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new Error("not a string list"); return value; };
+const dependencyTables = ["dependencies", "dev-dependencies", "build-dependencies"];
+function cargoPathDependencies(doc) {
+  const out = [], take = (table) => { if (object(table)) for (const dep of Object.values(table)) if (object(dep) && typeof dep.path === "string") out.push(dep.path); };
+  for (const name of dependencyTables) take(doc[name]);
+  take(doc.workspace?.dependencies);
+  if (object(doc.target)) for (const target of Object.values(doc.target)) if (object(target)) for (const name of dependencyTables) take(target[name]);
+  return out;
+}
+/** Predicate over a manifest directory relative to the lock directory ("" is the root), or null when undecidable. */
+function cargoMembership(manifests, lockDir) {
+  try {
+    const rootRel = path.posix.join(lockDir, "Cargo.toml"), docs = new Map();
+    for (const { rel, bytes } of manifests) { try { docs.set(path.posix.relative(lockDir, path.posix.dirname(rel)), parseToml(bytes.toString("utf8"))); } catch { /* a bad manifest fails its own parse later */ } }
+    const root = docs.get("");
+    if (!manifests.some((m) => m.rel === rootRel) || !root || !object(root.workspace)) return null;
+    const patterns = [...stringList(root.workspace.members), ...stringList(root.workspace["default-members"])], excludes = stringList(root.workspace.exclude);
+    const excluded = (rel) => excludes.some((glob) => underGlob(glob, rel));
+    const members = new Set([""]), queue = [""];
+    for (const rel of docs.keys()) if (rel && !excluded(rel) && patterns.some((glob) => globMatches(glob, rel))) { members.add(rel); queue.push(rel); }
+    // Cargo adds path dependencies that live inside the workspace directory as members too.
+    for (let at = 0; at < queue.length; at++) for (const dep of cargoPathDependencies(docs.get(queue[at]) ?? {})) {
+      const target = path.posix.normalize(path.posix.join(queue[at] || ".", dep)).replace(/^\.$/, "");
+      if (target.startsWith("..") || path.posix.isAbsolute(target) || members.has(target) || excluded(target)) continue;
+      members.add(target); queue.push(target);
+    }
+    return (rel) => members.has(rel);
+  } catch { return null; }
+}
+/** pnpm-workspace.yaml `packages:` globs; the root importer is always a member. */
+function pnpmMembership(bytes) {
+  if (!bytes) return null;
+  try {
+    const lines = bytes.toString("utf8").split(/\r?\n/), globs = [];
+    const start = lines.findIndex((line) => /^packages\s*:/.test(line));
+    if (start < 0) return null;
+    const inline = lines[start].replace(/^packages\s*:/, "").replace(/\s+#.*$/, "").trim();
+    if (inline) { const list = scalar(inline); if (!Array.isArray(list)) return null; globs.push(...list); }
+    else for (const line of lines.slice(start + 1)) {
+      if (!line.trim() || /^\s*#/.test(line)) continue;
+      if (!/^\s+-\s/.test(line)) break;
+      globs.push(scalar(line.replace(/^\s+-\s+/, "").replace(/\s+#.*$/, "")));
+    }
+    if (!globs.length || globs.some((glob) => typeof glob !== "string" || !glob.replace(/^!/, ""))) return null;
+    const positive = globs.filter((glob) => !glob.startsWith("!")), negative = globs.filter((glob) => glob.startsWith("!")).map((glob) => glob.slice(1));
+    for (const glob of globs) globMatches(glob.replace(/^!/, ""), ""); // throws on unsupported syntax
+    return (rel) => !rel || positive.some((glob) => globMatches(glob, rel)) && !negative.some((glob) => underGlob(glob, rel));
+  } catch { return null; }
+}
+
 function graph() {
   const nodes = new Map(), roots = [];
-  return { nodes, roots, diagnostics: [], add(id, name, version, source, local = false) {
+  return { nodes, roots, diagnostics: [], info: [], add(id, name, version, source, local = false) {
     if (typeof name !== "string" || !name || typeof version !== "string" || !version) fail("package name/version missing");
     const node = { id, name, version, source, local, edges: [] }; nodes.set(id, node); return node;
   } };
@@ -107,7 +177,7 @@ function sourceFor(value, fallback = "registry") {
   if (typeof value === "string" && /^(git\+|git:|https?:.*\.git)/.test(value)) return value.startsWith("git+") ? value : `git+${value}`;
   return value || fallback;
 }
-function cargoGraph(text, manifests) {
+function cargoGraph(text, manifests, lockDir) {
   const lock = parseToml(text), g = graph();
   if (!Array.isArray(lock.package) || ![1, 2, 3, 4].includes(lock.version ?? 1)) throw new LockError("lockfile-unsupported-format", "Cargo lock version/package list");
   for (const [i, pkg] of lock.package.entries()) g.add(String(i), pkg.name, pkg.version, pkg.source ?? `path:${pkg.name}`, !pkg.source);
@@ -121,11 +191,16 @@ function cargoGraph(text, manifests) {
       connect(g.nodes.get(String(i)), candidates.length === 1 ? candidates[0] : null, ref);
     }
   }
+  const membership = cargoMembership(manifests, lockDir);
   for (const { rel, bytes } of manifests) {
     const pkg = parseToml(bytes.toString("utf8")).package;
     if (!pkg) continue; // Virtual workspace: member manifests supply roots.
     const candidates = [...g.nodes.values()].filter((n) => n.name === pkg.name && n.local && (typeof pkg.version !== "string" || n.version === pkg.version));
-    if (candidates.length !== 1) { g.diagnostics.push({ reason: "lockfile-root-unresolved", detail: rel }); continue; }
+    if (candidates.length !== 1) {
+      // Only a manifest the workspace does not own is informational; a member that fails to resolve is a gap.
+      const outside = membership && !membership(path.posix.relative(lockDir, path.posix.dirname(rel)));
+      (outside ? g.info : g.diagnostics).push({ reason: outside ? "manifest-outside-workspace" : "lockfile-root-unresolved", detail: rel }); continue;
+    }
     g.roots.push(candidates[0].id);
   }
   return g;
@@ -169,7 +244,7 @@ function packageLockGraph(text, manifests, lockDir) {
   }
   return g;
 }
-function pnpmGraph(text, manifests, lockDir) {
+function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
   const lock = parsePnpmYaml(text), version = String(lock.lockfileVersion), g = graph();
   if (!/^(?:9|6)(?:\.\d+)?$/.test(version) || !object(lock.importers) || !object(lock.packages ?? {})) throw new LockError("lockfile-unsupported-format", "pnpm requires v6/v9 importers");
   const v9 = version.startsWith("9"), packages = lock.packages ?? {}, snapshots = v9 ? lock.snapshots ?? {} : packages;
@@ -211,9 +286,13 @@ function pnpmGraph(text, manifests, lockDir) {
       for (const [name, raw] of Object.entries(pkg[section] ?? {})) connect(node, resolve(node, name, raw), name, section === "optionalDependencies");
     }
   }
+  const membership = pnpmMembership(workspaceBytes);
   for (const { rel, bytes } of manifests) {
     const id = path.posix.relative(lockDir, path.posix.dirname(rel)) || ".", node = g.nodes.get(`importer:${id}`);
-    if (!node) { g.diagnostics.push({ reason: "lockfile-root-unresolved", detail: rel }); continue; }
+    if (!node) {
+      const outside = membership && !membership(id === "." ? "" : id);
+      (outside ? g.info : g.diagnostics).push({ reason: outside ? "manifest-outside-workspace" : "lockfile-root-unresolved", detail: rel }); continue;
+    }
     node.name = JSON.parse(bytes.toString("utf8")).name ?? id;
     const pkg = JSON.parse(bytes.toString("utf8")), importer = lock.importers[id];
     for (const section of sections) for (const name of Object.keys(pkg[section] ?? {})) if (!Object.hasOwn(importer[section] ?? {}, name)) g.diagnostics.push({ reason: "lockfile-root-unresolved", detail: `${rel}: ${section}.${name}` });
@@ -224,7 +303,7 @@ function pnpmGraph(text, manifests, lockDir) {
 
 /** Lock bytes stay bound to the scan inventory or committed snapshot; no installed graph reads. */
 export function transitiveDependencies(appRoot, inventory, manifests, catalogOwners, coverage, contentDigests, targets) {
-  const result = [], cache = new Map(), groups = new Map(), files = new Map(inventory.files.map((file) => [file.rel, file])), targetNames = new Set(targets);
+  const result = [], info = [], cache = new Map(), groups = new Map(), files = new Map(inventory.files.map((file) => [file.rel, file])), targetNames = new Set(targets);
   const diagnostic = (rel, reason, detail) => coverage.push({ path: rel, status: "unscanned", reason, ...(detail ? { detail } : {}) });
   const read = (rel) => {
     if (cache.has(rel)) return cache.get(rel);
@@ -268,8 +347,10 @@ export function transitiveDependencies(appRoot, inventory, manifests, catalogOwn
     try {
       const text = read(rel).toString("utf8"), base = path.posix.basename(rel), dir = path.posix.dirname(rel);
       if (base === "yarn.lock") throw new LockError("lockfile-unsupported-format", "yarn transitive graph");
-      const g = group.ecosystem === "cargo" ? cargoGraph(text, group.manifests) : base === "pnpm-lock.yaml" ? pnpmGraph(text, group.manifests, dir) : packageLockGraph(text, group.manifests, dir);
+      const g = group.ecosystem === "cargo" ? cargoGraph(text, group.manifests, dir) : base === "pnpm-lock.yaml" ? pnpmGraph(text, group.manifests, dir, read(path.posix.join(dir, "pnpm-workspace.yaml"))) : packageLockGraph(text, group.manifests, dir);
       for (const entry of g.diagnostics) diagnostic(rel, entry.reason, entry.detail);
+      // Non-blocking: manifests outside the lock's workspace are reported, never counted as coverage gaps.
+      for (const entry of g.info) info.push({ path: rel, status: "info", reason: entry.reason, detail: entry.detail });
       for (const node of g.nodes.values()) for (const detail of node.unresolved ?? []) diagnostic(rel, "lockfile-unresolved-dependency", detail);
       // Retain only nodes leading to block fingerprints. Unrelated lock inventory cannot
       // multiply traversal work; owner boundaries cannot authorize app/workspace nodes.
@@ -307,5 +388,7 @@ export function transitiveDependencies(appRoot, inventory, manifests, catalogOwn
       }
     } catch (error) { diagnostic(rel, error.reason ?? "lockfile-parse-failed", error.message); }
   }
-  return result.sort((a, b) => a.dependencyPath.length - b.dependencyPath.length || JSON.stringify(a.dependencyPath).localeCompare(JSON.stringify(b.dependencyPath)));
+  result.sort((a, b) => a.dependencyPath.length - b.dependencyPath.length || JSON.stringify(a.dependencyPath).localeCompare(JSON.stringify(b.dependencyPath)));
+  Object.defineProperty(result, "info", { value: info, enumerable: false });
+  return result;
 }

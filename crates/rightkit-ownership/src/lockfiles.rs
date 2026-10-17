@@ -288,6 +288,7 @@ struct Graph {
     index: HashMap<String, usize>,
     roots: Vec<usize>,
     diagnostics: Vec<(String, String)>,
+    info: Vec<(String, String)>,
 }
 
 impl Graph {
@@ -395,7 +396,7 @@ fn parse_cargo_ref(reference: &str) -> Option<(&str, Option<&str>, Option<&str>)
     source_of(rest).map(|_| (name, None, Some(&rest[2..rest.len() - 1])))
 }
 
-fn cargo_graph(text: &str, manifests: &[&File]) -> R<Graph> {
+fn cargo_graph(text: &str, manifests: &[&File], lock_dir: &str) -> R<Graph> {
     let lock = parse_toml_value(text)?;
     let mut g = Graph::default();
     let packages = match field(&lock, "package").as_array() {
@@ -448,6 +449,7 @@ fn cargo_graph(text: &str, manifests: &[&File]) -> R<Graph> {
             g.connect(i, target, reference, false);
         }
     }
+    let membership = cargo_membership(manifests, lock_dir);
     for manifest in manifests {
         let Some(bytes) = &manifest.bytes else {
             continue;
@@ -466,8 +468,18 @@ fn cargo_graph(text: &str, manifests: &[&File]) -> R<Graph> {
             .map(|(at, _)| at)
             .collect();
         if candidates.len() != 1 {
-            g.diagnostics
-                .push(("lockfile-root-unresolved".into(), manifest.rel.clone()));
+            // Only a manifest the workspace does not own is informational; a member that
+            // fails to resolve is a gap.
+            let outside = membership.as_ref().is_some_and(|members| {
+                !members.contains(&posix_relative(lock_dir, &posix_dirname(&manifest.rel)))
+            });
+            if outside {
+                g.info
+                    .push(("manifest-outside-workspace".into(), manifest.rel.clone()));
+            } else {
+                g.diagnostics
+                    .push(("lockfile-root-unresolved".into(), manifest.rel.clone()));
+            }
             continue;
         }
         g.roots.push(candidates[0]);
@@ -636,7 +648,12 @@ fn pnpm_identity(id: &str) -> R<(String, String)> {
     Ok((name.to_string(), version[..end].to_string()))
 }
 
-fn pnpm_graph(text: &str, manifests: &[&File], lock_dir: &str) -> R<Graph> {
+fn pnpm_graph(
+    text: &str,
+    manifests: &[&File],
+    lock_dir: &str,
+    workspace: Option<&Bytes>,
+) -> R<Graph> {
     let lock = parse_pnpm_yaml(text)?;
     let version = js_string(field(&lock, "lockfileVersion"));
     let version_ok = {
@@ -778,6 +795,7 @@ fn pnpm_graph(text: &str, manifests: &[&File], lock_dir: &str) -> R<Graph> {
             }
         }
     }
+    let membership = pnpm_membership(workspace);
     for manifest in manifests {
         let Some(bytes) = &manifest.bytes else {
             continue;
@@ -789,8 +807,16 @@ fn pnpm_graph(text: &str, manifests: &[&File], lock_dir: &str) -> R<Graph> {
             relative
         };
         let Some(at) = g.get(&format!("importer:{id}")) else {
-            g.diagnostics
-                .push(("lockfile-root-unresolved".into(), manifest.rel.clone()));
+            let outside = membership
+                .as_ref()
+                .is_some_and(|m| !m.is_member(if id == "." { "" } else { &id }));
+            if outside {
+                g.info
+                    .push(("manifest-outside-workspace".into(), manifest.rel.clone()));
+            } else {
+                g.diagnostics
+                    .push(("lockfile-root-unresolved".into(), manifest.rel.clone()));
+            }
             continue;
         };
         let pkg: Value = serde_json::from_slice(bytes).or_else(|e| fail(&e.to_string()))?;
@@ -818,6 +844,282 @@ fn pnpm_graph(text: &str, manifests: &[&File], lock_dir: &str) -> R<Graph> {
         g.roots.push(at);
     }
     Ok(g)
+}
+
+// ---- workspace membership ---------------------------------------------------------
+//
+// A manifest is a root of a lock only when the lock's workspace owns it. Membership is
+// decided only from a definition we fully understand; anything else (no definition,
+// unsupported glob syntax, unparsable file) is `None` = "every manifest is a member",
+// which keeps the unresolved-root gap rather than hiding it.
+
+struct UnsupportedGlob;
+
+fn glob_path(value: &str) -> String {
+    let mut text = value.trim();
+    while let Some(rest) = text.strip_prefix("./") {
+        text = rest;
+    }
+    let text = text.trim_end_matches('/');
+    let normalized = posix_normalize(if text.is_empty() { "." } else { text });
+    if normalized == "." {
+        String::new()
+    } else {
+        normalized
+    }
+}
+
+fn match_segment(pattern: &[char], text: &[char]) -> bool {
+    match pattern.first() {
+        None => text.is_empty(),
+        Some('*') => (0..=text.len()).any(|at| match_segment(&pattern[1..], &text[at..])),
+        Some('?') => !text.is_empty() && match_segment(&pattern[1..], &text[1..]),
+        Some(c) => text.first() == Some(c) && match_segment(&pattern[1..], &text[1..]),
+    }
+}
+
+fn match_segments(pattern: &[&str], parts: &[&str]) -> bool {
+    let Some(first) = pattern.first() else {
+        return parts.is_empty();
+    };
+    if *first == "**" {
+        return (0..=parts.len()).any(|at| match_segments(&pattern[1..], &parts[at..]));
+    }
+    let Some(part) = parts.first() else {
+        return false;
+    };
+    let (p, t): (Vec<char>, Vec<char>) = (first.chars().collect(), part.chars().collect());
+    match_segment(&p, &t) && match_segments(&pattern[1..], &parts[1..])
+}
+
+fn split_rel(rel: &str) -> Vec<&str> {
+    if rel.is_empty() {
+        Vec::new()
+    } else {
+        rel.split('/').collect()
+    }
+}
+
+fn glob_matches(glob: &str, rel: &str) -> Result<bool, UnsupportedGlob> {
+    if glob.contains(['[', ']', '{', '}', '\\']) {
+        return Err(UnsupportedGlob);
+    }
+    let pattern = glob_path(glob);
+    Ok(match_segments(&split_rel(&pattern), &split_rel(rel)))
+}
+
+/// The directory or any of its ancestors matches the glob.
+fn under_glob(glob: &str, rel: &str) -> Result<bool, UnsupportedGlob> {
+    let parts = split_rel(rel);
+    for count in (1..=parts.len()).rev() {
+        if glob_matches(glob, &parts[..count].join("/"))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn string_list(value: &Value) -> Result<Vec<String>, UnsupportedGlob> {
+    match value {
+        Value::Null => Ok(Vec::new()),
+        Value::Array(list) => list
+            .iter()
+            .map(|item| item.as_str().map(String::from).ok_or(UnsupportedGlob))
+            .collect(),
+        _ => Err(UnsupportedGlob),
+    }
+}
+
+const DEPENDENCY_TABLES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
+
+fn collect_path_dependencies(table: &Value, out: &mut Vec<String>) {
+    if let Some(map) = table.as_object() {
+        for dep in map.values() {
+            if let Some(path) = dep.get("path").and_then(Value::as_str) {
+                out.push(path.to_string());
+            }
+        }
+    }
+}
+
+fn cargo_path_dependencies(doc: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for name in DEPENDENCY_TABLES {
+        collect_path_dependencies(field(doc, name), &mut out);
+    }
+    collect_path_dependencies(field(field(doc, "workspace"), "dependencies"), &mut out);
+    if let Some(targets) = field(doc, "target").as_object() {
+        for target in targets.values().filter(|t| t.is_object()) {
+            for name in DEPENDENCY_TABLES {
+                collect_path_dependencies(field(target, name), &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn decide_cargo_membership(
+    manifests: &[&File],
+    lock_dir: &str,
+) -> Result<Option<HashSet<String>>, UnsupportedGlob> {
+    let root_rel = posix_join(&[lock_dir, "Cargo.toml"]);
+    let mut docs: Vec<(String, Value)> = Vec::new();
+    for manifest in manifests {
+        let Some(bytes) = &manifest.bytes else {
+            continue;
+        };
+        // A bad manifest fails its own parse later.
+        if let Ok(doc) = parse_toml_value(&String::from_utf8_lossy(bytes)) {
+            docs.push((posix_relative(lock_dir, &posix_dirname(&manifest.rel)), doc));
+        }
+    }
+    let doc_of = |rel: &str| docs.iter().find(|(r, _)| r == rel).map(|(_, d)| d);
+    let Some(root) = doc_of("") else {
+        return Ok(None);
+    };
+    if !manifests.iter().any(|m| m.rel == root_rel) || !field(root, "workspace").is_object() {
+        return Ok(None);
+    }
+    let workspace = field(root, "workspace");
+    let mut patterns = string_list(field(workspace, "members"))?;
+    patterns.extend(string_list(field(workspace, "default-members"))?);
+    let excludes = string_list(field(workspace, "exclude"))?;
+    let excluded = |rel: &str| -> Result<bool, UnsupportedGlob> {
+        for glob in &excludes {
+            if under_glob(glob, rel)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    };
+    let mut members: HashSet<String> = HashSet::from([String::new()]);
+    let mut queue: Vec<String> = vec![String::new()];
+    for (rel, _) in &docs {
+        if rel.is_empty() || excluded(rel)? {
+            continue;
+        }
+        for glob in &patterns {
+            if glob_matches(glob, rel)? {
+                if members.insert(rel.clone()) {
+                    queue.push(rel.clone());
+                }
+                break;
+            }
+        }
+    }
+    // Cargo adds path dependencies that live inside the workspace directory as members too.
+    let mut at = 0;
+    while at < queue.len() {
+        let base = queue[at].clone();
+        at += 1;
+        let Some(doc) = doc_of(&base) else {
+            continue;
+        };
+        for dep in cargo_path_dependencies(doc) {
+            let start = if base.is_empty() { "." } else { base.as_str() };
+            let joined = posix_join(&[start, &dep]);
+            let target = if joined == "." { String::new() } else { joined };
+            if target.starts_with("..")
+                || target.starts_with('/')
+                || members.contains(&target)
+                || excluded(&target)?
+            {
+                continue;
+            }
+            members.insert(target.clone());
+            queue.push(target);
+        }
+    }
+    Ok(Some(members))
+}
+
+/// Member directories (relative to the lock directory, "" is the root), or `None` when
+/// the workspace is undecidable.
+fn cargo_membership(manifests: &[&File], lock_dir: &str) -> Option<HashSet<String>> {
+    decide_cargo_membership(manifests, lock_dir).ok().flatten()
+}
+
+/// pnpm-workspace.yaml `packages:` globs; the root importer is always a member.
+struct PnpmMembership {
+    positive: Vec<String>,
+    negative: Vec<String>,
+}
+
+impl PnpmMembership {
+    fn is_member(&self, rel: &str) -> bool {
+        rel.is_empty()
+            || (self
+                .positive
+                .iter()
+                .any(|glob| glob_matches(glob, rel).unwrap_or(false))
+                && !self
+                    .negative
+                    .iter()
+                    .any(|glob| under_glob(glob, rel).unwrap_or(false)))
+    }
+}
+
+fn pnpm_membership(bytes: Option<&Bytes>) -> Option<PnpmMembership> {
+    let text = String::from_utf8_lossy(bytes?).into_owned();
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    let packages_rest = |line: &str| -> Option<String> {
+        line.strip_prefix("packages")
+            .and_then(|rest| rest.trim_start().strip_prefix(':'))
+            .map(String::from)
+    };
+    let start = lines.iter().position(|line| packages_rest(line).is_some())?;
+    let mut globs: Vec<String> = Vec::new();
+    let inline = strip_comment(&packages_rest(lines[start])?)
+        .trim()
+        .to_string();
+    if !inline.is_empty() {
+        let Value::Array(list) = scalar(&inline).ok()? else {
+            return None;
+        };
+        for item in list {
+            globs.push(item.as_str()?.to_string());
+        }
+    } else {
+        for line in &lines[start + 1..] {
+            if line.trim().is_empty() || line.trim_start().starts_with('#') {
+                continue;
+            }
+            let trimmed = line.trim_start();
+            let item = trimmed
+                .strip_prefix('-')
+                .filter(|rest| line.len() > trimmed.len() && rest.starts_with(char::is_whitespace));
+            let Some(item) = item else {
+                break;
+            };
+            let value = scalar(strip_comment(item.trim_start())).ok()?;
+            globs.push(value.as_str()?.to_string());
+        }
+    }
+    if globs.is_empty() || globs.iter().any(|g| g.trim_start_matches('!').is_empty()) {
+        return None;
+    }
+    let mut positive = Vec::new();
+    let mut negative = Vec::new();
+    for glob in &globs {
+        match glob.strip_prefix('!') {
+            Some(rest) => negative.push(rest.to_string()),
+            None => positive.push(glob.clone()),
+        }
+        // Rejects unsupported syntax up front.
+        glob_matches(glob.trim_start_matches('!'), "").ok()?;
+    }
+    Some(PnpmMembership { positive, negative })
+}
+
+/// A manifest the lock's workspace does not own (non-blocking; never a coverage gap).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutsideWorkspace {
+    pub lockfile: String,
+    pub reason: String,
+    pub manifest: String,
 }
 
 /// A transitive dependency found through a lock graph.
@@ -860,6 +1162,27 @@ pub fn transitive_dependencies(
     content_digests: &mut Vec<ContentDigest>,
     targets: &HashSet<String>,
 ) -> Vec<Transitive> {
+    transitive_dependencies_with_info(
+        ctx,
+        manifests,
+        catalog_owners,
+        coverage,
+        content_digests,
+        targets,
+    )
+    .0
+}
+
+/// As `transitive_dependencies`, plus the non-blocking `manifest-outside-workspace` entries.
+pub fn transitive_dependencies_with_info(
+    ctx: &LockContext<'_>,
+    manifests: &[&File],
+    catalog_owners: &HashSet<String>,
+    coverage: &mut Vec<Cov>,
+    content_digests: &mut Vec<ContentDigest>,
+    targets: &HashSet<String>,
+) -> (Vec<Transitive>, Vec<OutsideWorkspace>) {
+    let mut info: Vec<OutsideWorkspace> = Vec::new();
     let mut result: Vec<Transitive> = Vec::new();
     let mut cache: HashMap<String, Option<Bytes>> = HashMap::new();
     let mut groups: Vec<(String, &'static str, Vec<&File>)> = Vec::new();
@@ -986,9 +1309,14 @@ pub fn transitive_dependencies(
                 return unsupported("yarn transitive graph");
             }
             let g = if *ecosystem == "cargo" {
-                cargo_graph(&text, group)?
+                cargo_graph(&text, group, &dir)?
             } else if base == "pnpm-lock.yaml" {
-                pnpm_graph(&text, group, &dir)?
+                let workspace = read(
+                    &posix_join(&[&dir, "pnpm-workspace.yaml"]),
+                    coverage,
+                    content_digests,
+                )?;
+                pnpm_graph(&text, group, &dir, workspace.as_ref())?
             } else {
                 package_lock_graph(&text, group, &dir)?
             };
@@ -998,6 +1326,13 @@ pub fn transitive_dependencies(
                     reason.clone(),
                     detail.clone(),
                 ));
+            }
+            for (reason, manifest) in &g.info {
+                info.push(OutsideWorkspace {
+                    lockfile: rel.clone(),
+                    reason: reason.clone(),
+                    manifest: manifest.clone(),
+                });
             }
             for node in &g.nodes {
                 for detail in &node.unresolved {
@@ -1108,7 +1443,7 @@ pub fn transitive_dependencies(
                 )
             })
     });
-    result
+    (result, info)
 }
 
 /// TOML text as JSON, preserving document order.
@@ -1150,5 +1485,198 @@ mod tests {
             value["packages"]["a@1.0.0"]["resolution"]["integrity"],
             "sha512-x"
         );
+    }
+
+    fn scan(files: &[(&str, &str)]) -> (Vec<Cov>, Vec<OutsideWorkspace>) {
+        let files: Vec<File> = files
+            .iter()
+            .map(|(rel, text)| File {
+                rel: (*rel).into(),
+                abs: std::path::PathBuf::new(),
+                size: None,
+                bytes: Some(std::sync::Arc::new(text.as_bytes().to_vec())),
+                oid: None,
+                digest: None,
+                cache_key: None,
+                in_node_modules: false,
+            })
+            .collect();
+        let manifests: Vec<&File> = files
+            .iter()
+            .filter(|f| f.rel.ends_with("Cargo.toml") || f.rel.ends_with("package.json"))
+            .collect();
+        let ctx = LockContext {
+            app_root: Path::new("."),
+            files: &files,
+            committed: true,
+        };
+        let mut coverage = Vec::new();
+        let mut digests = Vec::new();
+        let (_, info) = transitive_dependencies_with_info(
+            &ctx,
+            &manifests,
+            &HashSet::new(),
+            &mut coverage,
+            &mut digests,
+            &HashSet::new(),
+        );
+        (coverage, info)
+    }
+
+    fn crate_manifest(name: &str) -> String {
+        format!("[package]\nname=\"{name}\"\nversion=\"1.0.0\"\n")
+    }
+
+    fn gaps(coverage: &[Cov]) -> Vec<String> {
+        let mut out: Vec<String> = coverage
+            .iter()
+            .filter(|c| c.reason == "lockfile-root-unresolved")
+            .filter_map(|c| c.detail.clone())
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn outside(info: &[OutsideWorkspace]) -> Vec<String> {
+        let mut out: Vec<String> = info
+            .iter()
+            .filter(|i| i.reason == "manifest-outside-workspace")
+            .map(|i| i.manifest.clone())
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn cargo_workspace() -> Vec<(&'static str, String)> {
+        vec![
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers=[\"crates/*\"]\nexclude=[\"crates/skip\"]\n".into(),
+            ),
+            (
+                "Cargo.lock",
+                "version=4\n[[package]]\nname=\"a\"\nversion=\"1.0.0\"\n".into(),
+            ),
+            ("crates/a/Cargo.toml", crate_manifest("a")),
+            ("crates/b/Cargo.toml", crate_manifest("b")),
+            ("crates/skip/Cargo.toml", crate_manifest("skip")),
+            ("fixtures/f/Cargo.toml", crate_manifest("fixture")),
+        ]
+    }
+
+    fn scan_owned(files: &[(&str, String)]) -> (Vec<Cov>, Vec<OutsideWorkspace>) {
+        let borrowed: Vec<(&str, &str)> = files.iter().map(|(r, t)| (*r, t.as_str())).collect();
+        scan(&borrowed)
+    }
+
+    #[test]
+    fn cargo_member_in_the_lock_resolves() {
+        let (coverage, info) = scan_owned(&cargo_workspace());
+        assert!(!gaps(&coverage).contains(&"crates/a/Cargo.toml".to_string()));
+        assert!(!outside(&info).contains(&"crates/a/Cargo.toml".to_string()));
+    }
+
+    #[test]
+    fn cargo_manifest_outside_the_workspace_is_info_not_a_gap() {
+        let (coverage, info) = scan_owned(&cargo_workspace());
+        assert!(outside(&info).contains(&"fixtures/f/Cargo.toml".to_string()));
+        assert!(!gaps(&coverage).contains(&"fixtures/f/Cargo.toml".to_string()));
+    }
+
+    #[test]
+    fn cargo_excluded_path_is_info_not_a_gap() {
+        let (coverage, info) = scan_owned(&cargo_workspace());
+        assert!(outside(&info).contains(&"crates/skip/Cargo.toml".to_string()));
+        assert!(!gaps(&coverage).contains(&"crates/skip/Cargo.toml".to_string()));
+    }
+
+    #[test]
+    fn cargo_member_missing_from_the_lock_is_still_a_gap() {
+        let (coverage, info) = scan_owned(&cargo_workspace());
+        assert_eq!(gaps(&coverage), vec!["crates/b/Cargo.toml".to_string()]);
+        assert!(!outside(&info).contains(&"crates/b/Cargo.toml".to_string()));
+    }
+
+    #[test]
+    fn cargo_path_dependency_inside_the_workspace_is_a_member() {
+        let (coverage, _) = scan_owned(&[
+            (
+                "Cargo.toml",
+                "[package]\nname=\"root\"\nversion=\"1.0.0\"\n[dependencies]\nhelper={path=\"tools/helper\"}\n[workspace]\nmembers=[]\n".into(),
+            ),
+            (
+                "Cargo.lock",
+                "version=4\n[[package]]\nname=\"root\"\nversion=\"1.0.0\"\n".into(),
+            ),
+            ("tools/helper/Cargo.toml", crate_manifest("helper")),
+        ]);
+        assert_eq!(gaps(&coverage), vec!["tools/helper/Cargo.toml".to_string()]);
+    }
+
+    #[test]
+    fn cargo_without_a_workspace_definition_keeps_the_gap() {
+        let (coverage, info) = scan_owned(&[
+            ("Cargo.toml", crate_manifest("a")),
+            (
+                "Cargo.lock",
+                "version=4\n[[package]]\nname=\"a\"\nversion=\"1.0.0\"\n".into(),
+            ),
+            ("sub/Cargo.toml", crate_manifest("sub")),
+        ]);
+        assert_eq!(gaps(&coverage), vec!["sub/Cargo.toml".to_string()]);
+        assert!(info.is_empty());
+    }
+
+    fn pnpm_workspace() -> Vec<(&'static str, String)> {
+        let manifest = |name: &str| format!("{{\"name\":\"{name}\"}}");
+        vec![
+            (
+                "pnpm-workspace.yaml",
+                "packages:\n  - packages/*\n  # parked\n  - '!packages/parked'\n\noverrides:\n  x: 1.0.0\n".into(),
+            ),
+            (
+                "pnpm-lock.yaml",
+                "lockfileVersion: '9.0'\nimporters:\n  .: {}\n  packages/a: {}\npackages: {}\nsnapshots: {}\n".into(),
+            ),
+            ("package.json", manifest("root")),
+            ("packages/a/package.json", manifest("a")),
+            ("packages/missing/package.json", manifest("missing")),
+            ("packages/parked/package.json", manifest("parked")),
+            ("tools/x/package.json", manifest("x")),
+        ]
+    }
+
+    #[test]
+    fn pnpm_membership_splits_info_from_gaps() {
+        let (coverage, info) = scan_owned(&pnpm_workspace());
+        assert_eq!(
+            gaps(&coverage),
+            vec!["packages/missing/package.json".to_string()]
+        );
+        assert_eq!(
+            outside(&info),
+            vec![
+                "packages/parked/package.json".to_string(),
+                "tools/x/package.json".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn pnpm_without_a_workspace_file_keeps_every_gap() {
+        let files: Vec<(&str, String)> = pnpm_workspace()
+            .into_iter()
+            .filter(|(rel, _)| *rel != "pnpm-workspace.yaml")
+            .collect();
+        let (coverage, info) = scan_owned(&files);
+        assert_eq!(
+            gaps(&coverage),
+            vec![
+                "packages/missing/package.json".to_string(),
+                "packages/parked/package.json".to_string(),
+                "tools/x/package.json".to_string()
+            ]
+        );
+        assert!(info.is_empty());
     }
 }
