@@ -2,12 +2,13 @@
   "schema": 1,
   "crate": "rightkit-sync",
   "ceilings": {
-    "residentMemoryBytes": null,
+    "residentMemoryBytes": 1073741824,
     "idleCpuPercent": 1,
     "wakeupsPerSecond": 1,
     "diskOpsPerSecond": 1
   },
   "ceilingSources": {
+    "residentMemoryBytes": "bounded provisional ceiling of 1 GiB (below the 1400 MiB 2x option) set after LedgerStore::mutate stopped cloning the whole ledger per mutation (#344); to be re-derived by the rule 2x the larger measured resident set, rounded up to a whole MiB, once the bench is recorded on both hosts for the fixed build; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
     "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
     "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
@@ -29,5 +30,5 @@
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
   "measurements": [],
-  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. residentMemoryBytes left null: measured 728 MB (macOS) and 208 MB (Windows) for a 100,000-record zone, +218 MB during steady passes at constant record count on macOS, with every pass costing 222 ms mean and 80 percent CPU for 200 edits; unattributed growth and O(total records) passes are defects, not a budget."
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources). Memory profile: the ledger is held once in memory plus one encoded copy (the rollback source) that each save replaces; there is no per-mutation whole-ledger clone. The 0.1.1 evidence figures (728 MB macOS, 208 MB Windows for a 100,000-record zone) predate that change; the per-pass local item listing (LocalStore::all) is the remaining O(records) term."
 }

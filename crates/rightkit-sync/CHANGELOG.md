@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `LedgerStore::mutate` no longer clones the whole ledger per mutation for rollback; it keeps the last persisted bytes and restores from them on a failed save (same persisted-state semantics, tests in `src/ledger.rs`). Declares a bounded `residentMemoryBytes` ceiling in `runtime-budget.json` (bogusyogi/rightkit#344).
+
 ## 0.2.1
 
 Nothing compiled or run locally; verification is the CI run.
