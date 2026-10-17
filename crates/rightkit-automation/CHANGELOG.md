@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (next minor: El is opaque)
+## 0.4.4 (2026-10-17)
 
 Breaking only for code that reached into `win::uia::El`'s public field; otherwise additive. Code-only: nothing in this section was compiled or run when written (the Windows items need a Windows build and run), so the Windows CI run is the verification. Requested in rightkit#360 (HeardRight full UIA cutover).
 

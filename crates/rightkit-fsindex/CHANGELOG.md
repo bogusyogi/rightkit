@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-10-17)
+
+- Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+
 ## 0.4.0
 
 Windows backend (Orthic-Labs/rightkit#228, for Pulse #177). Additive: no existing item changed. Pulse wires it behind a default-Off setting; nothing indexes a Windows disk unless the host opts in.

@@ -31,7 +31,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
 getrandom = "0.4"
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "fmt", "json", "env-filter"], optional = true }
 tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }

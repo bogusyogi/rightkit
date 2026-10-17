@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.9 (2026-10-17)
 
 - `DecodeOptions` gained public `max_duration` and `audio_stream_index` (both `Option`, default `None`) plus `Default` and builder methods. Literals using `..Default::default()` keep compiling; exhaustive literals must name the two fields (source-breaking, deliberate).
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 (2026-10-17)
 
 - Fix: `recover_interrupted_restore` no longer drops the journal while sidecars of the previous store are still at the kept name. A stop between the renames of a put-back (main file back, `-wal`/`-shm`/`-journal` not yet) now resumes the sidecar moves whether or not the live main file exists; the journal goes only after every kept file is back, so committed WAL-only rows are not lost. Not compiled when written.
 - Fix: a quarantine whose sidecar step fails after the main file moved is rolled back in reverse order (nothing deleted or overwritten). A deleted sidecar cannot come back, so then the move stays and the error says `quarantine incomplete`, with the marker kept. `open_writer_migrated_or_degrade` journals the quarantine as `<db>.quarantine-journal` and reports a stranded partial move as `Degraded { quarantined: Some(main file's new path), quarantine_incomplete: true, in_memory: true }`, never as an untouched store; while that journal exists it stays in memory instead of creating a replacement over the split files. `Degraded` gained `quarantine_incomplete` (the type is new in this release). Not compiled when written.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-10-17)
 
 - Hashtag maximum (Orthic-Labs/rightkit#460): `Catalog::hashtag_max` / `hashtag_max_at` read the `caption.hashtags` rule (unit `hashtags`) as a `u32`. Seeded `instagram.caption.hashtags` (30) and `instagram.caption.mentions` (20).
 - Link placement (#460): `LinkPlacement` (`caption`, `first_comment`, `link_sticker`, `bio`, `none`), `LINK_PLACEMENTS`, `Catalog::link_placements` / `link_placements_at`, `Planned::link_placement`. A `link.placement` enum rule that names any other value is refused on load.

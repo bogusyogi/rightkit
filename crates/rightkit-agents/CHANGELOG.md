@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 - `discovery::run_bounded` drains stdout and stderr concurrently, each capped at `discovery::PROBE_OUTPUT_CAP` (64 KiB). With feature `session` the deadline terminates the whole process tree through `rightkit_child_process::run`; without it only the direct child is killed and pipes are waited on for at most 2 s after exit. `discovery.rs` is a new file in this working tree, not in HEAD.
 - `session::SessionConfig::extras: SessionExtras` (new field; build with `SessionConfig::new` and assign fields). It holds `claude: ClaudeExtras`, `env_remove` and `unknown_policy`. `SessionConfig` struct literals no longer compile.

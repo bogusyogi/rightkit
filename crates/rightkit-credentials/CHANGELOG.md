@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 (2026-10-17)
 
 - Added (rightkit#509): `Store::generate_key(bytes) -> Result<Secret>`, a public fresh-key generator (OS CSPRNG, standard base64 text, 16..=1024 bytes, nothing stored) for rotation keys; `get_or_create_key` now uses it. Additive.
 - Added (rightkit#611): `apple_helper::resolve_bundled(name) -> Option<PathBuf>` resolves a helper under `Contents/{MacOS,Helpers,Library/LoginItems}` of the running app's bundle, canonical, regular file, contained in the bundle, `None` on any doubt or a name with a path component. Placement only; no code-signature check. Additive.

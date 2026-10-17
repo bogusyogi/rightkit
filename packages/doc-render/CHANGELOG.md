@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 - Sanitizer policy hooks (#395): `safeLinkHref(href, { allowTel, allowRelative })` and `sanitizeHtml`/`sanitizeMarkdownHtml(html, { allowTel, allowRelative, resolveImageSrc })`. Both link additions default off; tag, attribute and CSS allowlists are unchanged, and `javascript:`, `data:`, `srcdoc`, event handlers and styles stay refused. `resolveImageSrc` runs on relative image sources only; its return value is host-trusted.
 - `==highlight==` support (`highlight: true` parse option, `remarkHighlight`, rendered as `<mark>`), 8 MiB byte-capped parse cache (`configureMarkdownParseCache`, `getMarkdownParseCacheBytes`), and `renderMarkdownToHtml` (HTML string with the same policies) (#395).

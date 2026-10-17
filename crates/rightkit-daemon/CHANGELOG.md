@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.7 (2026-10-17)
 
 Issues #375, #376, #384, #453 (listener part), #504, #596, #377 (public routes). Written without compiling or running the build tool here; CI builds and runs the tests. The crate version is unchanged.
 

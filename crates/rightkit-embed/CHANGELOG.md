@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-10-17)
 
 - **Resident int8 vector index.** New `ResidentIndex` (`src/resident.rs`) and `VectorStore::resident_index(model_id)`: one read of a model's vectors into memory, each row quantised to `i8` with one `f32` scale (`absmax / 127`). `ResidentIndex::nearest(query, limit)` scores by cosine on the dequantised rows and orders ties by key, like `VectorStore::nearest`, without a SQLite scan per query. It is a snapshot: later writes are not seen. Written, unverified: not compiled or run.
 - **Reciprocal-rank fusion.** New `reciprocal_rank_fusion(&[&[K]], k)` and `RRF_K` (60) in `src/fusion.rs`: sums `1 / (k + rank)` per item over ranked lists, returns best first, ties in first-appearance order. No feature gate and no dependency. Written, unverified.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-17)
 
 - **Gap batch 2 (bogusyogi/rightkit#385, #445, #475, #675 and the ci-lane workflows item; package.json version and `rightkit-versions.json` stay with root integration; checked only with single node test files).**
   - **`right-git-ci-only` accepts workflow files declared under `.rightgit.json` `workflows` (release.mjs `validateHostedWorkflows`).** The expected file set is the lane files plus each `workflows` entry's `file` (else `<name>.yml`, as `@rightkit/ci` `workflowFilename`); every one still must carry the `# Managed by right-git` marker and passes the same permission and secret refusals; an undeclared file, a malformed `workflows` value or an unsafe file name is still refused. Test in `release.test.mjs`.

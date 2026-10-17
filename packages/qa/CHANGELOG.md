@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (after 0.4.8)
+## 0.5.0 (2026-10-17)
 
 Additive except where noted. Nothing here was built or run.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 - Added (rightkit#156, bounded piece): `crash` module. `install_panic_recorder(dir)` chains a panic hook that writes one report per panic (bridge version, time, thread, source location; never the panic message), keeps the newest 8, and `pending_reports`, `read_report` (name-validated, size-bounded) and `clear_reports` serve the next launch. `AppPaths::crash_dir()` is `<files_dir>/crashes`. Still deferred: native signal crash capture and the Java `UncaughtExceptionHandler`, and AAudio capture (needs `libaaudio` linking and a device pass). Not compiled or run here.
 

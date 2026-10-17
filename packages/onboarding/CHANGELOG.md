@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-10-17)
 
 Added (#619, CodeRight port; additive, defaults unchanged):
 - `OnboardingStep.onContinue(ctx)`: runs before Continue/Finish advances. `false` or a throw keeps the step and shows the error; `void`/`true` advances.

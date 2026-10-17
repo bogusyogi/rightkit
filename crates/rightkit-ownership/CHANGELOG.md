@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-17)
 
 - **Git URL classification fails closed; pinned-git records reach evidence (Astra wave 4).** `deps.rs` now classifies Git URLs with the `url` crate (schemes http, https, ssh, git and their `git+`/`ssh+` forms) and a separate scp parser (`[user@]host:org/repo`); the host is lowercased with default and explicit ports, userinfo and a trailing dot removed, so `https://github.com:443/Orthic-Labs/x` and `ssh://git@github.com:2222/Orthic-Labs/x` are first-party. `file:`, other schemes, local or path-like text, `localhost`, IP literals, numeric or escaped org segments and unparseable text are treated as first-party, so they stay fatal `git-dependency-source` gaps. `Scanned` gains `coverage_notes`, built from `DepsResult.covered` as `{path, status: "pinned-git-dependency", reason, fingerprint, scanned: false}` (the field shape of `deps.covered` in `ownership.mjs`); they appear as `coverageNotes` in the report, in `metadata`, and in the aggregated evidence result, are never counted as coverage gaps, and `verdict.rs` validates them (status must be `pinned-git-dependency`, `scanned` must be `false`). Not built or run here.
 - **BREAKING (source): `DepsResult` has a new required public field `covered: Vec<Covered>`.** Code that builds or exhaustively destructures `DepsResult` (or `Scanned`, which gained `coverage_notes`) must add the field or use `..`. Nothing in this repository constructs either outside the crate.

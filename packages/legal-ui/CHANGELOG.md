@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-17)
 
 Additive (bogusyogi/rightkit#470). `LegalGate` props are unchanged.
 

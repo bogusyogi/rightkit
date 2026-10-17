@@ -49,7 +49,7 @@ qa-probes = []
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.3.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 - Added `opacity` module (rightkit#351): validated `Opacity` (`new`, `clamped`, `as_f64`, `as_f32`, `constant_track`), a `FrameFade` primitive with `opacity_at` and `opacity_track`, and `OpacityError`. `ClipVisual` opacity is validated through it.
 - Added signed source time (rightkit#350): `SignedTicks`, `source_time_at_signed`, and frame conversions `frame_to_ticks`, `ticks_to_frame`, `frame_at_ticks`, `Rational::from_frames_rounded`. Non-whole-tick frame rates now round as the Rational helpers define.

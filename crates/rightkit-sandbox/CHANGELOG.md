@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-10-17)
 
 CodeRight port (issues #558, #559, #560, #561, #562, #564, #566). New API and opt-in policy knobs, except the Linux
 hardening in the first entry, which applies to every Linux spawn (a behaviour change by design: ABI 2/3

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.2.1 - unreleased
+## 0.2.2 (2026-10-17)
+
+- Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+
+## 0.2.1 (2026-10-17)
 
 - Added `DiskCache::move_to(to) -> io::Result<MoveReport>` (rightkit#241, for Ember): relocate every entry to a new root, keeping keys, contents, recency (mtime), pins and the in-memory index, so the same handle keeps working. Each entry is renamed, falling back to copy then remove across volumes; an existing destination file is kept and counted `redundant`; per-entry failures land in `MoveReport::failed` and those entries leave the cache. The pin list is written to the new root before anything moves, and the old root's `.pinned`, empty shards and empty `.tmp` are removed afterwards (the old directory and foreign files stay). Refused with nothing moved: read-only handles, and a root nested in or containing the current one; moving to the current root is a no-op. Writes in flight during a move may fail to commit. New `DiskCache::location()` returns the current root; `root()` still returns the opening root (kept for compatibility), and `CacheSet::add` now compares `location()`.
 - Added `DiskCache::set_budget(max_bytes) -> io::Result<Cleared>` (rightkit#241): change the cap at runtime and evict least-recently-used unpinned entries down to it, returning what was evicted. Pinned entries are never evicted, so pinned bytes above the new cap leave the cache over it and unpinned writes then fail with `PinnedCapacityError` until the cap grows or pins are released. `config()` and `status()` report the current cap. Not persisted; a reopen uses the `Config` given to `open`. Read-only handles fail with `PermissionDenied`. `Cleared` and `MoveReport` are now re-exported at the crate root.

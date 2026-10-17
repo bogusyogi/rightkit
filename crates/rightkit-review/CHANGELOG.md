@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-17)
 
 - Add `qa` product report model: Pass/Fail/NotApplicable, Error/Warning, severity-aware blocking
   & generic persisted `qa::VerdictRecord` preserving CutRight report fields. Validated JSON checks

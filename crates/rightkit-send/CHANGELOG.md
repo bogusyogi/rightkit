@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 - Added: `Entry::open_reader() -> io::Result<Box<dyn Read + Send>>`, a public reader over a prepared entry (file or message text), for a host that streams entries over its own transport (rightkit#537). `Entry.source` stays private.
 

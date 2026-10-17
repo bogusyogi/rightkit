@@ -1,11 +1,6 @@
 # Changelog
 
-## 0.2.4
-
-Added:
-- `prefersDark()` and `onPrefersDarkChange(cb)`: read the OS dark preference (`(prefers-color-scheme: dark)`) and subscribe to its changes. `onPrefersDarkChange` returns an unsubscribe, falls back to `addListener` on old Safari, and both are SSR-safe (`false` and a no-op when `window` or `matchMedia` is missing). Apps can drop their own `matchMedia` copies (ownership fingerprint `theme.runtime.prefers-dark`).
-
-## Unreleased
+## 0.3.0 (2026-10-17)
 
 Fixed:
 - `applyBrand` writes `--rk-wordmark-font` in dark mode as well as light, matching `generateCss` (#535). Test: `applyBrand wordmark font` in `src/tokens.test.ts`.
@@ -21,6 +16,11 @@ Not built or run; verification is the root integration batch.
 Added (M2-G1, CodeRight dark-default contract):
 - `themeAttributeValue`, `applyThemeAttribute` and `ThemeAttributeOptions { darkRemovesAttribute }`: with the option, a resolved dark theme removes `data-theme` and only light is written. `themeBootScript(storageKey, { darkRemovesAttribute })` follows the same rule. Default unchanged (`false`: dark writes `data-theme="dark"`; the boot script output is byte-identical without options).
 - The persisted store itself (`createThemeStore`) lives in `@rightkit/app-shell`, outside this package: wiring the same option into its `apply` is a separate app-shell change (see the M1-M2 owner-fix report).
+
+## 0.2.4
+
+Added:
+- `prefersDark()` and `onPrefersDarkChange(cb)`: read the OS dark preference (`(prefers-color-scheme: dark)`) and subscribe to its changes. `onPrefersDarkChange` returns an unsubscribe, falls back to `addListener` on old Safari, and both are SSR-safe (`false` and a no-op when `window` or `matchMedia` is missing). Apps can drop their own `matchMedia` copies (ownership fingerprint `theme.runtime.prefers-dark`).
 
 ## 0.2.3
 

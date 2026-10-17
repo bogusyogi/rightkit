@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.2.2 (2026-10-17)
+
+- Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+
 ## 0.2.1
 
 - Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`), `rightkit-child-process` (was `rightkit-process`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.

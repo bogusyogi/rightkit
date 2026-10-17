@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-10-17)
 
 ### Changed (rightkit#528, active content)
 

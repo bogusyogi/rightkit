@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 (2026-10-17)
 
 - Added: `validate_args_strict(schema, args)`: `validate_args` plus unknown-argument rejection (a schema without `additionalProperties` is strict; `true` or a schema object opens it). `validate_args` is unchanged. Closes the Pulse `Args::parse` gap (rightkit#515).
 - Agent demo contract (feature `demo`, non-default): `demo.request`, `demo.apps`, `demo.snapshot`, `demo.act`, `demo.batch` and `demo.end` as typed client tools over the host service `rightkit.agent.demo`. Per-session token, typed error codes, and a 20-step batch limit. The wire contract is in `docs/demo-contract.md`. The version bump waits for the owner's release.

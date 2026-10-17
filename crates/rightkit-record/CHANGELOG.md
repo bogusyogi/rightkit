@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (2026-10-17)
+
+- Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+
 ## 0.3.1
 
 Additive. Nothing compiled locally; verification is the CI run. Requests: rightkit#176 (CutRight).

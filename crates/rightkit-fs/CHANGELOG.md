@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (not published; version unchanged at 0.4.3)
+## 0.4.3 (2026-10-17)
 
 - Additive: `atomic::try_sync_dir(dir) -> io::Result<()>` is public (was `pub(crate)`) (Orthic-Labs/rightkit#532).
 - Additive: `AtomicWriter::commit_as(new_target, ReplaceMode)` publishes under a different final name in the same directory (Orthic-Labs/rightkit#626).

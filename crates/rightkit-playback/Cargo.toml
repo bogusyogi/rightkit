@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-playback"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps."
@@ -17,7 +17,7 @@ tauri = ["dep:tauri"]
 
 [dependencies]
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3", default-features = false }
-rightkit-child-process = { path = "../rightkit-child-process", version = "0.4.0" }
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.0", default-features = false, features = ["digest"] }
 tauri = { version = "2", optional = true, default-features = false }
 

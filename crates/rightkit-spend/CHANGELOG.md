@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-10-17)
 
 PostRight's spend-ledger port needed five app shims; each is now native (bogusyogi/rightkit#471). Schema version 2 (migration `spend-account-currency-unknown`) adds three columns to `spend_reservations`; existing rows keep a NULL account and currency, and ceiling commits of expired in-flight leases become `billed_unknown`. Existing method signatures are unchanged. The new `Reservation` and `Report` fields are private and read through accessors (`Reservation::account`, `currency`, `billed_unknown`; `Report::billed_unknown`), so the public fields of 0.1.1 are unchanged. Struct literals and exhaustive destructuring of those two structs still fail to compile because of the private fields; the version bump that signals this is the lead's call, so the crate stays at 0.1.1 in this change.
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sandbox"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
@@ -10,7 +10,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 portable-pty = { version = "0.9", optional = true }
 
 [features]

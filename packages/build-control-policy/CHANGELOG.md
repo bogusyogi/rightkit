@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3-phase1 (2026-10-17)
 
 - PostRight base dependency allowlist (Orthic-Labs/rightkit#362, #310): added `cargo:serde` (crates/protocol). The other 24 listed dependencies were already in the PostRight entry or the global list (`cargo:getrandom`). Takes effect only once a protected trust copy carries the allowlist; it is advisory until then. Not built or run here.
 

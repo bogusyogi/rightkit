@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-10-17)
 
 - **Non-chaining panic hook (rightkit#513).** New `CrashConfig::chain_default_hook(bool)` (default `true`, nothing changes). With `false` the panic hook does not call the previous hook; it writes one fixed stderr line that names the app and says a crash report was recorded, so the panic payload is not printed. Additive: the struct keeps its private fields and `new`. Tests not run here.
 - **Scrub-before-bundle (#227), already in place.** Support bundles scrub every `sample_*` text on its way in (`bundle.rs:119-123`, test `an_unscrubbed_sample_in_the_crash_folder_is_scrubbed_on_its_way_into_the_bundle`). No code change in this entry.

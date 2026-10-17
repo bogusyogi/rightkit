@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (2026-10-17)
 
 Additive; no existing signature, field, variant or behaviour changed, no dependency change. Not compiled when written; verification is the CI run.
 

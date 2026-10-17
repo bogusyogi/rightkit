@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 Added (#616, CodeRight port; additive):
 - `locales` option (`{ id, name, englishName, aliases? }`) and `normalizeLocale(tag)`: exact id or alias first, then the longest prefix (`zh-CN` -> `zh`, `zh-hant-TW` -> `zh-hant`). `useI18n()` and the returned object expose `locales`.

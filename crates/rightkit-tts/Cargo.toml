@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -39,7 +39,7 @@ serde_json = { version = "1.0.154", optional = true }
 thiserror = { version = "2", optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-onnx = { version = "0.2.5", path = "../rightkit-onnx", default-features = false, optional = true }
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process", optional = true }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-tts-qwen", version = "0.2.6", path = "../rightkit-tts-qwen", optional = true }
 

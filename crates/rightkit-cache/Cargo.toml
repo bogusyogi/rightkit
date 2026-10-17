@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-cache"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 sha2 = "0.11"
 # Pid liveness for the temp-file sweep on open (`process_alive`).
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.2", default-features = false, features = ["fs"] }
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 
 [[bench]]
 name = "budget"

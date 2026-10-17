@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/pdf-ui",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

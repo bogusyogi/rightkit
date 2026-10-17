@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-10-17)
 
 - New crate 0.1.0 (Orthic-Labs/rightkit#162). OAuth PKCE (`Pkce`, `AuthRequest`, `parse_redirect`), token request bodies and `TokenResponse`, ID-token claim decoding and `validate_claims`, `RefreshTokenStore` over rightkit-credentials, `IdTokenProvider` seam for the Android Credential Manager path.
 - Unverified: the Google endpoint URLs, the `drive.appdata` scope URL and the accepted issuers come from Google's public documentation as remembered, not from the issue text or a fetched source. Key-set fetching and caching stay with the caller.

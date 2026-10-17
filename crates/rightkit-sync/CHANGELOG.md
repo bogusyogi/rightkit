@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (2026-10-17)
+
+- Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+
+## 0.2.1 (2026-10-17)
 
 - **Bounded working set per pass** (bogusyogi/rightkit#344). The remaining O(records) cost after the ledger clone was gone was the pass itself: `LocalStore::all()` cloned every local item, and the pass held every local item, a second copy of every decoded remote item, a third in the download list and a fourth in the apply batch. Now: new optional `LocalStore::list_page(after, limit) -> SyncResult<Option<Vec<T>>>` (default `Ok(None)`, so existing stores keep working through `all()`); the pass scans the local store once, a page at a time, keeping only the items that must upload and the headers of items that also have a live remote entry; remote entries keep the header and the raw record instead of the decoded item; downloads are planned from ids and sort keys and decoded and applied in chunks of 1,000 (same global `(createdAt, id)` order, same deferral stash, same `Err` abort semantics); ledger alias and version updates iterate the delta in place instead of copying it. Sync semantics are unchanged: the ordering, conflict handling, idempotence and rollback tests are the same, plus `tests/paged_pass.rs` proves the paged pass equals the full pass (reports, ledger, local and remote state) at page sizes 1 to 1000, including boundaries that split an upload from a download and inferred deletions. New: `SyncEngineBuilder::local_page_size(n)` (default 1000). A store whose pages do not advance past the cursor fails the pass (`Failed`) instead of looping. `benches/budget.rs`: its local store is now a `BTreeMap` implementing `list_page` (workload unchanged). `runtime-budget.json` ceiling is not changed here; re-derive it after measuring.
 - `LedgerStore::mutate` no longer clones the whole ledger per mutation for rollback; it keeps the last persisted bytes and restores from them on a failed save (same persisted-state semantics, tests in `src/ledger.rs`). Declares a bounded `residentMemoryBytes` ceiling in `runtime-budget.json` (bogusyogi/rightkit#344).

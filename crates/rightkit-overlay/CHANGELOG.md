@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 (2026-10-17)
 
 Additive. Code-only: nothing in this section was compiled or run when written.
 

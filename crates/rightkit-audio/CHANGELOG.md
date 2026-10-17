@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-17)
 
 - Orthic-Labs/rightkit#454: new `mic_align` (`align_mic`, `AlignParams`, `MicAlignment`): mic-to-camera lag by mean-removed normalized cross-correlation, coarse 4x-decimated full-range pass then a full-rate fine pass, with confidence and peak margin. New `room_fill` (`room_tone_fill`, `room_tone_bed`, `FillParams`, `ToneFill`, `rms`, `encode_mono_f32_wav`): looped room-tone fill with equal-power crossfaded seams, scaled to the measured RMS plus `gain_db`. Lifted from CutRight `cutright-audio`, with its tests. Not compiled or run.
 - Lag failures (short, silent or low-correlation input) return `AudioError::Invalid` with a `no mic alignment` message; `AudioError` gains no variant.

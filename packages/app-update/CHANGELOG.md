@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-17)
 
 - Added `downloadAvailable()` and `installStaged(handle)` (verify-only download prefetch), `createUpdateConsentRunner`, a `staged` status and phase, and the `./react` subpath (`UpdateOverlay`, `UpdateConsentCard`).
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-send"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy."
@@ -24,7 +24,7 @@ bonjour = []
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.14"
 sha2 = "0.11"
-rightkit-child-process = { version = "0.4.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sysinfo = { version = "=0.37.2", optional = true }

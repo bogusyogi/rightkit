@@ -1,24 +1,8 @@
 # Changelog
 
-## 0.6.8
+## 0.7.0 (2026-10-17)
 
-Additive (#291). Without the new props the markup, classes and CSS values are those of 0.6.7.
-
-- Toast placement: `ToastViewport placement` and `ShellProvider toastPlacement`, `"bottom-center"` (default) or `"top-center"`. `top-center` adds `data-placement="top-center"` to the live region. New type `ToastPlacement`.
-- Token `--rk-toast-top-offset` (default `16px`) is the top-center distance from the top edge; `--rk-toast-offset` still moves only the bottom edge. Top-center rows enter from above (`rk-toast-in-top`). `shell.structure.css`, `shell.visual.css` and the generated `shell.css` carry the rules.
-- CutRight can drop its `.rk-toasts` override: `toastPlacement="top-center"` plus `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)`.
-
-## 0.6.7
-
-Additive (#174). Defaults render the same markup and CSS values as 0.6.6.
-
-- `Titlebar` options: `captionButtonClasses` (extra class per caption button), `captionTitles` (tooltip per button, or `false`; `aria-label` keeps the label), `blurCaptionOnClick` (default true; false keeps focus on the button), and `as` (root element type, default `"header"`). `CaptionControls` takes `buttonClasses`, `titles` and `blurOnClick`. New types `CaptionButtonClasses`, `CaptionTitles`; `blurThen` is now exported.
-- Tokens `--rk-caption-cursor` (default `default`), `--rk-caption-outline` (default `2px solid var(--rk-focus)`) and `--rk-caption-outline-offset` (default `-2px`) on `.rk-caption__btn`. `shell.visual.css` and the generated `shell.css` carry them.
-- No `color-scheme` opt-out was added: no shell stylesheet or component sets `color-scheme` in this version, so there is nothing to opt out of.
-
-## Unreleased
-
-Additive for 0.6.9 (version not bumped). Defaults render the same markup and CSS values as 0.6.8, except where noted.
+Additive, shipped in 0.7.0. Defaults render the same markup and CSS values as 0.6.8, except where noted.
 
 - `ErrorBoundary resetKey`; `ShortcutHelp slots` and `renderGroup`; `ContextMenu anchor` and `placement` (`x`/`y` now optional); new `Popover` (anchored panel, dismissal ignores its opener); `FuseCurves side="left"` (mirrored two-corner form).
 - `AppearanceMenu presets`, `preset`, `onPresetChange`, `fonts`, `font`, `onFontChange` (swatches and font faces in the menu); `applyBodyFont` sets `--rk-font-body`, consumed by `.rk-shell`. Tokens `--rk-wash-hover`, `--rk-wash-press` (hover and press washes for item, seg, pill, toggle and checkbox) and `--rk-line-2` (hairline).
@@ -38,6 +22,22 @@ Additive for 0.6.9 (version not bumped). Defaults render the same markup and CSS
 - Fix (0.6.5): after a `data-theme` switch, WebKit (WKWebView) could leave shell text that only inherited `color` stale, for example the titlebar title staying the light ink while the root and plane were already dark. `shell.visual.css` / `shell.css` now give the text elements (`.rk-top`, `.rk-top__title`, `.rk-side`, `.rk-plane`, `.rk-nav`, `.rk-item__label`, `.rk-brand-foot`, the page band, scroll and heading, `.rk-field label`, modal title and label, palette label, toast message) an explicit `color: var(--rk-ink)` in one `:where()` rule, so a custom-property change restyles them directly. Zero specificity: a host rule or any shell rule on the same element still wins. No JavaScript change; apps whose own headers inherit ink should set `color: var(--rk-ink)` on them too. `e2e/cascade.e2e.test.ts` asserts the computed colours after a switch (Chrome; the harness has no WebKit project).
 - Renamed from @rightkit/app-shell; @rightkit/app-shell@0.6.2 remains published under the old name.
 - Shortcut labels take the platform from `ShellProvider`. `ContextMenu` drew its `Kbd` for the host browser even inside a provider given another `platform`; `JumpTo`, `PaletteTrigger`, `CommandPalette` (without a registry), `Titlebar`, `AppFrame` and the `AppShell` layout fell back to host detection the same way when not given their own `platform` prop. Order is now: the component's `platform` prop, then the provider's platform, then host detection (the provider's own default, and the fallback outside a provider).
+
+## 0.6.8
+
+Additive (#291). Without the new props the markup, classes and CSS values are those of 0.6.7.
+
+- Toast placement: `ToastViewport placement` and `ShellProvider toastPlacement`, `"bottom-center"` (default) or `"top-center"`. `top-center` adds `data-placement="top-center"` to the live region. New type `ToastPlacement`.
+- Token `--rk-toast-top-offset` (default `16px`) is the top-center distance from the top edge; `--rk-toast-offset` still moves only the bottom edge. Top-center rows enter from above (`rk-toast-in-top`). `shell.structure.css`, `shell.visual.css` and the generated `shell.css` carry the rules.
+- CutRight can drop its `.rk-toasts` override: `toastPlacement="top-center"` plus `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)`.
+
+## 0.6.7
+
+Additive (#174). Defaults render the same markup and CSS values as 0.6.6.
+
+- `Titlebar` options: `captionButtonClasses` (extra class per caption button), `captionTitles` (tooltip per button, or `false`; `aria-label` keeps the label), `blurCaptionOnClick` (default true; false keeps focus on the button), and `as` (root element type, default `"header"`). `CaptionControls` takes `buttonClasses`, `titles` and `blurOnClick`. New types `CaptionButtonClasses`, `CaptionTitles`; `blurThen` is now exported.
+- Tokens `--rk-caption-cursor` (default `default`), `--rk-caption-outline` (default `2px solid var(--rk-focus)`) and `--rk-caption-outline-offset` (default `-2px`) on `.rk-caption__btn`. `shell.visual.css` and the generated `shell.css` carry them.
+- No `color-scheme` opt-out was added: no shell stylesheet or component sets `color-scheme` in this version, so there is nothing to opt out of.
 
 ## 0.6.4
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-17)
 
 Fix and additive options (Orthic-Labs/rightkit#273, #396). Default output is unchanged.
 

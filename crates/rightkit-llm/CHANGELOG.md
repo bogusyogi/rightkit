@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-17)
 
 - Request-level response schema (Orthic-Labs/rightkit#584): `SchemaConstraint`, `ChatRequest::with_response_schema`, `ChatRequest::check_schema`, `ChatResponse::schema_output`. OpenAI-compatible routes send `response_format` (`json_schema`); Anthropic sends a synthetic forced tool. Combining a schema with `tools` or `force_tool` is `LlmError::InvalidRequest`.
 - Public circuit breaker (Orthic-Labs/rightkit#659): module `breaker` (`CircuitBreaker`, `BreakerConfig`, `Phase`, `Outcome`).

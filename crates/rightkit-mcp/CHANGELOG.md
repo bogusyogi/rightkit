@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-17)
 
 - **New: `ServerHost::with_request_transform`** (rightkit#283 item 2). Like `with_response_transform`, but the closure gets a `TransformContext` whose `request()` is the request frame it answers (one item of a batch), for per-request rewrites such as `_meta` or protocol-version gating. `TransformInfo` keeps its two fields (`method`, `transport`), so existing closures and destructuring still compile. `TransformContext`'s `Debug` omits the request contents. Not built or run locally.
 
