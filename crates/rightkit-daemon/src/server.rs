@@ -134,7 +134,11 @@ pub struct HostOptions {
     max_pipe_instances: u32,
     write_timeout: Option<Duration>,
     max_message: usize,
+    max_connections: usize,
 }
+
+/// Default for [`HostOptions::max_connections`].
+pub const DEFAULT_MAX_CONNECTIONS: usize = 64;
 
 impl Default for HostOptions {
     fn default() -> Self {
@@ -142,6 +146,7 @@ impl Default for HostOptions {
             max_pipe_instances: DEFAULT_MAX_PIPE_INSTANCES,
             write_timeout: Some(DEFAULT_WRITE_TIMEOUT),
             max_message: crate::chunk::DEFAULT_MAX_MESSAGE,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
         }
     }
 }
@@ -190,8 +195,12 @@ impl HostOptions {
     /// Largest message the host assembles from chunks, or hands out in chunks (see the `chunk`
     /// module). The frame limit ([`ServiceConfig::frame_limit`]) stays the cap on any one frame;
     /// this is the second, separate cap on a whole chunked request or result, held in memory per
-    /// connection. Default 256 MiB. `0` turns chunking off: the host then refuses `rk.upload`
-    /// and never announces a chunked result.
+    /// connection. Default `0`: chunking is **off**, the host refuses `rk.upload` and never
+    /// announces a chunked result (it was 256 MiB earlier in the unpublished 0.2.7; see issue #323).
+    /// A service that takes large calls opts in with a size (see
+    /// [`SUGGESTED_MAX_MESSAGE`](crate::chunk::SUGGESTED_MAX_MESSAGE)). A connection holds at most one
+    /// assembly of at most this many bytes; the first piece is authorised before it is buffered,
+    /// and the assembled text is bounded in nesting and value count before it is parsed.
     #[must_use]
     pub fn max_message(mut self, bytes: usize) -> Self {
         self.max_message = bytes;
@@ -201,6 +210,23 @@ impl HostOptions {
     /// The effective message bound.
     pub fn get_max_message(&self) -> usize {
         self.max_message
+    }
+
+    /// Cap on simultaneous connections on Unix (the counterpart of the Windows pipe-instance
+    /// cap, which this does not replace there): a connection that arrives over the cap is closed
+    /// at once, before any frame is read, so a flood cannot grow the host's threads and buffers
+    /// without bound. Default [`DEFAULT_MAX_CONNECTIONS`] (64); at least 1. Unlike Windows "pipe
+    /// busy", the refused client sees the connection close rather than a retryable busy status.
+    /// Ignored on Windows.
+    #[must_use]
+    pub fn max_connections(mut self, n: usize) -> Self {
+        self.max_connections = n.max(1);
+        self
+    }
+
+    /// The effective connection cap.
+    pub fn get_max_connections(&self) -> usize {
+        self.max_connections
     }
 }
 
@@ -268,6 +294,18 @@ struct Shared {
     watch: WatchTuning,
     write_timeout: Option<Duration>,
     max_message: usize,
+    max_connections: usize,
+    /// Connections being served (Unix cap).
+    live_conns: Arc<AtomicUsize>,
+}
+
+/// Decrements the live-connection count when a connection thread ends, however it ends.
+struct ConnSlot(Arc<AtomicUsize>);
+
+impl Drop for ConnSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Bounds each frame write on one connection. The writer calls [`begin`](Self::begin) before and
@@ -470,7 +508,8 @@ impl Drop for Hosted {
 }
 
 /// Host `cfg.service` on `suite`: discover, rank, take over if outranking,
-/// bind the current-user-only endpoint, publish `service.json`.
+/// bind the current-user-only endpoint, publish `service.json`. Chunked calls (`rk.upload`) are
+/// off unless the options set [`HostOptions::max_message`].
 // `HostError::Held` carries the incumbent's record by value so callers can match on it directly;
 // this runs once per host start, so the larger Err is not a hot-path cost.
 #[allow(clippy::result_large_err)]
@@ -618,6 +657,8 @@ fn start_host(
         watch,
         write_timeout: options.write_timeout,
         max_message: options.max_message,
+        max_connections: options.max_connections,
+        live_conns: Arc::new(AtomicUsize::new(0)),
     });
     takeover_watch::register(
         takeover_path(&shared.suite, &shared.cfg.service),
@@ -661,10 +702,25 @@ fn accept_loop(s: Arc<Shared>) {
                 if s.stop.load(Ordering::SeqCst) {
                     break;
                 }
+                // Count before spawning so a burst cannot overshoot the cap. Windows is bounded
+                // by the pipe-instance cap, so only Unix refuses here.
+                let slot = ConnSlot(s.live_conns.clone());
+                let live = s.live_conns.fetch_add(1, Ordering::SeqCst) + 1;
+                if cfg!(unix) && live > s.max_connections {
+                    (conn.shutdown)();
+                    drop(slot);
+                    s.event(ServiceEvent::PeerRejected {
+                        reason: format!("connection limit of {} reached", s.max_connections),
+                    });
+                    continue;
+                }
                 let s2 = s.clone();
                 let _ = std::thread::Builder::new()
                     .name("rk-svc-conn".into())
-                    .spawn(move || serve_conn(s2, conn));
+                    .spawn(move || {
+                        let _slot = slot;
+                        serve_conn(s2, conn)
+                    });
             }
             // Wrong user (or unidentifiable): already closed unread. Log it, except for the
             // shutdown wake-up, which is our own connection.
@@ -961,6 +1017,8 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         let respond_err = |e: ServiceError| {
             send(&json!({"type": "response", "id": rid, "ok": false, "error": e.to_value()}))
         };
+        // Any frame is a chance to drop an assembly that went idle.
+        uploads.expire();
         let mut method = req["method"].as_str().unwrap_or("").to_string();
         let chunked_ok = req["chunked_ok"] == true && s.max_message > 0;
         if s.handoff.load(Ordering::SeqCst) {
@@ -992,7 +1050,22 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
                 ));
                 continue;
             }
-            match uploads.accept(req.get("params").unwrap_or(&Value::Null), s.max_message) {
+            // The caller's allowlist runs on the first piece, before a byte is buffered; the
+            // final dispatch below checks again.
+            let authorize = |m: &str| {
+                crate::contract::authorize_allowlist(&s.cfg.allowlist, &caller, m).inspect_err(|_| {
+                    s.event(ServiceEvent::Denied {
+                        conn: id,
+                        app: app.clone(),
+                        method: m.to_string(),
+                    });
+                })
+            };
+            match uploads.accept_with(
+                req.get("params").unwrap_or(&Value::Null),
+                s.max_message,
+                &authorize,
+            ) {
                 Ok(crate::chunk::UploadStep::More { received }) => {
                     send(&json!({"type": "response", "id": rid, "ok": true,
                         "result": {"received": received}}));

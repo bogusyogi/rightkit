@@ -113,7 +113,8 @@ pub use record::{
 };
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
-    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_WRITE_TIMEOUT,
+    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_MAX_CONNECTIONS,
+    DEFAULT_WRITE_TIMEOUT,
 };
 pub use service::{BuildError, Service, ServiceBuilder};
 pub use suite::{

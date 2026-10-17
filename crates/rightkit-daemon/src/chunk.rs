@@ -3,7 +3,9 @@
 //! A frame is capped ([`DEFAULT_FRAME_LIMIT`](crate::DEFAULT_FRAME_LIMIT), 16 MiB) so one peer can
 //! never make the other buffer an unbounded line. That cap stays. A message above it travels as
 //! several frames, and the host assembles it under a second, explicit bound
-//! ([`HostOptions::max_message`](crate::HostOptions::max_message), 256 MiB by default).
+//! ([`HostOptions::max_message`](crate::HostOptions::max_message)). Chunking is **off by default**
+//! (`max_message` 0, issue #323): a service opts in with a size, and a host that has not refuses
+//! `rk.upload`.
 //!
 //! **Request** ([`Client::call_large`](crate::Client::call_large)): the params are serialised to
 //! JSON text and cut at character boundaries into pieces of `chunk_bytes` (the host advertises it
@@ -26,10 +28,13 @@
 //!
 //! The reserved methods are `rk.upload` and `rk.fetch`; no service method may start with `rk.`.
 //! They need no allowlist entry (any app that passed `hello` may use them), because the call they
-//! carry is authorised on its own method id before any handler runs.
+//! carry is authorised on its own method id: when the first piece arrives, before a byte is
+//! buffered (an unauthorised peer is refused there with `not_allowed`), and again when the call is
+//! dispatched. The assembled text is checked for nesting and value count before it is parsed.
 
 use crate::error::{ServiceError, ERROR_BAD_CHUNK, ERROR_REQUEST_TOO_LARGE};
 use serde_json::{json, Value};
+use std::time::{Duration, Instant};
 
 /// Reserved method: one piece of a request too large for a frame.
 pub const METHOD_UPLOAD: &str = "rk.upload";
@@ -40,8 +45,11 @@ pub const RESERVED_PREFIX: &str = "rk.";
 
 /// Largest piece of text in one chunk frame (1 MiB; escaping at most doubles it on the wire).
 pub const CHUNK_TEXT_BYTES: usize = 1024 * 1024;
-/// Default for [`HostOptions::max_message`](crate::HostOptions::max_message): 256 MiB.
-pub const DEFAULT_MAX_MESSAGE: usize = 256 * 1024 * 1024;
+/// Default for [`HostOptions::max_message`](crate::HostOptions::max_message): 0, chunking off
+/// (it was 256 MiB earlier in the unpublished 0.2.7; see issue #323). A service that takes large calls opts in.
+pub const DEFAULT_MAX_MESSAGE: usize = 0;
+/// A reasonable opt-in value for a service that does take large calls: 64 MiB.
+pub const SUGGESTED_MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 /// The chunk size a host with `frame_limit` uses: a quarter of the frame (so a doubled escape
 /// still fits), at most [`CHUNK_TEXT_BYTES`], at least 16 bytes.
@@ -74,6 +82,61 @@ fn bad(message: impl Into<String>) -> ServiceError {
     ServiceError::new(ERROR_BAD_CHUNK, message)
 }
 
+/// Assemblies one connection may hold at once. A new first piece replaces the one in progress, so
+/// the bytes a connection holds are at most one assembly, itself at most `max_message`.
+pub const MAX_ASSEMBLIES_PER_CONNECTION: usize = 1;
+/// An assembly that has not received a piece for this long is dropped (checked on every frame
+/// the connection sends, and the whole state goes with the connection).
+pub const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Deepest array/object nesting an assembled request may have (serde_json itself stops at 128).
+pub const MAX_JSON_DEPTH: usize = 64;
+/// Most values (elements, members and containers) an assembled request may contain. A parsed
+/// `Value` costs 16 to 32 times the text of a dense array, so the count, not only the byte length,
+/// bounds the memory a parse can take: 1 Mi values is about 32 to 64 MiB.
+pub const MAX_JSON_NODES: usize = 1 << 20;
+
+/// Refuse text whose nesting or value count is over the bounds, scanning it once without
+/// allocating, so the cost of the real parse is bounded before it starts. Not a validator:
+/// malformed text that passes here is rejected by the parse.
+pub(crate) fn check_shape(text: &str) -> Result<(), ServiceError> {
+    let (mut depth, mut nodes) = (0usize, 1usize);
+    let (mut in_string, mut escaped) = (false, false);
+    for &b in text.as_bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                nodes += 1;
+                if depth > MAX_JSON_DEPTH {
+                    return Err(bad(format!(
+                        "the assembled params nest deeper than {MAX_JSON_DEPTH} levels"
+                    )));
+                }
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            b',' => nodes += 1,
+            _ => {}
+        }
+        if nodes > MAX_JSON_NODES {
+            return Err(ServiceError::new(
+                ERROR_REQUEST_TOO_LARGE,
+                format!("the assembled params hold more than {MAX_JSON_NODES} values"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// An upload in progress on one connection.
 #[derive(Debug)]
 struct Upload {
@@ -81,6 +144,7 @@ struct Upload {
     method: String,
     next: u64,
     text: String,
+    touched: Instant,
 }
 
 /// What one upload frame did.
@@ -99,17 +163,52 @@ pub(crate) struct Uploads {
 }
 
 impl Uploads {
-    /// Take one `rk.upload` frame's params. On any error the upload in progress is dropped, so a
-    /// failed upload never leaves memory behind. `max` bounds the assembled text.
+    /// Bytes currently buffered for the assembly in progress.
+    pub(crate) fn buffered_bytes(&self) -> usize {
+        self.current.as_ref().map_or(0, |u| u.text.len())
+    }
+
+    /// Drop an assembly that has been idle past [`UPLOAD_IDLE_TIMEOUT`].
+    pub(crate) fn expire(&mut self) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|u| u.touched.elapsed() > UPLOAD_IDLE_TIMEOUT)
+        {
+            self.current = None;
+        }
+    }
+
+    /// [`accept_with`](Self::accept_with) with every method authorised (unit tests).
+    #[cfg(test)]
     pub(crate) fn accept(&mut self, params: &Value, max: usize) -> Result<UploadStep, ServiceError> {
-        let result = self.accept_inner(params, max);
+        self.accept_with(params, max, &|_| Ok(()))
+    }
+
+    /// Take one `rk.upload` frame's params. On any error the upload in progress is dropped, so a
+    /// failed upload never leaves memory behind. `max` bounds the assembled text. `authorize`
+    /// runs on the first piece, with the method it names, before anything is buffered: a refusal
+    /// is the error returned, and no state is created.
+    pub(crate) fn accept_with(
+        &mut self,
+        params: &Value,
+        max: usize,
+        authorize: &dyn Fn(&str) -> Result<(), ServiceError>,
+    ) -> Result<UploadStep, ServiceError> {
+        self.expire();
+        let result = self.accept_inner(params, max, authorize);
         if result.is_err() {
             self.current = None;
         }
         result
     }
 
-    fn accept_inner(&mut self, params: &Value, max: usize) -> Result<UploadStep, ServiceError> {
+    fn accept_inner(
+        &mut self,
+        params: &Value,
+        max: usize,
+        authorize: &dyn Fn(&str) -> Result<(), ServiceError>,
+    ) -> Result<UploadStep, ServiceError> {
         let id = params["id"]
             .as_str()
             .filter(|s| !s.is_empty() && s.len() <= 64)
@@ -126,11 +225,22 @@ impl Uploads {
                 .as_str()
                 .filter(|m| !m.is_empty() && !m.starts_with(RESERVED_PREFIX))
                 .ok_or_else(|| bad("the first piece must name a method outside the rk. prefix"))?;
+            // Authorise on the caller's own terms before a byte is kept; a replaced assembly is
+            // freed either way.
+            self.current = None;
+            authorize(method)?;
+            if text.len() > max {
+                return Err(ServiceError::new(
+                    ERROR_REQUEST_TOO_LARGE,
+                    format!("the message is larger than the {max}-byte message limit"),
+                ));
+            }
             self.current = Some(Upload {
                 id: id.to_string(),
                 method: method.to_string(),
                 next: 0,
                 text: String::new(),
+                touched: Instant::now(),
             });
         }
         let up = match self.current.as_mut() {
@@ -145,10 +255,14 @@ impl Uploads {
         }
         up.text.push_str(text);
         up.next += 1;
+        up.touched = Instant::now();
         if !last {
             return Ok(UploadStep::More { received: seq });
         }
         let up = self.current.take().expect("the upload was just extended");
+        // Bound the work before the parse: length is already under `max`; nesting and value
+        // count are checked here, so no `Value` is built for a body that would amplify.
+        check_shape(&up.text)?;
         let params = serde_json::from_str::<Value>(&up.text)
             .map_err(|e| bad(format!("the assembled params are not JSON: {e}")))?;
         Ok(UploadStep::Done {
@@ -276,6 +390,67 @@ mod tests {
             .accept(&piece("u", 0, true, "{not json", Some("m")), 1000)
             .unwrap_err();
         assert_eq!(err.code, ERROR_BAD_CHUNK);
+    }
+
+    #[test]
+    fn the_first_piece_is_authorised_before_anything_is_buffered() {
+        let mut up = Uploads::default();
+        let deny = |_: &str| Err(ServiceError::new(crate::error::ERROR_NOT_ALLOWED, "no"));
+        let err = up
+            .accept_with(&piece("u", 0, false, "{\"a\":1", Some("m")), 1000, &deny)
+            .unwrap_err();
+        assert_eq!(err.code, crate::error::ERROR_NOT_ALLOWED);
+        assert_eq!(up.buffered_bytes(), 0);
+        // Nothing was created, so the next piece has nothing to continue.
+        let err = up
+            .accept_with(&piece("u", 1, true, "}", None), 1000, &|_| Ok(()))
+            .unwrap_err();
+        assert_eq!(err.code, ERROR_BAD_CHUNK);
+        // A refused replacement also frees the assembly it replaced.
+        up.accept(&piece("v", 0, false, "{", Some("m")), 1000).unwrap();
+        assert_eq!(up.buffered_bytes(), 1);
+        assert!(up
+            .accept_with(&piece("w", 0, false, "{", Some("m")), 1000, &deny)
+            .is_err());
+        assert_eq!(up.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn deep_or_dense_bodies_are_refused_before_the_parse() {
+        let deep = format!("{}{}", "[".repeat(MAX_JSON_DEPTH + 1), "]".repeat(MAX_JSON_DEPTH + 1));
+        assert_eq!(check_shape(&deep).unwrap_err().code, ERROR_BAD_CHUNK);
+        let ok = format!("{}{}", "[".repeat(MAX_JSON_DEPTH), "]".repeat(MAX_JSON_DEPTH));
+        assert!(check_shape(&ok).is_ok());
+        let dense = format!("[{}0]", "0,".repeat(MAX_JSON_NODES));
+        assert_eq!(check_shape(&dense).unwrap_err().code, ERROR_REQUEST_TOO_LARGE);
+        // Brackets and commas inside strings do not count.
+        let text = serde_json::to_string(&json!({"s": "[[[[,,,,\"]]".repeat(50_000)})).unwrap();
+        assert!(check_shape(&text).is_ok());
+
+        let mut up = Uploads::default();
+        let err = up
+            .accept(&piece("u", 0, true, &deep, Some("m")), 1 << 20)
+            .unwrap_err();
+        assert_eq!(err.code, ERROR_BAD_CHUNK);
+        assert_eq!(up.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn an_idle_assembly_expires_and_a_failure_frees_it() {
+        let mut up = Uploads::default();
+        up.accept(&piece("u", 0, false, "{", Some("m")), 1000).unwrap();
+        assert_eq!(up.buffered_bytes(), 1);
+        up.current.as_mut().unwrap().touched = Instant::now() - UPLOAD_IDLE_TIMEOUT - Duration::from_secs(1);
+        up.expire();
+        assert_eq!(up.buffered_bytes(), 0);
+        up.accept(&piece("u", 0, false, "{", Some("m")), 1000).unwrap();
+        assert!(up.accept(&piece("u", 5, false, "x", None), 1000).is_err());
+        assert_eq!(up.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn chunking_is_off_by_default() {
+        assert_eq!(DEFAULT_MAX_MESSAGE, 0);
     }
 
     #[test]

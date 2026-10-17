@@ -177,7 +177,7 @@ The protocol pieces for devices that cannot reach each other directly: a relay t
 
 ## Messages above one frame (`chunk`)
 
-The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends a larger request in pieces through the reserved `rk.upload` method, which the host assembles under a separate `HostOptions::max_message` bound (256 MiB by default, 0 turns it off), and a client that calls through it gets an oversized result back in pieces (`rk.fetch`) instead of `response_too_large`. A plain `Client::call` is unchanged. Events keep the frame limit. A shared-file handoff is not built; see the 0.2.7 changelog.
+The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends a larger request in pieces through the reserved `rk.upload` method, which the host assembles under a separate `HostOptions::max_message` bound. Chunking is off by default (`max_message` 0; the host refuses `rk.upload`): a service that takes large calls opts in with a size, for example `HostOptions::new().max_message(chunk::SUGGESTED_MAX_MESSAGE)` (64 MiB). The first piece is authorised before anything is buffered, a connection holds one assembly, and the assembled text is bounded in nesting and value count before it is parsed. On Unix `HostOptions::max_connections` (default 64) caps concurrent connections. A client that calls through `call_large` gets an oversized result back in pieces (`rk.fetch`) instead of `response_too_large`. A plain `Client::call` is unchanged. Events keep the frame limit. A shared-file handoff is not built; see the 0.2.7 changelog.
 
 ## Operator surface (`remote` feature)
 
