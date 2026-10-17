@@ -170,7 +170,11 @@ impl Typesetter {
             ))),
             #[cfg(feature = "png")]
             Output::Png => {
-                let pixmap = typst_render::render(page, self.ppi / 72.0);
+                let opts = typst_render::RenderOptions {
+                    pixel_per_pt: typst::utils::Scalar::new(f64::from(self.ppi) / 72.0),
+                    ..Default::default()
+                };
+                let pixmap = typst_render::render(page, &opts);
                 let bytes = pixmap
                     .encode_png()
                     .map_err(|e| TypesetError::Encode(e.to_string()))?;

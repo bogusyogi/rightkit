@@ -131,7 +131,10 @@ fn detect_default_browser() -> Option<BrowserKind> {
         .output()
         .ok()?;
     // No https handler recorded means the system default, Safari.
-    Some(parse_macos_handlers(&String::from_utf8_lossy(&output.stdout)).unwrap_or(BrowserKind::Safari))
+    Some(
+        parse_macos_handlers(&String::from_utf8_lossy(&output.stdout))
+            .unwrap_or(BrowserKind::Safari),
+    )
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -355,10 +358,14 @@ impl UserConsentReceipt {
             )));
         }
         if self.id.is_empty() || self.id.len() > 128 {
-            return Err(BrowserError::Invalid("consent id must be 1-128 characters".into()));
+            return Err(BrowserError::Invalid(
+                "consent id must be 1-128 characters".into(),
+            ));
         }
         if self.browser == BrowserKind::Unknown {
-            return Err(BrowserError::Invalid("consent names an unknown browser".into()));
+            return Err(BrowserError::Invalid(
+                "consent names an unknown browser".into(),
+            ));
         }
         validate_source_profile(&self.profile)?;
         self.domains = normalize_domains(self.domains.take())?;
@@ -580,7 +587,9 @@ fn scope_verdict(
         Some(raw) => match url::Url::parse(raw) {
             Ok(u) if matches!(u.scheme(), "http" | "https") => match u.host_str() {
                 Some(host) if domain_allowed(domains, host) => None,
-                _ => Some(format!("{raw} is outside the domains the user consented to")),
+                _ => Some(format!(
+                    "{raw} is outside the domains the user consented to"
+                )),
             },
             _ => Some(format!("{raw} is not an http(s) page inside the consent")),
         },
@@ -671,19 +680,21 @@ pub fn browser_executable(kind: BrowserKind) -> Option<PathBuf> {
                 "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
                 "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
             ],
-            BrowserKind::Brave => &[
-                "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-            ],
+            BrowserKind::Brave => {
+                &["C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"]
+            }
             _ => &[],
         }
     } else if cfg!(target_os = "macos") {
         match kind {
-            BrowserKind::Chrome => &["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
-            BrowserKind::Edge => &["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
-            BrowserKind::Chromium => &["/Applications/Chromium.app/Contents/MacOS/Chromium"],
-            BrowserKind::Brave => {
-                &["/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"]
+            BrowserKind::Chrome => {
+                &["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
             }
+            BrowserKind::Edge => {
+                &["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+            }
+            BrowserKind::Chromium => &["/Applications/Chromium.app/Contents/MacOS/Chromium"],
+            BrowserKind::Brave => &["/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"],
             _ => &[],
         }
     } else {
@@ -740,8 +751,9 @@ pub fn list_profiles(kind: BrowserKind) -> Result<Vec<SourceProfile>> {
             kind.name()
         )));
     }
-    let dir = user_data_dir(kind)
-        .ok_or_else(|| BrowserError::Profile(format!("{} has no user-data directory", kind.name())))?;
+    let dir = user_data_dir(kind).ok_or_else(|| {
+        BrowserError::Profile(format!("{} has no user-data directory", kind.name()))
+    })?;
     let text = std::fs::read_to_string(dir.join("Local State"))?;
     parse_profiles(&text)
 }
@@ -863,13 +875,19 @@ fn marker_consent_id(dest_root: &Path) -> Option<String> {
 
 /// Validate the spec and import into `dest_root` when this consent has not imported there yet
 /// (or `reimport` is set). Returns the report when a copy happened.
-pub(crate) fn import_if_needed(spec: &ImportSpec, dest_root: &Path) -> Result<Option<ImportReport>> {
+pub(crate) fn import_if_needed(
+    spec: &ImportSpec,
+    dest_root: &Path,
+) -> Result<Option<ImportReport>> {
     let kind = spec.validate()?;
     if !spec.reimport && marker_consent_id(dest_root).as_deref() == Some(spec.consent.id.as_str()) {
         return Ok(None);
     }
     let user_data = user_data_dir(kind).ok_or_else(|| {
-        BrowserError::Profile(format!("{} has no user-data directory on this machine", kind.name()))
+        BrowserError::Profile(format!(
+            "{} has no user-data directory on this machine",
+            kind.name()
+        ))
     })?;
     let report = import_chromium_profile(
         &user_data,
@@ -878,8 +896,8 @@ pub(crate) fn import_if_needed(spec: &ImportSpec, dest_root: &Path) -> Result<Op
         &spec.consent.id,
         kind,
     )?;
-    let json = serde_json::to_string_pretty(&report)
-        .map_err(|e| BrowserError::Profile(e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(&report).map_err(|e| BrowserError::Profile(e.to_string()))?;
     std::fs::write(dest_root.join(IMPORT_MARKER), json)?;
     Ok(Some(report))
 }
@@ -918,7 +936,13 @@ pub(crate) fn attach_profile_name(consent: &UserConsentReceipt) -> String {
     let slug: String = consent
         .profile
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("user-{}-{}", consent.browser.name(), slug)
 }
@@ -951,7 +975,8 @@ mod tests {
 
     #[test]
     fn detects_windows_prog_ids() {
-        let out = "\r\nHKEY_CURRENT_USER\\...\\UserChoice\r\n    ProgId    REG_SZ    ChromeHTML\r\n";
+        let out =
+            "\r\nHKEY_CURRENT_USER\\...\\UserChoice\r\n    ProgId    REG_SZ    ChromeHTML\r\n";
         assert_eq!(parse_windows_prog_id(out), Some(BrowserKind::Chrome));
         let out = "    ProgId    REG_SZ    MSEdgeHTM";
         assert_eq!(parse_windows_prog_id(out), Some(BrowserKind::Edge));
@@ -969,9 +994,18 @@ mod tests {
 
     #[test]
     fn detects_linux_desktop_entries() {
-        assert_eq!(parse_desktop_entry("google-chrome.desktop\n"), Some(BrowserKind::Chrome));
-        assert_eq!(parse_desktop_entry("firefox.desktop"), Some(BrowserKind::Firefox));
-        assert_eq!(parse_desktop_entry("chromium-browser.desktop"), Some(BrowserKind::Chromium));
+        assert_eq!(
+            parse_desktop_entry("google-chrome.desktop\n"),
+            Some(BrowserKind::Chrome)
+        );
+        assert_eq!(
+            parse_desktop_entry("firefox.desktop"),
+            Some(BrowserKind::Firefox)
+        );
+        assert_eq!(
+            parse_desktop_entry("chromium-browser.desktop"),
+            Some(BrowserKind::Chromium)
+        );
         assert_eq!(parse_desktop_entry(""), None);
     }
 
@@ -987,8 +1021,17 @@ mod tests {
         assert!(!r.permits_url("https://notexample.com"));
         assert!(!r.permits_url("https://example.com.evil.test"));
         assert!(!r.permits_url("file:///etc/passwd"));
-        assert!(UserConsentReceipt::new("c", BrowserKind::Chrome, "Default", Some(vec![]), 1).is_err());
-        assert!(UserConsentReceipt::new("c", BrowserKind::Chrome, "Default", Some(vec!["a/b".into()]), 1).is_err());
+        assert!(
+            UserConsentReceipt::new("c", BrowserKind::Chrome, "Default", Some(vec![]), 1).is_err()
+        );
+        assert!(UserConsentReceipt::new(
+            "c",
+            BrowserKind::Chrome,
+            "Default",
+            Some(vec!["a/b".into()]),
+            1
+        )
+        .is_err());
         assert!(UserConsentReceipt::new("c", BrowserKind::Chrome, "..", None, 1).is_err());
         assert!(UserConsentReceipt::new("c", BrowserKind::Unknown, "Default", None, 1).is_err());
     }
@@ -1021,10 +1064,16 @@ mod tests {
             Some(vec!["shop.example.com".to_string()])
         );
         let wrong_browser = ImportSpec::new(BrowserSource::Edge, consent.clone());
-        assert!(matches!(wrong_browser.validate(), Err(BrowserError::Consent(_))));
-        let wrong_profile = ImportSpec::new(BrowserSource::Chrome, consent.clone())
-            .source_profile("Profile 1");
-        assert!(matches!(wrong_profile.validate(), Err(BrowserError::Consent(_))));
+        assert!(matches!(
+            wrong_browser.validate(),
+            Err(BrowserError::Consent(_))
+        ));
+        let wrong_profile =
+            ImportSpec::new(BrowserSource::Chrome, consent.clone()).source_profile("Profile 1");
+        assert!(matches!(
+            wrong_profile.validate(),
+            Err(BrowserError::Consent(_))
+        ));
         let revocation = ConsentRevocation::new();
         let live = ImportSpec::new(BrowserSource::Chrome, consent).revocation(revocation.clone());
         revocation.revoke();
@@ -1043,16 +1092,31 @@ mod tests {
         let hook = scoped_admission(&spec, None).unwrap();
         let run = |req| futures::executor::block_on(hook(req));
         assert_eq!(
-            run(request(ActionKind::Navigate, Some("https://app.example.com/"), None)),
+            run(request(
+                ActionKind::Navigate,
+                Some("https://app.example.com/"),
+                None
+            )),
             Decision::Allow
         );
-        assert_eq!(run(request(ActionKind::Click, Some("about:blank"), None)), Decision::Allow);
+        assert_eq!(
+            run(request(ActionKind::Click, Some("about:blank"), None)),
+            Decision::Allow
+        );
         assert!(matches!(
-            run(request(ActionKind::Navigate, Some("https://evil.test/"), None)),
+            run(request(
+                ActionKind::Navigate,
+                Some("https://evil.test/"),
+                None
+            )),
             Decision::Deny(_)
         ));
         assert!(matches!(
-            run(request(ActionKind::Click, Some("https://evil.test/"), Some("#go"))),
+            run(request(
+                ActionKind::Click,
+                Some("https://evil.test/"),
+                Some("#go")
+            )),
             Decision::Deny(_)
         ));
         assert!(matches!(
@@ -1064,12 +1128,20 @@ mod tests {
             Decision::Deny(_)
         ));
         assert_eq!(
-            run(request(ActionKind::Fill, Some("https://example.com/login"), Some("#user"))),
+            run(request(
+                ActionKind::Fill,
+                Some("https://example.com/login"),
+                Some("#user")
+            )),
             Decision::Allow
         );
         spec.revocation.revoke();
         assert!(matches!(
-            run(request(ActionKind::Click, Some("https://example.com/"), None)),
+            run(request(
+                ActionKind::Click,
+                Some("https://example.com/"),
+                None
+            )),
             Decision::Deny(_)
         ));
     }
@@ -1078,7 +1150,9 @@ mod tests {
     fn scope_defers_to_the_inner_hook() {
         let consent = receipt(None);
         let spec = ImportSpec::new(BrowserSource::Chrome, consent);
-        let inner: AdmissionHook = Arc::new(|_req: AdmissionRequest| async { Decision::Deny("inner says no".into()) }.boxed());
+        let inner: AdmissionHook = Arc::new(|_req: AdmissionRequest| {
+            async { Decision::Deny("inner says no".into()) }.boxed()
+        });
         let hook = scoped_admission(&spec, Some(inner)).unwrap();
         let verdict = futures::executor::block_on(hook(request(
             ActionKind::Click,
@@ -1095,8 +1169,14 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                SourceProfile { dir_name: "Default".into(), display_name: "Adrian".into() },
-                SourceProfile { dir_name: "Profile 1".into(), display_name: "Work".into() },
+                SourceProfile {
+                    dir_name: "Default".into(),
+                    display_name: "Adrian".into()
+                },
+                SourceProfile {
+                    dir_name: "Profile 1".into(),
+                    display_name: "Work".into()
+                },
             ]
         );
     }
@@ -1109,8 +1189,19 @@ mod tests {
         std::fs::create_dir_all(profile.join("Network")).unwrap();
         std::fs::create_dir_all(profile.join("Local Storage").join("leveldb")).unwrap();
         std::fs::write(profile.join("Network").join("Cookies"), "cookies").unwrap();
-        std::fs::write(profile.join("Local Storage").join("leveldb").join("000003.log"), "ls").unwrap();
-        std::fs::write(profile.join("Local Storage").join("leveldb").join("LOCK"), "").unwrap();
+        std::fs::write(
+            profile
+                .join("Local Storage")
+                .join("leveldb")
+                .join("000003.log"),
+            "ls",
+        )
+        .unwrap();
+        std::fs::write(
+            profile.join("Local Storage").join("leveldb").join("LOCK"),
+            "",
+        )
+        .unwrap();
         std::fs::write(profile.join("Login Data"), "passwords").unwrap();
         std::fs::write(profile.join("Web Data"), "forms").unwrap();
         std::fs::write(profile.join("History"), "history").unwrap();
@@ -1118,16 +1209,37 @@ mod tests {
         let dest = temp.path().join("dest");
         let report =
             import_chromium_profile(&user, "Default", &dest, "c-1", BrowserKind::Chrome).unwrap();
-        assert!(dest.join("Default").join("Network").join("Cookies").is_file());
-        assert!(dest.join("Default").join("Local Storage").join("leveldb").join("000003.log").is_file());
-        assert!(!dest.join("Default").join("Local Storage").join("leveldb").join("LOCK").exists());
+        assert!(dest
+            .join("Default")
+            .join("Network")
+            .join("Cookies")
+            .is_file());
+        assert!(dest
+            .join("Default")
+            .join("Local Storage")
+            .join("leveldb")
+            .join("000003.log")
+            .is_file());
+        assert!(!dest
+            .join("Default")
+            .join("Local Storage")
+            .join("leveldb")
+            .join("LOCK")
+            .exists());
         assert!(dest.join("Local State").is_file());
         for never in ["Login Data", "Web Data", "History"] {
-            assert!(!dest.join("Default").join(never).exists(), "{never} was copied");
+            assert!(
+                !dest.join("Default").join(never).exists(),
+                "{never} was copied"
+            );
         }
         assert_eq!(report.domain_counts, None);
-        assert!(report.files_copied.iter().any(|f| f == "Default/Network/Cookies"));
-        let missing = import_chromium_profile(&user, "Profile 9", &dest, "c-1", BrowserKind::Chrome);
+        assert!(report
+            .files_copied
+            .iter()
+            .any(|f| f == "Default/Network/Cookies"));
+        let missing =
+            import_chromium_profile(&user, "Profile 9", &dest, "c-1", BrowserKind::Chrome);
         assert!(matches!(missing, Err(BrowserError::Profile(_))));
         assert!(import_chromium_profile(&user, "../x", &dest, "c-1", BrowserKind::Chrome).is_err());
     }

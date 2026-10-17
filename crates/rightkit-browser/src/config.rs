@@ -870,7 +870,10 @@ mod tests {
         let _env = EnvGuard::new(&[
             (CHROME_FOR_TESTING_ROOT_ENV, Some(&root)),
             (CHROME_FOR_TESTING_ENV, None),
-            ("PUPPETEER_CACHE_DIR", Some(&temp.path().join("no puppeteer"))),
+            (
+                "PUPPETEER_CACHE_DIR",
+                Some(&temp.path().join("no puppeteer")),
+            ),
             ("PLAYWRIGHT_BROWSERS_PATH", Some(&playwright)),
         ]);
         assert_eq!(

@@ -138,15 +138,33 @@ macro_rules! cft_chrome {
 pub const PINNED_CHROME_FOR_TESTING: PinnedChrome = PinnedChrome {
     version: "155.0.8059.39",
     downloads: &[
-        cft_chrome!("155.0.8059.39", "mac-arm64", "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e"),
-        cft_chrome!("155.0.8059.39", "mac-x64", "9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7"),
-        cft_chrome!("155.0.8059.39", "linux64", "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea"),
-        cft_chrome!("155.0.8059.39", "win64", "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e"),
+        cft_chrome!(
+            "155.0.8059.39",
+            "mac-arm64",
+            "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e"
+        ),
+        cft_chrome!(
+            "155.0.8059.39",
+            "mac-x64",
+            "9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7"
+        ),
+        cft_chrome!(
+            "155.0.8059.39",
+            "linux64",
+            "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea"
+        ),
+        cft_chrome!(
+            "155.0.8059.39",
+            "win64",
+            "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e"
+        ),
         PinnedDownload {
             platform: "win64",
             kind: DownloadKind::HeadlessShell,
             url: cft_url!("155.0.8059.39", "win64", "chrome-headless-shell"),
-            sha256: Sha256Pin::Pinned("20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436"),
+            sha256: Sha256Pin::Pinned(
+                "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436",
+            ),
         },
     ],
 };
@@ -245,7 +263,10 @@ fn plan<'a>(pin: &'a PinnedChrome, platform: &'a str) -> Result<Plan<'a>, Instal
                 d.url
             )));
         }
-        if items.iter().any(|(o, _): &(&PinnedDownload, String)| o.kind == d.kind) {
+        if items
+            .iter()
+            .any(|(o, _): &(&PinnedDownload, String)| o.kind == d.kind)
+        {
             return Err(InstallError::InvalidPin(format!(
                 "two {:?} downloads for {platform}",
                 d.kind
@@ -554,7 +575,7 @@ fn extract_zip(archive: &Path, staging: &Path, top: &str) -> Result<(), InstallE
     let mut budget = MAX_EXPANDED_BYTES;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(archive_err)?;
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(archive_err)?.to_string();
         let relative = safe_member_path(&name, top)
             .ok_or_else(|| archive_err(format!("unsafe member path {name:?}")))?;
         ensure_no_link_ancestors(staging, &relative)?;
@@ -587,7 +608,9 @@ fn extract_zip(archive: &Path, staging: &Path, top: &str) -> Result<(), InstallE
             return Err(archive_err(format!("symlink member {name:?} is refused")));
         }
         if !entry.is_file() {
-            return Err(archive_err(format!("member {name:?} is not a regular file")));
+            return Err(archive_err(format!(
+                "member {name:?} is not a regular file"
+            )));
         }
         budget = budget
             .checked_sub(entry.size())
@@ -604,10 +627,12 @@ fn extract_zip(archive: &Path, staging: &Path, top: &str) -> Result<(), InstallE
                 }
             })?;
         let declared = entry.size();
-        let written = io::copy(&mut entry.by_ref().take(declared + 1), &mut out)
-            .map_err(io_err(&dest))?;
+        let written =
+            io::copy(&mut entry.by_ref().take(declared + 1), &mut out).map_err(io_err(&dest))?;
         if written != declared {
-            return Err(archive_err(format!("member {name:?} is not its declared size")));
+            return Err(archive_err(format!(
+                "member {name:?} is not its declared size"
+            )));
         }
         drop(out);
         #[cfg(unix)]
@@ -639,12 +664,16 @@ fn grant_sandbox_access(directory: &Path, executable: &Path) -> Result<(), Insta
         .arg(directory)
         .arg("/grant")
         .arg(format!("*{ALL_APPLICATION_PACKAGES}:(OI)(CI)(RX)"))
-        .arg(format!("*{ALL_RESTRICTED_APPLICATION_PACKAGES}:(OI)(CI)(RX)"))
+        .arg(format!(
+            "*{ALL_RESTRICTED_APPLICATION_PACKAGES}:(OI)(CI)(RX)"
+        ))
         .args(["/T", "/C", "/Q"])
         .status()
         .map_err(|e| InstallError::SandboxGrant(e.to_string()))?;
     if !status.success() {
-        return Err(InstallError::SandboxGrant(format!("icacls exited {status}")));
+        return Err(InstallError::SandboxGrant(format!(
+            "icacls exited {status}"
+        )));
     }
     match missing_access(executable) {
         None => Ok(()),
@@ -706,7 +735,9 @@ mod tests {
     #[test]
     fn the_shipped_pin_table_is_a_typed_todo_until_real_digests_are_recorded() {
         for d in PINNED_CHROME_FOR_TESTING.downloads {
-            assert!(d.url.starts_with("https://storage.googleapis.com/chrome-for-testing-public/"));
+            assert!(d
+                .url
+                .starts_with("https://storage.googleapis.com/chrome-for-testing-public/"));
             assert!(d.url.contains(PINNED_CHROME_FOR_TESTING.version));
             if d.sha256 == Sha256Pin::Todo {
                 let err = plan(&PINNED_CHROME_FOR_TESTING, d.platform).err().unwrap();
@@ -719,8 +750,10 @@ mod tests {
     fn a_missing_digest_is_refused_before_anything_is_fetched() {
         let temp = tempfile::tempdir().unwrap();
         let root = ManagedRoot::at(temp.path().join("managed"));
-        let downloads: &'static [PinnedDownload] =
-            Box::leak(Box::new([pinned("https://example.invalid/c.zip", Sha256Pin::Todo)]));
+        let downloads: &'static [PinnedDownload] = Box::leak(Box::new([pinned(
+            "https://example.invalid/c.zip",
+            Sha256Pin::Todo,
+        )]));
         let pin = PinnedChrome {
             version: "1.2.3.4",
             downloads,
@@ -733,11 +766,20 @@ mod tests {
     #[test]
     fn plan_rejects_bad_pins_and_unknown_platforms() {
         let bad_digest = leak_pin("1.2.3.4", "linux64", "not-hex");
-        assert!(matches!(plan(bad_digest, "linux64"), Err(InstallError::InvalidPin(_))));
+        assert!(matches!(
+            plan(bad_digest, "linux64"),
+            Err(InstallError::InvalidPin(_))
+        ));
         let bad_version = leak_pin("1.2.x", "linux64", SHA_A);
-        assert!(matches!(plan(bad_version, "linux64"), Err(InstallError::InvalidPin(_))));
+        assert!(matches!(
+            plan(bad_version, "linux64"),
+            Err(InstallError::InvalidPin(_))
+        ));
         let ok = leak_pin("1.2.3.4", "linux64", SHA_A);
-        assert!(matches!(plan(ok, "win64"), Err(InstallError::UnsupportedPlatform(_))));
+        assert!(matches!(
+            plan(ok, "win64"),
+            Err(InstallError::UnsupportedPlatform(_))
+        ));
         let http_url: &'static [PinnedDownload] = Box::leak(Box::new([pinned(
             "http://example.invalid/c.zip",
             Sha256Pin::Pinned(SHA_A),
@@ -746,7 +788,10 @@ mod tests {
             version: "1.2.3.4",
             downloads: http_url,
         };
-        assert!(matches!(plan(&pin, "linux64"), Err(InstallError::InvalidPin(_))));
+        assert!(matches!(
+            plan(&pin, "linux64"),
+            Err(InstallError::InvalidPin(_))
+        ));
     }
 
     #[test]
@@ -788,7 +833,10 @@ mod tests {
         for members in [
             vec![("../evil", &b"x"[..])],
             vec![("elsewhere/chrome", &b"x"[..])],
-            vec![(format!("{top}/a").leak() as &str, &b"1"[..]), (format!("{top}/a").leak() as &str, &b"2"[..])],
+            vec![
+                (format!("{top}/a").leak() as &str, &b"1"[..]),
+                (format!("{top}/a").leak() as &str, &b"2"[..]),
+            ],
         ] {
             write_zip(&archive, &members);
             let staging = temp.path().join("staging");
@@ -805,10 +853,10 @@ mod tests {
         leak_pin("155.0.1.1", platform_key(), &sha)
     }
 
-    fn fake_fetch(source: PathBuf) -> impl Fn(&PinnedDownload, &str, &Path) -> Result<(), InstallError> {
-        move |_, _, dest| {
-            fs::copy(&source, dest).map(|_| ()).map_err(io_err(dest))
-        }
+    fn fake_fetch(
+        source: PathBuf,
+    ) -> impl Fn(&PinnedDownload, &str, &Path) -> Result<(), InstallError> {
+        move |_, _, dest| fs::copy(&source, dest).map(|_| ()).map_err(io_err(dest))
     }
 
     #[test]
@@ -834,7 +882,11 @@ mod tests {
         let second = temp.path().join("second.zip");
         write_zip(&second, &[(&exe, b"two")]);
         let pin2 = pin_for(&second);
-        assert!(ensure_with(&root, pin2, platform_key(), &fake_fetch(second)).unwrap().changed);
+        assert!(
+            ensure_with(&root, pin2, platform_key(), &fake_fetch(second))
+                .unwrap()
+                .changed
+        );
         assert_eq!(fs::read(root.executable()).unwrap(), b"two");
         assert_eq!(fs::read(executable_in(&root.previous())).unwrap(), b"one");
         let third = temp.path().join("third.zip");
@@ -879,7 +931,13 @@ mod tests {
         let top = format!("chrome-{}", platform_key());
         let archive = temp.path().join("empty.zip");
         write_zip(&archive, &[(&format!("{top}/readme.txt"), b"x")]);
-        let err = ensure_with(&root, pin_for(&archive), platform_key(), &fake_fetch(archive)).unwrap_err();
+        let err = ensure_with(
+            &root,
+            pin_for(&archive),
+            platform_key(),
+            &fake_fetch(archive),
+        )
+        .unwrap_err();
         assert!(matches!(err, InstallError::Archive(_)), "{err}");
         assert!(!root.current().exists() && !root.staging().exists());
     }

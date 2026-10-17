@@ -600,10 +600,9 @@ impl BrowserSession {
         let (profile, profile_dir, default_dl) = prepare_profile(&opts.profile)?;
         // A consented real-session profile confines every action to the consented domains.
         let admission = match &opts.profile {
-            ProfileSpec::ImportedFrom { import, .. } => Some(crate::real_session::scoped_admission(
-                import,
-                opts.admission.clone(),
-            )?),
+            ProfileSpec::ImportedFrom { import, .. } => Some(
+                crate::real_session::scoped_admission(import, opts.admission.clone())?,
+            ),
             _ => opts.admission.clone(),
         };
         let mut profile_guard = Some(profile);
