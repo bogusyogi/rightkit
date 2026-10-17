@@ -918,7 +918,7 @@ function validateConcurrency(manifest, lanes, errors) {
   if (concurrency.mainPushes === "queue") {
     if (typeof concurrency.reason !== "string" || concurrency.reason.trim() === "") {
       errors.push("concurrency.mainPushes 'queue' requires a non-empty concurrency.reason");
-    } else if (/[\r\n\u0085  ]/.test(concurrency.reason)) {
+    } else if (/[\r\n\u0085\u2028\u2029]/.test(concurrency.reason)) {
       errors.push("concurrency.reason must be a single line");
     }
   } else if (concurrency.reason !== undefined) {
