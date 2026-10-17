@@ -1,0 +1,61 @@
+{
+  "package": "rightkit-typeset",
+  "capabilities": [
+    {
+      "capability": "typeset",
+      "summary": "Typst rendering for titles, captions and math, with mitex LaTeX input: SVG (and PNG with a feature), no file access, no package fetching, explicit fonts",
+      "fingerprints": [
+        {
+          "id": "typeset.cargo.typst",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "typst",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "typeset.cargo.typst-render",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "typst-render",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "typeset.cargo.mitex",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "mitex",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; apps use rightkit-typeset instead of taking typst, typst-render or mitex directly; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

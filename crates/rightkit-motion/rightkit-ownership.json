@@ -1,0 +1,34 @@
+{
+  "package": "rightkit-motion",
+  "capabilities": [
+    {
+      "capability": "motion-beat-sync",
+      "summary": "Bracketed-script beat sync: parse a script with [spans] and snap animation cues to word timings from rightkit-transcript; typed errors on any mismatch, no fuzzy matching",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: script parsing and word snapping are not an ownership fingerprint.",
+        "Consumes rightkit-transcript words; fuzzy ASR matching stays in rightkit-align."
+      ]
+    },
+    {
+      "capability": "motion-inspect-sheets",
+      "summary": "Storyboard inspect sheets: plan and (feature assemble) compose rendered frames into sheets, six tiles per 2x3 sheet by default with a 480 px minimum tile width (defaults to confirm), with a rightkit.motion.sheets.v1 manifest",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: sheet layout is not an ownership fingerprint.",
+        "No media decode or encode lives in this crate; callers decode frames through rightkit-ffmpeg."
+      ]
+    },
+    {
+      "capability": "motion-takes",
+      "summary": "Append-only checksummed take container for rendered frames (gated: not built until a producer is named)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only and gated: the take module is not built; this capability reserves the name until a producer is named (decision record docs/design/motion-owner.md)."
+      ]
+    }
+  ]
+}

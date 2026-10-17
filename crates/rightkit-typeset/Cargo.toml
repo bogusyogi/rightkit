@@ -1,0 +1,40 @@
+[package]
+name = "rightkit-typeset"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Typst rendering for titles, captions and math, with mitex LaTeX input, for Right Suite applications; no file access, no package fetching, explicit fonts"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+homepage = "https://github.com/Orthic-Labs/rightkit/tree/main/crates/rightkit-typeset"
+documentation = "https://docs.rs/rightkit-typeset"
+keywords = ["typst", "typesetting", "math", "captions"]
+categories = ["text-processing", "multimedia::images"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY.md"]
+
+[lib]
+name = "rightkit_typeset"
+path = "src/lib.rs"
+
+[features]
+default = []
+# LaTeX input through mitex (`latex_to_typst`, `Source::Latex`).
+latex = ["dep:mitex"]
+# PNG output through typst-render.
+png = ["dep:typst-render"]
+# Typst's embedded fonts (typst-assets). Not bundled by default; see THIRD-PARTY.md.
+embedded-fonts = ["dep:typst-assets"]
+
+[dependencies]
+thiserror = "2"
+typst = "0.15.1"
+typst-svg = "0.15.1"
+typst-render = { version = "0.15.1", optional = true }
+mitex = { version = "0.2.4", optional = true }
+# Version tracks typst's minor; verify against the typst 0.15.1 lock when it is refreshed.
+typst-assets = { version = "0.15", features = ["fonts"], optional = true }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "one-shot Typst compile and render per call over caller-provided source and fonts, no I/O loop; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

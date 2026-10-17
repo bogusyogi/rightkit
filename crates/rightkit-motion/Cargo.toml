@@ -1,0 +1,34 @@
+[package]
+name = "rightkit-motion"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Product-neutral motion helpers for Right Suite video: bracketed-script beat sync against word timings, and storyboard inspect-sheet planning and assembly"
+readme = "README.md"
+repository = "https://github.com/Orthic-Labs/rightkit"
+homepage = "https://github.com/Orthic-Labs/rightkit/tree/main/crates/rightkit-motion"
+documentation = "https://docs.rs/rightkit-motion"
+keywords = ["motion", "animation", "captions", "storyboard"]
+categories = ["multimedia::video", "data-structures"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_motion"
+path = "src/lib.rs"
+
+[features]
+default = []
+# PNG sheet assembly from caller-supplied RGBA frames (uses `image`, PNG codec only).
+assemble = ["dep:image"]
+
+[dependencies]
+rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2"
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure script parsing, beat snapping and sheet layout over caller-provided data, no I/O loop; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
