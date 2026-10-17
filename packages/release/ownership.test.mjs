@@ -456,7 +456,11 @@ test("sample source occurrence still fails on its own finding while enrollment i
 });
 
 test("clean RightKit dependency integration fixture passes with a pending-enrollment warning and declaration-only status", () => {
-  const root = app({ "Cargo.toml": '[package]\nname = "clean-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-oauth = "0.2.0"\n' });
+  // A real consumer ships its Cargo.lock; without one the scan is unscanned (lockfile-missing), not clean.
+  const root = app({
+    "Cargo.toml": '[package]\nname = "clean-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-oauth = "0.2.0"\n',
+    "Cargo.lock": 'version = 4\n[[package]]\nname = "clean-consumer"\nversion = "0.1.0"\ndependencies = ["rightkit-oauth"]\n[[package]]\nname = "rightkit-oauth"\nversion = "0.2.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n',
+  });
   try {
     const result = checkApp(root, shipped, { trust: { enrolled: false, pending: true, trust: null } });
     assert.equal(result.ok, true);
