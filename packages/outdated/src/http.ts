@@ -2,7 +2,7 @@
 
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
-export const USER_AGENT = "right-update/0.2.0 (+https://github.com/Orthic-Labs/rightkit)";
+export const USER_AGENT = "right-update/0.2.0 (+https://github.com/bogusyogi/rightkit)";
 export const FETCH_TIMEOUT_MS = 20_000;
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
 

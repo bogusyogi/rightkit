@@ -23,7 +23,7 @@ describe("published package contract", () => {
   it("points consumers at the canonical tracked source directory", () => {
     expect(packageJson.repository).toEqual({
       type: "git",
-      url: "git+https://github.com/Orthic-Labs/rightkit.git",
+      url: "git+https://github.com/bogusyogi/rightkit.git",
       directory: "packages/platform-ui",
     });
   });

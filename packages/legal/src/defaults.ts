@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { LegalDocumentDescriptor, LegalDocumentRole } from "./core.js";
 
 /**
- * Suite-wide company facts and default policy texts (issue Orthic-Labs/rightkit#266).
+ * Suite-wide company facts and default policy texts (issue bogusyogi/rightkit#266).
  * Every fact below cites its source. A fact with no source is NOT defaulted: it is a
  * required per-app field (see `refundPolicy`). Never add an unsourced fact.
  */
@@ -44,7 +44,7 @@ export const RIGHT_SUITE_COMPANY_FACTS: Readonly<SuiteCompanyFacts> = Object.fre
   // Source: D:\Claude\rightkit\legal\EULA.md section 16 (state and federal courts located in Wyoming);
   // D:\Claude\rightkit\legal\WEBSITE_TERMS.md section 13 (Laramie County, Wyoming).
   venue: "the state and federal courts located in Wyoming (Laramie County)",
-  // Source: Orthic-Labs/rightkit#266 and the RK3 Mac lead's instruction of 2026-10-17 ("minimum age 18").
+  // Source: bogusyogi/rightkit#266 and the RK3 Mac lead's instruction of 2026-10-17 ("minimum age 18").
   // NOTE: D:\Claude\rightkit\legal\products\heardright\PRIVACY_NOTICE.md line 112 says "under 13"; that is a
   // children's-privacy statement and is reported as a conflict, not reconciled here.
   minimumAge: 18,

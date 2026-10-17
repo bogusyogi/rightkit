@@ -187,7 +187,7 @@ export function sourceOfferText({ rows, contact, crateVersion }) {
     "The licence text and build notes are in this folder. You may replace these programs with your own build of the same source.",
     "",
     `Source code and build recipe: ${rows[0].attribution.sourceUrl}`,
-    `Build recipes, pinned sources and notes: https://github.com/Orthic-Labs/rightkit/tree/main/crates/rightkit-ffmpeg${crateVersion ? ` (crate rightkit-ffmpeg ${crateVersion}, published on crates.io)` : ""}`,
+    `Build recipes, pinned sources and notes: https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-ffmpeg${crateVersion ? ` (crate rightkit-ffmpeg ${crateVersion}, published on crates.io)` : ""}`,
     `To request the corresponding source on physical media, or if a link is unavailable, write to: ${contact}`,
     "",
     "Programs shipped",

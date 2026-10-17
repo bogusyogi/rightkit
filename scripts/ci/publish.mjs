@@ -154,7 +154,7 @@ export function readCrateWorkspace(root = ROOT, spawn = spawnSync) {
 
 // ---- registries (anonymous HTTPS reads, no token) ---------------------------------------------
 
-const USER_AGENT = "rightkit-publish (https://github.com/Orthic-Labs/rightkit)";
+const USER_AGENT = "rightkit-publish (https://github.com/bogusyogi/rightkit)";
 
 async function getText(url, fetchImpl, headers = {}) {
   let lastError;
