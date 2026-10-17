@@ -42,6 +42,8 @@ pub const DEFAULT_TRUNCATE_DIM: usize = 256;
 pub const MAX_SEQUENCE_TOKENS: usize = 2048;
 /// Default rows per ONNX call for `embed_batch` / `embed_query_batch`.
 pub const DEFAULT_MAX_BATCH: usize = 16;
+/// Default static batch of the E40 ingest graphs on DirectML (4 or 8 are accepted).
+pub const DEFAULT_INGEST_BATCH: usize = e40::DEFAULT_INGEST_BATCH;
 /// Upper bound on padded tokens (`rows * padded_len`) in one ONNX call. Keeps
 /// attention memory bounded when long texts share a chunk; a single row always
 /// fits regardless.
@@ -87,6 +89,13 @@ pub enum EmbedError {
     Runtime(String),
     #[error("model output: {0}")]
     Output(String),
+    /// An ingest batch other than 4 or 8 was configured (see
+    /// [`EmbedderConfig::with_ingest_batch`]); `reason` says why, for 16 the 8 GB VRAM regression.
+    #[error("ingest batch {requested} is not supported: {reason}")]
+    UnsupportedIngestBatch {
+        requested: usize,
+        reason: &'static str,
+    },
     /// An explicitly requested accelerator did not reproduce the CPU
     /// provider's vectors at load (or could not be compared), so it was not
     /// admitted. `lowest_cosine` is `None` when the failure is not a low
@@ -251,6 +260,9 @@ pub struct EmbedderConfig {
     pub truncate_dim: usize,
     pub max_tokens: usize,
     pub max_batch: usize,
+    /// Static batch of the E40 ingest graphs used by `embed_batch` on DirectML: 4 or 8 (see
+    /// [`Self::with_ingest_batch`]).
+    pub ingest_batch: usize,
     pub intra_threads: usize,
     /// A Q4 bundle directory served on CPU when an E40 bundle in `model_dir` cannot be served
     /// on its accelerator under `Auto` (see [`Self::with_fallback_model_dir`]).
@@ -278,6 +290,7 @@ impl EmbedderConfig {
             truncate_dim: DEFAULT_TRUNCATE_DIM,
             max_tokens: MAX_SEQUENCE_TOKENS,
             max_batch: DEFAULT_MAX_BATCH,
+            ingest_batch: DEFAULT_INGEST_BATCH,
             intra_threads: 1,
             fallback_model_dir: None,
             coreml_cache_dir: None,
@@ -386,6 +399,16 @@ impl EmbedderConfig {
     /// Rows per ONNX call for the batch methods (default 16, minimum 1).
     pub fn with_max_batch(mut self, max_batch: usize) -> Self {
         self.max_batch = max_batch;
+        self
+    }
+
+    /// Static batch of the E40 ingest graphs that `embed_batch` uses on DirectML (default 8).
+    /// Only 4 and 8 exist; anything else, 16 included, makes `load` fail with
+    /// [`EmbedError::UnsupportedIngestBatch`] (16 regresses to 64 docs/s on an 8 GB card against
+    /// 176 at batch 8). Queries and CPU runs stay on the batch-1 graphs; a bundle without
+    /// `ingest-b<N>/` ingests on the batch-1 graphs.
+    pub fn with_ingest_batch(mut self, ingest_batch: usize) -> Self {
+        self.ingest_batch = ingest_batch;
         self
     }
 
@@ -625,7 +648,7 @@ impl Embedder {
         let profile = config
             .e40_session_profile
             .unwrap_or_else(|| E40SessionProfile::shipped(config.intra_threads));
-        let engine = E40Engine::open(&config.model_dir, requested, profile)?;
+        let engine = E40Engine::open(&config.model_dir, requested, profile, config.ingest_batch)?;
         let timings = LoadTimings {
             tokenizer_load,
             token_table_read: engine.token_table_read(),
@@ -1042,9 +1065,10 @@ impl Embedder {
         if !matches!(self.backend, Backend::E40(_)) {
             return None;
         }
+        let artifacts = e40::artifacts(&config.model_dir).ok()?;
         let key = parity_cache::ParityKey::build(
             &config.model_dir,
-            &e40::ARTIFACTS,
+            &artifacts,
             &config.runtime_path,
             ort::info(),
             self.provider_used,
@@ -1278,8 +1302,12 @@ impl Embedder {
     pub fn pipeline_id(&self) -> String {
         match self.pipeline_id.get_or_init(|| {
             let mut files = Vec::new();
+            let e40_names = match &self.backend {
+                Backend::E40(_) => e40::artifacts(&self.model_dir).map_err(|e| e.to_string())?,
+                _ => Vec::new(),
+            };
             let names: &[&str] = match self.backend {
-                Backend::E40(_) => &e40::ARTIFACTS,
+                Backend::E40(_) => &e40_names,
                 #[cfg(target_os = "macos")]
                 Backend::CoreMl(_) => &coreml::ARTIFACTS,
                 Backend::Onnx(_) => &[
@@ -1326,7 +1354,12 @@ impl Embedder {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        self.embed_prompts(texts.into_iter().map(|t| self.document_prompt(t)).collect())
+        let prompts: Vec<String> = texts.into_iter().map(|t| self.document_prompt(t)).collect();
+        Ok(self
+            .embed_prompts_native_for(prompts, true)?
+            .into_iter()
+            .map(|native| truncate_and_normalize(&native, self.truncate_dim))
+            .collect())
     }
 
     /// Query-prompt counterpart of [`Self::embed_batch`].
@@ -1401,10 +1434,36 @@ impl Embedder {
     /// Normalized native-dimension vector per prompt, in input order, before
     /// Matryoshka truncation.
     fn embed_prompts_native(&self, prompts: Vec<String>) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.embed_prompts_native_for(prompts, false)
+    }
+
+    /// [`Self::embed_prompts_native`]; `ingest` (documents from `embed_batch`) lets an E40
+    /// engine with ingest graphs run them as static batches (see `E40Engine::run_ingest`:
+    /// padding rows masked and dropped, input order kept). Queries, single texts and the parity
+    /// check pass `false` and stay on the batch-1 graphs.
+    fn embed_prompts_native_for(
+        &self,
+        prompts: Vec<String>,
+        ingest: bool,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
         if prompts.is_empty() {
             return Ok(Vec::new());
         }
         let rows = self.encode_prompts(&prompts)?;
+        if let (true, Backend::E40(engine)) = (ingest, &self.backend) {
+            let ids: Vec<&[i64]> = rows.iter().map(|row| row.ids.as_slice()).collect();
+            if let Some(vectors) = engine.run_ingest(&ids, self.pad_id)? {
+                let shape = [1, self.native_dim as i64];
+                return rows
+                    .iter()
+                    .zip(vectors)
+                    .map(|(row, values)| {
+                        pool_batch(&shape, &values, &[row.mask.as_slice()], self.native_dim)
+                            .map(|mut pooled| pooled.remove(0))
+                    })
+                    .collect();
+            }
+        }
         let lengths: Vec<usize> = rows.iter().map(|row| row.ids.len()).collect();
         let order = length_order(&lengths);
         let sorted_lengths: Vec<usize> = order.iter().map(|&i| lengths[i]).collect();
@@ -1902,6 +1961,7 @@ fn coreml_bundle_files(dir: &Path) -> Result<Option<&'static [&'static str]>, Em
 }
 
 fn validate_config(config: &EmbedderConfig) -> Result<(), EmbedError> {
+    e40::check_ingest_batch(config.ingest_batch)?;
     if !config.model_dir.is_dir() {
         return Err(EmbedError::MissingModelDirectory(config.model_dir.clone()));
     }
@@ -1925,10 +1985,12 @@ fn validate_config(config: &EmbedderConfig) -> Result<(), EmbedError> {
     }
     let coreml_files = coreml_bundle_files(&config.model_dir)?;
     let coreml_bundle = coreml_files.is_some();
+    let e40_files;
     let required: &[&str] = if let Some(files) = coreml_files {
         files
     } else if e40::is_bundle(&config.model_dir) {
-        &e40::ARTIFACTS
+        e40_files = e40::artifacts(&config.model_dir)?;
+        &e40_files
     } else {
         &["model_q4.onnx", "model_q4.onnx_data", "tokenizer.json"]
     };
@@ -2272,6 +2334,12 @@ mod tests {
     fn config_defaults_and_builders() {
         let c = EmbedderConfig::new("m", "r");
         assert_eq!((c.max_batch, c.intra_threads), (16, 1));
+        assert_eq!(c.ingest_batch, 8);
+        assert_eq!(c.clone().with_ingest_batch(4).ingest_batch, 4);
+        assert!(matches!(
+            validate_config(&c.clone().with_ingest_batch(16)),
+            Err(EmbedError::UnsupportedIngestBatch { requested: 16, .. })
+        ));
         assert_eq!(c.provider, ExecutionProvider::Cpu);
         let c = c
             .with_max_batch(4)
