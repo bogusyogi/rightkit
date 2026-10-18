@@ -196,12 +196,18 @@ export function collectPreflight({
   runtimeBudgetAdoption = appRuntimeBudgetAdoptionCheck,
   freeDisk = freeDiskGb,
   projectType,
+  // false for a native iOS app with no Cargo host: no target bridge, Rust compiler cache or Rust budget adoption applies.
+  rust = true,
+  // false skips only the target bridge and the sccache check (a native iOS app that pins a Cargo.lock has no broker target).
+  bridge = true,
   msix = false,
   findSdkTool = findWindowsSdkTool,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
   const swift = isSwiftProject(projectType);
+  const noRust = swift || !rust;
+  const noBridge = noRust || !bridge;
 
   if (swift) {
     const swiftVersion = versionProbe("swift");
@@ -212,7 +218,7 @@ export function collectPreflight({
     );
   }
 
-  if (appRoot && !swift) {
+  if (appRoot && !noBridge) {
     const target = targetLink ?? nativeLayout?.targetLink ?? path.join(appRoot, "src-tauri", "target");
     const targetLabel = nativeLayout?.targetPrefix || "src-tauri/target/";
     let entry = null;
@@ -274,7 +280,7 @@ export function collectPreflight({
     else if (msix) checks.push(fail("signtool", "msix target configured but no signtool.exe found under any installed Windows SDK", signtoolMissing));
     else checks.push(warn("signtool", "no signtool.exe found under any installed Windows SDK", signtoolMissing));
 
-    const vendorsOpenssl = !swift && cargoLockPaths.some((lockPath) => graphVendorsOpenssl(lockPath));
+    const vendorsOpenssl = !noRust && cargoLockPaths.some((lockPath) => graphVendorsOpenssl(lockPath));
     if (vendorsOpenssl) {
       const perl = resolveWindowsPerl({ env });
       checks.push(
@@ -289,8 +295,8 @@ export function collectPreflight({
     }
   }
 
-  if (swift) {
-    // No Rust compiler cache applies to SwiftPM targets.
+  if (noBridge) {
+    // No Rust compiler cache applies to SwiftPM targets or to a native iOS app without a Cargo host.
   } else if (isBrokerManagedHost(env)) {
     checks.push(ok("compiler-cache", "broker-managed; compiler-cache selection and status are recorded in build receipts"));
   } else {
@@ -322,7 +328,7 @@ export function collectPreflight({
   }
 
   // Held-resource crates are proven at adoption: an app that links one needs its own installed measurement.
-  if (appRoot && !swift) {
+  if (appRoot && !noRust) {
     const adoption = runtimeBudgetAdoption({ appRoot, app, version, cargoLockPaths });
     if (adoption) checks.push(adoption);
   }

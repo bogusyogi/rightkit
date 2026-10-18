@@ -18,6 +18,8 @@ export function resolveNativeCargoLayout({
   read = (file) => readFileSync(file, "utf8"),
   requireManifest = false,
   requireLock = false,
+  // The repository the app lives in. A manifest outside the app searches for its workspace only up to this directory.
+  repoRoot,
 } = {}) {
   if (!appRoot) throw new TypeError("native Cargo layout requires appRoot");
   const resolvedAppRoot = path.resolve(appRoot);
@@ -31,7 +33,7 @@ export function resolveNativeCargoLayout({
   const explicitWorkspace = nativeAssembly?.workspaceRoot ?? nativeAssembly?.cargoWorkspaceRoot;
   const workspaceRoot = explicitWorkspace
     ? normalizeWorkspaceRoot(resolveDeclaredPath(resolvedAppRoot, explicitWorkspace), exists)
-    : discoverWorkspaceRoot({ appRoot: resolvedAppRoot, manifestPath, manifestDir, manifestText, exists, read });
+    : discoverWorkspaceRoot({ appRoot: resolvedAppRoot, manifestPath, manifestDir, manifestText, exists, read, repoRoot: repoRoot ? path.resolve(repoRoot) : undefined });
 
   const lock = resolveCargoLock({
     appRoot: resolvedAppRoot,
@@ -82,6 +84,28 @@ export function resolveNativeCargoLayout({
   };
   layout.resolveArtifactPath = (file) => resolveNativeArtifactPath(layout, file);
   return layout;
+}
+
+/**
+ * True when the app has a native Cargo manifest the release must hash and build against: the config declares one
+ * (nativeAssembly.cargoManifest / manifest) or the historical src-tauri/Cargo.toml exists. A native iOS app (xcodegen
+ * project, Rust static library built by iosPackage.prepare) has neither, and then owns no Cargo layout at all.
+ */
+export function nativeCargoDeclared({ appRoot, config, nativeAssembly = config?.nativeAssembly, exists = existsSync } = {}) {
+  if (!appRoot) throw new TypeError("native Cargo layout requires appRoot");
+  if (nativeAssembly?.cargoManifest ?? nativeAssembly?.manifest) return true;
+  return exists(path.resolve(appRoot, DEFAULT_MANIFEST));
+}
+
+/** The manifest nativeAssembly names, if any (a path relative to the app root, or absolute). */
+export function declaredCargoManifest(config, nativeAssembly = config?.nativeAssembly) {
+  return nativeAssembly?.cargoManifest ?? nativeAssembly?.manifest;
+}
+
+/** True when the historical Tauri host manifest exists. */
+export function hasDefaultTauriManifest({ appRoot, exists = existsSync } = {}) {
+  if (!appRoot) throw new TypeError("native Cargo layout requires appRoot");
+  return exists(path.resolve(appRoot, DEFAULT_MANIFEST));
 }
 
 export const resolveCargoLayout = resolveNativeCargoLayout;
@@ -160,20 +184,29 @@ function resolveCargoLock({ appRoot, manifestPath, manifestDir, workspaceRoot, n
   return { path: found, source: found ? orderedSources[candidates.indexOf(found)] : undefined, candidates };
 }
 
-function discoverWorkspaceRoot({ appRoot, manifestPath, manifestDir, manifestText, exists, read }) {
+function discoverWorkspaceRoot({ appRoot, manifestPath, manifestDir, manifestText, exists, read, repoRoot }) {
   const parsed = parseCargoManifest(manifestText);
   const declaredWorkspace = parsed.workspacePath ?? parsed.packageWorkspace;
   if (declaredWorkspace) {
     return normalizeWorkspaceRoot(resolveDeclaredPath(manifestDir, declaredWorkspace), exists);
   }
   if (parsed.hasWorkspace) return manifestDir;
+  // A manifest inside the app searches up to the app root (unchanged); one outside it (a shared crates/ tree) searches up to the
+  // nearest directory that contains both, which is where its workspace and Cargo.lock live.
+  // Only a caller that names the repository opts in to the climb above the app (native iOS); every other caller keeps the
+  // exact historical search, which never leaves the app root.
+  let boundary = appRoot;
+  if (repoRoot && !isWithin(appRoot, manifestDir)) {
+    boundary = commonAncestor(appRoot, manifestDir);
+    if (!isWithin(repoRoot, boundary)) boundary = repoRoot;
+  }
   let current = manifestDir;
   for (;;) {
     const candidate = path.join(current, "Cargo.toml");
     if (candidate !== manifestPath && exists(candidate) && parseCargoManifest(readIfPresent(candidate, exists, read)).hasWorkspace) return current;
-    if (current === appRoot) break;
+    if (current === boundary) break;
     const parent = path.dirname(current);
-    if (parent === current || !isWithin(appRoot, parent)) break;
+    if (parent === current || !isWithin(boundary, parent)) break;
     current = parent;
   }
   return manifestDir;
@@ -229,6 +262,16 @@ function stripTrailingSlash(value) { return String(value).replace(/\/+$/, ""); }
 
 function readIfPresent(file, exists, read) {
   try { return exists(file) ? read(file) : ""; } catch { return ""; }
+}
+
+function commonAncestor(left, right) {
+  let current = path.resolve(left);
+  while (!isWithin(current, path.resolve(right))) {
+    const parent = path.dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
 }
 
 function isWithin(root, candidate) {

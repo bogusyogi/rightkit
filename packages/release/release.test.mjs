@@ -1783,7 +1783,7 @@ test("postSign accepts one command or an ordered array, scanned and run fail-clo
   // Scanner inputs (forbidden features, feature closure texts, closure commands) expand every entry.
   assert.match(source, /\.\.\.commandList\(target\.postSign\)\.map\(/);
   // One closureCommands list (recipe-build plans unwrapped, #345 F1) feeds both the cargo-tree closure and the token scan.
-  assert.match(source, /const closureCommands = \[[^\n]*\.\.\.commandList\(target\.postSign\), target\.gradle\][^\n]*expandRecipeBuildCommands/);
+  assert.match(source, /const closureCommands = \[[^\n]*\.\.\.commandList\(target\.postSign\), target\.gradle(?:, \.\.\.switchInputs\.cargoCommands)?\][^\n]*expandRecipeBuildCommands/);
   assert.doesNotMatch(source, /nativeFinalizer, target\.postSign, target\.gradle/);
 });
 

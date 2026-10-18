@@ -11,8 +11,8 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
 import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
-import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
-import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { declaredCargoManifest, hasDefaultTauriManifest, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import {
   canonicalPackageIdentity,
   createNativeFinalizationReceipt,
@@ -53,6 +53,7 @@ import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
+import { releaseSwitchInputs } from "./ios-build-context.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -182,11 +183,14 @@ const SUPERSEDE_JOB_HEAD = /^\n  supersede:\n    needs: \[private-repo-guard\]\n
 
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
-const nativeLayout = resolveNativeCargoLayout({ appRoot: root, config });
+// A native iOS app (xcodegen project; Rust built by iosPackage.prepare) with no src-tauri and no declared nativeAssembly
+// manifest owns no Cargo layout: null, so the Cargo-derived preflight, sweep and package-contract steps are skipped for it.
+const nativeIos = opts.platform === "ios" && !hasDefaultTauriManifest({ appRoot: root });
+const nativeLayout = nativeIos ? null : resolveNativeCargoLayout({ appRoot: root, config });
 const nativeAssembly = config.nativeAssembly;
 const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
-// A SwiftPM app without a package.json has no Node package contract to validate.
-if (!(resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm" && !existsSync(path.join(root, "package.json")))) {
+// A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate.
+if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
   await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 }
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
@@ -263,13 +267,14 @@ let iosSpec; // validated iOS iosPackage spec (ios only; package-recipe-targets.
 if (opts.platform === "ios") {
   if (target.recipe?.kind !== "iosPackage") fail(`${config.app ?? "app"} ios must declare targets.ios.iosPackage; there is no hand-written iOS package script`);
   iosSpec = target.recipe.spec;
+  if (nativeIos) { try { assertNativeIosPrepareHasManifest(iosSpec, config, root); } catch (error) { fail(`${config.app ?? "app"} ios ${error.message}`); } }
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
  * Assemble preflight inputs from the app's own files. Kept here (not in
  * preflight.mjs) so the check module stays free of release.mjs's config shape.
  */
-function releasePreflight({ config, configPath, root, repoRoot, platform, nativeLayout: suppliedNativeLayout = nativeLayout, projectTarget = config.targets?.[platform] }) {
+function releasePreflight({ config, configPath, root, repoRoot, platform, nativeLayout: suppliedNativeLayout = nativeLayout, projectTarget = config.targets?.[platform], pinnedCargoLocks = [] }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
@@ -280,6 +285,7 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
   // them means the build needs a real Windows Perl.
   const cargoLockPaths = [
     ...(suppliedNativeLayout?.lockCandidates ?? []),
+    ...pinnedCargoLocks,
     ...(config.cargoLocks ?? []).map((entry) => path.resolve(root, entry)),
   ].filter((entry, index, entries) => entries.indexOf(entry) === index);
   return collectPreflight({
@@ -293,12 +299,14 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
     nativeLayout: suppliedNativeLayout,
     targetLink: suppliedNativeLayout?.targetLink,
     projectType: resolveProjectType({ appRoot: root, config, target: projectTarget }),
+    rust: Boolean(suppliedNativeLayout) || pinnedCargoLocks.length > 0,
+    bridge: Boolean(suppliedNativeLayout),
     msix: targetUsesMsix(projectTarget),
   });
 }
 
 if (opts.doctor) {
-  const { buildInputs, nativeLayout: resolvedNativeLayout } = resolveReleaseBuildInputs({
+  const { buildInputs, nativeLayout: resolvedNativeLayout, cargoLockPaths: pinnedCargoLocks } = resolveReleaseBuildInputs({
     repoRoot: doctorInvocation.repoRoot,
     appRoot: root,
     configPath,
@@ -342,7 +350,7 @@ if (opts.doctor) {
 
   // Config above, MACHINE below. Printing config never told anyone whether this
   // box could finish a build; these checks do.
-  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform, nativeLayout: resolvedNativeLayout });
+  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform, nativeLayout: resolvedNativeLayout, pinnedCargoLocks });
   console.log("preflight:");
   console.log(formatPreflight(checks));
   const failures = preflightFailures(checks);
@@ -357,10 +365,15 @@ let prePackScanned = false; // set once a pre-pack payload scan has seen a nativ
 // or app Cargo manifest enables devtools, qa-native, qa-control or dev-native (also in --dry-run).
 // DevTools: refused for every app except an allow-listed one that declares `devtools: "content-only"` (devtools-policy.mjs).
 let devtoolsAllowance = { mode: "denied" };
+// The Rust a build compiles is checked from the manifest it compiles: targets.<os>.cargoManifest, else the declared
+// nativeAssembly.cargoManifest. iosPackage.prepare commands run cargo for a native iOS app, so they are scanned like any build command.
+const switchInputs = releaseSwitchInputs({ appRoot: root, config, target, prepare: iosSpec?.prepare ?? [], nativeIos });
+if (switchInputs.problems.length) fail(`${config.app ?? "app"} ios release-switch scan cannot see what is built:\n- ${switchInputs.problems.join("\n- ")}`);
 try {
   devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
   if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, cargoManifest: target.cargoManifest, manifest: config.releaseSwitches?.manifest, commands: [
+  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, cargoManifest: switchInputs.cargoManifest, manifest: config.releaseSwitches?.manifest, commands: [
+    ...switchInputs.commands,
     { label: "target.prePackage", command: target.prePackage },
     { label: "target.package", command: target.package },
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
@@ -381,14 +394,14 @@ const releaseSwitchInventoryText = existsSync(releaseSwitchInventoryPath) ? read
 try {
   // A `node recipe-build.mjs --plan <JSON>` prePackage hides each step's `--features` in one argument: the closure and the
   // command token scan see every prepare / build / postBuild step (a plan that cannot be read or validated fails closed).
-  const closureCommands = [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, ...commandList(target.postSign), target.gradle].filter(Boolean).flatMap((c) => expandRecipeBuildCommands(c, { root }));
+  const closureCommands = [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, ...commandList(target.postSign), target.gradle, ...switchInputs.cargoCommands].filter(Boolean).flatMap((c) => expandRecipeBuildCommands(c, { root }));
   assertReleaseDependencies({ root, config, target, commands: closureCommands });
   let treeText;
   try {
     const closure = resolveFeatureClosure({
       root,
       manifest: config.releaseSwitches?.manifest,
-      cargoManifest: target.cargoManifest,
+      cargoManifest: switchInputs.cargoManifest,
       rust: config.releaseSwitches?.rust,
       features: config.releaseSwitches?.features ?? [],
       // iOS ships one device triple; "all" is refused by the build broker and would pull in desktop-only targets.
@@ -941,6 +954,8 @@ function hasNativeTargetSpecificPrePackage(target, packageHook) {
 // publish so it cannot race an artifact, and is best-effort: a missing
 // cargo-sweep or a sweep failure must never fail a release.
 function sweepStaleRustArtifacts() {
+  // No Cargo host, nothing of ours to sweep.
+  if (!nativeLayout) return;
   const candidates = [...new Set([root, workdir, nativeLayout.manifestDir, nativeLayout.workspaceRoot])];
   const projects = candidates.filter((dir) => existsSync(path.join(dir, "target")));
   for (const dir of projects) {
@@ -1465,6 +1480,8 @@ function expandEnv(value) {
 // notices and the source offer, optionally run the app's stage command, and (before signing) check the staged files.
 async function prepareMediaSidecar(root, { stage = true } = {}) {
   if (!mediaSidecarConfig) return null;
+  // Unreachable for iOS (mediaSidecar is mac and win only, refused above); a Cargo-less layout must still never be dereferenced.
+  if (!nativeLayout) fail(`${config.app ?? "app"} ${opts.platform} mediaSidecar needs a native Cargo manifest to read the sidecar catalog, and this app has none`);
   let plan;
   try {
     const loaded = loadSidecarCatalog({ config: mediaSidecarConfig, root, manifestPath: nativeLayout.manifestPath });

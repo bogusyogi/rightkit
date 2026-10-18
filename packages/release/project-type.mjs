@@ -29,7 +29,9 @@ export function resolveProjectType({ appRoot, config = {}, target = {}, exists =
 export const isSwiftProject = (projectType) => projectType === "swiftpm";
 
 /** Executables the build itself needs (the config's own preflight.executables are appended by callers). */
-export function requiredBuildExecutables({ projectType, packageManager = "pnpm", usesPackageManager = true } = {}) {
+export function requiredBuildExecutables({ projectType, packageManager = "pnpm", usesPackageManager = true, usesCargo = true } = {}) {
+  // A native iOS app with no Cargo host: git, plus the package manager only when the app has a package.json (xcodebuild/xcodegen are the recipe's own preflight).
+  if (!usesCargo && !isSwiftProject(projectType)) return ["git", ...(usesPackageManager && packageManager ? [packageManager] : [])];
   if (isSwiftProject(projectType)) return ["git", "swift", ...(usesPackageManager && packageManager ? [packageManager] : [])];
   return ["git", packageManager, "cargo", "rustc"];
 }

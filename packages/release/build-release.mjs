@@ -36,6 +36,7 @@ import { ensureLegacyTargetLink, resolveReleaseCacheMode } from "./release-cache
 import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { collectSwiftToolVersions, planSwiftBuild } from "./swift-build-context.mjs";
+import { planIosNativeBuild, resolveIosBuildContext } from "./ios-build-context.mjs";
 import { packageCommandOptional, requiredBuildExecutables, resolveProjectType, targetUsesMsix } from "./project-type.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
@@ -74,7 +75,7 @@ const ANDROID_PIPELINE_FINGERPRINT = createHash("sha256")
   .slice(0, 16);
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
-function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout, target }) {
+function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout, target, pinnedCargoLocks = [] }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
@@ -94,8 +95,11 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativ
     // collision is already enforced downstream, and duplicating it here would
     // reject a legitimate resume of an in-flight build.
     version: undefined,
-    cargoLockPaths: nativeLayout?.lockCandidates ?? [],
+    cargoLockPaths: [...(nativeLayout?.lockCandidates ?? []), ...pinnedCargoLocks],
     projectType: resolveProjectType({ appRoot, config, target }),
+    // A native iOS app has no broker target or bridge; it still gets the Rust budget and lock checks when it pins a Cargo.lock.
+    rust: Boolean(nativeLayout) || pinnedCargoLocks.length > 0,
+    bridge: Boolean(nativeLayout),
     msix: targetUsesMsix(target),
   });
 }
@@ -205,14 +209,25 @@ try {
     try { androidTarget = validateAndroidTarget(target, { root: appRoot }); } catch (error) { fail(`${config.app} android ${error.message}`); }
   }
   const isSwiftBuild = resolveProjectType({ appRoot, config, target }) === "swiftpm";
-  const nativeLayout = resolveNativeCargoLayout({ appRoot, config });
+  // A native iOS app (xcodegen project; no Rust library unless nativeAssembly.cargoManifest declares one) has no src-tauri and no
+  // declared nativeAssembly manifest: it owns no Cargo layout (null), and every Cargo-derived value below is skipped for it.
+  // The Xcode tools are asserted present, then probed, inside resolveIosBuildContext (a missing tool fails with the normal message).
+  const iosContext = iosSpec !== null
+    ? resolveIosBuildContext({ appRoot, config, target, iosSpec, exec: (cmd, runArgs) => commandOutputAt(cmd, runArgs, appRoot), assertExecutables })
+    : null;
+  const nativeIos = iosContext?.nativeIos ?? false;
+  const nativeLayout = iosContext ? iosContext.nativeLayout : resolveNativeCargoLayout({ appRoot, config });
   if (platform === "win" && target.signingContract === "windows-raw-exe-authenticode-before-nsis-v1") {
     assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
   }
-  const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
+  const { requiredInputs, buildInputs, cargoLockPaths: pinnedCargoLocks } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
   const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput }) : collectToolVersions(config.packageManager ?? "pnpm", appRoot);
+  const hasPackageJson = existsSync(path.join(appRoot, "package.json"));
+  // iOS records the Xcode toolchain (and xcodegen when a project.yml is named) beside the Node and Rust tools.
+  const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput })
+    : iosContext ? iosContext.toolVersions
+    : collectToolVersions(config.packageManager ?? "pnpm", appRoot);
   const inputHashes = hashInputs(requiredInputs);
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : platform === "android" ? "android" : platform === "ios" ? "ios" : "mac";
@@ -258,15 +273,16 @@ try {
     receiptInputs: [path.resolve(stateRoot, IOS_RECEIPT_NAME)],
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
-  const cargoLock = nativeLayout.lockPath;
-  const cargoToml = nativeLayout.manifestPath;
+  const cargoLock = nativeLayout?.lockPath;
+  const cargoToml = nativeLayout?.manifestPath;
   // A broker-managed host is not identified by RIGHTKIT_BUILD_BROKER_SOCKET alone:
   // that variable is exported by login shells only, while the managed cargo shim is
   // on PATH for every shell. Detecting on the variable alone made agent (non-login)
   // shells take the Cache V2 branch, bridge resolved native target into release cache,
   // and then lose CARGO_TARGET_DIR to the broker's unconditional override — so the
   // app bundle landed in the broker workspace and packaging failed on an empty cache.
-  const swiftPlan = isSwiftBuild ? planSwiftBuild({ appRoot, vaultRoot, platform, target, toolVersions }) : null;
+  // swiftPlan is the "no Rust host" plan for SwiftPM and for a Cargo-less native iOS app alike: same shape, same skips.
+  const swiftPlan = isSwiftBuild ? planSwiftBuild({ appRoot, vaultRoot, platform, target, toolVersions }) : nativeIos ? planIosNativeBuild({ appRoot, vaultRoot, platform, toolVersions }) : null;
   // SwiftPM targets have no Cargo manifest: no broker cargo target, no Rust cache identity.
   const managedCargoTarget = swiftPlan ? swiftPlan.managedCargoTarget : brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
   const cacheIdentity = swiftPlan ? swiftPlan.identity : resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
@@ -293,7 +309,7 @@ try {
   // Preflight BEFORE any compile. These preconditions used to be discovered one
   // per build cycle, minutes deep, with errors that named a symptom instead of a
   // cause. Blocking problems stop here, in seconds, naming the fix.
-  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout, target });
+  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout, target, pinnedCargoLocks });
   const preflightBlockers = preflightFailures(preflight);
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
@@ -363,7 +379,7 @@ try {
     tools: toolVersions,
     createdAt: new Date().toISOString(),
   };
-  const targetLink = nativeLayout.targetLink;
+  const targetLink = nativeLayout?.targetLink;
   // ownedRoot is the per-app cache parent holding every fingerprint dir, so a
   // link left by an earlier fingerprint is recognised as ours and repointed
   // instead of hard-stopping the build.
@@ -394,7 +410,7 @@ try {
           const volumes = inspectWriteVolumes({ repoRoot, vaultRoot, cacheRoot: sharedCacheRoot });
           assertWriteVolumeFloors({ volumes, policy, configuredRepoMinimumBytes: Math.max(Number(target.preflight?.minFreeGb ?? 25), 25) * 1024 ** 3 });
         } else assertDiskSpace(repoRoot, target.preflight?.minFreeGb ?? 20);
-        assertExecutables([...requiredBuildExecutables({ projectType: resolveProjectType({ appRoot, config, target }), packageManager: config.packageManager ?? "pnpm", usesPackageManager: Boolean(config.packageManager) || existsSync(path.join(appRoot, "package.json")) }), ...(target.preflight?.executables ?? [])]);
+        assertExecutables([...requiredBuildExecutables({ projectType: resolveProjectType({ appRoot, config, target }), packageManager: config.packageManager ?? "pnpm", usesPackageManager: nativeIos ? hasPackageJson : Boolean(config.packageManager) || hasPackageJson, usesCargo: !nativeIos }), ...(iosContext?.prepareExecutables ?? []), ...(target.preflight?.executables ?? [])]);
         for (const name of target.preflight?.env ?? []) if (!process.env[name]) fail(`missing required environment variable: ${name}`);
         for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
         if (buildRoot) mkdirSync(buildRoot, { recursive: true });
@@ -421,7 +437,8 @@ try {
           if (linked.action === "refused") fail(linked.reason);
           if (linked.action === "moved-aside") console.error(`[right-release] hosted CI: moved existing ${targetLink} aside to ${linked.aside}`);
         }
-        if (resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
+        // A Cargo-less native iOS app installs Node dependencies only when it has a package.json.
+        if (nativeIos ? hasPackageJson : resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
       },
       build: async () => {
         throwIfInterrupted();
@@ -479,7 +496,14 @@ try {
 }
 
 function hashInputs(files) {
-  return Object.fromEntries(files.map((file) => [path.relative(path.dirname(path.dirname(file)), file), hashFile(file)]));
+  const hashes = {};
+  for (const file of files) {
+    const key = path.relative(path.dirname(path.dirname(file)), file);
+    // Two inputs (an app file and a shared crate's file, say) must never share a key: one would silently replace the other.
+    if (Object.hasOwn(hashes, key)) fail(`release inputs share the hash key ${key}; rename one so every input is sealed`);
+    hashes[key] = hashFile(file);
+  }
+  return hashes;
 }
 
 function hashFile(file) {
@@ -506,6 +530,7 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   // own target root instead, or every managed build fails at seal after a
   // full compile, sign, and notarize.
   const targetPrefix = "src-tauri/target/";
+  // A Cargo-less iOS app has no native layout and no managed cargo target: only the default prefix is ever compared.
   const effectiveTargetPrefix = nativeLayout?.targetPrefix ?? targetPrefix;
   const resolveArtifactPath = (file) => {
     const normalized = file.replaceAll(path.win32.sep, "/");
