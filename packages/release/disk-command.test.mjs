@@ -886,7 +886,8 @@ test("a missing dependency stops the install before anything is replaced", () =>
   assert.equal(existsSync(path.join(base, "home", "Library", "Application Support", "Orthic Labs", "rightkit-release", "current")), false);
 });
 
-test("the schedule binding must be the stable root; a pnpm store path or a missing target is reported, not thrown", () => {
+// The macOS binding is read through /usr/bin/plutil (#776), so this fixture runs on macOS only.
+test("the schedule binding must be the stable root; a pnpm store path or a missing target is reported, not thrown", { skip: process.platform !== "darwin" }, () => {
   const base = mkdtempSync(path.join(os.tmpdir(), "rk-bind-"));
   const home = path.join(base, "home");
   const plistFile = path.join(home, "Library", "LaunchAgents", "dev.rightkit.disk-hygiene.plist");
