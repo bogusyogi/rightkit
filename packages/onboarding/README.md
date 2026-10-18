@@ -49,7 +49,7 @@ Acceptance is stored as `legalAcceptance: { version, documentsHash, acceptedAt, 
 
 ## When the legal gate re-prompts
 
-`isLegalAccepted(state, requiredVersion?, isAccepted?, requiredDocumentsHash?)` decides it, in this order: a custom `isAccepted` wins outright; a `requiredDocumentsHash` must equal the stored acceptance's `documentsHash`; a `requiredVersion` must equal its `version`; with neither, the stored `legalAccepted` flag is used. Pass `requiredDocumentsHash` (the hash of the material documents, from `@rightkit/legal`) to catch a text change that did not bump the version: without it only the version is compared. `documentsHash` is recorded with the acceptance and never compared; by default it covers document titles and URLs, not their text.
+`isLegalAccepted(state, requiredVersion?, isAccepted?, requiredDocumentsHash?)` decides it, in this order: a custom `isAccepted` wins outright; a `requiredDocumentsHash` must equal the stored acceptance's `documentsHash`; a `requiredVersion` must equal its `version`; with neither, a recorded acceptance (`legalAcceptance`) is still required, so a bare legacy `legalAccepted` flag re-prompts once as a re-acceptance. Pass `requiredDocumentsHash` (the hash of the material documents, from `@rightkit/legal`) to catch a text change that did not bump the version: without it only the version is compared. `documentsHash` is recorded with the acceptance and never compared; by default it covers document titles and URLs, not their text.
 
 ## Known issues
 

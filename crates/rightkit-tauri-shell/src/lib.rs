@@ -621,13 +621,8 @@ impl ShellBuilder {
         self.on_presence = Some(Arc::new(f));
         self
     }
-    #[cfg(feature = "engine")]
-    pub fn engine(mut self, spec: engine::EngineSpec) -> Self {
-        self.engine = Some(spec);
-        self.engine_policy = Default::default();
-        self
-    }
-    /// Engine wiring with native method/deadline policy & optional bounded supervision.
+    /// Engine wiring with native method/deadline policy & optional bounded supervision. The
+    /// policy is required: a default [`engine::EnginePolicy`] denies every method.
     #[cfg(feature = "engine")]
     pub fn engine_with_policy(
         mut self,

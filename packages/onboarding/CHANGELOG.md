@@ -3,6 +3,7 @@
 ## 0.6.1 — unpublished staging
 
 - Repairs onboarding continuation and persistence behavior.
+- Changed: with no `requiredVersion` or `requiredDocumentsHash`, `isLegalAccepted` requires a recorded `legalAcceptance`; a bare legacy `legalAccepted: true` no longer passes the gate and is shown the re-acceptance screen once.
 
 ## 0.6.0 (2026-10-17)
 

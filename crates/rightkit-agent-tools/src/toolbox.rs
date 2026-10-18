@@ -152,6 +152,8 @@ pub struct Toolbox {
     admission: Option<Arc<dyn ToolAdmission>>,
     journals: Vec<Arc<dyn Journal>>,
     counters: Counters,
+    /// Apps whose `<app>.*` tools also get the dictation exposure layer.
+    dictation_apps: std::collections::HashSet<String>,
 }
 
 impl Default for Toolbox {
@@ -168,14 +170,27 @@ impl Toolbox {
             admission: None,
             journals: vec![],
             counters: Counters::default(),
+            dictation_apps: Default::default(),
         }
+    }
+
+    /// Apply the dictation exposure layer ([`exposure::forbidden_with`]) to every `<app>.*`
+    /// tool and its subject. Call before registering that app's tools.
+    pub fn protect_dictation(&mut self, app: impl Into<String>) {
+        self.dictation_apps.insert(app.into());
+    }
+
+    /// The hard exposure verdict for `name` (a tool name, or that tool's subject).
+    fn exposure_forbidden(&self, tool: &str, name: &str) -> Option<String> {
+        let app = tool.split('.').next().unwrap_or_default();
+        exposure::forbidden_with(name, self.dictation_apps.contains(app))
     }
 
     /// Register a tool. Names that the hard exposure rules forbid are refused
     /// here, so they cannot even be listed.
     pub fn register(&mut self, tool: Arc<dyn Tool>) -> Result<(), ToolError> {
         let name = tool.spec().name.clone();
-        if let Some(why) = exposure::forbidden(&name) {
+        if let Some(why) = self.exposure_forbidden(&name, &name) {
             return Err(ToolError::new(ERR_NOT_EXPOSED, why));
         }
         self.tools.insert(name, tool);
@@ -298,9 +313,11 @@ impl Toolbox {
             .ok_or_else(|| ToolError::new(ERR_UNKNOWN_TOOL, format!("no tool `{name}`")))?;
         let subject = tool.subject(&args);
 
-        if let Some(why) =
-            exposure::forbidden(name).or_else(|| subject.as_deref().and_then(exposure::forbidden))
-        {
+        if let Some(why) = self.exposure_forbidden(name, name).or_else(|| {
+            subject
+                .as_deref()
+                .and_then(|s| self.exposure_forbidden(name, s))
+        }) {
             return Err(self.deny(&caller.app, name, DeniedBy::Exposure, ERR_NOT_EXPOSED, why));
         }
         if !self.permitted(&caller.app, name, subject.as_deref()) {

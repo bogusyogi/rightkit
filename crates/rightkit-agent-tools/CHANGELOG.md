@@ -3,6 +3,7 @@
 ## 0.2.0 — unpublished staging
 
 - Tool schemas set `additionalProperties: false`; seven QA control methods are exposed.
+- BREAKING: HeardRight's dictation, delivery and history bans no longer apply to every app. Pasteboard and paste names stay refused everywhere (`exposure::forbidden`); the dictation layer applies to a profile with `with_dictation_rules()` (the built-in HeardRight profile) or a toolbox app named with `Toolbox::protect_dictation`. `AppProfile` gains the public `dictation` field. `FORBIDDEN_PHRASES` is renamed `DICTATION_PHRASES`, and dictation tokens moved to `DICTATION_TOKENS`.
 
 ## 0.1.5 (2026-10-17)
 

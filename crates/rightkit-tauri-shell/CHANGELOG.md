@@ -3,6 +3,7 @@
 ## 0.4.0 — unpublished staging
 
 - Engine errors are structured, window-state saves preserve generation order, and QA controls stay excluded from release builds.
+- BREAKING: `EnginePolicy::default()` now denies every engine method (it allowed all). List methods with `allow_methods`, or opt in with `allow_any_method()`. `ShellBuilder::engine(spec)` is removed; use `engine_with_policy(spec, policy)`.
 
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.

@@ -3,6 +3,7 @@
 ## 0.3.3 — unpublished staging
 
 - Serializes idempotent crash-report handoff.
+- Changed: `chain_default_hook` now defaults to `false` in release builds, so a panic payload no longer reaches stderr unless the app opts in; builds with debug assertions still chain. `chain_default_hook(true)` restores the old release behaviour.
 
 ## 0.3.2 (2026-10-17)
 

@@ -391,8 +391,9 @@ Names match exactly, before any client acquisition or spawn. Missing deadline en
 stderr/protocol sinks, initial-failure behavior & frame limits.
 `EnginePolicy::keep_alive_on_timeout = true` abandons only caller wait; default supervised
 timeout kills wedged engine. Automatic, on-demand & disabled restarts share job-queue's bounded
-generation/budget rules. Failed in-flight calls are returned without replay. `engine(spec)`
-keeps legacy recovery.
+generation/budget rules. Failed in-flight calls are returned without replay. Engine wiring
+always takes a policy (`engine_with_policy`): a default `EnginePolicy` denies every method, so
+list them with `allow_methods` or opt in explicitly with `allow_any_method()`.
 
 Register commands through `rightkit_tauri_shell::handler![]` or add only
 `commands::rk_shell_engine_call_tagged` & `commands::rk_shell_engine_status` to an existing

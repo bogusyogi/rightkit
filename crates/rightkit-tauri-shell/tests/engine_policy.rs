@@ -199,3 +199,23 @@ fn unsolicited_events_are_available_without_a_request_sink() {
     );
     host.shutdown();
 }
+
+#[test]
+fn default_policy_denies_every_method_until_listed_or_explicitly_opened() {
+    let denied = EnginePolicy::default()
+        .check_method("anything")
+        .unwrap_err();
+    assert_eq!(denied.code, "method_not_allowed");
+    let listed = EnginePolicy::default().allow_methods(["echo"]);
+    assert!(listed.check_method("echo").is_ok());
+    assert!(listed.check_method("other").is_err());
+    assert!(EnginePolicy::default()
+        .allow_any_method()
+        .check_method("anything")
+        .is_ok());
+    // A list wins over the open opt-in.
+    let both = EnginePolicy::default()
+        .allow_any_method()
+        .allow_methods(["echo"]);
+    assert!(both.check_method("other").is_err());
+}

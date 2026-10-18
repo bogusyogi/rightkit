@@ -9,7 +9,7 @@ const query = new URLSearchParams(location.search);
 const failSave = query.get("failsave") === "1";
 const SEEDS: Record<string, Record<string, unknown>> = {
   "gate-step2": { version: 1, currentStep: 2, completed: ["legal"], skipped: false, legalAccepted: false },
-  last: { version: 1, currentStep: 3, completed: ["legal", "permissions", "models"], skipped: false, legalAccepted: true },
+  last: { version: 1, currentStep: 3, completed: ["legal", "permissions", "models"], skipped: false, legalAccepted: true, legalAcceptance: { version: "1", documentsHash: "h", acceptedAt: "2026-01-01T00:00:00.000Z", eligibilityBasis: "individual" } },
 };
 const seed = query.get("seed");
 if (seed && SEEDS[seed]) localStorage.setItem("rk-onboarding-settings", JSON.stringify({ values: { "onboarding.state": SEEDS[seed] }, revision: 1 }));

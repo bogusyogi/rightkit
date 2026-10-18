@@ -70,8 +70,8 @@ pub struct CrashConfig {
     /// Known secrets removed from every report and native text artifact (see
     /// [`CrashConfig::redact_values`]).
     redact_values: SecretList,
-    /// Whether the panic hook hands the panic to the previously installed hook (default `true`;
-    /// see [`CrashConfig::chain_default_hook`]).
+    /// Whether the panic hook hands the panic to the previously installed hook (default: only in
+    /// builds with debug assertions; see [`CrashConfig::chain_default_hook`]).
     chain_default_hook: bool,
 }
 
@@ -93,7 +93,7 @@ impl CrashConfig {
             capture_backtrace: true,
             process_kind: None,
             redact_values: SecretList::default(),
-            chain_default_hook: true,
+            chain_default_hook: cfg!(debug_assertions),
         }
     }
 
@@ -108,11 +108,12 @@ impl CrashConfig {
         self
     }
 
-    /// Choose what the panic hook does after recording a report. The default, `true`, passes the
-    /// panic to the previous hook, so the standard message (which quotes the panic payload) still
-    /// reaches stderr. `false` drops that output: the hook writes one fixed line that names the
-    /// app and points at the crash report, and the panic payload is not printed. Use `false` when
-    /// the default message could carry user content into a log the app does not control.
+    /// Choose what the panic hook does after recording a report. `true` passes the panic to the
+    /// previous hook, so the standard message (which quotes the panic payload) still reaches
+    /// stderr. `false` drops that output: the hook writes one fixed line that names the app and
+    /// points at the crash report, and the panic payload is not printed. The default is `false`
+    /// in release builds (a panic payload can carry user content into a log the app does not
+    /// control) and `true` in builds with debug assertions, so development keeps the full message.
     pub fn chain_default_hook(mut self, enabled: bool) -> Self {
         self.chain_default_hook = enabled;
         self
@@ -251,8 +252,9 @@ pub fn recording_enabled() -> bool {
     RECORDING.load(Ordering::Acquire)
 }
 
-/// Install the panic hook. Chains to the previously installed hook so default
-/// stderr output is preserved. Call once, early in `main`. The hook still runs
+/// Install the panic hook. In release builds it prints one fixed line instead of chaining to the
+/// previous hook, so the panic payload never reaches stderr; builds with debug assertions chain
+/// (see [`CrashConfig::chain_default_hook`]). Call once, early in `main`. The hook still runs
 /// before the abort under `panic = "abort"` (unlike `catch_unwind`).
 ///
 /// The hook is best-effort and must never panic: every step ignores errors. Note that the
@@ -953,6 +955,14 @@ mod tests {
             assert!(!text.contains("sleep"), "known secret survived: {text}");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn chaining_defaults_to_the_build_profile() {
+        let config = CrashConfig::new("App", "1.0.0", std::env::temp_dir());
+        assert_eq!(config.chain_default_hook, cfg!(debug_assertions));
+        assert!(config.clone().chain_default_hook(true).chain_default_hook);
+        assert!(!config.chain_default_hook(false).chain_default_hook);
     }
 
     #[test]

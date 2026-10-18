@@ -61,6 +61,9 @@ pub struct AppProfile {
     pub commands: CommandPolicy,
     /// Sensitive apps (HeardRight) expose no generic read channel.
     pub sensitive: bool,
+    /// Dictation apps (HeardRight) also refuse the dictation, delivery and history names
+    /// ([`exposure::forbidden_with`]). Other apps keep those words.
+    pub dictation: bool,
 }
 
 impl AppProfile {
@@ -72,6 +75,7 @@ impl AppProfile {
             methods: CONTROL_METHODS.iter().map(|s| s.to_string()).collect(),
             commands: CommandPolicy::Any,
             sensitive: false,
+            dictation: false,
         }
     }
 
@@ -90,7 +94,23 @@ impl AppProfile {
             methods: vec!["health".into(), "command".into()],
             commands: CommandPolicy::Only(commands),
             sensitive: true,
+            dictation: false,
         }
+    }
+
+    /// Apply the dictation exposure layer to this app: dictation, delivery and history names
+    /// are refused, and any listed command they cover is dropped.
+    pub fn with_dictation_rules(mut self) -> Self {
+        self.dictation = true;
+        if let CommandPolicy::Only(names) = &mut self.commands {
+            names.retain(|c| exposure::forbidden_with(c, true).is_none());
+        }
+        self
+    }
+
+    /// Whether the hard exposure rules refuse command `name` for this app.
+    pub fn command_forbidden(&self, name: &str) -> bool {
+        exposure::forbidden_with(name, self.dictation).is_some()
     }
 
     /// The built-in profile for `app`: HeardRight is sensitive, everything else standard.
@@ -99,7 +119,8 @@ impl AppProfile {
             "heardright" => Self::sensitive(
                 "heardright",
                 &["health", "version", "list_models", "model_status"],
-            ),
+            )
+            .with_dictation_rules(),
             _ => Self::standard(app),
         }
     }
@@ -253,7 +274,7 @@ impl Tool for ControlTool {
                 CommandPolicy::Any => true,
                 CommandPolicy::Only(l) => l.iter().any(|c| c == name),
             };
-            if !allowed || exposure::forbidden(name).is_some() {
+            if !allowed || self.profile.command_forbidden(name) {
                 return Err(ToolError::new(
                     ERR_NOT_ALLOWED,
                     format!("command `{name}` is not exposed for {}", self.profile.app),
@@ -342,7 +363,7 @@ fn check_batch(profile: &AppProfile, args: &Value) -> Result<(), ToolError> {
                 CommandPolicy::Any => true,
                 CommandPolicy::Only(l) => l.iter().any(|c| c == name),
             };
-            if !allowed || exposure::forbidden(name).is_some() {
+            if !allowed || profile.command_forbidden(name) {
                 return Err(ToolError::new(
                     ERR_NOT_ALLOWED,
                     format!(
@@ -431,6 +452,25 @@ mod tests {
         for m in ["pointer", "set_viewport", "focus", "lease_acquire"] {
             assert!(!p.method_enabled(m), "{m}");
         }
+    }
+
+    #[test]
+    fn dictation_names_are_refused_only_for_a_dictation_profile() {
+        let heard = AppProfile::for_app("heardright");
+        assert!(heard.dictation);
+        for name in ["history", "delivery_status", "start_dictation"] {
+            assert!(heard.command_forbidden(name), "{name}");
+        }
+        let gen = AppProfile::standard("genright");
+        assert!(!gen.dictation);
+        for name in ["history", "delivery_status"] {
+            assert!(!gen.command_forbidden(name), "{name}");
+        }
+        assert!(gen.command_forbidden("paste_text"));
+        let listed = AppProfile::sensitive("x", &["history", "health"]).with_dictation_rules();
+        assert!(
+            matches!(&listed.commands, CommandPolicy::Only(l) if l == &vec!["health".to_string()])
+        );
     }
 
     #[test]

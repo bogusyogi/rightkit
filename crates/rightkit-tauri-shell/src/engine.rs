@@ -45,11 +45,16 @@ impl EngineSpec {
     }
 }
 
-/// Optional shell policy. Defaults preserve unrestricted calls & legacy recovery.
+/// Shell engine policy. The default denies every method: list the methods the webview may
+/// call with [`EnginePolicy::allow_methods`], or opt into unrestricted calls explicitly with
+/// [`EnginePolicy::allow_any_method`].
 #[derive(Clone, Default)]
 pub struct EnginePolicy {
-    /// `None` permits every method; `Some(empty)` denies every method.
+    /// Methods the webview may call. `None` (the default) denies every method unless
+    /// [`EnginePolicy::allow_any`] is set.
     pub allowed_methods: Option<HashSet<String>>,
+    /// Explicit opt-in to unrestricted calls; ignored when `allowed_methods` is set.
+    pub allow_any: bool,
     /// Exact method names; missing entries use `EngineSpec::call_timeout`.
     pub method_timeouts: HashMap<String, Duration>,
     /// Opt into job-queue's bounded supervisor (automatic, on-demand or disabled).
@@ -64,6 +69,13 @@ pub struct EnginePolicy {
 impl EnginePolicy {
     pub fn allow_methods(mut self, methods: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.allowed_methods = Some(methods.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Explicit opt-in: the webview may call every engine method. Prefer
+    /// [`EnginePolicy::allow_methods`]; this exists for engines whose whole surface is app-safe.
+    pub fn allow_any_method(mut self) -> Self {
+        self.allow_any = true;
         self
     }
 
@@ -87,11 +99,11 @@ impl EnginePolicy {
 
     /// Validate at the native boundary, before obtaining or starting a client.
     pub fn check_method(&self, method: &str) -> Result<(), JobError> {
-        if self
-            .allowed_methods
-            .as_ref()
-            .is_some_and(|m| !m.contains(method))
-        {
+        let allowed = match &self.allowed_methods {
+            Some(methods) => methods.contains(method),
+            None => self.allow_any,
+        };
+        if !allowed {
             return Err(JobError::supervisor(
                 "method_not_allowed",
                 format!("method {method:?} is not available to the app"),

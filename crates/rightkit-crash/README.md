@@ -24,7 +24,7 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 
 ## Usage
 
-`CrashConfig::chain_default_hook(false)` makes the panic hook print one fixed line instead of the previous hook's message, so the panic payload never reaches stderr (rightkit#513).
+In release builds the panic hook prints one fixed line instead of the previous hook's message, so the panic payload never reaches stderr (rightkit#513). Builds with debug assertions chain to the previous hook by default. `CrashConfig::chain_default_hook(bool)` overrides either default.
 
 
 Taken from the setup in `tests/crash_e2e.rs`:

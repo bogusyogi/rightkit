@@ -67,8 +67,9 @@ export function isLegalAccepted(
   // a changed text re-prompts even when the version string did not move.
   if (requiredDocumentsHash !== undefined && state.legalAcceptance?.documentsHash !== requiredDocumentsHash) return false;
   if (requiredVersion !== undefined) return state.legalAcceptance?.version === requiredVersion;
-  if (requiredDocumentsHash !== undefined) return state.legalAcceptance !== undefined;
-  return state.legalAccepted;
+  // With no version or hash requirement a recorded acceptance is still required: a bare legacy
+  // `legalAccepted` flag carries no version, time or basis, so it re-prompts once (as re-acceptance).
+  return state.legalAcceptance !== undefined;
 }
 
 /** FNV-1a fallback when SubtleCrypto is unavailable. */

@@ -51,6 +51,9 @@ pub fn control_toolbox(suite: &Suite, apps: &[&str]) -> Result<Toolbox, ToolErro
 
 /// Register one app profile and grant [`CTL_CALLER`] its patterns.
 pub fn add_app(tb: &mut Toolbox, suite: &Suite, profile: AppProfile) -> Result<(), ToolError> {
+    if profile.dictation {
+        tb.protect_dictation(profile.app.clone());
+    }
     tb.register_all(control_tools(suite, &profile))?;
     tb.allow(CTL_CALLER, profile.allow_patterns());
     #[cfg(feature = "speech")]

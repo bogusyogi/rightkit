@@ -13,7 +13,7 @@ Catalog capability: `agent-tools`.
 | `browser.*` | `rightkit-browser` (Chrome DevTools Protocol) | `browser` |
 | `speech.*` | `rightkit-speech-client` (shared speech service) | `speech` |
 
-HeardRight's rules are built in and cannot be configured: no dictation, text delivery, pasteboard or history tool can be registered or called (`exposure` module).
+Exposure rules are built in and cannot be loosened (`exposure` module). No pasteboard or paste tool can be registered or called, for any app. A dictation app (`AppProfile::with_dictation_rules`, set by the built-in HeardRight profile; `Toolbox::protect_dictation` for a hand-built toolbox) also refuses dictation, text-delivery and history names. Other apps keep their own `history` or `delivery` commands.
 
 ## When to use it
 

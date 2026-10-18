@@ -21,8 +21,8 @@ function memorySettings(initial: Record<string, unknown> = {}) {
   return { backend, values };
 }
 
-const accepted = (extra: Record<string, unknown> = {}) => ({ "onboarding.state": { version: 1, currentStep: 1, completed: ["legal"], skipped: false, legalAccepted: true, ...extra } });
 const record = (version: string) => ({ version, documentsHash: "h", acceptedAt: "2026-01-01T00:00:00.000Z", eligibilityBasis: "individual" });
+const accepted = (extra: Record<string, unknown> = {}) => ({ "onboarding.state": { version: 1, currentStep: 1, completed: ["legal"], skipped: false, legalAccepted: true, legalAcceptance: record("1"), ...extra } });
 
 function models(entries: ModelEntry[], extra: Partial<ModelsBackend> = {}): ModelsBackend {
   return { list: async () => entries, install: async () => {}, ...extra };
@@ -393,6 +393,12 @@ describe("isLegalAccepted", () => {
   it("still requires the version when both are given, and the hash alone when only it is given", () => {
     expect(isLegalAccepted(stored("2026-08", "sha256:new"), "2026-09", undefined, "sha256:new")).toBe(false);
     expect(isLegalAccepted(stored("2026-08", "sha256:new"), undefined, undefined, "sha256:new")).toBe(true);
+  });
+
+  it("never accepts a bare legacy flag, even with no version or hash requirement", () => {
+    const legacy = { legalAccepted: true } as unknown as Parameters<typeof isLegalAccepted>[0];
+    expect(isLegalAccepted(legacy)).toBe(false);
+    expect(isLegalAccepted({ ...legacy, legalAcceptance: record("1") } as never)).toBe(true);
   });
 
   it("compares nothing new when no required hash is given", () => {
