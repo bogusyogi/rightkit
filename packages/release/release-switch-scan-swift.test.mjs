@@ -36,3 +36,20 @@ test("env! of a Cargo-set name is not a switch; any other compile-time name stil
   const findings = sourceSwitchFindings({ sourceRoot: root, inventoryText: inventory([]) });
   assert.deepEqual(findings.map((f) => f.reason.match(/`([A-Z_]+)`/)[1]), ["APP_BUILD_FLAVOR"]);
 });
+
+test("the recipe's own build output and fetched dependency checkouts are not scanned", () => {
+  const root = app();
+  const outputs = [
+    [".right-release", "ios", "DerivedData", "SourcePackages", "checkouts", "rightkit", "crates", "x", "src"],
+    ["DerivedData", "SourcePackages", "checkouts", "dep"],
+    [".build", "checkouts", "dep"],
+    [".swiftpm", "xcode"],
+  ];
+  for (const parts of outputs) {
+    mkdirSync(path.join(root, ...parts), { recursive: true });
+    writeFileSync(path.join(root, ...parts, "lib.swift"), read("FROM_BUILD_OUTPUT"));
+  }
+  const findings = sourceSwitchFindings({ sourceRoot: root, inventoryText: inventory([]) });
+  assert.deepEqual(findings.map((f) => f.reason).filter((reason) => /FROM_BUILD_OUTPUT/.test(reason)), []);
+  assert.match(findings[0].reason, /APP_UI_QA/, "the app's own read is still reported");
+});

@@ -248,7 +248,9 @@ export function parseInventory(text, label = "switches.json") {
 }
 
 const SOURCE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".vue", ".svelte", ".swift", ".c", ".cc", ".cpp", ".h", ".m", ".mm"]);
-const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", ".git", "tests", "__tests__", "benches", "examples", "fixtures", "test", "coverage", ".vite"]);
+// Build output and fetched dependencies, never app source: the release recipe's own .right-release/ (Xcode DerivedData, whose
+// SourcePackages/checkouts holds whole dependency repositories), SwiftPM's .build and .swiftpm, and Xcode DerivedData anywhere.
+const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", ".git", "tests", "__tests__", "benches", "examples", "fixtures", "test", "coverage", ".vite", ".right-release", "deriveddata", "sourcepackages", ".build", ".swiftpm"]);
 // Swift/Xcode test bundles are capitalised (`Tests`, `UITests`, `<App>Tests`, `<App>UITests`): they are test code too.
 const skipDir = (name) => SKIP_DIRS.has(name.toLowerCase()) || /(?:^|[a-z0-9])(?:UI)?Tests$/.test(name);
 const TEST_FILE = /(\.test\.|\.spec\.|_tests?\.rs$|^tests?\.rs$)/;
