@@ -475,7 +475,7 @@ mod tests {
         let root = tmp("child-links");
         let outside = tmp("child-outside");
         bound(&root, "viewright");
-        let validated = validate_root("viewright", &root, &[outside.clone()]).unwrap();
+        let validated = validate_root("viewright", &root, std::slice::from_ref(&outside)).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("data")).unwrap();
         for child in ["data", "data/missing/file"] {
             assert_eq!(
