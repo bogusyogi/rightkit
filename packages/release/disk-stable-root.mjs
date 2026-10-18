@@ -130,8 +130,12 @@ export function readScheduleBinding({ platform = process.platform, home = os.hom
   if (platform === "darwin") {
     const plist = plistFile ?? file ?? path.join(home, "Library", "LaunchAgents", "dev.rightkit.disk-hygiene.plist");
     if (!existsSync(plist)) return null;
-    const m = /<key>ProgramArguments<\/key><array>\s*<string>([^<]*)<\/string>\s*<string>([^<]*)<\/string>/.exec(readFileSync(plist, "utf8"));
-    return m ? { node: m[1], cli: m[2], source: plist } : { node: null, cli: null, source: plist };
+    // Parse the plist natively: launchd/plutil formatting and XML escaping must not change the binding.
+    const result = run("/usr/bin/plutil", ["-extract", "ProgramArguments", "json", "-o", "-", "--", plist], { encoding: "utf8" });
+    let args;
+    try { if (result.status === 0) args = JSON.parse(String(result.stdout)); } catch { /* malformed binding fails evaluation below */ }
+    const valid = Array.isArray(args) && typeof args[0] === "string" && typeof args[1] === "string";
+    return valid ? { node: args[0], cli: args[1], source: plist } : { node: null, cli: null, source: plist };
   }
   const r = run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$t = Get-ScheduledTask -TaskName '${label}' -ErrorAction SilentlyContinue; if (-not $t) { exit 3 }; $a = $t.Actions[0]; Write-Output $a.Execute; Write-Output $a.Arguments`], { encoding: "utf8" });
   if (r.status !== 0) return null;

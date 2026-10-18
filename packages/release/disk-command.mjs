@@ -580,6 +580,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     if (!self.ok) {
       for (const problem of self.problems) stdout(`ERROR: disk run self-check: ${problem}`);
       logEvent(logFile, { event: "disk.run.selfcheck.fail", problems: self.problems, version: self.version });
+      return { exitCode: 2, selfCheck: self };
     }
     ensureScratchRoots({ policy, platform, env });
     const before = check();

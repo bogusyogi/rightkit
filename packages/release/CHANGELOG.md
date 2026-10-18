@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Disk hygiene fails closed (#776).** `readScheduleBinding` reads the macOS LaunchAgent with `plutil -extract ProgramArguments json` instead of a whitespace-sensitive regex, so a launchd-formatted plist no longer fails the self-check. A failed `disk run` self-check now returns exit 2 before any scratch creation, scan, sweep or purge; it used to log the failure and carry on moving files. Test: `disk-schedule-binding.test.mjs`.
 - **Sidecar staging gaps (Orthic-Labs/rightkit#691, #692; additive, package.json version and `rightkit-versions.json` stay with root integration; a minor bump 0.3.0 to 0.4.0 fits; source only, not run).**
   - **`cmake` kind (#691):** new optional keys `cmakeBin` (explicit cmake name or path), `platformGenerators` (`{ win: "Visual Studio 17 2022" }`, overrides the existing per-entry `generator` for that platform) and `architecture` (`-A <arch>`, after `-G`). With no `cmakeBin` a Windows host uses PATH cmake when `where cmake` finds one, else the Visual Studio-bundled cmake located through `vswhere.exe` (`%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`), else plain `cmake`. Defaults are unchanged. No environment override: the recipe has none for other tools.
   - **`ffmpeg` local sources (#692):** `sources.<tool>` accepts `{ path, member? }` (relative to the app root, may start with `../`) as well as the pinned https archive form, per arch too. The file is copied, never downloaded, and must equal the approved catalog row digest.
