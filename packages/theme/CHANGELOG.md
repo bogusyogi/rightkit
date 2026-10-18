@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — unpublished staging
+
+- Repairs runtime token and theme behavior.
+
 ## 0.3.0 (2026-10-17)
 
 Fixed:

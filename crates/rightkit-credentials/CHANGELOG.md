@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — unpublished staging
+
+- Adds pinned key rotation through `Store::pinned` and the credentials exec path.
+
 ## 0.2.1 (2026-10-17)
 
 - Added (rightkit#509): `Store::generate_key(bytes) -> Result<Secret>`, a public fresh-key generator (OS CSPRNG, standard base64 text, 16..=1024 bytes, nothing stored) for rotation keys; `get_or_create_key` now uses it. Additive.

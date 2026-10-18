@@ -7,7 +7,7 @@ use crate::transport::{connect, connect_expecting, Conn};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -472,6 +472,13 @@ impl Client {
         (self.shutdown)();
     }
 
+    /// Whether this connection is known closed: aborted, timed out, or a call already
+    /// saw it close. A pool discards such a client instead of spending a request on it;
+    /// `false` only means no closing has been observed yet.
+    pub fn is_closed(&self) -> bool {
+        self.dead.load(Ordering::SeqCst)
+    }
+
     pub fn call(&self, method: &str, params: Value) -> Result<Value, ServiceError> {
         self.call_events(method, params, &mut |_| {})
     }
@@ -638,6 +645,28 @@ impl Client {
         params: Value,
         on_event: &mut dyn FnMut(&Value),
     ) -> Result<Value, ServiceError> {
+        self.call_large_until(method, params, None, on_event)
+    }
+
+    // A pooled request carries one deadline across every upload/fetch frame; it never
+    // changes the client's shared deadline while another stream might be in flight.
+    fn call_large_until(
+        &self,
+        method: &str,
+        params: Value,
+        deadline: Option<Option<Instant>>,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        let step =
+            |method: &str, params: Value, chunked, sink: &mut dyn FnMut(&Value)| match deadline {
+                Some(limit) => {
+                    if limit.is_some_and(|d| Instant::now() >= d) {
+                        return Err(timed_out("pool request", Some(Duration::ZERO)));
+                    }
+                    self.call_frame_until(method, params, chunked, limit, sink)
+                }
+                None => self.call_step(method, params, chunked, sink),
+            };
         use crate::chunk::{boundaries, CHUNK_TEXT_BYTES, METHOD_FETCH, METHOD_UPLOAD};
         let advertised = |key: &str| {
             self.hello[key]
@@ -661,7 +690,7 @@ impl Client {
         };
         let mut frame = if text.len() <= single_max {
             drop(text);
-            self.call_step(method, params, max_message > 0, &mut *on_event)?
+            step(method, params, max_message > 0, &mut *on_event)?
         } else {
             if max_message == 0 || text.len() > max_message {
                 return Err(ServiceError::new(
@@ -691,7 +720,7 @@ impl Client {
                     piece["method"] = Value::String(method.to_string());
                 }
                 start = *end;
-                let frame = self.call_step(METHOD_UPLOAD, piece, last, &mut *on_event)?;
+                let frame = step(METHOD_UPLOAD, piece, last, &mut *on_event)?;
                 if last {
                     answer = frame;
                 }
@@ -723,7 +752,7 @@ impl Client {
         let mut joined = String::with_capacity(bytes);
         for seq in 0..count {
             let request = json!({"id": id, "seq": seq});
-            let piece = self.call_step(METHOD_FETCH, request, false, &mut *on_event)?;
+            let piece = step(METHOD_FETCH, request, false, &mut *on_event)?;
             let part = piece["result"]["text"]
                 .as_str()
                 .ok_or_else(|| bad("a result piece has no text"))?;
@@ -960,6 +989,157 @@ impl Client {
     }
 }
 
+/// A small pool of connections to one service, for callers that hold connections across
+/// calls (a [`Client`] carries one request at a time). Connections open lazily through
+/// the caller's `connect` source — the same shape [`Client::call_retrying_over`] takes,
+/// so host verification stays the caller's — and a healthy one is reused for the next
+/// call. A client known closed ([`Client::is_closed`]) is discarded before a request is
+/// spent on it, and one that closes or times out during a call is discarded after it.
+/// Retries follow the same deadline rules as [`Client::call_retrying`]: a retryable
+/// connect failure is retried within `policy`, and a written request is resubmitted only
+/// on host handoff, or on close/timeout when `policy.idempotent` says it may run twice.
+pub struct ClientPool {
+    slots: Vec<Mutex<Option<Client>>>,
+    next: AtomicUsize,
+    connect: Box<dyn Fn(Option<Duration>) -> Result<Client, ConnectError> + Send + Sync>,
+}
+
+impl ClientPool {
+    /// A pool of `size` connections (at least one), opened by `connect`, which receives
+    /// the per-attempt deadline from the [`RetryPolicy`] of each call.
+    pub fn new<F>(size: usize, connect: F) -> Self
+    where
+        F: Fn(Option<Duration>) -> Result<Client, ConnectError> + Send + Sync + 'static,
+    {
+        Self {
+            slots: (0..size.max(1)).map(|_| Mutex::new(None)).collect(),
+            next: AtomicUsize::new(0),
+            connect: Box::new(connect),
+        }
+    }
+
+    /// Drop every pooled connection (the host was replaced, so each points at a dead
+    /// process). The next call on each slot reconnects instead of spending its one
+    /// attempt on a closed connection.
+    pub fn discard_all(&self) {
+        for slot in &self.slots {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+    }
+
+    /// Wait for any free slot without borrowing or aborting a busy client's stream.
+    fn pick(&self, deadline: Option<Instant>) -> Option<std::sync::MutexGuard<'_, Option<Client>>> {
+        let n = self.slots.len();
+        let start = self.next.fetch_add(1, Ordering::Relaxed);
+        let mut pause = Duration::from_micros(200);
+        loop {
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                return None;
+            }
+            for i in 0..n {
+                match self.slots[start.wrapping_add(i) % n].try_lock() {
+                    Ok(g) => return Some(g),
+                    Err(std::sync::TryLockError::Poisoned(e)) => return Some(e.into_inner()),
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                }
+            }
+            let wait = deadline.map_or(pause, |d| {
+                pause.min(d.saturating_duration_since(Instant::now()))
+            });
+            std::thread::sleep(wait);
+            pause = (pause * 2).min(Duration::from_millis(5));
+        }
+    }
+
+    /// Call `method` on a pooled connection under the default [`RetryPolicy`] (not
+    /// idempotent: a request that may have run is never resent).
+    pub fn call(&self, method: &str, params: Value) -> Result<Value, ServiceError> {
+        self.call_with_policy(method, params, RetryPolicy::default(), &mut |_| {})
+    }
+
+    /// [`call`](Self::call) with an explicit retry policy and event sink. Requests go
+    /// through [`Client::call_large`], so oversize requests/results chunk as usual.
+    pub fn call_with_policy(
+        &self,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        let started = Instant::now();
+        let total_deadline = started.checked_add(policy.give_up_after);
+        let bounded_attempt = |start: Instant| match (
+            total_deadline,
+            policy.request_deadline.and_then(|d| start.checked_add(d)),
+        ) {
+            (Some(total), Some(request)) => Some(total.min(request)),
+            (total, request) => total.or(request),
+        };
+        let mut attempt_deadline = bounded_attempt(started);
+        let Some(mut slot) = self.pick(attempt_deadline) else {
+            return Err(timed_out("pool slot wait", policy.request_deadline));
+        };
+        let mut last = ServiceError::retryable(ERROR_UNAVAILABLE, "no attempt made");
+        for attempt in 0..policy.max_attempts.max(1) {
+            if attempt > 0 {
+                let left = total_deadline.map(|d| d.saturating_duration_since(Instant::now()));
+                if left.is_some_and(|d| d.is_zero()) {
+                    return Err(timed_out("pool call", Some(policy.give_up_after)));
+                }
+                let backoff = policy.backoff.saturating_mul(attempt.min(8));
+                std::thread::sleep(left.map_or(backoff, |d| backoff.min(d)));
+                attempt_deadline = bounded_attempt(Instant::now());
+            }
+            if attempt_deadline.is_some_and(|d| Instant::now() >= d) {
+                return Err(timed_out("pool call", Some(policy.give_up_after)));
+            }
+            // Never spend a request on a connection already known closed.
+            if slot.as_ref().is_some_and(Client::is_closed) {
+                *slot = None;
+            }
+            if slot.is_none() {
+                match (self.connect)(
+                    attempt_deadline.map(|d| d.saturating_duration_since(Instant::now())),
+                ) {
+                    Ok(c) => *slot = Some(c),
+                    Err(ConnectError::Service(e)) if e.retryable => {
+                        last = e; // never reached the host's request path
+                        continue;
+                    }
+                    Err(e) => return Err(e.into_service_error()),
+                }
+            }
+            let result = match slot.as_ref() {
+                Some(client) => client.call_large_until(
+                    method,
+                    params.clone(),
+                    Some(attempt_deadline),
+                    &mut *on_event,
+                ),
+                None => continue,
+            };
+            match result {
+                Ok(v) => return Ok(v),
+                // A closed or timed-out connection is discarded either way; the request
+                // itself is resent only under the retry rules (handoff, or idempotent).
+                Err(e) if e.code == ERROR_CONNECTION_CLOSED || e.code == ERROR_TIMEOUT => {
+                    *slot = None;
+                    if !policy.idempotent {
+                        return Err(e);
+                    }
+                    last = e;
+                }
+                Err(e) if e.retryable && e.code == ERROR_HOST_HANDOFF => {
+                    *slot = None;
+                    last = e;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -993,6 +1173,268 @@ mod tests {
                 Err(SuiteError::Insecure(_))
             ));
         }
+    }
+
+    struct Echo;
+
+    impl crate::server::Handler for Echo {
+        fn call(
+            &self,
+            _cx: &crate::server::CallContext,
+            method: &str,
+            params: &Value,
+            _emit: &crate::server::Emit,
+        ) -> Result<Value, ServiceError> {
+            match method {
+                "echo" => Ok(params.clone()),
+                _ => Err(ServiceError::new("unknown_method", method)),
+            }
+        }
+    }
+
+    #[test]
+    fn the_pool_reuses_a_healthy_client_discards_a_closed_one_and_retries_a_failed_connect() {
+        use crate::record::Allowlist;
+        use crate::server::{host, ServiceConfig};
+        use std::sync::atomic::AtomicU32;
+        let dir = tempfile::tempdir().unwrap();
+        let suite = Suite::at(dir.path().join("suite")).unwrap();
+        let config = ServiceConfig::new(
+            "pool-svc",
+            "engine",
+            1,
+            "1.0",
+            Allowlist::new().allow("app", ["echo"]),
+        );
+        let _hosted = host(&suite, config, Arc::new(Echo)).unwrap();
+        let connects = Arc::new(AtomicU32::new(0));
+        let counter = connects.clone();
+        let pool_suite = suite.clone();
+        let pool = ClientPool::new(1, move |deadline| {
+            // The first connect attempt fails retryably: the pool must retry within the
+            // policy's deadline budget instead of surfacing it.
+            if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(ConnectError::Service(ServiceError::retryable(
+                    ERROR_UNAVAILABLE,
+                    "not up yet",
+                )));
+            }
+            Client::connect_bounded(&pool_suite, "pool-svc", "app", deadline, None, None)
+        });
+        let policy = RetryPolicy {
+            max_attempts: 3,
+            backoff: Duration::from_millis(1),
+            give_up_after: Duration::from_secs(30),
+            request_deadline: Some(Duration::from_secs(10)),
+            idempotent: false,
+        };
+        let first = pool
+            .call_with_policy("echo", json!({"n": 1}), policy, &mut |_| {})
+            .unwrap();
+        assert_eq!(first, json!({"n": 1}));
+        assert_eq!(
+            connects.load(Ordering::SeqCst),
+            2,
+            "one failure, one connect"
+        );
+        // Healthy reuse: a second call on the same slot opens nothing new.
+        assert_eq!(pool.call("echo", json!({"n": 2})).unwrap(), json!({"n": 2}));
+        assert_eq!(connects.load(Ordering::SeqCst), 2);
+        // A client known closed is discarded before a request is spent on it, even
+        // under the non-idempotent default policy.
+        {
+            let slot = pool.slots[0].lock().unwrap();
+            slot.as_ref().unwrap().abort();
+            assert!(slot.as_ref().unwrap().is_closed());
+        }
+        assert_eq!(pool.call("echo", json!({"n": 3})).unwrap(), json!({"n": 3}));
+        assert_eq!(
+            connects.load(Ordering::SeqCst),
+            3,
+            "reconnected after discard"
+        );
+        // discard_all forces the same fresh connect (a replaced host).
+        pool.discard_all();
+        assert_eq!(pool.call("echo", json!({"n": 4})).unwrap(), json!({"n": 4}));
+        assert_eq!(connects.load(Ordering::SeqCst), 4);
+    }
+
+    struct PoolGate {
+        entered: mpsc::Sender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+        calls: AtomicUsize,
+    }
+
+    impl crate::server::Handler for PoolGate {
+        fn call(
+            &self,
+            _cx: &crate::server::CallContext,
+            method: &str,
+            params: &Value,
+            _emit: &crate::server::Emit,
+        ) -> Result<Value, ServiceError> {
+            if method == "block" {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.entered.send(()).unwrap();
+                let _ = self
+                    .release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(3));
+            }
+            Ok(params.clone())
+        }
+    }
+
+    #[test]
+    fn pooled_reuse_obeys_current_short_deadline_without_replaying_uncertain_request() {
+        use crate::record::Allowlist;
+        use crate::server::{host, ServiceConfig};
+        for (previous, request_deadline, give_up_after) in [
+            (
+                None,
+                Some(Duration::from_millis(50)),
+                Duration::from_secs(2),
+            ),
+            (
+                Some(Duration::from_secs(60)),
+                Some(Duration::from_millis(50)),
+                Duration::from_secs(2),
+            ),
+            (None, None, Duration::from_millis(50)),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let suite = Suite::at(dir.path().join("suite")).unwrap();
+            let (entered, _entered_rx) = mpsc::channel();
+            let (release_tx, release) = mpsc::channel();
+            let handler = Arc::new(PoolGate {
+                entered,
+                release: Mutex::new(release),
+                calls: AtomicUsize::new(0),
+            });
+            let config = ServiceConfig::new(
+                "pool-budget",
+                "engine",
+                1,
+                "1.0",
+                Allowlist::new().allow("app", ["echo", "block"]),
+            );
+            let _hosted = host(&suite, config, handler.clone()).unwrap();
+            let connects = Arc::new(AtomicUsize::new(0));
+            let counter = connects.clone();
+            let pool = ClientPool::new(1, move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Client::connect_bounded(&suite, "pool-budget", "app", previous, None, None)
+            });
+            pool.call_with_policy(
+                "echo",
+                Value::Null,
+                RetryPolicy {
+                    request_deadline: previous,
+                    ..RetryPolicy::default()
+                },
+                &mut |_| {},
+            )
+            .unwrap();
+            let started = Instant::now();
+            let result = pool.call_with_policy(
+                "block",
+                Value::Null,
+                RetryPolicy {
+                    request_deadline,
+                    give_up_after,
+                    max_attempts: 3,
+                    idempotent: false,
+                    ..RetryPolicy::default()
+                },
+                &mut |_| {},
+            );
+            let elapsed = started.elapsed();
+            release_tx.send(()).unwrap();
+            assert_eq!(result.unwrap_err().code, ERROR_TIMEOUT);
+            assert!(elapsed < Duration::from_secs(1));
+            assert_eq!(connects.load(Ordering::SeqCst), 1);
+            assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn busy_pool_wait_is_bounded_without_aborting_active_stream() {
+        use crate::record::Allowlist;
+        use crate::server::{host, ServiceConfig};
+        let dir = tempfile::tempdir().unwrap();
+        let suite = Suite::at(dir.path().join("suite")).unwrap();
+        let (entered, entered_rx) = mpsc::channel();
+        let (release_tx, release) = mpsc::channel();
+        let handler = Arc::new(PoolGate {
+            entered,
+            release: Mutex::new(release),
+            calls: AtomicUsize::new(0),
+        });
+        let config = ServiceConfig::new(
+            "pool-busy",
+            "engine",
+            1,
+            "1.0",
+            Allowlist::new().allow("app", ["echo", "block"]),
+        );
+        let _hosted = host(&suite, config, handler).unwrap();
+        let pool = Arc::new(ClientPool::new(1, move |deadline| {
+            Client::connect_bounded(&suite, "pool-busy", "app", deadline, None, None)
+        }));
+        let active_pool = pool.clone();
+        let active = std::thread::spawn(move || active_pool.call("block", json!("original")));
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        for request_deadline in [None, Some(Duration::from_millis(30))] {
+            let started = Instant::now();
+            let result = pool.call_with_policy(
+                "echo",
+                Value::Null,
+                RetryPolicy {
+                    request_deadline,
+                    give_up_after: Duration::from_millis(60),
+                    ..RetryPolicy::default()
+                },
+                &mut |_| {},
+            );
+            assert_eq!(result.unwrap_err().code, ERROR_TIMEOUT);
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+        release_tx.send(()).unwrap();
+        assert_eq!(active.join().unwrap().unwrap(), json!("original"));
+        assert_eq!(
+            pool.call("echo", json!("healthy")).unwrap(),
+            json!("healthy")
+        );
+    }
+
+    #[test]
+    fn pool_retry_backoff_cannot_exceed_total_budget() {
+        let connects = Arc::new(AtomicUsize::new(0));
+        let counter = connects.clone();
+        let pool = ClientPool::new(1, move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Err(ConnectError::Service(ServiceError::retryable(
+                ERROR_UNAVAILABLE,
+                "offline",
+            )))
+        });
+        let started = Instant::now();
+        let result = pool.call_with_policy(
+            "echo",
+            Value::Null,
+            RetryPolicy {
+                give_up_after: Duration::from_millis(40),
+                backoff: Duration::from_secs(10),
+                max_attempts: 3,
+                request_deadline: None,
+                ..RetryPolicy::default()
+            },
+            &mut |_| {},
+        );
+        assert_eq!(result.unwrap_err().code, ERROR_TIMEOUT);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(connects.load(Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 — unpublished staging
+
+- Repairs legal snapshot and policy handling.
+
 ## 0.6.0 (2026-10-17)
 
 Legal snapshot and npm license notice tooling (Orthic-Labs/rightkit#472; source side of #673).

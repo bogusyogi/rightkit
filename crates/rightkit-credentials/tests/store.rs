@@ -1099,6 +1099,7 @@ fn the_native_naming_functions_are_pinned_to_exact_strings() {
 struct TwoStores {
     stores: [MemoryBackend; 2],
     default: AtomicUsize,
+    switch_after_pin: AtomicBool,
     /// `pinned()` fails: the default cannot be resolved.
     unresolvable: AtomicBool,
     /// A pinned view reports no `exclusion_identity`.
@@ -1160,6 +1161,9 @@ impl Backend for View {
         }
         // The default as it is right now, decided once.
         let index = self.shared.default.load(Ordering::SeqCst);
+        if self.shared.switch_after_pin.swap(false, Ordering::SeqCst) {
+            self.shared.default.store(1 - index, Ordering::SeqCst);
+        }
         Ok(Some(Arc::new(View {
             shared: self.shared.clone(),
             fixed: Some(index),
@@ -1231,6 +1235,7 @@ fn two_stores_rig(service: &str) -> TwoStoresRig {
     let shared = Arc::new(TwoStores {
         stores: [MemoryBackend::new(), MemoryBackend::new()],
         default: AtomicUsize::new(0),
+        switch_after_pin: AtomicBool::new(false),
         unresolvable: AtomicBool::new(false),
         anonymous: AtomicBool::new(false),
         gate: Mutex::new(Some(release_rx)),
@@ -1330,6 +1335,162 @@ fn a_pinned_backend_that_cannot_name_its_store_is_refused() {
     assert!(matches!(attempt, Err(Error::Unavailable(_))), "{attempt:?}");
     assert_eq!(rig.shared.value(0, &rig.ns, "acct"), None);
     assert_eq!(rig.shared.value(1, &rig.ns, "acct"), None);
+}
+
+#[test]
+fn rotation_pins_pending_write_read_primary_and_fallback_cleanup_to_one_store() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.rotation-default-pin");
+    rig.release.send(()).unwrap();
+    rig.shared.switch_after_pin.store(true, Ordering::SeqCst);
+    assert!(rig
+        .store
+        .begin_rotation("db", &Secret::from_string("new-0"))
+        .unwrap());
+    assert_eq!(
+        rig.shared
+            .value(0, &rig.ns, "db.rotation-pending")
+            .as_deref(),
+        Some("new-0")
+    );
+    assert_eq!(rig.shared.value(1, &rig.ns, "db.rotation-pending"), None);
+
+    // Each invocation resolves afresh, preserving recovery semantics. Seed the other store
+    // with a distinct marker so a split read/write/delete cannot accidentally pass.
+    rig.shared.stores[1]
+        .set(
+            &rig.ns,
+            "db.rotation-pending",
+            &Secret::from_string("new-1"),
+            Interaction::NonInteractive,
+        )
+        .unwrap();
+    rig.shared.default.store(0, Ordering::SeqCst);
+    rig.shared.switch_after_pin.store(true, Ordering::SeqCst);
+    assert!(rig.store.commit_rotation("db").unwrap());
+    assert_eq!(rig.shared.value(0, &rig.ns, "db").as_deref(), Some("new-0"));
+    assert_eq!(rig.shared.value(0, &rig.ns, "db.rotation-pending"), None);
+    assert_eq!(rig.shared.value(1, &rig.ns, "db"), None);
+    assert_eq!(
+        rig.shared
+            .value(1, &rig.ns, "db.rotation-pending")
+            .as_deref(),
+        Some("new-1")
+    );
+
+    rig.shared.switch_after_pin.store(true, Ordering::SeqCst);
+    assert!(rig.store.abort_rotation("db").unwrap());
+    assert_eq!(rig.shared.value(1, &rig.ns, "db.rotation-pending"), None);
+    assert_eq!(rig.shared.value(0, &rig.ns, "db").as_deref(), Some("new-0"));
+}
+
+#[test]
+fn explicitly_pinned_store_retains_rotation_backend_across_separate_calls() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.rotation-retained-pin");
+    rig.release.send(()).unwrap();
+    let pinned = rig.store.pinned().unwrap();
+    assert!(pinned
+        .begin_rotation("db", &Secret::from_string("new-0"))
+        .unwrap());
+    rig.shared.default.store(1, Ordering::SeqCst);
+    // The ordinary handle still follows the changed default.
+    assert!(rig.store.pending_rotation("db").unwrap().is_none());
+    assert!(rig
+        .store
+        .begin_rotation("db", &Secret::from_string("new-1"))
+        .unwrap());
+    assert_eq!(
+        pinned
+            .pending_rotation("db")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "new-0"
+    );
+    assert!(pinned.commit_rotation("db").unwrap());
+    assert_eq!(rig.shared.value(0, &rig.ns, "db").as_deref(), Some("new-0"));
+    assert_eq!(
+        rig.shared
+            .value(1, &rig.ns, "db.rotation-pending")
+            .as_deref(),
+        Some("new-1")
+    );
+    assert!(pinned
+        .begin_rotation("db", &Secret::from_string("discard"))
+        .unwrap());
+    assert!(pinned.abort_rotation("db").unwrap());
+    assert_eq!(rig.shared.value(0, &rig.ns, "db.rotation-pending"), None);
+    assert_eq!(
+        rig.shared
+            .value(1, &rig.ns, "db.rotation-pending")
+            .as_deref(),
+        Some("new-1")
+    );
+}
+
+#[test]
+fn timed_out_rotation_primary_keeps_its_marker_until_the_native_write_finishes() {
+    let rig = two_stores_rig("dev.rightkit.secrets.test.rotation-timeout-pin");
+    assert!(rig
+        .store
+        .begin_rotation("db", &Secret::from_string("new-0"))
+        .unwrap());
+    assert!(matches!(
+        rig.store.commit_rotation("db"),
+        Err(Error::Timeout { .. })
+    ));
+    rig.entered.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Explicitly address the old store after the default changes, just as recovery must.
+    rig.shared.default.store(1, Ordering::SeqCst);
+    let original = Store::open(
+        Config::new(rig.ns.clone())
+            .backend(Arc::new(View {
+                shared: rig.shared.clone(),
+                fixed: Some(0),
+            }))
+            .timeout(Duration::from_millis(250)),
+    );
+    assert!(matches!(
+        original.abort_rotation("db"),
+        Err(Error::InProgress { .. })
+    ));
+    assert!(matches!(
+        original.begin_rotation("db", &Secret::from_string("newer")),
+        Err(Error::InProgress { .. })
+    ));
+    assert!(matches!(
+        original.commit_rotation("db"),
+        Err(Error::InProgress { .. })
+    ));
+    assert_eq!(
+        rig.shared
+            .value(0, &rig.ns, "db.rotation-pending")
+            .as_deref(),
+        Some("new-0")
+    );
+    assert!(rig
+        .store
+        .begin_rotation("db", &Secret::from_string("new-1"))
+        .unwrap());
+    assert!(rig.store.commit_rotation("db").unwrap());
+    rig.release.send(()).unwrap();
+    rig.finished.recv_timeout(Duration::from_secs(5)).unwrap();
+    // The backend completion signal precedes Store's permit drop by a few instructions.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match original.commit_rotation("db") {
+            Err(Error::InProgress { .. }) if std::time::Instant::now() < deadline => {
+                std::thread::yield_now();
+            }
+            outcome => {
+                assert!(outcome.unwrap());
+                break;
+            }
+        }
+    }
+    assert_eq!(rig.shared.value(0, &rig.ns, "db").as_deref(), Some("new-0"));
+    assert_eq!(rig.shared.value(0, &rig.ns, "db.rotation-pending"), None);
+    assert_eq!(rig.shared.value(1, &rig.ns, "db").as_deref(), Some("new-1"));
 }
 
 // ---- fourth read, finding 8: destructive migration needs a durable destination ----
@@ -1627,4 +1788,178 @@ fn rotation_abort_keeps_the_credential_and_markers_are_not_accounts() {
     assert!(store
         .begin_rotation("db", &Secret::from_string(""))
         .is_err());
+}
+
+/// Delegates to memory, but once armed the first `set` of the primary account blocks until
+/// released: commit is then frozen between its primary write and its marker removal.
+struct RotationGateBackend {
+    inner: MemoryBackend,
+    armed: AtomicBool,
+    gate: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
+}
+
+impl Backend for RotationGateBackend {
+    fn name(&self) -> &'static str {
+        "rotation-gate-test"
+    }
+    fn credential_identity(
+        &self,
+        ns: &Namespace,
+        account: &str,
+    ) -> rightkit_credentials::Result<String> {
+        self.inner.credential_identity(ns, account)
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<Option<Secret>> {
+        self.inner.get(ns, account, mode)
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.inner.exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<()> {
+        if account == "db" && self.armed.load(Ordering::SeqCst) {
+            let gate = self.gate.lock().unwrap().take();
+            if let Some((entered, resume)) = gate {
+                let _ = entered.send(());
+                let _ = resume.recv();
+            }
+        }
+        self.inner.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.inner.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.inner.delete(ns, account, mode)
+    }
+    fn delete_if_equals(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        expected: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<ConditionalDelete> {
+        self.inner.delete_if_equals(ns, account, expected, mode)
+    }
+}
+
+#[test]
+fn commit_rotation_holds_the_rotation_lock_until_the_marker_is_removed() {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let backend = Arc::new(RotationGateBackend {
+        inner: MemoryBackend::new(),
+        armed: AtomicBool::new(false),
+        gate: Mutex::new(Some((entered_tx, resume_rx))),
+    });
+    let store = store_for(
+        Namespace::new("dev.rightkit.secrets.test.rotation-lock").unwrap(),
+        backend.clone(),
+    );
+    store.set_str("db", "old").unwrap();
+    assert!(store
+        .begin_rotation("db", &Secret::from_string("new-1"))
+        .unwrap());
+    backend.armed.store(true, Ordering::SeqCst);
+
+    let rebegin_done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let committer = scope.spawn(|| store.commit_rotation("db"));
+        // Commit has read the pending value and is frozen inside the primary write.
+        entered_rx.recv().unwrap();
+        let rebeginner = scope.spawn(|| {
+            let aborted = store.abort_rotation("db").unwrap();
+            let begun = store
+                .begin_rotation("db", &Secret::from_string("new-2"))
+                .unwrap();
+            rebegin_done.store(true, Ordering::SeqCst);
+            (aborted, begun)
+        });
+        std::thread::sleep(Duration::from_millis(250));
+        assert!(
+            !rebegin_done.load(Ordering::SeqCst),
+            "abort/rebegin landed between commit's pending read and marker removal"
+        );
+        resume_tx.send(()).unwrap();
+        assert!(committer.join().unwrap().unwrap());
+        // The marker commit read is already gone (abort finds nothing); the newer rotation
+        // begins cleanly and its marker survives the older commit.
+        assert_eq!(rebeginner.join().unwrap(), (false, true));
+    });
+
+    assert_eq!(
+        store.get("db").unwrap().unwrap().expose_str().unwrap(),
+        "new-1"
+    );
+    assert_eq!(
+        store
+            .pending_rotation("db")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "new-2",
+        "the stale commit deleted the newer rotation marker"
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn an_env_memory_guard_still_swaps_in_memory_in_debug_builds() {
+    let guard = format!("RK_SECRETS_TEST_MEMORY_{}", std::process::id());
+    std::env::set_var(&guard, "1");
+    let store = Store::open(
+        Config::new(Namespace::new("dev.rightkit.secrets.test.guard-memory").unwrap())
+            .guard_env(&guard)
+            .guard_mode(GuardMode::Memory),
+    );
+    assert!(store.guard_active());
+    store.set_str("x", "v").unwrap();
+    assert_eq!(store.get("x").unwrap().unwrap().expose_str().unwrap(), "v");
+    std::env::remove_var(&guard);
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn an_env_memory_guard_denies_instead_of_using_volatile_memory_in_release_builds() {
+    let guard = format!("RK_SECRETS_TEST_MEMORY_REL_{}", std::process::id());
+    std::env::set_var(&guard, "1");
+    let store = Store::open(
+        Config::new(Namespace::new("dev.rightkit.secrets.test.guard-memory-rel").unwrap())
+            .guard_env(&guard)
+            .guard_mode(GuardMode::Memory),
+    );
+    assert!(store.guard_active());
+    assert!(matches!(store.get("x"), Err(Error::Guarded { .. })));
+    assert!(matches!(
+        store.set_str("x", "v"),
+        Err(Error::Guarded { .. })
+    ));
+    std::env::remove_var(&guard);
 }

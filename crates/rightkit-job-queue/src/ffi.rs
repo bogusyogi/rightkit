@@ -75,7 +75,8 @@ pub const RKP_DEADLINE: i32 = 3;
 pub const RKP_SHUTTING_DOWN: i32 = 4;
 pub const RKP_INCOMPATIBLE: i32 = 5;
 pub const RKP_STALE_HANDLE: i32 = 6;
-/// An engine or service error; the message is JSON `{"code","message","retryable"}`.
+/// An engine or service error; the message is JSON `{"code","message","retryable"}`
+/// plus `"details"` when the error carries any.
 pub const RKP_NATIVE: i32 = 7;
 pub const RKP_PANIC: i32 = 8;
 pub const RKP_NOT_CONFIGURED: i32 = 9;
@@ -375,10 +376,7 @@ fn job_fail(e: JobError) -> Fail {
         "not_ready" => Fail::new(RKP_NOT_READY, e.message),
         "down" if e.message.contains("shut down") => Fail::new(RKP_SHUTTING_DOWN, e.message),
         "down" => Fail::new(RKP_NOT_READY, e.message),
-        _ => Fail::new(
-            RKP_NATIVE,
-            json!({"code": e.code, "message": e.message, "retryable": e.retryable}).to_string(),
-        ),
+        _ => Fail::new(RKP_NATIVE, e.to_json().to_string()),
     }
 }
 
@@ -386,10 +384,7 @@ fn service_fail(e: rightkit_daemon::ServiceError) -> Fail {
     if e.code == rightkit_daemon::ERROR_TIMEOUT {
         return Fail::new(RKP_DEADLINE, e.message);
     }
-    Fail::new(
-        RKP_NATIVE,
-        json!({"code": e.code, "message": e.message, "retryable": e.retryable}).to_string(),
-    )
+    Fail::new(RKP_NATIVE, e.to_value().to_string())
 }
 
 fn lookup_host(id: u64) -> Result<Arc<HostEntry>, Fail> {

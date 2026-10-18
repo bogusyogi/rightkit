@@ -4,10 +4,10 @@ import path from "node:path";
 /**
  * The one install rule for every app, helper and dev or QA binary (Adrian, 2026-10-17: "No new id, no new folder"):
  * macOS and Windows tie privacy grants to the path and the code identity, so an install or update replaces the
- * copy at ONE fixed path. Release installs may keep a persistent `<name>.previous` beside it (rename it back).
- * Dev and QA installs NEVER keep an old copy (Orthic-Labs/rightkit#348: "when installing dev, old copy must never be
- * backedup"): they pass `previous: null` to `swapInPlace`, or use `replaceFileInPlace`, which has no backup at all.
- * Nothing ever runs from `.previous` or from the staging copy.
+ * copy at ONE fixed path. NO install keeps a retained `<name>.previous` copy (D01/#771): a `previous` path passed
+ * to `swapInPlace` is only a TRANSIENT park for the old copy while the new one is verified; it is deleted on
+ * success and, on failure, the parked copy is renamed back and the park path is gone. Nothing ever runs from
+ * `.previous` or from the staging copy. A stale `<destination>.previous` left by an older RightKit is removed.
  */
 export const PREVIOUS_SUFFIX = ".previous";
 export const STAGING_SUFFIX = ".staging";
@@ -24,16 +24,16 @@ const exists = (fs, file) => {
 /**
  * Swap `staging` into `destination`, then `verify(destination)` runs.
  *
- * With a `previous` path (release): the old destination becomes `previous` (replacing any older `.previous`). Any
- * failure removes the new copy and renames `previous` back, so the fixed path is never left empty. Renames only.
- * @returns {{destination: string, previous: string|null}} previous is null when nothing was installed before.
+ * With a `previous` path: the old destination is parked there ONLY until verification passes, then deleted
+ * (never retained as a rollback copy). Any failure removes the new copy and renames the parked copy back,
+ * so the fixed path is never left empty and no `.previous` remains either way. Renames only.
+ * @returns {{destination: string, previous: null}} previous is always null: no copy is retained.
  *
- * With `previous: null` (dev and QA, NO backup of any kind): the old destination is removed and `staging` is renamed
- * over the fixed path; a stale `<destination>.previous` left by an older RightKit is removed too. Any failure removes
- * the new (absent or partial) copy and the staging copy and rethrows; the old copy is NOT restored, the user reinstalls
- * from an older build. `previous` is always null in the result.
+ * With `previous: null` (NO park of any kind): the old destination is removed and `staging` is renamed
+ * over the fixed path. Any failure removes the new (absent or partial) copy and the staging copy and
+ * rethrows; the old copy is NOT restored, the user reinstalls from an older build.
  */
-export function swapInPlace({ staging, destination, previous = previousPathOf(destination), verify = () => {}, fs = nodeFs }) {
+export function swapInPlace({ staging, destination, previous = null, verify = () => {}, fs = nodeFs }) {
   if (previous === null) return replaceWithoutBackup({ staging, destination, verify, fs });
   if (previous === destination || staging === destination || staging === previous) throw new Error("swapInPlace needs three distinct paths");
   let movedAside = false;
@@ -51,7 +51,10 @@ export function swapInPlace({ staging, destination, previous = previousPathOf(de
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* best effort */ }
     throw error;
   }
-  return { destination, previous: movedAside ? previous : null };
+  // Verified: the transient park (and any stale retained copy) is deleted, never kept.
+  try { if (movedAside) fs.rmSync(previous, { recursive: true, force: true }); } catch { /* best effort */ }
+  try { fs.rmSync(previousPathOf(destination), { recursive: true, force: true }); } catch { /* best effort */ }
+  return { destination, previous: null };
 }
 
 function replaceWithoutBackup({ staging, destination, verify, fs }) {
@@ -65,7 +68,7 @@ function replaceWithoutBackup({ staging, destination, verify, fs }) {
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* best effort */ }
     throw error;
   }
-  // No old copy may survive a dev install, including one an older RightKit left behind.
+  // No old copy may survive an install, including one an older RightKit left behind.
   try { fs.rmSync(previousPathOf(destination), { recursive: true, force: true }); } catch { /* best effort */ }
   return { destination, previous: null };
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — unpublished staging
+
+- Adds an optional atomic M11 credentials adapter.
+
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
 ## 0.2.0 (2026-10-17)

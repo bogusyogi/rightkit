@@ -128,6 +128,50 @@ impl TracingGuard {
         self.dropped.load(Ordering::Relaxed)
     }
 
+    /// Clear this writer's logs through the writer thread: every line accepted
+    /// before the call is flushed and then removed (active file truncated,
+    /// inactive files of the same daily family deleted), and the call returns
+    /// only after the writer acknowledges with the new file open, so a line
+    /// written immediately afterwards is visible. Other families and unrelated
+    /// files are untouched. Both waits are bounded by the shutdown timeouts.
+    pub fn clear(&self) -> io::Result<()> {
+        if self.worker.is_none() {
+            return Err(io::Error::other("tracing log writer is not running"));
+        }
+        let (ack_tx, ack_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+        let deadline = Instant::now() + self.shutdown_send_timeout;
+        let mut message = Message::Clear(ack_tx);
+        loop {
+            match self.sender.try_send(message) {
+                Ok(()) => break,
+                Err(TrySendError::Disconnected(_)) => {
+                    return Err(io::Error::other("tracing log writer stopped"));
+                }
+                Err(TrySendError::Full(returned)) => {
+                    if Instant::now() >= deadline {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "tracing log writer queue stayed full during clear",
+                        ));
+                    }
+                    message = returned;
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+        match ack_rx.recv_timeout(self.shutdown_wait) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(io::Error::other(message)),
+            Err(RecvTimeoutError::Timeout) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "tracing log writer did not acknowledge clear",
+            )),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("tracing log writer stopped during clear"))
+            }
+        }
+    }
+
     /// Detaches the worker (the handle is dropped, which leaves the thread running) and counts
     /// the lines it has not finished writing.
     fn abandon(&mut self, _detached_worker: JoinHandle<()>) {
@@ -365,13 +409,58 @@ impl DailyJsonlWriter {
         validate_prefix(&self.prefix)?;
         fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(daily_file_name(&self.prefix, day));
-        self.file = Some(OpenOptions::new().create(true).append(true).open(path)?);
+        // A daily file this writer creates is owner-only (M8 primitive); an
+        // existing file keeps its permissions, and a symlink is refused.
+        self.file = Some(rightkit_fs::open_private_append(&path)?);
         self.day = Some(day);
         // Retention is best-effort: a failed prune must not stop the day's writes.
         if let Err(error) = prune(&self.dir, &self.prefix, self.max_files) {
             report(&self.dir, &error);
         }
         Ok(())
+    }
+
+    /// Writer-owned clear: flush, close the active file, truncate it, remove
+    /// only inactive files of this writer's own daily family, then reopen.
+    /// Runs on the worker thread, so nothing is ever unlinked behind an open
+    /// writer handle (which Windows sharing would refuse anyway).
+    fn clear(&mut self) -> io::Result<()> {
+        if let Some(file) = self.file.as_mut() {
+            file.flush()?;
+        }
+        let day = (self.today)();
+        let active = daily_file_name(&self.prefix, day);
+        self.file = None;
+        self.day = None;
+        let mut outcome: io::Result<()> = Ok(());
+        for name in daily_file_names(&self.dir, &self.prefix)? {
+            if name == active {
+                continue;
+            }
+            if let Err(error) = fs::remove_file(self.dir.join(&name)) {
+                if error.kind() != io::ErrorKind::NotFound && outcome.is_ok() {
+                    outcome = Err(error);
+                }
+            }
+        }
+        match OpenOptions::new().write(true).open(self.dir.join(&active)) {
+            Ok(file) => {
+                if let Err(error) = file.set_len(0) {
+                    if outcome.is_ok() {
+                        outcome = Err(error);
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                if outcome.is_ok() {
+                    outcome = Err(error);
+                }
+            }
+        }
+        // Reopen even after a partial failure, so later lines still land.
+        self.refresh()?;
+        outcome
     }
 }
 
@@ -394,6 +483,8 @@ impl Write for DailyJsonlWriter {
 
 enum Message {
     Line(Vec<u8>),
+    /// Run the writer-owned clear, then acknowledge its outcome and continue.
+    Clear(SyncSender<Result<(), String>>),
     /// Flush, then acknowledge on the given channel and stop.
     Stop(SyncSender<()>),
 }
@@ -495,6 +586,10 @@ fn run_worker(mut writer: DailyJsonlWriter, receiver: Receiver<Message>, pending
                     report(&writer.dir, &error);
                 }
                 pending.fetch_sub(1, Ordering::Relaxed);
+            }
+            Message::Clear(ack) => {
+                let outcome = writer.clear().map_err(|error| error.to_string());
+                let _ = ack.send(outcome);
             }
             Message::Stop(ack) => {
                 let _ = writer.flush();

@@ -20,7 +20,23 @@ const DEFAULT_EXACT_KEYS: &[&str] = &[
     "transcript",
     "window_title",
 ];
-const DEFAULT_KEY_FRAGMENTS: &[&str] = &["secret", "password", "api_key", "token"];
+const DEFAULT_KEY_FRAGMENTS: &[&str] = &[
+    "secret",
+    "password",
+    "api_key",
+    "token",
+    "credential",
+    "private_key",
+    "privatekey",
+];
+/// Innocuous correlation identifiers: never key-redacted, so diagnostics stay
+/// joinable. Session *secrets* (`session_secret`, `session_token`) still match
+/// the fragments above; only the exact correlation names are preserved.
+const PRESERVED_KEYS: &[&str] = &["session_id", "request_id", "trace_id"];
+
+fn normalize_key(key: &str) -> String {
+    key.to_ascii_lowercase().replace('-', "_")
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RedactionPolicy {
@@ -57,7 +73,10 @@ impl RedactionPolicy {
     }
 
     fn is_sensitive_key(&self, key: &str) -> bool {
-        let normalized = key.to_ascii_lowercase();
+        let normalized = normalize_key(key);
+        if PRESERVED_KEYS.contains(&normalized.as_str()) {
+            return false;
+        }
         DEFAULT_EXACT_KEYS.contains(&normalized.as_str())
             || DEFAULT_KEY_FRAGMENTS
                 .iter()
@@ -65,9 +84,9 @@ impl RedactionPolicy {
             || self
                 .additional_exact_keys
                 .iter()
-                .any(|candidate| candidate.eq_ignore_ascii_case(key))
+                .any(|candidate| normalize_key(candidate) == normalized)
             || self.additional_key_fragments.iter().any(|fragment| {
-                let fragment = fragment.to_ascii_lowercase();
+                let fragment = normalize_key(fragment);
                 !fragment.is_empty() && normalized.contains(&fragment)
             })
     }

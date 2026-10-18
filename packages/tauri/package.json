@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/tauri",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Typed host adapters for shared Right Suite Tauri commands.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
@@ -23,7 +23,7 @@
     "@rightkit/logs": "^0.1.4"
   },
   "peerDependencies": {
-    "@rightkit/app-update": ">=0.2.5 <0.4"
+    "@rightkit/app-update": ">=0.2.5 <0.5"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

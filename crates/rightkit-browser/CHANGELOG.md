@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 — unpublished staging
+
+- Raises rightkit-models dependency floor to 0.5.0.
+
 ## 0.3.4 (2026-10-17)
 
 - Doc fix (rightkit#267): the `PINNED_CHROME_FOR_TESTING` comment no longer says every digest is `Sha256Pin::Todo`; the 155.0.8059.39 table carries recorded digests for mac-arm64, mac-x64, linux64 and win64 (plus the win64 headless shell). `Sha256Pin::Todo` still refuses a download.

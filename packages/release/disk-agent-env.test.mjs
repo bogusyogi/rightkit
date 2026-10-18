@@ -74,9 +74,11 @@ test("pointsAtInternalDrive", () => {
   assert.equal(pointsAtInternalDrive("D:\\x", { platform: "win32" }), false);
   assert.equal(pointsAtInternalDrive("E:\\x", { platform: "win32", env: { SystemDrive: "E:" } }), true);
   assert.equal(pointsAtInternalDrive("relative\\x", { platform: "win32" }), true);
-  assert.equal(pointsAtInternalDrive("/Users/a/Library/Caches", { platform: "darwin" }), true);
-  assert.equal(pointsAtInternalDrive("/var/folders/x", { platform: "darwin" }), true);
-  assert.equal(pointsAtInternalDrive("/Volumes/D/x", { platform: "darwin" }), false);
+  // These are virtual macOS paths, not paths on the host running this test.
+  const mac = (value) => pointsAtInternalDrive(value, { platform: "darwin", realpath: (p) => p });
+  assert.equal(mac("/Users/a/Library/Caches"), true);
+  assert.equal(mac("/var/folders/x"), true);
+  assert.equal(mac("/Volumes/D/x"), false);
 });
 
 test("agent-env prints the map and creates directories only under the root", async () => {

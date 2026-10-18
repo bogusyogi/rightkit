@@ -102,28 +102,29 @@ impl StderrTail {
                 let line_cap = max_bytes.max(1).saturating_mul(4);
                 let mut reader = BufReader::new(stderr);
                 let mut raw = Vec::new();
+                let mut skip_lf = false;
                 loop {
                     raw.clear();
                     // One byte more than the cap tells a line of exactly the cap from a longer
-                    // one. A pathological unterminated line must not grow without bound.
-                    match reader
-                        .by_ref()
-                        .take(line_cap as u64 + 1)
-                        .read_until(b'\n', &mut raw)
-                    {
-                        Ok(0) | Err(_) => return,
-                        Ok(_) => {}
+                    // one. A pathological unterminated line must not grow without bound. A
+                    // line ends at `\n`, at `\r`, or at the pair `\r\n` as one terminator:
+                    // progress output rewrites its line with bare carriage returns, and each
+                    // rewrite is a line the redactor must see whole.
+                    let (terminated, stream_ended) =
+                        read_line_bounded(&mut reader, &mut raw, line_cap, &mut skip_lf);
+                    if raw.is_empty() && !terminated {
+                        return; // clean end of stream (or an unreadable one)
                     }
-                    let oversized = raw.last() != Some(&b'\n') && raw.len() > line_cap;
+                    let oversized = !terminated && !stream_ended && raw.len() > line_cap;
                     let (kept, ended) = if oversized {
-                        let ended = discard_rest_of_line(&mut reader);
+                        let ended = discard_rest_of_line(&mut reader, &mut skip_lf);
                         (
                             Some(format!("[stderr line over {line_cap} bytes dropped]")),
                             ended,
                         )
                     } else {
                         let text = String::from_utf8_lossy(&raw);
-                        (map(text.trim_end_matches(['\r', '\n'])), false)
+                        (map(text.trim_end_matches(['\r', '\n'])), stream_ended)
                     };
                     if let Some(kept) = kept {
                         on_line(&kept);
@@ -190,22 +191,74 @@ impl StderrTail {
     }
 }
 
-/// Reads and drops bytes up to and including the next newline. True when the stream ended
-/// first.
-fn discard_rest_of_line(reader: &mut impl BufRead) -> bool {
+/// Reads one line into `raw` (terminator included), stopping one byte past `line_cap` so the
+/// caller can tell an exactly-cap line from a longer one. A line ends at `\n`, at `\r`, or at
+/// `\r\n` consumed as one terminator. Returns `(terminated, stream_ended)`: an unterminated
+/// final line at the end of the stream is still returned, with `stream_ended` set. A read
+/// error other than `Interrupted` ends the stream like EOF does.
+fn read_line_bounded(
+    reader: &mut impl BufRead,
+    raw: &mut Vec<u8>,
+    line_cap: usize,
+    skip_lf: &mut bool,
+) -> (bool, bool) {
     loop {
-        let (used, found) = match reader.fill_buf() {
+        let buffer = match reader.fill_buf() {
+            Ok([]) => return (false, true),
+            Ok(buffer) => buffer,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return (false, true),
+        };
+        if std::mem::take(skip_lf) && buffer[0] == b'\n' {
+            reader.consume(1);
+            continue;
+        }
+        let room = line_cap.saturating_add(1).saturating_sub(raw.len());
+        let scan = &buffer[..buffer.len().min(room)];
+        match scan.iter().position(|&byte| byte == b'\n' || byte == b'\r') {
+            Some(index) => {
+                let carriage = scan[index] == b'\r';
+                raw.extend_from_slice(&scan[..=index]);
+                reader.consume(index + 1);
+                *skip_lf = carriage;
+                return (true, false);
+            }
+            None => {
+                let used = scan.len();
+                raw.extend_from_slice(scan);
+                reader.consume(used);
+                if raw.len() > line_cap {
+                    return (false, false);
+                }
+            }
+        }
+    }
+}
+
+/// Reads and drops bytes up to and including the next line terminator (`\n`, `\r`, or the
+/// pair `\r\n`). True when the stream ended first.
+fn discard_rest_of_line(reader: &mut impl BufRead, skip_lf: &mut bool) -> bool {
+    loop {
+        let (used, terminator) = match reader.fill_buf() {
             Ok([]) => return true,
-            Ok(buffer) => match buffer.iter().position(|&byte| byte == b'\n') {
-                Some(index) => (index + 1, true),
-                None => (buffer.len(), false),
+            Ok(buffer) => match buffer
+                .iter()
+                .position(|&byte| byte == b'\n' || byte == b'\r')
+            {
+                Some(index) => (index + 1, Some(buffer[index])),
+                None => (buffer.len(), None),
             },
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return true,
         };
         reader.consume(used);
-        if found {
-            return false;
+        match terminator {
+            Some(b'\r') => {
+                *skip_lf = true;
+                return false;
+            }
+            Some(_) => return false,
+            None => {}
         }
     }
 }
@@ -243,6 +296,84 @@ fn retain(state: &mut Retained, kept: String, max_bytes: usize) {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn carriage_return_is_delivered_while_live_writer_stays_open() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        use std::time::Duration;
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "stderr_tail::tests::live_pipe_writer",
+                "--nocapture",
+            ])
+            .env("RIGHTKIT_STDERR_LIVE_PIPE_WRITER", "1")
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut writer = child.stdin.take().unwrap();
+        let reader = child.stderr.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut tail = StderrTail::capture(
+            reader,
+            64,
+            |l| Some(l.to_owned()),
+            move |l| {
+                tx.send(l.to_owned()).unwrap();
+            },
+        );
+        let first = rx.recv_timeout(Duration::from_secs(2));
+        // Keep CRLF split across reads, with no callback for its optional LF.
+        writer.write_all(b"x").unwrap();
+        let second = rx.recv_timeout(Duration::from_secs(2));
+        drop(writer);
+        child.wait().unwrap();
+        tail.finish();
+        assert_eq!(first.unwrap(), "progress");
+        assert_eq!(second.unwrap(), "next");
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn live_pipe_writer() {
+        if std::env::var_os("RIGHTKIT_STDERR_LIVE_PIPE_WRITER").is_none() {
+            return;
+        }
+        use std::io::Write;
+        let mut stderr = std::io::stderr().lock();
+        stderr.write_all(b"progress\r").unwrap();
+        stderr.flush().unwrap();
+        let mut release = [0];
+        std::io::stdin().read_exact(&mut release).unwrap();
+        stderr.write_all(b"\nnext\r").unwrap();
+        stderr.flush().unwrap();
+    }
+
+    #[test]
+    fn split_crlf_and_oversized_cr_line_preserve_line_boundaries() {
+        let mut reader = BufReader::with_capacity(1, Cursor::new(b"one\r\ntwo\rthree\n"));
+        let mut skip_lf = false;
+        for expected in ["one", "two", "three"] {
+            let mut raw = Vec::new();
+            assert_eq!(
+                read_line_bounded(&mut reader, &mut raw, 32, &mut skip_lf),
+                (true, false)
+            );
+            assert_eq!(
+                String::from_utf8(raw)
+                    .unwrap()
+                    .trim_end_matches(['\r', '\n']),
+                expected
+            );
+        }
+        let (snapshot, seen, _) =
+            capture_all(format!("{}\r\nafter\r", "x".repeat(64)).into_bytes(), 8);
+        assert_eq!(seen, vec!["after"]);
+        assert!(snapshot.ends_with("after"));
+    }
 
     /// A redactor like the line-based ones the apps pass: everything from `key=` on goes.
     fn redact(line: &str) -> Option<String> {
@@ -420,6 +551,36 @@ mod tests {
         let (snapshot, _, _) = capture_all(input.into_bytes(), 40);
         assert!(snapshot.len() <= 40, "{} bytes", snapshot.len());
         assert!(snapshot.ends_with("line-499"), "{snapshot:?}");
+    }
+
+    #[test]
+    fn carriage_returns_end_lines_and_crlf_is_one_terminator() {
+        let (snapshot, seen, forwarded) = capture_all(b"one\rtwo\r\nthree\nfour\r".to_vec(), 2048);
+        assert_eq!(
+            seen,
+            vec![
+                "one".to_string(),
+                "two".to_string(),
+                "three".to_string(),
+                "four".to_string()
+            ]
+        );
+        assert_eq!(forwarded, seen, "CRLF must not yield an empty line");
+        assert_eq!(snapshot, "one\ntwo\nthree\nfour");
+        // A final progress rewrite with no terminator is still a line.
+        let (_, seen, _) = capture_all(b"a\rb".to_vec(), 2048);
+        assert_eq!(seen, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn an_oversized_cr_line_is_dropped_up_to_the_cr_and_the_next_line_survives() {
+        // max_bytes = 8: the cap is 32; the secret line ends at a bare `\r`.
+        let secret = "S".repeat(60);
+        let input = format!("key={secret}\rafter\n").into_bytes();
+        let (snapshot, seen, forwarded) = capture_all(input, 8);
+        assert_eq!(seen, vec!["after".to_string()]);
+        assert!(!forwarded.iter().any(|line| line.contains('S')));
+        assert!(!snapshot.contains('S'));
     }
 
     #[test]

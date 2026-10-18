@@ -55,7 +55,7 @@ test("custom config resolves relative manifest from config directory", async () 
     assert.equal(args[args.indexOf("--manifest-path") + 1], path.join(root, "src-tauri/Cargo.toml"));
     return clean;
   } });
-  assert.equal(results[0].manifest, "src-tauri/Cargo.toml");
+  assert.equal(results[0].manifest, path.join("src-tauri", "Cargo.toml"));
 });
 
 test("unknown host, invalid CLI flags & missing policy fail before Cargo", async () => {

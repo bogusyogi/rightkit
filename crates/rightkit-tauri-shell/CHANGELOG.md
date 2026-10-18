@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — unpublished staging
+
+- Engine errors are structured, window-state saves preserve generation order, and QA controls stay excluded from release builds.
+
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 

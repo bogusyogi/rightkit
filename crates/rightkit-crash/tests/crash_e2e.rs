@@ -215,6 +215,113 @@ fn crash_report_is_held_without_consent_then_uploaded_after_restart_with_consent
     assert!(telemetry.outbox.is_empty());
 }
 
+#[test]
+fn pending_handoff_is_idempotent_across_archive_failure_ack_and_restart() {
+    let dir = temp_dir("pending-retry");
+    let crash_dir = dir.join("crash");
+    std::fs::create_dir_all(&crash_dir).unwrap();
+    let report = CrashReport {
+        schema_version: 1,
+        kind: "panic".into(),
+        app_name: "ExampleApp".into(),
+        app_version: "9.9.9".into(),
+        build: None,
+        os: "test".into(),
+        arch: "test".into(),
+        unix_time: 1,
+        pid: 1,
+        thread: "main".into(),
+        location: None,
+        message: "boom".into(),
+        backtrace: String::new(),
+        native_artifacts: Vec::new(),
+        native_capture_note: None,
+        process_kind: None,
+    };
+    std::fs::write(
+        crash_dir.join("crash_panic_1_1.json"),
+        serde_json::to_vec(&report).unwrap(),
+    )
+    .unwrap();
+    // Archiving is blocked: a file sits where the `submitted/` directory belongs.
+    std::fs::write(crash_dir.join("submitted"), b"blocker").unwrap();
+
+    let telemetry = Telemetry::open(
+        &dir,
+        UploadConfig::new("http://127.0.0.1:9/unused", "ExampleApp", "9.9.9"),
+        Box::new(HttpTransport::new("crash-e2e")),
+        OutboxConfig {
+            max_events: 1,
+            ..OutboxConfig::default()
+        },
+    )
+    .unwrap();
+
+    // No consent: source untouched, nothing queued.
+    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
+    assert_eq!(
+        (summary.queued, summary.held_no_consent),
+        (0, 1),
+        "{summary:?}"
+    );
+    assert_eq!(telemetry.outbox.len(), 0);
+    assert_eq!(list_pending(&crash_dir).len(), 1);
+
+    telemetry.consent.grant("2026-10").unwrap();
+    // Enqueue succeeds, archive fails visibly, source and receipt stay.
+    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
+    assert_eq!((summary.queued, summary.failed), (0, 1), "{summary:?}");
+    assert_eq!(telemetry.outbox.len(), 1);
+    assert_eq!(
+        list_pending(&crash_dir).len(),
+        1,
+        "source untouched on archive failure"
+    );
+
+    // Retry, then upload ack, then retry: still exactly one acceptance.
+    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
+    assert_eq!(summary.failed, 1);
+    assert_eq!(telemetry.outbox.len(), 1);
+    let id = telemetry.outbox.pending(10, i64::MAX)[0].id;
+    telemetry.outbox.acknowledge(&[id]).unwrap();
+    assert_eq!(telemetry.outbox.len(), 0);
+    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
+    assert_eq!(summary.failed, 1);
+    assert_eq!(telemetry.outbox.len(), 0, "the receipt survives the ack");
+
+    // Other accepted sources must not evict this unarchived receipt.
+    let other = telemetry
+        .outbox
+        .enqueue_deduped("other", "crash_report", json!({}))
+        .unwrap();
+    telemetry.outbox.acknowledge(&[other]).unwrap();
+    assert!(telemetry
+        .outbox
+        .enqueue_deduped("over-cap", "crash_report", json!({}))
+        .is_err());
+    let restarted = rightkit_logs::Outbox::open(
+        telemetry.outbox.path(),
+        telemetry.consent.clone(),
+        OutboxConfig {
+            max_events: 1,
+            ..OutboxConfig::default()
+        },
+    );
+    assert_eq!(enqueue_pending(&crash_dir, &restarted).failed, 1);
+    assert!(
+        restarted.is_empty(),
+        "archive failure retry after restart must not duplicate"
+    );
+
+    // Unblock the archive: the same acceptance completes, nothing re-queues.
+    std::fs::remove_file(crash_dir.join("submitted")).unwrap();
+    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
+    assert_eq!((summary.queued, summary.failed), (1, 0), "{summary:?}");
+    assert!(list_pending(&crash_dir).is_empty());
+    assert_eq!(list_pending(&crash_dir.join("submitted")).len(), 1);
+    assert_eq!(telemetry.outbox.len(), 0);
+}
+
 #[cfg(feature = "support-bundle")]
 #[test]
 fn support_bundle_is_a_redacted_zip_and_native_dumps_need_explicit_opt_in() {

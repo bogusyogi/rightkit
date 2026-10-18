@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — unpublished staging
+
+- Accepts @rightkit/app-update 0.4.x as a peer; peer identity stays @rightkit/app-update.
+
 ## 0.2.2 (2026-10-17)
 
 - Accept @rightkit/app-update 0.3.x as a peer (range >=0.2.5 <0.4); no behaviour change.

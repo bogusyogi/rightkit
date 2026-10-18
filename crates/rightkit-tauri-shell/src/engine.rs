@@ -121,11 +121,16 @@ pub struct EngineCallError {
     pub message: String,
     /// Distinguishes pre-execution readiness errors from engine replies with matching codes.
     pub origin: &'static str,
+    /// Structured M4 error details carried through from the job-queue error, when present.
+    /// Absent details stay absent on the wire (never serialised as `null`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 impl From<JobError> for EngineCallError {
     fn from(e: JobError) -> Self {
         Self {
+            details: e.details().cloned(),
             code: e.code,
             message: e.message,
             origin: if e.origin == rightkit_job_queue::ErrorOrigin::Supervisor {
@@ -432,6 +437,15 @@ mod policy_tests {
         assert_eq!(
             serde_json::to_value(error).unwrap(),
             serde_json::json!({"code": "method_not_allowed", "message": "denied", "origin": "supervisor"})
+        );
+        // M4 details pass through untouched; absent details stay off the wire (above).
+        let detailed = EngineCallError::from(
+            JobError::new("needs_auth", "sign in")
+                .with_details(serde_json::json!({"provider": "x", "nested": {"n": 1}})),
+        );
+        assert_eq!(
+            serde_json::to_value(detailed).unwrap(),
+            serde_json::json!({"code": "needs_auth", "message": "sign in", "origin": "engine", "details": {"provider": "x", "nested": {"n": 1}}})
         );
     }
 }

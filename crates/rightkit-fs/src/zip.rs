@@ -356,7 +356,8 @@ fn file_crc_size(path: &Path) -> io::Result<(u32, u64)> {
 ///
 /// ZIP64 is unsupported: fewer than 65535 entries, names at most 65535 UTF-8 bytes,
 /// & sizes/offsets below 0xffffffff. Invalid limits return `InvalidInput`.
-/// Sources must remain unchanged throughout both CRC & copy passes. Names are stored
+/// A source whose bytes change between the CRC pass and the copy pass (same size or not) is
+/// rejected with `InvalidInput` rather than archived under the wrong CRC. Names are stored
 /// verbatim, including separators & duplicates; callers choose extraction-safe names.
 /// `dest` is created/truncated directly; errors can leave partial output. It must not
 /// alias any source. Success flushes the buffer but does not fsync or publish atomically.
@@ -401,8 +402,11 @@ pub fn write_zip(dest: &Path, entries: &[(String, PathBuf)]) -> io::Result<()> {
         out.write_all(&local).map_err(io)?;
         let mut f =
             File::open(src).map_err(|e| io_context(format!("opening {}", src.display()), e))?;
-        let copied = std::io::copy(&mut f, &mut out).map_err(io)?;
-        if copied != size {
+        // Re-hash while copying: a same-size mutation since the CRC pass must be rejected, not
+        // archived under the first pass's CRC (which `read_zip` would then refuse, and other
+        // readers would misreport as mere corruption of good archived bytes).
+        let (copied_crc, copied) = copy_counted_crc(&mut f, &mut out).map_err(io)?;
+        if copied != size || copied_crc != crc {
             return Err(invalid(format!("{} changed while zipping", src.display())));
         }
 
@@ -442,6 +446,25 @@ pub fn write_zip(dest: &Path, entries: &[(String, PathBuf)]) -> io::Result<()> {
     out.write_all(&end).map_err(io)?;
     out.flush().map_err(io)?;
     Ok(())
+}
+
+/// Copy `src` to `out`, returning the CRC-32 and byte count of what was actually copied, so a
+/// caller with an earlier fingerprint of the source can reject a source mutated mid-stream.
+fn copy_counted_crc<R: Read, W: Write>(src: &mut R, out: &mut W) -> io::Result<(u32, u64)> {
+    let table = crc_table();
+    let mut crc = 0u32;
+    let mut size = 0u64;
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = src.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        crc = crc32_update(&table, crc, &buf[..n]);
+        out.write_all(&buf[..n])?;
+        size += n as u64;
+    }
+    Ok((crc, size))
 }
 
 fn checked_zip32(value: u64) -> io::Result<()> {
@@ -752,6 +775,23 @@ mod file_zip_tests {
     fn crc_table_matches_known_value() {
         let t = crc_table();
         assert_eq!(crc32_update(&t, 0, b"123456789"), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn the_copy_pass_rehash_detects_a_same_size_mutation() {
+        // What write_zip compares: the fingerprint of the bytes it actually streams, not just
+        // their count. A same-size edit after the first pass changes the CRC and is rejected.
+        let before: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let mut after = before.clone();
+        after[50_000] ^= 0xFF;
+        let mut sink = Vec::new();
+        let (crc_before, size) = copy_counted_crc(&mut &before[..], &mut sink).unwrap();
+        assert_eq!(sink, before);
+        assert_eq!(size, before.len() as u64);
+        assert_eq!(crc_before, crc32(&before));
+        let (crc_after, same_size) = copy_counted_crc(&mut &after[..], &mut Vec::new()).unwrap();
+        assert_eq!(same_size, size);
+        assert_ne!(crc_after, crc_before);
     }
 
     #[test]

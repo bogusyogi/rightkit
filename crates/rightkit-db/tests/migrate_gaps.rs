@@ -184,6 +184,25 @@ fn a_failed_backup_check_stops_the_migration_and_keeps_the_backup() {
 }
 
 #[test]
+fn retention_does_not_prune_when_the_backup_check_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fresh(&dir);
+    let conn = at_version_one(&path);
+    let folder = path.parent().unwrap().to_path_buf();
+    fs::write(folder.join("app.sqlite.pre-v9.bak"), b"old").unwrap();
+    let options = MigrateOptions {
+        verify_backup: Some(refuse),
+        backup_retention: Some(1),
+        ..MigrateOptions::default()
+    };
+    assert!(migrate(&conn, Some(&path), &migrations(), &options).is_err());
+    assert!(
+        folder.join("app.sqlite.pre-v9.bak").exists(),
+        "prune runs only after a verified backup"
+    );
+}
+
+#[test]
 fn a_passing_backup_check_lets_the_migration_run() {
     let dir = tempfile::tempdir().unwrap();
     let path = fresh(&dir);

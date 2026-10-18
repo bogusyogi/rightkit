@@ -264,6 +264,27 @@ fn prefixed_truncated_body_zero_length_and_short_prefix_are_distinct_errors() {
 }
 
 #[test]
+fn wire_error_details_roundtrip_and_absent_or_null_read_as_none() {
+    let plain = WireError::new("x", "y");
+    assert!(plain.details().is_none());
+    assert!(!serde_json::to_string(&plain).unwrap().contains("details"));
+    let e = WireError::new("needs_auth", "sign in")
+        .with_details(json!({"platform": "x", "nested": {"a": [1, 2]}}));
+    let back: WireError = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+    assert_eq!(back, e);
+    assert_eq!(back.detail("platform").unwrap(), "x");
+    assert_eq!(back.details().unwrap()["nested"]["a"], json!([1, 2]));
+    let e: WireError = serde_json::from_str(r#"{"code":"c","message":"m"}"#).unwrap();
+    assert_eq!(e, WireError::new("c", "m"));
+    let e: WireError = serde_json::from_str(r#"{"code":"c","details":null}"#).unwrap();
+    assert!(e.details().is_none());
+    assert!(WireError::new("c", "m")
+        .with_details(Value::Null)
+        .details()
+        .is_none());
+}
+
+#[test]
 fn writer_refuses_oversize_and_empty_bodies_without_writing() {
     let mut sink = Vec::new();
     assert!(matches!(

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -25,14 +25,6 @@ engine = ["dep:rightkit-job-queue"]
 # `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
 # ship a build with it; every other app must leave it off. Never a default feature.
 content-devtools = ["tauri/devtools", "tauri/unstable"]
-# DEVELOPMENT BUILDS ONLY. Developer inspection of every webview of the app (UI included): enables Tauri's
-# devtools, leaves debugging switches and WebView2 environment overrides alone, skips the registry-policy
-# refusal and the DevToolsActivePort tripwire, prints one loud stderr line at startup, and embeds the marker
-# `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED`. An app selects it from an optional dev feature
-# (`dev-native = ["rightkit-tauri-shell/dev-inspect"]`) that its default features never reach. Three layers keep it out
-# of a release: `right-release` refuses the feature in a release or update build command or Cargo manifest, scans
-# every binary for the marker, and the rightkit-qa guard rejects it in default features. Never a default feature.
-dev-inspect = ["tauri/devtools", "tauri/unstable"]
 # DEVELOPMENT/QA BUILDS ONLY. `NavPolicy::default()` allows loopback (localhost, 127.0.0.1, [::1]) http(s)
 # navigation as internal, for dev servers and QA drivers. Off by default: a dev profile (debug_assertions on)
 # no longer implies it. An app selects it from an optional QA/dev feature of its own. Never a default feature.
@@ -47,8 +39,8 @@ qa-probes = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
-rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
-rightkit-job-queue = { version = "0.3.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
+rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon" }
+rightkit-job-queue = { version = "0.4.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

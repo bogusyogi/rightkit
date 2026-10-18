@@ -33,6 +33,11 @@ pub struct WireError {
     pub message: String,
     #[serde(default)]
     pub retryable: bool,
+    /// Optional structured data (e.g. the platform of a `needs_auth`). Absent
+    /// or `null` on the wire reads as `None`; written only when present, so
+    /// older peers see the frame they always saw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 impl WireError {
@@ -41,6 +46,7 @@ impl WireError {
             code: code.into(),
             message: message.into(),
             retryable: false,
+            details: None,
         }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -48,7 +54,24 @@ impl WireError {
             code: code.into(),
             message: message.into(),
             retryable: true,
+            details: None,
         }
+    }
+    /// Attaches structured `details`; `Value::Null` clears them.
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = if details.is_null() {
+            None
+        } else {
+            Some(details)
+        };
+        self
+    }
+    pub fn details(&self) -> Option<&Value> {
+        self.details.as_ref()
+    }
+    /// One field of an object `details`, or `None`.
+    pub fn detail(&self, key: &str) -> Option<&Value> {
+        self.details.as_ref().and_then(|d| d.get(key))
     }
 }
 

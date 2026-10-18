@@ -1,7 +1,8 @@
 import "./test-support/broker-guard.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import * as fs from "node:fs";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,11 +14,84 @@ import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs"
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_SIGNING_CONTRACT, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
+import { assertUpdaterSignature } from "./github-updater-release.mjs";
 
 // LF whatever the checkout: the patterns below span lines.
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
 const stateMachine = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "release-state.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
+
+function updaterSealFixture(t, algorithm = "Ed") {
+  const root = tempRoot("right-updater-seal-");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bytes = Buffer.from("exact updater artifact bytes\0\r\n");
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const keyId = Buffer.from("0102030405060708", "hex");
+  const publicKeyText = Buffer.concat([Buffer.from("Ed"), keyId, publicKey.export({ type: "spki", format: "der" }).subarray(-32)]).toString("base64");
+  const signature = cryptoSign(null, algorithm === "ED" ? createHash("blake2b512").update(bytes).digest() : bytes, privateKey);
+  const comment = "fixture trusted comment  ";
+  const envelope = Buffer.from(`untrusted comment: fixture\n${Buffer.concat([Buffer.from(algorithm), keyId, signature]).toString("base64")}\ntrusted comment: ${comment}\n${cryptoSign(null, Buffer.concat([signature, Buffer.from(comment)]), privateKey).toString("base64")}\n`).toString("base64");
+  fs.writeFileSync(path.join(root, "updater.bin"), bytes);
+  fs.writeFileSync(path.join(root, "updater.sig"), envelope);
+  const copies = [];
+  const start = source.indexOf("function sealRelease(");
+  const end = source.indexOf("\nfunction collectToolVersions", start);
+  const seal = runInNewContext(`${source.slice(start, end)}\nsealRelease;`, {
+    ...fs, path, process, assertUpdaterSignature,
+    hashFile: (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
+    copyFileSync: (from, to) => { copies.push([from, to]); fs.copyFileSync(from, to); },
+    writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)),
+    fail: (message) => { throw new Error(message); },
+    resolveArtifactDir: () => root, materializeArtifacts: () => {}, completeArtifactLease: () => {}, retainArtifacts: () => ({ removed: [] }),
+    resolveDevtoolsAllowance: () => ({ mode: "denied" }), devtoolsEvidence: (value) => value,
+  });
+  const options = { configRoot: root, sealedDir: path.join(root, "sealed"), releaseId: "fixture", platform: "win", commit: "a".repeat(40),
+    config: { app: "fixture", version: "1.0.0", distribution: { updaterPublicKey: publicKeyText } },
+    target: { updater: { artifacts: [{ file: "updater.bin", signature: "updater.sig", key: "fixture/updates/current/updater.bin", platform: "windows-x86_64" }] } },
+    inputHashes: {}, toolVersions: {}, cacheKey: "fixture" };
+  return { root, bytes, options, seal, copies };
+}
+
+test("updater seal refuses absent, blank & non-string keys before copying or creating a seal", (t) => {
+  for (const key of [undefined, "", " \t\n", 123]) {
+    const fixture = updaterSealFixture(t);
+    fixture.options.config.distribution.updaterPublicKey = key;
+    assert.throws(() => fixture.seal(fixture.options), /updater public key is required/);
+    assert.equal(fixture.copies.length, 0);
+    assert.equal(fs.existsSync(fixture.options.sealedDir), false);
+    assert.equal(fs.existsSync(`${fixture.options.sealedDir}.tmp-${process.pid}`), false);
+  }
+});
+
+for (const algorithm of ["Ed", "ED"]) {
+  test(`${algorithm} updater seals only cryptographically valid exact bytes`, (t) => {
+    const fixture = updaterSealFixture(t, algorithm);
+    fixture.seal(fixture.options);
+    assert.deepEqual(fs.readFileSync(path.join(fixture.options.sealedDir, "updater.bin")), fixture.bytes);
+    assert.ok(fs.existsSync(path.join(fixture.options.sealedDir, "release-manifest.json")));
+    assert.equal(fixture.copies.length, 2);
+  });
+  test(`${algorithm} corrupted updater refuses seal before copying`, (t) => {
+    const fixture = updaterSealFixture(t, algorithm);
+    fs.writeFileSync(path.join(fixture.root, "updater.bin"), "corrupted artifact");
+    assert.throws(() => fixture.seal(fixture.options), /updater signature rejected at seal/);
+    assert.equal(fixture.copies.length, 0);
+    assert.equal(fs.existsSync(fixture.options.sealedDir), false);
+    assert.equal(fs.existsSync(`${fixture.options.sealedDir}.tmp-${process.pid}`), false);
+  });
+}
+
+test("installer-only & appinstaller seals need no minisign public key", (t) => {
+  for (const kind of ["installer-only", "appinstaller"]) {
+    const fixture = updaterSealFixture(t);
+    delete fixture.options.config.distribution.updaterPublicKey;
+    fixture.options.target = kind === "installer-only"
+      ? { installer: { artifacts: [{ file: "updater.bin", key: "fixture/installers/current/fixture.exe" }] } }
+      : { updater: { kind: "appinstaller", artifacts: [{ file: "updater.bin", key: "fixture/updates/current/fixture.appinstaller" }] } };
+    fixture.seal(fixture.options);
+    assert.ok(fs.existsSync(path.join(fixture.options.sealedDir, "release-manifest.json")));
+  }
+});
 
 // Execute the production preflight guard without starting the CLI's build flow.
 function checkOwnershipCommit(evidence, commit) {
@@ -104,6 +178,32 @@ test("product preSeal checks run after hardening and before immutable sealing", 
   assert.match(source, /RIGHT_RELEASE_SEALED_DIR: sealedDir/);
   assert.match(source, /runConfiguredReleaseCheck\(target\.preSeal/);
   assert.match(stateMachine, /await ops\.preSeal\?\.\(\{ root, app, version, commit, platform, releaseId, sealedDir \}\)/);
+});
+
+test("hardening checkpoint and seal status derive from the worker scan targets, never asserted unconditionally", () => {
+  assert.match(source, /function hardeningScanTargets\(target\) \{\n  return target\?\.hardening \?\? target\?\.artifacts \?\? \[\];\n\}/);
+  assert.match(source, /if \(hardeningScanTargets\(target\)\.length > 0\) checkpoint\(stateRoot, "hardened"\)/);
+  assert.match(source, /status: hardeningScanned \? "passed" : "skipped", passed: hardeningScanned/);
+  assert.match(source, /\.\.\.\(hardeningScanned \? \["hardened"\] : \[\]\)/);
+  assert.doesNotMatch(source, /hardening\.json"\), \{ schema: 1, passed: true/);
+  // Execute the production helper: no targets means no scan ran in the worker.
+  const start = source.indexOf("function hardeningScanTargets(target)");
+  const end = source.indexOf("\n}\n", start) + 3;
+  assert.ok(start >= 0 && end > start);
+  const hardeningScanTargets = runInNewContext(`${source.slice(start, end)}; hardeningScanTargets`, {});
+  assert.deepEqual([...hardeningScanTargets({})], []);
+  assert.deepEqual([...hardeningScanTargets({ artifacts: ["a"] })], ["a"]);
+  assert.deepEqual([...hardeningScanTargets({ hardening: [], artifacts: ["a"] })], [], "an explicit empty hardening list means the worker scans nothing");
+});
+
+test("seal verifies updater signatures over exact bytes with a required declared public key", () => {
+  assert.match(source, /import \{ assertUpdaterSignature \} from "\.\/github-updater-release\.mjs"/);
+  assert.match(source, /config\.distribution\?\.updaterPublicKey \?\? config\.distribution\?\.updaterPubkey \?\? target\?\.updater\?\.pubkey \?\? target\?\.updater\?\.publicKey/);
+  assert.match(source, /assertUpdaterSignature\(readFileSync\(source\), signature, updaterPublicKey/);
+  assert.match(source, /updater signature rejected at seal/);
+  const sealGate = source.indexOf("updater signature rejected at seal");
+  const firstCopy = source.indexOf("copyFileSync(source, path.join(temp, name))");
+  assert.ok(sealGate >= 0 && firstCopy > sealGate, "signature gate must run before any artifact is copied into the seal");
 });
 
 test("build forwards --skip-checks only to configured package checks", () => {

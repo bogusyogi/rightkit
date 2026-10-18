@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-job-queue"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -46,10 +46,10 @@ ffi = ["supervisor", "dep:rightkit-daemon"]
 [dependencies]
 rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
 rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar", optional = true }
+rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar", optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
 rightkit-crash = { version = "0.3.0", path = "../rightkit-crash", default-features = false, optional = true }
-rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
+rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 uuid = { version = "1", features = ["v4"], optional = true }

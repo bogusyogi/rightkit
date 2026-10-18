@@ -19,22 +19,27 @@ test("fixed staging and previous names never carry a pid, digest or version", ()
   assert.equal(stagingPathOf("/Apps/Pulse.app"), "/Apps/Pulse.app.staging");
 });
 
-test("swapInPlace keeps exactly one .previous and restores it when verification fails", (t) => {
+test("swapInPlace retains NO .previous: the park is transient, deleted on success, renamed back on failure", (t) => {
   const root = temp(t);
   const dest = path.join(root, "App");
   const write = (dir, text) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "marker"), text); };
   write(dest, "v1");
+  write(previousPathOf(dest), "stale-retained");
   write(stagingPathOf(dest), "v2");
-  swapInPlace({ staging: stagingPathOf(dest), destination: dest });
+  assert.deepEqual(swapInPlace({ staging: stagingPathOf(dest), destination: dest, previous: previousPathOf(dest) }), { destination: dest, previous: null });
   write(stagingPathOf(dest), "v3");
-  swapInPlace({ staging: stagingPathOf(dest), destination: dest });
+  swapInPlace({ staging: stagingPathOf(dest), destination: dest, previous: previousPathOf(dest) });
   assert.equal(fs.readFileSync(path.join(dest, "marker"), "utf8"), "v3");
-  assert.equal(fs.readFileSync(path.join(previousPathOf(dest), "marker"), "utf8"), "v2");
-  assert.deepEqual(fs.readdirSync(root).sort(), ["App", "App.previous"]);
+  assert.deepEqual(fs.readdirSync(root).sort(), ["App"], "no retained .previous after a verified swap");
   write(stagingPathOf(dest), "v4");
-  assert.throws(() => swapInPlace({ staging: stagingPathOf(dest), destination: dest, verify: () => { throw new Error("bad build"); } }), /bad build/);
-  // The installed copy is back at the fixed path; the failed staging copy is gone.
+  assert.throws(() => swapInPlace({ staging: stagingPathOf(dest), destination: dest, previous: previousPathOf(dest), verify: () => { throw new Error("bad build"); } }), /bad build/);
+  // The transiently parked copy is back at the fixed path; the failed staging copy and park are gone.
   assert.equal(fs.readFileSync(path.join(dest, "marker"), "utf8"), "v3");
+  assert.deepEqual(fs.readdirSync(root), ["App"]);
+  // Default (no previous argument) also keeps nothing.
+  write(stagingPathOf(dest), "v5");
+  swapInPlace({ staging: stagingPathOf(dest), destination: dest });
+  assert.equal(fs.readFileSync(path.join(dest, "marker"), "utf8"), "v5");
   assert.deepEqual(fs.readdirSync(root), ["App"]);
 });
 

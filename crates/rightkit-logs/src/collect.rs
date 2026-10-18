@@ -1,4 +1,5 @@
 use crate::redact::RedactionPolicy;
+use crate::scrub::scrub_value;
 use crate::store::rotated_path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,7 +103,10 @@ pub fn prepare_diagnostic_events(events: Vec<Value>, policy: &CollectionPolicy) 
     };
     apply_global_event_policy(std::slice::from_mut(&mut source), policy.max_events);
     for event in &mut source.events {
+        // Key redaction first, then recursive string scrub: a secret under an
+        // innocuous key is caught by the value pass.
         policy.redaction.redact(event);
+        scrub_value(event);
     }
     PreparedEvents {
         events: source.events,
@@ -116,6 +120,7 @@ pub fn collect_diagnostics(
     policy: &CollectionPolicy,
 ) -> DiagnosticsBundle {
     policy.redaction.redact(&mut metadata.settings);
+    scrub_value(&mut metadata.settings);
     let mut bundle = DiagnosticsBundle {
         schema_version: DIAGNOSTICS_SCHEMA_VERSION,
         metadata,
@@ -128,6 +133,7 @@ pub fn collect_diagnostics(
     for source in &mut bundle.sources {
         for event in &mut source.events {
             policy.redaction.redact(event);
+            scrub_value(event);
         }
     }
     enforce_bundle_limit(&mut bundle, policy.max_bundle_bytes);

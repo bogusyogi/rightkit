@@ -138,7 +138,9 @@ pub enum FlushState {
 pub struct FlushReport {
     pub state: FlushState,
     pub sent: usize,
-    /// Events the server permanently rejected (4xx other than 401/403/404/408/429); dropped.
+    /// Events the server permanently rejected (4xx other than 401/403/404/408/429) whose
+    /// removal was durably acknowledged; dropped. A rejected batch whose ack fails stays
+    /// pending and is not counted here.
     pub rejected: usize,
     pub remaining: usize,
 }
@@ -258,22 +260,28 @@ impl Uploader {
             let body = self.build_body(&batch);
             match self.transport.post_json(&self.config.endpoint, &body) {
                 Ok(outcome) if (200..300).contains(&outcome.status) => {
-                    self.consecutive_failures.store(0, Ordering::Release);
+                    // Counters move only after the durable ack: if persisting the
+                    // removal fails, the events stay pending under bounded backoff
+                    // instead of being counted sent and immediately re-sent.
                     if self.outbox.acknowledge(&ids).is_err() {
-                        return self.report(
-                            FlushState::Retrying {
-                                status: Some(outcome.status),
-                                wait_secs: 0,
-                            },
-                            sent,
-                            rejected,
-                        );
+                        return self.fail(&ids, Some(outcome.status), None, sent, rejected);
                     }
+                    self.consecutive_failures.store(0, Ordering::Release);
                     sent += ids.len();
                 }
                 Ok(outcome) if is_permanent_rejection(outcome.status) => {
                     // The server will never accept these bytes; do not retry forever.
-                    let _ = self.outbox.acknowledge(&ids);
+                    // But a failed ack keeps them pending (never counted rejected,
+                    // never re-posted in a spin) until the removal persists.
+                    if self.outbox.acknowledge(&ids).is_err() {
+                        return self.fail(
+                            &ids,
+                            Some(outcome.status),
+                            outcome.retry_after_secs,
+                            sent,
+                            rejected,
+                        );
+                    }
                     rejected += ids.len();
                 }
                 Ok(outcome) => {

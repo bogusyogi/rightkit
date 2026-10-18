@@ -551,6 +551,27 @@ fn a_bounded_frame_limit_still_serves_large_frames_and_rejects_oversize_per_call
 }
 
 #[test]
+fn a_locally_oversized_request_is_bad_input_and_never_restarts_the_engine() {
+    let (_d, cfg) = rig("ok");
+    let s = EngineSupervisor::new(cfg.with_frame_limit(4096));
+    s.start().unwrap();
+    let pid = s.status().pid.expect("pid");
+    let err = s
+        .call("echo", json!({"blob": "x".repeat(8192)}))
+        .unwrap_err();
+    assert_eq!(err.code, "bad_input", "{err}");
+    assert!(
+        !err.retryable,
+        "local rejection must not be retryable: {err:?}"
+    );
+    // Zero bytes reached the engine: same process & generation, next call works.
+    assert_eq!(s.status().pid, Some(pid));
+    assert_eq!(s.status().generation, 1);
+    assert!(s.call("echo", json!({"a": 1})).is_ok());
+    s.shutdown();
+}
+
+#[test]
 fn progress_events_carry_the_request_id_of_the_call_that_produced_them() {
     let (_d, cfg) = rig("ok");
     let s = EngineSupervisor::new(cfg);

@@ -736,19 +736,19 @@ fn crate_file(rel: &str) -> String {
 }
 
 #[test]
-fn dev_inspect_is_compiled_only_when_the_feature_is_on() {
-    assert_eq!(DEV_INSPECT_COMPILED, cfg!(feature = "dev-inspect"));
+fn dev_inspect_is_never_compiled_in_any_build() {
+    assert!(!DEV_INSPECT_COMPILED);
     assert_eq!(DEV_INSPECT_MARKER, "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED");
 }
 
 #[test]
-fn gate_of_a_dev_inspect_build_allows_every_webview_and_a_normal_gate_never_does() {
+fn no_gate_allows_developer_inspection_even_when_the_legacy_switch_is_passed() {
     let dev = build_gate_with(DevToolsPolicy::Denied, "main", &[], false, true).unwrap();
-    assert!(dev.is_dev_inspect());
+    assert!(!dev.is_dev_inspect());
     for label in ["main", "preview", "anything"] {
-        assert_eq!(dev.decide(label), WebviewDecision::AllowDev, "{label}");
+        assert_eq!(dev.decide(label), WebviewDecision::Deny, "{label}");
     }
-    assert_eq!(dev.content_labels(), vec!["*".to_owned()]);
+    assert_eq!(dev.content_labels(), Vec::<String>::new());
     // `build_gate` is the production path and cannot produce a dev gate.
     for compiled in [false, true] {
         let gate = build_gate(DevToolsPolicy::Denied, "main", &[], compiled).unwrap();
@@ -773,23 +773,32 @@ fn gate_of_a_dev_inspect_build_allows_every_webview_and_a_normal_gate_never_does
 }
 
 #[test]
-fn a_dev_inspect_gate_still_validates_content_registrations() {
-    // dev-inspect compiles Tauri's devtools in, so ContentOnly needs no second feature there,
-    // but a registration that reaches app IPC is as wrong in development as in a release.
-    let ok = build_gate_with(
+fn the_legacy_switch_still_validates_content_registrations_and_needs_the_feature() {
+    // The ignored switch no longer counts as compiling Tauri's devtools in.
+    let err = build_gate_with(
         DevToolsPolicy::ContentOnly,
         "main",
         &[content("preview", "content")],
         false,
         true,
     )
+    .unwrap_err();
+    assert_eq!(err, DevToolsError::ContentDevtoolsNotCompiled);
+    let ok = build_gate_with(
+        DevToolsPolicy::ContentOnly,
+        "main",
+        &[content("preview", "content")],
+        true,
+        true,
+    )
     .unwrap();
-    assert_eq!(ok.decide("main"), WebviewDecision::AllowDev);
+    assert_eq!(ok.decide("main"), WebviewDecision::Deny);
+    assert_eq!(ok.decide("preview"), WebviewDecision::AllowContent);
     let err = build_gate_with(
         DevToolsPolicy::ContentOnly,
         "main",
         &[content("preview", "main").capability(MAIN_CAP)],
-        false,
+        true,
         true,
     )
     .unwrap_err();
@@ -818,16 +827,34 @@ fn a_dev_inspect_gate_still_validates_content_registrations() {
     assert_eq!(err, DevToolsError::ContentDevtoolsNotCompiled);
 }
 
-#[cfg(feature = "dev-inspect")]
 #[test]
-fn a_dev_inspect_build_does_not_refuse_debugging_switches_or_scrub_the_environment() {
-    // The process guard returns an empty report whatever the environment holds.
-    let report = rightkit_tauri_shell::devtools::guard_process_start().unwrap();
-    assert!(report.scrubbed_env.is_empty());
+fn reload_print_and_view_source_are_separate_switches_with_compatible_defaults() {
+    let d = Hardening::default();
+    assert!(d.block_reload && d.block_print && d.block_view_source);
+    let script = d.script();
+    assert!(script.contains("\"blockPrint\":true"), "{script:.80}");
+    assert!(script.contains("\"blockViewSource\":true"));
+    let mail = Hardening {
+        block_print: false,
+        block_view_source: false,
+        ..Hardening::default()
+    };
+    let script = mail.script();
+    assert!(script.contains("\"blockReload\":true"));
+    assert!(script.contains("\"blockPrint\":false"));
+    assert!(script.contains("\"blockViewSource\":false"));
+    // Reload no longer carries the print/view-source chords; Ctrl+U in an editable surface
+    // (underline) is exempt, and the inspector branch is untouched by the split.
+    assert!(script.contains("cfg.blockPrint && mod && lk === 'p'"));
+    assert!(
+        script.contains("cfg.blockViewSource && mod && lk === 'u' && !closest(e.target, EDITABLE)")
+    );
+    assert!(script.contains("hit = 'devtools'"));
+    assert!(!script.contains("lk === 'u') || (mod && lk === 'p')"));
 }
 
 #[test]
-fn dev_inspect_is_never_a_default_feature_and_is_independent_of_content_devtools() {
+fn dev_inspect_is_not_a_feature_and_cannot_be_enabled() {
     let manifest = crate_file("Cargo.toml");
     let features = manifest
         .split("\n[features]")
@@ -841,26 +868,10 @@ fn dev_inspect_is_never_a_default_feature_and_is_independent_of_content_devtools
             .unwrap_or_else(|| panic!("feature {name}"))
             .to_owned()
     };
-    assert!(
-        !line_of("default").contains("dev-inspect"),
-        "{}",
-        line_of("default")
-    );
+    // The feature is gone: no definition, and no other feature names it, so no
+    // build can enable it.
+    assert!(!features.contains("dev-inspect"), "{features}");
     assert!(!line_of("default").contains("content-devtools"));
-    assert!(!line_of("content-devtools").contains("dev-inspect"));
-    // tauri/unstable carries `get_webview`, which the inspector needs; it adds no feature of ours.
-    assert_eq!(
-        line_of("dev-inspect").replace(' ', ""),
-        "dev-inspect=[\"tauri/devtools\",\"tauri/unstable\"]"
-    );
-    // No other feature enables dev-inspect.
-    for line in features.lines() {
-        let t = line.trim_start();
-        if t.starts_with('#') || t.starts_with("dev-inspect") {
-            continue;
-        }
-        assert!(!t.contains("dev-inspect"), "{t}");
-    }
 }
 
 #[test]
@@ -879,13 +890,9 @@ fn only_devtools_rs_names_the_dev_inspect_marker() {
         }
     }
     let devtools = crate_file("src/devtools.rs");
-    // The runtime messages never spell the marker.
-    let announce = devtools
-        .split("fn announce_dev_inspect() -> GuardReport {")
-        .nth(1)
-        .and_then(|t| t.split("\n}\n").next())
-        .expect("announce body");
-    assert!(!announce.contains("DEV-INSPECT-COMPILED"));
+    // No announce/stand-down path remains, and no gate can produce AllowDev.
+    assert!(!devtools.contains("announce_dev_inspect"));
+    assert!(!devtools.contains("return WebviewDecision::AllowDev"));
 }
 
 #[test]

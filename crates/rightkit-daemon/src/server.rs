@@ -936,6 +936,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             code: code.into(),
             message: reason.into(),
             retryable,
+            details: None,
         };
         send(&json!({"type": "hello", "ok": false, "error": e.to_value()}));
         s.event(ServiceEvent::ConnectionRejected {

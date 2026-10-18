@@ -24,7 +24,7 @@ test("the Windows installer mode refuses other platforms and unsafe folders", ()
   assert.throws(() => installAppWindows({ installer: "C:\\x\\Setup.exe", dest: "C:\\Apps\\Pulse", exe: "..\\Pulse.exe" }, { platform: "win32" }), /bare executable name/);
 });
 
-// ---- data safety: payload-only backup and rollback (Orthic-Labs/rightkit#348) ----
+// ---- data safety: payload-only TRANSIENT backup, restored on failure then deleted; none retained (D01, Orthic-Labs/rightkit#348) ----
 
 const W = path.win32;
 const DEST = "C:\\Users\\a\\AppData\\Local\\CodeRight";
@@ -82,12 +82,12 @@ test("windows: data files beside the payload are byte-identical and never copied
   assert.deepEqual(dataSnapshot(files), before);
   assert.deepEqual(log.filter(touchesData), [], "no copy, remove or mkdir ever named a data file");
   assert.equal(bodyOf(files, at("CodeRight.exe")), "new-exe");
-  // The rollback copy holds the payload that existed before, and NOTHING else.
+  // D01: the payload backup is transient only — deleted on success, never retained as a rollback copy.
   const previous = `${DEST}.previous`;
-  assert.equal(result.previous, previous);
+  assert.equal(result.previous, null);
   const kept = [...files.keys()].filter((file) => file.startsWith(`${W.normalize(previous)}\\`)).map((file) => file.slice(previous.length + 1)).sort();
-  assert.deepEqual(kept, ["CodeRight.exe", "app.dll", "resources\\ui.pak"]);
-  assert.equal(bodyOf(files, W.join(previous, "CodeRight.exe")), "old-exe");
+  assert.deepEqual(kept, [], "no .previous copy is retained after a successful install");
+  assert.equal(bodyOf(files, W.join(previous, "CodeRight.exe")), undefined);
 });
 
 test("windows: a failed installer restores only payload files and never overwrites or removes data", () => {
@@ -115,7 +115,7 @@ test("windows: a failure after the installer ran (empty executable) rolls back p
   assert.equal(bodyOf(files, at("CodeRight.exe")), "old-exe");
 });
 
-test("windows: with no declared payload --exe alone is backed up and restored, and data is untouched", () => {
+test("windows: with no declared payload --exe alone is transiently backed up and restored on failure, no copy retained, and data is untouched", () => {
   const { fs, files, log } = seed();
   const before = dataSnapshot(files);
   const opts = { installer: INSTALLER, dest: DEST, exe: "CodeRight.exe" };
@@ -125,9 +125,9 @@ test("windows: with no declared payload --exe alone is backed up and restored, a
   assert.deepEqual(dataSnapshot(files), before);
   assert.deepEqual(log.filter(touchesData), []);
   const ok = installAppWindows(opts, { platform: "win32", fs, run: installerRun(files) });
-  assert.equal(ok.previous, `${DEST}.previous`);
-  assert.equal(bodyOf(files, `${DEST}.previous\\CodeRight.exe`), "old-exe", "the second install backs up the restored exe");
-  assert.equal(files.has(W.normalize(`${DEST}.previous\\app.dll`)), false, "only the exe is in the backup");
+  assert.equal(ok.previous, null, "no rollback copy is retained after success (D01)");
+  assert.equal(files.has(W.normalize(`${DEST}.previous\\CodeRight.exe`)), false, "the transient exe backup is deleted on success");
+  assert.equal(files.has(W.normalize(`${DEST}.previous\\app.dll`)), false, "only the exe was ever in the transient backup");
   assert.deepEqual(dataSnapshot(files), before);
 });
 
@@ -161,14 +161,18 @@ test("windows: a symlink or junction anywhere in the chain from dest to a payloa
   assert.deepEqual(during.log.filter((entry) => entry[0] === "rm" && /resources/.test(entry[1]) && !/previous/.test(entry[1])), [], "nothing is removed through the link");
 });
 
-test("windows: a whole-folder .previous left by an older RightKit (with a stale database copy) is replaced by a payload-only one", () => {
+test("windows: a stale whole-folder .previous left by an older RightKit (with a stale database copy) is deleted and none is retained", () => {
   const { fs, files } = seed();
+  const before = dataSnapshot(files);
   files.set(W.normalize(`${DEST}.previous\\coderight.db`), Buffer.from("STALE-DB-COPY"));
   files.set(W.normalize(`${DEST}.previous\\models\\x.bin`), Buffer.from("STALE-MODEL"));
-  installAppWindows(PAYLOAD_OPTS, { platform: "win32", fs, run: installerRun(files) });
-  assert.equal(files.has(W.normalize(`${DEST}.previous\\coderight.db`)), false);
+  const result = installAppWindows(PAYLOAD_OPTS, { platform: "win32", fs, run: installerRun(files) });
+  assert.equal(result.previous, null);
+  assert.equal(files.has(W.normalize(`${DEST}.previous\\coderight.db`)), false, "stale data copy inside the old .previous scope is gone");
   assert.equal(files.has(W.normalize(`${DEST}.previous\\models\\x.bin`)), false);
-  assert.equal(bodyOf(files, `${DEST}.previous\\CodeRight.exe`), "old-exe");
+  assert.equal(bodyOf(files, `${DEST}.previous\\CodeRight.exe`), undefined, "no payload copy is retained either (D01)");
+  assert.deepEqual(dataSnapshot(files), before, "live data beside the payload is byte-identical");
+  assert.equal(bodyOf(files, at("CodeRight.exe")), "new-exe");
 });
 
 test("windows: the payload allowlist is explicit relative regular files (manifest or flags), never directories or escapes", () => {

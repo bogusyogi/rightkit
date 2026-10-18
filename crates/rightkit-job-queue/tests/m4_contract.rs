@@ -303,6 +303,47 @@ fn an_alias_never_shadows_a_served_name_and_a_dangling_alias_is_unknown() {
     assert!(!table().methods().iter().any(|m| m == "find"));
 }
 
+struct Failing;
+impl CommandSet for Failing {
+    fn methods(&self) -> Vec<String> {
+        vec!["auth".into(), "plain".into()]
+    }
+    fn call(&self, method: &str, _: &Value, _: bool, _: &Sink) -> JobResult<Value> {
+        if method == "auth" {
+            Err(JobError::new("needs_auth", "sign in")
+                .with_details(json!({"platform": "x", "nested": {"a": [1, 2]}})))
+        } else {
+            Err(JobError::new("plain_err", "nope"))
+        }
+    }
+}
+
+#[test]
+fn error_details_travel_through_dispatcher_frames_and_job_error_json() {
+    let plain = JobError::new("needs_auth", "sign in");
+    assert!(plain.details().is_none());
+    assert!(plain.to_json().get("details").is_none());
+    let e = plain.clone().with_details(json!({"platform": "x"}));
+    assert_eq!(e.to_json()["details"]["platform"], "x");
+    assert_eq!(e.to_json_with(false)["details"]["platform"], "x");
+    assert_ne!(e, plain);
+    assert!(e.clone().with_details(Value::Null).details().is_none());
+
+    let d = Dispatcher::new("t", "1").with(Arc::new(Failing));
+    let frames = window(
+        d,
+        &[
+            r#"{"type":"request","id":1,"method":"auth"}"#,
+            r#"{"type":"request","id":2,"method":"plain"}"#,
+        ],
+    );
+    let auth = &frames.iter().find(|f| f["id"] == 1).unwrap()["error"];
+    assert_eq!(auth["details"]["platform"], "x");
+    assert_eq!(auth["details"]["nested"]["a"], json!([1, 2]));
+    let plain = &frames.iter().find(|f| f["id"] == 2).unwrap()["error"];
+    assert!(plain.get("details").is_none(), "{plain}");
+}
+
 #[test]
 fn method_metadata_is_served_in_doctor_and_readable_and_absent_when_unset() {
     let sink: Sink = Arc::new(|_| {});

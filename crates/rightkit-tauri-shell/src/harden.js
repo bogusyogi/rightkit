@@ -46,8 +46,12 @@
     var lk = typeof k === 'string' ? k.toLowerCase() : '';
     var hit = null;
     if (cfg.blockReload) {
-      if (k === 'F5' || (mod && lk === 'r') || (mod && lk === 'u') || (mod && lk === 'p')) hit = 'reload';
+      if (k === 'F5' || (mod && lk === 'r')) hit = 'reload';
     }
+    if (!hit && cfg.blockPrint && mod && lk === 'p') hit = 'print';
+    // Ctrl/Cmd+U is view-source outside an editable surface and underline inside one: only the
+    // view-source reading is ever cancelled, and only under its own switch.
+    if (!hit && cfg.blockViewSource && mod && lk === 'u' && !closest(e.target, EDITABLE)) hit = 'view-source';
     if (!hit && cfg.blockZoom && mod && (k === '+' || k === '=' || k === '-' || k === '_' || k === '0')) hit = 'zoom';
     if (!hit && cfg.blockHistoryNav) {
       if ((e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) || (e.metaKey && (k === '[' || k === ']')) || k === 'BrowserBack' || k === 'BrowserForward') hit = 'history';

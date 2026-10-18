@@ -819,6 +819,12 @@ impl OwnedChild {
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
         self.child().stdin.take()
     }
+    /// Closes the child's stdin (delivering EOF) without waiting. Idempotent: a child whose
+    /// stdin was taken or already closed is untouched. For a child that already exited this
+    /// is a harmless drop of the unused pipe end, never an error.
+    pub fn close_stdin(&mut self) {
+        drop(self.child().stdin.take());
+    }
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
         self.child().stdout.take()
     }
@@ -1270,6 +1276,9 @@ impl AdoptedProcess {
     pub fn id(&self) -> u32 {
         self.pid.get()
     }
+    /// Whether a process with this pid is running. Unix: a zombie (exited, unreaped by its
+    /// own parent) reads `false`. This is a bare-pid probe with no start-time check; use
+    /// [`identity`](Self::identity) when the pid must still name a remembered process.
     pub fn is_running(&self) -> io::Result<bool> {
         process_is_running(self.pid)
     }
@@ -1327,16 +1336,18 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
 
 #[cfg(unix)]
 fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
-    let pid = i32::try_from(pid.get()).map_err(io::Error::other)?;
+    let raw_pid = i32::try_from(pid.get()).map_err(io::Error::other)?;
     loop {
         // SAFETY: signal 0 performs only existence and permission checks; nothing is sent.
-        if unsafe { libc::kill(pid, 0) } == 0 {
-            return Ok(true);
+        if unsafe { libc::kill(raw_pid, 0) } == 0 {
+            // Existence includes zombies: an exited process nobody reaped is dead, not
+            // running (and is never reaped here - that is its parent's job).
+            return Ok(!crate::foreign::process_is_zombie(pid.get()));
         }
         let error = io::Error::last_os_error();
         match error.raw_os_error() {
             Some(libc::EINTR) => continue,
-            Some(libc::EPERM) => return Ok(true),
+            Some(libc::EPERM) => return Ok(!crate::foreign::process_is_zombie(pid.get())),
             Some(libc::ESRCH) => return Ok(false),
             _ => return Err(error),
         }

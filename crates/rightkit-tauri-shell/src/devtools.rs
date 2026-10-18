@@ -20,10 +20,11 @@
 //! 3. The injected hardening script (keyboard shortcuts), in [`crate::harden`].
 //! 4. [`verify_not_remote_debuggable`]: a post-creation tripwire for a live remote-debugging port.
 //!
-//! Development builds are the one deliberate hole: with the off-by-default `dev-inspect` cargo
-//! feature compiled in, every webview is inspectable and the guards above stand down (see
-//! [`DEV_INSPECT_COMPILED`]). Such a build carries [`DEV_INSPECT_MARKER`], and `right-release`
-//! refuses to seal or upload a release or update build that contains it.
+//! There is no development-build hole: no build (dev, debug or release) makes an app webview
+//! inspectable. The historical `dev-inspect` switch is inert — [`DEV_INSPECT_COMPILED`] is
+//! always `false` and [`build_gate_with`] ignores its `dev_inspect` argument — so the guards
+//! above run in every build. [`DEV_INSPECT_MARKER`] stays only so release scanning can still
+//! recognise binaries built from older sources.
 //!
 //! Everything that decides (argument and environment scanning, registry output, content
 //! registration, capability checks) is a plain function so it is testable without a GUI.
@@ -49,39 +50,16 @@ pub const CONTENT_ONLY_MARKER: &str = "RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMP
 #[used]
 static CONTENT_ONLY_MARKER_BYTES: &[u8] = b"RIGHTKIT-SHELL-DEVTOOLS-CONTENT-ONLY-COMPILED";
 
-/// Bytes that appear in every binary built with the `dev-inspect` feature, and in no other. `right-release`
-/// scans Mach-O, PE and ELF files for exactly this string and refuses to seal or upload a release or update
-/// tier build that has it. Keep identical to `DEV_INSPECT_MARKER` in
-/// `packages/release/qa-control-scan.mjs`. Code outside the `dev-inspect` feature must never reference this
-/// constant at run time (it would put the string into every binary that links the shell).
+/// Historical marker text of the removed `dev-inspect` feature. `right-release` scans Mach-O, PE
+/// and ELF files for exactly this string and refuses to seal or upload a build that has it, so
+/// binaries built by older shells stay recognisable. Keep identical to `DEV_INSPECT_MARKER` in
+/// `packages/release/qa-control-scan.mjs`. Never reference this constant at run time (it would
+/// put the string into every binary that links the shell).
 pub const DEV_INSPECT_MARKER: &str = "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED";
 
-/// True when this build was compiled with the `dev-inspect` feature: developer inspection is active.
-pub const DEV_INSPECT_COMPILED: bool = cfg!(feature = "dev-inspect");
-
-/// The marker as a retained static. `#[used]` keeps the object out of `-dead_strip` and `/OPT:REF`;
-/// [`keep_dev_inspect_marker`] also reads it from [`guard_process_start`], so the linker, LTO and the
-/// optimiser keep it for as long as the shell's startup code is kept.
-#[cfg(feature = "dev-inspect")]
-#[used]
-static DEV_INSPECT_MARKER_BYTES: [u8; DEV_INSPECT_MARKER.len()] = {
-    let src = DEV_INSPECT_MARKER.as_bytes();
-    let mut out = [0u8; DEV_INSPECT_MARKER.len()];
-    let mut i = 0;
-    while i < src.len() {
-        out[i] = src[i];
-        i += 1;
-    }
-    out
-};
-
-/// A volatile read of the marker's first byte, so the static is reachable from live startup code.
-#[cfg(feature = "dev-inspect")]
-#[inline(never)]
-fn keep_dev_inspect_marker() -> u8 {
-    // SAFETY: the pointer is the start of a live, initialised static array of non-zero length.
-    unsafe { std::ptr::read_volatile(DEV_INSPECT_MARKER_BYTES.as_ptr()) }
-}
+/// Developer inspection is never active, in any build. Kept as a constant so existing callers
+/// (the shell's gate construction) keep compiling; it no longer follows any cargo feature.
+pub const DEV_INSPECT_COMPILED: bool = false;
 
 /// Who may use DevTools. Exactly two values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -101,9 +79,8 @@ pub enum WebviewDecision {
     Deny,
     /// Leave the webview inspectable (a registered content webview under `ContentOnly`).
     AllowContent,
-    /// Developer inspection: the build was compiled with the `dev-inspect` feature, so every webview
-    /// (the app UI included) stays inspectable and no menu or shortcut is touched. Never produced
-    /// by a build without that feature.
+    /// Historical developer-inspection decision. Never produced by any gate now: no build makes
+    /// an app webview inspectable. Kept so existing matches on the decision keep compiling.
     AllowDev,
 }
 
@@ -526,17 +503,13 @@ static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
 /// 5. Records the folders the `UserDataFolder` policy and the WebView2 user-data environment
 ///    variable name, so the port-file tripwire looks there too (Windows).
 ///
-/// A build compiled with the `dev-inspect` feature does none of this: it prints one loud stderr
-/// line saying developer inspection is active and returns an empty report.
+/// Every build runs all of it; there is no developer-inspection stand-down.
 pub fn guard_process_start() -> Result<GuardReport, DevToolsError> {
     GUARD.get_or_init(run_guard).clone()
 }
 
 fn run_guard() -> Result<GuardReport, DevToolsError> {
     let _ = PROCESS_START.set(SystemTime::now());
-    if DEV_INSPECT_COMPILED {
-        return Ok(announce_dev_inspect());
-    }
     let argv: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
@@ -585,26 +558,6 @@ fn run_guard() -> Result<GuardReport, DevToolsError> {
         }
     }
     Ok(GuardReport { scrubbed_env })
-}
-
-/// The one loud line of a `dev-inspect` build. It also reads the marker static from live startup
-/// code, so the marker survives dead-code elimination for as long as the shell does.
-#[cfg(feature = "dev-inspect")]
-fn announce_dev_inspect() -> GuardReport {
-    let kept = keep_dev_inspect_marker();
-    eprintln!(
-        "RIGHTKIT SHELL DEVELOPER INSPECTION ACTIVE: this build was compiled with the rightkit-tauri-shell `dev-inspect` \
-         feature (marker byte {kept:#04x}). Every webview is inspectable, debugging switches and WebView2 \
-         environment overrides are not scrubbed, and no remote-debugging refusal or port tripwire runs. \
-         A build like this can never be released; right-release refuses it."
-    );
-    GuardReport::default()
-}
-
-/// Never called: `DEV_INSPECT_COMPILED` is false here.
-#[cfg(not(feature = "dev-inspect"))]
-fn announce_dev_inspect() -> GuardReport {
-    GuardReport::default()
 }
 
 /// Windows: the registry, read through the registry API. No `reg.exe`: a program started by name
@@ -827,10 +780,6 @@ pub fn live_debug_port_file(dirs: &[PathBuf], process_start: SystemTime) -> Opti
 /// Post-creation tripwire (Windows): the browser process writes the port file while it starts, so a
 /// fresh file next to this process's user data means a debugging port is open. A no-op elsewhere.
 pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<(), DevToolsError> {
-    // A `dev-inspect` build is meant to be attached to: no tripwire.
-    if DEV_INSPECT_COMPILED {
-        return Ok(());
-    }
     #[cfg(windows)]
     {
         let start = PROCESS_START.get().copied().unwrap_or_else(SystemTime::now);
@@ -878,7 +827,7 @@ pub struct DevToolsGate {
     policy: DevToolsPolicy,
     main_label: String,
     content: BTreeSet<String>,
-    /// Built with the `dev-inspect` feature: every webview is inspectable.
+    /// Historical developer-inspection flag; always `false` now.
     dev_inspect: bool,
 }
 
@@ -892,28 +841,21 @@ impl DevToolsGate {
             dev_inspect: false,
         }
     }
-    /// Whether this is the gate of a `dev-inspect` build (every webview inspectable). Only
-    /// [`build_gate_with`] with `dev_inspect = true` produces one.
+    /// Whether this gate allows developer inspection. Always `false`: no build produces such a
+    /// gate. Kept so existing callers keep compiling.
     pub fn is_dev_inspect(&self) -> bool {
         self.dev_inspect
     }
     pub fn policy(&self) -> DevToolsPolicy {
         self.policy
     }
-    /// Registered content webview labels or prefix patterns (empty under `Denied`). A `dev-inspect`
-    /// gate returns the single pattern `*`, so the injected script stands aside in every webview.
+    /// Registered content webview labels or prefix patterns (empty under `Denied`).
     pub fn content_labels(&self) -> Vec<String> {
-        if self.dev_inspect {
-            return vec!["*".to_owned()];
-        }
         self.content.iter().cloned().collect()
     }
     /// What to do with the webview labelled `label`. Anything not registered is denied, and the
     /// main webview is denied whatever else is true.
     pub fn decide(&self, label: &str) -> WebviewDecision {
-        if self.dev_inspect {
-            return WebviewDecision::AllowDev;
-        }
         if self.policy == DevToolsPolicy::ContentOnly
             && label != self.main_label
             && self
@@ -1051,24 +993,23 @@ pub fn build_gate(
     build_gate_with(policy, main_label, registrations, devtools_compiled, false)
 }
 
-/// [`build_gate`] plus the `dev-inspect` switch (`DEV_INSPECT_COMPILED` in the shell). With
-/// `dev_inspect` the registrations are still validated as before (a misconfiguration surfaces in
-/// development, not only in the release build), Tauri's devtools count as compiled (the feature
-/// enables them), and the gate allows every webview.
+/// [`build_gate`] with the historical `dev_inspect` argument, now ignored: developer inspection
+/// is available in no build, so the argument changes nothing — registrations are validated the
+/// same, `content-devtools` is still required for `ContentOnly`, and the gate never allows an
+/// app webview. Kept so the shell's existing call site keeps compiling.
 pub fn build_gate_with(
     policy: DevToolsPolicy,
     main_label: &str,
     registrations: &[ContentWebview],
     devtools_compiled: bool,
-    dev_inspect: bool,
+    _dev_inspect: bool,
 ) -> Result<DevToolsGate, DevToolsError> {
-    let devtools_compiled = devtools_compiled || dev_inspect;
     if registrations.is_empty() {
         return Ok(DevToolsGate {
             policy,
             main_label: main_label.to_owned(),
             content: BTreeSet::new(),
-            dev_inspect,
+            dev_inspect: false,
         });
     }
     if policy != DevToolsPolicy::ContentOnly {
@@ -1108,7 +1049,7 @@ pub fn build_gate_with(
         policy,
         main_label: main_label.to_owned(),
         content,
-        dev_inspect,
+        dev_inspect: false,
     })
 }
 
@@ -1126,7 +1067,7 @@ pub fn open_content_devtools<R: Runtime>(
             label: label.to_owned(),
         });
     }
-    #[cfg(any(feature = "content-devtools", feature = "dev-inspect"))]
+    #[cfg(feature = "content-devtools")]
     {
         let webview = app
             .get_webview(label)
@@ -1136,7 +1077,7 @@ pub fn open_content_devtools<R: Runtime>(
         webview.open_devtools();
         Ok(())
     }
-    #[cfg(not(any(feature = "content-devtools", feature = "dev-inspect")))]
+    #[cfg(not(feature = "content-devtools"))]
     Err(DevToolsError::ContentDevtoolsNotCompiled)
 }
 
@@ -1243,11 +1184,7 @@ pub fn apply_native<R: Runtime>(
     // inspector API into dev-profile builds (debug_assertions), so `debug_assertions` stays in this
     // list on purpose: it only ever CLOSES an inspector on a denied webview (hardening, not dev
     // control), and dropping it would leave a dev-profile inspector open.
-    #[cfg(any(
-        debug_assertions,
-        feature = "content-devtools",
-        feature = "dev-inspect"
-    ))]
+    #[cfg(any(debug_assertions, feature = "content-devtools"))]
     if decision == WebviewDecision::Deny {
         webview.close_devtools();
     }

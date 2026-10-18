@@ -72,7 +72,7 @@ mod takeover_watch;
 pub mod ticker;
 mod transport;
 
-pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
+pub use client::{Client, ClientConfig, ClientPool, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
     discover_windows, discover_windows_with, parse_plist_string, parse_reg_query, plan_host,
@@ -99,12 +99,13 @@ pub use error::{
     ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT, ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT,
     ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
 };
+pub use fail_limit::FailLimiter;
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
 #[cfg(unix)]
 pub use peer::verify_peer_is_current_user;
 #[cfg(windows)]
 pub use peer::{
-    owner_only_security_attributes, verify_pipe_peer_is_current_user,
+    current_user_sid, owner_only_security_attributes, verify_pipe_peer_is_current_user,
     verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
 };
 pub use peer::{PeerError, PeerIdentity};

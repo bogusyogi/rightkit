@@ -203,6 +203,61 @@ fn a_backup_that_cannot_be_refreshed_stops_the_write_and_keeps_the_file() {
 }
 
 #[test]
+fn a_timestamped_quarantine_never_replaces_kept_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    // Occupy every timestamped name this open could pick (one-second resolution, either side of a
+    // tick) plus the first numbered retries, so the quarantine must retry past all of them.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let mut sentinels = Vec::new();
+    for ts in now.saturating_sub(1)..=now + 2 {
+        for suffix in ["".to_string(), "-1".to_string()] {
+            let kept = dir.path().join(format!("s.json.corrupt-{ts}{suffix}"));
+            fs::write(&kept, b"earlier evidence").unwrap();
+            sentinels.push(kept);
+        }
+    }
+    fs::write(&path, b"{ damaged").unwrap();
+
+    let store = Store::<Cfg>::open_path(&path, StoreOptions::new(schema())).unwrap();
+    assert_eq!(store.get(), Cfg::default());
+    for kept in &sentinels {
+        assert_eq!(fs::read(kept).unwrap(), b"earlier evidence", "{kept:?}");
+    }
+    let corrupt: Vec<String> = names(dir.path())
+        .into_iter()
+        .filter(|name| name.starts_with("s.json.corrupt-"))
+        .collect();
+    assert_eq!(corrupt.len(), sentinels.len() + 1, "{corrupt:?}");
+    assert!(
+        corrupt
+            .iter()
+            .any(|name| fs::read(dir.path().join(name)).unwrap() == b"{ damaged"),
+        "the damaged file was kept under a fresh name: {corrupt:?}"
+    );
+}
+
+#[test]
+fn a_refreshed_backup_holds_the_previous_file_and_leaves_no_temp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    let bak = dir.path().join("s.json.bak");
+    let store = Store::<Cfg>::open_path(&path, StoreOptions::new(schema())).unwrap();
+    bump(&store, 1).unwrap();
+    let previous = fs::read(&path).unwrap();
+    bump(&store, 2).unwrap();
+    assert_eq!(fs::read(&bak).unwrap(), previous);
+    assert!(
+        names(dir.path()).iter().all(|name| !name.contains(".tmp")),
+        "{:?}",
+        names(dir.path())
+    );
+}
+
+#[test]
 fn without_sidecars_there_is_no_backup_to_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.json");

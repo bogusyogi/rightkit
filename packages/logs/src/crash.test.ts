@@ -77,6 +77,28 @@ describe('installWindowCrashCapture', () => {
   });
 });
 
+// Subset of the shared JS/Rust parity vectors (scrub_parity.rs / index.test.ts)
+// that the window-crash scrubber also guarantees.
+describe('scrubWindowCrashText parity subset', () => {
+  const vectors: Array<[string, string]> = [
+    ['Authorization: Bearer abcdefghijklmnop failed', 'Authorization: Bearer [redacted:credential] failed'],
+    ['contact person@example.com now', 'contact [redacted:email] now'],
+    [
+      'GET https://user:pw@example.com/v1/items?key=abc&x=1#frag failed',
+      'GET https://example.com/v1/items?[redacted] failed',
+    ],
+    [
+      'token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXBhcnQ done',
+      'token [redacted:credential] done',
+    ],
+    ['key ' + 'sk-' + 'a1b2' + 'c3d4e5f6g7h8 used', 'key [redacted:credential] used'],
+    ['crash at /Users/ada/app/src/main.rs:4', 'crash at /Users/<user>/app/src/main.rs:4'],
+  ];
+  it.each(vectors)('scrubs %s', (input, expected) => {
+    expect(scrubWindowCrashText(input)).toBe(expected);
+  });
+});
+
 describe('scrubWindowCrashText', () => {
   it('removes home paths, jwt and long hex', () => {
     const out = scrubWindowCrashText('/Users/bob/x eyJabcdefghi.jklmnopqr.stu ' + 'a'.repeat(40));

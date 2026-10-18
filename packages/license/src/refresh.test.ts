@@ -137,6 +137,19 @@ describe('refreshWithOutcome', () => {
     expect((await client.refreshWithOutcome()).outcome).toMatchObject({ kind: 'stale', error: 'boom' });
   });
 
+  it.each([400, 404, 429])('stale: a malformed/unparsed HTTP %s is transport failure, not revocation', async (status) => {
+    for (const respond of [
+      () => new Response('<html>proxy</html>', { status }),
+      () => json(status, {}),
+      () => json(status, { ok: true, status: 'active' }),
+    ]) {
+      const { client } = setup(stored(), respond);
+      const { outcome, license } = await client.refreshWithOutcome();
+      expect(outcome.kind).toBe('stale');
+      expect(license?.status).toBe('active');
+    }
+  });
+
   it('stale: a non-JSON proxy error is an outage', async () => {
     const { client } = setup(stored(), () => new Response('<html>bad gateway</html>', { status: 502 }));
     expect((await client.refreshWithOutcome()).outcome).toMatchObject({

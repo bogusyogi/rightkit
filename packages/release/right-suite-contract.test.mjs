@@ -947,16 +947,38 @@ test("consuming suite apps resolve Cargo build output from cargo metadata, never
 
 // The shared resolver helpers themselves must keep asking cargo metadata for
 // target_directory. Guarding only the wrong pattern's reintroduction is not
-// enough — gutting/deleting the correct implementation must also fail here.
+// enough — gutting/deleting a still-used adapter must also fail here. GenRight/MailRight
+// migrated to shared recipes/staging; its replacement route is checked below.
 const cargoTargetRootHelpers = [
   "coderight/apps/coderight-tauri/scripts/lib/target-root.mjs",
   "heardright/tauri-app-next/scripts/lib/target-root.mjs",
-  "genright/scripts/lib/target-root.mjs",
-  "mailright/scripts/lib/target-root.mjs",
   "orthic/scripts/lib/target-root.mjs",
   "viewright/scripts/lib/target-root.mjs",
   "membrane/apps/membrane-hub/scripts/lib/target-root.mjs",
 ];
+
+for (const app of ["genright", "mailright"]) test(`${app} delegates target resolution to shared recipes and sidecar staging`, { skip: checkoutSkip([
+  path.join(workspace, app, "package.json"),
+  path.join(workspace, app, "right-release.config.mjs"),
+], `${app} checkout`) }, async () => {
+  const root = path.join(workspace, app);
+  const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+  const config = (await import(pathToFileURL(path.join(root, "right-release.config.mjs")).href)).default;
+  // These shared owners resolve actual target_directory; no unused local shim is required.
+  assert.ok(config.targets?.mac?.macPackage && config.targets?.win?.winPackage);
+  const packageStage = pkg.scripts["build:engine"] === "right-release stage-sidecar --config right-release.config.mjs";
+  const recipeStages = [config.targets.mac, config.targets.win].every((target) =>
+    target.externalBin?.stage?.cmd === "right-release"
+    && JSON.stringify(target.externalBin.stage.args) === JSON.stringify(["stage-sidecar", "--config", "right-release.config.mjs"]));
+  assert.ok(packageStage || recipeStages, `${app} must delegate sidecar staging to RightKit`);
+  const sidecars = Array.isArray(config.sidecars) ? config.sidecars : config.sidecars?.sidecars;
+  assert.ok(sidecars?.some((entry) => entry.kind === "cargo-bin"));
+  for (const source of findCargoTargetDirGuardFiles(root)) {
+    if (CARGO_TARGET_DIR_GUARD_SKIP_BASENAME.test(path.basename(source))) continue;
+    assert.doesNotMatch(readFileSync(source, "utf8"), /["'][^"']*target-root\.mjs["']/,
+      `${path.relative(workspace, source)} still refers to the removed target-root adapter`);
+  }
+});
 
 test("consumer target-root helpers delegate to RightKit's canonical resolver", () => {
   for (const helperPath of cargoTargetRootHelpers) {

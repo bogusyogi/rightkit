@@ -7,7 +7,10 @@
 //! protected capability.
 //!
 //! [`EngineEntitlements`] therefore has no input for a verdict. It reads the signed
-//! licence token from the app's own data root, authenticates it against the public key
+//! licence token from the app's own token source (the data-root token file by
+//! default, or an opt-in credential-store source; see
+//! [`EngineEntitlementsConfig::with_credential_reader`]), authenticates it against
+//! the public key
 //! compiled into the engine, and checks signature, app, device binding and expiry
 //! against a [`TrustedClock`]. The device identity is derived by the engine through a
 //! host-supplied source ([`EngineEntitlementsConfig::new`]), never received from the
@@ -33,15 +36,18 @@
 //! [`require_pro`]: EngineEntitlements::require_pro
 
 use std::fmt;
-use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::{
     system_now_unix, ClockRefusal, Entitlement, LicenseRequirement, SystemClock, TrustedClock,
     VerifyError,
 };
+
+#[path = "credential_source.rs"]
+pub(crate) mod credential_source;
+
+pub use credential_source::{CredentialTokenSource, FileTokenSource, TokenSource};
 
 /// Default token file name under the app data root.
 pub const DEFAULT_TOKEN_FILE: &str = "license.token";
@@ -55,9 +61,9 @@ pub const MAX_TOKEN_BYTES: u64 = 16 * 1024;
 /// Why an engine entitlement check refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEntitlementError {
-    /// No token file in the data root (Free).
+    /// No token in the configured token source (Free).
     NoLicense,
-    /// The token file exists but could not be read, is empty, oversized or not UTF-8.
+    /// The token source failed, or its token is empty, oversized or not UTF-8.
     Unreadable(String),
     /// The engine could not derive its own device identity.
     DeviceUnavailable(String),
@@ -73,7 +79,7 @@ impl fmt::Display for EngineEntitlementError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoLicense => write!(f, "no licence is stored"),
-            Self::Unreadable(e) => write!(f, "licence file unreadable: {e}"),
+            Self::Unreadable(e) => write!(f, "licence token unreadable: {e}"),
             Self::DeviceUnavailable(e) => write!(f, "device identity unavailable: {e}"),
             Self::Invalid(e) => write!(f, "{e}"),
             Self::Clock(e) => write!(f, "trusted clock refused: {e}"),
@@ -92,6 +98,7 @@ pub struct EngineEntitlementsConfig {
     app: String,
     data_root: PathBuf,
     token_file: String,
+    token_source: Option<Box<dyn TokenSource>>,
     ttl_secs: i64,
     device: DeviceSource,
 }
@@ -112,6 +119,7 @@ impl EngineEntitlementsConfig {
             app: app.into(),
             data_root: data_root.into(),
             token_file: DEFAULT_TOKEN_FILE.to_string(),
+            token_source: None,
             ttl_secs: DEFAULT_CACHE_TTL_SECS,
             device: Box::new(device),
         }
@@ -127,6 +135,25 @@ impl EngineEntitlementsConfig {
             self.token_file = name;
         }
         self
+    }
+
+    /// Load the token from `source` instead of the data-root token file. The
+    /// file is then never read, so no window->file bridge is needed. Missing
+    /// (`Ok(None)`) is NoLicense; a source error fails closed as Unreadable;
+    /// signature/app/device/expiry are still always verified.
+    pub fn with_token_source(mut self, source: impl TokenSource + 'static) -> Self {
+        self.token_source = Some(Box::new(source));
+        self
+    }
+
+    /// Opt-in credential-store token source: `reader` returns the stored
+    /// signed token from the host's OS credential store (`Ok(None)` = none
+    /// stored, `Err(_)` = store unreadable). See [`Self::with_token_source`].
+    pub fn with_credential_reader(
+        self,
+        reader: impl Fn() -> Result<Option<String>, String> + Send + Sync + 'static,
+    ) -> Self {
+        self.with_token_source(CredentialTokenSource::new(reader))
     }
 
     /// Cache TTL in seconds, clamped to `0..=`[`MAX_CACHE_TTL_SECS`]. `0` disables caching.
@@ -240,7 +267,12 @@ impl<C: TrustedClock> EngineEntitlements<C> {
     }
 
     fn verify_stored(&self, now: i64) -> Result<Entitlement, EngineEntitlementError> {
-        let token = read_token(&self.cfg.data_root.join(&self.cfg.token_file))?;
+        let token = match &self.cfg.token_source {
+            Some(source) => credential_source::load_bounded_token(source.as_ref())?,
+            None => credential_source::load_bounded_token(&FileTokenSource::new(
+                self.cfg.data_root.join(&self.cfg.token_file),
+            ))?,
+        };
         let device = (self.cfg.device)().map_err(EngineEntitlementError::DeviceUnavailable)?;
         if device.trim().is_empty() {
             return Err(EngineEntitlementError::DeviceUnavailable(
@@ -250,30 +282,4 @@ impl<C: TrustedClock> EngineEntitlements<C> {
         crate::verify_token(&token, &self.cfg.pubkey, &self.cfg.app, &device, now)
             .map_err(EngineEntitlementError::Invalid)
     }
-}
-
-fn read_token(path: &Path) -> Result<String, EngineEntitlementError> {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(EngineEntitlementError::NoLicense)
-        }
-        Err(e) => return Err(EngineEntitlementError::Unreadable(e.to_string())),
-    };
-    let mut raw = String::new();
-    file.take(MAX_TOKEN_BYTES + 1)
-        .read_to_string(&mut raw)
-        .map_err(|e| EngineEntitlementError::Unreadable(e.to_string()))?;
-    if raw.len() as u64 > MAX_TOKEN_BYTES {
-        return Err(EngineEntitlementError::Unreadable(
-            "token file too large".to_string(),
-        ));
-    }
-    let token = raw.trim();
-    if token.is_empty() {
-        return Err(EngineEntitlementError::Unreadable(
-            "empty token file".into(),
-        ));
-    }
-    Ok(token.to_string())
 }

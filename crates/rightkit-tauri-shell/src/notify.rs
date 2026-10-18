@@ -360,9 +360,7 @@ mod platform {
     fn ensure_authorized(center: &Retained<UNUserNotificationCenter>) -> Result<(), ShellError> {
         let status = settings(center)?;
         if status == UNAuthorizationStatus::NotDetermined {
-            if std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
-                == Some(std::ffi::OsStr::new("1"))
-            {
+            if crate::lifecycle::qa_background() {
                 return Err(ShellError::PermissionDenied("notification authorization is not determined; background QA never opens a permission dialog".into()));
             }
             let (tx, rx) = mpsc::channel();
@@ -404,8 +402,7 @@ mod platform {
         content.setTitle(&NSString::from_str(&req.title));
         content.setBody(&NSString::from_str(&req.body));
         content.setThreadIdentifier(&NSString::from_str(&plan.key));
-        let quiet_qa = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
-            == Some(std::ffi::OsStr::new("1"));
+        let quiet_qa = crate::lifecycle::qa_background();
         if quiet_qa {
             content.setInterruptionLevel(UNNotificationInterruptionLevel::Passive);
             content.setSound(None);
@@ -494,8 +491,7 @@ mod platform {
         req: &NotificationRequest,
         plan: &NotificationPlan,
     ) -> Result<(), ShellError> {
-        let quiet = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
-            == Some(std::ffi::OsStr::new("1"));
+        let quiet = crate::lifecycle::qa_background();
         let p = super::toast_payload(req, plan, Some(&super::app_id()), quiet);
         let sound = p.sound.map(|n| match n {
             "IM" => Sound::IM,

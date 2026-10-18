@@ -7,7 +7,7 @@
 //! CodeRight covers but `scrub_text` deliberately does not (absolute paths
 //! outside a user directory) are pinned as shape-preserving.
 
-use rightkit_logs::scrub::{scrub_text, scrub_text_with, ScrubOptions};
+use rightkit_logs::scrub::{redact_quoted, scrub_text, scrub_text_with, scrub_value, ScrubOptions};
 
 // Bearer: CodeRight drops the token after a `Bearer` marker.
 
@@ -136,6 +136,92 @@ fn quoted_or_bracketed_path_is_redacted() {
 fn urls_ratios_and_comment_markers_are_kept_with_path_redaction() {
     let text = "see https://x/y and ratio 1/2 and //comment here";
     assert_eq!(scrub_text_with(text, &redact_paths()), text);
+}
+
+// Shared JS/Rust parity vectors: the identical (input, expected) pairs run in
+// `packages/logs/src/index.test.ts` against `scrubLogText`, and a subset in
+// `crash.test.ts` against `scrubWindowCrashText`.
+
+#[test]
+fn js_rust_parity_vectors() {
+    let vectors: &[(&str, &str)] = &[
+        (
+            "Authorization: Bearer abcdefghijklmnop failed",
+            "Authorization: Bearer [redacted:credential] failed",
+        ),
+        (
+            "contact person@example.com now",
+            "contact [redacted:email] now",
+        ),
+        (
+            "GET https://user:pw@example.com/v1/items?key=abc&x=1#frag failed",
+            "GET https://example.com/v1/items?[redacted] failed",
+        ),
+        (
+            "callback code=4/abc&state=xyz failed",
+            "callback code=[redacted]&state=[redacted] failed",
+        ),
+        (
+            "token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXBhcnQ done",
+            "token [redacted:credential] done",
+        ),
+        (
+            concat!("key sk-", "a1b2", "c3d4e5f6g7h8 used"),
+            "key [redacted:credential] used",
+        ),
+        (
+            "crash at /Users/ada/app/src/main.rs:4",
+            "crash at /Users/<user>/app/src/main.rs:4",
+        ),
+    ];
+    for (input, expected) in vectors {
+        assert_eq!(scrub_text(input), *expected, "{input}");
+    }
+}
+
+// URL/OAuth composition lives inside `scrub_text` itself (D16), not only in callers.
+
+#[test]
+fn url_and_oauth_secrets_leave_plain_scrub_text() {
+    assert_eq!(
+        scrub_text("open https://api.example.com/cb?access_token=abc123&next=/home#section now"),
+        "open https://api.example.com/cb?[redacted] now"
+    );
+    assert_eq!(
+        scrub_text("refresh_token=rt-value-9, scope=mail"),
+        "refresh_token=[redacted], scope=mail"
+    );
+}
+
+// Quoted/Debug redaction: double-quoted Debug spans are dropped like backticks.
+
+#[test]
+fn debug_double_quoted_values_are_redacted() {
+    assert_eq!(
+        redact_quoted("Err value: Custom(\"send the numbers\") at `x`"),
+        "Err value: Custom(\"<redacted:16>\") at `<redacted:1>`"
+    );
+    assert_eq!(
+        redact_quoted("x \"a\\\"b\" y"),
+        "x \"<redacted:4>\" y",
+        "an escaped quote does not close the span"
+    );
+    let unmatched = "say \"hi there";
+    assert_eq!(redact_quoted(unmatched), unmatched);
+}
+
+#[test]
+fn scrub_value_composes_quoted_url_and_text_scrubbing() {
+    let mut value = serde_json::json!({
+        "note": "failed \"secret words\" for ada@example.com via https://h.example/x?code=abc123",
+        "count": 3,
+    });
+    scrub_value(&mut value);
+    assert_eq!(
+        value["note"],
+        "failed \"<redacted:12>\" for [redacted:email] via https://h.example/x?[redacted]"
+    );
+    assert_eq!(value["count"], 3);
 }
 
 #[test]

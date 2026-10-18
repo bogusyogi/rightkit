@@ -64,12 +64,13 @@ export const REGISTRY = JSON.parse(readFileSync(new URL("./release-switch-regist
 // `cargo tree -e features` lines look like: `├── rightkit-daemon feature "test-mode"` (possibly `(*)` suffixed).
 const FEATURE_LINE = /^[\s│├└─|`+\\-]*([A-Za-z0-9_][A-Za-z0-9_-]*)(?: v[^\s]+)? feature "([^"]+)"/;
 
-export function featureClosureFindings(treeText, { forbidden = REGISTRY.forbiddenFeatures } = {}) {
+export function featureClosureFindings(treeText, { forbidden = [...REGISTRY.forbiddenFeatures, ...REGISTRY.conditionalForbiddenFeatures["content-only"]], allowDevtools = false } = {}) {
   const deny = new Set(forbidden);
   const findings = []; const seen = new Set();
   for (const line of String(treeText).split(/\r?\n/)) {
     const m = FEATURE_LINE.exec(line);
-    if (!m || !deny.has(m[2])) continue;
+    if (!m || (!deny.has(m[2]) && !deny.has(`${m[1]}/${m[2]}`))) continue;
+    if (allowDevtools && REGISTRY.conditionalForbiddenFeatures["content-only"].includes(m[2])) continue;
     const id = `forbidden-feature ${m[2]}`;
     const key = `${m[1]}/${m[2]}`;
     if (seen.has(key)) continue;
@@ -191,7 +192,7 @@ export function inventoryDenyNames(inventoryText) {
 }
 
 // Findings for a build command (`--features test-mode`, `-F`, `--all-features`, ...). Uses the existing tokenizer.
-export function commandSwitchFindings(argv, { forbidden = REGISTRY.forbiddenFeatures } = {}) {
+export function commandSwitchFindings(argv, { forbidden = [...REGISTRY.forbiddenFeatures, ...REGISTRY.conditionalForbiddenFeatures["content-only"]], allowDevtools = false } = {}) {
   const deny = new Set(forbidden);
   const tokens = argv;
   const enabled = []; let all = false;
@@ -206,7 +207,8 @@ export function commandSwitchFindings(argv, { forbidden = REGISTRY.forbiddenFeat
   const findings = [];
   for (const item of enabled) {
     const name = item.includes("/") ? item.slice(item.lastIndexOf("/") + 1) : item;
-    if (deny.has(name)) findings.push({ layer: "feature-closure", rule: `forbidden-feature ${name}`, file: "<command>", reason: `forbidden-feature ${name}: build command enables \`${item}\`` });
+    if (allowDevtools && REGISTRY.conditionalForbiddenFeatures["content-only"].includes(name)) continue;
+    if (deny.has(name) || deny.has(item.replace("?/", "/"))) findings.push({ layer: "feature-closure", rule: `forbidden-feature ${name}`, file: "<command>", reason: `forbidden-feature ${name}: build command enables \`${item}\`` });
   }
   if (all) findings.push({ layer: "feature-closure", rule: "forbidden-feature all-features", file: "<command>", reason: "forbidden-feature all-features: build command enables every feature, including test-mode" });
   return findings;
@@ -218,7 +220,7 @@ export function commandSwitchFindings(argv, { forbidden = REGISTRY.forbiddenFeat
 export function parseInventory(text, label = "switches.json") {
   const issues = [];
   let doc;
-  try { doc = JSON.parse(text); } catch (error) { return { doc: null, issues: [{ rule: "inventory-invalid", file: label, reason: `inventory-invalid: ${label} is not valid JSON (${error.message})` }] }; }
+  try { doc = JSON.parse(text); } catch (error) { return { doc: null, issues: [{ layer: "inventory", rule: "inventory-invalid", file: label, reason: `inventory-invalid: ${label} is not valid JSON (${error.message})` }] }; }
   const bad = (reason) => issues.push({ layer: "inventory", rule: "inventory-invalid", file: label, reason: `inventory-invalid: ${reason}` });
   if (doc?.schema !== 1) bad("`schema` must be 1");
   if (typeof doc?.app !== "string" || !doc.app) bad("`app` must be a non-empty string");
@@ -430,16 +432,16 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, devtools } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
   if (!bypassed.has("feature-closure")) {
     if (treeText != null) {
-      findings.push(...featureClosureFindings(treeText));
+      findings.push(...featureClosureFindings(treeText, { allowDevtools: devtools?.mode === "content-only" }));
       findings.push(...remoteServiceFindings(treeText, { remoteHost }));
     }
-    for (const argv of commands) findings.push(...commandSwitchFindings(argv));
+    for (const argv of commands) findings.push(...commandSwitchFindings(argv, { allowDevtools: devtools?.mode === "content-only" }));
   }
   if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, inventoryText, extraDeny: appForbid }));
   let receipt = { files: [], binaries: 0 };

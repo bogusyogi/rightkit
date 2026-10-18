@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — unpublished staging
+
+- Raises rightkit-sidecar to 0.3.0 and rightkit-credentials to 0.2.2 for dependency compatibility.
+
 ## 0.3.2 (2026-10-17)
 
 - Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.

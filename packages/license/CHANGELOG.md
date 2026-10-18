@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — unpublished staging
+
+- Repairs license refresh and lifecycle handling.
+
 Versions 0.1.5 to 0.1.8 below are reconstructed from git history (`git log -p -- packages/license`).
 npm publication dates were not checked; the dates are commit dates.
 

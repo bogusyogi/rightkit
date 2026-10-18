@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 — unpublished staging
+
+- Backup work shares one total deadline and keeps backup files private.
+
 ## 0.4.3 (2026-10-17)
 
 - Fix: `recover_interrupted_restore` no longer drops the journal while sidecars of the previous store are still at the kept name. A stop between the renames of a put-back (main file back, `-wal`/`-shm`/`-journal` not yet) now resumes the sidecar moves whether or not the live main file exists; the journal goes only after every kept file is back, so committed WAL-only rows are not lost. Not compiled when written.

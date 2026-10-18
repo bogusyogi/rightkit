@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — unpublished staging
+
+- Serializes idempotent crash-report handoff.
+
 ## 0.3.2 (2026-10-17)
 
 - **Non-chaining panic hook (rightkit#513).** New `CrashConfig::chain_default_hook(bool)` (default `true`, nothing changes). With `false` the panic hook does not call the previous hook; it writes one fixed stderr line that names the app and says a crash report was recorded, so the panic payload is not printed. Additive: the struct keeps its private fields and `new`. Tests not run here.

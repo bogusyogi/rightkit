@@ -71,6 +71,25 @@ pub struct RunOutput {
     pub stderr: CapturedOutput,
 }
 
+/// [`run`] with `input` written to the child's stdin. The bytes are written on their own
+/// thread while output is drained concurrently, so input larger than a pipe buffer cannot
+/// deadlock against a chatty child; the writer closes stdin when done, delivering EOF. A
+/// child that exits before consuming the input closes the pipe: that broken-pipe outcome is
+/// a normal early exit, not an error, and the child's status/output are returned as usual.
+/// Any other stdin write failure is returned as `Err` after the tree is down.
+pub fn run_with_stdin<I, S>(
+    program: impl AsRef<OsStr>,
+    args: I,
+    input: &[u8],
+    options: &RunOptions,
+) -> io::Result<RunOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    run_inner(program, args, Some(input.to_vec()), options)
+}
+
 /// Runs `program` with `args` to completion or until `options.timeout`, then returns its status
 /// and bounded output. Fails when the program or native output capture cannot start, or
 /// lifecycle waiting fails. A non-zero exit is a normal `Ok` with `status` set.
@@ -79,11 +98,28 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_inner(program, args, None, options)
+}
+
+fn run_inner<I, S>(
+    program: impl AsRef<OsStr>,
+    args: I,
+    input: Option<Vec<u8>>,
+    options: &RunOptions,
+) -> io::Result<RunOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let mut command = OwnedCommand::new(program);
     command
         .command_mut()
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if options.no_window {
@@ -92,6 +128,21 @@ where
         command.windows_visible();
     }
     let mut child = command.spawn()?;
+    // Written concurrently with the output drains below; the writer owns stdin and drops it
+    // at the end, which is the EOF. Spawn failure returns before any wait is armed.
+    let writer = match (input, child.take_stdin()) {
+        (Some(bytes), Some(mut stdin)) => Some(
+            std::thread::Builder::new()
+                .name("rightkit-run-stdin".into())
+                .spawn(move || {
+                    use std::io::Write;
+                    let result = stdin.write_all(&bytes);
+                    drop(stdin);
+                    result
+                })?,
+        ),
+        _ => None,
+    };
     let mut stdout = child
         .take_stdout()
         .map(|pipe| NativeOutputCapture::stdout(pipe, options.stdout_cap))
@@ -116,6 +167,18 @@ where
         .map_or_else(CapturedOutput::default, |capture| {
             capture.finish_within(DRAIN_WAIT)
         });
+    // The tree is down, so the writer cannot stay blocked on it: it either finished, or the
+    // exit broke its pipe. BrokenPipe is the child leaving early, not a failure of this run.
+    if let Some(writer) = writer {
+        match writer.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) if error.kind() == io::ErrorKind::BrokenPipe => {}
+            Ok(Err(error)) => return Err(error),
+            Err(_) => {
+                return Err(io::Error::other("the stdin writer thread panicked"));
+            }
+        }
+    }
     Ok(RunOutput {
         status,
         timed_out,
@@ -165,6 +228,20 @@ mod tests {
         let options = RunOptions::new(Duration::from_millis(200));
         let output = run("sh", ["-c", "sleep 30"], &options).unwrap();
         assert!(output.timed_out);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdin_input_reaches_the_child_and_early_exit_is_not_an_error() {
+        let options = RunOptions::new(Duration::from_secs(10));
+        let output = run_with_stdin("sh", ["-c", "cat"], b"hello", &options).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.bytes, b"hello".to_vec());
+        // The child exits at once without reading: input far larger than a pipe buffer
+        // breaks the writer's pipe, which is a normal early exit with the child's status.
+        let big = vec![b'x'; 1 << 20];
+        let output = run_with_stdin("sh", ["-c", "exit 7"], &big, &options).unwrap();
+        assert_eq!(output.status.code(), Some(7));
     }
 
     #[cfg(unix)]

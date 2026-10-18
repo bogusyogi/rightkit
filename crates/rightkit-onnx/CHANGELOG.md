@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7 — unpublished staging
+
+- Raises rightkit-models dependency floor to 0.5.0.
+
 All notable changes to `rightkit-ort`. Versions follow Cargo semver; while the version is `0.x`, a
 minor bump may carry breaking changes. Earlier releases are described in `README.md`.
 

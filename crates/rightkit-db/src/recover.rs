@@ -26,6 +26,13 @@ pub struct RecoveryPolicy {
     /// What happens to the `-wal`, `-shm` and `-journal` sidecars. Default renames them alongside
     /// the quarantined file.
     pub sidecars: SidecarPolicy,
+    /// Explicit acknowledgement that recovery may fall back to a private in-memory store
+    /// when the stored database cannot be used. Default `false` (refuse): the open fails
+    /// with the original error instead of silently running on data that will not persist.
+    /// When `true`, the result still reports `degraded.in_memory`, and the configured
+    /// SQLCipher key is still applied to the in-memory store; it is never a plaintext
+    /// fallback and makes no persistence claim.
+    pub allow_in_memory_fallback: bool,
 }
 
 /// Suffix format of a quarantined database, appended to its file name.

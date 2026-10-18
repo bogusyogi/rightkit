@@ -329,7 +329,7 @@ describe('createAutoUpdateClient', () => {
     expect(installOptions).toEqual({ headers: { Authorization: 'Bearer fresh-entitlement' } });
   });
 
-  it('retains check headers for install when no install-header callback is configured', async () => {
+  it('isolates check headers from install by default when no install-header callback is configured', async () => {
     let installOptions: unknown;
     const client = createAutoUpdateClient({
       check: async () => ({
@@ -343,7 +343,8 @@ describe('createAutoUpdateClient', () => {
 
     await client.checkOnce();
     await client.installAvailable();
-    expect(installOptions).toEqual({ headers: { Authorization: 'Bearer activation-token' } });
+    // M18: artifact headers are isolated by default; check metadata auth never leaks into install.
+    expect(installOptions).toEqual({ headers: {} });
   });
 
   it('allows a public patch to install without artifact headers', async () => {
@@ -361,7 +362,7 @@ describe('createAutoUpdateClient', () => {
 
     await client.checkOnce();
     await client.installAvailable();
-    expect(installOptions).toBeUndefined();
+    expect(installOptions).toEqual({ headers: {} });
   });
 
   it('fails closed when install-header resolution throws', async () => {

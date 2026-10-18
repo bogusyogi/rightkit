@@ -59,6 +59,20 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/store.rs
 - `Store::generate_key(bytes)` returns a fresh random key (base64) without storing it, for rotation keys. `apple_helper::resolve_bundled(name)` finds and contains a helper inside the running app bundle (placement check only, no signature check).
 - `apple_helper`: one deadline covers the request write, the reply read and the helper exit; the helper is killed and reaped on every path. A `read` reply's `value` is unescaped into a zeroised buffer without a serde_json intermediate.
 
+## Retained rotation store & native child execution
+
+Use `store.pinned()?` before `begin_rotation`, retaining that handle through external rekeying
+& `commit_rotation` or `abort_rotation`. Its reads, writes & rotation locks remain bound to one
+backend when default keychain changes. Ordinary Store handles continue following current default.
+After restart, reselect original default keychain for commit recovery; production explicit-file
+macOS backends remain read/delete-only.
+
+`rightkit-credentials exec --namespace N --account A --env NAME -- /absolute/native/executable args...`
+reads one credential from an unguarded durable OS store & puts its UTF-8 value only in child
+environment. Missing credentials, read errors, NUL bytes, invalid UTF-8 & scripts prevent child
+launch. No shell, parent environment mutation, secret argument or secret file is used. Child output
+is inherited & child exit status is returned; selected executable controls its own output.
+
 ## Verification
 
 Run through the RightKit wrapper: `rightkit cargo test -p rightkit-credentials`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.

@@ -379,6 +379,10 @@ export function assertNoQaControl(paths, label = "release", { requireBinary = fa
 // string that survives minification (an identifier that is also a string literal, a file/chunk name, a protocol or
 // a build-flag name). Source maps are scanned too: a map that names qaMock.ts proves the module was bundled.
 export const WEB_MOCK_MARKERS = Object.freeze([
+  { id: "platform-qa-selector", pattern: /__RIGHTKIT_QA_PLATFORM__/ },
+  { id: "platform-qa-environment", pattern: /\bRIGHTKIT_QA_PLATFORM\b/ },
+  { id: "platform-qa-entry", pattern: /(?:bootstrapQaPlatform|resolveQaPlatform|configureQaPlatform|@rightkit\/platform-ui\/qa)/ },
+
   { id: "browser-qa-fake", pattern: /browser-qa-fake/ },
   { id: "browser-mock-api", pattern: /browser-mock-api/ },
   { id: "browser-qa-mock-scheme", pattern: /browser-qa-mock:/ },

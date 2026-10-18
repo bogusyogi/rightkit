@@ -11,9 +11,27 @@ export interface UseSettingsOptions {
   initial?: SettingsSnapshot;
 }
 
+/** Everything one backend owns. Async work captures its generation and mutates state only while it is current. */
+interface Generation {
+  backend: SettingsBackend;
+  revision: number | undefined;
+  chain: Promise<unknown>;
+  pending: number;
+  // A load that finished while a write was pending is not applied (it would overwrite the optimistic value with
+  // the state from before the write); it is repeated once the writes have drained.
+  reloadSkipped: boolean;
+  reload: () => Promise<unknown>;
+}
+
+function newGeneration(backend: SettingsBackend, revision: number | undefined): Generation {
+  return { backend, revision, chain: Promise.resolve(), pending: 0, reloadSkipped: false, reload: () => Promise.resolve() };
+}
+
 /**
  * Settings state over a backend: loads once, applies writes optimistically, serialises them (so revisions never race),
- * rolls back and reports on failure, and reloads when another window changes keys.
+ * rolls back and reports on failure, and reloads when another window changes keys. Switching `backend` starts a new
+ * generation: work from the old one settles its own promise but never mutates the new backend's state, and queued
+ * stale writes never start.
  */
 export function useSettings(backend: SettingsBackend, options: UseSettingsOptions = {}): SettingsContext & { loaded: boolean } {
   const initial = options.initial;
@@ -21,40 +39,45 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
   const [loaded, setLoaded] = useState(() => initial !== undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const revision = useRef<number | undefined>(initial?.revision);
-  const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const pending = useRef(0);
+  const genRef = useRef<Generation | null>(null);
+  if (genRef.current === null) genRef.current = newGeneration(backend, initial?.revision);
+  else if (genRef.current.backend !== backend) genRef.current = newGeneration(backend, undefined);
+  const gen = genRef.current;
   const alive = useRef(true);
-  // A load that finished while a write was pending is not applied (it would overwrite the optimistic value with
-  // the state from before the write); it is repeated once the writes have drained.
-  const reloadSkipped = useRef(false);
-  const reloadRef = useRef<() => Promise<unknown>>(() => Promise.resolve());
+  const isCurrent = (g: Generation) => alive.current && genRef.current === g;
 
   useEffect(() => {
     alive.current = true;
+    const g = gen;
     // Per-run flag: `alive` is shared, so a StrictMode/backend re-run flips it back to true before the first run's
     // subscribe promise settles, which would keep (and leak) the first subscription.
     let cancelled = false;
     let off: (() => void) | undefined;
     const reload = () =>
-      backend.load().then(
+      g.backend.load().then(
         (snap) => {
-          if (!alive.current) return;
-          if (pending.current > 0) {
-            reloadSkipped.current = true;
+          if (!isCurrent(g)) return;
+          if (g.pending > 0) {
+            g.reloadSkipped = true;
             setLoaded(true);
             return;
           }
-          revision.current = snap.revision;
+          g.revision = snap.revision;
           setValues(snap.values);
           setLoaded(true);
         },
-        (e) => alive.current && (setError(message(e)), setLoaded(true)),
+        (e) => {
+          if (isCurrent(g)) {
+            setError(message(e));
+            setLoaded(true);
+          }
+        },
       );
-    reloadRef.current = reload;
+    g.reload = reload;
+    setSaving(g.pending > 0);
     void reload();
-    void backend.subscribe?.(() => {
-      if (pending.current === 0) void reload();
+    void g.backend.subscribe?.(() => {
+      if (isCurrent(g) && g.pending === 0) void reload();
     }).then((u) => {
       if (cancelled) u();
       else off = u;
@@ -68,6 +91,9 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
 
   const patch = useCallback(
     (p: SettingsValues): Promise<void> => {
+      const g = gen;
+      // A stale closure (held from before a backend switch) settles without touching the new backend or its state.
+      if (genRef.current !== g) return Promise.resolve();
       let before: SettingsValues = {};
       setValues((cur) => {
         before = cur;
@@ -78,46 +104,50 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
         }
         return next;
       });
-      pending.current += 1;
+      g.pending += 1;
       setSaving(true);
       setError(null);
-      const run = chain.current.then(async () => {
+      const run = g.chain.then(async () => {
         try {
+          // Queued before a switch: never start against any backend now.
+          if (genRef.current !== g) return;
           let snap;
           try {
-            snap = await backend.patch(p, revision.current);
+            snap = await g.backend.patch(p, g.revision);
           } catch (e) {
             // A stale revision only means another window wrote first; our patch is key-wise, so retry once on the fresh one.
             if ((e as { code?: string }).code !== "revision_conflict") throw e;
-            const fresh = await backend.load();
-            snap = await backend.patch(p, fresh.revision);
+            if (genRef.current !== g) return;
+            const fresh = await g.backend.load();
+            if (genRef.current !== g) return;
+            snap = await g.backend.patch(p, fresh.revision);
           }
-          revision.current = snap.revision;
-          if (alive.current) setValues(snap.values);
+          if (!isCurrent(g)) return;
+          g.revision = snap.revision;
+          setValues(snap.values);
         } catch (e) {
-          if (alive.current) {
-            setValues((cur) => {
-              const next = { ...cur };
-              for (const k of Object.keys(p)) {
-                if (k in before) next[k] = before[k];
-                else delete next[k];
-              }
-              return next;
-            });
-            setError(message(e));
-          }
+          if (!isCurrent(g)) return;
+          setValues((cur) => {
+            const next = { ...cur };
+            for (const k of Object.keys(p)) {
+              if (k in before) next[k] = before[k];
+              else delete next[k];
+            }
+            return next;
+          });
+          setError(message(e));
         } finally {
-          pending.current -= 1;
-          if (alive.current && pending.current === 0) {
+          g.pending -= 1;
+          if (isCurrent(g) && g.pending === 0) {
             setSaving(false);
-            if (reloadSkipped.current) {
-              reloadSkipped.current = false;
-              void reloadRef.current();
+            if (g.reloadSkipped) {
+              g.reloadSkipped = false;
+              void g.reload();
             }
           }
         }
       });
-      chain.current = run;
+      g.chain = run;
       return run;
     },
     [backend],

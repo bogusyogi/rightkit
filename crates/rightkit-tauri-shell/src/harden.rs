@@ -32,8 +32,18 @@ pub struct Hardening {
     /// Keep the native Cut/Copy/Paste menu inside inputs, textareas and contenteditable
     /// (HeardRight behaviour). Mark any other surface with `data-rk-native-menu`.
     pub allow_editable_menu: bool,
-    /// Block F5, Cmd/Ctrl+R (+Shift), Ctrl+F5, view-source and print shortcuts.
+    /// Block F5 and Cmd/Ctrl+R (+Shift) reload shortcuts only. Print and view-source have
+    /// their own switches below, so an app can keep reload blocked without losing them.
     pub block_reload: bool,
+    /// Block Cmd/Ctrl+P (print). Split from `block_reload`: MailRight needs print while
+    /// reload stays blocked.
+    pub block_print: bool,
+    /// Block Cmd/Ctrl+U (view source) outside editable surfaces. Inside an input, textarea or
+    /// contenteditable the same chord is the underline command and is never cancelled, so a
+    /// compose editor keeps underline while view-source stays blocked elsewhere. Inspector
+    /// shortcuts (F12, Cmd/Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C) are not governed by this switch:
+    /// the DevTools layer always cancels them outside registered content webviews.
+    pub block_view_source: bool,
     /// Block Cmd/Ctrl +/-/0, ctrl+wheel and trackpad pinch zoom.
     pub block_zoom: bool,
     /// Block Alt+Left/Right, Cmd+[ / ], browser back/forward keys and mouse buttons 4/5.
@@ -50,6 +60,11 @@ impl Default for Hardening {
             block_context_menu: true,
             allow_editable_menu: true,
             block_reload: true,
+            // Compatible defaults: `block_reload` used to cover print and view-source too, so
+            // the split switches default on and `Hardening::default()` blocks exactly what it
+            // blocked before.
+            block_print: true,
+            block_view_source: true,
             block_zoom: true,
             block_history_nav: true,
             block_drop_navigation: true,
@@ -64,6 +79,8 @@ struct ScriptConfig {
     block_context_menu: bool,
     allow_editable_menu: bool,
     block_reload: bool,
+    block_print: bool,
+    block_view_source: bool,
     block_zoom: bool,
     block_history_nav: bool,
     content_devtools_labels: Vec<String>,
@@ -89,6 +106,8 @@ impl Hardening {
             block_context_menu: self.block_context_menu,
             allow_editable_menu: self.allow_editable_menu,
             block_reload: self.block_reload,
+            block_print: self.block_print,
+            block_view_source: self.block_view_source,
             block_zoom: self.block_zoom,
             block_history_nav: self.block_history_nav,
             content_devtools_labels: content_labels.to_vec(),

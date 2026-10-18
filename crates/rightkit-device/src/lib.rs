@@ -4,9 +4,15 @@
 //! authorization, paid-command guards, and typed log/diagnostic bridges. Apps
 //! retain their platform keyring implementations, `#[tauri::command]` wrappers,
 //! managed-state registration, command names, and product-specific side effects.
+//! With the opt-in `credentials` feature, `credentials::CredentialStore` supplies
+//! an atomic OS-store adapter while apps retain namespace, account & access policy.
+
+#[cfg(feature = "credentials")]
+pub mod credentials;
 
 pub use rightkit_license::LicenseRequirement;
-use rightkit_license::{verify_token, Entitlement, VerifyError};
+pub use rightkit_license::RevokedIds;
+use rightkit_license::{verify_token, verify_token_any_device, Entitlement, VerifyError};
 use std::{
     marker::PhantomData,
     sync::Mutex,
@@ -19,15 +25,21 @@ pub trait SecureStore<T> {
     fn delete(&self) -> Result<(), String>;
 
     /// Stores `value` only when nothing is stored yet; returns whether it did.
-    /// Stores with a native create-new primitive (O_EXCL, keyring add) should
-    /// override this so creation is atomic across processes. The default is
-    /// check-then-set and relies on the caller's cross-process lock.
-    fn set_if_absent(&self, value: &T) -> Result<bool, String> {
-        if self.get()?.is_some() {
-            return Ok(false);
-        }
-        self.set(value)?;
-        Ok(true)
+    ///
+    /// Implementations must make check-and-store one atomic step against every other
+    /// writer of the underlying store (a native create-new primitive such as O_EXCL or a
+    /// keyring add-if-absent, or one lock every writer of that store takes). The default
+    /// fails closed: a check-then-set default would let two creators both observe
+    /// "absent" and the later `set` silently overwrite the winner while reporting
+    /// success, so a store that cannot create atomically must say so instead. Callers
+    /// such as [`DeviceService::get_or_create`] surface that refusal as an error and
+    /// mint nothing.
+    fn set_if_absent(&self, _value: &T) -> Result<bool, String> {
+        Err(
+            "set_if_absent is not implemented atomically for this store; \
+             refusing a check-then-set create"
+                .to_string(),
+        )
     }
 }
 
@@ -239,6 +251,9 @@ pub enum AuthorizationDenial {
     MissingToken,
     MissingDevice,
     InvalidToken(VerifyError),
+    /// The token is authentic but its entitlement id is on the caller's revocation
+    /// denylist. Only the `authorize_any_device*` methods consult a denylist.
+    RevokedToken(String),
     RequirementNotMet(LicenseRequirement),
 }
 
@@ -334,6 +349,90 @@ where
             now_unix,
         )
         .map_err(|error| AuthorizationError::Denied(AuthorizationDenial::InvalidToken(error)))?;
+        if !entitlement.satisfies(&requirement) {
+            return Err(AuthorizationError::Denied(
+                AuthorizationDenial::RequirementNotMet(requirement),
+            ));
+        }
+        Ok(entitlement)
+    }
+
+    /// Like [`authorize`](Self::authorize), for callers whose tokens may be bound to an
+    /// alternate form of this device's identity and who carry a revocation denylist.
+    ///
+    /// Candidate device ids, each matched exactly against the token's signed `device_id`:
+    /// the primary id from the native device store, its [`device_id_hash`] (the binding
+    /// lease, link and Pro-bridge tokens use), then every caller-supplied
+    /// `alternate_device_ids` entry (exact identity hashes from the caller's own
+    /// migration policy; supplied verbatim, never derived from renderer input here).
+    /// The signature is verified once over all candidates, and an authentic token is
+    /// then checked against `revoked` *before* anything is granted — including one that
+    /// matched only through an alternate — so no caller can accept the alternate path
+    /// and forget the denylist. A revoked token is
+    /// [`AuthorizationDenial::RevokedToken`], never a grant.
+    pub fn authorize_any_device(
+        &self,
+        requirement: LicenseRequirement,
+        alternate_device_ids: &[&str],
+        revoked: &RevokedIds,
+    ) -> Result<Entitlement, AuthorizationError> {
+        self.authorize_any_device_with_clock(
+            requirement,
+            alternate_device_ids,
+            revoked,
+            current_unix_time,
+        )
+    }
+
+    /// [`authorize_any_device`](Self::authorize_any_device) with the host's trusted time
+    /// source, read once before any store is touched (see
+    /// [`authorize_with_clock`](Self::authorize_with_clock)).
+    pub fn authorize_any_device_with_clock(
+        &self,
+        requirement: LicenseRequirement,
+        alternate_device_ids: &[&str],
+        revoked: &RevokedIds,
+        clock: impl FnOnce() -> Result<i64, String>,
+    ) -> Result<Entitlement, AuthorizationError> {
+        let now_unix = clock().map_err(AuthorizationError::Clock)?;
+        let license = self
+            .licenses
+            .get()
+            .map_err(|error| StorageError::new(StorageOperation::Get, error))?
+            .ok_or(AuthorizationError::Denied(
+                AuthorizationDenial::MissingLicense,
+            ))?;
+        let token = license.signed_token().ok_or(AuthorizationError::Denied(
+            AuthorizationDenial::MissingToken,
+        ))?;
+        let device_id = self.devices.get()?.ok_or(AuthorizationError::Denied(
+            AuthorizationDenial::MissingDevice,
+        ))?;
+        let hashed = device_id_hash(&device_id);
+        let mut candidates: Vec<&str> = Vec::with_capacity(alternate_device_ids.len() + 2);
+        candidates.push(device_id.as_str());
+        if hashed != device_id {
+            candidates.push(hashed.as_str());
+        }
+        candidates.extend(alternate_device_ids.iter().copied());
+        // Signature, app, device (any candidate) and time are verified first; the
+        // authenticated entitlement id is then checked against the denylist before the
+        // requirement is evaluated, so a revoked token is refused on every candidate
+        // path and can never reach a grant. (Same refusal `verify_token_not_revoked`
+        // makes; done here so the denial stays typed for this service's callers.)
+        let entitlement = verify_token_any_device(
+            token,
+            self.public_key,
+            self.expected_app,
+            &candidates,
+            now_unix,
+        )
+        .map_err(|error| AuthorizationError::Denied(AuthorizationDenial::InvalidToken(error)))?;
+        if revoked.contains(&entitlement.id) {
+            return Err(AuthorizationError::Denied(
+                AuthorizationDenial::RevokedToken(entitlement.id.clone()),
+            ));
+        }
         if !entitlement.satisfies(&requirement) {
             return Err(AuthorizationError::Denied(
                 AuthorizationDenial::RequirementNotMet(requirement),
@@ -651,6 +750,16 @@ mod tests {
             *self.0.lock().unwrap() = None;
             Ok(())
         }
+
+        fn set_if_absent(&self, value: &String) -> Result<bool, String> {
+            // Check and store under the one lock every writer of this store takes.
+            let mut slot = self.0.lock().unwrap();
+            if slot.is_some() {
+                return Ok(false);
+            }
+            *slot = Some(value.clone());
+            Ok(true)
+        }
     }
 
     #[test]
@@ -713,13 +822,30 @@ mod tests {
         }
 
         fn set(&self, value: &String) -> Result<(), String> {
-            // Widen the check-then-set window so an unlocked race is visible.
+            // Widen the get-to-create window so an unlocked race is visible.
             std::thread::sleep(std::time::Duration::from_millis(20));
             std::fs::write(&self.0, value).map_err(|error| error.to_string())
         }
 
         fn delete(&self) -> Result<(), String> {
             std::fs::remove_file(&self.0).map_err(|error| error.to_string())
+        }
+
+        fn set_if_absent(&self, value: &String) -> Result<bool, String> {
+            // Atomic across processes: O_EXCL create, never check-then-set.
+            use std::io::Write as _;
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&self.0)
+            {
+                Ok(mut file) => file
+                    .write_all(value.as_bytes())
+                    .map(|()| true)
+                    .map_err(|error| error.to_string()),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error.to_string()),
+            }
         }
     }
 

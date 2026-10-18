@@ -40,10 +40,14 @@ impl Handler for DispatcherHandler {
     ) -> Result<Value, ServiceError> {
         self.dispatcher
             .call_conn(cx.conn_id(), method, params, false, emit)
-            .map_err(|e| ServiceError {
-                code: e.code,
-                message: e.message,
-                retryable: e.retryable,
+            .map_err(|e| {
+                let details = e.details().cloned();
+                ServiceError {
+                    code: e.code,
+                    message: e.message,
+                    retryable: e.retryable,
+                    details,
+                }
             })
     }
     fn on_handoff(&self) {

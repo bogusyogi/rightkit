@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { validateNativeQaContract } from './guard.js';
+import { cargoManifestIssues, commandFeatureIssues, parseCargoFeaturesAndDependencies } from '../../release/qa-build-features.mjs';
 
 // Workspace root: the RightKit repo lives at <workspace>/rightkit since 2026-10-10 (was tools/rightkit).
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -43,7 +44,7 @@ describe('core app release-backdoor guards', () => {
     // publish is not blocked by a consumer's state. Each app's own release gate still enforces
     // this contract (packages/release qa-contract.mjs / qa-control-scan.mjs).
     const isolated = process.env.RIGHTKIT_ISOLATED_CHECKOUT === '1';
-    it.skipIf(isolated || !fs.existsSync(path.join(app.root, 'package.json')))(`${app.name} keeps WebDriver debug-only and out of release scripts`, () => {
+    it.skipIf(isolated || !fs.existsSync(path.join(app.root, 'package.json')))(`${app.name} declares an isolated QA lane without enabling it in release scripts`, () => {
       const packageJson = JSON.parse(fs.readFileSync(path.join(app.root, 'package.json'), 'utf8')) as {
         scripts?: Record<string, string>;
         dependencies?: Record<string, string>;
@@ -52,11 +53,29 @@ describe('core app release-backdoor guards', () => {
       const rustSource = app.rustSources
         .map((source) => fs.readFileSync(path.join(app.root, source), 'utf8'))
         .join('\n');
-      expect(validateNativeQaContract({
-        cargoToml: fs.readFileSync(path.join(app.root, 'src-tauri', 'Cargo.toml'), 'utf8'),
-        rustSource,
-        packageScripts: packageJson.scripts ?? {},
-      })).toEqual([]);
+      const cargoToml = fs.readFileSync(path.join(app.root, 'src-tauri', 'Cargo.toml'), 'utf8');
+      const { dependencies, features } = parseCargoFeaturesAndDependencies(cargoToml);
+      if (dependencies.has('tauri-plugin-wdio-webdriver')) {
+        expect(validateNativeQaContract({ cargoToml, rustSource, packageScripts: packageJson.scripts ?? {} })).toEqual([]);
+      } else {
+        // Migrated apps use RightKit's embedded server. Check its declared lane with
+        // release's authoritative feature gate, never require the removed WDIO plugin.
+        // This is source/declaration evidence, not native artifact qualification.
+        expect(dependencies.get('rightkit-qa')?.optional).toBe(true);
+        expect(features.get('qa-native')).toEqual(expect.arrayContaining(['dep:rightkit-qa', 'rightkit-qa/control']));
+        expect(rustSource).toContain('rightkit_qa::embedded::Control');
+        expect(rustSource).toContain('.build_if_enabled()');
+        expect(cargoManifestIssues(cargoToml)).toEqual([]);
+        for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
+          if (/^(qa|test|dev)(:|$)/.test(name)) continue;
+          if (!/(release|publish|build|dmg|installer|package)/i.test(name) && !/\btauri\s+build\b/.test(command)) continue;
+          expect(commandFeatureIssues(command, { label: name, scripts: packageJson.scripts ?? {} })).toEqual([]);
+        }
+        // Prove default-feature leakage is still rejected for this actual manifest.
+        const leaked = cargoToml.replace(/(\[features\][\s\S]*?)(?=\n\[|$)/, (_section, body) =>
+          body.replace(/^\s*default\s*=\s*\[[\s\S]*?\]/m, '') + '\ndefault = ["qa-native"]\n');
+        expect(cargoManifestIssues(leaked).join('\n')).toMatch(/default feature set reaches/);
+      }
 
       const allDependencies = {
         ...packageJson.dependencies,

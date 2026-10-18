@@ -211,6 +211,32 @@ fn group_exists(pgid: u32) -> bool {
     io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// Observation-only existence probe for process group `pgid` (signal 0; `EPERM` counts as
+/// present), so a caller can confirm a tree is fully gone after [`terminate_tree`] without a
+/// raw `killpg`. Group 1 is refused with `InvalidInput` (and 0 by the `NonZeroU32` type: it
+/// would name this process's own group). Never sends a real signal. Unix only.
+#[cfg(unix)]
+pub fn process_group_exists(pgid: NonZeroU32) -> io::Result<bool> {
+    crate::foreign::process_group_exists(pgid)
+}
+
+/// Async wait of at most `timeout` for process group `pgid` to empty; `Ok(false)` when
+/// members remain then. Observation only. Unix only.
+#[cfg(unix)]
+pub async fn wait_process_group_empty(pgid: NonZeroU32, timeout: Duration) -> io::Result<bool> {
+    crate::foreign::check_group_id(pgid)?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !crate::foreign::process_group_exists(pgid)? {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        tokio::time::sleep(POLL.min(deadline.saturating_duration_since(Instant::now()))).await;
+    }
+}
+
 #[cfg(unix)]
 fn sweep_targets(pid: u32) -> Vec<AdoptedIdentity> {
     let Some(root) = NonZeroU32::new(pid) else {
@@ -277,6 +303,7 @@ pub async fn terminate_process_group(
     pgid: NonZeroU32,
     options: TerminationOptions,
 ) -> io::Result<bool> {
+    crate::foreign::check_group_id(pgid)?;
     // SAFETY: getpgrp has no preconditions.
     if pgid.get() as libc::pid_t == unsafe { libc::getpgrp() } {
         return Err(io::Error::new(

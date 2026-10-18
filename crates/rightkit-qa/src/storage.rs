@@ -318,7 +318,8 @@ pub(crate) fn create_app_root(run: &mut ManagedRun) -> Result<PathBuf> {
 fn create_app_root_in(run: &mut ManagedRun, parent: &Path) -> Result<PathBuf> {
     let label = product_label(&run.marker.app);
     let home = parent.join(format!("{}-{}", label, &new_id().replace('-', "")[..16]));
-    fs::create_dir(&home)?;
+    rightkit_fs::private::ensure_private_dir(&home)
+        .map_err(|e| crate::util::Error(format!("cannot create private QA home: {e}")))?;
     run.marker.app_root = Some(home.clone());
     // Bind both sides; a forged path in a managed marker cannot delete arbitrary temp data.
     write_whole(

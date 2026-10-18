@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { canonicalChord, chordFromEvent, createShortcutRegistry, type ShortcutDef } from "./shortcuts.js";
+import { canonicalChord, chordFromEvent, createShortcutRegistry, eventMatchesShortcutPrefix, isShortcutPrefixHeld, type ShortcutDef } from "./shortcuts.js";
 
 interface KeyInit {
   key: string;
@@ -184,6 +184,20 @@ describe("shortcut registry: 0.6.9 additions", () => {
     expect(chordFromEvent({ key: "s", code: "KeyS", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "macos")).toBe("mod+s");
     expect(chordFromEvent({ key: "Shift", code: "ShiftLeft", ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }, "macos")).toBeNull();
     expect(chordFromEvent({ key: "?", code: "Slash", ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }, "windows")).toBe("?");
+  });
+
+  it("held-modifier prefix: held set, event match, and release cancels", () => {
+    const held = new Set(["control"]);
+    expect(isShortcutPrefixHeld("mod", held, "windows")).toBe(true);
+    expect(isShortcutPrefixHeld("mod", held, "macos")).toBe(false);
+    expect(isShortcutPrefixHeld("mod", new Set(["meta"]), "macos")).toBe(true);
+    expect(isShortcutPrefixHeld("mod+shift", held, "windows")).toBe(false);
+    expect(isShortcutPrefixHeld("g i", held, "windows")).toBe(false);
+    expect(eventMatchesShortcutPrefix({ metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }, "mod", held, "windows")).toBe(true);
+    expect(eventMatchesShortcutPrefix({ metaKey: false, ctrlKey: true, shiftKey: true, altKey: false }, "mod", held, "windows")).toBe(false);
+    expect(eventMatchesShortcutPrefix({ metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, "mod", held, "windows")).toBe(false);
+    held.delete("control"); // modifier release cancels the prefix
+    expect(isShortcutPrefixHeld("mod", held, "windows")).toBe(false);
   });
 
   it("uses the physical key for an Option-composed character", () => {

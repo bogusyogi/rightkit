@@ -22,7 +22,10 @@
 //! microseconds between them only if the original process exits and the number wraps, the
 //! gap [`identity`](crate::identity) documents; it cannot be closed from user space. Windows
 //! has no such gap: the check and `TerminateProcess` use one handle. An exited process that
-//! nobody has reaped yet (a Unix zombie) still reads as present until it is reaped.
+//! nobody has reaped yet (a Unix zombie) still verifies as the remembered identity, because
+//! its description must stay readable while its owner finishes with its group; liveness
+//! ([`AdoptedIdentity::is_running`]) treats it as dead. This crate never reaps a foreign
+//! zombie: reaping is its parent's job, and a `waitpid` here could steal a status.
 //!
 //! Descendants are found by scanning the process table for parent links, so only descendants
 //! whose parent is still alive can be found: once a parent exits, its children are
@@ -211,6 +214,51 @@ impl AdoptedIdentity {
         })
     }
 
+    /// Whether the remembered process is still running. A zombie (exited, awaiting its own
+    /// parent's reap) is dead here although [`verify`](Self::verify) still names it `Same`;
+    /// this crate never reaps it. Windows has no zombies: an exited process already reads
+    /// `Gone`.
+    pub fn is_running(&self) -> io::Result<bool> {
+        Ok(self.verify()? == IdentityCheck::Same && !process_is_zombie(self.pid()))
+    }
+
+    /// Confirmed gone: the remembered process itself is not running any more (the pid names
+    /// nothing, names a different process, or is a dead zombie). Descendants and a process
+    /// group are separate observations: take [`descendants`](Self::descendants) while the
+    /// root lives and check each, or wait on the group with `wait_process_group_empty`.
+    pub fn confirmed_gone(&self) -> io::Result<bool> {
+        Ok(!self.is_running()?)
+    }
+
+    /// Waits at most `timeout` for [`confirmed_gone`](Self::confirmed_gone); `Ok(false)` when
+    /// the remembered process is still running then. Sends no signal.
+    pub fn wait_confirmed_gone(&self, timeout: Duration) -> io::Result<bool> {
+        let deadline = Instant::now().checked_add(timeout);
+        loop {
+            if self.confirmed_gone()? {
+                return Ok(true);
+            }
+            let Some(deadline) = deadline else {
+                return Ok(false);
+            };
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            thread::sleep(SWEEP_POLL.min(remaining));
+        }
+    }
+
+    /// Identity-pinned graceful quit: one `Graceful` signal to exactly this process, then at
+    /// most `timeout` of waiting for it to be confirmed gone. Never escalates; a target that
+    /// stays up yields `Ok(false)`. A pid that changed hands is never signalled.
+    pub fn quit_gracefully(&self, timeout: Duration) -> io::Result<bool> {
+        match self.signal(AdoptedSignal::Graceful)? {
+            SignalResult::Gone | SignalResult::IdentityMismatch => self.confirmed_gone(),
+            SignalResult::Delivered => self.wait_confirmed_gone(timeout),
+        }
+    }
+
     /// Sends `signal` only if the pid still names the remembered process. Never signals this
     /// process: that is `InvalidInput`.
     pub fn signal(&self, signal: AdoptedSignal) -> io::Result<SignalResult> {
@@ -334,6 +382,116 @@ pub fn sweep_descendants(root: &AdoptedIdentity, grace: Duration) -> io::Result<
     sweep(&targets, grace)
 }
 
+/// Whether `pid` names an exited-but-unreaped process (a zombie). Linux/Android read the
+/// state field of `/proc/<pid>/stat`; macOS reads `pbi_status` with `proc_pidinfo` in its
+/// zombies-allowed form. Anything unreadable, another Unix, and Windows (no zombies) read
+/// `false`: only a positively identified zombie is one, so callers fall back to existence.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn process_is_zombie(pid: u32) -> bool {
+    let Ok(text) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // `pid (comm) state ...`: comm may hold spaces and parentheses, so start after the last ')'.
+    text.rsplit_once(')')
+        .is_some_and(|(_, rest)| matches!(rest.trim_start().chars().next(), Some('Z' | 'X' | 'x')))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn process_is_zombie(pid: u32) -> bool {
+    /// `SZOMB` from `<sys/proc.h>`: process is a zombie state.
+    const SZOMB: u32 = 5;
+    // SAFETY: an all-zero `proc_bsdinfo` is a valid value (plain integers and char arrays).
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is a writable buffer of exactly `size` bytes; arg 1 describes zombies.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::pid_t,
+            libc::PROC_PIDTBSDINFO,
+            1,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    written == size && info.pbi_pid == pid && info.pbi_status == SZOMB
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
+pub(crate) fn process_is_zombie(_pid: u32) -> bool {
+    false
+}
+
+/// Observation-only existence probe for a Unix process group: sends signal 0 and nothing
+/// else. `EPERM` means members exist that this process may not signal, so the group is
+/// present. Group 1 (init's group) and any id that cannot name a group are refused with
+/// `InvalidInput`; `NonZeroU32` already excludes 0, which would name this process's own
+/// group. A group holding only zombies whose parent is elsewhere stays present until they
+/// are reaped: this is a group observation, not a per-member liveness check (use
+/// [`AdoptedIdentity::is_running`] for a remembered member).
+#[cfg(unix)]
+pub fn process_group_exists(pgid: NonZeroU32) -> io::Result<bool> {
+    let group = check_group_id(pgid)?;
+    loop {
+        // SAFETY: signal 0 performs only existence and permission checks; nothing is sent.
+        if unsafe { libc::killpg(group, 0) } == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            Some(libc::EPERM) => return Ok(true),
+            Some(libc::ESRCH) => return Ok(false),
+            _ => return Err(error),
+        }
+    }
+}
+
+/// Non-Unix hosts have no process groups to observe.
+#[cfg(not(unix))]
+pub fn process_group_exists(_pgid: NonZeroU32) -> io::Result<bool> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+/// Waits at most `timeout` for a process group to empty; `Ok(false)` when members remain
+/// then. Observation only (see [`process_group_exists`]); it never signals the group.
+pub fn wait_process_group_empty(pgid: NonZeroU32, timeout: Duration) -> io::Result<bool> {
+    #[cfg(not(unix))]
+    {
+        let _ = timeout;
+        return process_group_exists(pgid);
+    }
+    #[cfg(unix)]
+    {
+        let deadline = Instant::now().checked_add(timeout);
+        loop {
+            if !process_group_exists(pgid)? {
+                return Ok(true);
+            }
+            let Some(deadline) = deadline else {
+                return Ok(false);
+            };
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            thread::sleep(SWEEP_POLL.min(remaining));
+        }
+    }
+}
+
+/// A group id this crate will observe: never 0 (excluded by the type), 1 (init's group), or
+/// a value the kernel's signed pid type cannot hold.
+#[cfg(unix)]
+pub(crate) fn check_group_id(pgid: NonZeroU32) -> io::Result<libc::pid_t> {
+    if pgid.get() == 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "refusing to observe process group 1",
+        ));
+    }
+    libc::pid_t::try_from(pgid.get()).map_err(io::Error::other)
+}
+
 /// Suspends the current process with `SIGTSTP` (the terminal Ctrl-Z stop), so a shell or TUI
 /// can hand the terminal back and resume on `SIGCONT`. Returns once the process is continued.
 /// Unix only.
@@ -440,7 +598,10 @@ fn drain(
     loop {
         let mut still = Vec::new();
         for target in pending.drain(..) {
-            if target.verify()? == IdentityCheck::Same {
+            // Zombie-aware: a foreign zombie is dead though its identity still verifies;
+            // waiting for its (foreign) parent to reap it could wait for ever, and this
+            // crate must not reap it.
+            if target.is_running()? {
                 still.push(target);
             } else {
                 report.terminated.push(target.pid());
@@ -585,6 +746,9 @@ mod sys {
             IdentityCheck::Gone => return Ok(SignalResult::Gone),
             IdentityCheck::Replaced => return Ok(SignalResult::IdentityMismatch),
             IdentityCheck::Same => {}
+        }
+        if super::process_is_zombie(identity.pid()) {
+            return Ok(SignalResult::Gone);
         }
         let pid = i32::try_from(identity.pid()).map_err(io::Error::other)?;
         let number = super::unix_signal_number(signal);

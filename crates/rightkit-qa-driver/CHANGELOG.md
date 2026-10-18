@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — unpublished staging
+
+- Raises rightkit-automation to 0.5.0, rightkit-qa to 0.7.0, and rightkit-daemon to 0.3.0.
+
 ## 0.5.0
 
 **Deprecated: this crate is now a shim.** Use `rightkit-qa` 0.6.0 (feature `control`) for the in-app control server and `rightkit-automation` 0.4.0 for background input. Needs `rightkit-qa` 0.6.0 published first. Existing code compiles unchanged after a version bump; the crate is yanked after one release.

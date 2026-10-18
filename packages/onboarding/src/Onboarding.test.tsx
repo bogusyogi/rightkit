@@ -218,6 +218,14 @@ describe("legal acceptance", () => {
     setup(accepted({ legalAcceptance: record("1") }), { requiredVersion: "2" });
     expect((await screen.findByTestId("onboarding-legal")).dataset.variant).toBe("re-acceptance");
   });
+  it("re-prompts when the persisted acceptance timestamp is not canonical UTC", async () => {
+    setup(accepted({ legalAcceptance: { ...record("2"), acceptedAt: "2026-01-01" } }), { requiredVersion: "2" });
+    expect((await screen.findByTestId("onboarding-legal")).dataset.variant).toBe("first-run");
+  });
+  it("gates persisted acceptance with an invalid receipt even without version or hash requirements", async () => {
+    setup(accepted({ legalAcceptance: { ...record("2"), acceptedAt: "invalid" } }));
+    expect(await screen.findByTestId("onboarding-legal")).toBeInTheDocument();
+  });
   it("does not re-prompt when the stored version matches", async () => {
     setup(accepted({ legalAcceptance: record("2") }), { requiredVersion: "2", steps: [{ id: "a", label: "A", title: "A", render: () => <p>A body</p> }] });
     expect(await screen.findByText("A body")).toBeInTheDocument();
@@ -389,6 +397,18 @@ describe("isLegalAccepted", () => {
 
   it("compares nothing new when no required hash is given", () => {
     expect(isLegalAccepted(stored("2026-09", "sha256:old"), "2026-09")).toBe(true);
+  });
+
+  it("never accepts a record whose acceptedAt is not canonical UTC", () => {
+    const withAt = (acceptedAt: string) => ({
+      legalAccepted: true,
+      legalAcceptance: { version: "2026-09", documentsHash: "sha256:new", acceptedAt, eligibilityBasis: "individual" },
+    }) as unknown as Parameters<typeof isLegalAccepted>[0];
+    for (const bad of ["2026-10-12", "2026-10-12T00:00:00Z", "2026-10-12T00:00:00.000+00:00", "not-a-date", ""]) {
+      expect(isLegalAccepted(withAt(bad), "2026-09", undefined, "sha256:new")).toBe(false);
+      expect(isLegalAccepted(withAt(bad))).toBe(false);
+    }
+    expect(isLegalAccepted(withAt("2026-10-12T00:00:00.000Z"), "2026-09", undefined, "sha256:new")).toBe(true);
   });
 });
 

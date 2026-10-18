@@ -665,11 +665,15 @@ pub(crate) fn current_process_sid_string(path: &Path) -> crate::error::Result<St
     }
 }
 
-/// Read or repair only through this no-reparse handle. Repair asks for `READ_CONTROL | WRITE_DAC`
-/// and shares read, write and delete, so hardening a file another handle holds open (SQLite)
-/// neither fails with a sharing violation nor releases that handle's locks. (An earlier
+/// Read or repair only through this no-reparse handle. Repair asks for
+/// `READ_CONTROL | WRITE_DAC | WRITE_OWNER` (so a trusted group owner can be rewritten to the
+/// token user) and shares read, write and delete, so hardening a file another handle holds open
+/// (SQLite) neither fails with a sharing violation nor releases that handle's locks. (An earlier
 /// `MAXIMUM_ALLOWED` open added DELETE and broke that; its claimed inherited-ACE propagation
-/// effect was never verified.)
+/// effect was never verified.) When `WRITE_OWNER` itself is refused, the open is retried without
+/// it: an object already owned by the token user still repairs its DACL through the owner's
+/// implicit `WRITE_DAC`, and one whose owner would have to change then fails closed in
+/// `native_restrict_owner_only` instead of being reported repaired.
 #[cfg(windows)]
 fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std::fs::File> {
     use std::ffi::c_void;
@@ -700,10 +704,13 @@ fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std
         ) -> i32;
     }
 
-    // Repair replaces only the DACL (ownership is never rewritten), so READ_CONTROL | WRITE_DAC is
-    // enough; MAXIMUM_ALLOWED would add DELETE and conflict with a holder (SQLite) that did not
-    // share delete. Share read, write and delete so this handle never blocks or is blocked.
+    // Repair rewrites the DACL and, for a trusted group owner, the owner, so it asks for
+    // WRITE_OWNER as well; MAXIMUM_ALLOWED would add DELETE and conflict with a holder (SQLite)
+    // that did not share delete. Share read, write and delete so this handle never blocks or is
+    // blocked.
     const WRITE_DAC: u32 = 0x0004_0000;
+    const WRITE_OWNER: u32 = 0x0008_0000;
+    const ERROR_ACCESS_DENIED: i32 = 5;
     const FILE_SHARE_READ_WRITE_DELETE: u32 = 0x7;
     const READ_CONTROL: u32 = 0x0002_0000;
     const FILE_READ_ATTRIBUTES: u32 = 0x80;
@@ -717,22 +724,39 @@ fn open_owner_only_handle(path: &Path, repair: bool) -> crate::error::Result<std
     if wide[..wide.len() - 1].contains(&0) {
         return Err(FsError::BadName(path.display().to_string()));
     }
-    // SAFETY: `wide` is NUL-terminated and no security attribute is retained by this open.
-    let raw = unsafe {
-        CreateFileW(
-            wide.as_ptr(),
-            if repair {
-                READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES
-            } else {
-                READ_CONTROL | FILE_READ_ATTRIBUTES
-            },
-            FILE_SHARE_READ_WRITE_DELETE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            std::ptr::null_mut(),
-        )
+    let read_access = READ_CONTROL | FILE_READ_ATTRIBUTES;
+    let accesses: &[u32] = if repair {
+        &[
+            read_access | WRITE_DAC | WRITE_OWNER,
+            read_access | WRITE_DAC,
+        ]
+    } else {
+        &[read_access]
     };
+    let mut raw = std::ptr::null_mut();
+    for (index, access) in accesses.iter().enumerate() {
+        // SAFETY: `wide` is NUL-terminated and no security attribute is retained by this open.
+        raw = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                *access,
+                FILE_SHARE_READ_WRITE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                std::ptr::null_mut(),
+            )
+        };
+        if raw as isize != -1 && !raw.is_null() {
+            break;
+        }
+        let error = std::io::Error::last_os_error();
+        // Only a refused WRITE_OWNER retries with the smaller request (see the doc comment).
+        if !(index + 1 < accesses.len() && error.raw_os_error() == Some(ERROR_ACCESS_DENIED)) {
+            return Err(FsError::io(path, error));
+        }
+        raw = std::ptr::null_mut();
+    }
     if raw as isize == -1 || raw.is_null() {
         return Err(FsError::io(path, std::io::Error::last_os_error()));
     }
@@ -1124,6 +1148,63 @@ pub(crate) fn verify_owner_only_handle(
     }
 }
 
+/// Whether the pinned object's owner is exactly `sid` (the reverify after an owner rewrite).
+#[cfg(windows)]
+fn handle_owner_is(
+    file: &std::fs::File,
+    sid: *mut std::ffi::c_void,
+    path: &Path,
+) -> crate::error::Result<bool> {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn GetSecurityInfo(
+            object: *mut c_void,
+            object_type: u32,
+            information: u32,
+            owner: *mut *mut c_void,
+            group: *mut *mut c_void,
+            dacl: *mut *mut c_void,
+            sacl: *mut *mut c_void,
+            descriptor: *mut *mut c_void,
+        ) -> u32;
+        fn EqualSid(left: *mut c_void, right: *mut c_void) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LocalFree(memory: *mut c_void) -> *mut c_void;
+    }
+    const SE_FILE_OBJECT: u32 = 1;
+    const OWNER_SECURITY_INFORMATION: u32 = 0x0000_0001;
+    let mut owner = std::ptr::null_mut();
+    let mut descriptor = std::ptr::null_mut();
+    // SAFETY: live handle; the owner view lives until LocalFree(descriptor).
+    let result = unsafe {
+        GetSecurityInfo(
+            file.as_raw_handle(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if result != 0 {
+        return Err(FsError::io(
+            path,
+            std::io::Error::from_raw_os_error(result as i32),
+        ));
+    }
+    // SAFETY: both SIDs are live for this comparison.
+    let same = !owner.is_null() && unsafe { EqualSid(owner, sid) } != 0;
+    // SAFETY: GetSecurityInfo allocated this descriptor on success.
+    unsafe { LocalFree(descriptor) };
+    Ok(same)
+}
+
 #[cfg(windows)]
 fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error::Result<()> {
     use std::ffi::c_void;
@@ -1160,6 +1241,7 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
             dacl: *mut *mut c_void,
             defaulted: *mut i32,
         ) -> i32;
+        fn EqualSid(left: *mut c_void, right: *mut c_void) -> i32;
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -1194,8 +1276,12 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
             ));
         }
         // Accept the current user or an enabled token group: elevated processes create objects
-        // owned by BUILTIN\\Administrators. Ownership is not rewritten (WRITE_OWNER may be
-        // denied); the DACL replacement below leaves one protected ACE for the current user.
+        // owned by BUILTIN\\Administrators. A foreign owner is refused here, never taken over.
+        // A trusted group owner is rewritten to the token user below (an unelevated process is
+        // not the enabled-group owner, so leaving it would strand the repair); a refused
+        // WRITE_OWNER is the typed I/O error of the SetSecurityInfo call, never a success.
+        // SAFETY: both SIDs are live for this comparison (owner until LocalFree below).
+        let is_token_user = !owner.is_null() && EqualSid(owner, sid) != 0;
         let owned = owner_matches_token(owner, sid, path);
         LocalFree(descriptor);
         let owned = owned?;
@@ -1213,18 +1299,37 @@ fn native_restrict_owner_only(file: &std::fs::File, path: &Path) -> crate::error
             return Err(FsError::Unavailable("owner-only descriptor lacks DACL"));
         }
         // Inheritable ACEs on a directory are propagated by SetSecurityInfo to existing children
-        // that inherit; this call only guarantees the pinned object itself ends owner-only.
+        // that inherit; this call only guarantees the pinned object itself ends owner-only. The
+        // owner member is set in the same call when it is not already the token user, so the
+        // object never sits with a protected user DACL under a foreign-to-unelevated owner.
+        let (information, new_owner) = if is_token_user {
+            (
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+            )
+        } else {
+            (
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                sid,
+            )
+        };
         let result = SetSecurityInfo(
             file.as_raw_handle(),
             SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
+            information,
+            new_owner,
             std::ptr::null_mut(),
             dacl,
             std::ptr::null_mut(),
         );
         if result == 0 {
-            verify_owner_only_handle(file, path)
+            verify_owner_only_handle(file, path)?;
+            if !is_token_user && !handle_owner_is(file, sid, path)? {
+                return Err(FsError::NotOwned(path.to_path_buf()));
+            }
+            Ok(())
         } else {
             Err(crate::error::FsError::io(
                 path,
@@ -1511,21 +1616,34 @@ fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
     if parent_wide[..parent_wide.len() - 1].contains(&0) {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
     }
-    // SAFETY: NUL-terminated parent path; resulting handle is adopted below.
-    let parent_raw = unsafe {
-        CreateFileW(
-            parent_wide.as_ptr(),
-            FILE_ADD_SUBDIRECTORY | READ_ATTRIBUTES | SYNCHRONIZE,
-            FILE_SHARE_READ_WRITE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            std::ptr::null_mut(),
-        )
+    // Another creator can still hold DELETE on this freshly created parent while
+    // verifying it (and retaining the ability to discard a failed creation).
+    // Keep our no-delete-sharing pin; wait only for that transient sharing refusal.
+    // Never turn access denial, a missing parent, or a persistent lock into success.
+    let mut attempt = 0;
+    let parent_raw = loop {
+        // SAFETY: NUL-terminated parent path; a successful handle is adopted below.
+        let raw = unsafe {
+            CreateFileW(
+                parent_wide.as_ptr(),
+                FILE_ADD_SUBDIRECTORY | READ_ATTRIBUTES | SYNCHRONIZE,
+                FILE_SHARE_READ_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                std::ptr::null_mut(),
+            )
+        };
+        if !raw.is_null() && raw as isize != -1 {
+            break raw;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(32) || attempt + 1 >= crate::replaced::MAX_OPEN_TRIES {
+            return Err(error);
+        }
+        std::thread::sleep(crate::replaced::pause_after(attempt));
+        attempt += 1;
     };
-    if parent_raw.is_null() || parent_raw as isize == -1 {
-        return Err(std::io::Error::last_os_error());
-    }
     // SAFETY: CreateFileW returned an owned parent-directory handle.
     let parent_file = unsafe { std::fs::File::from_raw_handle(parent_raw) };
     let mut tag = AttributeTagInfo {

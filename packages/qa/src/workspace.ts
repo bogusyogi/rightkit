@@ -121,6 +121,9 @@ export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspac
     evidenceDir,
     captureDir,
     env: {
+      // Test-mode activation & its bound root travel together (M20/M21): the root is the bound
+      // home itself (it carries `.rightkit-app.json`), never `home/data`.
+      RIGHTKIT_UNDER_TEST: '1',
       RIGHTKIT_QA_NATIVE: '1',
       RIGHTKIT_QA_RUN_ID: runId,
       RIGHTKIT_RUN_ROOT: home,
@@ -130,7 +133,7 @@ export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspac
       APPDATA: dataDir,
       LOCALAPPDATA: dataDir,
       XDG_CACHE_HOME: cacheDir,
-      RIGHTKIT_QA_DATA_DIR: dataDir,
+      RIGHTKIT_QA_DATA_DIR: home,
       RIGHTKIT_QA_EVIDENCE_DIR: appEvidenceDir,
       RIGHTKIT_QA_CAPTURE_DIR: appCaptureDir,
       TMPDIR: tmpDir,

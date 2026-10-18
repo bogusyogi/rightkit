@@ -85,8 +85,9 @@ pub use clock::{
     CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
 };
 pub use engine::{
-    EngineEntitlementError, EngineEntitlements, EngineEntitlementsConfig, DEFAULT_CACHE_TTL_SECS,
-    DEFAULT_TOKEN_FILE, MAX_CACHE_TTL_SECS, MAX_TOKEN_BYTES,
+    CredentialTokenSource, EngineEntitlementError, EngineEntitlements, EngineEntitlementsConfig,
+    FileTokenSource, TokenSource, DEFAULT_CACHE_TTL_SECS, DEFAULT_TOKEN_FILE, MAX_CACHE_TTL_SECS,
+    MAX_TOKEN_BYTES,
 };
 pub use file_store::{
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,

@@ -7,6 +7,68 @@ function patch(install = vi.fn(async () => {})): RuntimeUpdate {
 }
 
 describe('staged update operations', () => {
+  for (const prepared of [false, true]) {
+    it(`${prepared ? 'prepared' : 'combined'} installs are fenced across check generations`, async () => {
+      let finish!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => { finish = resolve; });
+      const started = new Promise<void>((resolve) => { entered = resolve; });
+      const firstInstall = vi.fn(async () => { entered(); await gate; });
+      const secondInstall = vi.fn(async () => {});
+      const secondDownload = vi.fn(async () => {});
+      const updates: RuntimeUpdate[] = [firstInstall, secondInstall].map((install, index) => ({
+        version: `1.2.${index + 3}`, rawJson: { tier: 'patch' }, downloadAndInstall: install,
+        ...(prepared ? { install, download: index === 0 ? vi.fn(async () => {}) : secondDownload } : {}),
+      }));
+      const client = createAutoUpdateClient({ check: async () => updates.shift()! });
+      await client.checkOnce();
+      const first = client.installAvailable();
+      await started;
+      await client.checkOnce();
+      const second = await client.downloadAvailable();
+      if (!second.ok) throw new Error('expected second generation handle');
+      await expect(client.installStaged(second.handle)).resolves.toMatchObject({ kind: 'deferred', reason: 'install_in_progress' });
+      expect(secondInstall).not.toHaveBeenCalled();
+      if (prepared) expect(secondDownload).toHaveBeenCalledTimes(1);
+      finish();
+      await first;
+      await expect(client.installStaged(second.handle)).resolves.toMatchObject({ kind: 'ready' });
+      expect(secondInstall).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it('keeps the client fence while relaunch is pending', async () => {
+    let finish!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const relaunch = vi.fn(async () => { entered(); await gate; });
+    const install = vi.fn(async () => {});
+    const client = createAutoUpdateClient({ check: async () => patch(install), relaunchAfterInstall: true, relaunch });
+    await client.checkOnce();
+    const first = client.installAvailable();
+    await started;
+    await client.checkOnce();
+    await expect(client.installAvailable()).resolves.toMatchObject({ kind: 'deferred', reason: 'install_in_progress' });
+    expect(install).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+    await expect(client.installAvailable()).resolves.toMatchObject({ kind: 'ready' });
+    expect(install).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the client fence after native installation fails', async () => {
+    const install = vi.fn()
+      .mockRejectedValueOnce(new Error('native install failed'))
+      .mockResolvedValueOnce(undefined);
+    const client = createAutoUpdateClient({ check: async () => patch(install) });
+    await client.checkOnce();
+    await expect(client.installAvailable()).resolves.toMatchObject({ kind: 'error', message: expect.stringContaining('native install failed') });
+    await client.checkOnce();
+    await expect(client.installAvailable()).resolves.toMatchObject({ kind: 'ready' });
+    expect(install).toHaveBeenCalledTimes(2);
+  });
+
   it('download stages without installing; install consumes the handle exactly once', async () => {
     const install = vi.fn(async () => {});
     const statuses: string[] = [];
@@ -86,6 +148,67 @@ describe('staged update operations', () => {
     await client.checkOnce();
     await client.installAvailable();
     expect(statuses).toEqual(['checking', 'available', 'ready']);
+  });
+
+  it('prepared adapter: download really prepares, install consumes it with no second download', async () => {
+    const download = vi.fn(async () => {});
+    const install = vi.fn(async () => {});
+    const combined = vi.fn(async () => {});
+    const update: RuntimeUpdate = {
+      version: '1.2.3',
+      target: 'windows-x86_64',
+      rawJson: { tier: 'patch', sha256: 'abc', signature: 'sig' },
+      downloadAndInstall: combined,
+      download,
+      install,
+    };
+    const client = createAutoUpdateClient({ check: async () => update, getTier: () => 'patch', getHeaders: () => ({ Authorization: 'x' }) });
+    await client.checkOnce();
+    const staged = await client.downloadAvailable();
+    if (!staged.ok) throw new Error('expected a staged update');
+    expect(download).toHaveBeenCalledTimes(1);
+    // Default strict headers: the prepare download received no manifest-check auth.
+    expect(download.mock.calls[0]?.[1]).toEqual({ headers: {} });
+    expect(install).not.toHaveBeenCalled();
+    expect(staged.handle).toMatchObject({ version: '1.2.3', target: 'windows-x86_64', digest: 'abc', signature: 'sig', prepared: true });
+    await expect(client.installStaged(staged.handle)).resolves.toMatchObject({ kind: 'ready' });
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(combined).not.toHaveBeenCalled();
+  });
+
+  it('legacy combined adapter handle does not claim a true prefetch', async () => {
+    const client = createAutoUpdateClient({ check: async () => patch(), getTier: () => 'patch' });
+    await client.checkOnce();
+    const staged = await client.downloadAvailable();
+    if (!staged.ok) throw new Error('expected a staged update');
+    expect(staged.handle.prepared).toBe(false);
+  });
+
+  it('foreign and discarded handles are fenced without installing', async () => {
+    const install = vi.fn(async () => {});
+    const client = createAutoUpdateClient({ check: async () => patch(install), getTier: () => 'patch' });
+    await client.checkOnce();
+    const staged = await client.downloadAvailable();
+    if (!staged.ok) throw new Error('expected a staged update');
+    const foreign = { ...staged.handle };
+    await expect(client.installStaged(foreign)).resolves.toMatchObject({ kind: 'error' });
+    expect(client.discardStaged(staged.handle)).toBe(true);
+    await expect(client.installStaged(staged.handle)).resolves.toMatchObject({ kind: 'error' });
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it('concurrent prepares share one download', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const download = vi.fn(async () => gate);
+    const update: RuntimeUpdate = { version: '1.2.3', rawJson: { tier: 'patch' }, downloadAndInstall: vi.fn(async () => {}), download, install: vi.fn(async () => {}) };
+    const client = createAutoUpdateClient({ check: async () => update, getTier: () => 'patch' });
+    await client.checkOnce();
+    const both = Promise.all([client.downloadAvailable(), client.downloadAvailable()]);
+    finish();
+    await both;
+    expect(download).toHaveBeenCalledTimes(1);
   });
 
   it('download with no eligible update returns a non-staged result', async () => {

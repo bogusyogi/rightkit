@@ -1,10 +1,11 @@
+use std::collections::{HashMap, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_fs::{FileLock, FsError};
+use rightkit_fs::{FileLock, FsError, LockOptions};
 use serde_json::{json, Value};
 
 use crate::config::Ext;
@@ -76,16 +77,90 @@ fn lock_error(error: FsError) -> JobError {
     }
 }
 
+/// How a wait for a job lock ended ([`JobLocks::acquire_cancellable`]).
+#[non_exhaustive]
+pub enum LockWait {
+    Acquired(JobLock),
+    TimedOut,
+    Cancelled,
+}
+
+const LOCK_WAIT_SLICE: Duration = Duration::from_millis(100);
+const LOCK_QUEUE_PAUSE: Duration = Duration::from_millis(10);
+
+/// One waiter's place in the same-process FIFO for one job id; leaving on drop.
+struct WaitSlot {
+    waiters: Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
+    job_id: String,
+    ticket: u64,
+}
+
+impl WaitSlot {
+    fn join(
+        waiters: &Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
+        job_id: &str,
+        ticket: u64,
+    ) -> Self {
+        waiters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(job_id.to_string())
+            .or_default()
+            .push_back(ticket);
+        Self {
+            waiters: Arc::clone(waiters),
+            job_id: job_id.to_string(),
+            ticket,
+        }
+    }
+    fn is_head(&self) -> bool {
+        self.waiters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&self.job_id)
+            .and_then(|q| q.front())
+            == Some(&self.ticket)
+    }
+}
+
+impl Drop for WaitSlot {
+    fn drop(&mut self) {
+        let mut map = self.waiters.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(q) = map.get_mut(&self.job_id) {
+            q.retain(|t| *t != self.ticket);
+            if q.is_empty() {
+                map.remove(&self.job_id);
+            }
+        }
+    }
+}
+
 /// Directory of per-job lock files. A non-terminal job whose lock is free has
 /// no live runner, so it is recoverable.
 #[derive(Clone)]
 pub struct JobLocks {
     dir: PathBuf,
+    waiters: Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
+    next_ticket: Arc<AtomicU64>,
 }
 
 impl JobLocks {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            waiters: Arc::default(),
+            next_ticket: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    /// Lock-file directory.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Path of `job_id`'s lock file (`<dir>/<job_id>.lock`); may not exist yet.
+    pub fn lock_path(&self, job_id: &str) -> JobResult<PathBuf> {
+        self.path(job_id)
     }
 
     fn path(&self, job_id: &str) -> JobResult<PathBuf> {
@@ -93,6 +168,51 @@ impl JobLocks {
             return Err(JobError::bad_input("bad job_id"));
         }
         Ok(self.dir.join(format!("{job_id}.lock")))
+    }
+
+    /// Waits up to `timeout` for `job_id`'s lock: `Ok(Some)` held, `Ok(None)` timed out.
+    /// Same-process waiters (clones share the queue) are served in arrival order;
+    /// cross-process exclusion is the file lock's. `try_lock` bypasses the queue.
+    pub fn acquire(&self, job_id: &str, timeout: Duration) -> JobResult<Option<JobLock>> {
+        Ok(match self.acquire_cancellable(job_id, timeout, || false)? {
+            LockWait::Acquired(lock) => Some(lock),
+            _ => None,
+        })
+    }
+
+    /// As [`JobLocks::acquire`]; `cancel` is checked before each attempt & about every
+    /// 100 ms. A timed-out/cancelled/errored waiter leaves the FIFO at once, so a later
+    /// waiter takes its place. Only the queue head attempts the file lock.
+    pub fn acquire_cancellable(
+        &self,
+        job_id: &str,
+        timeout: Duration,
+        cancel: impl Fn() -> bool,
+    ) -> JobResult<LockWait> {
+        let path = self.path(job_id)?;
+        std::fs::create_dir_all(&self.dir)?;
+        let deadline = Instant::now().checked_add(timeout);
+        let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
+        let slot = WaitSlot::join(&self.waiters, job_id, ticket);
+        loop {
+            if cancel() {
+                return Ok(LockWait::Cancelled);
+            }
+            let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+            if slot.is_head() {
+                let slice = remaining.map_or(LOCK_WAIT_SLICE, |r| r.min(LOCK_WAIT_SLICE));
+                match FileLock::acquire(&path, &LockOptions::wait(slice)) {
+                    Ok(lock) => return Ok(LockWait::Acquired(JobLock { _lock: lock })),
+                    Err(FsError::Locked { .. } | FsError::LockTimeout { .. }) => {}
+                    Err(error) => return Err(lock_error(error)),
+                }
+            } else {
+                std::thread::sleep(remaining.map_or(LOCK_QUEUE_PAUSE, |r| r.min(LOCK_QUEUE_PAUSE)));
+            }
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                return Ok(LockWait::TimedOut);
+            }
+        }
     }
 
     /// `Ok(None)` when another holder has the lock, in this process or another.
@@ -1258,5 +1378,42 @@ struct LiveToken<'a>(&'a JobStore, &'a str);
 impl Drop for LiveToken<'_> {
     fn drop(&mut self) {
         self.0.release_cancel_token(self.1);
+    }
+}
+
+#[cfg(test)]
+mod lock_wait_tests {
+    use super::*;
+
+    #[test]
+    fn a_cancelled_waiter_reports_cancelled_and_leaves_the_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let locks = JobLocks::new(dir.path().join("locks"));
+        let held = locks.try_lock("job-c").unwrap().unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let waiter = {
+            let (locks, cancel) = (locks.clone(), Arc::clone(&cancel));
+            std::thread::spawn(move || {
+                matches!(
+                    locks.acquire_cancellable("job-c", Duration::from_secs(30), || {
+                        cancel.load(Ordering::SeqCst)
+                    }),
+                    Ok(LockWait::Cancelled)
+                )
+            })
+        };
+        std::thread::sleep(Duration::from_millis(150));
+        cancel.store(true, Ordering::SeqCst);
+        assert!(waiter.join().unwrap());
+        drop(held);
+        let Ok(LockWait::Acquired(_held)) =
+            locks.acquire_cancellable("job-c", Duration::ZERO, || false)
+        else {
+            panic!("a free lock is acquired at once");
+        };
+        assert!(matches!(
+            locks.acquire_cancellable("job-c", Duration::ZERO, || false),
+            Ok(LockWait::TimedOut)
+        ));
     }
 }

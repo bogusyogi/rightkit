@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 — unpublished staging
+
+- Reports physical-hop outcomes, bounds retry budgets, and scopes credentials without changing request configuration.
+
 ## 0.3.5 (2026-10-17)
 
 - **Public https URL policy (rightkit#374).** `netpolicy::validate_public_https_url(&str) -> Result<(), UrlPolicyError>` (also re-exported from the crate root). It accepts only `https` (any case), no userinfo, a non-empty host that is a public IP literal or a multi-label name, and refuses `localhost`, `*.localhost`, `*.local`, `*.internal`, single-label names, and legacy IPv4 spellings. It reads the string only and does not resolve; the request-time SSRF guard still vets resolved addresses. `UrlPolicyError` is `#[non_exhaustive]`. Tests in `netpolicy::public_url_tests`. Not compiled or run.

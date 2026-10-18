@@ -229,7 +229,7 @@ app-dirs = ["fs"]
 # Lets `app_dirs` read the QA override variables (RIGHTKIT_QA_DATA_DIR, RIGHTKIT_QA_HOME). Same
 # feature name as rightkit-daemon: one switch isolates both. Off in release builds, which then
 # contain none of the variable names.
-test-mode = ["app-dirs"]
+test-mode = ["app-dirs", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 blake3 = { version = "1.8", optional = true }

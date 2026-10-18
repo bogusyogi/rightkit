@@ -26,6 +26,8 @@ pub enum StopCause {
     Terminate,
     /// This process's stdin reached end of file: the parent went away.
     StdinClosed,
+    /// The parent process this one was fenced to (pid + start marker) is gone.
+    ParentGone,
     /// The program asked for the stop.
     Requested,
 }
@@ -179,6 +181,87 @@ pub fn stop_on_stdin_close(source: &StopSource) -> JoinHandle<()> {
     })
 }
 
+/// A parent-process identity fence: the parent's pid pinned to its OS start marker, so a
+/// different process that later reuses the pid is never mistaken for the parent. A child
+/// whose parent cannot hold its stdin open (or must not rely on it alone) captures this at
+/// start and stops itself when [`parent_gone`](Self::parent_gone) turns true; conversely a
+/// reused pid alone can neither keep the child alive nor claim to be its parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParentFence {
+    pid: u32,
+    started: Option<(u64, u64)>,
+}
+
+impl ParentFence {
+    /// Capture process `pid`'s identity now (its start marker as the OS reports it;
+    /// `None` when unreadable, in which case the fence falls back to pid liveness and a
+    /// reused pid cannot be told apart — see [`parent_gone`](Self::parent_gone)).
+    pub fn capture(pid: u32) -> Self {
+        Self {
+            pid,
+            started: crate::host_identity::process_start_marker(pid),
+        }
+    }
+
+    /// A fence from a pid and a start marker captured elsewhere (for example handed to
+    /// the child at spawn, before any reuse could happen).
+    pub fn from_parts(pid: u32, started: Option<(u64, u64)>) -> Self {
+        Self { pid, started }
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// The captured start marker, when the OS reported one.
+    pub fn started(&self) -> Option<(u64, u64)> {
+        self.started
+    }
+
+    /// True when the fenced parent is gone: with a captured start marker, when the pid's
+    /// current marker differs (the process exited, or the pid was reused by another
+    /// process); without one, when the pid is no longer alive.
+    pub fn parent_gone(&self) -> bool {
+        parent_gone(
+            self.started,
+            crate::host_identity::process_start_marker(self.pid),
+            crate::transport::pid_alive(self.pid),
+        )
+    }
+}
+
+/// The pure fence decision, split out for tests.
+fn parent_gone(captured: Option<(u64, u64)>, current: Option<(u64, u64)>, pid_alive: bool) -> bool {
+    match captured {
+        // The marker pins the pid to one process: any difference — gone, or a reused pid
+        // with a different start — means the parent itself is gone.
+        Some(marker) => current != Some(marker),
+        None => !pid_alive,
+    }
+}
+
+/// Trigger `source` with [`StopCause::ParentGone`] once `fence`'s parent is gone. Polls
+/// every `poll` (raised to at least 10 ms); the watcher thread ends when the source is
+/// stopped by any input.
+pub fn stop_when_parent_gone(
+    source: &StopSource,
+    fence: ParentFence,
+    poll: Duration,
+) -> JoinHandle<()> {
+    let source = source.clone();
+    let poll = poll.max(Duration::from_millis(10));
+    std::thread::spawn(move || loop {
+        if source.token().is_stopped() {
+            break;
+        }
+        if fence.parent_gone() {
+            source.trigger(StopCause::ParentGone);
+            break;
+        }
+        std::thread::sleep(poll);
+    })
+}
+
 #[cfg(unix)]
 fn install_os_handlers() -> io::Result<()> {
     for sig in [SIGINT, SIGTERM] {
@@ -246,6 +329,42 @@ mod tests {
         assert!(source.trigger(StopCause::Terminate));
         assert!(!source.trigger(StopCause::StdinClosed));
         assert_eq!(source.token().cause(), Some(StopCause::Terminate));
+    }
+
+    #[test]
+    fn a_reused_parent_pid_is_gone_but_the_same_process_is_not() {
+        let mine = Some((10, 20));
+        // Same pid, same start marker: the parent itself is alive.
+        assert!(!parent_gone(mine, mine, true));
+        // Same pid, different start marker: the pid was reused; the parent is gone even
+        // though the pid is alive, so the reuser cannot stop (or spare) the child.
+        assert!(parent_gone(mine, Some((99, 1)), true));
+        // No process at the pid any more.
+        assert!(parent_gone(mine, None, false));
+        // Without a captured marker the fence is pid liveness only.
+        assert!(!parent_gone(None, None, true));
+        assert!(parent_gone(None, None, false));
+    }
+
+    #[test]
+    fn a_fence_on_this_process_is_not_gone_and_a_watcher_fires_for_a_dead_parent() {
+        let fence = ParentFence::capture(std::process::id());
+        assert_eq!(fence.pid(), std::process::id());
+        assert!(!fence.parent_gone());
+        // A fence whose marker cannot match the (live) test process reads as gone: the
+        // pid-reuse shape, driven through the watcher end to end.
+        let reused = ParentFence::from_parts(std::process::id(), Some((u64::MAX, u64::MAX)));
+        if fence.started().is_some() {
+            assert!(reused.parent_gone());
+            let source = StopSource::new();
+            let token = source.token();
+            let watcher = stop_when_parent_gone(&source, reused, Duration::from_millis(10));
+            assert_eq!(
+                token.wait(Duration::from_secs(5)),
+                Some(StopCause::ParentGone)
+            );
+            watcher.join().unwrap();
+        }
     }
 
     #[test]

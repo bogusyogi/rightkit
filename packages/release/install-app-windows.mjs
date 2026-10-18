@@ -18,9 +18,11 @@ import { previousPathOf } from "./in-place-install.mjs";
  *     plus the `--exe` file; entries are relative regular files inside `--dest`, no directories, wildcards, `..` or drive paths;
  *   - with NO declared payload the allowlist is just the `--exe` file (always backed up and restored; nothing else is);
  *   - no path segment from `--dest` down to an allowlisted file may be a symlink or junction (reparse point); one is refused before backup and before restore or removal;
- *   - the backup is `<dest>.previous`, holding only the allowlisted files that existed before (replaced on each install; nothing runs from it);
+ *   - the TRANSIENT backup is `<dest>.previous`, holding only the allowlisted files that existed before; it is
+ *     deleted after a successful install and after a failure restore, so no copy is ever retained (D01);
  *   - a failed install restores only allowlisted files that existed before and removes only allowlisted files the failed run newly wrote;
- *     it never touches any other file in `--dest`.
+ *     it never touches any other file in `--dest`; a stale `<dest>.previous` is cleaned allowlist-scope only,
+ *     never as a whole install directory.
  * Dev installs do not pass through this module: they keep no backup at all (see development.mjs, install-app.mjs --dev).
  */
 export class InstallAppWindowsError extends Error {
@@ -114,8 +116,20 @@ export function installAppWindows(opts, { platform = process.platform, fs = node
       fs.copyFileSync(inDest(relative), inPrevious(relative));
     }
     backupMade = true;
-    event("previous-kept", { previous, files: backedUp.length, payloadOnly: true });
+    event("previous-parked", { previous, files: backedUp.length, payloadOnly: true, transient: true });
   }
+  // Delete the transient park. Ours (backupMade) is exactly the allowlisted scope we just created; a stale
+  // park from an older RightKit is cleaned allowlist-entry by allowlist-entry, never as a whole directory.
+  const cleanupPrevious = () => {
+    try {
+      if (backupMade) { fs.rmSync(previous, { recursive: true, force: true }); return; }
+      for (const relative of allowlist) {
+        const file = inPrevious(relative);
+        if (fs.existsSync(file) && isFile(file)) fs.rmSync(file, { force: true });
+      }
+      try { fs.rmdirSync(previous); } catch { /* non-empty or absent: leave it */ }
+    } catch { /* best effort; never mask the install result */ }
+  };
   // Roll back the payload and nothing else: restore allowlisted files that existed, remove allowlisted files this run newly wrote.
   // Each file is restored independently; failures are collected and reported together, never masking the installer error.
   const restoreFailures = [];
@@ -142,13 +156,16 @@ export function installAppWindows(opts, { platform = process.platform, fs = node
   const result = run(installer, windowsInstallArguments(dest), { stdio: "inherit", windowsHide: true, shell: false });
   if (result.status !== 0) {
     const restored = restore();
-    throw new InstallAppWindowsError("installer-failed", `installer exited ${result.status ?? "abnormally"}${result.error ? `: ${result.error.message}` : ""}; ${restored ? `restored the ${backedUp.length} payload file(s) of ${dest} from ${previous}; no other file was touched` : noRollback}${failureNote()}`);
+    cleanupPrevious();
+    throw new InstallAppWindowsError("installer-failed", `installer exited ${result.status ?? "abnormally"}${result.error ? `: ${result.error.message}` : ""}; ${restored ? `restored the ${backedUp.length} payload file(s) of ${dest} from the transient backup (now deleted); no other file was touched` : noRollback}${failureNote()}; reinstall from the release installer if the app does not launch`);
   }
   // The installer must have updated the fixed folder: the executable is at the same path as before, not in a new folder.
   if (!fs.existsSync(installed) || fs.statSync(installed).size === 0) {
     const restored = restore();
-    throw new InstallAppWindowsError("path-changed", `the installer did not place ${exe} at the fixed path ${installed}; ${restored ? `restored the ${backedUp.length} payload file(s) from ${previous}; no other file was touched` : noRollback}${failureNote()}`);
+    cleanupPrevious();
+    throw new InstallAppWindowsError("path-changed", `the installer did not place ${exe} at the fixed path ${installed}; ${restored ? `restored the ${backedUp.length} payload file(s) from the transient backup (now deleted); no other file was touched` : noRollback}${failureNote()}; reinstall from the release installer if the app does not launch`);
   }
-  event("replaced", { installed, previous: backupMade ? previous : null, sha256: sha256(fs, installed) });
-  return { ok: true, installed, previous: backupMade ? previous : null };
+  cleanupPrevious();
+  event("replaced", { installed, previous: null, sha256: sha256(fs, installed) });
+  return { ok: true, installed, previous: null };
 }

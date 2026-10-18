@@ -348,14 +348,15 @@ export function createLicenseClient(cfg: LicenseConfig) {
 /** Licensed = active AND (perpetual OR still within validUntil + grace). A
  *  perpetual license (validUntil=null) NEVER lapses offline — a lifetime buyer
  *  must not be bricked by our server. Time-bound licenses lapse `graceDays`
- *  after validUntil. */
+ *  after validUntil. A non-null `validUntil` that does not parse is never
+ *  licensed: malformed expiry fails closed for every kind/stage. */
 export function isLicensed(lic: StoredLicense | null, graceDays = 7, now = Date.now()): boolean {
   if (!lic || lic.status !== 'active') return false;
   if (lic.validUntil == null) return true;
   const until = Date.parse(lic.validUntil);
+  if (Number.isNaN(until)) return false;
   const exactBoundary = lic.licenseKind === 'trial'
     || lic.entitlementStage === 'provisional';
-  if (Number.isNaN(until)) return !exactBoundary;
   const effectiveGraceDays = exactBoundary ? 0 : graceDays;
   return now < until + effectiveGraceDays * 86_400_000;
 }
@@ -456,14 +457,15 @@ export function classifyLifecycle(lic: StoredLicense | null, opts: ClassifyOptio
   }
   const shape = claimsShape(lic);
   if (shape === 'invalid') return 'invalid';
+  // A non-null expiry that does not parse is a malformed record, not a live or
+  // graced license (same fail-closed rule as isLicensed); null stays perpetual.
+  if (lic.validUntil != null && Number.isNaN(Date.parse(lic.validUntil))) return 'invalid';
   if (opts.clockRolledBack && shape !== 'final') return 'clock_repair_required';
 
   const until = lic.validUntil == null ? null : Date.parse(lic.validUntil);
-  const live = until === null || (!Number.isNaN(until) && now < until);
+  const live = until === null || now < until;
   const openEnded = (): Lifecycle => {
     if (live) return shape === 'final' ? 'lifetime' : 'active';
-    // An unparseable validUntil never lapses a graced license (same as isLicensed).
-    if (until !== null && Number.isNaN(until)) return shape === 'final' ? 'lifetime' : 'active';
     return until !== null && now < until + graceDays * 86_400_000 ? 'grace' : 'expired';
   };
 

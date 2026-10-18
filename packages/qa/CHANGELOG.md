@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — unpublished staging
+
+- Repairs QA workspace guard and lifecycle behavior.
+
 ## 0.5.0 (2026-10-17)
 
 Additive except where noted. Nothing here was built or run.

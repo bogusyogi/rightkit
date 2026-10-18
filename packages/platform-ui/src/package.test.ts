@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -26,5 +26,25 @@ describe("published package contract", () => {
       url: "git+https://github.com/bogusyogi/rightkit.git",
       directory: "packages/platform-ui",
     });
+  });
+});
+
+
+describe("ordinary compiled frontend output", () => {
+  it("contains no QA selectors or QA entry exports", async () => {
+    const { scanWebBundle } = await import("../../release/qa-control-scan.mjs");
+    const output = join(packageRoot, "dist");
+    const pending = [join(output, "index.js"), join(output, "headless.js")];
+    const reachable = new Set<string>();
+    while (pending.length) {
+      const file = pending.pop()!;
+      if (reachable.has(file)) continue;
+      reachable.add(file);
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(/(?:from\s*|import\s*\()\s*["'](\.[^"']+)["']/g)) {
+        pending.push(resolve(dirname(file), match[1]));
+      }
+    }
+    expect(scanWebBundle([...reachable], { requireFiles: true }).findings).toEqual([]);
   });
 });

@@ -148,12 +148,19 @@ fn windows_job_kills_an_already_spawned_tree_on_drop_and_terminate() {
 
     let pid_file = dir.join("terminated.pid");
     let job = WindowsJob::new(Some(DEFAULT_ACTIVE_PROCESS_LIMIT)).unwrap();
+    assert_eq!(job.active_process_count().unwrap(), 0);
+    assert!(job.is_empty().unwrap());
     let mut child = tree_command(&pid_file).spawn().unwrap();
     job.assign_process_id(child.id()).unwrap();
     let grandchild = AdoptedProcess::new(NonZeroU32::new(wait_for_pid(&pid_file)).unwrap());
+    assert!(job.active_process_count().unwrap() >= 1);
+    assert!(!job.is_empty().unwrap());
     job.terminate().unwrap();
     let _ = child.wait();
     wait_until_stopped(&grandchild);
+    assert!(job.wait_empty(Duration::from_secs(5)).unwrap());
+    assert_eq!(job.active_process_count().unwrap(), 0);
+    assert!(job.is_empty().unwrap());
     let _ = fs::remove_dir_all(&dir);
 }
 

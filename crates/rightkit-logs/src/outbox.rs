@@ -13,7 +13,8 @@
 use crate::{atomic, scrub, ConsentStore, RedactionPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs;
+use std::collections::BTreeMap;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,7 +25,8 @@ static QUARANTINE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
 pub struct OutboxConfig {
-    /// Oldest events are dropped beyond this many.
+    /// Oldest events without outstanding dedupe receipts are dropped beyond this many.
+    /// Outstanding receipts apply backpressure instead of losing accepted reports.
     pub max_events: usize,
     /// Events whose serialized payload exceeds this are refused, not truncated.
     pub max_event_bytes: usize,
@@ -58,6 +60,13 @@ pub struct OutboxEvent {
 struct Ledger {
     events: Vec<OutboxEvent>,
     next_id: u64,
+    /// Dedupe receipts: caller-supplied stable key -> accepted event id. Written
+    /// in the same atomic ledger persist as the event itself, and removed only
+    /// by [`Outbox::retire_dedupe`] — never by upload acknowledgement — so a
+    /// repeated key after ack, restart or archive failure still returns the
+    /// original acceptance instead of storing a duplicate.
+    #[serde(default)]
+    dedupe_receipts: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -149,6 +158,55 @@ impl Outbox {
 
     /// Redact, scrub and persist one event. Returns its id.
     pub fn enqueue(&self, event_type: &str, payload: Value) -> Result<u64, EnqueueError> {
+        self.enqueue_inner(event_type, payload, None)
+    }
+
+    /// Like [`Outbox::enqueue`], but idempotent under a caller-supplied stable
+    /// `dedupe_key` (non-empty, at most 256 bytes): the first acceptance stores
+    /// the event and a durable receipt in one atomic ledger persist; a repeat
+    /// of the key — after restart, upload ack, or a crash between enqueue and
+    /// the caller's own bookkeeping — returns the original event id and stores
+    /// nothing. The receipt survives [`Outbox::acknowledge`]; call
+    /// [`Outbox::retire_dedupe`] only once the caller's follow-up (for example
+    /// archiving the source report) has durably succeeded. Without consent
+    /// nothing is read or stored, exactly as `enqueue`.
+    pub fn enqueue_deduped(
+        &self,
+        dedupe_key: &str,
+        event_type: &str,
+        payload: Value,
+    ) -> Result<u64, EnqueueError> {
+        if dedupe_key.is_empty() || dedupe_key.len() > 256 {
+            return Err(EnqueueError::Storage(
+                "dedupe key must be 1..=256 bytes".to_string(),
+            ));
+        }
+        self.enqueue_inner(event_type, payload, Some(dedupe_key))
+    }
+
+    /// Remove a dedupe receipt after the caller's post-enqueue step (archive,
+    /// source removal) succeeded. Returns whether a receipt was present.
+    /// Retiring is what allows the same key to accept a fresh event later.
+    pub fn retire_dedupe(&self, dedupe_key: &str) -> io::Result<bool> {
+        let mut state = self.lock();
+        let _guard = self.acquire_ledger_lock()?;
+        self.reload_locked(&mut state);
+        if !state.ledger.dedupe_receipts.contains_key(dedupe_key) {
+            return Ok(false);
+        }
+        let mut candidate = state.ledger.clone();
+        candidate.dedupe_receipts.remove(dedupe_key);
+        self.persist(&mut state, candidate)
+            .map(|()| true)
+            .map_err(io::Error::other)
+    }
+
+    fn enqueue_inner(
+        &self,
+        event_type: &str,
+        payload: Value,
+        dedupe_key: Option<&str>,
+    ) -> Result<u64, EnqueueError> {
         if !self.consent.is_granted() {
             return Err(EnqueueError::NoConsent);
         }
@@ -165,9 +223,27 @@ impl Outbox {
             });
         }
         let mut state = self.lock();
-        self.reload_if_unavailable(&mut state);
+        // The cross-process ledger lock makes reload + dedupe check + persist
+        // atomic against other processes, not just threads of this one.
+        let _guard = self
+            .acquire_ledger_lock()
+            .map_err(|e| EnqueueError::Storage(e.to_string()))?;
+        self.reload_locked(&mut state);
         if let Some(error) = &state.load_error {
             return Err(EnqueueError::Storage(error.clone()));
+        }
+        if let Some(key) = dedupe_key {
+            if let Some(&id) = state.ledger.dedupe_receipts.get(key) {
+                return Ok(id);
+            }
+        }
+        if dedupe_key.is_some()
+            && state.ledger.dedupe_receipts.len() >= self.config.max_events.max(1).saturating_mul(2)
+        {
+            return Err(EnqueueError::Storage(
+                "outstanding dedupe receipt capacity reached; retire completed sources first"
+                    .into(),
+            ));
         }
         let mut candidate = state.ledger.clone();
         let id = candidate.next_id.max(1);
@@ -182,7 +258,18 @@ impl Outbox {
         });
         if candidate.events.len() > self.config.max_events {
             let excess = candidate.events.len() - self.config.max_events;
+            if candidate.events[..excess].iter().any(|event| {
+                candidate.dedupe_receipts.values().any(|id| *id == event.id)
+                    || (dedupe_key.is_some() && event.id == id)
+            }) {
+                return Err(EnqueueError::Storage(
+                    "event capacity reached with outstanding dedupe acceptance".into(),
+                ));
+            }
             candidate.events.drain(0..excess);
+        }
+        if let Some(key) = dedupe_key {
+            candidate.dedupe_receipts.insert(key.to_string(), id);
         }
         self.persist(&mut state, candidate)
             .map(|_| id)
@@ -211,9 +298,12 @@ impl Outbox {
             .min()
     }
 
-    /// Remove delivered (or permanently rejected) events.
+    /// Remove delivered (or permanently rejected) events. Dedupe receipts are
+    /// deliberately kept: they retire only via [`Outbox::retire_dedupe`].
     pub fn acknowledge(&self, ids: &[u64]) -> io::Result<()> {
         let mut state = self.lock();
+        let _guard = self.acquire_ledger_lock()?;
+        self.reload_locked(&mut state);
         let mut candidate = state.ledger.clone();
         candidate.events.retain(|event| !ids.contains(&event.id));
         self.persist(&mut state, candidate)
@@ -223,6 +313,8 @@ impl Outbox {
     /// Count a failed attempt and hold the events until `not_before_ms`.
     pub fn record_failure(&self, ids: &[u64], not_before_ms: i64) -> io::Result<()> {
         let mut state = self.lock();
+        let _guard = self.acquire_ledger_lock()?;
+        self.reload_locked(&mut state);
         let mut candidate = state.ledger.clone();
         for event in candidate.events.iter_mut().filter(|e| ids.contains(&e.id)) {
             event.upload_attempts = event.upload_attempts.saturating_add(1).min(8);
@@ -262,22 +354,47 @@ impl Outbox {
     /// Delete every queued event and any quarantined ledger bytes.
     pub fn purge(&self) -> io::Result<()> {
         let mut state = self.lock();
+        let _guard = self.acquire_ledger_lock()?;
         state.ledger = Ledger::default();
         state.load_error = None;
-        match fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        remove_quarantined(&self.path)
+        let outcome = match fs::remove_file(&self.path) {
+            Ok(()) => remove_quarantined(&self.path),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => remove_quarantined(&self.path),
+            Err(error) => Err(error),
+        };
+        // Never unlink the coordination inode: a blocked waiter may already
+        // have it open. The empty sidecar contains no event or receipt bytes.
+        outcome
     }
 
-    fn reload_if_unavailable(&self, state: &mut State) {
-        if state.load_error.is_some() {
-            let refreshed = load(&self.path);
-            if refreshed.load_error.is_none() {
-                *state = refreshed;
+    /// Exclusive cross-process lock on the `<ledger>.lock` sidecar, held until
+    /// the returned file is dropped. Mutations reload, modify and persist the
+    /// ledger only under this lock (and the in-process state mutex, always
+    /// taken first), so two processes cannot interleave a stale clone over a
+    /// fresher ledger.
+    fn acquire_ledger_lock(&self) -> io::Result<File> {
+        if let Some(parent) = self.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
             }
+        }
+        let lock = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(ledger_lock_path(&self.path))?;
+        lock.lock()?;
+        Ok(lock)
+    }
+
+    /// Refresh `state` from disk while the ledger lock is held. A refreshed
+    /// load error keeps the last good in-memory state (and its absent error),
+    /// so a transient read failure cannot erase queued events; the caller's
+    /// persist then surfaces any real storage failure.
+    fn reload_locked(&self, state: &mut State) {
+        let refreshed = load(&self.path);
+        if refreshed.load_error.is_none() {
+            *state = refreshed;
         }
     }
 
@@ -287,6 +404,16 @@ impl Outbox {
         state.ledger = candidate;
         Ok(())
     }
+}
+
+/// `<ledger file name>.lock` beside the ledger, carrying the cross-process lock.
+fn ledger_lock_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(std::ffi::OsString::from)
+        .unwrap_or_else(|| std::ffi::OsString::from("outbox.json"));
+    name.push(".lock");
+    path.with_file_name(name)
 }
 
 fn load(path: &Path) -> State {

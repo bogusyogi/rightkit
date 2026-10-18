@@ -147,6 +147,64 @@ describe("acceptance receipts", () => {
     });
     expect(needsLegalAcceptance({ ...value, appKey: "mailright" }, receipt)).toBe(true);
   });
+
+  it("treats every malformed persisted receipt as stale and never throws", () => {
+    const value = manifest();
+    const receipt = createAcceptanceReceipt(value, {
+      acceptedAt: "2026-07-16T12:34:56.000Z",
+      surface: "first_run",
+      eligibilityBasis: "individual",
+    });
+    const malformed: unknown[] = [
+      null, undefined, "receipt", 42, [], {},
+      { ...receipt, schema: 1 },
+      { ...receipt, suite: "other" },
+      { ...receipt, acceptanceVersion: "old" },
+      { ...receipt, acceptedAt: "2026-07-16" },
+      { ...receipt, acceptedAt: "2026-07-16T12:34:56Z" },
+      { ...receipt, acceptedAt: "2026-07-16T12:34:56.000+00:00" },
+      { ...receipt, acceptedAt: "2026-02-30T12:34:56.000Z" },
+      { ...receipt, acceptedAt: 1_700_000_000_000 },
+      { ...receipt, surface: "settings" },
+      { ...receipt, surface: undefined },
+      { ...receipt, eligibilityBasis: "reseller" },
+      { ...receipt, documents: undefined },
+      { ...receipt, documents: "all" },
+      { ...receipt, documents: [null] },
+      { ...receipt, documents: [["license"]] },
+      { ...receipt, documents: receipt.documents.map((d) => ({ ...d, sha256: "xyz" })) },
+      { ...receipt, documents: receipt.documents.map((d) => ({ ...d, role: "terms" })) },
+      { ...receipt, documents: receipt.documents.map((d) => ({ ...d, treatment: "consent" })) },
+      { ...receipt, documents: receipt.documents.map((d) => ({ ...d, material: "yes" })) },
+      { ...receipt, documents: [...receipt.documents, receipt.documents[0]] },
+    ];
+    for (const candidate of malformed) {
+      expect(() => needsLegalAcceptance(value, candidate)).not.toThrow();
+      expect(needsLegalAcceptance(value, candidate)).toBe(true);
+    }
+    // The untouched receipt (same approved material hashes) stays fresh.
+    expect(needsLegalAcceptance(value, receipt)).toBe(false);
+    expect(needsLegalAcceptance(value, JSON.parse(JSON.stringify(receipt)))).toBe(false);
+  });
+
+  it("rejects invalid surface/eligibility at receipt construction", () => {
+    const value = manifest();
+    expect(() => createAcceptanceReceipt(value, {
+      acceptedAt: "2026-07-16T12:34:56.000Z",
+      surface: "settings" as never,
+      eligibilityBasis: "individual",
+    })).toThrow(/surface/i);
+    expect(() => createAcceptanceReceipt(value, {
+      acceptedAt: "2026-07-16T12:34:56.000Z",
+      surface: "checkout",
+      eligibilityBasis: "reseller" as never,
+    })).toThrow(/eligibility/i);
+    expect(() => createAcceptanceReceipt(value, {
+      acceptedAt: "2026-07-16T12:34:56Z",
+      surface: "checkout",
+      eligibilityBasis: "individual",
+    })).toThrow(/canonical/i);
+  });
 });
 
 describe("materialAcceptanceDigest", () => {

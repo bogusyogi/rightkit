@@ -350,9 +350,10 @@ impl FileBackend {
         }
         // Keep the last good file. A damaged file is never copied over a good backup. A failed copy
         // stops the write: replacing the file now would destroy the only copy of its content, and
-        // leave an older `.bak` to be restored from later.
+        // leave an older `.bak` to be restored from later. The backup is staged in a sibling temp
+        // file and renamed over `.bak`, so an interrupted copy cannot truncate the good backup.
         if self.sidecars && main_good {
-            preserve(PreserveStep::Backup, &self.path, &bak_path(&self.path))?;
+            preserve_backup(&self.path)?;
         }
         atomic_write_mode(&self.path, &bytes, &self.mode)?;
         Ok(revision)
@@ -409,8 +410,7 @@ impl FileBackend {
             (Edit::Commit(next), layout) => {
                 if corrupt_dest && self.keep_corrupt_copy {
                     // A copy, made before the replace: the original stays until the replace wins.
-                    let kept_as = quarantine_path(&self.path, &self.quarantine_name);
-                    preserve(PreserveStep::CorruptCopy, &self.path, &kept_as)?;
+                    corrupt_copy(&self.path, &self.quarantine_name)?;
                 }
                 let prev = current.as_ref().map_or(0, |s| s.revision);
                 self.write(&next, prev, &layout, reference.as_deref(), main_good)
@@ -1172,11 +1172,133 @@ fn quarantine_path(path: &Path, name: &QuarantineName) -> PathBuf {
     PathBuf::from(s)
 }
 
+fn quarantine_candidate(base: &Path, attempt: u32) -> PathBuf {
+    if attempt == 0 {
+        return base.to_path_buf();
+    }
+    let mut s = base.as_os_str().to_owned();
+    s.push(format!("-{attempt}"));
+    PathBuf::from(s)
+}
+
 /// Moves the damaged file at `path` aside. A failed move is an error naming the file, where it was
 /// to go and the cause: the caller must stop, because anything written now would go over a file
-/// that was not preserved.
+/// that was not preserved. A timestamped name has one-second resolution, so two quarantines in the
+/// same second would collide: each retries with a numbered suffix and never replaces evidence an
+/// earlier quarantine kept. A fixed name keeps its documented replace-the-previous behaviour.
 fn quarantine(path: &Path, name: &QuarantineName) -> Result<(), Error> {
-    preserve(PreserveStep::Quarantine, path, &quarantine_path(path, name))
+    if !matches!(name, QuarantineName::Timestamped) {
+        return preserve(PreserveStep::Quarantine, path, &quarantine_path(path, name));
+    }
+    let base = quarantine_path(path, name);
+    for attempt in 0.. {
+        let kept_as = quarantine_candidate(&base, attempt);
+        if fs::symlink_metadata(&kept_as).is_ok() {
+            continue;
+        }
+        match rename_file(path, &kept_as) {
+            Ok(()) => return Ok(()),
+            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) => {
+                return Err(Error::PreserveFailed {
+                    step: PreserveStep::Quarantine,
+                    path: path.to_path_buf(),
+                    kept_as,
+                    source,
+                })
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Copies the damaged file at `path` aside (the original stays until a later replace). Naming and
+/// collision behaviour match [`quarantine`].
+fn corrupt_copy(path: &Path, name: &QuarantineName) -> Result<(), Error> {
+    if !matches!(name, QuarantineName::Timestamped) {
+        return preserve(
+            PreserveStep::CorruptCopy,
+            path,
+            &quarantine_path(path, name),
+        );
+    }
+    let base = quarantine_path(path, name);
+    for attempt in 0.. {
+        let kept_as = quarantine_candidate(&base, attempt);
+        match copy_file_new(path, &kept_as) {
+            Ok(()) => return Ok(()),
+            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) => {
+                return Err(Error::PreserveFailed {
+                    step: PreserveStep::CorruptCopy,
+                    path: path.to_path_buf(),
+                    kept_as,
+                    source,
+                })
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Refreshes `<path>.bak` from `path` through a unique sibling temp file renamed over the backup,
+/// so a copy that fails or is interrupted leaves the previous backup byte for byte intact.
+fn preserve_backup(path: &Path) -> Result<(), Error> {
+    let kept_as = bak_path(path);
+    backup_atomic(path, &kept_as).map_err(|source| Error::PreserveFailed {
+        step: PreserveStep::Backup,
+        path: path.to_path_buf(),
+        kept_as,
+        source,
+    })
+}
+
+// Private at exclusive creation, before any settings byte is written. Avoid a pathname
+// chmod after creation, which could narrow a substituted file instead of our open handle.
+fn create_preservation_file(path: &Path) -> io::Result<File> {
+    rightkit_fs::create_private_new(path).map_err(io::Error::from)
+}
+
+fn backup_atomic(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(error) = fault::copy() {
+        return Err(error);
+    }
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let bytes = fs::read(from)?;
+    let parent = to.parent().filter(|p| !p.as_os_str().is_empty());
+    let name = to
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "settings.bak".into());
+    let (tmp, mut file) = loop {
+        let file_name = format!(
+            ".{name}.{}.{}.tmp",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        );
+        let cand = match parent {
+            Some(parent) => parent.join(file_name),
+            None => PathBuf::from(file_name),
+        };
+        match create_preservation_file(&cand) {
+            Ok(f) => break (cand, f),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    let result = (|| {
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, to)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// One step that keeps the content at `path` before something replaces or removes it: moves it to
@@ -1212,6 +1334,24 @@ fn copy_file(from: &Path, to: &Path) -> io::Result<()> {
         return Err(error);
     }
     fs::copy(from, to).map(|_| ())
+}
+
+/// [`copy_file`] that refuses to replace: the destination is claimed with `create_new`, so an
+/// existing file yields `AlreadyExists` and the caller retries with the next candidate. A copy
+/// that fails after claiming removes its own partial file.
+fn copy_file_new(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(error) = fault::copy() {
+        return Err(error);
+    }
+    let mut src = File::open(from)?;
+    let mut dst = create_preservation_file(to)?;
+    let result = io::copy(&mut src, &mut dst).and_then(|_| dst.sync_all());
+    if result.is_err() {
+        drop(dst);
+        let _ = fs::remove_file(to);
+    }
+    result.map(|_| ())
 }
 
 /// Exclusive cross-process transaction guard (OS advisory lock on a sidecar file; released when
@@ -1317,6 +1457,53 @@ mod tests {
 
     fn schema() -> Schema {
         Schema::new("t", 1)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preservation_copies_are_owner_only_under_a_permissive_parent() {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let source = dir.path().join("settings.json");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&source)
+            .unwrap();
+        file.write_all(b"private settings").unwrap();
+        drop(file);
+        let staged = dir.path().join(".settings.json.bak.test.tmp");
+        let empty_stage = create_preservation_file(&staged).unwrap();
+        assert_eq!(
+            empty_stage.metadata().unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&staged).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(empty_stage.metadata().unwrap().len(), 0);
+        drop(empty_stage);
+        fs::remove_file(staged).unwrap();
+        let backup = dir.path().join("settings.json.bak");
+        backup_atomic(&source, &backup).unwrap();
+        let corrupt = dir.path().join("settings.json.corrupt");
+        copy_file_new(&source, &corrupt).unwrap();
+        for path in [&source, &backup, &corrupt] {
+            assert_eq!(
+                fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(fs::read(path).unwrap(), b"private settings");
+        }
+        assert!(fs::read_dir(dir.path()).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")));
     }
 
     #[test]

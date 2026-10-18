@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/onboarding",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

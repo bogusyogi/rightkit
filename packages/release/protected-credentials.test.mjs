@@ -8,6 +8,7 @@ import { digestBytes } from "./publication-artifacts.mjs";
 import { MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
 import {
   createCredentialStore,
+  execWithUpdaterCredential,
   PROTECTED_SECRET_MISSING,
   ProtectedSecretMissingError,
   protectedSecretStoreCommand,
@@ -16,6 +17,7 @@ import {
 } from "./protected-credentials.mjs";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { runLargeUpload } from "./upload-large.mjs";
+import { spawnSync } from "./background-process.mjs";
 
 const SOCKET_ENV = { RIGHTKIT_BUILD_BROKER_SOCKET: "/fake/rightkit-broker.sock" };
 const REFUSED = { code: MANAGED_HOST_ENV_SECRET_REFUSED };
@@ -70,6 +72,54 @@ test("Windows reads the protected token file under APPDATA\\RightKit and trims i
   const store = createCredentialStore({ env: { APPDATA: "C:\\fake\\AppData" }, platform: "win32", readFile });
   assert.equal(store.read("cloudflare-api-token"), "fake-file-value");
   assert.deepEqual(reads, [path.win32.join("C:\\fake\\AppData", "RightKit", "cloudflare-api-token.token")]);
+});
+
+test("updater credentials have no file/export/fallback path on any host", () => {
+  let reads = 0;
+  for (const platform of ["win32", "darwin", "linux"]) {
+    const store = createCredentialStore({ platform, env: {}, readFile: () => { reads++; }, readKeychain: () => { reads++; } });
+    assert.throws(() => store.read("updater-signing-key"), MISSING);
+    assert.throws(() => resolveEnvBackedSecret({ name: "updater-signing-key", envName: "TAURI_SIGNING_PRIVATE_KEY", env: { TAURI_SIGNING_PRIVATE_KEY: "fixture-key" }, credentialStore: store }), /execution boundary/);
+  }
+  assert.equal(reads, 0);
+  const command = protectedSecretStoreCommand("updater-signing-key", "win32");
+  assert.match(command, /\| & rightkit-credentials\.exe set --namespace 'rightsuite-updater-key'/);
+  assert.match(command, /^\$rightkitSecure = Read-Host -AsSecureString/);
+  assert.doesNotMatch(command, /powershell|-Command/);
+  assert.doesNotMatch(command, /WriteAllText|APPDATA|\.token/);
+  assert.match(protectedSecretStoreCommand("updater-signing-key", "darwin"), /rightsuite-updater-key/);
+});
+
+test("updater provider trace uses M11 child execution & preserves exit status", () => {
+  let call;
+  const status = { status: 17 };
+  const result = execWithUpdaterCredential(process.execPath, ["fixture-pnpm.cjs", "exec", "tauri", "signer", "sign", "fixture & literal.exe"], {
+    account: "fixture-user", provider: "fixture-credentials.exe", env: {},
+    run: (...args) => { call = args; return status; },
+  });
+  assert.equal(result, status);
+  assert.deepEqual(call[1], ["exec", "--namespace", "rightsuite-updater-key", "--account", "fixture-user", "--env", "TAURI_SIGNING_PRIVATE_KEY", "--", process.execPath, "fixture-pnpm.cjs", "exec", "tauri", "signer", "sign", "fixture & literal.exe"]);
+  assert.equal(call[2].env.TAURI_SIGNING_PRIVATE_KEY, undefined);
+  assert.equal(call[2].shell, false);
+  assert.equal(call[2].windowsHide, true);
+});
+
+test("Windows updater provisioning hint parses directly in PowerShell without execution", { skip: process.platform !== "win32" }, () => {
+  const command = protectedSecretStoreCommand("updater-signing-key", "win32");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$rightkitTokens = $null; $rightkitErrors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$rightkitTokens, [ref]$rightkitErrors); exit $rightkitErrors.Count"], { input: command, encoding: "utf8", shell: false });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("updater provider rejects inherited secrets & relative child before launching", () => {
+  let calls = 0;
+  const run = () => { calls++; };
+  assert.throws(() => execWithUpdaterCredential("node", [], { env: {}, run }), /absolute native/);
+  assert.throws(() => execWithUpdaterCredential(process.execPath, [], { env: { tauri_signing_private_key: "fixture" }, run }), /OS credential provider/);
+  assert.equal(calls, 0);
+});
+
+test("missing updater provider explains required installation without credential lookup", () => {
+  assert.throws(() => execWithUpdaterCredential(process.execPath, [], { env: {}, run: () => ({ error: { code: "ENOENT" } }) }), /install rightkit-credentials >=0\.2\.2 on PATH/);
 });
 
 test("absent or blank store entries throw a typed error carrying the one-line store command", () => {

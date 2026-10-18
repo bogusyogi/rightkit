@@ -323,3 +323,80 @@ test("releaseSwitchFindings applies the remote check through the feature-closure
   assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, requireBinary: false }).findings, []);
   assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, bypass: ["feature-closure"], requireBinary: false }).findings, []);
 });
+
+// M23: one registry feature vocabulary. The closure list gains the M23 names and the applicable
+// qa-build-features aliases. Conditional devtools names share this registry & require explicit content-only allowance.
+const M23_CLOSURE_NAMES = ["testing", "test-seams", "isolated-test-keychain", "demo", "dev-overrides", "qa-probes", "dev-worker-override", "qa-shot", "qa-tools", "dev-control", "bench-native"];
+
+test("M23 featureClosureFindings flags each new registry name in cargo-tree text", () => {
+  for (const name of ["test-mode", "qa-native", "dev-native", "qa-control", "dev-inspect", ...M23_CLOSURE_NAMES]) {
+    assert.ok(REGISTRY.forbiddenFeatures.includes(name), name);
+  }
+  for (const name of M23_CLOSURE_NAMES) {
+    const tree = `app v0.0.0 (/work/app)\nsome-crate feature "${name}"\n`;
+    assert.deepEqual(ids(featureClosureFindings(tree)), [`forbidden-feature ${name}`], name);
+  }
+  const treeOne = `app v0.0.0 (/work/app)\nsome-crate feature "custom-protocol"\n`;
+  assert.deepEqual(featureClosureFindings(treeOne), []);
+});
+
+test("M23 commandSwitchFindings flags each new registry name in build-command spelling", () => {
+  for (const name of M23_CLOSURE_NAMES) {
+    assert.deepEqual(ids(commandSwitchFindings(["cargo", "build", "--release", "--features", name])), [`forbidden-feature ${name}`], name);
+    assert.deepEqual(ids(commandSwitchFindings(["cargo", "build", "-F", `some-crate/${name}`])), [`forbidden-feature ${name}`], name);
+    assert.deepEqual(ids(commandSwitchFindings(["cargo", "build", `--features=custom-protocol,${name}`])), [`forbidden-feature ${name}`], name);
+  }
+  assert.deepEqual(commandSwitchFindings(["cargo", "build", "--release", "--features", "custom-protocol"]), []);
+});
+
+test("M23 content-only exception is explicit in closure & command gates", () => {
+  assert.equal(REGISTRY.forbiddenFeatures.includes("devtools"), false);
+  assert.equal(REGISTRY.forbiddenFeatures.includes("content-devtools"), false);
+  for (const name of ["devtools", "content-devtools"]) {
+    const tree = `app v0.0.0 (/work/app)\nsome-crate feature "${name}"\n`;
+    assert.equal(featureClosureFindings(tree).length, 1, name);
+    assert.deepEqual(featureClosureFindings(tree, { allowDevtools: true }), [], name);
+    assert.equal(commandSwitchFindings(["cargo", "build", "--features", name]).length, 1);
+    assert.deepEqual(commandSwitchFindings(["cargo", "build", "--features", name], { allowDevtools: true }), [], name);
+  }
+});
+
+test("malformed or incomplete inventory is an explicit inventory-invalid finding (parseInventory)", () => {
+  for (const text of ["", "{", "null", "{}"]) {
+    const { doc, issues } = parseInventory(text);
+    assert.ok(issues.length >= 1, JSON.stringify(text));
+    assert.ok(issues.every((i) => i.rule === "inventory-invalid" && i.layer === "inventory"), JSON.stringify(text));
+    assert.ok(doc === null || !Array.isArray(doc.switches) || text === "{}", JSON.stringify(text));
+  }
+  assert.ok(ids(parseInventory(JSON.stringify({ schema: 1, app: "x" })).issues).includes("inventory-invalid"));
+  assert.ok(ids(parseInventory(JSON.stringify({ schema: 1, app: "x", switches: "no" })).issues).includes("inventory-invalid"));
+  const missingName = JSON.stringify({ schema: 1, app: "x", switches: [{ class: "S6", channel: "env", valueType: "bool" }] });
+  assert.match(parseInventory(missingName).issues.map((i) => i.reason).join("\n"), /needs a `name`/);
+  const duplicate = JSON.stringify({ schema: 1, app: "x", switches: [
+    { name: "N", class: "S6", channel: "env", valueType: "bool" },
+    { name: "N", class: "S6", channel: "env", valueType: "bool" },
+  ] });
+  assert.match(parseInventory(duplicate).issues.map((i) => i.reason).join("\n"), /listed twice/);
+  const badChannel = JSON.stringify({ schema: 1, app: "x", switches: [{ name: "N", class: "S6", channel: "nope", valueType: "bool" }] });
+  assert.match(parseInventory(badChannel).issues.map((i) => i.reason).join("\n"), /`channel` must be one of/);
+  const root = tmp();
+  assert.deepEqual(ids(sourceSwitchFindings({ sourceRoot: root, inventoryText: "{" })), ["inventory-invalid"]);
+});
+
+
+test("transitive QA control is refused by canonical crate identity, not bare control", () => {
+  assert.equal(featureClosureFindings('app v1.0.0\n├── intermediary feature "default"\n│   └── rightkit-qa feature "control"').length, 1);
+  assert.deepEqual(featureClosureFindings('other-crate feature "control"'), []);
+  assert.equal(commandSwitchFindings(["cargo", "build", "--features", "rightkit-qa?/control"]).length, 1);
+});
+
+
+test("combined release gate preserves content-only allowance while refusing transitive QA control", () => {
+  const treeText = 'tauri feature "devtools"\nrightkit-tauri-shell feature "content-devtools"';
+  const commands = [["cargo", "build", "--features", "content-devtools"]];
+  assert.ok(releaseSwitchFindings({ treeText, commands }).findings.length > 0);
+  assert.deepEqual(releaseSwitchFindings({ treeText, commands, devtools: { mode: "content-only" } }).findings, []);
+  const bad = releaseSwitchFindings({ treeText: `${treeText}\nrightkit-qa feature "control"`, commands, devtools: { mode: "content-only" } });
+  assert.equal(bad.findings.length, 1);
+  assert.match(bad.findings[0].reason, /rightkit-qa/);
+});

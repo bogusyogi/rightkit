@@ -271,15 +271,13 @@ const defaultIsAlive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 };
 
-// Keep the bundle it replaced as `<installed>.previous` beside the fixed path (replacing any older one), by rename.
-// Rollback is renaming it back; nothing ever runs from it. It is never sent to the Trash: a Trash copy is a second
-// path macOS can resolve for the same bundle id.
-async function keepPreviousBundle(run, fsImpl, bundle, installed) {
-  const previous = previousPathOf(installed);
-  if (bundle === previous) return previous;
-  fsImpl.rmSync(previous, { recursive: true, force: true });
-  await moveAside(run, fsImpl, bundle, previous);
-  return previous;
+// Retire the replaced bundle after the new one verifies: NO `<installed>.previous` is retained (D01/#771).
+// Only the exact journaled park scope is cleaned: the old bundle at its staged/backup path and the stale
+// `<installed>.previous` an older RightKit left beside this fixed path. Nothing else in dest is touched.
+function retireOldBundle(fsImpl, bundle, installed) {
+  const rm = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
+  rm(bundle);
+  rm(previousPathOf(installed));
 }
 
 // Exclusive per-destination install lock: a lock file beside the installed apps, created O_EXCL. A lock whose pid is dead is
@@ -340,9 +338,8 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
           let ok = j.phase === "verified";
           if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
           if (ok) {
-            // A dev journal (from an older RightKit) never keeps the old bundle: the staged path is cleared below.
-            try { if (!j.dev) await keepPreviousBundle(run, fsImpl, j.staged, j.installed); action = "rolled-forward"; }
-            catch { action = "rolled-forward-previous-pending"; keepJournal = true; keepStaged = true; }
+            // Roll forward: the old bundle at the staged path is retired below, never kept as `.previous`.
+            action = "rolled-forward";
           } else {
             swapBack(swapPaths, fsImpl, j.staged, j.installed); // staged now holds the bad new bundle
             action = "rolled-back";
@@ -355,8 +352,8 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
         let ok = j.phase === "verified";
         if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
         if (ok) {
-          try { if (j.dev) rm(j.backup); else await keepPreviousBundle(run, fsImpl, j.backup, j.installed); action = "rolled-forward"; }
-          catch { action = "rolled-forward-previous-pending"; keepJournal = true; }
+          rm(j.backup); // validated journaled backup scope only; never retained as `.previous`
+          action = "rolled-forward";
         } else {
           rm(j.installed);
           fsImpl.renameSync(j.backup, j.installed);
@@ -368,6 +365,7 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
       continue; // leave the journal for the next run
     }
     if (!keepStaged) rm(j.staged);
+    if (j.installed) rm(previousPathOf(j.installed)); // no retained `.previous` survives recovery
     if (j.mount && has(j.mount)) {
       const out = await detachWithRetry({ mount: j.mount, log: (e) => event(e.event, e), sleep, detach: (args) => run("/usr/bin/hdiutil", args) });
       if (out.ok) rm(j.mountRoot);
@@ -430,7 +428,7 @@ export async function installApp(opts, deps = {}) {
       if (s.mode === "atomic") {
         // installed was never absent. Before the exchange only the staged copy needs removing; after it,
         // exchange back (installed = old again, staged = the new copy) and drop the new copy. Once final,
-        // staged holds the verified-old bundle awaiting retirement to .previous, so it must not be touched.
+        // staged holds the verified-old bundle awaiting retirement (deletion), so it must not be touched.
         if (!s.final) {
           if (s.swapped) swapBack(swapPaths, fsImpl, s.staged, s.installed);
           removeQuiet(s.staged);
@@ -543,7 +541,7 @@ export async function installApp(opts, deps = {}) {
     failedStage = "stage";
     const base = appName.replace(/\.app$/, "");
     // Staging is never run from: it is verified, then renamed into place. Its name is fixed per app (no per-pid sibling), like the
-    // journal beside it; the rollback copy is the fixed `<installed>.previous`.
+    // journal beside it; the old bundle's transient park is the fixed `<installed>.previous`, deleted once verified.
     const staged = path.join(opts.dest, `.${base}.rightkit-install.app`);
     // Dev installs keep NO old copy of any kind (Orthic-Labs/rightkit#348): the old bundle is removed, never moved to `.previous`.
     const backup = hadInstalled && !dev ? previousPathOf(installed) : null;
@@ -605,7 +603,7 @@ export async function installApp(opts, deps = {}) {
         swap.mode = "two-rename";
         jd = { ...journalData, swap: "two-rename" };
         writeJournal(fsImpl, journal, { ...jd, phase: "swapping" });
-        removeQuiet(backup); // an older .previous; the one kept copy is the bundle moving aside now
+        removeQuiet(backup); // clear the transient park (or a stale .previous) before parking the old bundle
         fsImpl.renameSync(installed, backup); swap.backedUp = true;
         fsImpl.renameSync(staged, installed);
         swap.stagedIn = true;
@@ -626,20 +624,13 @@ export async function installApp(opts, deps = {}) {
     writeJournal(fsImpl, journal, { ...jd, phase: "verified", mount: null, mountRoot: null });
     swap.final = true;
 
-    // Only now is the old bundle retired, to <installed>.previous (never the Trash).
-    let kept = null;
-    let keepFailed = false;
+    // Only now is the old bundle retired: deleted, never kept as `<installed>.previous` (D01).
     const oldBundle = swapMode === "atomic" ? staged : backup; // atomic: the exchange left the old bundle at the staged path
-    if (hadInstalled && oldBundle) {
-      try { kept = await keepPreviousBundle(run, fsImpl, oldBundle, installed); }
-      catch (error) { event("previous-keep-failed", { backup: oldBundle, reason: errText(error) }); kept = oldBundle; }
-    }
-    if (!oldBundle || kept !== previousPathOf(installed)) { if (!oldBundle) removeQuiet(journal); }
-    else removeQuiet(journal);
-    // A stale `.previous` from an older RightKit must not survive a dev install either.
-    if (dev) removeQuiet(previousPathOf(installed));
+    if (hadInstalled && oldBundle) retireOldBundle(fsImpl, oldBundle, installed);
+    else removeQuiet(previousPathOf(installed)); // a stale `.previous` from an older RightKit survives no install
+    removeQuiet(journal);
     swap = null;
-    event("replaced", { installed, previous: kept, swap: swapMode });
+    event("replaced", { installed, previous: null, swap: swapMode });
 
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
@@ -648,7 +639,7 @@ export async function installApp(opts, deps = {}) {
       await run("/usr/bin/open", ["-g", "-j", "-b", bundleId]);
       event("relaunched", { bundleId });
     }
-    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: kept, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
+    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: null, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
     event("done", result);
     return result;
   } catch (error) {
@@ -744,16 +735,6 @@ async function quitApp(run, kill, sleep, app) {
   for (const pid of remaining) send(pid, "SIGKILL");
   if (remaining.length) await sleep(POLL_MS);
   return { pids, killed: remaining };
-}
-
-async function moveAside(run, fsImpl, from, to) {
-  try {
-    fsImpl.renameSync(from, to);
-  } catch (error) {
-    if (error.code !== "EXDEV") throw error;
-    await run("/usr/bin/ditto", [from, to]);
-    fsImpl.rmSync(from, { recursive: true, force: true });
-  }
 }
 
 export async function main(argv = process.argv.slice(2), io = {}) {

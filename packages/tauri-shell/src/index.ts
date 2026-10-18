@@ -230,7 +230,42 @@ export interface IdleStatus {
 
 export interface EngineEvent {
   call: string;
+  /** Engine request id this event belongs to (present on host builds with tagged calls). */
+  id?: number | null;
+  /** Caller tag passed to `engine.callTagged`, echoed on every event of that call. */
+  tag?: string | null;
   event: unknown;
+}
+
+/** Typed rejection from `engine.callTagged` (`rk_shell_engine_call_tagged`). */
+export interface EngineCallError {
+  code: string;
+  message: string;
+  /** `supervisor`: refused before the engine ran. `engine`: the engine's own reply. */
+  origin: 'engine' | 'supervisor';
+  /** Structured error details when the host protocol carries them. */
+  details?: unknown;
+}
+
+/** Engine lifecycle snapshot from `engine.status()` (`rk_shell_engine_status`). */
+export interface EngineStatus {
+  state: string;
+  hello?: unknown;
+  [key: string]: unknown;
+}
+
+/** Typed "open from clipboard" / paste result from `clipboard.item()`. */
+export type ClipboardItem =
+  | { kind: 'files'; paths: string[] }
+  | { kind: 'image'; path: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'none' };
+
+/** Site-root grant for an opened document, from `site.grant()`. */
+export interface SiteGrant {
+  token: string;
+  root: string;
+  baseUrl: string;
 }
 
 interface TauriInternals {
@@ -476,6 +511,11 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
             board: c.board ?? null,
           },
         }),
+      /**
+       * The typed paste/open result: files first, then a bitmap (written to a granted temp
+       * file), then text, else `{kind: 'none'}`. The `read`/`write` wrappers above are unchanged.
+       */
+      item: () => invoke<ClipboardItem>('rk_shell_clipboard_item'),
     },
 
     notifications: {
@@ -536,9 +576,27 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
       clear: () => invoke<void>('rk_shell_recovery_clear'),
     },
 
+    site: {
+      /**
+       * Grant the site root of a document the person already opened; returns `{token, root,
+       * baseUrl}` for the document's `<base href>`.
+       */
+      grant: (document: string) => invoke<SiteGrant>('rk_shell_site_grant', { document }),
+      /** Revoke a site-root token (its URLs stop serving at once and never revive). */
+      revoke: (token: string) => invoke<void>('rk_shell_site_revoke', { token }),
+    },
+
     engine: {
       /** One engine call over the stdio contract. Events stream through `onEvent` meanwhile. */
       call: <T = unknown>(method: string, params?: unknown) => invoke<T>('rk_shell_engine_call', { method, params: params ?? null }),
+      /**
+       * Tagged engine call: events carry the request `id` and this `tag`, and failures reject
+       * with a typed `EngineCallError` instead of a plain string. `call` above is unchanged.
+       */
+      callTagged: <T = unknown>(method: string, params?: unknown, tag?: string) =>
+        invoke<T>('rk_shell_engine_call_tagged', { method, params: params ?? null, tag: tag ?? null }),
+      /** Engine lifecycle snapshot without marking the renderer ready. `null`: no engine. */
+      status: () => invoke<EngineStatus | null>('rk_shell_engine_status'),
       /** `call === '$lifecycle'` carries `{state:'ready'|'error', ...}` for engine start; `ready()` replays the last one. */
       onEvent: (h: (e: EngineEvent) => void) => listen<EngineEvent>(EVENTS.engine, h),
     },

@@ -64,9 +64,10 @@ export function collectDependencies(pkgRoot) {
   return [...found].map(([name, dir]) => ({ name, dir }));
 }
 
-/** Copy the installed @rightkit/release package (and its dependencies) into the stable root. The new tree is built and
- * built in the fixed `current.staging`, swapped in by rename (the old copy stays as `current.previous`), then smoke-tested at
- * `current`; a failed swap or smoke run renames `current.previous` back. Returns `{ stable, cli, version, replaced, unchanged }`. */
+/** Copy the installed @rightkit/release package (and its dependencies) into the stable root. The new tree is built in
+ * the fixed `current.staging`, swapped in by rename (the old copy is parked at `current.previous` only until the
+ * smoke test at `current` passes, then deleted; a failed swap or smoke run renames it back). No copy is retained.
+ * Returns `{ stable, cli, version, replaced, unchanged }`. */
 export function installStableRoot({ cli, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), nodePath = process.execPath, smoke = true } = {}) {
   const stable = stableRootPath({ platform, env, home });
   const stableCli = stableCliPath(stable, platform);
@@ -107,10 +108,10 @@ export function installStableRoot({ cli, platform = process.platform, env = proc
     throw error;
   }
   // Swap first, then smoke-run at the fixed `current` path (never from the staging path). A failed run renames
-  // `current.previous` back. Exactly one `.previous` is kept.
-  let replaced = false;
+  // the transiently parked `current.previous` back; a passed run deletes it (nothing is retained).
+  const replaced = existsSync(stable);
   try {
-    const result = swapInPlace({
+    swapInPlace({
       staging, destination: stable, previous,
       verify: () => {
         if (!smoke) return;
@@ -118,7 +119,6 @@ export function installStableRoot({ cli, platform = process.platform, env = proc
         if (r.status !== 0) throw new Error(`the installed copy does not run: ${r.stderr || r.stdout || r.error?.message}`);
       },
     });
-    replaced = result.previous !== null;
   } catch (error) {
     throw new Error(`disk: could not replace ${stable}: ${error.message}`);
   }

@@ -14,7 +14,7 @@ import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, di
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
-import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease } from "./github-updater-release.mjs";
+import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, assertUpdaterSignature, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease } from "./github-updater-release.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
@@ -116,7 +116,20 @@ function git(args) {
 if (!githubLane && tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
 if ((githubLane || tier === "update") && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
 
-if (sealed) for (const artifact of artifacts) signatureFor(artifact);
+// Cryptographic gate before any upload: every sealed minisign signature must verify over the
+// exact final artifact bytes against the declared public key. No declared key means the
+// signature cannot be verified, so a sealed (real) publish fails closed; key-id pinning is
+// supplementary only. Integrator owns declaring distribution.updaterPublicKey in app configs
+// (suite key already pinned per-app as tauri plugins.updater.pubkey).
+const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
+if (sealed) for (const artifact of artifacts) {
+  const signature = signatureFor(artifact);
+  if (!appInstallerKind) {
+    if (!updaterPublicKey) throw new PublicationError("PUBLICATION_SIGNATURE_UNVERIFIABLE", `no updater public key declared (distribution.updaterPublicKey); refusing to upload ${path.basename(artifact.file)} with an unverified signature`);
+    assertUpdaterSignature(assertArtifactUnchanged(verifiedArtifact(artifact.file)), signature, updaterPublicKey, `signature of ${path.basename(artifact.file)}`);
+    assertUpdaterKeyId(signature, config.distribution.updaterKeyId, `signature of ${path.basename(artifact.file)}`);
+  }
+}
 let releaseToken = null;
 if (!githubLane && !dryRun && (tier === "update" || artifacts.length > 0)) {
   try {

@@ -625,6 +625,13 @@ fn race(suite: &Suite, marker: &std::path::Path, ids: &[&str]) -> (Vec<Host>, us
 
 #[test]
 fn eight_simultaneous_launches_elect_one_primary_and_forward_the_rest() {
+    // Repeated fresh elections exercise sharing windows that one lucky round can miss.
+    for _ in 0..8 {
+        simultaneous_launch_round();
+    }
+}
+
+fn simultaneous_launch_round() {
     let (d, suite) = setup();
     let ids = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7"];
     let (mut racers, owner_idx) = race(&suite, d.path(), &ids);

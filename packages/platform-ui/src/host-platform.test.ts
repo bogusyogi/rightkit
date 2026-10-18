@@ -86,17 +86,17 @@ describe("host-injected platform, QA options and fallback", () => {
   });
 
   it("accepts a custom QA query parameter without qa=1 when configured", async () => {
-    const { configurePlatform, resolveQaPlatform } = await import("./index.js");
+    const { configureQaPlatform, resolveQaPlatform } = await import("./qa.js");
     expect(resolveQaPlatform({ query: "?qaPlatform=macos" })).toBeUndefined();
-    configurePlatform({ qaQueryParam: "qaPlatform", qaRequireQaFlag: false });
+    configureQaPlatform({ qaQueryParam: "qaPlatform", qaRequireQaFlag: false });
     expect(resolveQaPlatform({ query: "?qaPlatform=mac" })).toBe("macos");
     expect(resolveQaPlatform({ query: "?qa=1&qaPlatform=win" })).toBe("windows");
     expect(resolveQaPlatform({ query: "?other=win" })).toBeUndefined();
   });
 
   it("uses a custom QA query parameter name with the qa=1 gate", async () => {
-    const { configurePlatform, resolveQaPlatform } = await import("./index.js");
-    configurePlatform({ qaQueryParam: "platformOverride" });
+    const { configureQaPlatform, resolveQaPlatform } = await import("./qa.js");
+    configureQaPlatform({ qaQueryParam: "platformOverride" });
     expect(resolveQaPlatform({ query: "?qa=1&platformOverride=linux" })).toBe("linux");
     expect(resolveQaPlatform({ query: "?qa=1&qaPlatform=linux" })).toBeUndefined();
     expect(resolveQaPlatform({ query: "?platformOverride=linux" })).toBeUndefined();
@@ -107,7 +107,7 @@ describe("host-injected platform, QA options and fallback", () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
     globalThis.__RIGHTKIT_QA_PLATFORM__ = "windows";
     osMock.platform.mockReturnValue("macos");
-    const { configurePlatform, getPlatform, loadPlatform } = await import("./index.js");
+    const { configurePlatform, getPlatform, loadPlatform } = await import("./qa.js");
 
     configurePlatform({ nativeWinsOverQa: true });
     expect(getPlatform()).toBe("macos");
@@ -119,7 +119,7 @@ describe("host-injected platform, QA options and fallback", () => {
     vi.stubGlobal("__TAURI_INTERNALS__", {});
     globalThis.__RIGHTKIT_QA_PLATFORM__ = "windows";
     osMock.platform.mockReturnValue("macos");
-    const { getPlatform, loadPlatform } = await import("./index.js");
+    const { getPlatform, loadPlatform } = await import("./qa.js");
     await loadPlatform();
     expect(getPlatform()).toBe("windows");
   });
@@ -130,7 +130,7 @@ describe("host-injected platform, QA options and fallback", () => {
     osMock.platform.mockImplementation(() => {
       throw new Error("not in Tauri");
     });
-    const { configurePlatform, getPlatform } = await import("./index.js");
+    const { configurePlatform, getPlatform } = await import("./qa.js");
     configurePlatform({ nativeWinsOverQa: true });
     expect(getPlatform()).toBe("windows");
   });

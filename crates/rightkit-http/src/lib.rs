@@ -39,15 +39,15 @@ pub mod testing;
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
     form_encode, percent_decode, percent_decode_component, percent_encode,
-    percent_encode_component, AttemptEvent, Client, ClientConfig, Method, ProxyDiagnostic,
-    ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent, StreamResponse,
-    TrustRoots,
+    percent_encode_component, AttemptDelivery, AttemptEvent, AttemptOutcome, Client, ClientConfig,
+    Method, ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent,
+    StreamResponse, TrustRoots,
 };
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::{Multipart, MultipartRelated};
 pub use netpolicy::{
     parse_host_ip, parse_legacy_ipv4, validate_public_https_url, AddressClass, AddressPolicy,
-    HostIpKind, IpNet, ParsedHostIp, ResolveError, UrlPolicyError,
+    CredentialScope, HostIpKind, IpNet, ParsedHostIp, ResolveError, UrlPolicyError,
 };
 pub use quota::{defer_in, remaining_in, QuotaSchedule, QuotaStore};
 pub use retry::{

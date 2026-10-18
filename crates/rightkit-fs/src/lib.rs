@@ -84,6 +84,8 @@ pub mod space;
 pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
+#[cfg(feature = "test-mode")]
+pub mod test_mode;
 #[cfg(feature = "fs")]
 pub mod trash;
 #[cfg(feature = "fs")]

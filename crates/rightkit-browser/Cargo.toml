@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -23,7 +23,7 @@ url = "2"
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
 sha2 = "0.11"
 # Installer (feature `install`): vetted download via rightkit-models, SHA-256 + lock via rightkit-fs, zip extraction.
-rightkit-models = { path = "../rightkit-models", version = "0.4.2", default-features = false, optional = true }
+rightkit-models = { path = "../rightkit-models", version = "0.5.0", default-features = false, optional = true }
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.0", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 

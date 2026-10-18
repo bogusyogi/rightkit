@@ -1142,6 +1142,32 @@ fn parent_of(path: &Path) -> PathBuf {
     }
 }
 
+/// Most bytes of the destination name a temp name carries. The carried part is diagnostic only
+/// (uniqueness and sweep recognition live in the suffix), so it is bounded rather than letting a
+/// destination near the filesystem's component limit push the temp name past it (`ENAMETOOLONG`
+/// for a write the destination itself allows). The bound is an internal constant, not a claim
+/// about any filesystem's limit (D14: limits are filesystem-dependent).
+const TEMP_PREFIX_MAX_BYTES: usize = 64;
+
+/// `name` bounded to [`TEMP_PREFIX_MAX_BYTES`], cut only on a UTF-8 char boundary and never
+/// empty (a generated name needs at least one char before the marker to parse back).
+fn temp_prefix(name: &str) -> &str {
+    if name.len() <= TEMP_PREFIX_MAX_BYTES {
+        return name;
+    }
+    let mut end = TEMP_PREFIX_MAX_BYTES;
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    if end == 0 {
+        // The first char alone exceeds the bound (impossible for valid UTF-8 chars, which are
+        // at most 4 bytes): keep that one char.
+        let first = name.chars().next().map_or(0, char::len_utf8);
+        return &name[..first];
+    }
+    &name[..end]
+}
+
 fn temp_name(name: &str, attempt: u32) -> String {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
@@ -1150,7 +1176,8 @@ fn temp_name(name: &str, attempt: u32) -> String {
         .unwrap_or(0);
     // `<pid>` is parsed back by `sweep_stale_temps` to tell a crashed writer from a live one.
     format!(
-        ".{name}{TEMP_MARKER}{}-{n}-{nanos:x}-{attempt}",
+        ".{}{TEMP_MARKER}{}-{n}-{nanos:x}-{attempt}",
+        temp_prefix(name),
         std::process::id()
     )
 }
@@ -2378,6 +2405,32 @@ mod temp_name_tests {
             None,
             "no name before the marker"
         );
+    }
+
+    #[test]
+    fn long_multibyte_names_get_a_bounded_prefix_and_still_parse_back() {
+        // 40 x 'e-acute' (2 bytes) + 200 x CJK (3 bytes): far past any component limit once the
+        // suffix is added. The generated name keeps a bounded, boundary-cut prefix and the exact
+        // suffix the sweep parses.
+        let name = format!("{}{}", "\u{e9}".repeat(40), "\u{4e2d}".repeat(200));
+        let generated = temp_name(&name, 0);
+        assert_eq!(generated_temp_pid(&generated), Some(std::process::id()));
+        let prefix = generated[1..].split(TEMP_MARKER).next().unwrap();
+        assert!(prefix.len() <= TEMP_PREFIX_MAX_BYTES, "{prefix:?}");
+        assert!(!prefix.is_empty());
+        assert!(
+            name.starts_with(prefix),
+            "a cut on a char boundary: {prefix:?}"
+        );
+        assert!(
+            generated.len() <= 1 + TEMP_PREFIX_MAX_BYTES + 48,
+            "{generated}"
+        );
+        // A boundary straddling the cap loses the whole char, never splits it.
+        let straddling = format!("{}{}", "a".repeat(63), "\u{e9}".repeat(10));
+        assert_eq!(temp_prefix(&straddling), "a".repeat(63).as_str());
+        // Short names are carried whole.
+        assert_eq!(temp_prefix("state.json"), "state.json");
     }
 
     #[test]

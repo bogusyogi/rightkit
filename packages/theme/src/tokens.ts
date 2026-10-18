@@ -78,6 +78,22 @@ export const SUITE_ALIASES: AliasMap = {
   "--wordmark": "--rk-wordmark-font",
 };
 
+/**
+ * Additive shade (ScrapeRight donor): each channel moves by `255 * amount` (fractional, e.g. `0.06`
+ * lightens, `-0.06` darkens), rounded with `Math.round` and clamped to 0..255. Accepts `#RRGGBB` or
+ * `RRGGBB` (trimmed, case-insensitive); any other input is returned unchanged.
+ */
+export function shade(hex: string, amount: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = Number.parseInt(m[1], 16);
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const r = clamp(((n >> 16) & 255) + 255 * amount);
+  const g = clamp(((n >> 8) & 255) + 255 * amount);
+  const b = clamp((n & 255) + 255 * amount);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 /** One app theme preset: a light or dark base palette plus optional accent overrides. */
 export interface TokenPreset {
   id: string;

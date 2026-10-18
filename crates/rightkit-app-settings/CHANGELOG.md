@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 — unpublished staging
+
+- Backups stay private, and corrupt copies are preserved for recovery.
+
 ## 0.2.3 (2026-10-17)
 
 Additive. No existing public item changes; no exhaustive enum gains a variant. Requests: Orthic-Labs/rightkit#423 (Pulse, BOM part), #531 (Pulse, capped read part), #191 (Pulse, documented behaviour). Not compiled when written; verification is the CI run.

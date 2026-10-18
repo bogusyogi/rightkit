@@ -1,8 +1,8 @@
 use rightkit_device::{
-    guard_paid_command, AuthorizationDenial, AuthorizationError, AuthorizationService,
-    DeviceService, DiagnosticHost, DiagnosticService, HostOperation, LicenseRecord,
-    LicenseRequirement, LogHost, LogService, MutationHook, PaidCommandError, SecureService,
-    SecureStore, StorageOperation,
+    device_id_hash, guard_paid_command, AuthorizationDenial, AuthorizationError,
+    AuthorizationService, DeviceService, DiagnosticHost, DiagnosticService, HostOperation,
+    LicenseRecord, LicenseRequirement, LogHost, LogService, MutationHook, PaidCommandError,
+    RevokedIds, SecureService, SecureStore, StorageOperation,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -109,6 +109,20 @@ impl<T: Clone> SecureStore<T> for MemoryStore<T> {
         }
         *self.state.value.lock().unwrap() = None;
         Ok(())
+    }
+
+    fn set_if_absent(&self, value: &T) -> Result<bool, String> {
+        if self.state.fail_set {
+            return Err("set failed".into());
+        }
+        // Check and store under the one lock every writer of this store takes.
+        let mut slot = self.state.value.lock().unwrap();
+        if slot.is_some() {
+            return Ok(false);
+        }
+        *slot = Some(value.clone());
+        self.state.writes.fetch_add(1, Ordering::SeqCst);
+        Ok(true)
     }
 }
 
@@ -395,6 +409,133 @@ fn injected_trusted_clock_decides_authorization() {
             AuthorizationDenial::InvalidToken(_)
         ))
     ));
+}
+
+/// A store with no atomic create: it must inherit the fail-closed default.
+#[derive(Default)]
+struct NonAtomicStore(Mutex<Option<String>>);
+
+impl SecureStore<String> for NonAtomicStore {
+    fn get(&self) -> Result<Option<String>, String> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn set(&self, value: &String) -> Result<(), String> {
+        *self.0.lock().unwrap() = Some(value.clone());
+        Ok(())
+    }
+    fn delete(&self) -> Result<(), String> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+#[test]
+fn set_if_absent_default_fails_closed_and_stores_nothing() {
+    let store = NonAtomicStore::default();
+    assert!(store.set_if_absent(&"device-1".to_string()).is_err());
+    assert_eq!(store.get().unwrap(), None, "no check-then-set fallback");
+
+    // Device creation over such a store refuses instead of minting non-atomically.
+    let service = DeviceService::new(NonAtomicStore::default());
+    let error = service.get_or_create().unwrap_err();
+    assert_eq!(error.operation, StorageOperation::Set);
+    assert_eq!(service.get().unwrap(), None);
+}
+
+#[test]
+fn atomic_set_if_absent_creates_once_and_never_overwrites() {
+    let store = MemoryStore::<String>::default();
+    assert!(store.set_if_absent(&"first".to_string()).unwrap());
+    assert!(!store.set_if_absent(&"second".to_string()).unwrap());
+    assert_eq!(store.get().unwrap().as_deref(), Some("first"));
+    assert_eq!(store.writes(), 1);
+}
+
+#[test]
+fn alternate_identity_grants_only_when_not_revoked() {
+    // TOKEN is bound to raw device "dev-1" (entitlement id "lic_1"); this device's
+    // primary id differs, so only a caller-supplied alternate can match.
+    let licenses = MemoryStore::with(StoredLicense(Some(TOKEN.into())));
+    let devices = DeviceService::new(MemoryStore::with("primary-device".into()));
+    let authorization = pro_authorization(&licenses, &devices);
+
+    // No alternate supplied: the primary (and its derived hash) do not match.
+    assert!(matches!(
+        authorization.authorize_any_device_with_clock(
+            LicenseRequirement::pro(),
+            &[],
+            &RevokedIds::new(),
+            || Ok(2_000),
+        ),
+        Err(AuthorizationError::Denied(
+            AuthorizationDenial::InvalidToken(_)
+        ))
+    ));
+
+    // The exact alternate matches and grants when nothing is revoked.
+    assert!(authorization
+        .authorize_any_device_with_clock(
+            LicenseRequirement::pro(),
+            &["dev-1"],
+            &RevokedIds::new(),
+            || Ok(2_000),
+        )
+        .is_ok());
+
+    // The same authentic token, matched through the alternate, is refused once its
+    // entitlement id is revoked: the denylist is consulted before any grant.
+    assert_eq!(
+        authorization
+            .authorize_any_device_with_clock(
+                LicenseRequirement::pro(),
+                &["dev-1"],
+                &RevokedIds::new().with("lic_1"),
+                || Ok(2_000),
+            )
+            .unwrap_err(),
+        AuthorizationError::Denied(AuthorizationDenial::RevokedToken("lic_1".into()))
+    );
+
+    // This token binds the raw id; supplying only its hash form never grants.
+    let other_hash = device_id_hash("dev-1");
+    assert!(matches!(
+        authorization.authorize_any_device_with_clock(
+            LicenseRequirement::pro(),
+            &[other_hash.as_str()],
+            &RevokedIds::new(),
+            || Ok(2_000),
+        ),
+        Err(AuthorizationError::Denied(
+            AuthorizationDenial::InvalidToken(_)
+        ))
+    ));
+}
+
+#[test]
+fn revoked_token_is_refused_on_the_primary_identity_too() {
+    let licenses = MemoryStore::with(StoredLicense(Some(TOKEN.into())));
+    let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
+    let authorization = pro_authorization(&licenses, &devices);
+
+    assert_eq!(
+        authorization
+            .authorize_any_device_with_clock(
+                LicenseRequirement::pro(),
+                &[],
+                &RevokedIds::new().with("lic_1"),
+                || Ok(2_000),
+            )
+            .unwrap_err(),
+        AuthorizationError::Denied(AuthorizationDenial::RevokedToken("lic_1".into()))
+    );
+    assert!(authorization
+        .authorize_any_device_with_clock(
+            LicenseRequirement::pro(),
+            &[],
+            &RevokedIds::new().with("some_other_license"),
+            || Ok(2_000),
+        )
+        .is_ok());
 }
 
 #[test]

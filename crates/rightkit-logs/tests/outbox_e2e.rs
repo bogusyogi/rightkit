@@ -333,7 +333,10 @@ fn corrupt_ledger_is_quarantined_and_purge_removes_quarantine() {
     let leftovers = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().contains("outbox"))
+        .filter(|e| {
+            let name = e.file_name();
+            name.to_string_lossy().contains("outbox") && name != "outbox.json.lock"
+        })
         .count();
     assert_eq!(leftovers, 0, "purge removes ledger and quarantined bytes");
 }
@@ -353,6 +356,132 @@ fn oversized_event_is_refused_not_truncated() {
         .unwrap_err();
     assert!(matches!(error, EnqueueError::TooLarge { .. }));
     assert!(outbox.is_empty());
+}
+
+#[test]
+fn dedupe_receipt_survives_ack_and_restart_until_retired() {
+    let dir = temp_dir("dedupe");
+    let consent = ConsentStore::new(dir.join("consent.json"));
+    consent.grant("v1").unwrap();
+    let ledger = dir.join("outbox.json");
+    let outbox = Outbox::open(&ledger, consent.clone(), OutboxConfig::default());
+
+    assert!(outbox.enqueue_deduped("", "usage", json!({})).is_err());
+    let first = outbox
+        .enqueue_deduped("report-1", "usage", json!({"n": 1}))
+        .unwrap();
+    let repeat = outbox
+        .enqueue_deduped("report-1", "usage", json!({"n": 2}))
+        .unwrap();
+    assert_eq!(
+        repeat, first,
+        "a repeated key returns the original acceptance"
+    );
+    assert_eq!(outbox.len(), 1);
+
+    // Upload ack removes the event, never the receipt.
+    outbox.acknowledge(&[first]).unwrap();
+    assert_eq!(outbox.len(), 0);
+    drop(outbox);
+
+    // After a restart the receipt is still durable in the ledger.
+    let outbox = Outbox::open(&ledger, consent, OutboxConfig::default());
+    let after_ack = outbox
+        .enqueue_deduped("report-1", "usage", json!({"n": 3}))
+        .unwrap();
+    assert_eq!(after_ack, first);
+    assert_eq!(outbox.len(), 0, "no duplicate is stored after ack");
+
+    assert!(outbox.retire_dedupe("report-1").unwrap());
+    assert!(!outbox.retire_dedupe("report-1").unwrap());
+    let fresh = outbox
+        .enqueue_deduped("report-1", "usage", json!({"n": 4}))
+        .unwrap();
+    assert_ne!(fresh, first);
+    assert_eq!(outbox.len(), 1);
+}
+
+#[test]
+fn dedupe_holds_across_two_instances_sharing_one_ledger() {
+    let dir = temp_dir("dedupe-instances");
+    let consent = ConsentStore::new(dir.join("consent.json"));
+    consent.grant("v1").unwrap();
+    let ledger = dir.join("outbox.json");
+    let open_instance = || {
+        Arc::new(Outbox::open(
+            &ledger,
+            ConsentStore::new(dir.join("consent.json")),
+            OutboxConfig::default(),
+        ))
+    };
+    // Two instances are the cross-process stand-in: the sidecar file lock plus
+    // reload-under-lock is what serialises them.
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let instance = open_instance();
+            thread::spawn(move || {
+                let mut ids = Vec::new();
+                for _ in 0..8 {
+                    ids.push(
+                        instance
+                            .enqueue_deduped("shared", "usage", json!({"x": 1}))
+                            .unwrap(),
+                    );
+                }
+                ids
+            })
+        })
+        .collect();
+    let mut all_ids: Vec<u64> = handles
+        .into_iter()
+        .flat_map(|h| h.join().unwrap())
+        .collect();
+    all_ids.dedup();
+    assert_eq!(all_ids.len(), 1, "every caller got the one acceptance");
+    assert_eq!(open_instance().len(), 1, "exactly one event was stored");
+}
+
+#[test]
+fn permanent_rejection_with_failed_ack_retains_pending_without_spinning() {
+    let dir = temp_dir("reject-ack-fails");
+    let server = MockServer::start();
+    let consent = ConsentStore::new(dir.join("consent.json"));
+    consent.grant("v1").unwrap();
+    let ledger = dir.join("outbox.json");
+    let outbox = Arc::new(Outbox::open(&ledger, consent, OutboxConfig::default()));
+    let mut config = UploadConfig::new(&server.url, "ExampleApp", "1.0.0");
+    config.base_backoff_secs = 1;
+    let uploader =
+        Uploader::new(outbox.clone(), Box::new(HttpTransport::new("e2e")), config).unwrap();
+    outbox.enqueue("usage", json!({"x": 1})).unwrap();
+
+    // The ledger can no longer be replaced (a directory sits at its path), so
+    // the ack persist fails after the server's permanent 422.
+    std::fs::remove_file(&ledger).unwrap();
+    std::fs::create_dir(&ledger).unwrap();
+    server.script(&[(422, None); 4]);
+
+    let report = uploader.flush();
+    assert!(
+        matches!(
+            report.state,
+            FlushState::Retrying {
+                status: Some(422),
+                ..
+            }
+        ),
+        "{report:?}"
+    );
+    assert_eq!(
+        report.rejected, 0,
+        "no rejected counter without a durable ack"
+    );
+    assert_eq!(report.remaining, 1, "the event stays pending");
+    assert_eq!(
+        server.count(),
+        1,
+        "the failed ack did not re-post in a spin"
+    );
 }
 
 #[test]
@@ -381,4 +510,120 @@ fn async_writer_never_blocks_and_accounts_for_every_event() {
         assert_eq!(value["event"], "tick");
     }
     assert_eq!(lines.len() as u64 + writer.dropped(), 1000);
+}
+
+#[test]
+fn outstanding_acceptances_backpressure_instead_of_evicting_receipts() {
+    let dir = temp_dir("receipt-cap");
+    let consent = ConsentStore::new(dir.join("consent.json"));
+    consent.grant("v1").unwrap();
+    let path = dir.join("outbox.json");
+    let config = OutboxConfig {
+        max_events: 1,
+        ..OutboxConfig::default()
+    };
+    let outbox = Outbox::open(&path, consent.clone(), config.clone());
+    let first = outbox.enqueue_deduped("a", "crash", json!({})).unwrap();
+    assert!(outbox.enqueue("usage", json!({})).is_err());
+    assert_eq!(outbox.pending(10, i64::MAX)[0].id, first);
+    outbox.acknowledge(&[first]).unwrap();
+    let second = outbox.enqueue_deduped("b", "crash", json!({})).unwrap();
+    outbox.acknowledge(&[second]).unwrap();
+    assert!(outbox.enqueue_deduped("c", "crash", json!({})).is_err());
+    drop(outbox);
+    let outbox = Outbox::open(&path, consent, config);
+    assert_eq!(
+        outbox.enqueue_deduped("a", "crash", json!({})).unwrap(),
+        first
+    );
+    assert!(outbox.is_empty());
+    outbox.retire_dedupe("b").unwrap();
+    let third = outbox.enqueue_deduped("c", "crash", json!({})).unwrap();
+    outbox.acknowledge(&[third]).unwrap();
+    assert_eq!(
+        outbox.enqueue_deduped("a", "crash", json!({})).unwrap(),
+        first
+    );
+    assert!(outbox.is_empty());
+}
+
+fn wait_for_lock_fixture(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !path.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "lock fixture timed out: {}",
+            path.display()
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn child_purge_lock_waiter() {
+    let Ok(dir) = std::env::var("RK_PURGE_LOCK_CHILD") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let waiter = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.join("outbox.json.lock"))
+        .unwrap();
+    std::fs::write(dir.join("opened"), b"").unwrap();
+    waiter.lock().unwrap();
+    std::fs::write(dir.join("acquired"), b"").unwrap();
+    wait_for_lock_fixture(&dir.join("unlock"));
+    waiter.unlock().unwrap();
+    std::fs::write(dir.join("unlocked"), b"").unwrap();
+    // Retain the exact handle that was blocked before purge.
+    wait_for_lock_fixture(&dir.join("relock"));
+    waiter.lock().unwrap();
+    std::fs::write(dir.join("held"), b"").unwrap();
+    wait_for_lock_fixture(&dir.join("release"));
+}
+
+#[test]
+fn purge_keeps_blocked_process_waiter_on_same_coordination_object() {
+    let dir = temp_dir("purge-lock");
+    let consent = ConsentStore::new(dir.join("consent.json"));
+    consent.grant("v1").unwrap();
+    let outbox = Outbox::open(dir.join("outbox.json"), consent, OutboxConfig::default());
+    outbox.enqueue("usage", json!({})).unwrap();
+    let original = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.join("outbox.json.lock"))
+        .unwrap();
+    original.lock().unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "child_purge_lock_waiter", "--test-threads=1"])
+        .env("RK_PURGE_LOCK_CHILD", &dir)
+        .spawn()
+        .unwrap();
+    wait_for_lock_fixture(&dir.join("opened"));
+    thread::sleep(Duration::from_millis(100));
+    assert!(
+        !dir.join("acquired").exists(),
+        "waiter must block on original lock"
+    );
+    drop(original);
+    wait_for_lock_fixture(&dir.join("acquired"));
+    std::fs::write(dir.join("unlock"), b"").unwrap();
+    wait_for_lock_fixture(&dir.join("unlocked"));
+    outbox.purge().unwrap();
+    std::fs::write(dir.join("relock"), b"").unwrap();
+    wait_for_lock_fixture(&dir.join("held"));
+    let newcomer = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("outbox.json.lock"))
+        .unwrap();
+    let same_lock = newcomer.try_lock().is_err();
+    std::fs::write(dir.join("release"), b"").unwrap();
+    assert!(child.wait().unwrap().success());
+    assert!(
+        same_lock,
+        "purge split the blocked waiter's coordination inode"
+    );
+    drop(newcomer);
 }

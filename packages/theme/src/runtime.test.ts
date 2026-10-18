@@ -10,9 +10,14 @@ function fakeEl() {
   };
 }
 
-function runBoot(script: string, stored: string | null, el: ReturnType<typeof fakeEl>) {
-  const localStorage = { getItem: () => stored };
-  new Function("localStorage", "document", script)(localStorage, { documentElement: el });
+function runBoot(script: string, stored: string | null | "throw", el: ReturnType<typeof fakeEl>, dark = false) {
+  const localStorage = {
+    getItem: () => {
+      if (stored === "throw") throw new Error("blocked");
+      return stored;
+    },
+  };
+  new Function("localStorage", "document", "matchMedia", script)(localStorage, { documentElement: el }, () => ({ matches: dark }));
 }
 
 describe("themeAttributeValue / applyThemeAttribute", () => {
@@ -37,26 +42,44 @@ describe("themeAttributeValue / applyThemeAttribute", () => {
   });
 });
 
-describe("themeBootScript", () => {
-  it("is unchanged without options", () => {
-    expect(themeBootScript("k")).toBe(
-      '(function(){try{var v=localStorage.getItem("k");if(v==="light"||v==="dark")document.documentElement.setAttribute("data-theme",v);}catch(e){}})();',
-    );
-    const el = fakeEl();
-    runBoot(themeBootScript("k"), "dark", el);
-    expect(el.attrs.get("data-theme")).toBe("dark");
+describe("themeBootScript (consolidated first paint)", () => {
+  it("applies stored choice, resolves system, falls back on throwing storage", () => {
+    const s = themeBootScript("k");
+    const dark = fakeEl();
+    runBoot(s, "dark", dark, false);
+    expect(dark.attrs.get("data-theme")).toBe("dark");
+    const sysDark = fakeEl();
+    runBoot(s, "system", sysDark, true);
+    expect(sysDark.attrs.get("data-theme")).toBe("dark");
+    const none = fakeEl();
+    runBoot(s, null, none, false);
+    expect(none.attrs.get("data-theme")).toBe("light");
+    const thrown = fakeEl();
+    runBoot(themeBootScript("k", { defaultChoice: "dark" }), "throw", thrown, false);
+    expect(thrown.attrs.get("data-theme")).toBe("dark");
   });
 
-  it("darkRemovesAttribute: stored dark leaves the attribute off, light sets it, system/none leaves it", () => {
+  it("darkRemovesAttribute: resolved dark removes, light writes", () => {
     const s = themeBootScript("k", { darkRemovesAttribute: true });
-    for (const [stored, want] of [["dark", undefined], ["light", "light"], ["system", undefined], [null, undefined]] as const) {
-      const el = fakeEl();
-      el.attrs.set("data-theme", "stale");
-      runBoot(s, stored, el);
-      if (stored === "dark") expect(el.attrs.has("data-theme")).toBe(false);
-      else if (want) expect(el.attrs.get("data-theme")).toBe(want);
-      else expect(el.attrs.get("data-theme")).toBe("stale");
-    }
+    const dark = fakeEl();
+    dark.attrs.set("data-theme", "stale");
+    runBoot(s, "dark", dark);
+    expect(dark.attrs.has("data-theme")).toBe(false);
+    const sysDark = fakeEl();
+    sysDark.attrs.set("data-theme", "stale");
+    runBoot(s, "system", sysDark, true);
+    expect(sysDark.attrs.has("data-theme")).toBe(false);
+    const light = fakeEl();
+    runBoot(s, "light", light);
+    expect(light.attrs.get("data-theme")).toBe("light");
+  });
+
+  it("alwaysPaintDataTheme:false removes attribute for system; script is inline-safe", () => {
+    const el = fakeEl();
+    el.attrs.set("data-theme", "dark");
+    runBoot(themeBootScript("k", { alwaysPaintDataTheme: false }), "system", el, true);
+    expect(el.attrs.has("data-theme")).toBe(false);
+    expect(themeBootScript('a</script>"')).not.toContain("</script>");
   });
 });
 

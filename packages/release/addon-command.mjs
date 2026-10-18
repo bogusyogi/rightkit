@@ -172,11 +172,10 @@ async function adopt(options) {
     }
   }
   copyFileSync(path.join(source, "addon-manifest.json"), path.join(stage, "addon-manifest.json"));
-  // Directory rename is atomic on one filesystem. The previous add-on stays beside the fixed path as
-  // `<destination>.previous` (one copy, rename it back to roll back; never run from it) and is restored if
-  // replacement fails.
+  // Directory rename is atomic on one filesystem. No `<destination>.previous` is retained (D01): the
+  // verified staged copy replaces the fixed path and any stale `.previous` is removed.
   mkdirSync(output, { recursive: true });
-  swapInPlace({ staging: stage, destination });
+  swapInPlace({ staging: stage, destination, previous: null });
   if (temporary) rmSync(temporary, { recursive: true, force: true });
   const repoRoot = git(path.dirname(lockPath), ["rev-parse", "--show-toplevel"]);
   const receipt = path.join(repoRoot, ".right-release", "addons", "adoptions", `${manifest.addon}-${manifest.platform}.json`);

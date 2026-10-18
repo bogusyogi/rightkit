@@ -48,4 +48,29 @@ describe("ranking (moved from app-shell)", () => {
     expect(rankItems(items, "save").map((i) => i.label)).toEqual(["Save", "Save As…"]);
     expect(rankItems(items, "", 2)).toHaveLength(2);
   });
+  it("opt-in sub-label and alias tiers; default ignores sub/aliases and keeps input-order ties", () => {
+    const extended = [
+      { label: "Zeta Save" },
+      { label: "Alpha", sub: "save file", aliases: ["persist"] },
+      { label: "Beta", aliases: ["save"] },
+    ];
+    // Default: only label matching; sub/alias-only items do not match via those fields.
+    expect(rankItems(extended, "persist").map((i) => i.label)).toEqual([]);
+    expect(rankItems(extended, "save").map((i) => i.label)).toEqual(["Zeta Save"]);
+    // Opt-in: alias exact (Beta) above word-start label (Zeta Save), sub prefix (Alpha) below them.
+    expect(rankItems(extended, "save", 50, { subLabel: true, aliasTiers: true }).map((i) => i.label)).toEqual(["Beta", "Zeta Save", "Alpha"]);
+    expect(rankItems(extended, "persist", 50, { aliasTiers: true }).map((i) => i.label)).toEqual(["Alpha"]);
+    expect(rankItems(extended, "per", 50, { aliasTiers: true }).map((i) => i.label)).toEqual(["Alpha"]);
+  });
+  it("opt-in label tie-break reorders equal scores; default remains input order", () => {
+    const ties = [{ label: "Zulu" }, { label: "Alpha" }];
+    // Both contain "l" as substring at different positions, so use equal keyword tier instead.
+    const equal = [
+      { label: "Zulu", keywords: ["go"] },
+      { label: "Alpha", keywords: ["go"] },
+    ];
+    expect(rankItems(equal, "go").map((i) => i.label)).toEqual(["Zulu", "Alpha"]);
+    expect(rankItems(equal, "go", 50, { tieBreak: "label" }).map((i) => i.label)).toEqual(["Alpha", "Zulu"]);
+    expect(rankItems(ties, "").map((i) => i.label)).toEqual(["Zulu", "Alpha"]);
+  });
 });

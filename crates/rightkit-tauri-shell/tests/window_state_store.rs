@@ -182,6 +182,37 @@ fn the_store_works_standalone_with_an_explicit_directory_and_never_restores_by_i
 }
 
 #[test]
+fn concurrent_saves_keep_every_label_and_leave_no_staging_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = std::sync::Arc::new(WindowStateStore::new(dir.path().to_path_buf()));
+    std::thread::scope(|scope| {
+        for i in 0..8 {
+            let store = store.clone();
+            scope.spawn(move || {
+                for round in 0..10 {
+                    let mut state = saved(false);
+                    state.x = f64::from(i * 100 + round);
+                    store.save_state(&format!("w{i}"), state).unwrap();
+                }
+            });
+        }
+    });
+    for i in 0..8 {
+        let state = store.saved(&format!("w{i}")).expect("label kept");
+        assert_eq!(state.x, f64::from(i * 100 + 9), "newest save wins for w{i}");
+    }
+    // The live file is valid JSON and unique staging files never linger after publication.
+    let raw = std::fs::read_to_string(dir.path().join("window-state.json")).unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(&raw).is_ok());
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .filter(|n| n.contains(".tmp"))
+        .collect();
+    assert_eq!(leftovers, Vec::<String>::new());
+}
+
+#[test]
 fn restore_against_a_runtime_with_no_shell_state_is_a_clean_no() {
     let app = tauri::test::mock_app();
     let _w = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())

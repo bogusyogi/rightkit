@@ -289,7 +289,7 @@ export function renderPowerShellBootstrap({
     "$AcceptedSigners = @{}; $Contract.acceptedManifestSigners.PSObject.Properties | ForEach-Object { $AcceptedSigners[$_.Name] = $_.Value }",
     "$InstallRoot = Join-Path $env:LOCALAPPDATA " + psQuote(installRootSubdir),
     // In place at one fixed path: no versions/ folder, no per-version, per-digest or per-run directory, no junction.
-    // `current` is the real install; `current.staging` is written and verified but never run; `current.previous` is the one rollback copy.
+    // `current` is the real install; `current.staging` is written and verified but never run; `current.previous` is a transient park, deleted on success.
     "$Current = Join-Path $InstallRoot 'current'",
     "$Staging = Join-Path $InstallRoot 'current.staging'",
     "$Previous = Join-Path $InstallRoot 'current.previous'",
@@ -436,7 +436,6 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
     "$PriorCliCapable = $true; if ($Contract.priorExecutableMinVersion) { $PriorCliCapable = ($null -ne $PriorVersion -and ([version]$PriorVersion -ge [version]$Contract.priorExecutableMinVersion)) }",
     "$PriorStatus = $null; if ($PriorTarget -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); try { $PriorStatus = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 60) | Out-String).Trim() } catch {} }",
     "@{ schemaVersion=1; priorTarget=$PriorTarget; priorVersion=$PriorVersion; targetVersion=$Version; priorStatus=$PriorStatus } | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Journal",
-    "$PriorWasJunction = $false; $CurrentItem = Get-Item -LiteralPath $Current -Force -ErrorAction SilentlyContinue; if ($CurrentItem -and $CurrentItem.LinkType -eq 'Junction') { $PriorWasJunction = $true }",
     "Remove-Retired $Previous",
     "$Switched = $false; $PriorDetached = $false",
     "try {",
@@ -449,10 +448,10 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
     "  $HealthText = ((Invoke-BoundedExe $StableExe $StatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Health command failed' }; $Health = $HealthText | ConvertFrom-Json",
     "  Assert-Health $Health $Version",
     "  $StableBin = Split-Path $StableExe -Parent; $InstallRootResolved = [IO.Path]::GetFullPath($InstallRoot).TrimEnd([IO.Path]::DirectorySeparatorChar); $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); $Kept = @($UserPath -split ';' | Where-Object { $Entry = $_.Trim(); $Entry -ne '' -and -not ($Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).StartsWith(($InstallRootResolved + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -and -not $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($StableBin.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) }); $NewPath = ((@($StableBin) + $Kept) -join ';'); if ($NewPath -ne $UserPath) { [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User') }",
-    // Legacy cleanup only: the old layout's versions/ folder and its pointer junctions are removed once nothing needs them
-    // (a legacy `current` junction that was just moved to current.previous keeps its versions/ target until the next install).
-    "  $LegacyVersions = Join-Path $InstallRoot 'versions'; if (-not $PriorWasJunction -and (Test-Path -LiteralPath $LegacyVersions)) { try { Remove-Item -LiteralPath $LegacyVersions -Recurse -Force -ErrorAction SilentlyContinue } catch { } }; foreach ($Legacy in @('.current-previous', '.current-next')) { try { Remove-Retired (Join-Path $InstallRoot $Legacy) } catch { } }",
-    "  Remove-Item -Force $Journal; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
+    // Fixed-path install only (D01): no versioned folders, pointer junctions or legacy-layout cleanup in the
+    // generated script. A pre-existing legacy layout under $InstallRoot is left untouched, never deleted whole.
+    // No retained rollback copy (D01): $Previous is a transient park, deleted once health passes.
+    "  Remove-Retired $Previous; Remove-Item -Force $Journal; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
     "  $InstallError = $_; $RollbackErrors = New-Object 'System.Collections.Generic.List[string]'",
     "  try { if ($Switched) { Remove-Retired $Current }; if ($PriorDetached -and (Test-Path -LiteralPath $Previous)) { Rename-Item -LiteralPath $Previous -NewName (Split-Path -Leaf $Current) } } catch { $RollbackErrors.Add($_.Exception.Message) }",

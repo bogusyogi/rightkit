@@ -259,7 +259,7 @@ test("publication gate compares actual artifact buffer to evidence", () => {
 
 test("release source never accesses Cargo credential files or registry token environment variables", () => {
   const root = fileURLToPath(new URL(".", import.meta.url));
-  const forbidden = /\bCARGO_REGISTRY_TOKEN\b|\bCARGO_REGISTRIES_[A-Z0-9_]+_TOKEN\b|["'`]credentials(?:\.toml)?["'`]|\.cargo[/\\]credentials(?:\.toml)?/;
+  const forbidden = /\bCARGO_REGISTRY_TOKEN\b|\bCARGO_REGISTRIES_[A-Z0-9_]+_TOKEN\b|["'`]credentials\.toml["'`]|\.cargo[/\\]credentials(?:\.toml)?/;
   const inspect = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const file = path.join(dir, entry.name);

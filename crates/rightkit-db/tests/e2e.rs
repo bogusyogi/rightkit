@@ -2,8 +2,8 @@
 //! and a child process killed while a migration owns its marker.
 
 use rightkit_db::{
-    migrate, pending_marker, rollback_to, DbError, DbOptions, MigrateOptions, Migration,
-    RecoveryPolicy,
+    migrate, online_backup_to, pending_marker, rollback_to, BackupProgress, DbError, DbOptions,
+    MigrateOptions, Migration, RecoveryPolicy,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -219,6 +219,87 @@ fn corrupt_plain_database_is_quarantined_without_deletion() {
     assert!(outcome.conn.is_autocommit());
 }
 
+struct CancelImmediately;
+
+impl BackupProgress for CancelImmediately {
+    fn step(&mut self, _remaining: i32) -> bool {
+        false
+    }
+}
+
+fn staging_names(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| {
+            entry
+                .ok()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+        })
+        .filter(|name| name.contains(".rktmp-"))
+        .collect()
+}
+
+#[test]
+fn cancelled_backup_preserves_the_target_and_cleans_its_staging() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.sqlite");
+    let options = DbOptions::new(&path);
+    let conn = options.open_writer().unwrap();
+    conn.execute_batch("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);")
+        .unwrap();
+    let target = dir.path().join("backup.sqlite");
+    std::fs::write(&target, b"previous backup").unwrap();
+    let mut cancel = CancelImmediately;
+    let error = online_backup_to(&options, &conn, &target, Some(&mut cancel)).unwrap_err();
+    assert!(matches!(error, DbError::Backup(_)), "{error:?}");
+    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+    assert!(staging_names(dir.path()).is_empty());
+}
+
+#[test]
+fn invalid_key_is_rejected_before_any_staging_or_target_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.sqlite");
+    let options = DbOptions::new(&path);
+    let conn = options.open_writer().unwrap();
+    conn.execute_batch("CREATE TABLE t(v INTEGER);").unwrap();
+    let target = dir.path().join("backup.sqlite");
+    std::fs::write(&target, b"previous backup").unwrap();
+    let bad_key = DbOptions::new(&path).with_passphrase("bad'key");
+    assert!(online_backup_to(&bad_key, &conn, &target, None).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+    assert!(staging_names(dir.path()).is_empty());
+}
+
+#[test]
+fn busy_backup_without_a_callback_terminates_and_preserves_the_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.sqlite");
+    let options = DbOptions::new(&path);
+    let conn = options.open_writer().unwrap();
+    conn.execute_batch("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);")
+        .unwrap();
+    let locker = options.open_writer().unwrap();
+    locker
+        .execute_batch("BEGIN EXCLUSIVE; INSERT INTO t VALUES (2);")
+        .unwrap();
+    let target = dir.path().join("backup.sqlite");
+    std::fs::write(&target, b"previous backup").unwrap();
+    let mut short = DbOptions::new(&path);
+    short.busy_timeout = Duration::from_millis(50);
+    let started = std::time::Instant::now();
+    let result = online_backup_to(&short, &conn, &target, None);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "finite deadline"
+    );
+    if result.is_err() {
+        assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+        assert!(staging_names(dir.path()).is_empty());
+    }
+    let _ = locker.execute_batch("ROLLBACK;");
+}
+
 #[cfg(feature = "cipher")]
 #[test]
 fn sqlcipher_rekey_and_candidate_recovery_round_trip() {
@@ -258,4 +339,56 @@ fn sqlcipher_rekey_and_candidate_recovery_round_trip() {
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn recurring_backup_progress_cannot_extend_the_operation_deadline() {
+    struct SlowProgress {
+        calls: usize,
+    }
+    impl BackupProgress for SlowProgress {
+        fn step(&mut self, remaining: i32) -> bool {
+            assert!(remaining > 0, "fixture must still be making progress");
+            self.calls += 1;
+            std::thread::sleep(Duration::from_millis(20));
+            true
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let options = DbOptions::new(dir.path().join("source.sqlite"));
+    let conn = options.open_writer().unwrap();
+    // Many more pages than several 512-page steps, without wall-clock write races.
+    conn.execute_batch("CREATE TABLE t(v BLOB); INSERT INTO t VALUES(zeroblob(33554432));")
+        .unwrap();
+    let target = dir.path().join("backup.sqlite");
+    std::fs::write(&target, b"previous backup").unwrap();
+    let mut bounded = DbOptions::new(&options.path);
+    bounded.busy_timeout = Duration::from_millis(150);
+    let mut progress = SlowProgress { calls: 0 };
+    let result = online_backup_to(&bounded, &conn, &target, Some(&mut progress));
+    assert!(matches!(result, Err(DbError::Backup(message)) if message.contains("timeout")));
+    assert!(progress.calls > 1, "deadline covers recurring progress");
+    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+    assert!(staging_names(dir.path()).is_empty());
+}
+
+#[test]
+fn even_a_completed_step_cannot_publish_after_its_callback_exceeds_deadline() {
+    struct SlowCallback;
+    impl BackupProgress for SlowCallback {
+        fn step(&mut self, _remaining: i32) -> bool {
+            std::thread::sleep(Duration::from_millis(100));
+            true
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = DbOptions::new(dir.path().join("source.sqlite"));
+    let conn = options.open_writer().unwrap();
+    conn.execute_batch("CREATE TABLE t(v);").unwrap();
+    options.busy_timeout = Duration::from_millis(50);
+    let target = dir.path().join("backup.sqlite");
+    std::fs::write(&target, b"previous backup").unwrap();
+    assert!(online_backup_to(&options, &conn, &target, Some(&mut SlowCallback)).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+    assert!(staging_names(dir.path()).is_empty());
 }

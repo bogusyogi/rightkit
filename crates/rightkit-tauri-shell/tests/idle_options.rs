@@ -317,3 +317,21 @@ fn minimise_restore_double_minimise_and_restore_while_not_suspended_on_the_machi
         rightkit_tauri_shell::idle::IdleAction::None
     );
 }
+
+#[test]
+fn window_hide_and_show_feed_idle_for_the_configured_main_label_not_a_literal() {
+    // The command needs a live Tauri window, so the label source is pinned textually (D08:
+    // a literal `main` silently starved idle for every custom-labelled app).
+    let commands = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands.rs"),
+    )
+    .unwrap();
+    assert!(!commands.contains("window.label() == \"main\""));
+    assert_eq!(
+        commands
+            .matches("window.app_handle().state::<ShellState>().main_label")
+            .count(),
+        3,
+        "hide visibility, hide idle and show idle all use the configured label"
+    );
+}

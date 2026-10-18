@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { aliasTokens, applyTokens, fontTokens, presetTokens, SUITE_ALIASES, type StyleTarget } from "./tokens.js";
+import { aliasTokens, applyTokens, fontTokens, presetTokens, shade, SUITE_ALIASES, type StyleTarget } from "./tokens.js";
 import { applyBrand } from "./runtime.js";
 import { aliasCss, presetCss, tailwindThemeCss } from "./css.js";
 
@@ -84,6 +84,27 @@ describe("presets and fonts", () => {
 
   it("maps a body font stack onto --rk-font-body", () => {
     expect(fontTokens({ body: "Inter, sans-serif" })).toEqual({ "--rk-font-body": "Inter, sans-serif" });
+  });
+});
+
+describe("shade (additive 255*amount)", () => {
+  it("moves each channel by 255*amount with donor rounding", () => {
+    // 255*0.06 = 15.3 -> +15 after Math.round per channel.
+    expect(shade("#2A2A2E", 0.06)).toBe("#39393d");
+    expect(shade("#E6DECF", -0.06)).toBe("#d7cfc0");
+    expect(shade("#000000", 0.5)).toBe("#808080");
+    expect(shade("2a2a2e", 0)).toBe("#2a2a2e");
+  });
+  it("clamps to 0..255", () => {
+    expect(shade("#FFFFFF", 0.06)).toBe("#ffffff");
+    expect(shade("#000000", -0.06)).toBe("#000000");
+    expect(shade("#FEFEFE", 1)).toBe("#ffffff");
+  });
+  it("returns invalid input unchanged", () => {
+    expect(shade("#FFF", 0.06)).toBe("#FFF");
+    expect(shade("red", 0.06)).toBe("red");
+    expect(shade("", 0.06)).toBe("");
+    expect(shade("#GGGGGG", 0.06)).toBe("#GGGGGG");
   });
 });
 

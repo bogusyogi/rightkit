@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — unpublished staging
+
+- Validates structured expiry data before accepting a license.
+
 ## 0.2.2 (2026-10-17)
 
 Additive; no existing signature, field, variant or behaviour changed, no dependency change. Not compiled when written; verification is the CI run.

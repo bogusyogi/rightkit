@@ -12,7 +12,7 @@ categories = ["cryptography"]
 include = ["src/**", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.2.2", path = "../rightkit-credentials" }
 rightkit-http = { version = "0.3.1", path = "../rightkit-http" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

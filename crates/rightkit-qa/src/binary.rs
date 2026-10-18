@@ -27,9 +27,9 @@
 //!
 //! macOS ties privacy grants to the path an app runs from, and the broker's target folders change per
 //! generation (`ws/<hash>/g/<gen>/...`). [`resolve_stashed`] (what `QaConfig::resolve_ui_binary` and the suite
-//! use) therefore ALWAYS returns the fixed stash copy under the app root, copied in place with a kept
-//! `<bin>.previous`, whichever source found the build. A QA launch never runs from a broker generation path
-//! or from `.previous`.
+//! use) therefore ALWAYS returns the fixed stash copy under the app root, copied in place with no
+//! retained copy of the replaced build (D01), whichever source found the build. A QA launch never
+//! runs from a broker generation path.
 //!
 //! Every candidate must exist, be a regular file, be named `<bin>` (or `<bin>.exe`) and must not sit in a
 //! `release` profile directory. A shipping or release-tier artifact is never picked.
@@ -393,11 +393,11 @@ pub fn is_stashed(path: &Path, app_root: &Path) -> bool {
 
 /// [`resolve`], then ALWAYS the fixed stash: whichever source wins (env, pointer, broker target or an
 /// app-root path), the returned path is the stash copy `<app_root>/.rightkit-qa-bin/<triple>/<bin>`, copied
-/// in place with a kept `<bin>.previous` ([`stash_qa_build`]). A QA launch therefore never runs from a
-/// broker generation path (`ws/<hash>/g/<gen>/...`, a new folder on every generation) or from
-/// `target/debug`, so macOS privacy grants keep one path. `source` still names where the build was
-/// found. The pointer file is not rewritten (a fresh build is picked up on the next run); the stash
-/// copy of the same bytes does not rotate `.previous`.
+/// in place with no retained copy of the replaced build ([`stash_qa_build`], D01). A QA launch
+/// therefore never runs from a broker generation path (`ws/<hash>/g/<gen>/...`, a new folder on every
+/// generation) or from `target/debug`, so macOS privacy grants keep one path. `source` still names
+/// where the build was found. The pointer file is not rewritten (a fresh build is picked up on the
+/// next run).
 pub fn resolve_stashed(q: &BinaryQuery) -> Result<ResolvedBinary> {
     let found = resolve(q)?;
     if is_stashed(&found.path, q.app_root) {
@@ -411,8 +411,9 @@ pub fn resolve_stashed(q: &BinaryQuery) -> Result<ResolvedBinary> {
 }
 
 /// After a successful `--build-ui`: copy the built QA executable (and a sibling `.pdb`) to
-/// `<app_root>/<STASH_DIR>/<triple-or-host>/<name>` in place (staging copy, then rename, keeping
-/// `<name>.previous`), and point `<app_root>/.rightkit-qa-app-binary` (or `pointer_file`) at the copy.
+/// `<app_root>/<STASH_DIR>/<triple-or-host>/<name>` in place (staging copy, then rename, retaining
+/// no copy of the replaced build), and point `<app_root>/.rightkit-qa-app-binary` (or
+/// `pointer_file`) at the copy.
 /// A later plain dev build that overwrites `debug/<bin>` then cannot displace it. The built file must
 /// carry the control marker.
 pub fn stash_qa_build(exe: &Path, app_root: &Path, pointer_file: Option<&str>) -> Result<PathBuf> {
@@ -775,7 +776,7 @@ mod tests {
         assert!(is_stashed(&got.path, &app));
         assert!(got.path.starts_with(app.join(STASH_DIR)));
         assert!(!got.path.starts_with(&ws));
-        // A new generation lands in a new folder; the launch path stays the same, `.previous` keeps the old copy.
+        // A new generation lands in a new folder; the launch path stays the same and no copy of the replaced build is kept.
         let gen2 = ws.join("g/002/t/debug").join(exe("myapp"));
         std::fs::create_dir_all(gen2.parent().unwrap()).unwrap();
         std::fs::write(
@@ -785,7 +786,10 @@ mod tests {
         .unwrap();
         let later = resolve_stashed(&query("myapp", &app, b, &env)).unwrap();
         assert_eq!(later.path, got.path);
-        assert!(crate::inplace::previous_path(&got.path).is_file());
+        assert!(
+            !crate::inplace::previous_path(&got.path).exists(),
+            "no retained .previous copy (D01)"
+        );
         // The app-root source is stashed too, and an env override is no exception.
         let rel = app.join("target/debug/myapp");
         touch(&rel, 5);
@@ -821,7 +825,7 @@ mod tests {
         );
         assert!(has_qa_marker(&got).unwrap());
         assert!(got.with_extension("pdb").is_file());
-        // Stashing a different build replaces it in place and keeps exactly one `.previous`.
+        // Stashing a different build replaces it in place and keeps no `.previous` (D01).
         write_exe(&built, 3, true);
         std::fs::write(
             &built,
@@ -831,8 +835,7 @@ mod tests {
         let again = stash_qa_build(&built, &app, None).unwrap();
         assert_eq!(again, got);
         let prev = crate::inplace::previous_path(&got);
-        assert!(prev.is_file(), "the earlier stash is kept as .previous");
-        assert!(!has_qa_marker(&prev).is_err());
+        assert!(!prev.exists(), "the earlier stash is not retained (D01)");
         // A later plain dev build overwrites the original; the stashed copy and pointer still win.
         write_exe(&built, 1, false);
         let none = |_: &str| None;

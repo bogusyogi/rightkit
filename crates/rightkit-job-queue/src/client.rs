@@ -420,8 +420,11 @@ impl EngineClient {
         let (wtx, wrx) = channel::<(Vec<u8>, Sender<std::io::Result<()>>)>();
         let mut writer = writer;
         std::thread::spawn(move || {
-            for (bytes, reply) in wrx {
+            for (mut bytes, reply) in wrx {
                 let r = writer.write_all(&bytes).and_then(|_| writer.flush());
+                // Outbound frames may carry secrets in params: wipe before drop.
+                bytes.iter_mut().for_each(|b| *b = 0);
+                std::hint::black_box(&bytes);
                 let _ = reply.send(r);
             }
         });
@@ -849,11 +852,15 @@ impl Core {
         let frame = json!({"type": "request", "id": id, "method": method, "params": params});
         let mut bytes = Vec::new();
         if let Err(e) = write_json_line(&mut bytes, &frame, self.frame_limit) {
+            // Local encode/oversize refusal: nothing was queued or written (zero bytes
+            // reached the engine), so this is nonretryable validation (`bad_input`),
+            // never `engine_write` — a shell must not restart/retry a request the
+            // engine never saw. Attempted transport failures below stay distinct.
             self.pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&id);
-            return Err(JobError::supervisor("engine_write", e.to_string()));
+            return Err(JobError::supervisor("bad_input", e.to_string()));
         }
         let (rtx, rrx) = channel();
         let queued = self
@@ -1026,6 +1033,10 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value, fallback_code: &str
                         .unwrap_or(NO_DETAIL);
                     let mut e = JobError::new(code, message);
                     e.retryable = v["error"]["retryable"].as_bool().unwrap_or(false);
+                    // Optional structured details; absent/`null` keeps prior behavior.
+                    if let Some(d) = v["error"].get("details").filter(|d| !d.is_null()) {
+                        e = e.with_details(d.clone());
+                    }
                     Err(e)
                 };
                 let _ = p.tx.send(Msg::Done(r));

@@ -12,17 +12,10 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 
-export const FORBIDDEN_FEATURES = Object.freeze(["devtools", "content-devtools", "qa-native", "qa-control", "dev-native", "dev-inspect",
-  // Per-app test-automation features (M20 owner gap): HeardRight `qa-shot`/`qa-tools`, ViewRight `dev-control`/`bench-native`.
-  "qa-shot", "qa-tools", "dev-control", "bench-native",
-  // D4 (M21/M23): rightkit-daemon `test-mode` compiles the override selectors; never in a release build.
-  "test-mode"]);
-// rightkit-qa 0.6.0 moved the embedded control server (the former rightkit-qa-driver `qa-control`) behind its `control`
-// feature. It emits the same QA_CONTROL_MARKER, so the binary layer refuses it unchanged; this is the source layer.
-export const QUALIFIED_FORBIDDEN_FEATURES = Object.freeze(["rightkit-qa/control", "rightkit-qa?/control"]);
-// The only forbidden features an allow-listed app may enable: rightkit-tauri-shell's `content-devtools` (and the Tauri
-// `devtools` it switches on). See devtools-policy.mjs; every other app is refused them.
-const DEVTOOLS_FEATURES = Object.freeze(["devtools", "content-devtools"]);
+const featureRegistry = JSON.parse(readFileSync(new URL("./release-switch-registry.json", import.meta.url), "utf8"));
+const DEVTOOLS_FEATURES = Object.freeze(featureRegistry.conditionalForbiddenFeatures["content-only"]);
+export const FORBIDDEN_FEATURES = Object.freeze([...featureRegistry.forbiddenFeatures.filter((name) => !name.includes("/")), ...DEVTOOLS_FEATURES]);
+export const QUALIFIED_FORBIDDEN_FEATURES = Object.freeze(featureRegistry.forbiddenFeatures.filter((name) => name.includes("/")));
 const FORBIDDEN_DEPENDENCY = "tauri-plugin-wdio-webdriver";
 const MANAGERS = new Set(["pnpm", "npm", "yarn", "bun", "npx"]);
 
@@ -36,7 +29,7 @@ export function isForbiddenFeature(item, { allowDevtools = false } = {}) {
   const name = featureName(text);
   if (allowDevtools && DEVTOOLS_FEATURES.includes(name)) return false;
   // `control` is too generic to forbid by bare name; rightkit-qa's dev-only server feature is refused when qualified.
-  if (QUALIFIED_FORBIDDEN_FEATURES.includes(text.replace(/\s+/g, ""))) return true;
+  if (QUALIFIED_FORBIDDEN_FEATURES.includes(text.replace(/\s+/g, "").replace("?/", "/"))) return true;
   return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(name);
 }
 
@@ -154,6 +147,7 @@ export function parseCargoFeaturesAndDependencies(manifestText) {
 function dependencyInfo(spec) {
   const list = spec.match(/features\s*=\s*(\[)/);
   return {
+    package: spec.match(/package\s*=\s*["']([^"']+)["']/)?.[1],
     optional: /optional\s*=\s*true/.test(spec),
     features: list ? strings(balanced(spec, list.index + list[0].length - 1, "[", "]")) : [],
   };
@@ -162,6 +156,15 @@ function dependencyInfo(spec) {
 export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowDevtools = false } = {}) {
   const { features, dependencies } = parseCargoFeaturesAndDependencies(manifestText);
   const issues = [];
+  const canonicalFeature = (item) => {
+    const match = /^([^/]+?)(\?)?\/(.+)$/.exec(item);
+    return match ? `${dependencies.get(match[1])?.package ?? match[1]}/${match[3]}` : item;
+  };
+  for (const [alias, dep] of dependencies) {
+    if (dep.package && dep.package !== alias && !dep.optional) for (const feature of dep.features) {
+      if (isForbiddenFeature(`${dep.package ?? alias}/${feature}`, { allowDevtools })) issues.push(`${label}: dependency \`${alias}\` enables forbidden feature \`${dep.package ?? alias}/${feature}\``);
+    }
+  }
   const tauri = dependencies.get("tauri");
   if (!allowDevtools && tauri?.features.includes("devtools")) issues.push(`${label}: dependency \`tauri\` lists feature \`devtools\` unconditionally (inspector ships in release builds)`);
   // The crate was renamed from rightkit-control; apps still on the old published name must stay covered.
@@ -185,7 +188,7 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
     const item = stack.pop();
     if (reached.has(item)) continue;
     reached.add(item);
-    if (isForbiddenFeature(item, { allowDevtools })) issues.push(`${label}: default feature set reaches \`${item}\``);
+    if (isForbiddenFeature(canonicalFeature(item), { allowDevtools })) issues.push(`${label}: default feature set reaches \`${item}\``);
     if (features.has(item)) stack.push(...features.get(item));
   }
   return issues;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 — unpublished staging
+
+- QA homes are private and bounded, and cleanup handles legacy homes safely. Requires rightkit-fs 0.4.4 for private roots and test-mode.
+
 ## 0.6.4 (2026-10-17)
 
 - Fixed (rightkit#358, ledger 189): `set_viewport` no longer reports before the size settles. It confirms two consecutive non-empty page readings 500 ms apart (`SETTLE_INTERVAL`), even when the window already has the requested size; an unsettled readback or a placement timeout now returns `ok:false` with an `error`, and `Control::set_viewport` rejects a reply that is not `settled:true` with `placementTimedOut:false`. Hidden macOS windows keep their `constrainFrameRect:toScreen:` exemption (a window-owned Objective-C association, no class swap) through deferred AppKit layout, are reapplied inside the settle bound, and must reach the requested size; showing the window restores normal constraints. New public `embedded::set_viewport` and `ViewportWindow::requires_exact_size` (default `false`; additive). Tests: `tests/viewport.rs` (feature `control`), viewport unit tests, macOS constraint test. The `rightkit-qa-driver` native qualification test from the same patch is not applied here.

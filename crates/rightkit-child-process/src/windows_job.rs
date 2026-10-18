@@ -202,6 +202,29 @@ impl WindowsJob {
         unsafe { TerminateJobObject(self.handle, 1) }.map_err(os_error)
     }
 
+    /// How many processes are currently active in the job. Observation only; the count is
+    /// a snapshot and can change as soon as it is read.
+    pub fn active_process_count(&self) -> std::io::Result<u32> {
+        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        unsafe {
+            QueryInformationJobObject(
+                Some(self.handle),
+                JobObjectBasicAccountingInformation,
+                (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                None,
+            )
+        }
+        .map_err(os_error)?;
+        Ok(accounting.ActiveProcesses)
+    }
+
+    /// Whether no process is currently active in the job (see
+    /// [`active_process_count`](Self::active_process_count)).
+    pub fn is_empty(&self) -> std::io::Result<bool> {
+        Ok(self.active_process_count()? == 0)
+    }
+
     /// Wait at most `timeout` until every process in this Job has exited.
     ///
     /// The Job remains owned by `self` on timeout, so callers can keep its
@@ -210,18 +233,7 @@ impl WindowsJob {
         const POLL_INTERVAL: Duration = Duration::from_millis(10);
         let started = Instant::now();
         loop {
-            let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-            unsafe {
-                QueryInformationJobObject(
-                    Some(self.handle),
-                    JobObjectBasicAccountingInformation,
-                    (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
-                    std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
-                    None,
-                )
-            }
-            .map_err(os_error)?;
-            if accounting.ActiveProcesses == 0 {
+            if self.is_empty()? {
                 return Ok(true);
             }
             let remaining = timeout.saturating_sub(started.elapsed());

@@ -7,7 +7,8 @@
 //!   folder (local, cache), home from the Profile known folder, each asked of `SHGetKnownFolderPath`
 //!   by [`AppDirs::resolve`] (environment redirection of `%APPDATA%`, `%LOCALAPPDATA%` and
 //!   `%USERPROFILE%` is ignored, as the `dirs` crate does), with the variable as fallback only when
-//!   the call fails. [`AppDirs::resolve_with`] stays a pure function of the environment it is given. macOS: `~/Library/Application Support` (data and local) and
+//!   the call fails. [`AppDirs::resolve_with`] uses supplied environment for ordinary mappings;
+//!   canonical QA overrides also validate disk state & trusted protected locations. macOS: `~/Library/Application Support` (data and local) and
 //!   `~/Library/Caches` (cache). Linux: `$XDG_DATA_HOME` (else `~/.local/share`) for data and
 //!   local, `$XDG_CACHE_HOME` (else `~/.cache`) for cache. Every base must be absolute; an unset or
 //!   relative base is an error, never the working directory.
@@ -33,9 +34,13 @@
 //!   every folder is under one per-process temp root and the OS is never asked.
 //! * **QA override (feature `test-mode`).** Only a build that compiles `test-mode` reads any
 //!   override variable (the same feature name as `rightkit-daemon`, so one switch isolates both).
-//!   `RIGHTKIT_QA_DATA_DIR` becomes the data folder (`local`, `cache` and `home` live under it) and
-//!   `RIGHTKIT_QA_HOME` names the home folder. An app may name its own historical variables with
-//!   [`AppId::with_legacy_env`]. The override is **refused** (an error, not a fallback) when it is
+//!   `RIGHTKIT_QA_DATA_DIR` names the bound QA home itself (the root carrying
+//!   `.rightkit-app.json`); the data folder is `<root>/data`, with `local`, `cache`, `config`
+//!   under that data folder. The default `home` is the validated root itself; `RIGHTKIT_QA_HOME`
+//!   may name another independently validated bound home. The canonical root requires a truthy `RIGHTKIT_UNDER_TEST` alongside it, else
+//!   [`AppDirsError::UnpairedTestRoot`]. An app may name its own historical variables with
+//!   [`AppId::with_legacy_env`]; a legacy data variable keeps direct data-folder semantics.
+//!   The override is **refused** (an error, not a fallback) when it is
 //!   relative, contains `..`, or points at or inside a real per-user app folder of this app.
 //!   A release build (without `test-mode`) contains none of these variable names and reads none.
 //!
@@ -47,14 +52,14 @@
 //!   own id), so no org or `Dev` namespace is added. The injected constructor is compiled on every
 //!   target, so host tests cover it.
 //!
-//! All the logic is in [`AppDirs::resolve_with`], a pure function over an injected environment.
+//! Normal mappings are pure over an injected environment; canonical QA roots additionally use
+//! filesystem validation with trusted native locations or [`Options::protected_paths`].
+//! Native fallback uses account/known-folder locations, ignoring redirected HOME/XDG/APPDATA.
+//! Hosts with custom real XDG locations must supply those through [`Options::protected_paths`].
 //! Nothing here creates a directory except [`AppDirs::create_all`].
 //!
-//! Known limit: the real-folder check compares against bases taken from the same environment, so it
-//! catches an override aimed at the real app folders of this process's environment, not at a real
-//! folder the launcher hid by redirecting `APPDATA`/`HOME` (the QA workspace redirects them on
-//! purpose). `rightkit_daemon::Suite::per_user_default` reads the account database for that; this
-//! crate does not duplicate it.
+//! Historical selectors retain lexical checks against supplied bases. Canonical roots use the
+//! portable validation contract and trusted locations independent of redirected HOME/APPDATA.
 
 use std::ffi::OsString;
 use std::io;
@@ -69,11 +74,17 @@ pub const QA_DATA_DIR_VAR: &str = "RIGHTKIT_QA_DATA_DIR";
 /// The home-folder override variable, read only with feature `test-mode`.
 #[cfg(feature = "test-mode")]
 pub const QA_HOME_VAR: &str = "RIGHTKIT_QA_HOME";
+/// Activation variable that must accompany [`QA_DATA_DIR_VAR`], read only with `test-mode`.
+#[cfg(feature = "test-mode")]
+const UNDER_TEST_VAR: &str = "RIGHTKIT_UNDER_TEST";
 
 /// Why folders could not be resolved.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AppDirsError {
+    #[cfg(feature = "test-mode")]
+    #[error("{0}")]
+    TestMode(#[from] crate::test_mode::Refusal),
     /// A base folder the OS mapping needs is unset or empty.
     #[error("cannot resolve the {what} folder: {why}")]
     NoBase { what: &'static str, why: String },
@@ -83,6 +94,9 @@ pub enum AppDirsError {
     /// An override points at (or inside) the real per-user folder; it is refused, not honoured.
     #[error("{var} points at the real per-user folder {}; refusing", .path.display())]
     RealFolder { var: String, path: PathBuf },
+    /// The canonical QA root is set without its activation pairing; refused, not honoured.
+    #[error("{var} is set without test activation; refusing unpaired test root {}", .path.display())]
+    UnpairedTestRoot { var: String, path: PathBuf },
     /// Android has no environment-based mapping; the folders come from the `Context`.
     #[error("Android has no environment-based folder resolution: pass the Context's filesDir and cacheDir to AppDirs::injected")]
     AndroidNeedsInjectedRoots,
@@ -126,6 +140,8 @@ impl Os {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AppId {
+    /// Runner binding identity when it differs from the installed folder name. Matching is exact.
+    pub qa_app_id: Option<&'static str>,
     /// The installed folder name, for example `ViewRight`.
     pub name: &'static str,
     /// The organisation folder; `None` keeps a flat `<base>/<name>` layout.
@@ -144,12 +160,19 @@ impl AppId {
     /// `name` under [`DEFAULT_ORG`].
     pub const fn new(name: &'static str) -> AppId {
         AppId {
+            qa_app_id: None,
             name,
             org: Some(DEFAULT_ORG),
             legacy_data_env: None,
             legacy_home_env: None,
             legacy_names: &[],
         }
+    }
+
+    /// Use the runner's canonical app key for strict QA binding validation.
+    pub const fn with_qa_app_id(mut self, id: &'static str) -> AppId {
+        self.qa_app_id = Some(id);
+        self
     }
 
     /// Earlier names of this app, most preferred first. A folder under one of them that already
@@ -200,6 +223,9 @@ impl AppId {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Options {
+    /// Trusted real locations for QA root validation. `None` uses native user locations,
+    /// ignoring QA-overridden environment variables. Hosts may supply their own trusted context.
+    pub protected_paths: Option<Vec<PathBuf>>,
     pub os: Os,
     /// Use the `<name>Dev` namespace.
     pub dev: bool,
@@ -213,6 +239,7 @@ impl Options {
     /// A release-shaped resolution for `os`: not dev, no overrides, no test root.
     pub fn new(os: Os) -> Options {
         Options {
+            protected_paths: None,
             os,
             dev: false,
             qa_overrides: false,
@@ -224,6 +251,7 @@ impl Options {
     /// feature `test-mode` is compiled, and the per-process test root under `cfg(test)`.
     pub fn current() -> Options {
         Options {
+            protected_paths: None,
             os: Os::current(),
             dev: cfg!(debug_assertions),
             qa_overrides: cfg!(feature = "test-mode"),
@@ -237,6 +265,11 @@ impl Options {
 
     pub fn dev(mut self, dev: bool) -> Options {
         self.dev = dev;
+        self
+    }
+
+    pub fn protected_paths(mut self, paths: Vec<PathBuf>) -> Options {
+        self.protected_paths = Some(paths);
         self
     }
 
@@ -299,8 +332,8 @@ impl AppDirs {
         AppDirs::resolve_with(&app, &opts, &|_| None)
     }
 
-    /// The pure resolver: `env` answers every variable lookup. It never looks at the disk, so
-    /// [`AppId::legacy_names`] are not applied; use [`AppDirs::resolve_with_legacy`] for that.
+    /// `env` answers variable lookups. Canonical QA overrides require filesystem validation;
+    /// legacy folder discovery is disabled here; use [`AppDirs::resolve_with_legacy`] for that.
     pub fn resolve_with(
         app: &AppId,
         opts: &Options,
@@ -713,11 +746,58 @@ fn read_qa(
             .flatten()
             .find_map(|n| nonempty(env, n).map(|p| (n, p)))
     };
-    let data = pick([Some(QA_DATA_DIR_VAR), app.legacy_data_env]);
+    let canonical = nonempty(env, QA_DATA_DIR_VAR).map(|p| (QA_DATA_DIR_VAR, p));
+    let legacy_data = app
+        .legacy_data_env
+        .and_then(|n| nonempty(env, n).map(|p| (n, p)));
     let home = pick([Some(QA_HOME_VAR), app.legacy_home_env]);
-    if data.is_none() && home.is_none() {
+    let activated = env(UNDER_TEST_VAR).is_some_and(|v| {
+        let text = v.to_string_lossy();
+        let text = text.trim();
+        !(text.is_empty() || text == "0" || text.eq_ignore_ascii_case("false"))
+    });
+    if activated && canonical.is_none() {
+        return Err(crate::test_mode::Refusal::ActivationWithoutRoot.into());
+    }
+    if let Some((var, root)) = &canonical {
+        if !activated {
+            return Err(AppDirsError::UnpairedTestRoot {
+                var: (*var).to_string(),
+                path: root.clone(),
+            });
+        }
+        check_absolute(opts.os, var, root)?;
+        let protected = match &opts.protected_paths {
+            Some(paths) => paths.clone(),
+            None => native_protected_paths(app)?,
+        };
+        let id = app.qa_app_id.unwrap_or(app.name);
+        let decision = crate::test_mode::decide(&crate::test_mode::Request {
+            app_id: id,
+            activated,
+            root: Some(root),
+            protected_paths: &protected,
+        })?;
+        let validated = decision
+            .test_root()
+            .expect("activated paired request yields test root");
+        let data = validated.child(Path::new("data"))?;
+        for child in ["data/local", "data/cache", "data/config"] {
+            validated.child(Path::new(child))?;
+        }
+        let home = match home {
+            Some((_, home)) => crate::test_mode::validate_root(id, &home, &protected)?
+                .path()
+                .to_path_buf(),
+            None => validated.path().to_path_buf(),
+        };
+        return Ok((Some(data), Some(home)));
+    }
+    if legacy_data.is_none() && home.is_none() {
         return Ok((None, None));
     }
+    // Legacy selectors deliberately retain their historical lexical mapping; only the canonical
+    // selector denotes a bound runner home and participates in activation pairing.
     // The real folders of this app, in both namespaces and with or without the org folder, and the
     // real home. An override at or inside the first group, or equal to the home, is refused.
     let mut inside: Vec<PathBuf> = Vec::new();
@@ -748,9 +828,100 @@ fn read_qa(
         }
         Ok(path)
     };
-    let data = data.map(|(v, p)| check(v, p, false)).transpose()?;
+    let data = legacy_data.map(|(v, p)| check(v, p, false)).transpose()?;
     let home = home.map(|(v, p)| check(v, p, true)).transpose()?;
     Ok((data, home))
+}
+
+/// Resolve the real user independently of HOME/XDG/APPDATA supplied by a QA launcher.
+#[cfg(feature = "test-mode")]
+fn native_protected_paths(app: &AppId) -> Result<Vec<PathBuf>> {
+    #[cfg(windows)]
+    let bases = Bases {
+        data: known::known_folder(&known::ROAMING_APP_DATA),
+        config: known::known_folder(&known::ROAMING_APP_DATA),
+        local: known::known_folder(&known::LOCAL_APP_DATA),
+        cache: known::known_folder(&known::LOCAL_APP_DATA),
+        home: known::known_folder(&known::PROFILE),
+    };
+    #[cfg(unix)]
+    let bases = {
+        let mut size = 16 * 1024;
+        let home = loop {
+            let mut buffer = vec![0u8; size];
+            let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+            let mut found = std::ptr::null_mut();
+            // SAFETY: record and buffer are writable and remain alive while pw_dir is copied.
+            let status = unsafe {
+                libc::getpwuid_r(
+                    libc::geteuid(),
+                    record.as_mut_ptr(),
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                    &mut found,
+                )
+            };
+            if status == libc::ERANGE && size < 1024 * 1024 {
+                size *= 2;
+                continue;
+            }
+            if status != 0 || found.is_null() {
+                return Err(crate::test_mode::Refusal::UserRootUnknown.into());
+            }
+            // SAFETY: successful lookup initialized record; pw_dir points into buffer.
+            let raw = unsafe { record.assume_init().pw_dir };
+            if raw.is_null() {
+                return Err(crate::test_mode::Refusal::UserRootUnknown.into());
+            }
+            use std::os::unix::ffi::OsStrExt;
+            let bytes = unsafe { std::ffi::CStr::from_ptr(raw) }.to_bytes();
+            break PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
+        };
+        Bases::read(Os::current(), &|key| {
+            (key == "HOME").then(|| home.clone().into_os_string())
+        })
+    };
+    #[cfg(not(any(unix, windows)))]
+    return Err(crate::test_mode::Refusal::UserRootUnknown.into());
+    #[cfg(any(unix, windows))]
+    {
+        if [&bases.data, &bases.config, &bases.local, &bases.cache]
+            .into_iter()
+            .any(|base| base.as_ref().is_none_or(|path| !path.is_absolute()))
+        {
+            return Err(crate::test_mode::Refusal::UserRootUnknown.into());
+        }
+        let home = bases
+            .home
+            .as_ref()
+            .filter(|p| p.is_absolute())
+            .ok_or(crate::test_mode::Refusal::UserRootUnknown)?;
+        let mut protected = Vec::new();
+        for base in [&bases.data, &bases.config, &bases.local, &bases.cache]
+            .into_iter()
+            .flatten()
+        {
+            protected.push(base.join(DEFAULT_ORG));
+            for name in std::iter::once(app.name).chain(app.legacy_names.iter().copied()) {
+                for ns in [name.to_string(), format!("{name}Dev")] {
+                    protected.push(app_dir(base, app, &ns));
+                    protected.push(base.join(ns));
+                }
+            }
+        }
+        for content in [
+            "Documents",
+            "Pictures",
+            "Desktop",
+            "Downloads",
+            "Movies",
+            "Music",
+            "Videos",
+        ] {
+            protected.push(home.join(content));
+        }
+        Ok(protected)
+    }
 }
 
 fn check_absolute(os: Os, var: &str, path: &Path) -> Result<()> {
@@ -1194,11 +1365,13 @@ mod tests {
     #[cfg(not(feature = "test-mode"))]
     #[test]
     fn overrides_are_ignored_without_test_mode() {
-        let env = env_of(&[
-            ("HOME", "/home/a"),
-            ("RIGHTKIT_QA_DATA_DIR", "/tmp/qa"),
-            ("RIGHTKIT_QA_HOME", "/tmp/qahome"),
-        ]);
+        let env = |key: &str| match key {
+            "RIGHTKIT_UNDER_TEST" | "RIGHTKIT_QA_DATA_DIR" | "RIGHTKIT_QA_HOME" => {
+                panic!("feature-off resolver read selector {key}")
+            }
+            "HOME" => Some(OsString::from("/home/a")),
+            _ => None,
+        };
         let d = AppDirs::resolve_with(
             &AppId::new("ViewRight"),
             &Options::new(Os::Linux).qa_overrides(true),
@@ -1213,130 +1386,189 @@ mod tests {
     mod qa {
         use super::*;
 
-        fn qa(os: Os) -> Options {
-            Options::new(os).qa_overrides(true)
+        fn fixture() -> (tempfile::TempDir, tempfile::TempDir, AppId, Options) {
+            let root = tempfile::tempdir().unwrap();
+            let real = tempfile::tempdir().unwrap();
+            crate::private::ensure_private_dir(root.path()).unwrap();
+            std::fs::write(
+                root.path().join(crate::test_mode::BINDING_FILE),
+                r#"{"app":"viewright"}"#,
+            )
+            .unwrap();
+            let app = AppId::new("ViewRight").with_qa_app_id("viewright");
+            let opts = Options::new(Os::current())
+                .qa_overrides(true)
+                .protected_paths(vec![real.path().to_path_buf()]);
+            (root, real, app, opts)
         }
 
         #[test]
-        fn data_override_roots_every_folder_under_it() {
-            let env = env_of(&[("HOME", "/home/a"), ("RIGHTKIT_QA_DATA_DIR", "/tmp/qa")]);
-            let d = AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Linux), &env).unwrap();
-            assert_eq!(d.data, p("/tmp/qa"));
-            same(&d.local, "/tmp/qa/local");
-            same(&d.cache, "/tmp/qa/cache");
-            same(&d.home, "/tmp/qa/home");
-            assert!(d.isolated);
-        }
-
-        #[test]
-        fn named_qa_home_wins_over_the_default_inside_the_data_dir() {
-            let env = env_of(&[
-                ("RIGHTKIT_QA_DATA_DIR", "/tmp/qa"),
-                ("RIGHTKIT_QA_HOME", "/tmp/qahome"),
-            ]);
-            // No real base is needed when everything is overridden.
-            let d = AppDirs::resolve_with(&AppId::new("A"), &qa(Os::Linux), &env).unwrap();
-            assert_eq!(d.home, p("/tmp/qahome"));
-        }
-
-        #[test]
-        fn home_alone_keeps_real_data_but_isolates_home() {
-            let env = env_of(&[("HOME", "/home/a"), ("RIGHTKIT_QA_HOME", "/tmp/qahome")]);
-            let d = AppDirs::resolve_with(&AppId::new("A"), &qa(Os::Linux), &env).unwrap();
-            assert_eq!(d.home, p("/tmp/qahome"));
-            same(&d.data, "/home/a/.local/share/Orthic Labs/A");
-            assert!(d.isolated);
-        }
-
-        #[test]
-        fn legacy_variables_apply_after_the_shared_one() {
-            let app =
-                AppId::new("HeardRight").with_legacy_env(Some("HR_APP_DATA_DIR"), Some("HR_HOME"));
-            let env = env_of(&[("HR_APP_DATA_DIR", "/tmp/hr"), ("HR_HOME", "/tmp/hrhome")]);
-            let d = AppDirs::resolve_with(&app, &qa(Os::Linux), &env).unwrap();
-            assert_eq!((d.data, d.home), (p("/tmp/hr"), p("/tmp/hrhome")));
-            let env = env_of(&[
-                ("HR_APP_DATA_DIR", "/tmp/hr"),
-                ("RIGHTKIT_QA_DATA_DIR", "/tmp/shared"),
-            ]);
-            let d = AppDirs::resolve_with(&app, &qa(Os::Linux), &env).unwrap();
-            assert_eq!(d.data, p("/tmp/shared"));
-        }
-
-        #[test]
-        fn relative_override_is_refused() {
-            for bad in ["rel/dir", "/tmp/../etc", ""] {
-                let env = env_of(&[("HOME", "/home/a"), ("RIGHTKIT_QA_DATA_DIR", bad)]);
-                let r = AppDirs::resolve_with(&AppId::new("A"), &qa(Os::Linux), &env);
-                if bad.is_empty() {
-                    // An empty variable counts as unset: the real mapping applies.
-                    assert!(!r.unwrap().isolated);
-                } else {
-                    assert!(matches!(r, Err(AppDirsError::NotAbsolute { .. })), "{bad}");
+        fn canonical_bound_home_uses_shared_validation_and_child_derivation() {
+            let (root, _real, app, opts) = fixture();
+            let env = |key: &str| match key {
+                UNDER_TEST_VAR => Some(OsString::from("1")),
+                QA_DATA_DIR_VAR | "HOME" | "USERPROFILE" => {
+                    Some(root.path().as_os_str().to_owned())
                 }
-            }
+                _ => None,
+            };
+            let d = AppDirs::resolve_with(&app, &opts, &env).unwrap();
+            let canonical = std::fs::canonicalize(root.path()).unwrap();
+            assert_eq!(d.data, canonical.join("data"));
+            assert_eq!(d.home, canonical);
+            assert_eq!(d.local, d.data.join("local"));
+            assert!(d.isolated);
         }
 
         #[test]
-        fn override_at_or_inside_the_real_app_folder_is_refused() {
-            let app = AppId::new("ViewRight");
-            for dir in [
-                "/home/a/.local/share/Orthic Labs/ViewRight",
-                "/home/a/.local/share/Orthic Labs/ViewRight/qa",
-                "/home/a/.local/share/Orthic Labs/ViewRightDev",
-                "/home/a/.local/share/ViewRight",
-                "/home/a/.cache/Orthic Labs/ViewRight",
-            ] {
-                let env = env_of(&[("HOME", "/home/a"), ("RIGHTKIT_QA_DATA_DIR", dir)]);
-                assert!(
-                    matches!(
-                        AppDirs::resolve_with(&app, &qa(Os::Linux), &env),
-                        Err(AppDirsError::RealFolder { .. })
-                    ),
-                    "{dir}"
-                );
+        fn both_partial_selector_pairs_refuse() {
+            let (root, _real, app, opts) = fixture();
+            for activated in [false, true] {
+                let env = |key: &str| match key {
+                    UNDER_TEST_VAR if activated => Some(OsString::from("1")),
+                    QA_DATA_DIR_VAR if !activated => Some(root.path().as_os_str().to_owned()),
+                    _ => None,
+                };
+                assert!(AppDirs::resolve_with(&app, &opts, &env).is_err());
             }
-            // A sibling that merely shares a prefix is not the real folder.
-            let env = env_of(&[
-                ("HOME", "/home/a"),
-                (
-                    "RIGHTKIT_QA_DATA_DIR",
-                    "/home/a/.local/share/Orthic Labs/ViewRightQA",
-                ),
-            ]);
-            assert!(AppDirs::resolve_with(&app, &qa(Os::Linux), &env).is_ok());
-        }
-
-        #[test]
-        fn windows_refusal_is_case_insensitive_and_covers_home() {
-            let mut pairs = WIN.to_vec();
-            pairs.push((
-                "RIGHTKIT_QA_DATA_DIR",
-                r"c:\users\A\appdata\roaming\orthic labs\viewright",
+            let env = |key: &str| (key == UNDER_TEST_VAR).then(|| OsString::from("1"));
+            assert!(matches!(
+                AppDirs::resolve_with(&app, &opts, &env),
+                Err(AppDirsError::TestMode(
+                    crate::test_mode::Refusal::ActivationWithoutRoot
+                ))
             ));
-            let r =
-                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
-            assert!(matches!(r, Err(AppDirsError::RealFolder { .. })));
+        }
 
-            let mut pairs = WIN.to_vec();
-            pairs.push(("RIGHTKIT_QA_HOME", r"C:\USERS\a"));
-            let r =
-                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env_of(&pairs));
-            assert!(matches!(r, Err(AppDirsError::RealFolder { .. })));
+        #[cfg(unix)]
+        #[test]
+        fn canonical_override_refuses_data_and_nested_child_escapes() {
+            let (root, real, app, opts) = fixture();
+            let env = |key: &str| match key {
+                UNDER_TEST_VAR => Some(OsString::from("1")),
+                QA_DATA_DIR_VAR => Some(root.path().as_os_str().to_owned()),
+                _ => None,
+            };
+            let data = root.path().join("data");
+            std::os::unix::fs::symlink(real.path(), &data).unwrap();
+            assert!(matches!(
+                AppDirs::resolve_with(&app, &opts, &env),
+                Err(AppDirsError::TestMode(
+                    crate::test_mode::Refusal::ChildEscapesRoot
+                ))
+            ));
+            std::fs::remove_file(&data).unwrap();
+            std::fs::create_dir(&data).unwrap();
+            for name in ["local", "config", "cache"] {
+                let child = data.join(name);
+                std::os::unix::fs::symlink(real.path(), &child).unwrap();
+                assert!(matches!(
+                    AppDirs::resolve_with(&app, &opts, &env),
+                    Err(AppDirsError::TestMode(
+                        crate::test_mode::Refusal::ChildEscapesRoot
+                    ))
+                ));
+                std::fs::remove_file(child).unwrap();
+            }
+        }
 
-            // A QA workspace that redirects APPDATA to its own data dir is not "real".
-            let env = env_of(&[
-                ("APPDATA", r"C:\qa\data"),
-                ("LOCALAPPDATA", r"C:\qa\data"),
-                ("USERPROFILE", r"C:\qa\home"),
-                ("RIGHTKIT_QA_DATA_DIR", r"C:\qa\data"),
-            ]);
-            let d =
-                AppDirs::resolve_with(&AppId::new("ViewRight"), &qa(Os::Windows), &env).unwrap();
-            assert_eq!(d.data, p(r"C:\qa\data"));
+        #[test]
+        fn canonical_binding_privacy_and_overlap_are_not_lexical_only() {
+            let (root, real, app, opts) = fixture();
+            let env = |key: &str| match key {
+                UNDER_TEST_VAR => Some(OsString::from("1")),
+                QA_DATA_DIR_VAR => Some(root.path().as_os_str().to_owned()),
+                _ => None,
+            };
+            for bad in [
+                r#"{"nested":{"app":"viewright"}}"#,
+                r#"{"app":"viewright""#,
+                r#"{"app":"other"}"#,
+            ] {
+                std::fs::write(root.path().join(crate::test_mode::BINDING_FILE), bad).unwrap();
+                assert!(AppDirs::resolve_with(&app, &opts, &env).is_err());
+            }
+            std::fs::write(
+                root.path().join(crate::test_mode::BINDING_FILE),
+                r#"{"app":"viewright"}"#,
+            )
+            .unwrap();
+            let overlapping = opts
+                .clone()
+                .protected_paths(vec![root.path().join("future")]);
+            assert!(matches!(
+                AppDirs::resolve_with(&app, &overlapping, &env),
+                Err(AppDirsError::TestMode(
+                    crate::test_mode::Refusal::RootOverlapsUserData
+                ))
+            ));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+                assert!(matches!(
+                    AppDirs::resolve_with(&app, &opts, &env),
+                    Err(AppDirsError::TestMode(
+                        crate::test_mode::Refusal::RootNotPrivate
+                    ))
+                ));
+                crate::private::ensure_private_dir(root.path()).unwrap();
+                let alias = real.path().join("alias");
+                std::os::unix::fs::symlink(root.path(), &alias).unwrap();
+                let aliased = opts.clone().protected_paths(vec![alias.join("future")]);
+                assert!(matches!(
+                    AppDirs::resolve_with(&app, &aliased, &env),
+                    Err(AppDirsError::TestMode(
+                        crate::test_mode::Refusal::RootOverlapsUserData
+                    ))
+                ));
+            }
+            #[cfg(windows)]
+            {
+                // A normal inherited temp DACL is not the private DACL required for QA roots.
+                let unprivate = real.path().join("public-home");
+                std::fs::create_dir(&unprivate).unwrap();
+                use std::os::windows::process::CommandExt;
+                assert!(std::process::Command::new("icacls")
+                    .arg(&unprivate)
+                    .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
+                    .creation_flags(0x0800_0000)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success());
+                std::fs::write(
+                    unprivate.join(crate::test_mode::BINDING_FILE),
+                    r#"{"app":"viewright"}"#,
+                )
+                .unwrap();
+                let inherited_env = |key: &str| match key {
+                    UNDER_TEST_VAR => Some(OsString::from("1")),
+                    QA_DATA_DIR_VAR => Some(unprivate.as_os_str().to_owned()),
+                    _ => None,
+                };
+                let isolated = opts
+                    .clone()
+                    .protected_paths(vec![root.path().to_path_buf()]);
+                assert!(matches!(
+                    AppDirs::resolve_with(&app, &isolated, &inherited_env),
+                    Err(AppDirsError::TestMode(
+                        crate::test_mode::Refusal::RootNotPrivate
+                    ))
+                ));
+            }
+        }
+
+        #[test]
+        fn legacy_mapping_remains_direct_data_and_independent_home() {
+            let app = AppId::new("HeardRight").with_legacy_env(Some("HR_DATA"), Some("HR_HOME"));
+            let env = env_of(&[("HR_DATA", "/tmp/hr"), ("HR_HOME", "/tmp/hrhome")]);
+            let d = AppDirs::resolve_with(&app, &Options::new(Os::Linux).qa_overrides(true), &env)
+                .unwrap();
+            assert_eq!((d.data, d.home), (p("/tmp/hr"), p("/tmp/hrhome")));
         }
     }
-
     #[cfg(windows)]
     #[test]
     fn windows_bases_come_from_known_folders() {

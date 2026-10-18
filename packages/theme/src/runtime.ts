@@ -78,18 +78,35 @@ export function applyThemeAttribute(
   else root.setAttribute("data-theme", value);
 }
 
+/** Options for [`themeBootScript`]: the consolidated first-paint contract shared with `@rightkit/react-shell`. */
+export interface ThemeBootOptions extends ThemeAttributeOptions {
+  /** Choice used when nothing valid is stored or storage throws. Default `"system"`. */
+  defaultChoice?: "system" | "light" | "dark";
+  /**
+   * `true` (default): `system` resolves through `matchMedia` and `data-theme` is always written.
+   * `false`: `system` removes `data-theme` and CSS decides from the OS query alone.
+   */
+  alwaysPaintDataTheme?: boolean;
+}
+
 /**
- * Inline script text for `<head>`: applies the stored light/dark choice to `data-theme` before first paint so the window never
- * flashes the wrong theme. `system` (or nothing stored) leaves the attribute off and the OS decides. Pair with
- * `@rightkit/react-shell`'s theme store, which owns the same storage key afterwards.
+ * Inline script text for `<head>`: applies the stored light/dark/system choice to `data-theme` before first
+ * paint so the window never flashes the wrong theme. Consolidated with `@rightkit/react-shell`'s
+ * `themeBootScript`: identical first paint for the same storage key and options — stored choice wins,
+ * throwing/unreadable storage falls back to `defaultChoice`, `system` resolves through `matchMedia`
+ * (unless `alwaysPaintDataTheme: false` removes the attribute), and `darkRemovesAttribute` removes
+ * the attribute for a resolved dark theme. Never throws. Generating the script is SSR-safe (a pure string).
  */
-export function themeBootScript(storageKey: string, options: ThemeAttributeOptions = {}): string {
-  const key = JSON.stringify(storageKey);
-  const dark = options.darkRemovesAttribute
-    ? `if(v==="dark")document.documentElement.removeAttribute("data-theme");else `
-    : "";
-  const set = options.darkRemovesAttribute ? `v==="light"` : `v==="light"||v==="dark"`;
-  return `(function(){try{var v=localStorage.getItem(${key});${dark}if(${set})document.documentElement.setAttribute("data-theme",v);}catch(e){}})();`;
+export function themeBootScript(storageKey: string, options: ThemeBootOptions = {}): string {
+  const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  return (
+    `(function(){try{var k=${json(storageKey)},c=${json(options.defaultChoice ?? "system")},p=${options.alwaysPaintDataTheme === false ? "false" : "true"},d=${options.darkRemovesAttribute === true ? "true" : "false"};` +
+    `try{var v=localStorage.getItem(k);if(v==="light"||v==="dark"||v==="system")c=v}catch(_){}` +
+    `var r=document.documentElement;` +
+    `if(c==="system"){if(!p){r.removeAttribute("data-theme");return}` +
+    `c=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}` +
+    `if(c==="dark"&&d){r.removeAttribute("data-theme");return}r.setAttribute("data-theme",c)}catch(_){}})();`
+  );
 }
 
 const PREFERS_DARK_QUERY = "(prefers-color-scheme: dark)";

@@ -735,12 +735,11 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     // DevTools: the process guard and the gate. A failure is carried to plugin setup, which
     // refuses to start; until then every webview is treated as denied.
     let guard_result = devtools::guard_process_start();
-    let gate_result = devtools::build_gate_with(
+    let gate_result = devtools::build_gate(
         cfg.devtools_policy,
         &cfg.main_label,
         &cfg.content_webviews,
         cfg!(feature = "content-devtools"),
-        devtools::DEV_INSPECT_COMPILED,
     );
     let gate_for_views = gate_result
         .clone()

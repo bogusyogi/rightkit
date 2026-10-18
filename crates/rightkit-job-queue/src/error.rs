@@ -19,14 +19,18 @@ pub enum ErrorOrigin {
 /// Typed engine error: `code` is the stable wire identifier. `retryable`
 /// errors pause a running job (it stays recoverable) instead of failing it.
 ///
-/// Equality compares `code`, `message`, `retryable` and `origin`; the database classification
-/// behind [`JobError::open_failure`] is derived from the same failure and does not take part.
+/// Equality compares `code`, `message`, `retryable`, `origin` and `details`; the database
+/// classification behind [`JobError::open_failure`] is derived from the same failure and does
+/// not take part.
 #[derive(Debug, Clone)]
 pub struct JobError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
     pub origin: ErrorOrigin,
+    /// Optional structured data travelling with the error: set with
+    /// [`JobError::with_details`], read with [`JobError::details`].
+    details: Option<serde_json::Value>,
     /// What kind of database failure this error came from, when it came from one.
     #[cfg(feature = "store")]
     db_failure: Option<OpenFailure>,
@@ -38,6 +42,7 @@ impl PartialEq for JobError {
             && self.message == other.message
             && self.retryable == other.retryable
             && self.origin == other.origin
+            && self.details == other.details
     }
 }
 
@@ -169,6 +174,7 @@ impl JobError {
             message: message.into(),
             retryable: false,
             origin: ErrorOrigin::Engine,
+            details: None,
             #[cfg(feature = "store")]
             db_failure: None,
         }
@@ -179,9 +185,26 @@ impl JobError {
             message: message.into(),
             retryable: true,
             origin: ErrorOrigin::Engine,
+            details: None,
             #[cfg(feature = "store")]
             db_failure: None,
         }
+    }
+    /// Attaches structured `details` (any JSON value except `null`; `null` clears them).
+    /// Carried by [`JobError::to_json`] as `"details"`, so they reach dispatcher error
+    /// frames, a job's stored `error` & the C ABI error JSON; `EngineClient` reads them
+    /// back from an engine's error reply. Absent/`null` wire details read as none.
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = if details.is_null() {
+            None
+        } else {
+            Some(details)
+        };
+        self
+    }
+    /// Structured data attached with [`JobError::with_details`], or `None`.
+    pub fn details(&self) -> Option<&serde_json::Value> {
+        self.details.as_ref()
     }
     /// What kind of database failure this error came from, or `None` for an error that did not
     /// come from the database (a bad configuration, a handler error, a refused input). Set on the
@@ -322,11 +345,15 @@ impl JobError {
     /// Like [`JobError::to_json`], omitting `retryable` when `include_retryable`
     /// is false (an app whose wire `error` is `{code, message}`).
     pub fn to_json_with(&self, include_retryable: bool) -> serde_json::Value {
-        if include_retryable {
+        let mut v = if include_retryable {
             serde_json::json!({"code": self.code, "message": self.message, "retryable": self.retryable})
         } else {
             serde_json::json!({"code": self.code, "message": self.message})
+        };
+        if let (Some(d), Some(o)) = (&self.details, v.as_object_mut()) {
+            o.insert("details".to_string(), d.clone());
         }
+        v
     }
 }
 

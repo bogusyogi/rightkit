@@ -768,8 +768,13 @@ impl EngineSupervisor {
                 Err(e)
             }
             // The engine went away under this call; a restart (if the policy allows) makes a retry meaningful.
+            // Local validation refusals (`bad_input`) never reach here: they stay nonretryable.
             Err(e) if e.code == "engine_exited" || e.code == "engine_write" => {
-                Err(JobError::supervisor_retryable(e.code, e.message))
+                let mut out = JobError::supervisor_retryable(e.code.clone(), e.message.clone());
+                if let Some(d) = e.details() {
+                    out = out.with_details(d.clone());
+                }
+                Err(out)
             }
             other => other,
         }

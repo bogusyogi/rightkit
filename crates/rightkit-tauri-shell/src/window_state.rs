@@ -124,12 +124,21 @@ fn load_store(dir: &Path) -> PersistedStore {
     }
 }
 
+static STAGING_SEQ: AtomicU64 = AtomicU64::new(0);
+
 fn save_store(dir: &Path, store: &PersistedStore) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let body = serde_json::to_string_pretty(store).map_err(|e| format!("serialize: {e}"))?;
-    let tmp = dir.join(format!("{STATE_FILE}.tmp"));
+    // Unique staging per publication: concurrent writers never share (or rename away) one
+    // fixed temp file, and the rename is the only step that touches the live file.
+    let seq = STAGING_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!("{STATE_FILE}.tmp.{}-{seq}", std::process::id()));
     std::fs::write(&tmp, body).map_err(|e| format!("write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, dir.join(STATE_FILE)).map_err(|e| format!("rename state: {e}"))
+    std::fs::rename(&tmp, dir.join(STATE_FILE))
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })
+        .map_err(|e| format!("rename state: {e}"))
 }
 
 fn distance(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
@@ -224,6 +233,10 @@ pub enum LegacyImport {
 pub struct WindowStateStore {
     dir: PathBuf,
     generations: Mutex<HashMap<String, Arc<AtomicU64>>>,
+    /// Serialises every load -> modify -> publish cycle. Without it two saves (a debounced
+    /// thread and an exit save, or two labels) can each load, insert only their own entry and
+    /// publish, silently dropping the other's; an older scheduled save can also win the rename.
+    io: Mutex<()>,
 }
 
 impl WindowStateStore {
@@ -231,7 +244,11 @@ impl WindowStateStore {
         Self {
             dir,
             generations: Mutex::new(HashMap::new()),
+            io: Mutex::new(()),
         }
+    }
+    fn io_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.io.lock().unwrap_or_else(|e| e.into_inner())
     }
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -248,6 +265,7 @@ impl WindowStateStore {
 
     /// The state saved for `label`, if any. Reads the file; applies nothing to any window.
     pub fn saved(&self, label: &str) -> Option<WindowState> {
+        let _io = self.io_lock();
         load_store(&self.dir).states.remove(label)
     }
 
@@ -285,6 +303,12 @@ impl WindowStateStore {
             }
             Err(e) => return Err(format!("read {}: {e}", legacy_file.display())),
         };
+        // Marker check, RMW and marker publication are one cycle: a concurrent save between
+        // the load and the publish would otherwise be overwritten by the imported snapshot.
+        let _io = self.io_lock();
+        if marker.exists() {
+            return Ok(LegacyImport::AlreadyImported);
+        }
         let legacy: PersistedStore = if raw.trim().is_empty() {
             PersistedStore::default()
         } else {
@@ -321,6 +345,7 @@ impl WindowStateStore {
     /// Record `state` for `label` without touching a window (a host that tracks its own geometry,
     /// or a test).
     pub fn save_state(&self, label: &str, state: WindowState) -> Result<(), String> {
+        let _io = self.io_lock();
         let mut store = load_store(&self.dir);
         store.states.insert(label.to_owned(), state);
         save_store(&self.dir, &store)
@@ -371,18 +396,33 @@ impl WindowStateStore {
     }
 
     pub fn schedule_save<R: Runtime>(self: &Arc<Self>, app: AppHandle<R>, label: String) {
-        let generation = self.generation(&label);
-        let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let token = self.begin_save(&label);
         let this = Arc::clone(self);
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(SAVE_DEBOUNCE_MS));
             if this.generation(&label).load(Ordering::SeqCst) == token {
-                let _ = this.save_now(&app, &label);
+                let _ = this.save_generation(&app, &label, token);
             }
         });
     }
 
+    // Token allocation and publication share one lock: a newer invocation invalidates all
+    // older snapshots, including an in-flight debounced save and immediate exit saves.
+    fn begin_save(&self, label: &str) -> u64 {
+        let _io = self.io_lock();
+        self.generation(label).fetch_add(1, Ordering::SeqCst) + 1
+    }
+
     pub fn save_now<R: Runtime>(&self, app: &AppHandle<R>, label: &str) -> Result<(), String> {
+        self.save_generation(app, label, self.begin_save(label))
+    }
+
+    fn save_generation<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: &str,
+        token: u64,
+    ) -> Result<(), String> {
         let Some(window) = app.get_webview_window(label) else {
             return Ok(());
         };
@@ -416,6 +456,22 @@ impl WindowStateStore {
                 f64::from(s.height) / scale,
             ))
         };
+        self.publish_generation(label, token, monitor, maximized, minimized, geometry)
+    }
+
+    fn publish_generation(
+        &self,
+        label: &str,
+        token: u64,
+        monitor: MonitorSnapshot,
+        maximized: bool,
+        minimized: bool,
+        geometry: Option<(f64, f64, f64, f64)>,
+    ) -> Result<(), String> {
+        let _io = self.io_lock();
+        if self.generation(label).load(Ordering::SeqCst) != token {
+            return Ok(());
+        }
         let mut store = load_store(&self.dir);
         let state = next_state(
             store.states.get(label),
@@ -577,5 +633,66 @@ fn apply_visibility<T: RestoreTarget>(
     }
     if options.restore_minimized && was_minimized {
         target.minimize();
+    }
+}
+
+#[cfg(test)]
+mod publication_order_tests {
+    use super::*;
+
+    #[test]
+    fn newer_immediate_save_invalidates_paused_same_label_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(WindowStateStore::new(dir.path().to_owned()));
+        let (captured_tx, captured_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let old_store = Arc::clone(&store);
+        let old = std::thread::spawn(move || {
+            let token = old_store.begin_save("main");
+            let monitor = MonitorSnapshot {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+                scale: 1.0,
+            };
+            captured_tx.send(()).unwrap();
+            resume_rx.recv().unwrap();
+            old_store
+                .publish_generation(
+                    "main",
+                    token,
+                    monitor,
+                    false,
+                    false,
+                    Some((1.0, 2.0, 300.0, 400.0)),
+                )
+                .unwrap();
+        });
+        captured_rx.recv().unwrap();
+        let token = store.begin_save("main");
+        store
+            .publish_generation(
+                "main",
+                token,
+                MonitorSnapshot {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                    scale: 1.0,
+                },
+                false,
+                false,
+                Some((20.0, 30.0, 600.0, 700.0)),
+            )
+            .unwrap();
+        resume_tx.send(()).unwrap();
+        old.join().unwrap();
+        let state = store.saved("main").unwrap();
+        assert_eq!(
+            (state.x, state.y, state.width, state.height),
+            (20.0, 30.0, 600.0, 700.0)
+        );
     }
 }

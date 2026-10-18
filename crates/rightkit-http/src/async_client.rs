@@ -23,13 +23,14 @@ use tokio::time::{sleep, timeout, Sleep};
 
 use crate::cancel::CancelToken;
 use crate::client::{
-    header_of, redact_str, redaction_values_for, scrub_error, status_error, AttemptEvent,
-    ClientConfig, Method, Request, Response, RetryEvent,
+    header_of, observe_attempt_outcome, redact_str, redaction_values_for, scrub_error,
+    status_error, AttemptEvent, AttemptOutcome, AttemptOutcomeObserver, ClientConfig, Method,
+    Request, Response, RetryEvent,
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy};
 use crate::redirect;
-use crate::retry::parse_retry_after;
+use crate::retry::{parse_retry_after, AttemptBudgets};
 use crate::sse::{EofPolicy, SseDecoder, SseEvent};
 use crate::urlredact::{redact_url, redact_urls_in_text};
 
@@ -49,6 +50,7 @@ pub struct AsyncClient {
     http_proxy: Option<reqwest::Client>,
     verifier: &'static str,
     config: ClientConfig,
+    on_attempt_outcome: Option<AttemptOutcomeObserver>,
     /// The proxy in use (its `NO_PROXY` list decides which destinations bypass it).
     proxy: Option<ureq::Proxy>,
     /// `ProxyMode::System` decided per request URL (then `proxy` and `http_proxy` are `None`).
@@ -210,12 +212,26 @@ impl AsyncClient {
             http_proxy,
             verifier,
             config,
+            on_attempt_outcome: None,
             routes,
             proxy_diagnostic: proxy.as_ref().map(crate::client::ProxyDiagnostic::of),
             proxy_mode_used,
             proxy: proxy.map(|p| p.ureq),
             compression: true,
         })
+    }
+
+    /// Observe every finished transport hop before its response body is read.
+    /// Receives sanitized status/error, delivery evidence & the final hop's retry delay;
+    /// see [`AttemptOutcome`]. Runs on the calling thread (async: polling task), so it
+    /// should not block. Replaces any observer previously attached to this client.
+    /// Kept privately on the client so existing [`ClientConfig`] literals remain valid.
+    pub fn on_attempt_outcome(
+        mut self,
+        observer: impl Fn(&AttemptOutcome) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_attempt_outcome = Some(Arc::new(observer));
+        self
     }
 
     /// Ask for compressed responses (default true). `false` sends `Accept-Encoding: identity`
@@ -388,6 +404,7 @@ impl AsyncClient {
         let max = policy.max_attempts.max(1);
         let deadline = req.deadline.map(|d| Instant::now() + d);
         let cancel = req.cancel.as_ref();
+        let mut budgets = AttemptBudgets::new();
         let mut attempt = 0u32;
         loop {
             if cancel.is_some_and(CancelToken::is_cancelled) {
@@ -418,28 +435,51 @@ impl AsyncClient {
                     HttpError::InvalidRequest(format!("attempt {attempt} refused: {reason}"))
                 })?;
             }
-            let outcome = race_cancel(cancel, self.once(req, attempt_total, values)).await?;
-            let (reason, retry_after) = match outcome {
+            // A cancellation mid-attempt is a finished (uncertain) attempt too, so it
+            // goes through the same match instead of returning early.
+            let mut identity = None;
+            let outcome = match race_cancel(
+                cancel,
+                self.once(req, attempt_total, values, attempt, &mut identity),
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(err) => Err(err),
+            };
+            let (reason, chosen_delay) = match outcome {
                 Ok(raw) => {
                     let retryable = policy.is_retryable_status(raw.status)
                         && (req.method.is_idempotent() || req.retry_unsafe_statuses);
                     let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
-                    if !retryable || attempt >= max || policy.defers(ra) {
+                    let delay = if retryable && !policy.defers(ra) {
+                        budgets
+                            .status_failed(&policy, attempt)
+                            .map(|index| policy.delay(index, ra))
+                            .filter(|delay| !deadline_passes(deadline, *delay))
+                    } else {
+                        None
+                    };
+                    // Observed before the body is read or drained.
+                    observe_attempt_outcome(
+                        &self.on_attempt_outcome,
+                        &identity,
+                        values,
+                        attempt,
+                        Some(raw.status),
+                        Some(&raw.headers),
+                        None,
+                        delay,
+                    );
+                    let Some(delay) = delay else {
                         return Ok(Raw {
                             attempts: attempt,
                             ..raw
                         });
-                    }
-                    if deadline_passes(deadline, policy.delay(attempt, ra)) {
-                        return Ok(Raw {
-                            attempts: attempt,
-                            ..raw
-                        });
-                    }
+                    };
                     // Drain so the connection is released, but never past any budget the
                     // caller set: the attempt's deadline, the whole-request deadline less
                     // the sleep that follows, and the body-phase timeout.
-                    let delay = policy.delay(attempt, ra);
                     let drain = [
                         Some(Instant::now() + Duration::from_secs(5)),
                         raw.deadline,
@@ -454,26 +494,42 @@ impl AsyncClient {
                     if matches!(drained, Err(HttpError::Cancelled)) {
                         return Err(HttpError::Cancelled);
                     }
-                    (format!("HTTP {}", raw.status), ra)
+                    (format!("HTTP {}", raw.status), delay)
                 }
                 Err(err) => {
                     let retryable = match &err {
                         HttpError::Transport { connect_phase, .. } => {
-                            *connect_phase || req.method.is_idempotent()
+                            *connect_phase && identity.as_ref().is_some_and(|(_, _, hop)| *hop == 0)
+                                || req.method.is_idempotent()
                         }
                         HttpError::Timeout { .. } => req.method.is_idempotent(),
                         _ => false,
                     };
-                    if !retryable || attempt >= max {
+                    let delay = if retryable {
+                        budgets
+                            .transport_failed(&policy, attempt)
+                            .map(|index| policy.delay(index, None))
+                            .filter(|delay| !deadline_passes(deadline, *delay))
+                    } else {
+                        None
+                    };
+                    observe_attempt_outcome(
+                        &self.on_attempt_outcome,
+                        &identity,
+                        values,
+                        attempt,
+                        None,
+                        None,
+                        Some(&err),
+                        delay,
+                    );
+                    let Some(delay) = delay else {
                         return Err(err);
-                    }
-                    if deadline_passes(deadline, policy.delay(attempt, None)) {
-                        return Err(err);
-                    }
-                    (err.to_string(), None)
+                    };
+                    (err.to_string(), delay)
                 }
             };
-            let delay = policy.delay(attempt, retry_after);
+            let delay = chosen_delay;
             if let Some(obs) = &self.config.on_retry {
                 obs(&RetryEvent {
                     url: redact_str(&redact_url(&req.url), values),
@@ -501,6 +557,8 @@ impl AsyncClient {
         req: &Request,
         total: Option<Duration>,
         secrets: &[String],
+        attempt: u32,
+        identity: &mut Option<(String, Method, u32)>,
     ) -> Result<Raw, HttpError> {
         let started = Instant::now();
         let overall = total.map(|t| started + t);
@@ -511,6 +569,13 @@ impl AsyncClient {
         let mut url = reqwest::Url::parse(&raw_url)
             .map_err(|_| HttpError::InvalidRequest("invalid URL".into()))?;
         let mut headers = req.headers.clone();
+        // The credential scope binds the first request as well as later hops: outside
+        // it, credentials are stripped exactly as for a cross-origin hop.
+        if let Some(scope) = &req.credential_scope {
+            if !scope.allows(&raw_url) {
+                redirect::strip_cross_origin(&mut headers, secrets);
+            }
+        }
         if !self.compression
             && !headers
                 .iter()
@@ -536,6 +601,7 @@ impl AsyncClient {
                     Some(left)
                 }
             };
+            *identity = Some((raw_url.clone(), method, hops));
             let raw = match self
                 .once_hop(method, &url, &raw_url, &headers, &body, remaining, hops > 0)
                 .await
@@ -562,6 +628,19 @@ impl AsyncClient {
                     ..raw
                 });
             };
+            if hops < self.config.max_redirects || self.config.max_redirects_will_error {
+                observe_attempt_outcome(
+                    &self.on_attempt_outcome,
+                    identity,
+                    secrets,
+                    attempt,
+                    Some(raw.status),
+                    Some(&raw.headers),
+                    None,
+                    None,
+                );
+                *identity = None;
+            }
             if hops >= self.config.max_redirects {
                 if self.config.max_redirects_will_error {
                     return Err(HttpError::transport("too many redirects", Phase::Redirect));
@@ -593,6 +672,11 @@ impl AsyncClient {
                 .map_err(|d| HttpError::from(d).into_redirect_phase())?;
             if next.origin() != url.origin() {
                 redirect::strip_cross_origin(&mut headers, secrets);
+            }
+            if let Some(scope) = &req.credential_scope {
+                if !scope.allows(&next_raw) {
+                    redirect::strip_cross_origin(&mut headers, secrets);
+                }
             }
             if next_method != method {
                 body.clear();

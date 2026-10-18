@@ -338,6 +338,68 @@ fn while_unreaped_runs_the_action_only_until_the_leader_is_reaped() {
     );
 }
 
+/// An exited-but-unreaped leader is a zombie: bare and identity-pinned liveness both read
+/// dead before the reap, while its identity still verifies (the owner needs the description
+/// until it finishes with the group). Group observation refuses group 1 and sees the owned
+/// group present while it runs and empty once it is terminated and reaped.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn a_zombie_reads_dead_before_the_reap_and_group_observation_is_observation_only() {
+    let one = std::num::NonZeroU32::new(1).unwrap();
+    assert_eq!(
+        crate::foreign::process_group_exists(one)
+            .expect_err("group 1 is refused")
+            .kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+
+    let mut running = sh("exec sleep 600").spawn().expect("spawn");
+    let pid = std::num::NonZeroU32::new(running.id()).unwrap();
+    assert!(
+        crate::foreign::process_group_exists(pid).expect("observe the owned group"),
+        "the running leader's group is present"
+    );
+    assert!(crate::AdoptedProcess::new(pid)
+        .is_running()
+        .expect("running probe"));
+    running.terminate_tree().expect("terminate");
+    assert!(
+        crate::foreign::wait_process_group_empty(pid, Duration::from_secs(5))
+            .expect("wait for the group to empty"),
+        "the terminated group empties"
+    );
+
+    let exited = exits_at_once();
+    exited
+        .process_handle()
+        .expect("handle")
+        .wait_exited()
+        .expect("observe the exit");
+    let pid = std::num::NonZeroU32::new(exited.id()).unwrap();
+    assert!(
+        !crate::AdoptedProcess::new(pid)
+            .is_running()
+            .expect("zombie probe"),
+        "a zombie must not read as running before its reap"
+    );
+    let identity = crate::AdoptedIdentity::capture(pid)
+        .expect("capture the zombie")
+        .expect("a zombie still has a description");
+    assert_eq!(
+        identity.verify().expect("verify the zombie"),
+        crate::IdentityCheck::Same
+    );
+    assert!(!identity.is_running().expect("zombie liveness"));
+    assert!(identity.confirmed_gone().expect("zombie gone check"));
+    assert_eq!(
+        identity
+            .signal(crate::AdoptedSignal::Force)
+            .expect("signal"),
+        crate::SignalResult::Gone
+    );
+    drop(exited);
+}
+
 /// One thread reaps through a clone while the owner terminates, released together by a
 /// barrier. Whatever the interleaving: at most one KILL, and never a signal after the reap.
 fn interleave(script: &str, rounds: usize) {

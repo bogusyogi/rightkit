@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — unpublished staging
+
+- Removes public QA exports from the runtime package surface.
+
 ## 0.3.0 (2026-10-17)
 
 Additive. Every new option defaults to the 0.2.8 behaviour.

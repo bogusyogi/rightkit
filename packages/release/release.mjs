@@ -400,7 +400,7 @@ try {
     console.log(`right-release: dry run: ${error.message}`);
   }
   // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
-  const closureInput = { treeText, remoteHost: config.releaseSwitches?.remoteHost, commands: closureCommands.map((c) => commandTokens(c)) };
+  const closureInput = { treeText, devtools: devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, commands: closureCommands.map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
   } else if (treeText != null || closureInput.commands.length) {
@@ -663,7 +663,7 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   try {
     const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
     // D4 binary layer, same inputs: no test-mode marker and no S1-S4 selector name in any native binary.
-    assertNoReleaseSwitches({ binaryPaths: files, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
+    assertNoReleaseSwitches({ binaryPaths: files, devtools: devtoolsAllowance, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);

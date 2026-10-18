@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_WINDOW_CONTROL_LABELS,
-  bootstrapQaPlatform,
   createFullscreenControls,
   createWindowControlLabels,
   WINDOW_CONTROL_LABELS,
@@ -10,10 +9,16 @@ import {
   getPlatform,
   normalizePlatform,
   platformCapabilities,
-  resolveQaPlatform,
 } from "./index.js";
+import * as ordinaryEntry from "./index.js";
+import { bootstrapQaPlatform, resolveQaPlatform, getPlatform as getQaPlatform } from "./qa.js";
 
 describe("platform primitives", () => {
+  it("ordinary entry omits QA query/env implementation", () => {
+    expect("resolveQaPlatform" in ordinaryEntry).toBe(false);
+    expect("bootstrapQaPlatform" in ordinaryEntry).toBe(false);
+  });
+
   it("normalizes supported Tauri names and the explicit Win32 QA alias", () => {
     expect(normalizePlatform("macos")).toBe("macos");
     expect(normalizePlatform("ios")).toBe("ios");
@@ -76,9 +81,16 @@ describe("platform primitives", () => {
   it("lets an explicit QA platform override the cached native result", () => {
     getPlatform();
     globalThis.__RIGHTKIT_QA_PLATFORM__ = "windows";
-    expect(getPlatform()).toBe("windows");
+    expect(getQaPlatform()).toBe("windows");
     globalThis.__RIGHTKIT_QA_PLATFORM__ = "macos";
-    expect(getPlatform()).toBe("macos");
+    expect(getQaPlatform()).toBe("macos");
+    delete globalThis.__RIGHTKIT_QA_PLATFORM__;
+  });
+
+  it("ordinary detection ignores a QA selector even after QA bootstrap", () => {
+    const platform = getPlatform();
+    bootstrapQaPlatform({ query: `?qa=1&qaPlatform=${platform === "windows" ? "macos" : "windows"}` });
+    expect(getPlatform()).toBe(platform);
     delete globalThis.__RIGHTKIT_QA_PLATFORM__;
   });
 

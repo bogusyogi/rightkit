@@ -23,35 +23,75 @@ pub trait BackupProgress {
 
 /// Back `source` up to `target`. `options` supplies the SQLCipher key (if any) so the backup is
 /// encrypted with the same key; its `path` is ignored.
+///
+/// The key is validated before any staging exists, and the staging file is created
+/// owner-only with `create_private_new` before SQLite opens it, so plaintext is never
+/// exposed under a permissive parent. The target is untouched until the staged copy has
+/// passed `quick_check`, been synced, and is published by rename. Busy/locked steps retry
+/// only until a finite monotonic operation deadline (`options.busy_timeout`,
+/// checked before every step and backoff, with or without a progress callback); every
+/// sleep is capped to the remaining budget, and cancellation or expiry removes only this
+/// call's still-owned staging.
 pub fn online_backup_to(
     options: &DbOptions,
     source: &Connection,
     target: &Path,
     mut progress: Option<&mut dyn BackupProgress>,
 ) -> Result<()> {
+    let started = Instant::now();
+    let deadline = started.checked_add(options.busy_timeout).unwrap_or(started);
+    let check_deadline = || -> Result<()> {
+        if Instant::now() >= deadline {
+            Err(DbError::Backup("backup operation timeout expired".into()))
+        } else {
+            Ok(())
+        }
+    };
+    // Key validation first: an invalid/unavailable key creates no staging at all.
     let key = options.key_pragma_value()?;
-    let temp = temp_path(target)?;
+    check_deadline()?;
+    let (temp, created) = create_private_staging(target)?;
     let result = (|| -> Result<()> {
+        // The staged file must still be the one this call exclusively created.
+        if let Some(want) = created {
+            if rightkit_fs::FileKey::of_path(&temp).ok() != Some(want) {
+                return Err(DbError::Backup(
+                    "backup staging was replaced before it was opened".into(),
+                ));
+            }
+        }
         let mut dst = Connection::open(&temp)?;
-        dst.busy_timeout(options.busy_timeout)?;
+        // Never let SQLite spend a second independent timeout inside a backup step.
+        dst.busy_timeout(Duration::ZERO)?;
         apply_key_first(&dst, key.as_ref().map(|k| k.as_str()))?;
         {
             let backup = Backup::new(source, &mut dst)?;
             loop {
+                check_deadline()?;
                 let step = backup.step(512)?;
+                check_deadline()?;
                 if let Some(sink) = progress.as_deref_mut() {
                     if !sink.step(backup.progress().remaining) {
                         return Err(DbError::Backup("cancelled".into()));
                     }
                 }
+                check_deadline()?;
                 match step {
                     StepResult::Done => break,
                     StepResult::More => {}
-                    // Source busy/locked: back off briefly and retry.
-                    _ => std::thread::sleep(Duration::from_millis(25)),
+                    // Source busy/locked: back off within the same operation deadline.
+                    _ => {
+                        let now = Instant::now();
+                        let remaining = deadline.saturating_duration_since(now);
+                        if remaining.is_zero() {
+                            return Err(DbError::Backup("backup busy timeout expired".into()));
+                        }
+                        std::thread::sleep(remaining.min(Duration::from_millis(25)));
+                    }
                 }
             }
         }
+        check_deadline()?;
         // Leave one self-contained file: fold any WAL into the main file and drop WAL mode.
         let _ = dst.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         dst.query_row("PRAGMA journal_mode=DELETE", [], |row| {
@@ -71,6 +111,7 @@ pub fn online_backup_to(
             .open(&temp)
             .and_then(|f| f.sync_all())
             .map_err(|e| DbError::Backup(format!("fsync backup: {e}")))?;
+        check_deadline()?;
         std::fs::rename(&temp, target)
             .map_err(|e| DbError::Backup(format!("publish backup: {e}")))?;
         if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -79,9 +120,43 @@ pub fn online_backup_to(
         Ok(())
     })();
     if result.is_err() {
-        remove_with_sidecars(&temp);
+        remove_owned_staging(&temp, created);
     }
     result
+}
+
+/// Exclusively creates a unique owner-only staging file beside `target`, retrying on a
+/// name collision, and returns its path with the identity captured at creation. The file
+/// is private from its first observation, before SQLite opens it.
+fn create_private_staging(target: &Path) -> Result<(PathBuf, Option<rightkit_fs::FileKey>)> {
+    for _ in 0..32 {
+        let temp = temp_path(target)?;
+        match rightkit_fs::create_private_new(&temp) {
+            Ok(file) => {
+                let key = rightkit_fs::FileKey::of_file(&file, &temp).ok();
+                drop(file);
+                return Ok((temp, key));
+            }
+            Err(error) if error.kind() == Some(std::io::ErrorKind::AlreadyExists) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(DbError::Backup(
+        "could not create a unique backup staging file".into(),
+    ))
+}
+
+/// Removes this call's staging family only while the main staged file still has the
+/// identity captured at its exclusive creation (or is already gone). A replaced staging
+/// file is another owner's and is retained whole.
+fn remove_owned_staging(temp: &Path, created: Option<rightkit_fs::FileKey>) {
+    if let Some(want) = created {
+        match rightkit_fs::FileKey::of_path(temp) {
+            Ok(now) if now != want => return,
+            _ => {}
+        }
+    }
+    remove_with_sidecars(temp);
 }
 
 /// Validate `backup_path` before copying it into an already-open `destination`.
@@ -134,15 +209,21 @@ fn restore_validated(
 ) -> Result<()> {
     let backup = Backup::new(source, destination)?;
     let started = Instant::now();
+    let deadline = started.checked_add(options.busy_timeout);
     loop {
         match backup.step(512)? {
             StepResult::Done => return Ok(()),
             StepResult::More => {}
             StepResult::Busy | StepResult::Locked => {
-                if started.elapsed() >= options.busy_timeout {
+                let Some(deadline) = deadline else {
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                };
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
                     return Err(DbError::Backup("restore busy timeout expired".into()));
                 }
-                std::thread::sleep(Duration::from_millis(25));
+                std::thread::sleep(remaining.min(Duration::from_millis(25)));
             }
             _ => return Err(DbError::Backup("unexpected restore step result".into())),
         }

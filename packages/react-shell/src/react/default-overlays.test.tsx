@@ -9,10 +9,13 @@ import { createToastBus } from "../toast.js";
 
 // A chord is drawn per OS (Cmd+S on macOS, Ctrl+S elsewhere). The snapshots record the macOS form, so the
 // platform is pinned here; otherwise the markup depends on the host that runs the test.
-const qa = globalThis as { __RIGHTKIT_QA_PLATFORM__?: string };
-const hostPlatform = qa.__RIGHTKIT_QA_PLATFORM__;
-beforeAll(() => { qa.__RIGHTKIT_QA_PLATFORM__ = "macos"; });
-afterAll(() => { qa.__RIGHTKIT_QA_PLATFORM__ = hostPlatform; });
+const platformHost = globalThis as { __RIGHTKIT_PLATFORM__?: string };
+const hostPlatform = platformHost.__RIGHTKIT_PLATFORM__;
+beforeAll(() => { platformHost.__RIGHTKIT_PLATFORM__ = "macos"; });
+afterAll(() => {
+  if (hostPlatform === undefined) delete platformHost.__RIGHTKIT_PLATFORM__;
+  else platformHost.__RIGHTKIT_PLATFORM__ = hostPlatform;
+});
 
 const noop = () => undefined;
 

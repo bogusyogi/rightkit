@@ -4,8 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { digestBytes } from "./publication-artifacts.mjs";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import {
   assertUpdaterKeyId,
+  assertUpdaterSignature,
+  verifyMinisignSignature,
   buildLatestJson,
   githubAssetUrl,
   githubLatestJsonUrl,
@@ -61,6 +64,47 @@ test("signature key id is read from the minisign signature and pinned to the sui
   assertUpdaterKeyId(win.signature, undefined);
   assert.throws(() => assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), "29395F9FF466261D"), /PUBLICATION_SIGNATURE_KEY_MISMATCH/);
   assert.throws(() => assertUpdaterKeyId(win.signature, "29395f9ff466261d"), /16 upper-case hex/);
+});
+
+test("minisign signatures verify cryptographically over the exact bytes (Ed and ED prehash)", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const rawKey = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+  const keyIdHex = "29395F9FF466261D";
+  const keyIdLe = Buffer.from(keyIdHex, "hex").reverse();
+  const pubText = Buffer.from(`untrusted comment: minisign public key: ${keyIdHex}\n${Buffer.concat([Buffer.from("Ed"), keyIdLe, rawKey]).toString("base64")}\n`).toString("base64");
+  const makeSig = (algorithm, bytes, key = privateKey) => {
+    const data = algorithm === "ED" ? createHash("blake2b512").update(bytes).digest() : bytes;
+    const raw = Buffer.concat([Buffer.from(algorithm), keyIdLe, cryptoSign(null, data, key)]);
+    const comment = "timestamp:1\tfile:fixture\tcomment: signed ✓  ";
+    const global = cryptoSign(null, Buffer.concat([raw.subarray(10), Buffer.from(comment)]), key);
+    return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: ${comment}\n${global.toString("base64")}\n`).toString("base64");
+  };
+  const bytes = Buffer.from("final artifact bytes");
+  for (const algorithm of ["Ed", "ED"]) {
+    const sig = makeSig(algorithm, bytes);
+    assert.equal(verifyMinisignSignature(bytes, sig, pubText), true, algorithm);
+    assertUpdaterSignature(bytes, sig, pubText);
+    assert.equal(verifyMinisignSignature(Buffer.from("tampered bytes"), sig, pubText), false, `${algorithm} tampered`);
+    assert.throws(() => assertUpdaterSignature(Buffer.from("tampered bytes"), sig, pubText), /PUBLICATION_SIGNATURE_INVALID/);
+    const lines = Buffer.from(sig, "base64").toString("utf8").trimEnd().split("\n");
+    const encode = (value) => Buffer.from(`${value.join("\n")}\n`).toString("base64");
+    const rejected = [
+      lines.slice(0, 3),
+      [lines[0], lines[1], lines[2], Buffer.alloc(64).toString("base64")],
+      [lines[0], lines[1], lines[2].replace("timestamp:1", "timestamp:2"), lines[3]],
+      [lines[0], lines[1], "comment: invalid prefix", lines[3]],
+      [lines[0], lines[1], lines[2], "invalid!"],
+      [lines[0], lines[1], lines[2], Buffer.alloc(63).toString("base64")],
+      [...lines, "extra field"],
+    ];
+    for (const invalid of rejected) assert.equal(verifyMinisignSignature(bytes, encode(invalid), pubText), false, `${algorithm} invalid envelope/global`);
+    assert.equal(verifyMinisignSignature(bytes, Buffer.from(`${lines.join("\r\n")}\r\n`).toString("base64"), pubText), true, `${algorithm} CRLF`);
+  }
+  const other = generateKeyPairSync("ed25519");
+  assert.equal(verifyMinisignSignature(bytes, makeSig("Ed", bytes, other.privateKey), pubText), false, "wrong key");
+  assert.equal(verifyMinisignSignature(bytes, "not a signature", pubText), false, "malformed signature");
+  assert.equal(verifyMinisignSignature(bytes, makeSig("Ed", bytes), "not a key"), false, "malformed key");
+  assert.equal(verifyMinisignSignature(bytes, makeSig("Ed", bytes), undefined), false, "missing key");
 });
 
 // Fake gh: a release with assets held in memory.

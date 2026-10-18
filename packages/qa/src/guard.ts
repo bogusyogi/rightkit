@@ -1,11 +1,15 @@
-// Guard legacy app-side WebDriver features even though this package no longer drives them.
-export interface NativeQaContractInput {
+// Guard legacy app-side WebDriver (WDIO) features even though this package no longer drives them.
+// Named legacy on purpose: the current native QA path is the in-app control server, not WDIO.
+export interface LegacyWdioQaContractInput {
   cargoToml: string;
   rustSource: string;
   packageScripts: Record<string, string>;
 }
 
-export function validateNativeQaContract(input: NativeQaContractInput): string[] {
+/** @deprecated Legacy name for {@link LegacyWdioQaContractInput}; kept for existing callers. */
+export type NativeQaContractInput = LegacyWdioQaContractInput;
+
+export function validateLegacyWdioQaContract(input: LegacyWdioQaContractInput): string[] {
   const issues: string[] = [];
   const dependency = input.cargoToml.match(/tauri-plugin-wdio-webdriver\s*=\s*\{([^}]*)\}/s)?.[1] ?? '';
   if (!dependency) {
@@ -42,7 +46,17 @@ export function validateNativeQaContract(input: NativeQaContractInput): string[]
   return issues;
 }
 
-export function assertNativeQaContract(input: NativeQaContractInput): void {
-  const issues = validateNativeQaContract(input);
-  if (issues.length > 0) throw new Error(`native QA contract failed:\n- ${issues.join('\n- ')}`);
+/** @deprecated Use {@link validateLegacyWdioQaContract}; this legacy WDIO guard keeps its old name as an alias. */
+export function validateNativeQaContract(input: LegacyWdioQaContractInput): string[] {
+  return validateLegacyWdioQaContract(input);
+}
+
+export function assertLegacyWdioQaContract(input: LegacyWdioQaContractInput): void {
+  const issues = validateLegacyWdioQaContract(input);
+  if (issues.length > 0) throw new Error(`legacy WDIO QA contract failed:\n- ${issues.join('\n- ')}`);
+}
+
+/** @deprecated Use {@link assertLegacyWdioQaContract}; kept for existing callers. */
+export function assertNativeQaContract(input: LegacyWdioQaContractInput): void {
+  assertLegacyWdioQaContract(input);
 }

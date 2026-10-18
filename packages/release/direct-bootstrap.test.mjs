@@ -106,7 +106,7 @@ test("generated PowerShell owns signed-manifest install, health, and rollback co
   // Installer temp work never outlives the run: early failures trap-clean it, stale dirs are swept.
   assert.match(script, /trap \{ try \{ if \(\$Work -and \(Test-Path -LiteralPath \$Work\)\) \{ Remove-Item -LiteralPath \$Work -Recurse -Force/);
   assert.match(script, /-Filter 'legion-install-\*'.*AddDays\(-1\)/);
-  // The prior copy is kept once, as current.previous, and renamed back on failure.
+  // The prior copy is parked once, as current.previous, renamed back on failure and deleted on success (D01: never retained).
   assert.match(script, /Rename-Item -LiteralPath \$Current -NewName \(Split-Path -Leaf \$Previous\)/);
   const scriptPath = join(mkdtempSync(join(tmpdir(), "rightrelease-ps-")), "install.ps1");
   writeFileSync(scriptPath, script);
@@ -147,7 +147,7 @@ test("generated bootstrap supports current-path activation and product-specific 
   assert.doesNotMatch(script, /\[IO\.Directory\]::Move/);
 });
 
-test("generated Windows in-place cutover keeps the fixed current path and one current.previous", { skip: process.platform !== "win32" }, () => {
+test("generated Windows in-place cutover keeps the fixed current path and parks the prior copy at current.previous mid-transaction", { skip: process.platform !== "win32" }, () => {
   const root = mkdtempSync(join(tmpdir(), "rightrelease in place cutover-"));
   const current = join(root, "current");
   const staging = join(root, "current.staging");

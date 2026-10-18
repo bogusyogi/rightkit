@@ -68,7 +68,7 @@ pub use rightkit_db::rusqlite;
 pub use rightkit_db::RecoveryPolicy;
 #[cfg(feature = "store")]
 pub use runner::{
-    AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks,
+    AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks, LockWait,
     RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
 };
 #[cfg(feature = "store")]

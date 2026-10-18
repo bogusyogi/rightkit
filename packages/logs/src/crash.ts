@@ -35,15 +35,34 @@ export interface WindowCrashConfig {
   now?: () => number;
 }
 
+// Markers match the Rust scrubber (`rightkit_logs::scrub_text` /
+// `redact_url_text`) so JS and Rust outputs agree on the shared parity vectors.
 const SCRUBBERS: Array<[RegExp, string]> = [
-  [/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[redacted]'],
-  [/\b(?:sk|pk|rk|ghp|gho|xox[abp])[-_][A-Za-z0-9_-]{12,}/g, '[redacted]'],
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, '[redacted]'],
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]'],
-  [/([?&#](?:token|key|api_key|apikey|secret|password|code|auth|sig)=)[^&\s)'"]*/gi, '$1[redacted]'],
-  [/\b[0-9a-f]{32,}\b/gi, '[redacted]'],
-  [/(?:[A-Za-z]:\\|\/)(?:Users|home)[\\/][^\\/\s:)]+/g, '[home]'],
+  [/(\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1[redacted:credential]'],
+  [/\b(?:sk|pk|rk|ghp|gho|xox[abp])[-_][A-Za-z0-9_-]{12,}/g, '[redacted:credential]'],
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, '[redacted:credential]'],
+  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted:email]'],
+  [/([?&#](?:token|key|api_key|apikey|secret|password|code|auth|sig|access_token|refresh_token|id_token|client_secret|state)=)[^&\s)'"]*/gi, '$1[redacted]'],
+  [/\b[0-9a-f]{32,}\b/gi, '[redacted:credential]'],
+  [/(\/(?:Users|home)\/)[^\\/\s:)]+/g, '$1<user>'],
+  [/([A-Za-z]:\\Users\\)[^\\/\s:)]+/g, '$1<user>'],
 ];
+
+function redactCrashUrls(text: string): string {
+  return text.replace(
+    /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s"'<>`)\]},]+)/g,
+    (_match, scheme: string, token: string) => {
+      const beforeFragment = token.split('#')[0] ?? token;
+      const queryAt = beforeFragment.indexOf('?');
+      const head = queryAt >= 0 ? beforeFragment.slice(0, queryAt) : beforeFragment;
+      const slashAt = head.indexOf('/');
+      const authority = slashAt >= 0 ? head.slice(0, slashAt) : head;
+      const path = slashAt >= 0 ? head.slice(slashAt) : '';
+      const hostPort = authority.split('@').at(-1) ?? authority;
+      return `${scheme}${hostPort}${path}${queryAt >= 0 ? '?[redacted]' : ''}`;
+    },
+  );
+}
 
 /** Removes URL query/fragment, known secrets and secret-shaped text. Pure. */
 export function scrubWindowCrashText(text: string, redactValues: readonly string[] = []): string {
@@ -51,6 +70,7 @@ export function scrubWindowCrashText(text: string, redactValues: readonly string
   for (const secret of [...redactValues].filter(Boolean).sort((a, b) => b.length - a.length)) {
     out = out.split(secret).join('[redacted]');
   }
+  out = redactCrashUrls(out);
   for (const [pattern, replacement] of SCRUBBERS) out = out.replace(pattern, replacement);
   return out;
 }

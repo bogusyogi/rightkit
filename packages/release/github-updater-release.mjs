@@ -1,11 +1,12 @@
 // GitHub Releases lane of `right-release publish-update` (Orthic-Labs/rightkit#237).
 //
 // The updater artifacts and their minisign signatures are the ones the r2-rightapps lane already uses: they are
-// signed once by `sign-updater.mjs` with the suite updater key (the same TAURI_SIGNING_PRIVATE_KEY / key file as
-// every other app), sealed, and re-verified by `verifyPublicationRelease`. This module only turns the same
+// signed once by `sign-updater.mjs` with the suite updater key (loaded from the OS credential store, never a
+// key file), sealed, and re-verified by `verifyPublicationRelease`. This module only turns the same
 // `platforms` map the r2 lane builds ({ <platform>: { signature, url } }) into a Tauri v2 static `latest.json`
 // and uploads it, with the bundles and their `.sig` files, as assets of the GitHub release `v<version>`, so
 // `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` resolves. It adds no key and no trust root.
+import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PublicationError, digestBytes, readVerifiedArtifact, verifyArtifactFile } from "./publication-artifacts.mjs";
@@ -58,13 +59,75 @@ export function githubLatestJsonUrl(repo) {
  * [2-byte algorithm][8-byte key id, little endian][64-byte signature].
  */
 export function updaterSignatureKeyId(signatureText) {
+  return parseMinisignSignature(signatureText)?.keyId ?? null;
+}
+
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+function parseMinisignSignature(signatureText) {
   try {
-    const lines = Buffer.from(String(signatureText).trim(), "base64").toString("utf8").split(/\r?\n/);
+    const decode = (text) => {
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) throw new Error("invalid base64");
+      const bytes = Buffer.from(text, "base64");
+      if (bytes.toString("base64") !== text) throw new Error("invalid base64");
+      return bytes;
+    };
+    const envelope = decode(String(signatureText).trim());
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(envelope);
+    const lines = text.split(/\r?\n/);
+    if (lines.at(-1) === "") lines.pop();
+    if (lines.length !== 4 || !lines[2].startsWith("trusted comment: ")) return null;
+    const raw = decode(lines[1]);
+    const globalSignature = decode(lines[3]);
+    if (globalSignature.length !== 64) return null;
+    if (raw.length !== 74) return null;
+    const algorithm = raw.subarray(0, 2).toString("latin1");
+    if (algorithm !== "Ed" && algorithm !== "ED") return null;
+    return { algorithm, keyId: Buffer.from(raw.subarray(2, 10)).reverse().toString("hex").toUpperCase(), signature: raw.subarray(10), globalSignature, trustedComment: Buffer.from(lines[2].slice(17), "utf8") };
+  } catch { return null; }
+}
+
+function parseMinisignPublicKey(publicKeyText) {
+  const text = String(publicKeyText ?? "").trim();
+  try {
+    const lines = Buffer.from(text, "base64").toString("utf8").split(/\r?\n/);
     const raw = Buffer.from(lines[1] ?? "", "base64");
-    if (raw.length !== 74 || raw[0] !== 0x45 || (raw[1] !== 0x64 && raw[1] !== 0x44)) return null;
-    return Buffer.from(raw.subarray(2, 10)).reverse().toString("hex").toUpperCase();
-  } catch {
-    return null;
+    if (raw.length === 42 && ["Ed", "ED"].includes(raw.subarray(0, 2).toString("latin1"))) {
+      return { keyId: Buffer.from(raw.subarray(2, 10)).reverse().toString("hex").toUpperCase(), key: raw.subarray(10) };
+    }
+  } catch { /* fall through to raw forms */ }
+  try {
+    const raw = Buffer.from(text, "base64");
+    if (raw.length === 42 && ["Ed", "ED"].includes(raw.subarray(0, 2).toString("latin1"))) return { keyId: Buffer.from(raw.subarray(2, 10)).reverse().toString("hex").toUpperCase(), key: raw.subarray(10) };
+    if (raw.length === 32) return { keyId: null, key: raw };
+  } catch { /* invalid below */ }
+  return null;
+}
+
+/**
+ * Cryptographic minisign (Ed25519) verification over the EXACT artifact bytes. `Ed` signatures
+ * cover the bytes directly; `ED` signatures cover their BLAKE2b-512 prehash. Returns false (never
+ * throws) for any malformed signature/key, key-id mismatch, or bad signature.
+ */
+export function verifyMinisignSignature(bytes, signatureText, publicKeyText) {
+  const sig = parseMinisignSignature(signatureText);
+  const pub = parseMinisignPublicKey(publicKeyText);
+  if (!sig || !pub || (pub.keyId && pub.keyId !== sig.keyId)) return false;
+  try {
+    const data = sig.algorithm === "ED" ? createHash("blake2b512").update(bytes).digest() : Buffer.from(bytes);
+    const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, pub.key]), format: "der", type: "spki" });
+    return cryptoVerify(null, data, key, sig.signature)
+      && cryptoVerify(null, Buffer.concat([sig.signature, sig.trustedComment]), key, sig.globalSignature);
+  } catch { return false; }
+}
+
+/**
+ * Require a cryptographically valid minisign signature over `bytes` under the declared public key.
+ * The key-id check (`assertUpdaterKeyId`) is supplementary only; this is the seal/upload gate.
+ */
+export function assertUpdaterSignature(bytes, signatureText, publicKeyText, label = "updater signature") {
+  if (!verifyMinisignSignature(bytes, signatureText, publicKeyText)) {
+    throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", `${label} does not cryptographically verify over the exact artifact bytes under the declared updater public key`);
   }
 }
 

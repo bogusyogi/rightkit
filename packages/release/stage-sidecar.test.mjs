@@ -6,6 +6,7 @@ import {
   StageSidecarError, builtBinaryCandidates, isNestedBrokerContext, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
+import { contentIdentity } from "./content-digest.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const APP = path.resolve("/rk-fake-app");
@@ -261,6 +262,54 @@ test("ffmpeg stages through media-sidecar, writes licence notices and verifies t
 
 test("ffmpeg refuses staged bytes that differ from the approved catalog digest", async () => {
   const fixture = ffmpegFixture({ stagedBytes: "tampered" });
+  await assert.rejects(
+    stageSidecars({ appRoot: APP, target: MAC, manifest: ffmpegManifest, deps: deps({ fs: fixture.fs, run: fixture.run, loadMediaCatalog: () => ({ catalog: fixture.catalog, crateDir: fixture.crateDir }) }) }),
+    { code: "STAGE_SIDECAR_HASH_MISMATCH" },
+  );
+});
+
+// Minimal thin arm64 Mach-O, mirroring content-digest.test.mjs: __TEXT + __LINKEDIT (+ optional code signature).
+function machoArm64(payload, signature) {
+  const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
+  const u64 = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
+  const up = (v, t) => Math.floor((v + t - 1) / t) * t;
+  const sizeofcmds = 144 + (signature ? 16 : 0);
+  const textOff = 0x1000, text = Buffer.alloc(64, 0xaa), linkeditOff = textOff + text.length;
+  const sigOff = signature ? up(linkeditOff + payload.length, 16) : null;
+  const fileLen = signature ? sigOff + signature.length : linkeditOff + payload.length;
+  const filesize = fileLen - linkeditOff;
+  const segment = (name, vm, vmsize, off, size) => { const n = Buffer.alloc(16); n.write(name, "latin1"); return Buffer.concat([u32(0x19), u32(72), n, u64(vm), u64(vmsize), u64(off), u64(size), Buffer.alloc(16)]); };
+  const head = [u32(0xfeedfacf), u32(0x0100000c), u32(0), u32(2), u32(2 + (signature ? 1 : 0)), u32(sizeofcmds), u32(0), u32(0),
+    segment("__TEXT", 0, 0x4000, textOff, text.length), segment("__LINKEDIT", 0x4000, up(filesize, 0x4000), linkeditOff, filesize)];
+  if (signature) head.push(u32(0x1d), u32(16), u32(sigOff), u32(signature.length));
+  const file = Buffer.alloc(fileLen);
+  Buffer.concat(head).copy(file); text.copy(file, textOff); payload.copy(file, linkeditOff);
+  if (signature) signature.copy(file, sigOff);
+  return file;
+}
+
+test("ffmpeg staging accepts a signed Mach-O whose whole-file hash differs from the catalog content digest", async () => {
+  const payload = Buffer.from("symtab-and-strtab-bytes!");
+  const unsigned = machoArm64(payload, null);
+  const signed = machoArm64(payload, Buffer.alloc(300, 0x11));
+  const catalogDigest = contentIdentity(unsigned).slices[0].sha256;
+  assert.equal(contentIdentity(signed).slices[0].sha256, catalogDigest, "signed & unsigned share one content digest");
+  assert.notEqual(sha(signed), catalogDigest, "whole-file SHA-256 differs from the catalog row");
+  const fixture = ffmpegFixture({ stagedBytes: signed, contentSha256: catalogDigest });
+  const result = await stageSidecars({
+    appRoot: APP, target: MAC, manifest: ffmpegManifest,
+    deps: deps({ fs: fixture.fs, run: fixture.run, loadMediaCatalog: () => ({ catalog: fixture.catalog, crateDir: fixture.crateDir, crateVersion: "0.9.0" }) }),
+  });
+  const [file] = result.files;
+  assert.equal(file.catalogContentSha256, catalogDigest);
+  assert.equal(file.sha256, sha(signed), "receipt sha256 stays the whole-file pre-sign hash");
+});
+
+test("ffmpeg staging refuses a Mach-O with changed code under the same catalog content digest", async () => {
+  const payload = Buffer.from("symtab-and-strtab-bytes!");
+  const catalogDigest = contentIdentity(machoArm64(payload, null)).slices[0].sha256;
+  const tampered = machoArm64(payload, Buffer.alloc(300, 0x11)); tampered[0x1000] ^= 1;
+  const fixture = ffmpegFixture({ stagedBytes: tampered, contentSha256: catalogDigest });
   await assert.rejects(
     stageSidecars({ appRoot: APP, target: MAC, manifest: ffmpegManifest, deps: deps({ fs: fixture.fs, run: fixture.run, loadMediaCatalog: () => ({ catalog: fixture.catalog, crateDir: fixture.crateDir }) }) }),
     { code: "STAGE_SIDECAR_HASH_MISMATCH" },

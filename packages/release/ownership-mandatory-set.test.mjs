@@ -158,3 +158,92 @@ test("CLI: an unknown --amendment exits 2 like an unknown --profile, even with -
     assert.equal(await run(["--app", "good", "--amendment", "v2.1"]), 0);
   } finally { rmSync(workspace, { recursive: true, force: true }); }
 });
+
+test("lowerBound proven-minimum range semantics (M23): upper-only proves nothing, AND takes max, union takes min", () => {
+  assert.equal(lowerBound("<9"), null);
+  assert.equal(lowerBound("<9.0.0"), null);
+  assert.equal(lowerBound("<=9.0.0"), null);
+  assert.equal(lowerBound("<9 <10"), null);
+  assert.deepEqual(lowerBound(">=0.2.5 <0.4"), { major: 0, minor: 2, patch: 5, pre: null });
+  assert.deepEqual(lowerBound(">=0.2.5, <0.4"), { major: 0, minor: 2, patch: 5, pre: null });
+  assert.deepEqual(lowerBound(">=1.0.0 >=2.0.0 <3"), { major: 2, minor: 0, patch: 0, pre: null });
+  assert.deepEqual(lowerBound(">1.2.3"), { major: 1, minor: 2, patch: 3, pre: null });
+  assert.deepEqual(lowerBound("~1.2.3"), { major: 1, minor: 2, patch: 3, pre: null });
+  assert.deepEqual(lowerBound("1.x"), { major: 1, minor: 0, patch: 0, pre: null });
+  assert.deepEqual(lowerBound("1.2.*"), { major: 1, minor: 2, patch: 0, pre: null });
+  assert.deepEqual(lowerBound("1.2.3 - 2.0.0"), { major: 1, minor: 2, patch: 3, pre: null });
+  assert.deepEqual(lowerBound(">=3.0.0 || >=1.0.0 <2.0.0"), { major: 1, minor: 0, patch: 0, pre: null });
+  assert.equal(lowerBound("<9 || >=10"), null);
+  assert.equal(lowerBound("* || >=1.0.0"), null);
+  assert.equal(lowerBound("latest"), null);
+  assert.equal(lowerBound(""), null);
+  assert.equal(lowerBound(null), null);
+});
+
+test("judge: declared <9 against required min 9 is below-required (not provable), >=9 <10 passes (M23)", () => {
+  const data9 = {
+    defaultProfile: "desktop",
+    appDeclarationFile: "rightkit-mandatory.json",
+    profiles: { desktop: {} },
+    rows: [{ id: "M18", name: "fixture row", profile: "desktop", owners: [{ name: "@rightkit/app-update", ecosystem: "npm", min: "9" }] }],
+    pendingRows: [],
+    amendments: {},
+  };
+  const badRoot = tmp();
+  const okRoot = tmp();
+  try {
+    put(badRoot, "package.json", { name: "fixture", dependencies: { "@rightkit/app-update": "<9" } });
+    const bad = byOwner(checkApp(badRoot, { data: data9 }), "@rightkit/app-update");
+    assert.equal(bad.status, "below-required");
+    assert.equal(bad.declared, null);
+    assert.match(bad.evidence.join("\n"), /not provable/);
+    put(okRoot, "package.json", { name: "fixture", dependencies: { "@rightkit/app-update": ">=9 <10" } });
+    const ok = byOwner(checkApp(okRoot, { data: data9 }), "@rightkit/app-update");
+    assert.equal(ok.status, "ok");
+    assert.equal(ok.declared, "9.0.0");
+  } finally {
+    rmSync(badRoot, { recursive: true, force: true });
+    rmSync(okRoot, { recursive: true, force: true });
+  }
+});
+
+
+test("SemVer prerelease identifiers use numeric precedence & stable releases win", () => {
+  for (const [low, high] of [["1.0.0-beta.2", "1.0.0-beta.10"], ["1.0.0-2", "1.0.0-10"], ["1.0.0-2", "1.0.0-alpha"], ["1.0.0-beta", "1.0.0-beta.1"], ["1.0.0-rc.1", "1.0.0"]]) {
+    assert.ok(compareVersions(lowerBound(low), lowerBound(high)) < 0, `${low} < ${high}`);
+  }
+  assert.equal(lowerBound("1.0.0-beta.01"), null);
+});
+
+test("nonapplicable target & optional/peer declarations never claim active production adoption", () => {
+  const root = tmp();
+  try {
+    const fixtureData = { ...data, rows: [{ id: "M1", profile: "desktop", owners: [{ name: "rightkit-fs", ecosystem: "cargo", min: "1.0.0" }, { name: "@rightkit/legal", ecosystem: "npm", min: "1.0.0" }] }], pendingRows: [] };
+    put(root, "Cargo.toml", '[package]\nname="fixture"\nversion="0.0.0"\n[target.\'cfg(target_os = "none")\'.dependencies]\nrightkit-fs = { version="1.0.0", optional=true }');
+    put(root, "package.json", { peerDependencies: { "@rightkit/legal": "1.0.0" } });
+    const report = checkApp(root, { data: fixtureData });
+    assert.equal(report.violations, 0); // Existing declaration enforcement contract remains intact.
+    for (const owner of report.owners) {
+      assert.equal(owner.declarationStatus, "ok");
+      assert.equal(owner.evidenceKind, "declaration");
+      assert.equal(owner.qualification, "unverified");
+      assert.equal(owner.activeTarget, null);
+      assert.equal(owner.lockResolution, null);
+      assert.equal(owner.productionUse, null);
+    }
+    assert.match(byOwner(report, "rightkit-fs").declarations[0].target, /none/);
+    assert.equal(byOwner(report, "@rightkit/legal").declarations[0].peer, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("mandatory prerelease minimum cannot be qualified by beta.2 against beta.10", () => {
+  const root = tmp();
+  try {
+    const fixtureData = { ...data, rows: [{ id: "M1", profile: "desktop", owners: [{ name: "rightkit-fs", ecosystem: "cargo", min: "1.0.0-beta.10" }] }], pendingRows: [] };
+    put(root, "Cargo.toml", '[dependencies]\nrightkit-fs="^1.0.0-beta.2"');
+    assert.equal(byOwner(checkApp(root, { data: fixtureData }), "rightkit-fs").status, "below-required");
+    put(root, "Cargo.toml", '[dependencies]\nrightkit-fs="^1.0.0-beta.10"');
+    assert.equal(byOwner(checkApp(root, { data: fixtureData }), "rightkit-fs").status, "ok");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -371,7 +371,6 @@ pub fn roots_with(app: &AppId, mode: &Mode, input: &dyn ModeInput) -> Result<App
 mod capable {
     use super::*;
     use std::fs;
-    use std::path::Component;
 
     fn truthy(v: &str) -> bool {
         let t = v.trim();
@@ -392,59 +391,23 @@ mod capable {
         }
     }
 
-    /// Longest existing ancestor canonicalised, remainder appended lexically.
-    fn resolve(path: &Path) -> PathBuf {
-        let mut rest: Vec<std::ffi::OsString> = Vec::new();
-        let mut cur = path.to_path_buf();
-        loop {
-            if let Ok(canon) = fs::canonicalize(&cur) {
-                let mut out = canon;
-                for part in rest.iter().rev() {
-                    out.push(part);
-                }
-                return out;
-            }
-            match (cur.file_name().map(|n| n.to_os_string()), cur.parent()) {
-                (Some(name), Some(parent)) => {
-                    rest.push(name);
-                    cur = parent.to_path_buf();
-                }
-                _ => return path.to_path_buf(),
-            }
+    fn map_refusal(refusal: rightkit_fs::test_mode::Refusal) -> Refusal {
+        use rightkit_fs::test_mode::Refusal as FsRefusal;
+        match refusal {
+            FsRefusal::ActivationWithoutRoot => Refusal::ActivationWithoutRoot,
+            FsRefusal::RootWithoutActivation => Refusal::RootWithoutActivation,
+            FsRefusal::RootNotAbsolute => Refusal::RootNotAbsolute,
+            FsRefusal::RootNotDirectory => Refusal::RootNotDirectory,
+            FsRefusal::RootHasSymlink => Refusal::RootHasSymlink,
+            FsRefusal::RootOverlapsUserData => Refusal::RootOverlapsUserData,
+            FsRefusal::RootOnRemovableOrCloud => Refusal::RootOnRemovableOrCloud,
+            FsRefusal::RootNotPrivate => Refusal::RootNotPrivate,
+            FsRefusal::RootNotCreatedByRunner => Refusal::RootNotCreatedByRunner,
+            FsRefusal::BindingAppMismatch => Refusal::BindingAppMismatch,
+            FsRefusal::UserRootUnknown => Refusal::UserRootUnknown,
+            FsRefusal::Io(e) => Refusal::Io(e),
+            other => Refusal::Io(other.rule().to_string()),
         }
-    }
-
-    fn overlaps(root: &Path, protected: &Path) -> bool {
-        root.starts_with(protected) || protected.starts_with(root)
-    }
-
-    fn on_cloud_folder(path: &Path) -> bool {
-        path.components().any(|c| match c {
-            Component::Normal(name) => {
-                let n = name.to_string_lossy().to_lowercase();
-                n.starts_with("onedrive")
-                    || n == "dropbox"
-                    || n == "icloud drive"
-                    || n == "mobile documents"
-                    || n == "google drive"
-                    || n == "googledrive"
-            }
-            _ => false,
-        })
-    }
-
-    #[cfg(unix)]
-    fn private_to_user(path: &Path) -> Result<bool, Refusal> {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let md = fs::metadata(path)?;
-        Ok(md.uid() == crate::transport::current_uid() && md.permissions().mode() & 0o077 == 0)
-    }
-
-    #[cfg(not(unix))]
-    fn private_to_user(_path: &Path) -> Result<bool, Refusal> {
-        // Windows: a per-user DACL check is not implemented here; the runner creates the home
-        // under the user's own profile. Disjointness and binding are still enforced.
-        Ok(true)
     }
 
     fn check_binding(app: &AppId, canon: &Path) -> Result<(), Refusal> {
@@ -460,46 +423,18 @@ mod capable {
     }
 
     fn verify(app: &AppId, input: &dyn ModeInput, raw: &str) -> Result<TestRoot, Refusal> {
-        let path = PathBuf::from(raw.trim());
-        // Verbatim Windows paths (`\\?\`) keep `..` as a literal component, so match the text too.
-        let parent_dir =
-            |c: &Component<'_>| matches!(c, Component::ParentDir) || c.as_os_str() == "..";
-        if !path.is_absolute() || path.components().any(|c| parent_dir(&c)) {
-            return Err(Refusal::RootNotAbsolute);
-        }
-        let md = fs::symlink_metadata(&path).map_err(|_| Refusal::RootNotDirectory)?;
-        if md.file_type().is_symlink() {
-            return Err(Refusal::RootHasSymlink);
-        }
-        if !md.is_dir() {
-            return Err(Refusal::RootNotDirectory);
-        }
-        let canon = fs::canonicalize(&path)?;
-
         let real = input
             .per_user_default()
             .map_err(|_| Refusal::UserRootUnknown)?;
         let mut protected = input.protected_paths(&real);
         protected.push(real.root().to_path_buf());
-        if protected.is_empty() {
-            return Err(Refusal::UserRootUnknown);
-        }
-        for p in &protected {
-            if overlaps(&canon, &resolve(p)) {
-                return Err(Refusal::RootOverlapsUserData);
-            }
-        }
-        if on_cloud_folder(&canon) {
-            return Err(Refusal::RootOnRemovableOrCloud);
-        }
-        if !private_to_user(&canon)? {
-            return Err(Refusal::RootNotPrivate);
-        }
-        check_binding(app, &canon)?;
-
-        let suite = Suite::at(canon.join("shared")).map_err(|e| Refusal::Io(e.to_string()))?;
+        let validated =
+            rightkit_fs::test_mode::validate_root(app.id, Path::new(raw.trim()), &protected)
+                .map_err(map_refusal)?;
+        let suite_path = validated.child(Path::new("shared")).map_err(map_refusal)?;
+        let suite = Suite::at(suite_path).map_err(|e| Refusal::Io(e.to_string()))?;
         Ok(TestRoot {
-            path: canon,
+            path: validated.path().to_path_buf(),
             suite,
             app_id: app.id,
         })

@@ -178,6 +178,13 @@ pub fn validate_args_strict(schema: &Value, args: &Value) -> Result<(), String> 
 }
 
 /// Minimal schema check: `required` present, declared primitive types and enums match.
+///
+/// Undeclared arguments are accepted, except when the schema explicitly sets
+/// `additionalProperties: false`: then an argument the schema does not list under
+/// `properties` is rejected. An omitted, `true` or schema-object
+/// `additionalProperties` keeps the open acceptance, and the values of extras allowed
+/// by a schema object are not themselves validated (full recursive validation is a
+/// separate extension). `Null` arguments read as `{}`.
 pub fn validate_args(schema: &Value, args: &Value) -> Result<(), String> {
     let obj = match args {
         Value::Object(o) => o,
@@ -215,6 +222,18 @@ pub fn validate_args(schema: &Value, args: &Value) -> Result<(), String> {
             }
         }
     }
+    if let Value::Bool(false) = &schema["additionalProperties"] {
+        let props = schema["properties"].as_object();
+        let mut unknown: Vec<&str> = obj
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !props.is_some_and(|p| p.contains_key(*k)))
+            .collect();
+        unknown.sort_unstable();
+        if let Some(first) = unknown.first() {
+            return Err(format!("unknown argument `{first}`"));
+        }
+    }
     Ok(())
 }
 
@@ -250,6 +269,32 @@ mod strict_tests {
         let mut closed = schema();
         closed["additionalProperties"] = json!(false);
         assert!(validate_args_strict(&closed, &json!({"a": "x", "b": 1})).is_err());
+    }
+
+    #[test]
+    fn lenient_rejects_extras_only_on_explicit_false() {
+        let args = json!({"a": "x", "b": 1});
+        // Omitted, true and schema-object keep the open acceptance; the schema
+        // object's own rules are not applied to the extra's value (`b` is not a string).
+        assert!(validate_args(&schema(), &args).is_ok());
+        let mut open = schema();
+        open["additionalProperties"] = json!(true);
+        assert!(validate_args(&open, &args).is_ok());
+        let mut typed = schema();
+        typed["additionalProperties"] = json!({"type": "string"});
+        assert!(validate_args(&typed, &args).is_ok());
+        // Explicit false closes the object, in the lenient check too.
+        let mut closed = schema();
+        closed["additionalProperties"] = json!(false);
+        let err = validate_args(&closed, &args).unwrap_err();
+        assert!(err.contains("`b`"), "{err}");
+        assert!(validate_args(&closed, &json!({"a": "x"})).is_ok());
+        // Null still reads as `{}` (and so has no extras to reject).
+        assert!(validate_args(
+            &json!({"type": "object", "additionalProperties": false}),
+            &Value::Null
+        )
+        .is_ok());
     }
 
     #[test]

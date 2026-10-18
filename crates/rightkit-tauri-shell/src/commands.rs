@@ -65,12 +65,12 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         .iter()
         .map(|(p, l)| json!({"path": p, "label": l}))
         .collect();
-    #[cfg(any(feature = "content-devtools", feature = "dev-inspect"))]
+    #[cfg(feature = "content-devtools")]
     let devtools_open = app
         .get_webview_window(&state.main_label)
         .map(|w| w.is_devtools_open())
         .unwrap_or(false);
-    #[cfg(not(any(feature = "content-devtools", feature = "dev-inspect")))]
+    #[cfg(not(feature = "content-devtools"))]
     let devtools_open = false;
     let windows: Vec<Value> = app
         .webview_windows()
@@ -120,7 +120,7 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
             .map_err(|e| e.to_string()),
         "hide" => {
             let r = window.hide();
-            if window.label() == "main" {
+            if window.label() == window.app_handle().state::<ShellState>().main_label {
                 crate::idle::note_hidden(window.app_handle(), false);
             }
             if r.is_ok() && window.label() == window.app_handle().state::<ShellState>().main_label {
@@ -139,7 +139,9 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
                 crate::lifecycle::RevealSource::WindowCommand,
                 crate::windows::RevealStyle::ShowFocus,
             );
-            if window.label() == "main" && matches!(r, Ok(true)) {
+            if window.label() == window.app_handle().state::<ShellState>().main_label
+                && matches!(r, Ok(true))
+            {
                 crate::idle::note_visible(window.app_handle());
             }
             r.map(|_| ())

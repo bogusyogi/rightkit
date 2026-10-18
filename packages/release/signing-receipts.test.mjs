@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import { runInNewContext } from "node:vm";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { notarizeMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
+import { assertUpdaterSignature } from "./github-updater-release.mjs";
 
 const source = fs.readFileSync(new URL("./build-release.mjs", import.meta.url), "utf8");
 const hashFile = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -29,9 +30,18 @@ test("MailRight config seals current build receipts despite stale legacy & other
     installer: { artifacts: [{ file: dmg, key: "mailright/installers/mac/current/MailRight_universal.dmg" }] },
     updater: { artifacts: [{ file: "MailRight.app.tar.gz", signature: "MailRight.app.tar.gz.sig", platform: "darwin-aarch64", key: "mailright/updates/mac/current/MailRight.app.tar.gz" }] },
   };
-  const config = { app: "mailright", version: "0.2.131", targets: { mac: target } };
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const keyId = Buffer.from("0102030405060708", "hex");
+  const updaterBytes = Buffer.from("real signed updater fixture");
+  const signature = cryptoSign(null, updaterBytes, privateKey);
+  const trustedComment = "receipt fixture";
+  const signatureEnvelope = Buffer.from(`untrusted comment: fixture\n${Buffer.concat([Buffer.from("Ed"), keyId, signature]).toString("base64")}\ntrusted comment: ${trustedComment}\n${cryptoSign(null, Buffer.concat([signature, Buffer.from(trustedComment)]), privateKey).toString("base64")}\n`).toString("base64");
+  const updaterPublicKey = Buffer.concat([Buffer.from("Ed"), keyId, publicKey.export({ type: "spki", format: "der" }).subarray(-32)]).toString("base64");
+  const config = { app: "mailright", version: "0.2.131", distribution: { updaterPublicKey }, targets: { mac: target } };
   fs.writeFileSync(configPath, `export default ${JSON.stringify(config)}`);
   for (const file of [dmg, "MailRight.app.tar.gz", "MailRight.app.tar.gz.sig"]) fs.writeFileSync(path.join(root, file), file);
+  fs.writeFileSync(path.join(root, "MailRight.app.tar.gz"), updaterBytes);
+  fs.writeFileSync(path.join(root, "MailRight.app.tar.gz.sig"), signatureEnvelope);
   fs.mkdirSync(stateRoot, { recursive: true });
   fs.writeFileSync(path.join(stateRoot, "macos-signing.json"), JSON.stringify({ schema: 1, signingContract: target.signingContract, files: [{ file: path.join(root, dmg) }] }));
   const run = (cmd, args) => cmd === "/bin/launchctl" ? { status: 0, stdout: "Aqua" }
@@ -54,7 +64,7 @@ test("MailRight config seals current build receipts despite stale legacy & other
   const sealEnd = source.indexOf("\nfunction collectToolVersions", sealStart);
   const validations = [];
   const seal = runInNewContext(`${source.slice(sealStart, sealEnd)}\nsealRelease;`, {
-    ...fs, path, process, hashFile, devtoolsEvidence, resolveDevtoolsAllowance,
+    ...fs, path, process, hashFile, devtoolsEvidence, resolveDevtoolsAllowance, assertUpdaterSignature,
     writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)),
     fail: (message) => { throw new Error(message); },
     resolveArtifactDir: () => root, materializeArtifacts: () => {}, completeArtifactLease: () => {}, retainArtifacts: () => ({ removed: [] }),

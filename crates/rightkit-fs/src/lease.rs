@@ -33,13 +33,20 @@
 //!
 //! # Takeover and the guard
 //!
-//! Every operation that changes an existing record (a takeover, [`Lease::renew`],
-//! [`Lease::release`]) first takes a short-lived **guard**: the file `<lease path>.takeover`, created
-//! exclusively (`create_new`) and holding the guarding pid and its creation time. Only the
-//! guard's owner may act, so two takers cannot both judge, remove and create, and a renewal cannot
-//! slip in between a judgement and the removal.
+//! Every record mutation (initial creation, takeover, [`Lease::renew`],
+//! [`Lease::release`]) first takes a short-lived **guard**: an exclusive OS lock
+//! (`File::try_lock`) on the stable file `<lease path>.takeover`, held through the whole
+//! validate/mutate step. Only the lock's holder may act, so two takers cannot both judge, remove
+//! and create, and a renewal cannot slip in between a judgement and the removal. The kernel grants
+//! the lock to exactly one holder and drops it when the holder exits or is killed, so a live
+//! guard can never be stolen by age or TTL, and a dead holder's guard frees itself.
 //!
-//! A taker judges the record, takes the guard, re-reads the record and compares the **full text**
+//! The guard file is **never unlinked or renamed**: deleting it would let one process lock the
+//! old inode while another creates and locks a new file at the same path, which is the race this
+//! guard exists to close. Its content (pid, creation time, token, under a `rightkit-lease-guard
+//! v2` header) is evidence for diagnosis only; the OS lock decides.
+//!
+//! A taker takes the guard, judges the record, re-reads it and compares the **full text**
 //! (heartbeat included, not just the token) with what it judged. Only an identical, stale record is
 //! removed, and the normal exclusive create follows while the guard is still held. Anything else
 //! (the record changed, vanished or was replaced) removes nothing; the call goes round again. If
@@ -47,13 +54,13 @@
 //! rounds the call reports `WouldBlock`, and calling again is safe). `renew` reports the same
 //! retryable `WouldBlock` and writes nothing; `release` leaves the file in place.
 //!
-//! A guard is itself stale when its pid is confirmed dead or it is older than the caller's TTL; a
-//! stale guard is renamed aside, checked to be the one judged, and discarded. That last step is
-//! the one place two processes can still race (a guard judged stale by two processes at once while a
-//! third creates a fresh one). In that narrow window two processes can hold a guard together, and a
-//! taker that already compared the record can remove one the holder renewed a moment earlier, so two
-//! holders can briefly coexist; the displaced holder finds out on its next `renew` (`Locked`). It
-//! needs a guard whose pid is dead or that is older than the TTL, plus a three-way race.
+//! Mixed-version note: the previous protocol held the guard by the file's mere existence (no
+//! header, no OS lock) and reclaimed it by renaming a stale-looking file aside. This protocol
+//! fails closed for live or unknown legacy owners regardless of age. Only a positively dead
+//! legacy owner permits migration; unknown records require offline cleanup with legacy writers
+//! stopped. This protocol never renames guards aside; a legacy binary can still rename a
+//! guard file this code has locked, so mixed binaries on one lease path do not get the full
+//! guarantee until every writer is upgraded.
 //!
 //! # Limits
 //!
@@ -73,7 +80,7 @@
 //!
 //! Not compiled or run when written.
 
-use crate::atomic::{atomic_write_with_options, rename_exclusive, AtomicWriteOptions, ReplaceMode};
+use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, ReplaceMode};
 use crate::error::{FsError, Result};
 use crate::{process_liveness, ProcessLiveness};
 use std::fs;
@@ -263,6 +270,11 @@ impl Lease {
             heartbeat_ms: now,
         };
         for _ in 0..ATTEMPTS {
+            // Even an absent lease may be inside a legacy mutation or a v2 takeover's
+            // remove/create interval. Initial creation must obey the same exclusion.
+            let Some(guard) = Guard::acquire(path, options.ttl, now)? else {
+                continue;
+            };
             match create_exclusive(path, &info.encode()) {
                 Ok(()) => {
                     return Ok(Acquire::Acquired(Lease {
@@ -278,9 +290,7 @@ impl Lease {
                 Judged::Gone => {}
                 Judged::Live(holder) => return Ok(Acquire::Held(holder)),
                 Judged::Stale { text } => {
-                    if take_down(path, &text, &info.encode(), options.ttl, now)?
-                        == Takedown::Created
-                    {
+                    if take_down(path, &text, &info.encode(), &guard)? == Takedown::Created {
                         return Ok(Acquire::Acquired(Lease {
                             path: path.to_path_buf(),
                             info,
@@ -499,16 +509,7 @@ enum Takedown {
 /// Replace the record judged stale with `new_text`, under the takeover guard. The record is removed
 /// only if it is still exactly the judged text (heartbeat included); a record that differs in any
 /// way is never removed. The exclusive create runs while the guard is held.
-fn take_down(
-    path: &Path,
-    judged_text: &str,
-    new_text: &str,
-    ttl: Duration,
-    now: u64,
-) -> Result<Takedown> {
-    let Some(_guard) = Guard::acquire(path, ttl, now)? else {
-        return Ok(Takedown::Declined);
-    };
+fn take_down(path: &Path, judged_text: &str, new_text: &str, _guard: &Guard) -> Result<Takedown> {
     match read_record(path)? {
         None => {}
         Some(current) if record_text(&current) == judged_text => match fs::remove_file(path) {
@@ -525,10 +526,15 @@ fn take_down(
     }
 }
 
-/// The short-lived exclusive file `<lease>.takeover` that serializes takeover, renew and release.
+/// First line of every guard record this protocol writes; a guard file without it is either
+/// empty or a legacy (existence-held) guard.
+const GUARD_HEADER: &str = "rightkit-lease-guard v2";
+
+/// An exclusive OS lock on the stable file `<lease>.takeover`, held through one whole
+/// validate/mutate step of a takeover, renew or release. The file is never unlinked or renamed
+/// (see the module docs); dropping the guard only unlocks.
 struct Guard {
-    path: PathBuf,
-    text: String,
+    file: fs::File,
 }
 
 impl Guard {
@@ -538,107 +544,107 @@ impl Guard {
         PathBuf::from(name)
     }
 
-    /// Take the guard, or `None` when another live process holds it. A stale guard is removed
-    /// (see the module docs) and the take retried once.
-    fn acquire(lease: &Path, ttl: Duration, now: u64) -> Result<Option<Guard>> {
+    /// Take the guard, or `None` when another holder has the OS lock (however long it has held
+    /// it: a live exclusion is never stolen by age) or when a live/unknown legacy guard is present
+    /// (mixed protocol: fail closed). A killed holder's lock is dropped by the kernel, so the
+    /// next take simply succeeds.
+    fn acquire(lease: &Path, _ttl: Duration, now: u64) -> Result<Option<Guard>> {
         let path = Self::path_for(lease);
-        let text = format!(
-            "pid={}\ncreated_ms={now}\ntoken={}\n",
-            std::process::id(),
-            new_token()
-        );
-        for _ in 0..2 {
-            match create_exclusive(&path, &text) {
-                Ok(()) => return Ok(Some(Guard { path, text })),
-                Err(e) if e.kind() == Some(io::ErrorKind::AlreadyExists) => {}
-                Err(e) => return Err(e),
+        if let Ok(meta) = fs::symlink_metadata(&path) {
+            if meta.file_type().is_symlink() {
+                return Err(FsError::Symlink(path));
             }
-            let Some(held) = fs::read(&path)
-                .ok()
-                .map(|b| String::from_utf8_lossy(&b).into_owned())
-            else {
-                continue; // vanished: try to create again
-            };
-            if !guard_is_stale(&path, &held, ttl, now) {
-                return Ok(None);
-            }
-            discard_if_unchanged(&path, &held);
         }
-        Ok(None)
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent).map_err(|e| FsError::io(parent, e))?;
+        }
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        let (mut file, newly_created) = match options.create_new(true).open(&path) {
+            Ok(file) => (file, true),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                options.create(false).create_new(false);
+                (
+                    options.open(&path).map_err(|e| FsError::io(&path, e))?,
+                    false,
+                )
+            }
+            // A symlink swapped in after the check above: O_NOFOLLOW reports ELOOP on Unix.
+            Err(e) => return Err(FsError::io(&path, e)),
+        };
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => return Ok(None),
+            Err(fs::TryLockError::Error(e)) => return Err(FsError::io(&path, e)),
+        }
+        // A pre-existing headerless file is an existence-held legacy guard, including
+        // an empty/partially written record. Only positively dead owners may migrate.
+        // Age, clock skew, malformed records and unknown liveness grant no exclusion.
+        let existing = {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut text = String::new();
+            file.seek(SeekFrom::Start(0))
+                .map_err(|e| FsError::io(&path, e))?;
+            Read::take(&mut file, 4097)
+                .read_to_string(&mut text)
+                .map_err(|e| FsError::io(&path, e))?;
+            text
+        };
+        if !newly_created
+            && !existing.starts_with(&format!("{GUARD_HEADER}\n"))
+            && !legacy_guard_owner_is_dead(&existing)
+        {
+            let _ = file.unlock();
+            return Ok(None);
+        }
+        {
+            use std::io::{Seek, SeekFrom};
+            let text = format!(
+                "{GUARD_HEADER}\npid={}\ncreated_ms={now}\ntoken={}\n",
+                std::process::id(),
+                new_token()
+            );
+            let written = (|| -> io::Result<()> {
+                file.seek(SeekFrom::Start(0))?;
+                file.write_all(text.as_bytes())?;
+                file.set_len(text.len() as u64)
+            })();
+            if let Err(e) = written {
+                let _ = file.unlock();
+                return Err(FsError::io(&path, e));
+            }
+        }
+        Ok(Some(Guard { file }))
     }
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        // Remove the guard only if it is still ours.
-        let ours = fs::read(&self.path)
-            .map(|b| String::from_utf8_lossy(&b) == self.text.as_str())
-            .unwrap_or(false);
-        if ours {
-            let _ = fs::remove_file(&self.path);
-        }
+        // Explicit unlock (flock descriptors are inherited across fork, so release here rather
+        // than waiting for the descriptor to close). The file itself stays: never unlink a lock
+        // file another process may be about to open.
+        let _ = self.file.unlock();
     }
 }
 
-fn guard_is_stale(path: &Path, text: &str, ttl: Duration, now: u64) -> bool {
-    let field = |key: &str| {
-        text.lines()
-            .find_map(|l| l.strip_prefix(key).and_then(|v| v.strip_prefix('=')))
-            .and_then(|v| v.parse::<u64>().ok())
+/// Migration is permitted only with one unambiguous, valid PID positively known dead.
+/// Unknown/empty records require coordinated offline removal after all legacy writers stop.
+fn legacy_guard_owner_is_dead(text: &str) -> bool {
+    if text.len() > 4096 {
+        return false;
+    }
+    let mut pids = text.lines().filter_map(|line| line.strip_prefix("pid="));
+    let Some(pid) = pids.next().and_then(|value| value.parse::<u32>().ok()) else {
+        return false;
     };
-    let ttl_ms = millis(ttl);
-    match (field("pid"), field("created_ms")) {
-        (Some(pid), Some(created)) => {
-            let pid = u32::try_from(pid).unwrap_or(0);
-            (pid != 0 && process_liveness(pid) == ProcessLiveness::Dead)
-                || created > now.saturating_add(ttl_ms)
-                || now.saturating_sub(created) > ttl_ms
-        }
-        _ => {
-            let mtime = fs::metadata(path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            now.saturating_sub(mtime) > ttl_ms
-        }
-    }
-}
-
-/// Rename a stale guard aside and discard it only if it is the text that was judged; a different
-/// guard that was moved by mistake is put back if its name is still free.
-fn discard_if_unchanged(path: &Path, judged: &str) {
-    let Ok(aside) = aside_name(path) else { return };
-    if fs::rename(path, &aside).is_err() {
-        return;
-    }
-    let same = fs::read(&aside)
-        .map(|b| String::from_utf8_lossy(&b) == judged)
-        .unwrap_or(true);
-    if !same && rename_exclusive(&aside, path).is_ok() {
-        return;
-    }
-    let _ = fs::remove_file(&aside);
-}
-
-fn aside_name(path: &Path) -> Result<PathBuf> {
-    let dir = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p,
-        _ => Path::new("."),
-    };
-    let name = path
-        .file_name()
-        .ok_or_else(|| FsError::BadName(path.display().to_string()))?
-        .to_string_lossy()
-        .chars()
-        .take(100)
-        .collect::<String>();
-    Ok(dir.join(format!(
-        ".{name}.stale-{}-{}",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::Relaxed)
-    )))
+    pids.next().is_none() && pid != 0 && process_liveness(pid) == ProcessLiveness::Dead
 }
 
 fn create_exclusive(path: &Path, text: &str) -> Result<()> {
@@ -765,12 +771,14 @@ mod tests {
             }
             Acquire::Acquired(_) => panic!("a fresh lease must not be taken"),
         }
-        // The loser left nothing behind and the first lease is intact.
-        let names: Vec<_> = fs::read_dir(path.parent().unwrap())
+        // Only the lease & permanent coordination inode remain; no loser temp files.
+        let mut names: Vec<_> = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
-        assert_eq!(names.len(), 1, "{names:?}");
+        names.sort();
+        assert_eq!(names, ["daemon.lease", "daemon.lease.takeover"]);
+        assert_eq!(Lease::peek(&path).unwrap().unwrap().token, first.token());
     }
 
     #[test]
@@ -923,15 +931,22 @@ mod tests {
         let handles: Vec<_> = (0..8)
             .map(|_| {
                 let path = path.clone();
-                std::thread::spawn(move || Lease::try_acquire(&path, &opts()).unwrap())
+                std::thread::spawn(move || Lease::try_acquire(&path, &opts()))
             })
             .collect();
-        let results: Vec<Acquire> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        let winners = results
-            .iter()
-            .filter(|r| matches!(r, Acquire::Acquired(_)))
-            .count();
-        assert_eq!(winners, 1);
+        // Retain every returned lease until all competitors finish, so releasing a
+        // winner cannot admit another winner while the race is still being observed.
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let mut winners = Vec::new();
+        for result in &results {
+            match result {
+                Ok(Acquire::Acquired(lease)) => winners.push(lease.token().to_string()),
+                Ok(Acquire::Held(_)) => {}
+                Err(e) => assert_eq!(e.kind(), Some(io::ErrorKind::WouldBlock), "{e:?}"),
+            }
+        }
+        assert_eq!(winners.len(), 1, "{results:?}");
+        assert_eq!(Lease::peek(&path).unwrap().unwrap().token, winners[0]);
     }
 
     #[test]
@@ -956,7 +971,13 @@ mod tests {
         }
         assert_eq!(winners.len(), 1, "{results:?}");
         assert_eq!(Lease::peek(&path).unwrap().unwrap().token, winners[0]);
-        assert!(!Guard::path_for(&path).exists(), "the guard is released");
+        // The guard file is never unlinked (a new inode at the same path could be locked while
+        // another holder still locks the old one); only the OS lock is released.
+        assert!(Guard::path_for(&path).exists(), "the guard file stays");
+        assert!(
+            Guard::acquire(&path, TTL, now_ms()).unwrap().is_some(),
+            "the guard lock is released"
+        );
     }
 
     #[test]
@@ -965,10 +986,11 @@ mod tests {
         let path = lease_path(&dir);
         write_record(&path, std::process::id(), "live", T0);
         let judged = Lease::peek(&path).unwrap().unwrap();
-        // The holder renewed between the judgement and the takedown: same token, newer heartbeat.
+        let guard = Guard::acquire(&path, TTL, T0 + 5_001).unwrap().unwrap();
+        // Simulate a changed record to exercise the defensive identity check.
         write_record(&path, std::process::id(), "live", T0 + 5_000);
         assert_eq!(
-            take_down(&path, &judged.encode(), "new\n", TTL, T0 + 5_001).unwrap(),
+            take_down(&path, &judged.encode(), "new\n", &guard).unwrap(),
             Takedown::Declined
         );
         assert_eq!(
@@ -978,7 +1000,7 @@ mod tests {
         // An identical record is replaced.
         let current = Lease::peek(&path).unwrap().unwrap().encode();
         assert_eq!(
-            take_down(&path, &current, "new\n", TTL, T0 + 5_002).unwrap(),
+            take_down(&path, &current, "new\n", &guard).unwrap(),
             Takedown::Created
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
@@ -1000,23 +1022,139 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_guard_is_removed() {
+    fn only_a_positively_dead_legacy_guard_can_migrate() {
         let dir = tempfile::tempdir().unwrap();
         let path = lease_path(&dir);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // Legacy (headerless) guard of a dead pid: overwritten under the OS lock, never renamed.
         fs::write(
             Guard::path_for(&path),
             format!("pid={}\ncreated_ms={T0}\ntoken=x\n", dead_pid()),
         )
         .unwrap();
-        assert!(Guard::acquire(&path, TTL, T0 + 1).unwrap().is_some());
-        // Old by its creation time though the pid is alive.
+        let guard = Guard::acquire(&path, TTL, T0 + 1).unwrap().expect("guard");
+        drop(guard);
+        assert!(fs::read_to_string(Guard::path_for(&path))
+            .unwrap()
+            .starts_with(GUARD_HEADER));
+        // A paused live legacy owner remains exclusive even far beyond TTL.
         fs::write(
             Guard::path_for(&path),
             format!("pid={}\ncreated_ms={T0}\ntoken=x\n", std::process::id()),
         )
         .unwrap();
-        assert!(Guard::acquire(&path, TTL, T0 + 10_001).unwrap().is_some());
+        assert!(Guard::acquire(&path, TTL, T0 + 10_001).unwrap().is_none());
+        // Fresh legacy guard of a live pid: a mixed-protocol holder may be mid-operation, so
+        // this protocol declines instead of interleaving with it.
+        fs::write(
+            Guard::path_for(&path),
+            format!("pid={}\ncreated_ms={T0}\ntoken=x\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(Guard::acquire(&path, TTL, T0 + 1).unwrap().is_none());
+        assert_eq!(
+            fs::read_to_string(Guard::path_for(&path)).unwrap(),
+            format!("pid={}\ncreated_ms={T0}\ntoken=x\n", std::process::id()),
+            "the legacy guard is left exactly as it was"
+        );
+    }
+
+    #[test]
+    fn paused_legacy_holder_resumes_without_v2_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        write_record(&path, dead_pid(), "old-lease", T0);
+        let before = fs::read(&path).unwrap();
+        let guard_path = Guard::path_for(&path);
+        let record = format!(
+            "pid={}\ncreated_ms={T0}\ntoken=legacy\n",
+            std::process::id()
+        );
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            fs::write(&guard_path, &record).unwrap();
+            ready_tx.send(()).unwrap();
+            resume_rx.recv().unwrap();
+            assert_eq!(fs::read_to_string(&guard_path).unwrap(), record);
+            fs::remove_file(guard_path).unwrap();
+        });
+        ready_rx.recv().unwrap();
+        assert!(Lease::try_acquire_at(&path, &opts(), T0 + 3_600_000).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        resume_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(acquire_at(&path, T0 + 3_600_001).acquired().is_some());
+    }
+
+    #[test]
+    fn initial_creation_refuses_live_and_unknown_legacy_guards() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for record in [
+            format!(
+                "pid={}\ncreated_ms={T0}\ntoken=legacy\n",
+                std::process::id()
+            ),
+            String::new(),
+            "pid=unknown\n".into(),
+        ] {
+            fs::write(Guard::path_for(&path), &record).unwrap();
+            let error = Lease::try_acquire_at(&path, &opts(), T0 + 3_600_000).unwrap_err();
+            assert_eq!(error.kind(), Some(io::ErrorKind::WouldBlock));
+            assert!(!path.exists(), "initial creation obeys the legacy guard");
+            assert_eq!(fs::read_to_string(Guard::path_for(&path)).unwrap(), record);
+        }
+    }
+
+    #[test]
+    fn initial_creation_refuses_a_paused_v2_takeover_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        // Models a takeover paused after removing the old lease, before replacement.
+        let guard = Guard::acquire(&path, TTL, T0).unwrap().unwrap();
+        let error = Lease::try_acquire_at(&path, &opts(), T0 + 3_600_000).unwrap_err();
+        assert_eq!(error.kind(), Some(io::ErrorKind::WouldBlock));
+        assert!(!path.exists(), "no creator may enter the takeover interval");
+        drop(guard);
+        assert!(acquire_at(&path, T0 + 3_600_001).acquired().is_some());
+    }
+
+    #[test]
+    fn unknown_legacy_guards_fail_closed_even_when_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for record in [
+            "",
+            "pid=garbage\n",
+            "created_ms=0\n",
+            "pid=0\n",
+            "pid=4294967296\n",
+        ] {
+            fs::write(Guard::path_for(&path), record).unwrap();
+            assert!(Guard::acquire(&path, TTL, T0 + 3_600_000)
+                .unwrap()
+                .is_none());
+            assert_eq!(fs::read_to_string(Guard::path_for(&path)).unwrap(), record);
+        }
+    }
+
+    #[test]
+    fn a_live_guard_lock_is_never_stolen_by_age() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        let guard = Guard::acquire(&path, TTL, T0).unwrap().expect("guard");
+        // Far past any TTL, the held OS lock still excludes: only unlock (or process death)
+        // frees it, never a second taker's clock.
+        assert!(Guard::acquire(&path, TTL, T0 + 3_600_000)
+            .unwrap()
+            .is_none());
+        drop(guard);
+        assert!(Guard::acquire(&path, TTL, T0 + 3_600_001)
+            .unwrap()
+            .is_some());
     }
 
     #[test]

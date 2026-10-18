@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — unpublished staging
+
+- ServiceError carries structured details; pooled calls use per-call deadlines. Portable QA validation now depends on rightkit-fs 0.4.4.
+- Windows simultaneous launches tolerate another creator's temporary parent-verification handle through rightkit-fs, preserving private-directory pinning and owner checks (#778).
+
 ## 0.2.7 (2026-10-17)
 
 Issues #375, #376, #384, #453 (listener part), #504, #596, #377 (public routes). Written without compiling or running the build tool here; CI builds and runs the tests. The crate version is unchanged.

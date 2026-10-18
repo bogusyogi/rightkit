@@ -130,7 +130,8 @@ test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden be
   assert.equal(r.ok, true);
   assert.equal(h.marker(), "new");
   assert.deepEqual(h.kills, [[555, "SIGTERM"]]);
-  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+  assert.equal(r.previous, null, "no retained .previous (D01)");
+  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous")));
   assert.deepEqual(h.events.map((e) => e.event), ["start", "verified", "quit", "swap-fallback", "replaced", "relaunched", "done"]);
   const open = h.calls.find((c) => c[0] === "/usr/bin/open");
   assert.deepEqual(open, ["/usr/bin/open", "-g", "-j", "-b", "dev.orthic.pulse"]);
@@ -461,18 +462,18 @@ test("SIGINT during DMG staging detaches the mount before exit", async () => {
   assert.equal(h.marker(), "old");
 });
 
-test("normal path leaves no journal or staging, and keeps the old bundle as Pulse.app.previous (never the Trash)", async () => {
+test("normal path leaves no journal, staging or retained .previous (never the Trash)", async () => {
   const h = harness();
+  // A stale retained copy from an older RightKit must not survive either.
+  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "ancient");
   const r = await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
-  assert.equal(r.previous, path.join(h.dest, "Pulse.app.previous"));
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+  assert.equal(r.previous, null);
   assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
-  // A second install replaces the single .previous in place.
-  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
   await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
-  // The single .previous now holds the bundle the second install replaced (the first install's new bundle).
-  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "new");
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+  assert.equal(h.marker(), "new");
 });
 
 test("parseArgs --recover", () => {
@@ -527,9 +528,9 @@ test("atomic swap: installed is never absent, old bundle trashed last, event rec
   assert.equal(swaps[0][1], "Pulse.app");
   assert.ok(!renames.some((n) => n.includes("rightkit-backup")), "no backup rename in atomic mode");
   assert.equal(h.marker(), "new");
-  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+  assert.equal(r.previous, null, "no retained .previous (D01)");
   assert.equal(h.events.find((e) => e.event === "replaced").swap, "atomic");
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
   assert.deepEqual(h.events.map((e) => e.event).filter((n) => n === "swap-fallback"), []);
 });
 
@@ -542,8 +543,8 @@ for (const code of ["ENOTSUP", "EINVAL", "ENOHELPER"]) {
     assert.equal(h.events.find((e) => e.event === "replaced").swap, "two-rename");
     assert.equal(h.events.find((e) => e.event === "swap-fallback").reason, code);
     assert.equal(h.marker(), "new");
-    assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
-    assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app", "Pulse.app.previous"]);
+    assert.equal(r.previous, null, "no retained .previous (D01)");
+    assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
   });
 }
 
@@ -642,7 +643,7 @@ test("atomic: kill after the exchange with a bad new bundle rolls back by swappi
   assert.deepEqual(dotfiles(h), []);
 });
 
-test("atomic: a verified journal rolls forward by keeping the old bundle as .previous, idempotently", async () => {
+test("atomic: a verified journal rolls forward deleting the old bundle and any stale .previous, idempotently", async () => {
   const h = harness();
   h.deps.swapPaths = h.fakeSwap;
   const c = crashing(h, { swapAt: "after" });
@@ -654,8 +655,8 @@ test("atomic: a verified journal rolls forward by keeping the old bundle as .pre
   fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "older"), "an older previous");
   const r1 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
   assert.equal(r1[0].action, "rolled-forward");
-  assert.equal(fs.readFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "utf8"), "old");
-  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous", "older")), "only one .previous is kept");
+  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous")), "no .previous is retained after roll-forward");
+  assert.equal(h.marker(), "new");
   assert.deepEqual(dotfiles(h), []);
   assert.deepEqual(await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap }), []);
 });
@@ -722,7 +723,7 @@ for (const dev of [false, true]) {
     assertOnlyBundleCopied(h);
     assert.equal(h.marker(), "new");
     const names = fs.readdirSync(h.dest).sort();
-    assert.deepEqual(names, dev ? ["Pulse.app", "coderight.db", "coderight.db-wal", "models"] : ["Pulse.app", "Pulse.app.previous", "coderight.db", "coderight.db-wal", "models"]);
+    assert.deepEqual(names, ["Pulse.app", "coderight.db", "coderight.db-wal", "models"]);
   });
 
   test(`${mode}: data files beside the app are untouched and never copied, on a failed install`, { skip: WINDOWS_SKIP }, async () => {

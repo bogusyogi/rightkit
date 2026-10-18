@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { materialDigestInput, type LegalManifest } from "./core.js";
 
+export * from "./commerce.js";
 export * from "./core.js";
 export * from "./defaults.js";
 

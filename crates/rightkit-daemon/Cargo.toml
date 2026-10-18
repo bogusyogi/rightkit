@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.2.7"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -10,10 +10,10 @@ readme = "README.md"
 include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
+rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 # Private per-run child service (`private`): constant-time secret check and the secret itself.
 subtle = "2.6"
@@ -81,7 +81,7 @@ testing = ["remote", "dep:rcgen", "dep:tempfile"]
 # Compiles the test-mode capability (`mode::Mode::Test`, the override selectors and the
 # `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
 # enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
-test-mode = []
+test-mode = ["rightkit-fs/test-mode"]
 
 [[bench]]
 name = "budget"

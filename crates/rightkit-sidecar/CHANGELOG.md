@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 — unpublished staging
+
+- WireError carries optional structured details and retains Eq.
+
 ## 0.2.1
 
 - Added (rightkit#190, additive): `length_prefixed::read_frame_bytes_deadline` and `write_frame_bytes_deadline` move one length-prefixed frame over any `Read` or `Write` before an absolute `Instant`, waiting through a readiness callback (`Ready`: given the time left, returns whether the stream is ready). For transports that are not a plain descriptor or overlapped handle (the descriptor-based `read_frame_deadline` and `write_frame_deadline` from 0.2.0 are unchanged). Same wire format and error mapping as `deadline`: a deadline is `FrameError::TimedOut { partial_bytes }` (0 means still on a frame boundary), a zero length or empty body is `Io(InvalidData)`, a length above the limit is `TooLarge` (a write sends nothing; a read leaves the body unread, close the stream), and an end of stream, including a clean one between frames, is `Io(UnexpectedEof)` (message `peer closed before a frame header` for the clean case), never `Ok(None)`. `Interrupted` and `WouldBlock` retry until the deadline. Tests: `tests/deadline_generic.rs`. Not compiled when written.

@@ -1,32 +1,48 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAutoUpdateClient, type RuntimeUpdate } from './index.js';
+import { createAutoUpdateClient, type AutoUpdateClientConfig, type RuntimeUpdate, type UpdateInstallOptions } from './index.js';
 
-function patch(download = vi.fn(async () => {})): RuntimeUpdate & { download: typeof download } {
-  return { version: '1.2.3', rawJson: { tier: 'patch' }, downloadAndInstall: download, download } as never;
-}
-
-describe('strictInstallHeaders', () => {
-  async function run(extra: object) {
-    const u = patch();
-    const client = createAutoUpdateClient({
-      check: async () => u,
-      getHeaders: () => ({ Authorization: 'Bearer manifest' }),
-      ...extra,
+describe('strictInstallHeaders with native retained check headers', () => {
+  for (const prepared of [false, true]) {
+    async function run(extra: Partial<AutoUpdateClientConfig>) {
+      let retainedHeaders: Record<string, string> = {};
+      let artifactHeaders: Record<string, string> | undefined;
+      const download = vi.fn(async (_event?: unknown, options?: UpdateInstallOptions) => {
+        // Tauri 2.10.1 clones Update with check headers; only Some(headers) replaces them.
+        artifactHeaders = { ...(options?.headers ?? retainedHeaders) };
+      });
+      const update: RuntimeUpdate = {
+        version: '1.2.3', rawJson: { tier: 'patch' }, downloadAndInstall: download,
+        ...(prepared ? { download, install: vi.fn(async () => {}) } : {}),
+      };
+      const client = createAutoUpdateClient({
+        check: async (options) => { retainedHeaders = { ...options?.headers }; return update; },
+        getHeaders: () => ({ Authorization: 'Bearer manifest' }),
+        ...extra,
+      });
+      await client.checkOnce();
+      if (prepared) await client.downloadAvailable();
+      await client.installAvailable();
+      expect(download).toHaveBeenCalledTimes(1);
+      return artifactHeaders;
+    }
+    const adapter = prepared ? 'prepared' : 'combined';
+    it(`${adapter}: explicit false preserves deprecated manifest auth reuse`, async () => {
+      expect(await run({ strictInstallHeaders: false })).toEqual({ Authorization: 'Bearer manifest' });
     });
-    await client.checkOnce();
-    await client.installAvailable();
-    return u.download.mock.calls[0] as unknown as [unknown, { headers?: Record<string, string> } | undefined];
+    it(`${adapter}: default clears retained manifest authorization`, async () => {
+      expect(await run({})).toEqual({});
+    });
+    it(`${adapter}: explicit strict clears retained manifest authorization`, async () => {
+      expect(await run({ strictInstallHeaders: true })).toEqual({});
+    });
+    it(`${adapter}: undefined callback result clears retained authorization even in legacy mode`, async () => {
+      expect(await run({ strictInstallHeaders: false, getInstallHeaders: () => undefined })).toEqual({});
+    });
+    it(`${adapter}: strict async undefined callback result clears retained authorization`, async () => {
+      expect(await run({ strictInstallHeaders: true, getInstallHeaders: async () => undefined })).toEqual({});
+    });
+    it(`${adapter}: explicit artifact callback replaces retained headers`, async () => {
+      expect(await run({ getInstallHeaders: () => ({ X: '1' }) })).toEqual({ X: '1' });
+    });
   }
-  it('keeps the legacy reuse by default', async () => {
-    const call = await run({});
-    expect(call[1]).toEqual({ headers: { Authorization: 'Bearer manifest' } });
-  });
-  it('sends no headers to the artifact when strict', async () => {
-    const call = await run({ strictInstallHeaders: true });
-    expect(call[1]).toBeUndefined();
-  });
-  it('an explicit getInstallHeaders still wins when strict', async () => {
-    const call = await run({ strictInstallHeaders: true, getInstallHeaders: () => ({ X: '1' }) });
-    expect(call[1]).toEqual({ headers: { X: '1' } });
-  });
 });

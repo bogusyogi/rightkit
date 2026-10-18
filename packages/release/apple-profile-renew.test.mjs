@@ -246,7 +246,14 @@ test("CLI parser runs mocked dry-run from config & rejects malformed options", {
 test("CMS decoder handles real plist data & dates through parser without Apple calls", (t) => {
   const f = fixture(t);
   const xml = `<?xml version="1.0"?><plist version="1.0"><dict><key>Name</key><string>Fixture</string><key>DeveloperCertificates</key><array><data>${releaseCertificate}</data></array><key>ExpirationDate</key><date>2030-01-01T00:00:00Z</date></dict></plist>`;
-  const run = (command, args, options) => command === "security" ? { status: 0, stdout: xml } : spawnSync(command, args, options);
+  const run = (command, args, options) => {
+    if (command === "security") return { status: 0, stdout: xml };
+    // Exercise the real plist parser on Windows through its provisioned launcher;
+    // production profile renewal still runs on macOS with python3.
+    return command === "python3" && process.platform === "win32"
+      ? spawnSync("py", ["-3.11", ...args], options)
+      : spawnSync(command, args, options);
+  };
   const result = decodeAppleProfile(f.file, { run });
   assert.equal(result.DeveloperCertificates[0], releaseCertificate);
   assert.equal(result.ExpirationDate, "2030-01-01T00:00:00");

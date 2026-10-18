@@ -396,6 +396,69 @@ fn collection_recursively_redacts_defaults_and_enforces_bundle_bytes() {
 }
 
 #[test]
+fn collected_prepared_and_metadata_values_are_key_redacted_then_string_scrubbed() {
+    let event = json!({
+        "ts_ms": 5,
+        "level": "info",
+        "event": "sync",
+        "session_id": "sess-123",
+        "request_id": "req-9",
+        "trace_id": "tr-1",
+        "session_secret": "shh-secret-value",
+        "session_token": "tok-value-123",
+        "credential": "cred-value-123",
+        "private_key": "pem-value-123",
+        "Private-Key": "pem2-value-123",
+        "detail": "failed for ada@example.com at https://api.example.com/x?access_token=abc123 with Bearer abcdefghijklmnop"
+    });
+
+    let prepared = prepare_diagnostic_events(vec![event.clone()], &CollectionPolicy::default());
+    let prepared_text = serde_json::to_string(&prepared.events).expect("serialize prepared");
+
+    let dir = temp_dir("scrub-collect");
+    let path = dir.join("events.jsonl");
+    write_jsonl(&path, &[event]);
+    let mut metadata = metadata();
+    metadata.settings = json!({ "endpoint_note": "https://h.example/cb?code=zzz999secret" });
+    let bundle = collect_diagnostics(
+        &[LogSource::new("app", &path)],
+        metadata,
+        &CollectionPolicy::default(),
+    );
+    let bundle_text = serde_json::to_string(&bundle).expect("serialize bundle");
+
+    for text in [&prepared_text, &bundle_text] {
+        for preserved in ["sess-123", "req-9", "tr-1"] {
+            assert!(text.contains(preserved), "correlation id lost: {preserved}");
+        }
+        for forbidden in [
+            "shh-secret-value",
+            "tok-value-123",
+            "cred-value-123",
+            "pem-value-123",
+            "pem2-value-123",
+            "ada@example.com",
+            "abc123",
+            "abcdefghijklmnop",
+        ] {
+            assert!(!text.contains(forbidden), "leaked {forbidden} in {text}");
+        }
+        assert!(
+            text.contains("[redacted:diagnostics]"),
+            "key redaction applied"
+        );
+        assert!(text.contains("[redacted:email]"), "string scrub applied");
+        assert!(text.contains("?[redacted]"), "url scrub applied");
+    }
+    assert!(
+        !bundle_text.contains("zzz999secret"),
+        "metadata settings scrubbed"
+    );
+
+    fs::remove_dir_all(dir).expect("remove telemetry fixture");
+}
+
+#[test]
 fn in_memory_events_use_the_same_recent_error_and_redaction_policy() {
     let events = vec![
         json!({"kind": "started", "message": "private before"}),

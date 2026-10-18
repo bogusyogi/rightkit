@@ -67,9 +67,8 @@ describe("package.json", () => {
   it("exposes ., ./core, ./appearance (0.5.0), ./standard and ./headless (added in 0.4.2) and keeps the existing subpaths", () => {
     expect(Object.keys(pkg.exports).sort()).toEqual([".", "./appearance", "./core", "./headless", "./settings.css", "./shell-adapter", "./standard"]);
   });
-  it("marks license, logs and updates optional peers (/core and /appearance need none of them; the root and /standard entries need license); theme stays required", () => {
+  it("marks feature peers optional so the core entry can load without them", () => {
     for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/app-update"]) expect(pkg.peerDependencies[peer]).toBeDefined();
-    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/app-update"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
-    expect(pkg.peerDependenciesMeta?.["@rightkit/theme"]?.optional).not.toBe(true);
+    for (const peer of ["@rightkit/license", "@rightkit/logs", "@rightkit/theme", "@rightkit/app-update"]) expect(pkg.peerDependenciesMeta[peer]).toEqual({ optional: true });
   });
 });

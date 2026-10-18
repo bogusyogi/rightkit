@@ -474,25 +474,39 @@ pub fn valid_service_name(s: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// Create `dir` (and parents) and make the leaf owner-only (0700 on Unix;
-/// Windows ACLs inherit from the per-user profile).
+/// Create `dir` (and parents), make the leaf owner-only and prove it, through the
+/// `rightkit-fs` private primitives (one-way daemon -> fs dependency). On Windows this is the
+/// corrected existing-object repair: a pinned no-reparse handle, current-token ownership, a
+/// protected owner-only DACL, then a reverify; a foreign-owned or too-permissive directory is
+/// [`SuiteError::Insecure`], never silently inherited from whatever profile or explicit root
+/// happened to contain it. Unix behaviour is unchanged in effect: owner-only creation, the leaf
+/// narrowed, and a foreign owner refused as `Insecure`.
 pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
-    std::fs::create_dir_all(dir)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let md = std::fs::metadata(dir)?;
-        if md.uid() != crate::transport::current_uid() {
-            return Err(SuiteError::Insecure(format!(
-                "{} is not owned by the current user",
-                dir.display()
-            )));
-        }
-        if md.permissions().mode() & 0o077 != 0 {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        // Preserve the `Insecure` classification for a foreign-owned existing leaf: the fs
+        // repair would otherwise surface the chmod refusal as plain I/O before the verify
+        // below could name the owner problem.
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(md) = std::fs::symlink_metadata(dir) {
+            if md.uid() != crate::transport::current_uid() {
+                return Err(SuiteError::Insecure(format!(
+                    "{} is not owned by the current user",
+                    dir.display()
+                )));
+            }
         }
     }
-    Ok(())
+    rightkit_fs::private::ensure_private_dir(dir).map_err(suite_fs_error)?;
+    rightkit_fs::private::verify_owner_only(dir).map_err(suite_fs_error)
+}
+
+/// Privacy failures from the fs layer are `Insecure`; plain I/O failures stay `Io`.
+fn suite_fs_error(error: rightkit_fs::FsError) -> SuiteError {
+    match error {
+        rightkit_fs::FsError::Io { source, .. } => SuiteError::Io(source),
+        other => SuiteError::Insecure(other.to_string()),
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — unpublished staging
+
+- Keeps log files private, scrubs sensitive data, clears through a durable barrier, and persists the outbox.
+
 ## 0.3.2 (2026-10-17)
 
 - **URL and OAuth secret text redaction (rightkit#371).** New `redact_url_text(&str) -> String` (re-exported from the crate root): each `scheme://` URL keeps scheme, host and path, loses userinfo and fragment, and a query becomes `?[redacted]`; `name=value` pairs whose name is a known secret parameter (`access_token`, `refresh_token`, `id_token`, `client_secret`, `code`, `state`, `token`, `key`, `password`, and similar) keep the name and the value becomes `[redacted]`. Other text is unchanged. Additive; `RedactionPolicy` and `scrub_text` are unchanged. Tests in `scrub::url_text_tests`. Not compiled or run.

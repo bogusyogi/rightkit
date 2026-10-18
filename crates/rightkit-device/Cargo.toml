@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-device"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Native host services for Right Suite Tauri license and device adapters."
@@ -9,8 +9,13 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+default = []
+credentials = ["dep:rightkit-credentials"]
+
 [dependencies]
 getrandom = "0.4"
+rightkit-credentials = { version = "0.2.2", path = "../rightkit-credentials", optional = true }
 rightkit-license = { version = "0.2.0", path = "../rightkit-license" }
 
 [package.metadata.rightkit]

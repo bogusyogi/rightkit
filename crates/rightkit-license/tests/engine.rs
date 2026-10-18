@@ -227,6 +227,59 @@ fn ttl_is_clamped_and_path_escape_ignored() {
     assert_eq!(e.require_pro(), Err(E::NoLicense));
 }
 
+fn credential_engine(
+    dir: &Dir,
+    reader: impl Fn() -> Result<Option<String>, String> + Send + Sync + 'static,
+) -> EngineEntitlements {
+    let cfg = EngineEntitlementsConfig::new(pubkey(), APP, dir.0.clone(), || Ok(DEVICE.into()))
+        .with_credential_reader(reader);
+    EngineEntitlements::new(cfg).with_wall_clock(|| Ok(NOW))
+}
+
+#[test]
+fn credential_source_verifies_without_token_file() {
+    let d = Dir::new(); // no license.token written: no file bridge needed
+    let token = Claims::term(NOW - 100, NOW + 10_000).token();
+    let e = credential_engine(&d, move || Ok(Some(token.clone())));
+    assert!(e.require_pro().is_ok());
+}
+
+#[test]
+fn credential_source_missing_is_no_license_and_ignores_token_file() {
+    let d = Dir::new();
+    d.write(&Claims::term(NOW - 100, NOW + 10_000).token());
+    let e = credential_engine(&d, || Ok(None));
+    assert_eq!(e.require_pro(), Err(E::NoLicense));
+}
+
+#[test]
+fn credential_source_error_is_unreadable_not_no_license() {
+    let d = Dir::new();
+    let e = credential_engine(&d, || Err("keychain locked".into()));
+    assert!(matches!(e.require_pro(), Err(E::Unreadable(_))));
+}
+
+#[test]
+fn credential_source_still_verifies_signature_device_expiry_and_tier() {
+    let d = Dir::new();
+    // Expired token from the credential source is still refused on expiry.
+    let expired = Claims::term(NOW - 10_000, NOW - 1).token();
+    let e = credential_engine(&d, move || Ok(Some(expired.clone())));
+    assert!(matches!(
+        e.require_pro(),
+        Err(E::Invalid(VerifyError::Expired { .. }))
+    ));
+    // Plus from the credential source is authentic but not Pro (no plus->pro).
+    let mut c = Claims::term(NOW - 100, NOW + 10_000);
+    c.tier = "plus";
+    let plus = c.token();
+    let e = credential_engine(&d, move || Ok(Some(plus.clone())));
+    assert_eq!(e.require_pro(), Err(E::NotEntitled));
+    // Oversized credential payload never reaches verification.
+    let e = credential_engine(&d, || Ok(Some("a".repeat(20_000))));
+    assert!(matches!(e.require_pro(), Err(E::Unreadable(_))));
+}
+
 #[test]
 fn oversized_or_empty_token_file_is_refused() {
     let d = Dir::new();

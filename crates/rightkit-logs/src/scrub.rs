@@ -56,6 +56,9 @@ fn scrub_inner(input: &str, options: &ScrubOptions, truncated: bool) -> (String,
             text = text.replace(&home, "~");
         }
     }
+    // URLs/OAuth params first, while `://`, `?`, `&` and `=` structure is intact:
+    // the word pass below splits on those delimiters and would lose it.
+    let text = redact_url_text(&text);
     let (text, bearer) = redact_bearer(&text);
     count += bearer;
     let mut out = String::with_capacity(text.len());
@@ -78,14 +81,37 @@ fn scrub_inner(input: &str, options: &ScrubOptions, truncated: bool) -> (String,
 }
 
 /// Std panic messages quote the offending value in backticks or single quotes
-/// (a bad string slice prints the whole string), and that value can be user
-/// content. Keep the message's shape, drop what it quotes.
+/// (a bad string slice prints the whole string), and `Debug` formatting quotes
+/// strings with double quotes (`Err value: Custom("…")`). That quoted value can
+/// be user content. Keep the message's shape, drop what it quotes.
 pub fn redact_quoted(msg: &str) -> String {
     let chars: Vec<char> = msg.chars().collect();
     let mut out = String::with_capacity(msg.len());
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
+        if c == '"' {
+            // Debug escaping: a `\"` inside the span does not close it.
+            let mut j = i + 1;
+            let mut closed = false;
+            while j < chars.len() {
+                match chars[j] {
+                    '\\' => j += 2,
+                    '"' => {
+                        closed = true;
+                        break;
+                    }
+                    _ => j += 1,
+                }
+            }
+            if closed {
+                out.push('"');
+                out.push_str(&format!("<redacted:{}>", j - i - 1));
+                out.push('"');
+                i = j + 1;
+                continue;
+            }
+        }
         // Backticks always wrap a value; single quotes only a short one
         // (`'é'`), so an apostrophe in prose is left alone.
         let max = match c {
@@ -114,11 +140,13 @@ pub fn redact_quoted(msg: &str) -> String {
     out
 }
 
-/// Scrub every string leaf of a JSON value in place.
+/// Scrub every string leaf of a JSON value in place: quoted/Debug content is
+/// dropped first, then the full text scrub (URLs/OAuth, bearer, credential,
+/// email, IP and user-path shapes) runs over what remains.
 pub fn scrub_value(value: &mut Value) {
     match value {
         Value::String(text) => {
-            let scrubbed = scrub_text(text);
+            let scrubbed = scrub_text(&redact_quoted(text));
             if scrubbed != *text {
                 *text = scrubbed;
             }

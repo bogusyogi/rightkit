@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.4.4"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -30,7 +30,7 @@ test-mode = ["rightkit-daemon/test-mode"]
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
 # One suite-root rule for every Right Suite crate: `Suite::resolve`, overrides only with `test-mode`.
-rightkit-daemon = { version = "0.2.3", path = "../rightkit-daemon", default-features = false }
+rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon", default-features = false }
 # Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 ed25519-dalek = { version = "3", optional = true }
@@ -53,7 +53,7 @@ tempfile = "3"
 # Mock HTTP server (Range, dropped connections) for the end-to-end download
 # tests. rightkit-qa does not depend on rightkit-models, so this is no publish
 # cycle; it only orders publication (rightkit-qa 0.2.2 first).
-rightkit-qa = { version = "0.6.0", path = "../rightkit-qa" }
+rightkit-qa = { version = "0.7.0", path = "../rightkit-qa" }
 
 [package.metadata.rightkit]
 continuous = false

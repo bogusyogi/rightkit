@@ -140,6 +140,22 @@ fn state_dir_refuses_and_never_sweeps_the_reserved_namespace() {
 }
 
 #[test]
+fn a_long_multibyte_name_writes_and_survives_a_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    // 80 two-byte chars: the destination is fine, and the temp prefix is bounded on a char
+    // boundary so the generated temp name stays short and parseable.
+    let name = format!("{}.json", "\u{e9}".repeat(80));
+    let target = dir.path().join(&name);
+    atomic_write(&target, b"v").unwrap();
+    atomic_write_private(&target, b"w").unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"w");
+    assert_eq!(sweep_stale_temps(dir.path(), Duration::ZERO).unwrap(), 0);
+    // No temp is left behind by the successful writes.
+    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+}
+
+#[test]
 fn create_private_new_refuses_a_generated_temp_name() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join(".record.rktmp-123-1-0");

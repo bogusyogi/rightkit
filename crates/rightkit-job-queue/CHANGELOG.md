@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — unpublished staging
+
+- Job errors carry structured details, and local validation rejects invalid jobs before dispatch.
+
 ## 0.3.2 (2026-10-17)
 
 All additive; a store, runner or config that uses none of it behaves as in 0.3.2.

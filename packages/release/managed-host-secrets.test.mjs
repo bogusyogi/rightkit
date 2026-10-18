@@ -125,14 +125,16 @@ test("updater signer script: managed hosts refuse inherited key or password befo
   assert.doesNotMatch(`${password.stdout}${password.stderr}`, /fake-password-value/);
 });
 
-test("updater signer script: unmanaged hosts accept an inherited key and stop at the artifact check", () => {
-  // The artifact is absent, so the run stops before any signer executes.
+test("updater signer script: unmanaged hosts refuse inherited keys before artifact lookup", () => {
+  // An inherited key is rejected before any provider or artifact lookup.
+  // PATH is pinned unmanaged: on Windows a child spawned without PATH inherits the parent PATH,
+  // which on a managed host contains the RightKit agent-bin and would make this run "managed".
   const result = spawnSync(process.execPath, [helper, "--file", "absent-fixture.exe"], {
     encoding: "utf8",
-    env: { TAURI_SIGNING_PRIVATE_KEY: "fake-key-value" },
+    env: { TAURI_SIGNING_PRIVATE_KEY: "fake-key-value", PATH: "/usr/bin:/bin", RIGHTKIT_BUILD_BROKER_SOCKET: "" },
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /updater artifact not found/);
+  assert.match(result.stderr, /OS credential provider/);
   assert.doesNotMatch(result.stderr, /MANAGED_HOST_ENV_SECRET_REFUSED/);
 });
 

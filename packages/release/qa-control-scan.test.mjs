@@ -291,6 +291,9 @@ test("a sealed MSIX with a marked PE inside fails verification", async () => {
 
 const GOOD_BUNDLE = 'import{a as b}from"./vendor-1a2b.js";const q=new URLSearchParams(location.search);export function init(){return b("engine")}';
 const BAD_BUNDLES = {
+  "platform-qa-selector": 'globalThis.__RIGHTKIT_QA_PLATFORM__="windows";',
+  "platform-qa-environment": 'const key="RIGHTKIT_QA_PLATFORM";',
+  "platform-qa-entry": 'bootstrapQaPlatform({query:location.search});',
   "browser-qa-fake": 'const id="browser-qa-fake";',
   "browser-mock-api": 'import("./browser-mock-api-9f.js")',
   "browser-qa-mock-scheme": 'src="browser-qa-mock://img/1.png"',
@@ -331,4 +334,16 @@ test("web bundle scan: html, css and source maps count; other files and symlinks
   assert.equal(scanWebBundle([join(tmpdir(), "rk-web-scan-missing")]).findings[0].rule, "unscannable");
   assert.equal(scanWebBundle([outside.replace(/x$/, "")].slice(0, 0), { requireFiles: true }).findings[0].rule, "unscannable");
   assert.deepEqual(webBundleMockFindings("nothing here"), []);
+});
+
+
+test("web output scan rejects QA platform selectors & QA entry exports without native headers", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-platform-output-"));
+  const file = join(root, "app.js");
+  for (const marker of ["__RIGHTKIT_QA_PLATFORM__", "RIGHTKIT_QA_PLATFORM", "bootstrapQaPlatform", "resolveQaPlatform", "configureQaPlatform", "@rightkit/platform-ui/qa"]) {
+    writeFileSync(file, `globalThis[${JSON.stringify(marker)}] = "windows";`);
+    assert.ok(scanWebBundle([file]).findings.length > 0, marker);
+  }
+  writeFileSync(file, 'const platform = globalThis.__RIGHTKIT_PLATFORM__;');
+  assert.deepEqual(scanWebBundle([file]).findings, []);
 });

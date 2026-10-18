@@ -358,6 +358,47 @@ fn administrators_owned_object_is_repaired_when_elevated() {
         "Administrators-owned object must be repairable when the token holds Administrators",
     );
     assert!(rightkit_fs::private::is_owner_only(&file).unwrap());
+    // The repair rewrites the owner to the token user, so the object stays usable unelevated
+    // (where BUILTIN\Administrators is deny-only, not the owner).
+    let owner = owner_sddl(&file);
+    assert!(
+        !owner.contains("S-1-5-32-544"),
+        "owner must be the token user after repair: {owner}"
+    );
+}
+
+/// The owner of `path` as SDDL (`O:S-1-...`).
+fn owner_sddl(path: &Path) -> String {
+    const OWNER_SECURITY_INFORMATION: u32 = 0x1;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        let mut descriptor = std::ptr::null_mut();
+        let status = GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        );
+        assert_eq!(status, 0, "GetNamedSecurityInfoW owner failed: {status}");
+        let mut text = std::ptr::null_mut();
+        let ok = ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            OWNER_SECURITY_INFORMATION,
+            &mut text,
+            std::ptr::null_mut(),
+        );
+        assert_ne!(ok, 0, "owner SDDL conversion failed");
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text.cast());
+        LocalFree(descriptor);
+        sddl
+    }
 }
 
 /// Hardening a file that another handle holds open without `FILE_SHARE_DELETE` (what SQLite does

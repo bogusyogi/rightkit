@@ -306,6 +306,47 @@ fn default_queue_is_128k_lines_and_every_event_is_written_or_counted() {
     fs::remove_dir_all(dir).expect("remove tracing fixture");
 }
 
+#[test]
+fn guard_clear_truncates_the_active_file_and_removes_only_its_own_family() {
+    let dir = temp_dir("clear-barrier");
+    fs::write(dir.join("scraperight.2020-01-01.jsonl"), b"{}\n").expect("seed old daily");
+    fs::write(dir.join("scraperight-engine.2020-01-01.jsonl"), b"{}\n").expect("seed other family");
+    fs::write(dir.join("notes.txt"), b"keep\n").expect("seed unrelated");
+
+    let config = TracingFileConfig::new(&dir, "scraperight");
+    let (layer, guard) = tracing_layer::<Registry>(config);
+    let subscriber = Registry::default().with(layer);
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(detail = "before-1", "first");
+        tracing::info!(detail = "before-2", "second");
+        guard.clear().expect("writer-owned clear acknowledges");
+        tracing::info!(detail = "after-1", "third");
+    });
+    drop(guard);
+
+    let lines = read_json_lines(&only_daily_file(&dir, "scraperight"));
+    assert_eq!(
+        lines.len(),
+        1,
+        "only the post-clear line survives: {lines:?}"
+    );
+    assert_eq!(
+        lines[0]["detail"], "after-1",
+        "write after clear is visible"
+    );
+    assert!(
+        !dir.join("scraperight.2020-01-01.jsonl").exists(),
+        "old family member removed"
+    );
+    assert!(
+        dir.join("scraperight-engine.2020-01-01.jsonl").exists(),
+        "other family retained"
+    );
+    assert!(dir.join("notes.txt").exists(), "unrelated file retained");
+
+    fs::remove_dir_all(dir).expect("remove tracing fixture");
+}
+
 fn metadata() -> BundleMetadata {
     BundleMetadata {
         app_name: "ScrapeRight".to_string(),

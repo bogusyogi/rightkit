@@ -804,8 +804,10 @@ impl DbOptions {
     /// and its sidecars move aside under the policy's stamp and sidecar options (never deleted by
     /// default), and the database is created and migrated again. When it does not allow, the file
     /// is left untouched. Either way, if the store still cannot be opened, the connection is a
-    /// private in-memory store that is migrated the same way, and [`OpenOrDegrade::degraded`]
-    /// says so.
+    /// private in-memory store that is migrated the same way only when
+    /// `policy.allow_in_memory_fallback` explicitly acknowledges it (default refuse: the
+    /// original error is returned). When acknowledged, [`OpenOrDegrade::degraded`] says so
+    /// with `in_memory: true`, and the configured key remains applied.
     ///
     /// Any other failure (busy, permission, I/O, a newer database, an invalid migration list) is
     /// returned as an error, because it does not show the stored data is damaged.
@@ -823,7 +825,11 @@ impl DbOptions {
                 self.path.display(),
                 journal.display()
             );
-            return self.degrade_in_memory(migrations, options, reason, None, true);
+            let refuse = DbError::Fs(rightkit_fs::FsError::io(
+                &journal,
+                std::io::Error::other(reason.clone()),
+            ));
+            return self.degrade_in_memory(migrations, options, policy, reason, None, true, refuse);
         }
         let error = match self.open_writer_migrated(migrations, options) {
             Ok((conn, report)) => {
@@ -838,7 +844,7 @@ impl DbOptions {
         };
         let reason = error.to_string();
         if !allowed(self, policy) {
-            return self.degrade_in_memory(migrations, options, reason, None, false);
+            return self.degrade_in_memory(migrations, options, policy, reason, None, false, error);
         }
         let quarantined = match quarantine_database_journaled(
             &self.path,
@@ -854,9 +860,11 @@ impl DbOptions {
                 return self.degrade_in_memory(
                     migrations,
                     options,
+                    policy,
                     reason,
                     failure.stranded_at,
                     incomplete,
+                    failure.error,
                 );
             }
         };
@@ -873,7 +881,15 @@ impl DbOptions {
             }),
             Err(second) => {
                 let reason = format!("{reason}; reopen after quarantine failed: {second}");
-                self.degrade_in_memory(migrations, options, reason, Some(quarantined), false)
+                self.degrade_in_memory(
+                    migrations,
+                    options,
+                    policy,
+                    reason,
+                    Some(quarantined),
+                    false,
+                    second,
+                )
             }
         }
     }
@@ -882,10 +898,17 @@ impl DbOptions {
         &self,
         migrations: &[Migration],
         options: &MigrateOptions,
+        policy: RecoveryPolicy,
         reason: String,
         quarantined: Option<PathBuf>,
         quarantine_incomplete: bool,
+        refuse: DbError,
     ) -> Result<OpenOrDegrade> {
+        // In-memory recovery is never automatic: without explicit acknowledgement the
+        // caller gets the original failure, not a store that will not persist.
+        if !policy.allow_in_memory_fallback {
+            return Err(refuse);
+        }
         let conn = self.open_in_memory()?;
         let report = migrate(&conn, None, migrations, options)?;
         Ok(OpenOrDegrade {

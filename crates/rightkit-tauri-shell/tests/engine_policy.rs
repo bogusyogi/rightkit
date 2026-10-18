@@ -161,6 +161,32 @@ fn disabled_restart_stays_failed_and_on_demand_waits_for_next_call() {
 }
 
 #[test]
+fn js_bridge_exposes_tagged_calls_status_clipboard_item_and_site_grants() {
+    // Present in a repository checkout; a packaged crate has no `packages/` and skips.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/tauri-shell/src/index.ts");
+    let Ok(ts) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    for needle in [
+        "id?: number | null",
+        "tag?: string | null",
+        "callTagged:",
+        "rk_shell_engine_call_tagged",
+        "rk_shell_engine_status",
+        "item: () => invoke<ClipboardItem>('rk_shell_clipboard_item')",
+        "rk_shell_site_grant",
+        "rk_shell_site_revoke",
+        "details?: unknown",
+        // The pre-existing wrappers stay exactly as they were.
+        "call: <T = unknown>(method: string, params?: unknown) => invoke<T>('rk_shell_engine_call'",
+        "read: async (board?: string)",
+    ] {
+        assert!(ts.contains(needle), "missing {needle}");
+    }
+}
+
+#[test]
 fn unsolicited_events_are_available_without_a_request_sink() {
     let host = host(RestartMode::Disabled, 0);
     let events = host.subscribe_events().unwrap();

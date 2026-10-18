@@ -1,68 +1,65 @@
 #!/usr/bin/env node
-import { spawnSync } from "./background-process.mjs";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
-import { refuseManagedEnvSecrets, MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
+import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
+import { execWithUpdaterCredential } from "./protected-credentials.mjs";
+import { resolvePnpmCli } from "./development.mjs";
 
-const args = process.argv.slice(2);
-const files = [];
-let dryRun = false;
-let keyFile = process.env.RIGHT_UPDATER_KEY_FILE || "";
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--file") files.push(path.resolve(args[++i]));
-  else if (args[i] === "--key-file") keyFile = args[++i] ?? "";
-  else if (args[i] === "--dry-run") dryRun = true;
-  else fail(`unknown argument: ${args[i]}`);
-}
-if (!files.length) fail("at least one --file is required");
+export const UPDATER_SIGNING_SECRET = "updater-signing-key";
 
-const env = { ...process.env };
-if (!dryRun) {
-  try { refuseManagedEnvSecrets(process.env, ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]); }
-  catch (error) { fail(`[${MANAGED_HOST_ENV_SECRET_REFUSED}] ${error.message}`); }
-}
-if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
-  if (process.platform === "win32") {
-    if (!keyFile) fail("updater key path required on win32: pass --key-file or set RIGHT_UPDATER_KEY_FILE (release config: targets.win.updater.keyFile), or set TAURI_SIGNING_PRIVATE_KEY");
-    const key = path.resolve(keyFile.replace(/%([^%]+)%/g, (m, name) => process.env[name] ?? m));
-    if (!existsSync(key)) fail(`updater key not found: ${key}`);
-    env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(key, "utf8");
-  } else if (process.platform !== "darwin") {
-    fail("TAURI_SIGNING_PRIVATE_KEY is required on this platform");
+export function runSignUpdater(args, {
+  env = process.env, platform = process.platform, cwd = process.cwd(),
+  execCredential = execWithUpdaterCredential, resolvePnpm = resolvePnpmCli,
+  signMac = signMacUpdaterFiles, exists = existsSync, remove = rmSync, log = console.log,
+} = {}) {
+  const files = [];
+  let dryRun = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--file") {
+      if (!args[i + 1] || args[i + 1].startsWith("--")) throw new Error("--file requires an artifact path");
+      files.push(path.resolve(cwd, args[++i]));
+    } else if (args[i] === "--key-file") throw new Error("--key-file is removed: updater keys come from the OS credential provider");
+    else if (args[i] === "--dry-run") dryRun = true;
+    else throw new Error(`unknown argument: ${args[i]}`);
   }
+  if (!files.length) throw new Error("at least one --file is required");
+  if (!dryRun) {
+    refuseManagedEnvSecrets(env, ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]);
+    for (const key of Object.keys(env)) {
+      if (["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"].includes(key.toUpperCase()) && env[key]) {
+        throw new Error("updater signing key/password must come from the OS credential provider");
+      }
+    }
+    for (const file of files) if (!exists(file)) throw new Error(`updater artifact not found: ${file}`);
+  }
+  const signingEnv = { ...env };
+  for (const key of Object.keys(signingEnv)) {
+    if (["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"].includes(key.toUpperCase())) delete signingEnv[key];
+  }
+  for (const file of files) {
+    log(`${dryRun ? "[dry-run] " : ""}pnpm exec tauri signer sign ${file}`);
+    if (dryRun) continue;
+    remove(`${file}.sig`, { force: true });
+    if (platform === "darwin") continue;
+    const result = execCredential(process.execPath,
+      [resolvePnpm({ root: cwd, env: signingEnv }), "exec", "tauri", "signer", "sign", file],
+      { cwd, env: signingEnv });
+    if (result.error || result.status !== 0) {
+      const error = new Error(`updater credential provider/signing failed (exit ${result.status ?? "unavailable"})`);
+      error.exitCode = result.status ?? 1;
+      throw error;
+    }
+  }
+  if (!dryRun && platform === "darwin") signMac(files, { env: signingEnv, cwd });
+  return { files, dryRun };
 }
-env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
-for (const file of files) {
-  if (!dryRun && !existsSync(file)) fail(`updater artifact not found: ${file}`);
-  rmSync(`${file}.sig`, { force: true });
-  console.log(`${dryRun ? "[dry-run] " : ""}pnpm exec tauri signer sign ${file}`);
-  if (dryRun) continue;
-  if (process.platform === "darwin") continue;
-  const result = process.platform === "win32"
-    ? spawnSync(
-        process.env.ComSpec || "cmd.exe",
-        ["/d", "/s", "/c", `pnpm exec tauri signer sign ${file}`],
-        {
-          cwd: process.cwd(),
-          env,
-          stdio: "inherit",
-        },
-      )
-    : spawnSync("pnpm", ["exec", "tauri", "signer", "sign", file], {
-    cwd: process.cwd(),
-    env,
-    stdio: "inherit",
-  });
-  if (result.status !== 0) process.exit(result.status ?? 1);
-}
-if (!dryRun && process.platform === "darwin") {
-  try { signMacUpdaterFiles(files, { env }); }
-  catch (error) { fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
-}
-
-function fail(message) {
-  console.error(`sign-updater: ${message}`);
-  process.exit(1);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { runSignUpdater(process.argv.slice(2)); }
+  catch (error) {
+    console.error(`sign-updater: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
+    process.exitCode = error.exitCode ?? 1;
+  }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-record"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -21,12 +21,12 @@ path = "src/bin/rightkit-record-helper/main.rs"
 
 [dependencies]
 rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts" }
-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
+rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 blake3 = "1.8"
 hmac-sha256 = "1.1.15"
-rightkit-credentials = { version = "0.2.0", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.2.2", path = "../rightkit-credentials" }
 
 # The macOS backend launches its Swift helper through rightkit-child-process.
 [target.'cfg(target_os = "macos")'.dependencies]

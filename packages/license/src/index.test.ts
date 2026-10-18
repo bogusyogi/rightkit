@@ -170,6 +170,26 @@ describe('isLicensed — per-kind grace (riskiest assumption)', () => {
     expect(isLicensed({ status: 'invalid', deviceId: 'd', validUntil: null }, 7)).toBe(false);
     expect(isLicensed(null, 7)).toBe(false);
   });
+  it('rejects an unparsable non-null validUntil for every kind, keeping null perpetual', () => {
+    for (const patch of [
+      {},
+      { licenseKind: 'term', entitlementStage: 'time_bound' },
+      { licenseKind: 'trial', entitlementStage: 'time_bound' },
+      { licenseKind: 'lifetime', entitlementStage: 'provisional' },
+      { licenseKind: 'lifetime', entitlementStage: 'final' },
+    ] as const) {
+      expect(isLicensed({ status: 'active', deviceId: 'd', validUntil: 'not-a-date', ...patch }, 7)).toBe(false);
+      expect(isLicensed({ status: 'active', deviceId: 'd', validUntil: '', ...patch }, 7)).toBe(false);
+      expect(isLicensed({ status: 'active', deviceId: 'd', validUntil: null, ...patch }, 7)).toBe(true);
+    }
+  });
+  it('keeps plus below pro (no plus-to-pro normalization)', () => {
+    const plus: StoredLicense = { status: 'active', deviceId: 'd', validUntil: null, entitlements: { v: 1, tier: 'plus', features: [] } };
+    expect(isPro(plus)).toBe(false);
+    expect(tierAtLeast(plus, 'pro')).toBe(false);
+    expect(tierAtLeast(plus, 'plus')).toBe(true);
+    expect(satisfiesRequirement(plus, { tier: 'pro' })).toBe(false);
+  });
 });
 
 describe('entitlement readers', () => {

@@ -41,10 +41,13 @@ test("local adoption verifies lock and stages portable plus Tauri-qualified bina
   assert.equal(readFileSync(path.join(output, "membrane", "resources", "LICENSE"), "utf8"), "LICENSE");
   const receipt = JSON.parse(readFileSync(path.join(root, ".right-release", "addons", "adoptions", "membrane-mac.json"), "utf8"));
   assert.equal(receipt.manifestSha256, digest);
-  // A second adoption replaces the add-on in place and keeps exactly one fixed .previous (no per-pid names).
+  // A second adoption replaces the add-on in place and retains NO .previous copy (D01: transient staging, roll-forward only).
   const again = spawnSync(process.execPath, [command, "adopt", "--platform", "mac", "--lock", lock, "--output", output, "--source", sealed], { cwd: root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_TEST_FIXTURE: "1" } });
   assert.equal(again.status, 0, again.stderr);
-  assert.deepEqual(readdirSync(output).sort(), ["membrane", "membrane.previous"]);
+  assert.deepEqual(readdirSync(output).sort(), ["membrane"]);
+  assert.equal(existsSync(path.join(output, "membrane.previous")), false);
+  assert.equal(existsSync(path.join(output, "membrane.staging")), false);
+  assert.equal(readFileSync(path.join(output, "membrane", "bin", "membrane-aarch64-apple-darwin"), "utf8"), "command");
   assert.deepEqual(receipt.files.map((file) => [file.role, file.sealedSha256, file.adoptedSha256]), [["command", manifest.files.find((file) => file.role === "command").sha256, manifest.files.find((file) => file.role === "command").sha256], ["service", manifest.files.find((file) => file.role === "service").sha256, manifest.files.find((file) => file.role === "service").sha256]]);
 });
 

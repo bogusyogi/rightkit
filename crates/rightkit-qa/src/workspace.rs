@@ -114,6 +114,10 @@ fn create_impl(
     fs::create_dir_all(home.join("captures"))?;
     create_profile_dirs(&home)?;
     let mut env = BTreeMap::new();
+    // Test-mode activation & its bound root travel together (M20/M21): the root is the bound
+    // home itself (it carries `.rightkit-app.json`), never `home/data`. A test-capable app
+    // validates the pair & derives its children from that decision; either half alone refuses.
+    env.insert("RIGHTKIT_UNDER_TEST".into(), "1".into());
     env.insert("RIGHTKIT_QA_NATIVE".into(), "1".into());
     env.insert("RIGHTKIT_QA_RUN_ID".into(), run_id.clone());
     env.insert("RIGHTKIT_RUN_ROOT".into(), home.to_string_lossy().into());
@@ -126,10 +130,7 @@ fn create_impl(
     env.insert("APPDATA".into(), data_dir.to_string_lossy().into());
     env.insert("LOCALAPPDATA".into(), data_dir.to_string_lossy().into());
     env.insert("XDG_CACHE_HOME".into(), cache_dir.to_string_lossy().into());
-    env.insert(
-        "RIGHTKIT_QA_DATA_DIR".into(),
-        data_dir.to_string_lossy().into(),
-    );
+    env.insert("RIGHTKIT_QA_DATA_DIR".into(), home.to_string_lossy().into());
     env.insert(
         "RIGHTKIT_QA_EVIDENCE_DIR".into(),
         home.join("evidence").to_string_lossy().into(),
@@ -621,10 +622,127 @@ mod tests {
     use super::*;
 
     #[test]
+    fn launcher_home_passes_portable_and_app_dirs_decisions() {
+        use rightkit_fs::app_dirs::{AppDirs, AppId, Options, Os};
+        use rightkit_fs::test_mode::{decide, Decision, Refusal, Request, BINDING_FILE};
+        let cache = storage::app_temp_dir().join(format!("rkqa-decision-{}", new_id()));
+        let ws = create(&cache, Some("decision"), "genright").unwrap();
+        let protected = vec![cache.join("real-user-data")];
+        let root = Path::new(&ws.env["RIGHTKIT_QA_DATA_DIR"]);
+        let request = Request {
+            app_id: "genright",
+            activated: ws.env["RIGHTKIT_UNDER_TEST"] == "1",
+            root: Some(root),
+            protected_paths: &protected,
+        };
+        let Decision::Test(validated) = decide(&request).unwrap() else {
+            panic!("launcher must activate test mode")
+        };
+        assert_eq!(validated.path(), fs::canonicalize(&ws.home).unwrap());
+        assert_eq!(
+            validated.child(Path::new("data")).unwrap(),
+            fs::canonicalize(&ws.data_dir).unwrap()
+        );
+        let app = AppId::new("GenRight").with_qa_app_id("genright");
+        let opts = Options::new(Os::current())
+            .qa_overrides(true)
+            .protected_paths(protected.clone());
+        let dirs = AppDirs::resolve_with(&app, &opts, &|key| {
+            ws.env.get(key).map(std::ffi::OsString::from)
+        })
+        .unwrap();
+        assert_eq!(dirs.home, validated.path());
+        assert_eq!(dirs.data, validated.child(Path::new("data")).unwrap());
+        // Native trust context must ignore HOME/APPDATA/XDG values redirected by this launcher.
+        let native = AppDirs::resolve_with(
+            &app,
+            &Options::new(Os::current()).qa_overrides(true),
+            &|key| ws.env.get(key).map(std::ffi::OsString::from),
+        )
+        .unwrap();
+        assert_eq!(native.home, validated.path());
+        assert_eq!(
+            decide(&Request {
+                activated: false,
+                ..request.clone()
+            }),
+            Err(Refusal::RootWithoutActivation)
+        );
+        assert_eq!(
+            decide(&Request {
+                root: None,
+                ..request.clone()
+            }),
+            Err(Refusal::ActivationWithoutRoot)
+        );
+        let binding_path = ws.home.join(BINDING_FILE);
+        let original = fs::read(&binding_path).unwrap();
+        for invalid in [
+            r#"{"nested":{"app":"genright"}}"#,
+            r#"{"app":"genright""#,
+            r#"{"app":"genright"}junk"#,
+        ] {
+            fs::write(&binding_path, invalid).unwrap();
+            assert_eq!(decide(&request), Err(Refusal::RootNotCreatedByRunner));
+        }
+        fs::write(&binding_path, original).unwrap();
+        let cloud = ws.home.join("OneDrive").join("bound");
+        rightkit_fs::private::ensure_private_dir(&cloud).unwrap();
+        fs::write(cloud.join(BINDING_FILE), r#"{"app":"genright"}"#).unwrap();
+        assert_eq!(
+            decide(&Request {
+                root: Some(&cloud),
+                ..request.clone()
+            }),
+            Err(Refusal::RootOnRemovableOrCloud)
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&ws.home, fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(decide(&request), Err(Refusal::RootNotPrivate));
+            rightkit_fs::private::ensure_private_dir(&ws.home).unwrap();
+            let link = cache.join("home-alias");
+            std::os::unix::fs::symlink(&ws.home, &link).unwrap();
+            assert_eq!(
+                decide(&Request {
+                    root: Some(&link),
+                    ..request.clone()
+                }),
+                Err(Refusal::RootHasSymlink)
+            );
+            let aliases = vec![link.join("protected")];
+            assert_eq!(
+                decide(&Request {
+                    protected_paths: &aliases,
+                    ..request
+                }),
+                Err(Refusal::RootOverlapsUserData)
+            );
+        }
+    }
+
+    #[test]
     fn isolates_and_disposes() {
         let root = storage::app_temp_dir().join(format!("rkqa-ws-{}", new_id()));
         let ws = create(&root, Some("run1"), "genright").unwrap();
         assert!(ws.env.contains_key("GENRIGHT_DATA_DIR"));
+        // Activation & bound root travel together; the root is the bound home, not home/data.
+        assert_eq!(ws.env["RIGHTKIT_UNDER_TEST"], "1");
+        assert_eq!(
+            Path::new(&ws.env["RIGHTKIT_QA_DATA_DIR"]),
+            ws.home.as_path()
+        );
+        assert_ne!(
+            Path::new(&ws.env["RIGHTKIT_QA_DATA_DIR"]),
+            ws.data_dir.as_path()
+        );
+        assert!(
+            Path::new(&ws.env["RIGHTKIT_QA_DATA_DIR"])
+                .join(".rightkit-app.json")
+                .is_file(),
+            "the bound root carries the runner binding"
+        );
         assert!(ws.data_dir.exists());
         assert!(!ws.root.join("data").exists());
         // The home is created under the canonical temp directory, which on Windows differs in

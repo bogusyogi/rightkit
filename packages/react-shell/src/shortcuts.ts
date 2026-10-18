@@ -185,6 +185,56 @@ export function chordFromEvent(event: Pick<KeyboardEvent, "key" | "code" | "ctrl
   return parts.join("+");
 }
 
+/**
+ * Held-modifier prefix helpers (CodeRight donor, opt-in): a modifier-only or modifier+key chord
+ * (e.g. `"mod"`, `"mod+shift"`) held while a second key is pressed. `heldKeys` holds lower-cased
+ * `event.key` names (`"control"`, `"meta"`, `"shift"`, `"alt"`, plus any prefix key). Releasing a
+ * modifier removes it from the caller's held set, so the prefix is cancelled automatically.
+ * The registry's default dispatch is unchanged; callers opt in by consulting these helpers.
+ */
+function prefixStep(chord: string): Step | undefined {
+  const steps = parseChord(chord);
+  return steps.length === 1 ? steps[0] : undefined;
+}
+
+export function isShortcutPrefixHeld(
+  prefixChord: string,
+  heldKeys: ReadonlySet<string>,
+  platform: Platform = getPlatform(),
+): boolean {
+  const step = prefixStep(prefixChord);
+  if (!step) return false;
+  const mac = platform === "macos" || platform === "ios";
+  if (step.mod && !heldKeys.has(mac ? "meta" : "control")) return false;
+  if (step.ctrl && !heldKeys.has("control")) return false;
+  if (step.meta && !heldKeys.has("meta")) return false;
+  if (step.ctrlOrMeta && !heldKeys.has("control") && !heldKeys.has("meta")) return false;
+  if (step.alt && !heldKeys.has("alt")) return false;
+  if (step.shift && !heldKeys.has("shift")) return false;
+  return !step.key || heldKeys.has(step.key.toLowerCase());
+}
+
+export function eventMatchesShortcutPrefix(
+  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  prefixChord: string,
+  heldKeys?: ReadonlySet<string>,
+  platform: Platform = getPlatform(),
+): boolean {
+  const step = prefixStep(prefixChord);
+  if (!step) return false;
+  const mac = platform === "macos" || platform === "ios";
+  const expectedMod = step.mod;
+  const modMatches = mac ? event.metaKey : event.ctrlKey;
+  if (expectedMod && !modMatches) return false;
+  if (!expectedMod && event.metaKey && !step.meta && !step.ctrlOrMeta) return false;
+  if (step.shift !== event.shiftKey || step.alt !== event.altKey) return false;
+  if (step.ctrl && !event.ctrlKey) return false;
+  if (step.meta && !event.metaKey) return false;
+  if (step.ctrlOrMeta && event.ctrlKey === event.metaKey) return false;
+  if (!step.ctrl && !step.ctrlOrMeta && event.ctrlKey && (!expectedMod || mac)) return false;
+  return !step.key || Boolean(heldKeys?.has(step.key.toLowerCase()));
+}
+
 /** True when focus is in a text-entry surface that owns bare keys. */
 export function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;

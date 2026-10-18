@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 — unpublished staging
+
+- Repairs shared Tauri command adapter behavior.
+
 ## Unreleased
 
 - Renamed from @rightkit/shell; @rightkit/shell@0.1.1 remains published under the old name.

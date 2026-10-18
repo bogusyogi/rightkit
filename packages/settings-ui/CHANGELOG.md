@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 — unpublished staging
+
+- Makes theme peer optional for React-only core consumers.
+
 ## 0.6.0 (2026-10-17)
 
 - Updates section: show the new @rightkit/app-update `staged` status (downloaded, waiting for the install go-ahead).

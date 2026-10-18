@@ -42,4 +42,4 @@ export {
   type ListNavigation,
   type ListNavigationOptions,
 } from "./list.js";
-export { matchScore, rankCommands, rankItems, type Rankable } from "./rank.js";
+export { matchScore, rankCommands, rankItems, type Rankable, type RankOptions } from "./rank.js";

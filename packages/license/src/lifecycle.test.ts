@@ -38,19 +38,22 @@ describe('classifyLifecycle', () => {
     ['legacy live', legacy(at(DAY)), 'active'],
     ['legacy in grace', legacy(at(-2 * DAY)), 'grace'],
     ['legacy past grace', legacy(at(-8 * DAY)), 'expired'],
-    ['legacy unparseable until', legacy('not-a-date'), 'active'],
+    ['legacy unparseable until', legacy('not-a-date'), 'invalid'],
     ['term live', term(at(DAY)), 'active'],
     ['term in grace', term(at(-DAY)), 'grace'],
     ['term expired', term(at(-30 * DAY)), 'expired'],
+    ['term unparseable until', term('not-a-date'), 'invalid'],
     ['trial live', trial(at(DAY)), 'trial'],
     ['trial at exact boundary', trial(at(0)), 'expired_trial'],
     ['trial one ms before', trial(at(1)), 'trial'],
     ['trial never graced', trial(at(-DAY)), 'expired_trial'],
-    ['trial unparseable until', trial('not-a-date'), 'expired_trial'],
+    ['trial unparseable until', trial('not-a-date'), 'invalid'],
     ['provisional live', provisional(at(DAY)), 'lifetime_provisional'],
     ['provisional at due', provisional(at(0)), 'verification_required'],
     ['provisional never graced', provisional(at(-DAY)), 'verification_required'],
+    ['provisional unparseable until', provisional('not-a-date'), 'invalid'],
     ['final perpetual', final(null), 'lifetime'],
+    ['final unparseable until', final('not-a-date'), 'invalid'],
     ['final live', final(at(DAY)), 'lifetime'],
     ['final in grace', final(at(-DAY)), 'grace'],
     ['final expired', final(at(-30 * DAY)), 'expired'],
@@ -87,10 +90,10 @@ describe('classifyLifecycle', () => {
   it('agrees with isLicensed for every consistent active record', () => {
     const records = [
       legacy(null), legacy(at(DAY)), legacy(at(-DAY)), legacy(at(-30 * DAY)), legacy('not-a-date'),
-      term(at(DAY)), term(at(-DAY)), term(at(-30 * DAY)),
+      term(at(DAY)), term(at(-DAY)), term(at(-30 * DAY)), term('not-a-date'),
       trial(null), trial(at(DAY)), trial(at(0)), trial(at(-DAY)), trial('not-a-date'),
       provisional(at(DAY)), provisional(at(0)), provisional(at(-DAY)), provisional('not-a-date'),
-      final(null), final(at(DAY)), final(at(-DAY)), final(at(-30 * DAY)),
+      final(null), final(at(DAY)), final(at(-DAY)), final(at(-30 * DAY)), final('not-a-date'),
     ];
     for (const lic of records) {
       for (const graceDays of [0, 7]) {

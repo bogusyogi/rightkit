@@ -17,10 +17,22 @@ export interface RuntimeUpdate {
   version: string;
   /** Exact manifest metadata returned by Tauri's updater check. */
   rawJson?: Record<string, unknown>;
+  /** Target/platform key the check resolved, when the adapter exposes it. */
+  target?: string;
   downloadAndInstall(
     onEvent?: (event: UpdateDownloadEvent) => void,
     options?: UpdateInstallOptions,
   ): Promise<void>;
+  /**
+   * Real prepare step (Tauri v2 `Update.download`): downloads and verifies the artifact into the
+   * adapter's own cache without installing. Present together with `install` on prepared adapters.
+   */
+  download?(
+    onEvent?: (event: UpdateDownloadEvent) => void,
+    options?: UpdateInstallOptions,
+  ): Promise<void>;
+  /** Installs the payload `download` prepared. Must perform no network access. */
+  install?(): Promise<void>;
 }
 
 export type CheckForUpdate = (options?: { headers?: UpdateHeaders }) => Promise<RuntimeUpdate | null>;
@@ -50,6 +62,20 @@ export type AutoUpdateStatus =
 export interface StagedUpdateHandle {
   readonly version: string;
   readonly tier: UpdateTier;
+  /** Target/platform key bound at check time, when known. */
+  readonly target?: string;
+  /** Manifest digest (sha256/digest) bound at check time, when the manifest carries one. */
+  readonly digest?: string;
+  /** Manifest signature bound at check time, when the manifest carries one. */
+  readonly signature?: string;
+  /** Check generation that issued this handle; a newer check fences it. */
+  readonly generation: number;
+  /**
+   * True only when the adapter really downloaded+verified the payload (`download`/`install` pair).
+   * False for the legacy combined adapter, which cannot claim a true prefetch: its bytes are
+   * fetched by `installStaged()`.
+   */
+  readonly prepared: boolean;
 }
 
 export type DownloadAvailableResult =
@@ -60,12 +86,12 @@ export interface AutoUpdateClientConfig {
   check: CheckForUpdate;
   /** Metadata-only Pro release version used to nudge ineligible Free users. */
   getProUpdateVersion?: () => Promise<string | null> | string | null;
-  /** Manifest-check headers; also the legacy install fallback when no separate callback is set. */
+  /** Manifest-check headers; reused for artifacts only with explicit strictInstallHeaders:false. */
   getHeaders?: () => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
   /**
-   * Headers used to download/install an eligible artifact. When absent, the
-   * manifest-check headers are reused for backward compatibility. New apps
-   * should always provide this callback to make cross-origin policy explicit.
+   * Headers used to download/install an eligible artifact. An undefined result clears
+   * retained manifest-check headers, as does an absent callback in default strict mode.
+   * Apps can provide this callback to make cross-origin policy explicit.
    * It runs after canInstall, immediately before download, and is not cached.
    */
   getInstallHeaders?: (
@@ -73,10 +99,10 @@ export interface AutoUpdateClientConfig {
     context: { checkHeaders?: UpdateHeaders },
   ) => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
   /**
-   * When true and no `getInstallHeaders` is set, the artifact download gets no
-   * headers instead of reusing the manifest-check headers. Default false keeps the
-   * legacy reuse; new apps should set this (or `getInstallHeaders`) so a manifest
-   * credential is never sent to a different artifact origin.
+   * Artifact-header isolation. Default true (since the next compatible release): with no
+   * `getInstallHeaders`, the artifact download gets NO headers, so manifest-check auth is never
+   * sent to a different artifact origin. Set false only as a deprecated compatibility escape to
+   * reuse the manifest-check headers; prefer an explicit `getInstallHeaders`.
    */
   strictInstallHeaders?: boolean;
   getTier?: (
@@ -118,13 +144,18 @@ export interface AutoUpdateClientConfig {
 export interface AutoUpdateClient {
   checkOnce(): Promise<AutoUpdateStatus>;
   /**
-   * Download step. Runtime adapters expose only the combined `downloadAndInstall`, so this step is a
-   * verify-only prefetch: it confirms the checked, verified and eligible update and stages a handle without
-   * fetching the artifact. The bytes are fetched by `installStaged()`.
+   * Prepare step. On a prepared adapter (`download`/`install`) this downloads and verifies the
+   * artifact now and returns a handle with `prepared: true`. On the legacy combined adapter it
+   * stages a handle with `prepared: false` and fetches nothing; it must not be shown as a prefetch.
    */
   downloadAvailable(): Promise<DownloadAvailableResult>;
-  /** Install step: consumes the handle, resolves install headers, and runs the combined adapter install. */
+  /**
+   * Install step: consumes the handle exactly once. For a prepared handle it runs only the
+   * adapter `install` over the already-downloaded payload (no network, no header resolution).
+   */
   installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus>;
+  /** Fences a staged handle without installing (cancel/relaunch): later installs of it fail. */
+  discardStaged(handle: StagedUpdateHandle): boolean;
   /** Combined compatibility path, implemented as `downloadAvailable` then `installStaged` without a 'staged' emit. */
   installAvailable(): Promise<AutoUpdateStatus>;
 }
@@ -176,13 +207,30 @@ interface AvailableRecord {
   tier: UpdateTier;
   checkHeaders?: UpdateHeaders;
   generation: number;
+  target?: string;
+  digest?: string;
+  signature?: string;
+  prepared: boolean;
+  preparePromise: Promise<void> | null;
 }
+
+const manifestString = (raw: Record<string, unknown> | undefined, ...keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
+};
+
+const hasPreparedAdapter = (update: RuntimeUpdate): boolean =>
+  typeof update.download === 'function' && typeof update.install === 'function';
 
 export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpdateClient {
   const shouldAutoInstall = config.shouldAutoInstall ?? (() => false);
   const isEligible = config.isEligible ?? ((tier) => tier !== 'update');
   const deferReason = config.deferReason ?? (() => 'host_not_idle');
   let generation = 0;
+  let installInProgress = false;
   let available: AvailableRecord | null = null;
   let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
   const handleByRecord = new WeakMap<object, StagedUpdateHandle>();
@@ -247,7 +295,17 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       const staleAfterEligibility = idleWhenStale(checkGeneration);
       if (staleAfterEligibility) return staleAfterEligibility;
       available = eligible
-        ? { update, tier, checkHeaders: headers, generation: checkGeneration }
+        ? {
+            update,
+            tier,
+            checkHeaders: headers,
+            generation: checkGeneration,
+            target: update.target ?? manifestString(update.rawJson, 'target', 'platform'),
+            digest: manifestString(update.rawJson, 'digest', 'sha256'),
+            signature: manifestString(update.rawJson, 'signature'),
+            prepared: false,
+            preparePromise: null,
+          }
         : null;
       const nextAvailableStatus: Extract<AutoUpdateStatus, { kind: 'available' }> = {
         kind: 'available',
@@ -281,20 +339,92 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
     if (!current) return null;
     let handle = handleByRecord.get(current);
     if (!handle) {
-      handle = Object.freeze({ version: current.update.version, tier: current.tier });
+      handle = Object.freeze({
+        version: current.update.version,
+        tier: current.tier,
+        ...(current.target ? { target: current.target } : {}),
+        ...(current.digest ? { digest: current.digest } : {}),
+        ...(current.signature ? { signature: current.signature } : {}),
+        generation: current.generation,
+        prepared: current.prepared,
+      });
       handleByRecord.set(current, handle);
       recordByHandle.set(handle, current);
     }
     return handle;
   }
 
-  async function downloadAvailable(): Promise<DownloadAvailableResult> {
+  /** Re-issue the handle after a real prepare so `prepared` reflects the bound payload. */
+  function restagePrepared(record: AvailableRecord): StagedUpdateHandle {
+    const old = handleByRecord.get(record);
+    if (old?.prepared) return old;
+    if (old) recordByHandle.delete(old);
+    handleByRecord.delete(record);
     const handle = stage();
-    if (!handle) {
+    if (!handle) throw new Error('staged update is no longer current; check for updates again');
+    return handle;
+  }
+
+  async function resolveInstallHeaders(record: AvailableRecord): Promise<UpdateHeaders> {
+    if (config.getInstallHeaders) return (await config.getInstallHeaders(record.tier, { checkHeaders: record.checkHeaders })) ?? {};
+    // Tauri retains check headers when options are omitted. An explicit empty map clears them.
+    return (config.strictInstallHeaders === false ? record.checkHeaders : undefined) ?? {};
+  }
+
+  function progressEmitter(record: AvailableRecord): (event: UpdateDownloadEvent) => void {
+    let total = 0;
+    let received = 0;
+    return (event) => {
+      if (event.event === 'Started' && isStartedEvent(event)) {
+        total = event.data.contentLength ?? 0;
+        emitForGeneration({ kind: 'downloading', version: record.update.version, tier: record.tier, pct: 0 }, record.generation);
+      } else if (event.event === 'Progress' && isProgressEvent(event)) {
+        received += event.data.chunkLength;
+        const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
+        emitForGeneration({ kind: 'downloading', version: record.update.version, tier: record.tier, pct }, record.generation);
+      }
+    };
+  }
+
+  /** One real download+verify per record; concurrent prepares share it. */
+  function prepare(record: AvailableRecord): Promise<void> {
+    if (record.prepared) return Promise.resolve();
+    record.preparePromise ??= (async () => {
+      const headers = await resolveInstallHeaders(record);
+      await record.update.download?.(progressEmitter(record), { headers });
+      record.prepared = true;
+    })().finally(() => { record.preparePromise = null; });
+    return record.preparePromise;
+  }
+
+  async function downloadAvailable(): Promise<DownloadAvailableResult> {
+    const record = available;
+    const handle = stage();
+    if (!record || !handle) {
       return { ok: false, status: ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' }) };
     }
-    const status = emit({ kind: 'staged', version: handle.version, tier: handle.tier });
-    return { ok: true, handle, status };
+    if (!hasPreparedAdapter(record.update)) {
+      const status = emit({ kind: 'staged', version: handle.version, tier: handle.tier });
+      return { ok: true, handle, status };
+    }
+    try {
+      await prepare(record);
+    } catch (error) {
+      if (generation !== record.generation) return { ok: false, status: { kind: 'idle' } };
+      config.onError?.(error);
+      return { ok: false, status: emit({ kind: 'error', message: String(error) }) };
+    }
+    if (generation !== record.generation || available !== record) return { ok: false, status: { kind: 'idle' } };
+    const preparedHandle = restagePrepared(record);
+    const status = emit({ kind: 'staged', version: preparedHandle.version, tier: preparedHandle.tier });
+    return { ok: true, handle: preparedHandle, status };
+  }
+
+  function discardStaged(handle: StagedUpdateHandle): boolean {
+    const record = recordByHandle.get(handle);
+    if (!record || available !== record) return false;
+    available = null;
+    return true;
   }
 
   async function installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus> {
@@ -323,7 +453,13 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
   }
 
   async function install(claimed: AvailableRecord): Promise<AutoUpdateStatus> {
-    const { update, tier, checkHeaders, generation: installGeneration } = claimed;
+    const { update, tier, generation: installGeneration } = claimed;
+    // This fence spans records/generations, including preparation, native replacement & relaunch.
+    if (installInProgress) {
+      if (generation === installGeneration && available === null) available = claimed;
+      return emitForGeneration({ kind: 'deferred', version: update.version, tier, reason: 'install_in_progress' }, installGeneration);
+    }
+    installInProgress = true;
     try {
       const safe = await config.canInstall?.() ?? true;
       if (!safe) {
@@ -338,22 +474,17 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       }
       if (generation !== installGeneration) return { kind: 'idle' };
 
-      const installHeaders = config.getInstallHeaders
-        ? await config.getInstallHeaders(tier, { checkHeaders })
-        : config.strictInstallHeaders ? undefined : checkHeaders;
-      if (generation !== installGeneration) return { kind: 'idle' };
-      let total = 0;
-      let received = 0;
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Started' && isStartedEvent(event)) {
-          total = event.data.contentLength ?? 0;
-          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct: 0 }, installGeneration);
-        } else if (event.event === 'Progress' && isProgressEvent(event)) {
-          received += event.data.chunkLength;
-          const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
-          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct }, installGeneration);
-        }
-      }, installHeaders ? { headers: installHeaders } : undefined);
+      if (hasPreparedAdapter(update)) {
+        // Prepared payload: install consumes it with zero network. Unprepared records
+        // (combined installAvailable/auto-install) prepare first, then install the same payload.
+        if (!claimed.prepared) await prepare(claimed);
+        if (generation !== installGeneration) return { kind: 'idle' };
+        await update.install?.();
+      } else {
+        const installHeaders = await resolveInstallHeaders(claimed);
+        if (generation !== installGeneration) return { kind: 'idle' };
+        await update.downloadAndInstall(progressEmitter(claimed), { headers: installHeaders });
+      }
 
       const ready = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
       if (config.relaunchAfterInstall && config.relaunch && generation === installGeneration) {
@@ -365,10 +496,12 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       if (generation !== installGeneration) return errorStatus;
       config.onError?.(error);
       return emit(errorStatus);
+    } finally {
+      installInProgress = false;
     }
   }
 
-  return { checkOnce, downloadAvailable, installStaged, installAvailable };
+  return { checkOnce, downloadAvailable, installStaged, installAvailable, discardStaged };
 }
 
 function isStartedEvent(event: UpdateDownloadEvent): event is { event: 'Started'; data: { contentLength?: number } } {
@@ -398,6 +531,7 @@ export {
   previousInstallPath,
   PREVIOUS_SUFFIX,
   type BootProbation,
+  type BootFailureInfo,
   type BootProbationConfig,
   type BootProbationDecision,
   type BootProbationRecord,

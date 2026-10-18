@@ -27,7 +27,9 @@ describe('QA run workspace', () => {
     const workspace = createQaWorkspace({ root: tempRoot(), runId: 'run-1', appKey: 'viewright' });
     expect(fs.existsSync(workspace.dataDir)).toBe(true);
     expect(fs.existsSync(path.join(workspace.root, 'data'))).toBe(false);
-    expect(workspace.env.RIGHTKIT_QA_DATA_DIR).toBe(workspace.dataDir);
+    expect(workspace.env.RIGHTKIT_QA_DATA_DIR).toBe(workspace.home);
+    expect(workspace.env.RIGHTKIT_UNDER_TEST).toBe('1');
+    expect(fs.existsSync(path.join(workspace.home, '.rightkit-app.json'))).toBe(true);
     expect(workspace.env.VIEWRIGHT_DATA_DIR).toBe(workspace.dataDir);
     expect(workspace.env.WEBVIEW2_USER_DATA_FOLDER).toContain(workspace.dataDir);
     expect(workspace.env.RIGHTKIT_RUN_ROOT).toBe(workspace.home);

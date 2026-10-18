@@ -51,9 +51,27 @@ pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardMode {
     /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
+    /// Volatile: values vanish on exit, so an *environment* guard can only select this in
+    /// debug/test builds. In a release build an env-tripped `Memory` guard behaves as
+    /// [`GuardMode::Deny`] (see `effective_guard_mode`); only an explicit
+    /// [`Config::guard_when`] from caller code may still force `Memory` in release.
     Memory,
     /// Every operation fails with [`Error::Guarded`] (e.g. an app guard such as `MYAPP_DISABLE_OS_KEYCHAIN`).
     Deny,
+}
+
+/// The mode a tripped guard actually gets. A release binary must never let a stray
+/// environment variable silently swap the durable OS store for process memory (keys minted
+/// there vanish on exit and strand encrypted data), so an env-tripped guard is `Deny` in
+/// release whatever mode was configured. An explicit `Deny` is preserved in every build, and
+/// a guard forced from caller code ([`Config::guard_when`]) keeps its configured mode: that
+/// decision is compiled in and auditable, not volatile environment input.
+fn effective_guard_mode(mode: GuardMode, forced_by_caller: bool, release: bool) -> GuardMode {
+    if release && !forced_by_caller {
+        GuardMode::Deny
+    } else {
+        mode
+    }
 }
 
 #[derive(Clone)]
@@ -203,6 +221,15 @@ impl Backend for Denied {
 /// Serializes read→mint→persist inside this process; `add_if_absent` covers other processes.
 static MINT_LOCK: Mutex<()> = Mutex::new(());
 
+/// One lock per credential target for whole rotation transactions (`rotation.rs`). The
+/// per-call [`TargetPermit`] below cannot span a rotation: it is released with each OS call,
+/// so an abort/rebegin could land between commit's pending read and its primary write and the
+/// stale commit would then overwrite the newer primary and delete the newer marker. Keyed like
+/// the in-flight table (bound store identity + the backend's native credential identity), so
+/// every `Store` reaching the same native credential takes the same rotation lock. Entries are
+/// retained for the process; rotation targets are few and long-lived.
+static ROTATION_LOCKS: Mutex<BTreeMap<TargetKey, Arc<Mutex<()>>>> = Mutex::new(BTreeMap::new());
+
 /// Where a mutation of one credential target stands.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Slot {
@@ -320,29 +347,40 @@ impl Store {
     /// Resolve guards and the backend. Infallible: a tripped guard yields a memory or denying
     /// store, never the OS store.
     pub fn open(cfg: Config) -> Store {
+        // An env trip and a caller-forced guard are told apart: only the env trip is volatile
+        // input that a release build must not let select the memory store.
         let tripped = cfg
             .guard_envs
             .iter()
             .map(String::as_str)
             .chain(std::iter::once(UNIVERSAL_GUARD_ENV))
             .find(|n| env_tripped(n))
-            .map(str::to_string)
-            .or_else(|| cfg.forced_guard.then(|| "forced-by-caller".to_string()));
+            .map(|n| (n.to_string(), false))
+            .or_else(|| {
+                cfg.forced_guard
+                    .then(|| ("forced-by-caller".to_string(), true))
+            });
         let timeout = cfg.timeout.unwrap_or(match cfg.interaction {
             Interaction::NonInteractive => Duration::from_secs(5),
             Interaction::Interactive => Duration::from_secs(90),
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
-            Some(name) => match cfg.guard_mode {
-                GuardMode::Memory => (
-                    MemoryBackend::process_wide(),
-                    Some((name, GuardMode::Memory)),
-                ),
-                GuardMode::Deny => (
-                    Arc::new(Denied(name.clone())),
-                    Some((name, GuardMode::Deny)),
-                ),
-            },
+            Some((name, forced_by_caller)) => {
+                match effective_guard_mode(
+                    cfg.guard_mode,
+                    forced_by_caller,
+                    !cfg!(debug_assertions),
+                ) {
+                    GuardMode::Memory => (
+                        MemoryBackend::process_wide(),
+                        Some((name, GuardMode::Memory)),
+                    ),
+                    GuardMode::Deny => (
+                        Arc::new(Denied(name.clone())),
+                        Some((name, GuardMode::Deny)),
+                    ),
+                }
+            }
             None => (cfg.backend.unwrap_or_else(system_backend), None),
         };
         Store {
@@ -356,6 +394,18 @@ impl Store {
 
     pub fn namespace(&self) -> &Namespace {
         &self.ns
+    }
+    /// Resolve the current backend once and retain that store across later calls.
+    /// Keep this handle across `begin_rotation`, external rekeying, and commit/abort when the
+    /// default keychain might change. Ordinary handles continue following the current default.
+    /// After a restart, reselect the original default keychain before recovery; an explicit
+    /// production macOS file backend remains read/delete-only.
+    pub fn pinned(&self) -> Result<Store> {
+        let (backend, _) = bind_mutation(&self.backend)?;
+        Ok(Store {
+            backend,
+            ..self.clone()
+        })
     }
     pub fn guard_active(&self) -> bool {
         self.guard.is_some()
@@ -388,6 +438,46 @@ impl Store {
             timeout,
             ..self.clone()
         }
+    }
+
+    /// One bound store plus its shared whole-rotation lock for `account`
+    /// (see `ROTATION_LOCKS`). The store is bound once, here, through the same
+    /// [`bind_mutation`] decision mutations use, and the account is named by the backend's
+    /// native credential identity, so `begin`/`commit`/`abort` on any `Store` over the same
+    /// native credential serialise against each other. The caller locks the returned mutex
+    /// and uses the returned store for the whole invocation, including reads and cleanup.
+    pub(crate) fn rotation_store(&self, account: &str) -> Result<(Store, Arc<Mutex<()>>)> {
+        check_target(&self.ns, account)?;
+        let (backend, store) = bind_mutation(&self.backend)?;
+        let key = (store, backend.credential_identity(&self.ns, account)?);
+        let mut locks = ROTATION_LOCKS
+            .lock()
+            .map_err(|_| Error::Unavailable("rotation lock registry poisoned".into()))?;
+        let lock = locks
+            .entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        Ok((
+            Store {
+                backend,
+                ..self.clone()
+            },
+            lock,
+        ))
+    }
+
+    /// Called under the rotation lock before changing its marker. A timed-out primary write
+    /// still owns its target: abort/rebegin must not retire its recovery value until it returns.
+    pub(crate) fn rotation_ready(&self, account: &str) -> Result<()> {
+        let key = (
+            backend_identity(&self.backend),
+            self.backend.credential_identity(&self.ns, account)?,
+        );
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .unwrap_or_else(Instant::now);
+        drop(TargetPermit::acquire(key, "rotation", deadline)?);
+        Ok(())
     }
 
     fn run<T: Send + 'static>(
@@ -575,7 +665,34 @@ impl rightkit_app_settings::SecretProbe for Store {
 
 #[cfg(test)]
 mod base64_tests {
-    use super::{base64_standard, Store};
+    use super::{base64_standard, effective_guard_mode, GuardMode, Store};
+
+    #[test]
+    fn env_guard_cannot_select_memory_in_release_but_deny_is_preserved() {
+        // Env-tripped (not forced by caller code): release always denies.
+        assert_eq!(
+            effective_guard_mode(GuardMode::Memory, false, true),
+            GuardMode::Deny
+        );
+        assert_eq!(
+            effective_guard_mode(GuardMode::Deny, false, true),
+            GuardMode::Deny
+        );
+        // Debug/test builds keep the configured test capability.
+        assert_eq!(
+            effective_guard_mode(GuardMode::Memory, false, false),
+            GuardMode::Memory
+        );
+        // A guard forced from caller code is a compiled-in decision, not env input.
+        assert_eq!(
+            effective_guard_mode(GuardMode::Memory, true, true),
+            GuardMode::Memory
+        );
+        assert_eq!(
+            effective_guard_mode(GuardMode::Deny, true, true),
+            GuardMode::Deny
+        );
+    }
 
     #[test]
     fn generate_key_is_fresh_sized_and_bounded() {

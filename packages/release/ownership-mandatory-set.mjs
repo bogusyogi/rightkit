@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // right-release ownership-mandatory: Table 1 mandatory-owner-set check (plan task 5.1).
 //
+// This evaluates declarations only; it does not establish active target/features, lock resolution or production adoption.
 // A registered app must declare every Table 1 owner (rows M1-M23) at or above the required version,
 // from the registry. Report mode (default) prints per-app findings and exits 0; --enforce exits 1
 // on any missing owner, below-required version, or path/git/patch override ("not-on-registry").
@@ -25,14 +26,51 @@ const SKIP_DIRS = new Set(["node_modules", "target", ".git", "rk-snapshot", "ven
 const MAX_MANIFESTS = 2000;
 
 // ---- versions -------------------------------------------------------------------------------
-/** Lower bound of the first comparator in a Cargo/npm requirement, or null when none can be proven. */
+/**
+ * Proven minimum of a Cargo/npm requirement: a version every satisfying version is guaranteed >=, or null when
+ * none can be proven (upper-only `<9`, `*`, `latest`, malformed, or a `||` branch with no proven minimum).
+ * Space/comma comparators AND (proven minimum = max of lower contributions; `<`/`<=` contribute none); `||`
+ * branches union (proven minimum = min of branch minima, null if any branch is unprovable). Hyphen ranges
+ * contribute their lower end. `>`, `>=`, `=`, `^`, `~`, bare & wildcard partials contribute their version
+ * (missing/`x`/`*` components read as 0), so `>1.2.3` proves 1.2.3 (sound, never above the true floor).
+ */
 export function lowerBound(spec) {
   if (typeof spec !== "string") return null;
-  let s = spec.trim().replace(/^npm:(?:@[^@/]+\/)?[^@]+@/, "");
-  const m = /(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z.-]+))?/.exec(s);
-  if (!m || /^(\*|latest|x|)$/i.test(s)) return null;
-  const n = (v) => (v === undefined || /[xX*]/.test(v) ? 0 : Number(v));
-  return { major: Number(m[1]), minor: n(m[2]), patch: n(m[3]), pre: m[4] ?? null };
+  const s = spec.trim().replace(/^npm:(?:@[^@/]+\/)?[^@]+@/, "").trim();
+  if (!s || /^(\*|latest|x)$/i.test(s)) return null;
+  const part = (v) => (v === undefined || /[xX*]/.test(v) ? 0 : Number(v));
+  const versionOf = (text) => {
+    const m = /^v?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(text);
+    if (m?.[4] && m[4].split(".").some((id) => !id || (/^\d+$/.test(id) && id.length > 1 && id.startsWith("0")))) return null;
+    return m ? { major: Number(m[1]), minor: part(m[2]), patch: part(m[3]), pre: m[4] ?? null } : null;
+  };
+  const branchBound = (branch) => {
+    const raw = branch.split(/[\s,]+/).filter(Boolean);
+    const tokens = [];
+    for (let i = 0; i < raw.length; i += 1) {
+      if (/^(>=|<=|>|<|=|\^|~)$/.test(raw[i]) && i + 1 < raw.length) { tokens.push(raw[i] + raw[i + 1]); i += 1; }
+      else tokens.push(raw[i]);
+    }
+    if (!tokens.length) return null;
+    const lowers = [];
+    let skipUpperEnd = false;
+    for (const token of tokens) {
+      if (token === "-") { skipUpperEnd = true; continue; }
+      if (skipUpperEnd) { skipUpperEnd = false; continue; }
+      if (/^(\*|x|latest)$/i.test(token)) continue;
+      const m = /^(>=|<=|>|<|=|\^|~)?(.+)$/.exec(token);
+      const version = m && versionOf(m[2]);
+      if (!version) return null;
+      if (m[1] === "<" || m[1] === "<=") continue;
+      lowers.push(version);
+    }
+    return lowers.length ? lowers.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best)) : null;
+  };
+  const branches = s.split("||").map((b) => b.trim());
+  if (branches.some((b) => !b)) return null;
+  const bounds = branches.map(branchBound);
+  if (bounds.some((b) => b === null)) return null;
+  return bounds.reduce((best, v) => (compareVersions(v, best) < 0 ? v : best));
 }
 export const parseVersion = lowerBound;
 export function compareVersions(a, b) {
@@ -40,7 +78,19 @@ export function compareVersions(a, b) {
   if (a.pre === b.pre) return 0;
   if (a.pre === null) return 1;
   if (b.pre === null) return -1;
-  return a.pre < b.pre ? -1 : 1;
+  const left = a.pre.split("."), right = b.pre.split(".");
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    if (left[i] === undefined) return -1;
+    if (right[i] === undefined) return 1;
+    if (left[i] === right[i]) continue;
+    const an = /^\d+$/.test(left[i]), bn = /^\d+$/.test(right[i]);
+    if (an && bn) {
+      const av = BigInt(left[i]), bv = BigInt(right[i]);
+      if (av !== bv) return av < bv ? -1 : 1;
+    } else if (an !== bn) return an ? -1 : 1;
+    else return left[i] < right[i] ? -1 : 1;
+  }
+  return 0;
 }
 const show = (v) => `${v.major}.${v.minor}.${v.patch}${v.pre ? `-${v.pre}` : ""}`;
 
@@ -75,21 +125,21 @@ export function readManifest(file, root) {
     try { doc = parseToml(text); } catch (error) { return { rel, facts, error: `unparseable Cargo.toml: ${error.message}` }; }
     workspaceDeps = doc.workspace?.dependencies;
     const wsTable = workspaceDeps ?? {};
-    const sections = (table, dev) => {
+    const sections = (table, dev, target = null) => {
       for (const [section, isDev] of [["dependencies", dev], ["build-dependencies", dev], ["dev-dependencies", true]]) {
-        for (const [key, raw] of Object.entries(table?.[section] ?? {})) add(key, raw, isDev);
+        for (const [key, raw] of Object.entries(table?.[section] ?? {})) add(key, raw, isDev, target);
       }
     };
-    const add = (key, raw, dev) => {
+    const add = (key, raw, dev, target) => {
       let value = raw;
       if (value && typeof value === "object" && value.workspace === true && wsTable[key] !== undefined) value = { ...(typeof wsTable[key] === "object" ? wsTable[key] : { version: wsTable[key] }), ...value };
       const name = typeof value === "object" && typeof value.package === "string" ? value.package : key;
       const spec = typeof value === "string" ? value : value?.version;
       const unresolved = raw && typeof raw === "object" && raw.workspace === true && wsTable[key] === undefined;
-      facts.push({ owner: name, ecosystem: "cargo", kind: isNonRegistry(value) ? "override" : "registry", dev, spec: spec ?? null, via: isNonRegistry(value) ? ("path" in value ? "path dependency" : "git dependency") : "dependency", file: rel, ...(unresolved ? { inheritsWorkspace: key } : {}) });
+      facts.push({ target, optional: Boolean(value?.optional), owner: name, ecosystem: "cargo", kind: isNonRegistry(value) ? "override" : "registry", dev, spec: spec ?? null, via: isNonRegistry(value) ? ("path" in value ? "path dependency" : "git dependency") : "dependency", file: rel, ...(unresolved ? { inheritsWorkspace: key } : {}) });
     };
     sections(doc, false);
-    for (const target of Object.values(doc.target ?? {})) sections(target, false);
+    for (const [target, table] of Object.entries(doc.target ?? {})) sections(table, false, target);
     for (const [key, raw] of Object.entries(wsTable)) {
       // workspace.dependencies only counts through members that opt in (above); record path/git overrides here.
       if (isNonRegistry(raw)) facts.push({ owner: typeof raw.package === "string" ? raw.package : key, ecosystem: "cargo", kind: "override", dev: false, spec: raw.version ?? null, via: "workspace.dependencies path/git", file: rel, declarationOnly: true });
@@ -107,7 +157,7 @@ export function readManifest(file, root) {
         const alias = typeof spec === "string" ? /^npm:((?:@[^@/]+\/)?[^@]+)@/.exec(spec) : null;
         const owner = alias ? alias[1] : name;
         const local = typeof spec === "string" && /^(workspace:|file:|link:|portal:|git\+|git:|github:|https?:)/.test(spec);
-        facts.push({ owner, ecosystem: "npm", kind: local ? "override" : "registry", dev, spec: typeof spec === "string" ? spec : null, via: local ? `${spec.split(":")[0]}: specifier` : "dependency", file: rel });
+        facts.push({ declarationSection: section, optional: section === "optionalDependencies", peer: section === "peerDependencies", owner, ecosystem: "npm", kind: local ? "override" : "registry", dev, spec: typeof spec === "string" ? spec : null, via: local ? `${spec.split(":")[0]}: specifier` : "dependency", file: rel });
       }
     }
     for (const table of [doc.pnpm?.overrides, doc.overrides, doc.resolutions]) {
@@ -164,7 +214,7 @@ function judge(req, facts) {
   const counted = mine.filter((f) => f.kind === "registry" && (req.allowDev || !f.dev));
   const devOnly = !counted.length && mine.some((f) => f.kind === "registry" && f.dev);
   const min = lowerBound(req.min);
-  const base = { owner: req.name, ecosystem: req.ecosystem, rows: [...new Set(req.rows)], required: req.min };
+  const base = { evidenceKind: "declaration", qualification: "unverified", activeTarget: null, lockResolution: null, productionUse: null, declarations: mine.map((f) => ({ file: f.file, spec: f.spec, dev: f.dev, target: f.target ?? null, optional: f.optional ?? false, peer: f.peer ?? false })), owner: req.name, ecosystem: req.ecosystem, rows: [...new Set(req.rows)], required: req.min };
   const bounds = counted.map((f) => ({ f, v: lowerBound(f.spec) }));
   const best = bounds.filter((b) => b.v).sort((a, b) => compareVersions(b.v, a.v))[0];
   const declaredAt = best ? show(best.v) : null;
@@ -218,7 +268,7 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
   resolveWorkspaceInheritance(manifests);
   for (const m of manifests) if (m.error) problems.push(`${m.rel}: ${m.error}`);
   const facts = manifests.flatMap((m) => m.facts);
-  const owners = [...requirements(applicable).values()].map((req) => judge(req, facts));
+  const owners = [...requirements(applicable).values()].map((req) => { const result = judge(req, facts); return { ...result, declarationStatus: result.status }; });
   // A profile that is unknown, marked unratified, or has no rows checks nothing; an app may not select it, so it fails rather than passing empty.
   const profileStatus = !data.profiles[active] ? "unknown-profile" : (data.profiles[active].ratified === false || !data.rows.some((r) => r.profile === active)) ? "unratified" : null;
   if (profileStatus) {
@@ -236,7 +286,7 @@ export function checkApps(roots, options = {}) {
 }
 
 export function renderText(report) {
-  const out = [`ownership-mandatory (${report.mode}) — Table 1 mandatory owner set`];
+  const out = [`ownership-mandatory (${report.mode}) — Table 1 owner declarations (active-target, lock & production qualification unverified)`];
   for (const app of report.apps) {
     const count = (s) => app.owners.filter((o) => o.status === s).length;
     out.push("", `${app.app} [${app.profile}] ${app.scanned ? `ok=${count("ok")} missing=${count("missing")} below-required=${count("below-required")} not-on-registry=${count("not-on-registry")}` : "UNSCANNED"}`

@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-const register = fileURLToPath(new URL("./ts-register.mjs", import.meta.url));
+// --import consumes an ESM specifier, not a Windows drive-letter filesystem path.
+const register = new URL("./ts-register.mjs", import.meta.url).href;
 
 test("--import ts-register runs ts with extensionless, index and JSON imports", () => {
   const dir = mkdtempSync(join(tmpdir(), "ts-register-"));

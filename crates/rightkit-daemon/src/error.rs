@@ -45,12 +45,21 @@ pub const ERROR_REVISION_CONFLICT: &str = "revision_conflict";
 pub const ERROR_RATE_LIMITED: &str = "rate_limited";
 
 /// Typed wire error. `retryable` means resubmitting the request can succeed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Equality compares `code`, `message`, `retryable` and `details`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServiceError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    /// Optional structured data (e.g. the platform of a `needs_auth`). Absent
+    /// or `null` on the wire reads as `None`; written only when present, so
+    /// older peers see the frame they always saw. Set with
+    /// [`ServiceError::with_details`], read with [`ServiceError::details`].
+    pub details: Option<Value>,
 }
+
+impl Eq for ServiceError {}
 
 impl ServiceError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -58,6 +67,7 @@ impl ServiceError {
             code: code.into(),
             message: message.into(),
             retryable: false,
+            details: None,
         }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -65,7 +75,21 @@ impl ServiceError {
             code: code.into(),
             message: message.into(),
             retryable: true,
+            details: None,
         }
+    }
+    /// Attaches structured `details`; `Value::Null` clears them.
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = if details.is_null() {
+            None
+        } else {
+            Some(details)
+        };
+        self
+    }
+    /// Structured data attached with [`ServiceError::with_details`], or `None`.
+    pub fn details(&self) -> Option<&Value> {
+        self.details.as_ref()
     }
     pub fn handoff() -> Self {
         Self::retryable(
@@ -74,13 +98,19 @@ impl ServiceError {
         )
     }
     pub fn to_value(&self) -> Value {
-        json!({"code": self.code, "message": self.message, "retryable": self.retryable})
+        let mut v =
+            json!({"code": self.code, "message": self.message, "retryable": self.retryable});
+        if let (Some(d), Some(o)) = (&self.details, v.as_object_mut()) {
+            o.insert("details".to_string(), d.clone());
+        }
+        v
     }
     pub fn from_value(v: &Value) -> Self {
         Self {
             code: v["code"].as_str().unwrap_or("error").into(),
             message: v["message"].as_str().unwrap_or("").into(),
             retryable: v["retryable"].as_bool().unwrap_or(false),
+            details: v.get("details").filter(|d| !d.is_null()).cloned(),
         }
     }
 }
@@ -154,5 +184,25 @@ impl From<ServiceError> for ConnectError {
 impl From<HostIdentityError> for ConnectError {
     fn from(e: HostIdentityError) -> Self {
         ConnectError::HostIdentity(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_roundtrip_and_absent_or_null_read_as_none() {
+        let plain = ServiceError::new("nope", "x");
+        assert!(plain.details().is_none());
+        assert!(plain.to_value().get("details").is_none());
+        assert_eq!(ServiceError::from_value(&plain.to_value()), plain);
+        let nulled = json!({"code": "nope", "message": "x", "retryable": false, "details": null});
+        assert_eq!(ServiceError::from_value(&nulled), plain);
+        let detailed = ServiceError::retryable("needs_auth", "sign in")
+            .with_details(json!({"platform": "x", "nested": {"a": [1, 2]}}));
+        assert_eq!(detailed.to_value()["details"]["nested"]["a"], json!([1, 2]));
+        assert_eq!(ServiceError::from_value(&detailed.to_value()), detailed);
+        assert!(detailed.with_details(Value::Null).details().is_none());
     }
 }

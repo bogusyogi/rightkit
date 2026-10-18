@@ -40,6 +40,7 @@ import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest }
 import {
   planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
 } from "./media-sidecar.mjs";
+import { ContentDigestError, contentIdentity, digestFor } from "./content-digest.mjs";
 
 export const STAGE_SIDECAR_CONTRACT = "rightkit-stage-sidecar-v1";
 export const STAGE_SIDECAR_RECEIPT_NAME = "stage-sidecar.json";
@@ -476,6 +477,17 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
 }
 
 const sha256Of = (bytes) => createHash("sha256").update(bytes).digest("hex");
+/**
+ * Signature-independent catalog digest of `bytes` for `arch` (content-digest.mjs, port of
+ * rightkit-ffmpeg content_digest.rs). Catalog `contentSha256` rows pin THIS digest, never a
+ * whole-file SHA-256: signed & unsigned copies of one build agree. A malformed recognized
+ * format throws ContentDigestError (never a plain-hash fallback). Whole-file hashes elsewhere
+ * (archive/download pins, verifyStagedSidecars preSignSha256 signing evidence) stay separate.
+ */
+function catalogContentDigest(bytes, arch) {
+  const identity = contentIdentity(bytes);
+  return digestFor(identity, arch) ?? (identity.slices.length === 1 ? identity.slices[0].sha256 : null);
+}
 const profileDirectory = (profile) => (profile === "dev" || profile === "test" ? "debug" : profile === "bench" ? "release" : profile);
 const tail = (text, lines = 12) => String(text ?? "").trim().split("\n").slice(-lines).join("\n");
 
@@ -740,10 +752,10 @@ async function fetchFfmpegSources(entry, ctx, plan, arch) {
   for (const file of plan.files) {
     const spec = ffmpegSourceFor(entry.sources, file.tool, arch);
     if (!spec) continue;
-    if (fs.existsSync(file.stagedPath) && sha256Of(fs.readFileSync(file.stagedPath)) === file.contentSha256) { ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`); continue; }
+    if (fs.existsSync(file.stagedPath) && catalogContentDigest(fs.readFileSync(file.stagedPath), arch) === file.contentSha256) { ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`); continue; }
     if (spec.path) {
       const local = resolveLocalFfmpegSource(ctx, spec, file.tool);
-      const actual = sha256Of(fs.readFileSync(local));
+      const actual = catalogContentDigest(fs.readFileSync(local), arch);
       if (actual !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${local} is ${actual}, the approved catalog row ${file.artifactId} says ${file.contentSha256}; nothing staged`, { expected: file.contentSha256, actual });
       copyInto(ctx, local, file.stagedPath, { executable: true });
       continue;
@@ -752,7 +764,7 @@ async function fetchFfmpegSources(entry, ctx, plan, arch) {
     const scratch = ctx.makeTempDir();
     try {
       const member = await ctx.extractMember({ archive: cached, fileName: spec.member, destDir: scratch });
-      const actual = sha256Of(fs.readFileSync(member));
+      const actual = catalogContentDigest(fs.readFileSync(member), arch);
       if (actual !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${spec.member} from ${spec.url} is ${actual}, the approved catalog row ${file.artifactId} says ${file.contentSha256}; nothing staged`, { expected: file.contentSha256, actual });
       copyInto(ctx, member, file.stagedPath, { executable: true });
     } finally {
@@ -807,7 +819,9 @@ async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices 
   const verified = verifyStagedSidecars(plan, { exists: fs.existsSync, stat: (file) => fs.statSync(file), hashFile: (file) => sha256Of(fs.readFileSync(file)) });
   const notices = noticeFiles.map((file) => ({ name: path.basename(file), path: rel(ctx, file), sha256: sha256Of(fs.readFileSync(file)) }));
   const rows = verified.map((file) => {
-    if (file.preSignSha256 !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${file.tool} staged as ${file.preSignSha256}, the approved catalog row ${file.artifactId} says ${file.contentSha256}`, { expected: file.contentSha256, actual: file.preSignSha256 });
+    // Catalog rows pin the signature-independent content digest; preSignSha256 stays whole-file signing evidence.
+    const contentDigest = catalogContentDigest(fs.readFileSync(file.stagedPath), t.arch);
+    if (contentDigest !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${file.tool} staged with content digest ${contentDigest}, the approved catalog row ${file.artifactId} says ${file.contentSha256}`, { expected: file.contentSha256, actual: contentDigest });
     const probe = entry.probe ? probeFfmpegBinary(ctx, { file: file.stagedPath, tool: file.tool, target: t }) : undefined;
     return { kind: "ffmpeg", name: file.tool, path: rel(ctx, file.stagedPath), sha256: file.preSignSha256, sizeBytes: file.preSignSizeBytes, changed: null, catalogRow: file.artifactId, version: file.version, catalogContentSha256: file.contentSha256, ...(file.variant ? { variant: file.variant } : {}), externalBin: true, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}) };
   });
@@ -858,7 +872,7 @@ async function stageFfmpeg(entry, ctx) {
     if (target.arch === "universal") return await stageFfmpegUniversal(entry, ctx, resolved);
     return (await stageFfmpegSlice(entry, ctx, resolved, { config, t: target, writeNotices: true })).rows;
   } catch (error) {
-    if (error instanceof StageSidecarError) throw error;
+    if (error instanceof StageSidecarError || error instanceof ContentDigestError) throw error;
     return fail("STAGE_SIDECAR_FFMPEG_FAILED", `ffmpeg sidecar (${target.triple}): ${error.message}`, { cause: error, causeCode: error.code });
   }
 }

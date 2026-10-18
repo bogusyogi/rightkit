@@ -40,7 +40,7 @@ it("exports usePlatform as a real stable React hook", () => {
   ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
   const previous = internals.H;
   internals.H = dispatcher;
-  globalThis.__RIGHTKIT_QA_PLATFORM__ = "windows";
+  globalThis.__RIGHTKIT_PLATFORM__ = "windows";
 
   try {
     expect(usePlatform()).toBe("windows");
@@ -48,6 +48,6 @@ it("exports usePlatform as a real stable React hook", () => {
     expect(dispatcher.useEffect).toHaveBeenCalledOnce();
   } finally {
     internals.H = previous;
-    delete globalThis.__RIGHTKIT_QA_PLATFORM__;
+    delete globalThis.__RIGHTKIT_PLATFORM__;
   }
 });

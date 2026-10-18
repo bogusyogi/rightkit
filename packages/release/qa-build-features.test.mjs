@@ -164,3 +164,33 @@ test("resolveCargoManifestPath order: cargoManifest, releaseSwitches.manifest, s
   assert.equal(none.rel, undefined);
   assert.deepEqual(none.candidates, ["gone/Cargo.toml", join("src-tauri", "Cargo.toml"), "Cargo.toml"]);
 });
+
+test("M23: testing/test-seams/isolated-test-keychain/demo/dev-overrides/qa-probes/dev-worker-override are refused in build commands and default closures", () => {
+  const m23 = ["testing", "test-seams", "isolated-test-keychain", "demo", "dev-overrides", "qa-probes", "dev-worker-override"];
+  for (const f of m23) {
+    assert.equal(isForbiddenFeature(f), true, f);
+    assert.equal(isForbiddenFeature(`some-crate/${f}`), true, f);
+    assert.equal(isForbiddenFeature(`some-crate?/${f}`), true, f);
+    // The devtools allowance lifts only devtools/content-devtools, never the M23 names.
+    assert.equal(isForbiddenFeature(f, { allowDevtools: true }), true, f);
+    assert.ok(issues(`cargo build --features ${f}`).length > 0, f);
+    assert.ok(issues({ cmd: "cargo", args: ["build", "-F", f] }).length > 0, f);
+    assert.ok(issues({ cmd: "cargo", args: ["build", `--features=custom-protocol,${f}`] }).length > 0, f);
+    assert.match(cargoManifestIssues(manifest(`default = ["${f}"]\n${f} = []`, 'tauri = "2"')).join("\n"), new RegExp(`reaches \`${f}\``), f);
+  }
+  assert.deepEqual(cargoManifestIssues(manifest('default = []\ntesting = []\ndemo = []', 'tauri = "2"')), []);
+  // Allowance semantics unchanged: only an allow-listed content-only app may enable the devtools pair.
+  assert.equal(isForbiddenFeature("devtools", { allowDevtools: true }), false);
+  assert.equal(isForbiddenFeature("content-devtools", { allowDevtools: true }), false);
+  assert.equal(isForbiddenFeature("devtools"), true);
+  assert.equal(isForbiddenFeature("content-devtools"), true);
+});
+
+
+test("renamed QA dependencies cannot hide control behind default features or unconditional features", () => {
+  const direct = '[dependencies]\nprobe = { package = "rightkit-qa", version = "0.6", features = ["control"] }';
+  assert.ok(cargoManifestIssues(direct).some((issue) => issue.includes("rightkit-qa/control")));
+  const optional = '[features]\ndefault = ["probe?/control"]\n[dependencies]\nprobe = { package = "rightkit-qa", version = "0.6", optional = true }';
+  assert.ok(cargoManifestIssues(optional).some((issue) => issue.includes("probe?/control")));
+  assert.deepEqual(cargoManifestIssues(optional.replace('default = ["probe?/control"]', 'default = []')), []);
+});

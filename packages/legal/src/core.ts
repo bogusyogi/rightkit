@@ -90,6 +90,17 @@ const AGREEMENT_ROLES = new Set<LegalDocumentRole>([
 const SHA256 = /^[a-f0-9]{64}$/i;
 const APP_KEY = /^[a-z][a-z0-9-]{1,63}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CANONICAL_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const SURFACES: readonly LegalAcceptanceSurface[] = ["checkout", "first_run", "installer", "enterprise_order"];
+const ELIGIBILITY_BASES: readonly LegalEligibilityBasis[] = ["individual", "enterprise"];
+const TREATMENTS: readonly LegalDocumentTreatment[] = ["agree", "acknowledge", "notice"];
+
+/** Canonical UTC instant: exactly `Date#toISOString()` form, round-tripping unchanged. */
+export function isCanonicalUtcTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !CANONICAL_UTC.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
 
 function assertNonEmpty(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} must be a non-empty string`);
@@ -177,9 +188,12 @@ export function createAcceptanceReceipt(
   },
 ): LegalAcceptanceReceipt {
   assertLegalManifest(manifest);
-  const acceptedAt = new Date(input.acceptedAt);
-  if (!Number.isFinite(acceptedAt.getTime()) || acceptedAt.toISOString() !== input.acceptedAt) {
+  if (!isCanonicalUtcTimestamp(input.acceptedAt)) {
     throw new Error("acceptedAt must be a canonical ISO-8601 timestamp");
+  }
+  if (!SURFACES.includes(input.surface)) throw new Error("surface must be an allowed acceptance surface");
+  if (!ELIGIBILITY_BASES.includes(input.eligibilityBasis)) {
+    throw new Error("eligibilityBasis must be individual or enterprise");
   }
   return {
     schema: RIGHT_SUITE_LEGAL_SCHEMA,
@@ -200,19 +214,63 @@ export function createAcceptanceReceipt(
   };
 }
 
-export function needsLegalAcceptance(
-  manifest: LegalManifest,
-  receipt: LegalAcceptanceReceipt | null | undefined,
-): boolean {
+/** Runtime shape of one persisted receipt document entry. */
+function acceptedDocumentIsWellFormed(value: unknown): value is AcceptedLegalDocument {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const document = value as Partial<AcceptedLegalDocument>;
+  return (
+    typeof document.id === "string" && document.id.trim() !== "" &&
+    REQUIRED_ROLES.includes(document.role as LegalDocumentRole) &&
+    typeof document.version === "string" && document.version.trim() !== "" &&
+    typeof document.sha256 === "string" && SHA256.test(document.sha256) &&
+    TREATMENTS.includes(document.treatment as LegalDocumentTreatment) &&
+    typeof document.material === "boolean"
+  );
+}
+
+/**
+ * True when `value` is a well-formed persisted receipt for `manifest`:
+ * object shape, schema/suite, app + acceptance version, canonical UTC
+ * `acceptedAt`, an allowed surface and eligibility basis, and a documents
+ * array of well-formed, role-unique entries. Freshness against material
+ * document identities is `needsLegalAcceptance`'s separate question.
+ * Never throws on receipt shape.
+ */
+export function receiptIsWellFormed(manifest: LegalManifest, value: unknown): value is LegalAcceptanceReceipt {
   assertLegalManifest(manifest);
-  if (!receipt || receipt.schema !== RIGHT_SUITE_LEGAL_SCHEMA) return true;
-  if (receipt.suite !== manifest.suite || receipt.appKey !== manifest.appKey) return true;
-  if (receipt.acceptanceVersion !== manifest.acceptanceVersion) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Partial<LegalAcceptanceReceipt>;
+  if (receipt.schema !== RIGHT_SUITE_LEGAL_SCHEMA || receipt.suite !== manifest.suite) return false;
+  if (receipt.appKey !== manifest.appKey || receipt.acceptanceVersion !== manifest.acceptanceVersion) return false;
+  if (!isCanonicalUtcTimestamp(receipt.acceptedAt)) return false;
+  if (!SURFACES.includes(receipt.surface as LegalAcceptanceSurface)) return false;
+  if (!ELIGIBILITY_BASES.includes(receipt.eligibilityBasis as LegalEligibilityBasis)) return false;
+  if (!Array.isArray(receipt.documents)) return false;
+  const roles = new Set<LegalDocumentRole>();
+  for (const document of receipt.documents) {
+    if (!acceptedDocumentIsWellFormed(document)) return false;
+    if (roles.has(document.role)) return false;
+    roles.add(document.role);
+  }
+  return true;
+}
+
+/**
+ * Whether the user must (re-)accept. `receipt` is persisted, host-loaded
+ * data, so it is treated as unknown: any malformed shape — non-object,
+ * non-array or malformed `documents`, non-canonical timestamp, disallowed
+ * surface/eligibility, wrong app/version — means stale (true), never a
+ * throw. A well-formed receipt is stale only when a MATERIAL document's
+ * identity (id, version or sha256) no longer matches the manifest.
+ */
+export function needsLegalAcceptance(manifest: LegalManifest, receipt: unknown): boolean {
+  if (!receiptIsWellFormed(manifest, receipt)) return true;
   const accepted = new Map(receipt.documents.map((document) => [document.role, document]));
   return manifest.documents.some((document) => {
     if (!document.material) return false;
     const previous = accepted.get(document.role);
-    return !previous || previous.id !== document.id || previous.version !== document.version || previous.sha256 !== document.sha256;
+    return !previous || previous.id !== document.id || previous.version !== document.version
+      || previous.sha256.toLowerCase() !== document.sha256.toLowerCase();
   });
 }
 

@@ -1,5 +1,6 @@
-//! Open-or-degrade: a damaged file is quarantined and recreated when the policy allows it, and an
-//! in-memory store with a degraded flag is used when it does not. A newer database stays an error.
+//! Open-or-degrade: a damaged file is quarantined and recreated when the policy allows it; an
+//! in-memory store with a degraded flag is used only when explicitly acknowledged (default
+//! refuse). A newer database stays an error.
 
 use rightkit_db::{
     user_version, DbError, DbOptions, MigrateOptions, Migration, OpenOrDegrade, RecoveryPolicy,
@@ -66,12 +67,37 @@ fn a_damaged_file_is_quarantined_and_recreated_when_the_policy_allows() {
 }
 
 #[test]
-fn a_damaged_file_is_left_alone_and_degrades_in_memory_when_the_policy_refuses() {
+fn a_damaged_file_is_left_alone_and_refused_by_default_without_memory_acknowledgement() {
     let dir = tempfile::tempdir().unwrap();
     let path = fresh(&dir);
     let damaged = vec![0x42u8; 8192];
     fs::write(&path, &damaged).unwrap();
-    let outcome = open(&path, RecoveryPolicy::default()).unwrap();
+    assert!(
+        !RecoveryPolicy::default().allow_in_memory_fallback,
+        "the default is Refuse"
+    );
+    assert!(
+        open(&path, RecoveryPolicy::default()).is_err(),
+        "no automatic in-memory degradation"
+    );
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        damaged,
+        "the file was not touched"
+    );
+}
+
+#[test]
+fn acknowledged_in_memory_fallback_degrades_visibly_and_leaves_the_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fresh(&dir);
+    let damaged = vec![0x42u8; 8192];
+    fs::write(&path, &damaged).unwrap();
+    let policy = RecoveryPolicy {
+        allow_in_memory_fallback: true,
+        ..RecoveryPolicy::default()
+    };
+    let outcome = open(&path, policy).unwrap();
     let degraded = outcome.degraded.expect("the degraded state is reported");
     assert!(degraded.in_memory);
     assert!(degraded.quarantined.is_none());
@@ -109,7 +135,15 @@ fn an_unfinished_quarantine_journal_keeps_the_store_degraded_instead_of_recreati
         b"{\"schema\":\"rightkit-db-quarantine.v1\"}\n",
     )
     .unwrap();
-    let outcome = open(&path, allow_quarantine()).unwrap();
+    assert!(
+        open(&path, allow_quarantine()).is_err(),
+        "unacknowledged in-memory fallback is refused"
+    );
+    let policy = RecoveryPolicy {
+        allow_in_memory_fallback: true,
+        ..allow_quarantine()
+    };
+    let outcome = open(&path, policy).unwrap();
     let degraded = outcome.degraded.expect("the split state is reported");
     assert!(degraded.in_memory);
     assert!(degraded.quarantine_incomplete);

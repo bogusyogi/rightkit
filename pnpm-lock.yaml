@@ -368,8 +368,8 @@ importers:
   packages/qa:
     dependencies:
       '@rightkit/qa-chrome':
-        specifier: 0.1.6
-        version: 0.1.6
+        specifier: 0.1.8
+        version: link:../qa-chrome
     devDependencies:
       '@types/node':
         specifier: ^26.6.5
@@ -494,7 +494,7 @@ importers:
   packages/tauri:
     dependencies:
       '@rightkit/app-update':
-        specifier: '>=0.2.5 <0.4'
+        specifier: '>=0.2.5 <0.5'
         version: link:../app-update
       '@rightkit/logs':
         specifier: ^0.1.4
@@ -879,10 +879,6 @@ packages:
 
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
-
-  '@rightkit/qa-chrome@0.1.6':
-    resolution: {integrity: sha512-eNjtSwBFEDRr7yPb0jzFytvPP/pvH0gvwEhxa6f2+KeF102mCXZ3L/9dux7nU+qagmpKi48wswI3+soFzvZtcA==}
-    hasBin: true
 
   '@rolldown/binding-android-arm-eabi@1.2.14':
     resolution: {integrity: sha512-aWR+XKH9+rW7m5fWq/5360J3mHycrx/o6xZM2DQFdJnTMdyP7/WzxPjhtLbVWdKo2y612/4U1bWqb3HQhiF7vg==}
@@ -2510,8 +2506,6 @@ snapshots:
     optional: true
 
   '@oxc-project/types@0.154.0': {}
-
-  '@rightkit/qa-chrome@0.1.6': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.14':
     optional: true

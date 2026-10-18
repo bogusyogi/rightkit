@@ -16,18 +16,22 @@ describe('boot probation', () => {
     const p = createBootProbation({ storage: memory() });
     expect(await p.evaluateBoot('1.0.0')).toEqual({ kind: 'none' });
   });
-  it('allows maxBootAttempts boots then requests rollback and calls the hook once', async () => {
+  it('allows maxBootAttempts boots then declares boot failure (reinstall, no restore) once', async () => {
     const storage = memory();
+    const onBootFailure = vi.fn();
     const onRollback = vi.fn();
-    const p = createBootProbation({ storage, maxBootAttempts: 2, onRollback });
+    const p = createBootProbation({ storage, maxBootAttempts: 2, onBootFailure, onRollback });
     await p.begin('1.0.0', '1.1.0');
     expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 1 });
     expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 2 });
-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
-      kind: 'rollback', restoreVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 3,
+    const decision = await p.evaluateBoot('1.1.0');
+    expect(decision).toMatchObject({
+      kind: 'reinstall_required', failedVersion: '1.1.0', fromVersion: '1.0.0', bootAttempts: 3, guidance: 'reinstall',
     });
+    expect(decision).not.toHaveProperty('restorePath');
+    expect(onBootFailure).toHaveBeenCalledTimes(1);
+    expect(onBootFailure).toHaveBeenCalledWith({ fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 3, guidance: 'reinstall' });
     expect(onRollback).toHaveBeenCalledTimes(1);
-    expect(onRollback).toHaveBeenCalledWith({ fromVersion: '1.0.0', toVersion: '1.1.0' });
     expect(storage.peek()).toBeNull();
   });
   it('acknowledge clears the record so later boots are none', async () => {
@@ -58,18 +62,24 @@ describe('boot probation', () => {
     expect(() => previousInstallPath('/')).toThrow(/filesystem root/);
     expect(() => previousInstallPath('/Applications/Mail.app.previous')).toThrow(/fixed install path/);
   });
-  it('a rollback names <install>.previous as the copy to rename back over the install path', async () => {
+  it('the sentinel carries no .previous payload path; legacy previousPath is stripped, never restored', async () => {
     const storage = memory();
-    const onRollback = vi.fn();
-    const p = createBootProbation({ storage, maxBootAttempts: 1, onRollback });
+    const onBootFailure = vi.fn();
+    const p = createBootProbation({ storage, maxBootAttempts: 1, onBootFailure });
     await p.begin('1.0.0', '1.1.0', { installPath: '/Applications/Mail.app' });
-    expect(storage.peek()).toMatchObject({ installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous' });
+    expect(storage.peek()).toEqual({ fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 0, installPath: '/Applications/Mail.app' });
     await p.evaluateBoot('1.1.0');
-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
-      kind: 'rollback', installPath: '/Applications/Mail.app', restorePath: '/Applications/Mail.app.previous',
+    const decision = await p.evaluateBoot('1.1.0');
+    expect(decision).toMatchObject({ kind: 'reinstall_required', installPath: '/Applications/Mail.app' });
+    expect(decision).not.toHaveProperty('restorePath');
+    expect(onBootFailure).toHaveBeenCalledWith({
+      fromVersion: '1.0.0', toVersion: '1.1.0', installPath: '/Applications/Mail.app', bootAttempts: 2, guidance: 'reinstall',
     });
-    expect(onRollback).toHaveBeenCalledWith({
-      fromVersion: '1.0.0', toVersion: '1.1.0', installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous',
-    });
+    // A legacy record with previousPath is readable but the field is dropped on rewrite.
+    const legacy = memory();
+    legacy.write({ fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 0, installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous' });
+    const lp = createBootProbation({ storage: legacy, maxBootAttempts: 2 });
+    await lp.evaluateBoot('1.1.0');
+    expect(legacy.peek()).not.toHaveProperty('previousPath');
   });
 });

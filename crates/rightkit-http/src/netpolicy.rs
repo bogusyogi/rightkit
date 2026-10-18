@@ -1440,6 +1440,185 @@ mod loopback_tests {
     }
 }
 
+/// Where credential headers may be sent: one canonical origin plus a whole-segment path
+/// prefix, for example `https://api.example.com/api`. Configured per request with
+/// [`crate::Request::credential_scope`]; the clients strip credential-named and
+/// secret-valued headers on the first request and on every redirect hop whose URL is
+/// outside the scope, exactly as they already do for a cross-origin hop. The scope never
+/// admits a destination: the outbound address policy still runs on every hop, so a
+/// metadata or link-local target inside the path prefix stays denied.
+///
+/// Matching is by decoded path segment, never by string prefix: scope `/api` admits
+/// `/api` and `/api/users`, and refuses `/apievil`, a `..` or `.` segment (raw or
+/// percent-encoded), a segment that decodes to text containing `/` or `\`, and any path
+/// containing a backslash. Origin comparison is canonical (scheme and host lowercased,
+/// one trailing dot ignored, default ports folded), the same form the redirect rules use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CredentialScope {
+    scheme: String,
+    host: String,
+    port: u16,
+    segments: Vec<String>,
+}
+
+impl CredentialScope {
+    /// Parse an absolute `http`/`https` URL naming the scope, such as
+    /// `https://api.example.com:8443/api`. `None` for anything malformed, a URL with
+    /// userinfo, a query or a fragment, or a path the segment rules refuse (above).
+    pub fn parse(scope: &str) -> Option<Self> {
+        if scope.contains(['?', '#']) {
+            return None;
+        }
+        let (scheme, host, port, segments, userinfo) = credential_url_parts(scope)?;
+        if userinfo {
+            return None;
+        }
+        Some(Self {
+            scheme,
+            host,
+            port,
+            segments,
+        })
+    }
+
+    /// True when credentials scoped here may be sent to `url`: same canonical origin and
+    /// a path whose decoded segments start with this scope's segments.
+    pub fn allows(&self, url: &str) -> bool {
+        let Some((scheme, host, port, segments, _)) = credential_url_parts(url) else {
+            return false;
+        };
+        scheme == self.scheme
+            && host == self.host
+            && port == self.port
+            && segments.len() >= self.segments.len()
+            && segments[..self.segments.len()] == self.segments[..]
+    }
+}
+
+/// `(scheme, canonical host, port, decoded path segments, had userinfo)` of an absolute
+/// http(s) URL, or `None` when the URL (or its path) is outside every credential scope:
+/// another scheme, no host, whitespace/control/backslash anywhere, a bad port, or a path
+/// segment that is `.`/`..` or decodes to text containing a separator.
+fn credential_url_parts(url: &str) -> Option<(String, String, u16, Vec<String>, bool)> {
+    if url
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+    {
+        return None;
+    }
+    let (scheme, rest) = url.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    let (host_port, userinfo) = match authority.rsplit_once('@') {
+        Some((_, host_port)) => (host_port, true),
+        None => (authority, false),
+    };
+    let (raw_host, port) = if let Some(inner) = host_port.strip_prefix('[') {
+        let (literal, after) = inner.split_once(']')?;
+        let port = match after {
+            "" => None,
+            _ => Some(after.strip_prefix(':')?.parse().ok()?),
+        };
+        (literal, port)
+    } else if let Some((host, port)) = host_port.rsplit_once(':') {
+        if port.is_empty() {
+            (host, None)
+        } else {
+            (host, Some(port.parse().ok()?))
+        }
+    } else {
+        (host_port, None)
+    };
+    if raw_host.is_empty() {
+        return None;
+    }
+    let port = port.unwrap_or(if scheme == "https" { 443 } else { 80 });
+    let path = tail.split(['?', '#']).next().unwrap_or("");
+    let segments = credential_path_segments(path)?;
+    Some((scheme, normalize_host(raw_host), port, segments, userinfo))
+}
+
+/// Decoded, non-empty path segments, or `None` when a segment is `.`/`..` (as written or
+/// after decoding), decodes to text containing `/` or `\`, or carries a malformed escape.
+fn credential_path_segments(path: &str) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    for raw in path.split('/') {
+        if raw.is_empty() {
+            continue;
+        }
+        let bytes = raw.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                let digits = bytes.get(i + 1..i + 3)?;
+                if !digits.iter().all(u8::is_ascii_hexdigit) {
+                    return None;
+                }
+                let text = std::str::from_utf8(digits).ok()?;
+                decoded.push(u8::from_str_radix(text, 16).ok()?);
+                i += 3;
+            } else {
+                decoded.push(bytes[i]);
+                i += 1;
+            }
+        }
+        let segment = String::from_utf8(decoded).ok()?;
+        if segment == "." || segment == ".." || segment.contains(['/', '\\']) {
+            return None;
+        }
+        // A second decoding layer must not smuggle a separator or traversal either
+        // (`%252e%252e`, `a%252fb`): a server that decodes twice would see them.
+        if second_layer_is_unsafe(&segment) {
+            return None;
+        }
+        out.push(segment);
+    }
+    Some(out)
+}
+
+/// True when decoding `segment` one more time would yield `.`/`..` or text containing
+/// `/` or `\`. Only valid `%XX` escapes count; a bare `%` stays literal.
+fn second_layer_is_unsafe(segment: &str) -> bool {
+    let bytes = segment.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    let mut any_escape = false;
+    while i < bytes.len() {
+        let escape = if bytes[i] == b'%' {
+            bytes
+                .get(i + 1..i + 3)
+                .filter(|d| d.len() == 2 && d.iter().all(u8::is_ascii_hexdigit))
+                .and_then(|d| std::str::from_utf8(d).ok())
+                .and_then(|t| u8::from_str_radix(t, 16).ok())
+        } else {
+            None
+        };
+        match escape {
+            Some(byte) => {
+                any_escape = true;
+                decoded.push(byte);
+                i += 3;
+            }
+            None => {
+                decoded.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    if !any_escape {
+        return false;
+    }
+    match String::from_utf8(decoded) {
+        Ok(text) => text == "." || text == ".." || text.contains(['/', '\\']),
+        Err(_) => true,
+    }
+}
+
 /// Why [`validate_public_https_url`] refused a URL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]

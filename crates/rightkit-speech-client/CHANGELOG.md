@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.3.7 — unpublished staging
+
+- Raises rightkit-daemon and rightkit-sidecar dependency floors to 0.3.0.
+
 ## 0.3.6
 
 - Protocol minor 4 (additive, capability-gated, version-negotiated; Orthic-Labs/rightkit#108): a cancel frame and capture ownership for the Pulse voice layer (HeardRight dictation, Pulse conversation, batch, meeting). New `capture.rs` with `CaptureRole`, `CaptureOwner`, `CaptureCommand`, `CaptureReply`, `CaptureStatus`, `decide_capture` and the reference host state machine `CaptureArbiter`: priority HeardRight dictation > Pulse conversation > batch, one capture at a time, dictation preempts Pulse and the preempted owner releases at once, a meeting is never silently preempted (dictation needs an explicit confirmation), and heartbeat expiry fences the owner without handing the mic on until release is proven (`prove_release`).

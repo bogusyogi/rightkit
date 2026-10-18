@@ -14,7 +14,7 @@ publish = false
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.2.2", path = "../rightkit-credentials" }
 thiserror = "2"
 getrandom = "0.4"
 zeroize = "1.9"

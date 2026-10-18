@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 — unpublished staging
+
+- Repairs shortcut and hover behavior.
+
 ## 0.7.0 (2026-10-17)
 
 Additive, shipped in 0.7.0. Defaults render the same markup and CSS values as 0.6.8, except where noted.

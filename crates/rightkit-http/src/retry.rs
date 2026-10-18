@@ -19,6 +19,16 @@ pub struct RetryPolicy {
     /// caller can schedule the next try durably, for example with `QuotaSchedule`.
     /// Default `false` (the old behaviour: sleep the capped delay and retry).
     pub defer_over_cap: bool,
+    /// Opt-in separate budget for transport/timeout failures: the most attempts that may
+    /// end in such a failure (`1` = the first transport failure is final). `None` (the
+    /// default) keeps the legacy single shared counter, where only `max_attempts` binds.
+    /// When either budget is set, failures count only against their own budget, backoff
+    /// advances per budget, alternating failures never reset either counter, and
+    /// `max_attempts` remains the finite cap on total physical attempts.
+    pub max_transport_attempts: Option<u32>,
+    /// Opt-in separate budget for retryable-status failures; see
+    /// [`RetryPolicy::max_transport_attempts`].
+    pub max_status_attempts: Option<u32>,
 }
 
 impl Default for RetryPolicy {
@@ -33,6 +43,8 @@ impl Default for RetryPolicy {
             honor_retry_after: true,
             max_retry_after: Duration::from_secs(30),
             defer_over_cap: false,
+            max_transport_attempts: None,
+            max_status_attempts: None,
         }
     }
 }
@@ -57,6 +69,12 @@ impl RetryPolicy {
         self.retry_statuses.contains(&status)
     }
 
+    /// True when either opt-in per-failure-kind budget is set; see
+    /// [`RetryPolicy::max_transport_attempts`].
+    pub fn separate_budgets(&self) -> bool {
+        self.max_transport_attempts.is_some() || self.max_status_attempts.is_some()
+    }
+
     /// Delay before retry number `retry` (1 = after the first failure).
     pub fn backoff(&self, retry: u32) -> Duration {
         let exp = retry.saturating_sub(1).min(32) as i32;
@@ -77,6 +95,63 @@ impl RetryPolicy {
             (true, Some(ra)) => base.max(ra.min(self.max_retry_after)),
             _ => base,
         }
+    }
+}
+
+/// Per-call failure counters behind [`RetryPolicy::max_transport_attempts`]. One instance
+/// lives for a whole call across both clients' retry loops. A recorded failure returns the
+/// backoff index when another attempt may run: the per-kind counter under separate
+/// budgets, the physical attempt number under the legacy shared counter. The total
+/// physical cap (`max_attempts`) always binds, so alternating failure kinds stay finite
+/// and neither counter ever resets.
+pub(crate) struct AttemptBudgets {
+    transport: u32,
+    status: u32,
+}
+
+impl AttemptBudgets {
+    pub(crate) fn new() -> Self {
+        Self {
+            transport: 0,
+            status: 0,
+        }
+    }
+
+    fn may_retry(
+        &self,
+        policy: &RetryPolicy,
+        attempt: u32,
+        failures: u32,
+        budget: Option<u32>,
+    ) -> Option<u32> {
+        if attempt >= policy.max_attempts.max(1) {
+            return None;
+        }
+        if budget.is_some_and(|b| failures >= b) {
+            return None;
+        }
+        Some(if policy.separate_budgets() {
+            failures
+        } else {
+            attempt
+        })
+    }
+
+    /// Record a transport/timeout failure of physical attempt `attempt` (1-based).
+    pub(crate) fn transport_failed(&mut self, policy: &RetryPolicy, attempt: u32) -> Option<u32> {
+        self.transport = self.transport.saturating_add(1);
+        self.may_retry(
+            policy,
+            attempt,
+            self.transport,
+            policy.max_transport_attempts,
+        )
+    }
+
+    /// Record a retryable-status failure of physical attempt `attempt` (1-based).
+    pub(crate) fn status_failed(&mut self, policy: &RetryPolicy, attempt: u32) -> Option<u32> {
+        self.status = self.status.saturating_add(1);
+        self.may_retry(policy, attempt, self.status, policy.max_status_attempts)
     }
 }
 
@@ -352,6 +427,48 @@ mod tests {
         assert!(!p.defers(None));
         p.honor_retry_after = false;
         assert!(!p.defers(Some(Duration::from_secs(3600))));
+    }
+
+    #[test]
+    fn separate_budgets_do_not_steal_from_each_other_and_stay_finite() {
+        let policy = RetryPolicy {
+            max_attempts: 100,
+            max_transport_attempts: Some(2),
+            max_status_attempts: Some(3),
+            ..RetryPolicy::default()
+        };
+        let mut b = AttemptBudgets::new();
+        // Two transport failures exhaust only the transport budget.
+        assert_eq!(b.transport_failed(&policy, 1), Some(1));
+        assert_eq!(b.transport_failed(&policy, 2), None);
+        // The status budget is untouched (and its backoff starts at 1, not 3).
+        assert_eq!(b.status_failed(&policy, 3), Some(1));
+        assert_eq!(b.status_failed(&policy, 4), Some(2));
+        assert_eq!(b.status_failed(&policy, 5), None);
+        // Alternation never resets a counter.
+        assert_eq!(b.transport_failed(&policy, 6), None);
+        // The total physical cap binds even with unbounded-looking kind budgets.
+        let capped = RetryPolicy {
+            max_attempts: 4,
+            max_transport_attempts: Some(10),
+            max_status_attempts: Some(10),
+            ..RetryPolicy::default()
+        };
+        let mut b = AttemptBudgets::new();
+        assert!(b.transport_failed(&capped, 1).is_some());
+        assert!(b.status_failed(&capped, 2).is_some());
+        assert!(b.transport_failed(&capped, 3).is_some());
+        assert_eq!(b.status_failed(&capped, 4), None);
+        // Legacy policy: one shared counter, backoff index is the attempt number.
+        let legacy = RetryPolicy {
+            max_attempts: 3,
+            ..RetryPolicy::default()
+        };
+        assert!(!legacy.separate_budgets());
+        let mut b = AttemptBudgets::new();
+        assert_eq!(b.transport_failed(&legacy, 1), Some(1));
+        assert_eq!(b.status_failed(&legacy, 2), Some(2));
+        assert_eq!(b.transport_failed(&legacy, 3), None);
     }
 
     #[test]

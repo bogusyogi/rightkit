@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0 — unpublished staging
+
+- Tool schemas set `additionalProperties: false`; seven QA control methods are exposed.
+
 ## 0.1.5 (2026-10-17)
 
 - Added: `validate_args_strict(schema, args)`: `validate_args` plus unknown-argument rejection (a schema without `additionalProperties` is strict; `true` or a schema object opens it). `validate_args` is unchanged. Closes the Pulse `Args::parse` gap (rightkit#515).

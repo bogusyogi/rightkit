@@ -85,8 +85,5 @@ impl DeviceCalls {
 }
 
 fn error_body(e: &ServiceError) -> (u16, Value) {
-    (
-        status_for_error(e),
-        json!({ "error": { "code": e.code, "message": e.message, "retryable": e.retryable } }),
-    )
+    (status_for_error(e), json!({ "error": e.to_value() }))
 }

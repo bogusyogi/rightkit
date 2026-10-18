@@ -29,7 +29,7 @@ test("renderNpmNotices uses packaged license files, labelled fallbacks, and esca
   const packages = collectNpmPackages({ MIT: groups.MIT, ISC: groups.ISC });
   const out = renderNpmNotices({
     productName: "Demo <App>", version: "1.2.3", lockHash: "abc", packages,
-    readNames: (dir) => files[dir], readText: (file) => texts[file],
+    readNames: (dir) => files[dir.replaceAll("\\", "/")], readText: (file) => texts[file.replaceAll("\\", "/")],
   });
   assert.equal(out.packageCount, 3);
   assert.equal(out.fallbackCount, 2);

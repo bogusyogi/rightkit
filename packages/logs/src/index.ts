@@ -47,20 +47,87 @@ export interface LogsClient {
 const RESERVED_FIELDS = new Set(['schema_version', 'ts_ms', 'level', 'event']);
 const SENSITIVE_EXACT = new Set([
   'api_key', 'authorization', 'body', 'clipboard', 'completion', 'content',
-  'cookie', 'message', 'password', 'prompt', 'recognized_text', 'refresh_token',
-  'transcript', 'window_title',
+  'cookie', 'last_transcript', 'message', 'password', 'prompt', 'recognized_text',
+  'refresh_token', 'transcript', 'window_title',
 ]);
-const SENSITIVE_FRAGMENTS = ['secret', 'password', 'api_key', 'token'];
+const SENSITIVE_FRAGMENTS = ['secret', 'password', 'api_key', 'token', 'credential', 'private_key', 'privatekey'];
+// Innocuous correlation identifiers, preserved exactly as the Rust policy does;
+// session secrets (session_secret, session_token) still match the fragments.
+const PRESERVED_KEYS = new Set(['session_id', 'request_id', 'trace_id']);
 
 function sensitiveKey(key: string): boolean {
-  const normalized = key.toLowerCase();
+  const normalized = key.toLowerCase().replaceAll('-', '_');
+  if (PRESERVED_KEYS.has(normalized)) return false;
   return SENSITIVE_EXACT.has(normalized)
     || SENSITIVE_FRAGMENTS.some((fragment) => normalized.includes(fragment));
 }
 
+const SECRET_PARAM_NAMES = new Set([
+  'access_token', 'refresh_token', 'id_token', 'client_secret', 'code_verifier',
+  'assertion', 'api_key', 'apikey', 'password', 'secret', 'token', 'code', 'state', 'key',
+]);
+const CREDENTIAL_PREFIXES = [
+  'sk-', 'sk_', 'gsk_', 'csk-', 'ghp_', 'gho_', 'github_pat_', 'xoxb-', 'xoxp-', 'AKIA', 'AIza', 'nvapi-', 'eyJ',
+];
+
+function redactUrlToken(token: string): string {
+  const beforeFragment = token.split('#')[0] ?? token;
+  const queryAt = beforeFragment.indexOf('?');
+  const head = queryAt >= 0 ? beforeFragment.slice(0, queryAt) : beforeFragment;
+  const slashAt = head.indexOf('/');
+  const authority = slashAt >= 0 ? head.slice(0, slashAt) : head;
+  const path = slashAt >= 0 ? head.slice(slashAt) : '';
+  const hostPort = authority.split('@').at(-1) ?? authority;
+  return `${hostPort}${path}${queryAt >= 0 ? '?[redacted]' : ''}`;
+}
+
+function redactUrls(text: string): string {
+  const withUrls = text.replace(
+    /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s"'<>`)\]},]+)/g,
+    (_match, scheme: string, token: string) => scheme + redactUrlToken(token),
+  );
+  return withUrls.replace(
+    /(^|[?&\s;,"'({])([A-Za-z0-9_-]+)=([^\s&"';,)}]+)/g,
+    (match, boundary: string, name: string) =>
+      SECRET_PARAM_NAMES.has(name.toLowerCase()) ? `${boundary}${name}=[redacted]` : match,
+  );
+}
+
+function scrubWord(word: string): string {
+  const trimmed = word.replace(/^[.:]+|[.:]+$/g, '');
+  if (/^[A-Za-z0-9._%+-]+@[^@\s]+\.[^@\s]+$/.test(trimmed) && !trimmed.split('@')[1]?.startsWith('.')) {
+    return '[redacted:email]';
+  }
+  if (word.length >= 12 && CREDENTIAL_PREFIXES.some((prefix) => word.startsWith(prefix))) {
+    return '[redacted:credential]';
+  }
+  if (word.length >= 20 && word.startsWith('or-') && /[0-9]/.test(word)) return '[redacted:credential]';
+  if (/^[0-9]{6,}:[A-Za-z0-9_-]{20,}$/.test(word)) return '[redacted:credential]';
+  if (word.length >= 32 && /^[A-Za-z0-9+/=_-]+$/.test(word) && /[0-9]/.test(word) && /[A-Za-z]/.test(word)) {
+    return '[redacted:credential]';
+  }
+  if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(word.split(':')[0] ?? '')) return '[redacted:ip]';
+  return word
+    .replace(/(\/Users\/|\/home\/|\/Documents and Settings\/)[^/\s]+/g, '$1<user>')
+    .replace(/(\\Users\\)[^\\\s]+/g, '$1<user>');
+}
+
+/**
+ * Free-text scrub mirroring Rust `rightkit_logs::scrub_text`: URL userinfo,
+ * query and fragment removal, OAuth secret parameters, `Bearer` tokens,
+ * credential prefixes/JWTs, e-mail, IPv4 and home-directory user segments.
+ * The shared parity vectors in the Rust and JS test suites pin the outputs.
+ */
+export function scrubLogText(text: string): string {
+  const urls = redactUrls(text);
+  const bearer = urls.replace(/(\bBearer:?\s+)\S+/gi, '$1[redacted:credential]');
+  return bearer.replace(/[^\s"'`()<>,;=[\]{}]+/g, (word) => scrubWord(word));
+}
+
 function sanitizeValue(value: unknown, allowed: Set<string>): LogFieldValue | undefined {
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'string') return value.slice(0, 200);
+  // Scrub before truncating, so a secret cannot survive as a truncated prefix.
+  if (typeof value === 'string') return scrubLogText(value).slice(0, 200);
   if (Array.isArray(value)) {
     return value
       .slice(0, 16)

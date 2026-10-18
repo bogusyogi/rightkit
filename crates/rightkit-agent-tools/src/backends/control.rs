@@ -11,12 +11,15 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// The control methods of the in-app server (`rightkit_qa_driver::embedded::METHODS`).
+/// The control methods of the in-app server, in the server's own order
+/// (`rightkit_qa_driver::embedded::METHODS`). A conformance test asserts this list
+/// against the QA crate's dispatch table so the two cannot drift.
 pub const CONTROL_METHODS: &[&str] = &[
     "health",
     "click",
     "move",
     "drag",
+    "pointer",
     "wheel",
     "key",
     "type",
@@ -24,9 +27,15 @@ pub const CONTROL_METHODS: &[&str] = &[
     "dom",
     "ax",
     "screenshot",
+    "set_viewport",
+    "focus",
+    "command",
     "wait",
     "batch",
-    "command",
+    "lease_acquire",
+    "lease_release",
+    "lease_reconcile",
+    "lease_status",
 ];
 
 /// The `app` label this crate's clients present to services (their allowlist key).
@@ -174,6 +183,33 @@ fn method_schema(method: &str) -> (&'static str, Effect, Value) {
             Effect::Act,
             json!({"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string"}}, "required": ["name"]}),
         ),
+        "pointer" => (
+            "One raw pointer step in the webview (viewport CSS pixels, origin top-left): phase down, drag, up or move at x,y. Optional button, modifiers and paceMs (native-event spacing, default 0).",
+            Effect::Act,
+            json!({"type": "object", "properties": {"phase": {"type": "string", "enum": ["down", "drag", "up", "move"]}, "x": num("x"), "y": num("y"), "button": {"type": "string", "enum": ["left", "right"]}, "modifiers": {"type": "array"}, "paceMs": {"type": "integer"}}, "required": ["phase", "x", "y"]}),
+        ),
+        "set_viewport" => (
+            "Resize the webview viewport to width x height CSS pixels without activating the window; returns the size read back after settling (optional settleMs bound).",
+            Effect::Act,
+            json!({"type": "object", "properties": {"width": {"type": "integer"}, "height": {"type": "integer"}, "settleMs": {"type": "integer"}}, "required": ["width", "height"]}),
+        ),
+        "focus" => ("Focus the app window.", Effect::Act, json!({"type": "object", "properties": {}})),
+        "lease_acquire" => (
+            "Acquire the server's input lease; returns {leaseEpoch,nextInputSequence,fencedEpoch}. Optional reconcile (delivered|lost) first settles an unacknowledged input of a previous lease. The leaseEpoch is the ownership token lease_release and lease_reconcile must present.",
+            Effect::Act,
+            json!({"type": "object", "properties": {"reconcile": {"type": "string", "enum": ["delivered", "lost"]}}}),
+        ),
+        "lease_release" => (
+            "Release the input lease held under leaseEpoch; a stale epoch is refused by the server.",
+            Effect::Act,
+            json!({"type": "object", "properties": {"leaseEpoch": {"type": "integer"}}, "required": ["leaseEpoch"]}),
+        ),
+        "lease_reconcile" => (
+            "Reconcile the input lease held under leaseEpoch: decision delivered counts its unacknowledged input as delivered, lost as never landed.",
+            Effect::Act,
+            json!({"type": "object", "properties": {"leaseEpoch": {"type": "integer"}, "decision": {"type": "string", "enum": ["delivered", "lost"]}}, "required": ["leaseEpoch", "decision"]}),
+        ),
+        "lease_status" => ("Snapshot of the server's input lease (holder epoch and sequencing state).", Effect::Observe, json!({"type": "object", "properties": {}})),
         _ => ("", Effect::Act, json!({"type": "object"})),
     }
 }
@@ -204,7 +240,10 @@ impl Tool for ControlTool {
         (self.method == "command").then(|| args["name"].as_str().unwrap_or("").to_string())
     }
 
-    fn call(&self, _ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
+    fn call(&self, ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
+        if ctx.cancel.is_cancelled() {
+            return Err(ToolError::new(ERR_CANCELLED, "cancelled before dispatch"));
+        }
         if self.method == "batch" {
             check_batch(&self.profile, &args)?;
         }
@@ -352,6 +391,46 @@ mod tests {
         assert!(check_batch(&p, &steps(&["click", "type", "screenshot", "wait"])).is_ok());
         assert!(check_batch(&p, &steps(&["batch"])).is_err());
         assert!(check_batch(&p, &json!({})).is_err());
+    }
+
+    #[test]
+    fn the_seven_newer_methods_are_standard_with_schemas() {
+        let p = AppProfile::standard("demo");
+        for m in [
+            "pointer",
+            "set_viewport",
+            "focus",
+            "lease_acquire",
+            "lease_release",
+            "lease_reconcile",
+            "lease_status",
+        ] {
+            assert!(CONTROL_METHODS.contains(&m), "{m}");
+            assert!(p.method_enabled(m), "{m}");
+            let (desc, _, schema) = method_schema(m);
+            assert!(!desc.is_empty(), "{m}");
+            assert_eq!(schema["type"], "object", "{m}");
+        }
+        assert!(check_batch(
+            &p,
+            &steps(&["pointer", "set_viewport", "focus", "lease_status"])
+        )
+        .is_ok());
+        // Lease ownership is in the schemas: release/reconcile cannot omit the epoch.
+        for m in ["lease_release", "lease_reconcile"] {
+            let (_, _, schema) = method_schema(m);
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|v| v == "leaseEpoch")),
+                "{m}"
+            );
+        }
+        // A sensitive profile still gets none of them.
+        let p = AppProfile::for_app("heardright");
+        for m in ["pointer", "set_viewport", "focus", "lease_acquire"] {
+            assert!(!p.method_enabled(m), "{m}");
+        }
     }
 
     #[test]

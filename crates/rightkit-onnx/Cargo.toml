@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-onnx"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -72,7 +72,7 @@ serde_json = "1.0.154"
 sha2 = "0.11"
 # `provision` only. The native-library catalog, and the vetted download and archive extraction.
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.6", optional = true }
-rightkit-models = { path = "../rightkit-models", version = "0.4.0", optional = true, default-features = false }
+rightkit-models = { path = "../rightkit-models", version = "0.5.0", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.14 compiles an execution provider only when its
 # Cargo feature is on, so each OS enables its own EP on the same pinned dep:

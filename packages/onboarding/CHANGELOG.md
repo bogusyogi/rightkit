@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 — unpublished staging
+
+- Repairs onboarding continuation and persistence behavior.
+
 ## 0.6.0 (2026-10-17)
 
 Added (#619, CodeRight port; additive, defaults unchanged):

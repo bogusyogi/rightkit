@@ -159,9 +159,33 @@ pub enum SupervisorEvent {
 /// Callback for [`SupervisorEvent`]s. Runs on the supervisor thread; keep it short.
 pub type SupervisorEventFn = Arc<dyn Fn(&SupervisorEvent) + Send + Sync>;
 
+/// The app's lock state, as input to a restart (the lock mirror itself stays the app's: a
+/// replacement core starts locked exactly when the app says the lock blocked its data).
+/// [`Unknown`](Self::Unknown) is the state of an unlock (or lock) request that got no answer
+/// because the child died first: it starts the replacement locked, so an unanswered unlock
+/// can never restart a child unlocked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockState {
+    Locked,
+    Unlocked,
+    Unknown,
+}
+
+impl LockState {
+    /// The `locked` start flag a launch gets for this state. Only a positively answered
+    /// [`Unlocked`](Self::Unlocked) starts a replacement unlocked.
+    pub fn starts_locked(self) -> bool {
+        !matches!(self, LockState::Unlocked)
+    }
+}
+
+/// Supplies the current [`LockState`] at each launch. Runs on the supervisor thread.
+pub type LockStateFn = Arc<dyn Fn() -> LockState + Send + Sync>;
+
 enum Cmd {
     Stop,
-    RestartNow,
+    RestartNow(Option<LockState>),
+    ReturnChild(mpsc::Sender<Option<PrivateChild>>),
 }
 
 /// Control of a running supervisor. Dropping it stops the supervisor and its child.
@@ -182,13 +206,35 @@ impl SupervisorHandle {
     /// starts; an exhausted or stopped policy forgets its budget and starts. A pending backoff is
     /// left to run. Returns before the work is done.
     pub fn restart_now(&self) {
-        let _ = self.tx.send(Cmd::RestartNow);
+        let _ = self.tx.send(Cmd::RestartNow(None));
+    }
+
+    /// [`restart_now`](Self::restart_now) with the lock state the next launch starts from,
+    /// overriding the [`LockStateFn`] for that one launch. [`LockState::Unknown`] (an unlock
+    /// that was never answered) starts the replacement locked.
+    pub fn restart_now_with_lock(&self, state: LockState) {
+        let _ = self.tx.send(Cmd::RestartNow(Some(state)));
     }
 
     /// Stop the child (stdin closed, then killed after the grace) and end the supervisor. Waits
     /// for the thread to finish.
     pub fn stop(mut self) {
         self.stop_inner();
+    }
+
+    /// End the supervisor without stopping the child, handing the running child back once
+    /// (`None` when no child is running) so the caller can shut it down in its own order.
+    /// No restart follows: the supervisor thread has ended when this returns. Consumes the
+    /// handle, so the child can be taken only once.
+    pub fn stop_returning_child(mut self) -> Option<PrivateChild> {
+        let (tx, rx) = mpsc::channel();
+        if self.tx.send(Cmd::ReturnChild(tx)).is_err() {
+            return None;
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        rx.recv().ok().flatten()
     }
 
     fn stop_inner(&mut self) {
@@ -211,12 +257,67 @@ impl Drop for SupervisorHandle {
 /// The first child is started at once, on the supervisor thread.
 pub fn supervise<L, P>(
     config: SupervisorConfig,
-    launch: L,
+    mut launch: L,
     probe: P,
     on_event: Option<SupervisorEventFn>,
 ) -> io::Result<SupervisorHandle>
 where
     L: FnMut() -> io::Result<PrivateChild> + Send + 'static,
+    P: FnMut(&PrivateChild) -> bool + Send + 'static,
+{
+    spawn_core(config, move |_locked| launch(), probe, None, None, on_event)
+}
+
+/// [`supervise`] for a child whose replacement must start from the app's lock state: every
+/// launch receives `locked`, resolved at launch time from a
+/// [`restart_now_with_lock`](SupervisorHandle::restart_now_with_lock) override first, then
+/// `lock_state`, then `false`. [`LockState::Unknown`] resolves to locked, so an unlock the
+/// dying child never answered cannot restart it unlocked. The lock mirror that produces
+/// the state stays the app's input.
+pub fn supervise_with_lock_state<L, P>(
+    config: SupervisorConfig,
+    launch: L,
+    probe: P,
+    lock_state: Option<LockStateFn>,
+    on_event: Option<SupervisorEventFn>,
+) -> io::Result<SupervisorHandle>
+where
+    L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
+    P: FnMut(&PrivateChild) -> bool + Send + 'static,
+{
+    spawn_core(config, launch, probe, None, lock_state, on_event)
+}
+
+/// Supervise a child the caller already spawned (and usually already verified: it counts
+/// as launch 1, already ready, so its first crash restarts from the base backoff). The
+/// child is transferred untouched — its stdin stays open and it is not probed before the
+/// first poll. Replacements come from `launch`, with the lock flag resolved as in
+/// [`supervise_with_lock_state`].
+pub fn supervise_adopted<L, P>(
+    config: SupervisorConfig,
+    child: PrivateChild,
+    launch: L,
+    probe: P,
+    lock_state: Option<LockStateFn>,
+    on_event: Option<SupervisorEventFn>,
+) -> io::Result<SupervisorHandle>
+where
+    L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
+    P: FnMut(&PrivateChild) -> bool + Send + 'static,
+{
+    spawn_core(config, launch, probe, Some(child), lock_state, on_event)
+}
+
+fn spawn_core<L, P>(
+    config: SupervisorConfig,
+    launch: L,
+    probe: P,
+    adopted: Option<PrivateChild>,
+    lock_state: Option<LockStateFn>,
+    on_event: Option<SupervisorEventFn>,
+) -> io::Result<SupervisorHandle>
+where
+    L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
     P: FnMut(&PrivateChild) -> bool + Send + 'static,
 {
     let (tx, rx) = mpsc::channel();
@@ -235,6 +336,9 @@ where
         status: status.clone(),
         on_event,
         phase: Phase::Idle(SupervisorState::Stopped),
+        adopted,
+        lock_state,
+        pending_locked: None,
     };
     let thread = std::thread::Builder::new()
         .name("rk-supervisor".into())
@@ -300,11 +404,15 @@ struct Core<L, P> {
     status: Arc<Mutex<SupervisorStatus>>,
     on_event: Option<SupervisorEventFn>,
     phase: Phase,
+    adopted: Option<PrivateChild>,
+    lock_state: Option<LockStateFn>,
+    /// One-launch lock override from `restart_now_with_lock`.
+    pending_locked: Option<bool>,
 }
 
 impl<L, P> Core<L, P>
 where
-    L: FnMut() -> io::Result<PrivateChild>,
+    L: FnMut(bool) -> io::Result<PrivateChild>,
     P: FnMut(&PrivateChild) -> bool,
 {
     fn at(&self) -> Duration {
@@ -325,7 +433,10 @@ where
     }
 
     fn run(mut self, rx: mpsc::Receiver<Cmd>) {
-        self.start();
+        match self.adopted.take() {
+            Some(child) => self.adopt(child),
+            None => self.start(),
+        }
         loop {
             let wait = match &self.phase {
                 Phase::Waiting(_, due) => due
@@ -334,7 +445,11 @@ where
                 _ => self.cfg.poll_interval,
             };
             match rx.recv_timeout(wait) {
-                Ok(Cmd::RestartNow) => self.restart_now(),
+                Ok(Cmd::RestartNow(state)) => self.restart_now(state),
+                Ok(Cmd::ReturnChild(reply)) => {
+                    self.return_child(reply);
+                    return;
+                }
                 Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => {
                     self.shutdown();
                     return;
@@ -344,9 +459,49 @@ where
         }
     }
 
+    /// Take over an already-spawned child as launch 1, already ready (the caller spawned
+    /// and verified it). The child itself is not touched: no stdin close, no probe yet.
+    fn adopt(&mut self, child: PrivateChild) {
+        let at = self.at();
+        let generation = self.tracker.started(at);
+        self.tracker.ready(generation);
+        self.launches += 1;
+        let pid = child.child().id();
+        let mut health = HealthTracker::new(self.cfg.health, at);
+        let _ = health.observe(at, HealthProbe::Success);
+        self.set_status(SupervisorState::Ready, Some(pid));
+        self.emit(SupervisorEvent::Started {
+            launch: self.launches,
+            pid,
+        });
+        self.emit(SupervisorEvent::Ready {
+            launch: self.launches,
+        });
+        self.phase = Phase::Running(Box::new(Running {
+            child,
+            generation,
+            health,
+            ready: true,
+            launch: self.launches,
+        }));
+    }
+
+    /// The `locked` flag for the next launch: explicit restart override, then the app's
+    /// lock-state input, then unlocked. `Unknown` resolves locked (see [`LockState`]).
+    fn next_locked(&mut self) -> bool {
+        if let Some(locked) = self.pending_locked.take() {
+            return locked;
+        }
+        match &self.lock_state {
+            Some(f) => f().starts_locked(),
+            None => false,
+        }
+    }
+
     /// Launch a child now. A launch failure is charged to the budget like a crash.
     fn start(&mut self) {
-        match (self.launch)() {
+        let locked = self.next_locked();
+        match (self.launch)(locked) {
             Ok(child) => {
                 let at = self.at();
                 let generation = self.tracker.started(at);
@@ -489,7 +644,10 @@ where
         let _ = child.child_mut().wait_then_kill(self.cfg.stop_grace);
     }
 
-    fn restart_now(&mut self) {
+    fn restart_now(&mut self, state: Option<LockState>) {
+        if let Some(state) = state {
+            self.pending_locked = Some(state.starts_locked());
+        }
         let placeholder = Phase::Idle(SupervisorState::Stopped);
         match std::mem::replace(&mut self.phase, placeholder) {
             Phase::Running(running) => {
@@ -516,6 +674,20 @@ where
                 self.start();
             }
         }
+    }
+
+    /// Hand the running child back untouched and end supervision: no stdin close, no
+    /// kill, no restart. The caller owns the child's shutdown from here.
+    fn return_child(&mut self, reply: mpsc::Sender<Option<PrivateChild>>) {
+        self.tracker.shutdown();
+        let child = match std::mem::replace(&mut self.phase, Phase::Idle(SupervisorState::Stopped))
+        {
+            Phase::Running(running) => Some(running.child),
+            _ => None,
+        };
+        self.set_status(SupervisorState::Stopped, None);
+        self.emit(SupervisorEvent::Stopped);
+        let _ = reply.send(child);
     }
 
     fn shutdown(&mut self) {

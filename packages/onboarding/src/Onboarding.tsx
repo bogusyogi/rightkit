@@ -9,10 +9,19 @@ const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
 const DEFAULT_LABELS: OnboardingLabels = { skip: "Set up later", skipStep: "Skip", back: "Back", continue: "Continue", finish: "Finish setup", loading: "Loading setup…" };
 
+/** Same canonical-UTC rule as `@rightkit/legal` receipts: `Date#toISOString()` form, round-tripping unchanged. */
+function isCanonicalUtc(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
 function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
-  if (!value || typeof value !== "object") return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const r = value as Partial<LegalAcceptanceRecord>;
-  if (typeof r.version !== "string" || typeof r.documentsHash !== "string" || typeof r.acceptedAt !== "string") return undefined;
+  if (typeof r.version !== "string" || !r.version.trim()) return undefined;
+  if (typeof r.documentsHash !== "string" || !r.documentsHash.trim()) return undefined;
+  if (!isCanonicalUtc(r.acceptedAt)) return undefined;
   if (r.eligibilityBasis !== "individual" && r.eligibilityBasis !== "enterprise") return undefined;
   return { version: r.version, documentsHash: r.documentsHash, acceptedAt: r.acceptedAt, eligibilityBasis: r.eligibilityBasis };
 }
@@ -21,12 +30,15 @@ function readState(value: unknown): PersistedOnboardingState {
   if (!value || typeof value !== "object") return INITIAL;
   const candidate = value as Partial<PersistedOnboardingState>;
   const legalAcceptance = readAcceptance(candidate.legalAcceptance);
+  // A present receipt is authoritative, including when it is malformed. Keep the
+  // legacy boolean only for state written before the receipt field existed.
+  const hasStoredAcceptance = Object.prototype.hasOwnProperty.call(candidate, "legalAcceptance");
   return {
     version: 1,
     currentStep: typeof candidate.currentStep === "number" && candidate.currentStep >= 0 ? Math.floor(candidate.currentStep) : 0,
     completed: Array.isArray(candidate.completed) ? candidate.completed.filter((x): x is string => typeof x === "string") : [],
     skipped: candidate.skipped === true,
-    legalAccepted: candidate.legalAccepted === true || legalAcceptance !== undefined,
+    legalAccepted: legalAcceptance !== undefined || (!hasStoredAcceptance && candidate.legalAccepted === true),
     eligibilityBasis: legalAcceptance?.eligibilityBasis ?? (candidate.eligibilityBasis === "individual" || candidate.eligibilityBasis === "enterprise" ? candidate.eligibilityBasis : undefined),
     ...(legalAcceptance ? { legalAcceptance } : {}),
     ...(Array.isArray(candidate.skippedSteps) ? { skippedSteps: candidate.skippedSteps.filter((x): x is string => typeof x === "string") } : {}),
@@ -48,6 +60,9 @@ export function isLegalAccepted(
   requiredDocumentsHash?: string,
 ): boolean {
   if (custom) return custom(state);
+  // A stored record whose timestamp is not canonical UTC is not an acceptance,
+  // even when the host passes no version/hash requirement (same rule as legal receipts).
+  if (state.legalAcceptance !== undefined && !isCanonicalUtc(state.legalAcceptance.acceptedAt)) return false;
   // A host that supplies the documents' hash is asking for the text itself to be what was accepted:
   // a changed text re-prompts even when the version string did not move.
   if (requiredDocumentsHash !== undefined && state.legalAcceptance?.documentsHash !== requiredDocumentsHash) return false;

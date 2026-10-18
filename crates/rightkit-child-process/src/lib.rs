@@ -40,9 +40,10 @@ pub mod windows_job;
 
 pub use capture::{read_bounded, CapturedOutput, OutputCapture};
 pub use foreign::{
-    find_processes, suspend_current_process, sweep, sweep_descendants, sweep_matching,
-    AdoptedIdentity, AdoptedSignal, IdentityCheck, MatchSweepOptions, MatchSweepReport,
-    MatchedProcess, ProcessQuery, SignalResult, StartToken, SweepReport,
+    find_processes, process_group_exists, suspend_current_process, sweep, sweep_descendants,
+    sweep_matching, wait_process_group_empty, AdoptedIdentity, AdoptedSignal, IdentityCheck,
+    MatchSweepOptions, MatchSweepReport, MatchedProcess, ProcessQuery, SignalResult, StartToken,
+    SweepReport,
 };
 #[cfg(unix)]
 pub use foreign::{resume_session, signal_session, suspend_session};
@@ -64,7 +65,7 @@ pub use restart::{
     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
     RestartTracker,
 };
-pub use run::{run, RunOptions, RunOutput};
+pub use run::{run, run_with_stdin, RunOptions, RunOutput};
 #[cfg(windows)]
 pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
 pub use stall::{
@@ -75,7 +76,8 @@ pub use stderr_tail::StderrTail;
 #[cfg(unix)]
 pub use unix_child::UnixChild;
 pub use usage::{
-    observe_idle, process_usage, BudgetLabels, IdleObservation, ProcessUsage, UsageRates,
+    observe_idle, process_usage, tree_usage, BudgetLabels, IdleObservation, ProcessUsage,
+    TreeUsage, UsageRates,
 };
 #[cfg(windows)]
 pub use windows_job::{ExitReason, WindowsJob, WindowsJobBuilder, DEFAULT_ACTIVE_PROCESS_LIMIT};

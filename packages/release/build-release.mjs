@@ -48,6 +48,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
+import { assertUpdaterSignature } from "./github-updater-release.mjs";
 
 // The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
 const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
@@ -433,7 +434,10 @@ try {
         );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
-        checkpoint(stateRoot, "hardened");
+        // Truthful checkpoint: the worker (release.mjs) runs the hardening scan only when it has scan
+        // targets and fails the whole build when the scan fails, so reaching here with targets means
+        // the scan passed. With no targets the worker ran no scan — never claim "hardened".
+        if (hardeningScanTargets(target).length > 0) checkpoint(stateRoot, "hardened");
       },
       // Product-specific checks that must run after the signed/hardened bytes
       // exist but before they become immutable. This is intentionally a small
@@ -540,6 +544,19 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   }
   if (sources.size === 0) fail(`nothing to seal: declare installer.artifacts, updater.artifacts or artifacts for the ${platform} target`);
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
+  // Every minisign updater requires an explicit trust root & full-byte signature
+  // verification before any seal directory or artifact copy is created.
+  const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
+  if ((target.updater?.artifacts?.length ?? 0) > 0 && target.updater?.kind !== "appinstaller") {
+    if (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim()) fail("updater public key is required to verify updater artifacts before sealing");
+    for (const artifact of target.updater?.artifacts ?? []) {
+      const source = resolveArtifactPath(artifact.file);
+      const signature = readFileSync(resolveArtifactPath(artifact.signature), "utf8").trim();
+      if (!signature) fail(`updater signature is empty, refusing to seal: ${artifact.signature}`);
+      try { assertUpdaterSignature(readFileSync(source), signature, updaterPublicKey, `signature of ${path.basename(artifact.file)}`); }
+      catch (error) { fail(`updater signature rejected at seal: ${error.message}`); }
+    }
+  }
   // Android: the build receipt must describe exactly the AAB being sealed (bytes re-hashed) and its signer must be the pinned
   // upload certificate. Checked before anything is copied, so a mismatch leaves no partial seal.
   let androidReceipt = null;
@@ -612,7 +629,12 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "public", key: patchKey, platform: artifact.platform });
     routes.update.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "private", key: routeKey, platform: artifact.platform });
   }
-  writeJson(path.join(temp, "hardening.json"), { schema: 1, passed: true, checkedAt: new Date().toISOString(), files: files.map((file) => file.sha256) });
+  // Derived from the worker's actual scan, never asserted unconditionally: release.mjs scans exactly
+  // `target.hardening ?? target.artifacts` and fails the build on scan failure, so a completed build with
+  // targets passed; with no targets no scan ran and the status is "skipped", not passed.
+  const hardeningTargets = hardeningScanTargets(target);
+  const hardeningScanned = hardeningTargets.length > 0;
+  writeJson(path.join(temp, "hardening.json"), { schema: 1, status: hardeningScanned ? "passed" : "skipped", passed: hardeningScanned, checkedAt: new Date().toISOString(), targets: hardeningTargets.length, files: hardeningScanned ? files.map((file) => file.sha256) : [] });
   const manifest = {
     schema: 1,
     releaseId,
@@ -643,7 +665,7 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     routes,
     inputs: inputHashes,
     tools: toolVersions,
-    checkpoints: ["preflight_complete", "build_complete", "signed", "hardened", "sealed"],
+    checkpoints: ["preflight_complete", "build_complete", "signed", ...(hardeningScanned ? ["hardened"] : []), "sealed"],
     sealedAt: new Date().toISOString(),
   };
   writeJson(path.join(temp, "release-manifest.json"), manifest);
@@ -662,6 +684,12 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   const retention = retainArtifacts({ app: config.app, managedRoot });
   if (retention.state === "unknown") console.error(`[right-release] artifact retention skipped: ${retention.reason}`);
   else if (retention.removed.length) console.log(`[right-release] artifact retention removed ${retention.removed.join(", ")}`);
+}
+
+/** The exact scan-target expression the worker uses (release.mjs: `target.hardening ?? target.artifacts ?? []`).
+ * Recipe expansion in the worker preserves both fields (`...rest`), so the raw config target gives the same list. */
+function hardeningScanTargets(target) {
+  return target?.hardening ?? target?.artifacts ?? [];
 }
 
 function collectToolVersions(packageManager) {

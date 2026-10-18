@@ -78,6 +78,49 @@ pub fn process_usage() -> io::Result<ProcessUsage> {
     imp::sample()
 }
 
+/// Resident memory summed over one remembered process and the descendants found while it
+/// lived. Members are counted only while their pid-plus-start-time identity still verifies
+/// after the table snapshot, so a pid recycled during the scan contributes nothing.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TreeUsage {
+    /// The root plus descendants that were still the remembered processes at recheck.
+    pub processes: usize,
+    /// Summed resident (working-set) bytes of the members the OS reported a figure for.
+    pub resident_bytes: u64,
+    /// Members still present but with no readable resident figure.
+    pub unreadable: usize,
+}
+
+/// [`TreeUsage`] for `root` and its current descendants (see
+/// [`AdoptedIdentity::descendants`](crate::AdoptedIdentity::descendants) for which
+/// descendants can be found). A root that is gone or replaced yields an empty usage, not
+/// an error. Member figures come from one [`process_table`](crate::process_table)
+/// snapshot, then every member is verified again before it is counted.
+pub fn tree_usage(root: &crate::AdoptedIdentity) -> io::Result<TreeUsage> {
+    if root.verify()? != crate::IdentityCheck::Same {
+        return Ok(TreeUsage::default());
+    }
+    let mut members = vec![root.clone()];
+    members.extend(root.descendants()?);
+    let table = crate::process_table()?;
+    let mut usage = TreeUsage::default();
+    for member in &members {
+        if member.verify()? != crate::IdentityCheck::Same {
+            continue;
+        }
+        usage.processes += 1;
+        match table
+            .iter()
+            .find(|entry| entry.pid == member.pid())
+            .and_then(|entry| entry.working_set_bytes)
+        {
+            Some(bytes) => usage.resident_bytes = usage.resident_bytes.saturating_add(bytes),
+            None => usage.unreadable += 1,
+        }
+    }
+    Ok(usage)
+}
+
 /// What a process did over a quiet window: the idle figures a runtime budget names.
 #[derive(Clone, Copy, Debug)]
 pub struct IdleObservation {
@@ -568,6 +611,33 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::Unsupported);
         let error = observe_idle(Duration::from_millis(1)).expect_err("idle needs sampling");
         assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        windows
+    ))]
+    #[test]
+    fn tree_usage_counts_the_remembered_root_and_refuses_a_replaced_one() {
+        let pid = std::num::NonZeroU32::new(std::process::id()).unwrap();
+        let root = crate::AdoptedIdentity::capture(pid)
+            .unwrap()
+            .expect("this process has an identity");
+        let usage = tree_usage(&root).unwrap();
+        assert!(usage.processes >= 1, "{usage:?}");
+        assert!(usage.resident_bytes > 0, "{usage:?}");
+        // Same pid, a start token that is not this process's: counted as nobody.
+        let replaced = crate::AdoptedIdentity::from_recorded(
+            pid,
+            crate::StartToken {
+                major: root.start_token().major.wrapping_add(1),
+                minor: root.start_token().minor,
+            },
+            None,
+        );
+        assert_eq!(tree_usage(&replaced).unwrap(), TreeUsage::default());
     }
 
     #[test]

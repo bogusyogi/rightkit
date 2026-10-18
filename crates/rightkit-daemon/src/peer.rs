@@ -587,6 +587,14 @@ pub use win::{
     verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
 };
 
+/// The SID string (`S-1-...`) of the user running this process, read from the process
+/// token. For callers building their own owner-only DACLs or comparing a peer's
+/// [`PeerIdentity::sid`] against the current user outside a pipe check.
+#[cfg(windows)]
+pub fn current_user_sid() -> io::Result<String> {
+    win::current_user_sid_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,6 +689,13 @@ mod tests {
     #[cfg(windows)]
     mod windows_tests {
         use super::*;
+
+        #[test]
+        fn the_public_sid_helper_reports_this_processs_user() {
+            let sid = current_user_sid().unwrap();
+            assert!(sid.starts_with("S-1-"), "{sid}");
+            assert_eq!(sid, current_user_sid_string().unwrap());
+        }
 
         #[test]
         fn owner_only_attributes_use_the_real_current_sid() {

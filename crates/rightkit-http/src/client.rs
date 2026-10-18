@@ -11,7 +11,7 @@ use crate::cancel::{is_cancelled_io, is_set, sleep_cancellable, CancelToken, Che
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy, VettingResolver, ViaProxy};
 use crate::redirect;
-use crate::retry::{parse_retry_after, RetryPolicy};
+use crate::retry::{parse_retry_after, AttemptBudgets, RetryPolicy};
 use crate::sse::SseReader;
 use crate::urlredact::{redact_url, redact_urls_in_text, url_secret_parts};
 
@@ -71,6 +71,83 @@ pub struct AttemptEvent {
 
 /// Gate run before every attempt. `Err(reason)` ends the call without sending that attempt.
 type AttemptHook = Arc<dyn Fn(&AttemptEvent) -> Result<(), String> + Send + Sync>;
+
+/// What became of one attempt's bytes, for [`AttemptOutcome`]. It tells a caller whether
+/// replaying a non-idempotent request could repeat a side effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptDelivery {
+    /// The server answered; `status` and `headers` are set.
+    Responded,
+    /// Nothing reached the server: the failure is in the connect phase, or a policy
+    /// refused the destination before anything was sent.
+    NotSent,
+    /// The request may have reached the server (a post-connect transport failure, a
+    /// timeout after sending, a cancellation mid-flight). Such a POST is never replayed
+    /// automatically; see [`Request::retry_unsafe_statuses`].
+    Uncertain,
+}
+
+/// One finished transport hop, reported to [`Client::on_attempt_outcome`] exactly once
+/// per physical transport attempt that passed the [`ClientConfig::on_attempt`] gate, including the
+/// terminal one. It is observed before the response body is read. Sanitized like every
+/// other event surface: `url` has configured and per-request secret values replaced by
+/// `[redacted]` and any query or userinfo removed, `headers` are a copy with
+/// credential-named values (including `Set-Cookie` and `Authorization`) replaced and
+/// recorded secret values scrubbed, `error` text is scrubbed the same way, and no body
+/// ever appears. `attempt` groups redirect hops within one retry. `delivery` describes
+/// only this hop: a later `NotSent` never makes an earlier responded POST safe to replay.
+/// Redirect responses report before target validation; their `next_delay` is `None`.
+/// Only the final hop can carry a retry delay. A pre-send validation or policy refusal
+/// reports no outcome; earlier hop outcomes remain available.
+#[derive(Debug, Clone)]
+pub struct AttemptOutcome {
+    pub url: String,
+    pub method: Method,
+    /// Attempt that finished (1 = the first try).
+    pub attempt: u32,
+    /// Redirect hop within this logical attempt (0 = initial request).
+    pub redirect_hop: u32,
+    /// Response status when the server answered.
+    pub status: Option<u16>,
+    /// Copied, redacted response headers (lower-cased names); empty when no response.
+    pub headers: Vec<(String, String)>,
+    /// Typed class of the failure, when the attempt failed without a response.
+    pub error_class: Option<crate::error::ErrorClass>,
+    /// Phase of a timeout/transport failure.
+    pub error_phase: Option<Phase>,
+    /// Scrubbed failure text.
+    pub error: Option<String>,
+    pub delivery: AttemptDelivery,
+    /// Delay before the next logical attempt. Only its final hop carries this value;
+    /// `None` also covers intermediate redirects, success, unretryable outcomes,
+    /// exhausted budgets, or a passed deadline.
+    pub next_delay: Option<Duration>,
+}
+
+/// Observer run once per finished attempt; see [`AttemptOutcome`].
+pub(crate) type AttemptOutcomeObserver = Arc<dyn Fn(&AttemptOutcome) + Send + Sync>;
+
+/// [`AttemptDelivery`] of a failed attempt.
+pub(crate) fn attempt_delivery(err: &HttpError) -> AttemptDelivery {
+    match err {
+        HttpError::Transport { connect_phase, .. } => {
+            if *connect_phase {
+                AttemptDelivery::NotSent
+            } else {
+                AttemptDelivery::Uncertain
+            }
+        }
+        HttpError::Timeout { phase, .. } => {
+            if *phase == Phase::Connect {
+                AttemptDelivery::NotSent
+            } else {
+                AttemptDelivery::Uncertain
+            }
+        }
+        HttpError::Cancelled => AttemptDelivery::Uncertain,
+        _ => AttemptDelivery::NotSent,
+    }
+}
 
 /// How requests reach the network.
 ///
@@ -861,6 +938,7 @@ pub struct Request {
     pub(crate) cancel: Option<CancelToken>,
     pub(crate) secret_values: Vec<String>,
     pub(crate) headers_only: bool,
+    pub(crate) credential_scope: Option<crate::netpolicy::CredentialScope>,
 }
 
 impl fmt::Debug for Request {
@@ -911,6 +989,7 @@ impl Request {
             cancel: None,
             secret_values: Vec::new(),
             headers_only: false,
+            credential_scope: None,
         }
     }
     pub fn get(url: impl Into<String>) -> Self {
@@ -1048,6 +1127,15 @@ impl Request {
     /// sleeps and before every body read; a cancelled call returns [`HttpError::Cancelled`].
     pub fn cancel(mut self, token: CancelToken) -> Self {
         self.cancel = Some(token);
+        self
+    }
+    /// Confine this request's credential headers to `scope` (see
+    /// [`crate::netpolicy::CredentialScope`]): on the first request and on every
+    /// redirect hop outside the scope, credential-named and secret-valued headers are
+    /// stripped before anything is sent, as for a cross-origin hop. The address policy
+    /// is unaffected and still runs on every hop.
+    pub fn credential_scope(mut self, scope: crate::netpolicy::CredentialScope) -> Self {
+        self.credential_scope = Some(scope);
         self
     }
 }
@@ -1327,6 +1415,7 @@ pub(crate) fn header_all_of<'a>(
 pub struct Client {
     agent: ureq::Agent,
     config: ClientConfig,
+    on_attempt_outcome: Option<AttemptOutcomeObserver>,
     /// The proxy in use, for the `NO_PROXY` decision and destination vetting.
     proxy: Option<ureq::Proxy>,
     /// `ProxyMode::System` decided per request URL; `proxy` is `None` then.
@@ -1429,6 +1518,7 @@ impl Client {
         Self {
             agent,
             config,
+            on_attempt_outcome: None,
             proxy,
             routes,
             proxy_diagnostic: diagnostic,
@@ -1437,6 +1527,19 @@ impl Client {
             compression: true,
             system_proxy_unsupported: None,
         }
+    }
+
+    /// Observe every finished transport hop before its response body is read.
+    /// Receives sanitized status/error, delivery evidence & the final hop's retry delay;
+    /// see [`AttemptOutcome`]. Runs on the calling thread (async: polling task), so it
+    /// should not block. Replaces any observer previously attached to this client.
+    /// Kept privately on the client so existing [`ClientConfig`] literals remain valid.
+    pub fn on_attempt_outcome(
+        mut self,
+        observer: impl Fn(&AttemptOutcome) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_attempt_outcome = Some(Arc::new(observer));
+        self
     }
 
     /// Ask for compressed responses (default true). `false` sends `Accept-Encoding: identity`
@@ -1688,6 +1791,7 @@ impl Client {
             .unwrap_or_else(|| self.config.retry.clone());
         let max = policy.max_attempts.max(1);
         let deadline = req.deadline.map(|d| Instant::now() + d);
+        let mut budgets = AttemptBudgets::new();
         let mut attempt = 0u32;
         loop {
             if is_set(cancel) {
@@ -1718,56 +1822,86 @@ impl Client {
                     HttpError::InvalidRequest(format!("attempt {attempt} refused: {reason}"))
                 })?;
             }
-            let (reason, delay) = match self.once(req, attempt_total, values) {
-                Ok(raw) => {
-                    let retryable = policy.is_retryable_status(raw.status)
-                        && (req.method.is_idempotent() || req.retry_unsafe_statuses);
-                    let retry_after =
-                        header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
-                    if !retryable || attempt >= max || policy.defers(retry_after) {
-                        return Ok(Raw {
-                            attempts: attempt,
-                            ..raw
-                        });
-                    }
-                    let delay = policy.delay(attempt, retry_after);
-                    if deadline_passes(deadline, delay) {
-                        return Ok(Raw {
-                            attempts: attempt,
-                            ..raw
-                        });
-                    }
-                    // Drain so the connection is released.
-                    let mut body = raw.body;
-                    let mut reader = body.as_reader();
-                    let mut checked = CheckedReader {
-                        inner: &mut reader,
-                        cancel,
-                    };
-                    let _ = read_limited(&mut checked, MAX_ERROR_BODY_BYTES);
-                    if is_set(cancel) {
-                        return Err(HttpError::Cancelled);
-                    }
-                    (format!("HTTP {}", raw.status), delay)
-                }
-                Err(err) => {
-                    let retryable = match &err {
-                        HttpError::Transport { connect_phase, .. } => {
-                            *connect_phase || req.method.is_idempotent()
+            let mut identity = None;
+            let (reason, delay) =
+                match self.once(req, attempt_total, values, attempt, &mut identity) {
+                    Ok(raw) => {
+                        let retryable = policy.is_retryable_status(raw.status)
+                            && (req.method.is_idempotent() || req.retry_unsafe_statuses);
+                        let retry_after =
+                            header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
+                        let delay = if retryable && !policy.defers(retry_after) {
+                            budgets
+                                .status_failed(&policy, attempt)
+                                .map(|index| policy.delay(index, retry_after))
+                                .filter(|delay| !deadline_passes(deadline, *delay))
+                        } else {
+                            None
+                        };
+                        // Observed before the body is read or drained.
+                        observe_attempt_outcome(
+                            &self.on_attempt_outcome,
+                            &identity,
+                            values,
+                            attempt,
+                            Some(raw.status),
+                            Some(&raw.headers),
+                            None,
+                            delay,
+                        );
+                        let Some(delay) = delay else {
+                            return Ok(Raw {
+                                attempts: attempt,
+                                ..raw
+                            });
+                        };
+                        // Drain so the connection is released.
+                        let mut body = raw.body;
+                        let mut reader = body.as_reader();
+                        let mut checked = CheckedReader {
+                            inner: &mut reader,
+                            cancel,
+                        };
+                        let _ = read_limited(&mut checked, MAX_ERROR_BODY_BYTES);
+                        if is_set(cancel) {
+                            return Err(HttpError::Cancelled);
                         }
-                        HttpError::Timeout { .. } => req.method.is_idempotent(),
-                        _ => false,
-                    };
-                    if !retryable || attempt >= max {
-                        return Err(err);
+                        (format!("HTTP {}", raw.status), delay)
                     }
-                    let delay = policy.delay(attempt, None);
-                    if deadline_passes(deadline, delay) {
-                        return Err(err);
+                    Err(err) => {
+                        let retryable = match &err {
+                            HttpError::Transport { connect_phase, .. } => {
+                                *connect_phase
+                                    && identity.as_ref().is_some_and(|(_, _, hop)| *hop == 0)
+                                    || req.method.is_idempotent()
+                            }
+                            HttpError::Timeout { .. } => req.method.is_idempotent(),
+                            _ => false,
+                        };
+                        let delay = if retryable {
+                            budgets
+                                .transport_failed(&policy, attempt)
+                                .map(|index| policy.delay(index, None))
+                                .filter(|delay| !deadline_passes(deadline, *delay))
+                        } else {
+                            None
+                        };
+                        observe_attempt_outcome(
+                            &self.on_attempt_outcome,
+                            &identity,
+                            values,
+                            attempt,
+                            None,
+                            None,
+                            Some(&err),
+                            delay,
+                        );
+                        let Some(delay) = delay else {
+                            return Err(err);
+                        };
+                        (err.to_string(), delay)
                     }
-                    (err.to_string(), delay)
-                }
-            };
+                };
             if let Some(obs) = &self.config.on_retry {
                 obs(&RetryEvent {
                     url: redact_str(&redact_url(&req.url), values),
@@ -1795,6 +1929,8 @@ impl Client {
         req: &Request,
         total: Option<Duration>,
         secrets: &[String],
+        attempt: u32,
+        identity: &mut Option<(String, Method, u32)>,
     ) -> Result<Raw, HttpError> {
         let started = Instant::now();
         let mut method = req.method;
@@ -1806,6 +1942,13 @@ impl Client {
                 .any(|(k, _)| k.eq_ignore_ascii_case("accept-encoding"))
         {
             headers.push(("Accept-Encoding".to_string(), "identity".to_string()));
+        }
+        // The credential scope binds the first request as well as later hops: outside
+        // it, credentials are stripped exactly as for a cross-origin hop.
+        if let Some(scope) = &req.credential_scope {
+            if !scope.allows(&url) {
+                redirect::strip_cross_origin(&mut headers, secrets);
+            }
         }
         let mut body = req.body.clone();
         let mut hops = 0u32;
@@ -1825,6 +1968,7 @@ impl Client {
                     Some(left)
                 }
             };
+            *identity = Some((url.clone(), method, hops));
             let raw = match self.once_hop(method, &url, &headers, &body, remaining, hops > 0) {
                 Ok(raw) => raw,
                 Err(e) if hops > 0 => return Err(e.into_redirect_phase()),
@@ -1851,6 +1995,19 @@ impl Client {
                     ..raw
                 });
             };
+            if hops < self.config.max_redirects || self.config.max_redirects_will_error {
+                observe_attempt_outcome(
+                    &self.on_attempt_outcome,
+                    identity,
+                    secrets,
+                    attempt,
+                    Some(raw.status),
+                    Some(&raw.headers),
+                    None,
+                    None,
+                );
+                *identity = None;
+            }
             if hops >= self.config.max_redirects {
                 if self.config.max_redirects_will_error {
                     return Err(HttpError::transport("too many redirects", Phase::Redirect));
@@ -1880,6 +2037,11 @@ impl Client {
             }
             if redirect::origin(&url) != redirect::origin(&next_url) {
                 redirect::strip_cross_origin(&mut headers, secrets);
+            }
+            if let Some(scope) = &req.credential_scope {
+                if !scope.allows(&next_url) {
+                    redirect::strip_cross_origin(&mut headers, secrets);
+                }
             }
             if next_method != method {
                 body.clear();
@@ -2083,6 +2245,56 @@ pub(crate) fn redaction_values_for(config: &ClientConfig, req: &Request) -> Vec<
     values.sort_by_key(|v| std::cmp::Reverse(v.len()));
     values.dedup();
     values
+}
+
+/// Report one finished attempt to [`Client::on_attempt_outcome`], sanitized.
+/// Shared by the blocking and async retry loops so both report identical outcomes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn observe_attempt_outcome(
+    observer: &Option<AttemptOutcomeObserver>,
+    identity: &Option<(String, Method, u32)>,
+    values: &[String],
+    attempt: u32,
+    status: Option<u16>,
+    headers: Option<&[(String, String)]>,
+    error: Option<&HttpError>,
+    next_delay: Option<Duration>,
+) {
+    let Some((url, method, redirect_hop)) = identity else {
+        return;
+    };
+    if matches!(
+        error,
+        Some(
+            HttpError::InvalidRequest(_)
+                | HttpError::AddressDenied { .. }
+                | HttpError::HttpsRequired { .. }
+                | HttpError::SystemProxyUnsupported { .. }
+        )
+    ) {
+        return;
+    }
+    let Some(observer) = observer else {
+        return;
+    };
+    observer(&AttemptOutcome {
+        url: redact_str(&redact_url(url), values),
+        method: *method,
+        attempt,
+        redirect_hop: *redirect_hop,
+        status,
+        headers: headers
+            .map(|h| redact_headers_with(h, values))
+            .unwrap_or_default(),
+        error_class: error.map(HttpError::class),
+        error_phase: error.and_then(HttpError::phase),
+        error: error.map(|e| redact_str(&redact_urls_in_text(&e.to_string()), values)),
+        delivery: match error {
+            Some(e) => attempt_delivery(e),
+            None => AttemptDelivery::Responded,
+        },
+        next_delay,
+    });
 }
 
 fn request_cancel(req: &Request) -> Option<&AtomicBool> {
