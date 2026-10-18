@@ -176,3 +176,23 @@ test("the managed root is canonicalised once, so a root moved to another volume 
   assert.throws(() => canonicalManagedRoot(real, { realpath: () => { const error = new Error("denied"); error.code = "EACCES"; throw error; } }), /denied/);
   fsMod.rmSync(base, { recursive: true, force: true });
 });
+
+test("only a configured managed root itself may be a symlink; symlinks below it or elsewhere are still refused", async () => {
+  const { assertSafeMutation } = await import("./artifact-storage.mjs");
+  const fsMod = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const base = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rk-safe-"));
+  const real = pathMod.join(base, "E-managed");
+  fsMod.mkdirSync(pathMod.join(real, "artifacts"), { recursive: true });
+  const link = pathMod.join(base, "D-managed");
+  try { fsMod.symlinkSync(real, link, "junction"); } catch { fsMod.rmSync(base, { recursive: true, force: true }); return; }
+  const env = { RIGHTKIT_MANAGED_ROOT: link };
+  assert.doesNotThrow(() => assertSafeMutation(pathMod.join(link, "artifacts", "App", "1.0.0"), { env }));
+  assert.throws(() => assertSafeMutation(pathMod.join(link, "artifacts", "App"), { env: {} }), /through symlink/);
+  const inner = pathMod.join(real, "artifacts", "inner-link");
+  let innerLinked = true;
+  try { fsMod.symlinkSync(base, inner, "junction"); } catch { innerLinked = false; }
+  if (innerLinked) assert.throws(() => assertSafeMutation(pathMod.join(link, "artifacts", "inner-link", "x"), { env }), /through symlink/);
+  fsMod.rmSync(base, { recursive: true, force: true });
+});

@@ -326,15 +326,32 @@ function ensureDirectory(directory) {
   mkdirSync(directory, { recursive: true });
 }
 
-function assertSafeMutation(target) {
+/**
+ * The managed roots an owner configures (env overrides and the workstation default), as spelled. Only these exact paths may
+ * themselves be symlinks (2026-10-18: /Volumes/D/.rightkit-managed -> /Volumes/E/.rightkit-managed); every path below them,
+ * and every other ancestor, is still refused when it is a symlink.
+ */
+export function configuredManagedRootSpellings({ env = process.env } = {}) {
+  const spellings = [DEFAULT_MANAGED_ROOT, env.RIGHTKIT_DATA_ROOT, env.RIGHTKIT_MANAGED_ROOT, env.RIGHTKIT_EXTERNAL_ROOT]
+    .filter((value) => typeof value === "string" && value.length > 0)
+    .map((value) => path.resolve(value));
+  return new Set(process.platform === "win32" ? spellings.map((value) => value.toLowerCase()) : spellings);
+}
+
+function isConfiguredManagedRoot(candidate, roots) {
+  return roots.has(process.platform === "win32" ? path.resolve(candidate).toLowerCase() : path.resolve(candidate));
+}
+
+export function assertSafeMutation(target, { env = process.env } = {}) {
   const absolute = path.resolve(target);
   const root = path.parse(absolute).root;
   const relative = path.relative(root, absolute);
+  const managedRoots = configuredManagedRootSpellings({ env });
   let current = root;
   for (const segment of relative ? relative.split(path.sep) : []) {
     current = path.join(current, segment);
     try {
-      if (lstatSync(current).isSymbolicLink()) throw new Error(`refusing filesystem mutation through symlink: ${current}`);
+      if (lstatSync(current).isSymbolicLink() && !isConfiguredManagedRoot(current, managedRoots)) throw new Error(`refusing filesystem mutation through symlink: ${current}`);
     } catch (error) {
       if (error.code === "ENOENT") continue;
       throw error;

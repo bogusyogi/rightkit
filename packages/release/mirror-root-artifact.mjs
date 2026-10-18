@@ -6,6 +6,7 @@
 // `{ file, name?, pruneSuffix? }`. `pruneSuffix` (for example "-setup.exe") then removes the other files with that suffix
 // from the managed directory, so it holds exactly the current artifact. Run it as `targets.<platform>.postSign`.
 // Output goes only to RIGHT_RELEASE_ARTIFACT_DIR (outside the repository); it never writes into the repository root.
+import { configuredManagedRootSpellings } from "./artifact-storage.mjs";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
@@ -113,11 +114,14 @@ function atomicCopy(from, to) {
 function assertSafePath(target) {
   const absolute = path.resolve(target);
   const root = path.parse(absolute).root;
+  // Only the configured managed root itself may be a symlink (same rule as artifact-storage assertSafeMutation).
+  const managedRoots = configuredManagedRootSpellings();
+  const configured = (candidate) => managedRoots.has(process.platform === "win32" ? path.resolve(candidate).toLowerCase() : path.resolve(candidate));
   let cursor = root;
   for (const segment of path.relative(root, absolute).split(path.sep).filter(Boolean)) {
     cursor = path.join(cursor, segment);
     try {
-      if (lstatSync(cursor).isSymbolicLink()) throw new Error(`refusing filesystem mutation through symlink: ${cursor}`);
+      if (lstatSync(cursor).isSymbolicLink() && !configured(cursor)) throw new Error(`refusing filesystem mutation through symlink: ${cursor}`);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
