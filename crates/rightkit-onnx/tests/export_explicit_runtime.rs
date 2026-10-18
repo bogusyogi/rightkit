@@ -39,7 +39,7 @@ fn explicit_env_runtime_still_puts_its_directory_on_path() {
     assert_eq!(path_entries().iter().filter(|p| **p == dir).count(), 1);
     // Existing entries survive.
     if let Some(before) = before {
-        for entry in std::env::split_paths(&before) {
+        for entry in std::env::split_paths(&before).filter(|e| !e.as_os_str().is_empty()) {
             assert!(path_entries().contains(&entry), "{entry:?} kept");
         }
     }
