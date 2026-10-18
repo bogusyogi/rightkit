@@ -226,11 +226,12 @@ test("our journalled record is resumed; a journal entry for different IPA bytes,
   assert.equal(wrongFile.fake.puts.length, 0);
 });
 
-test("a checksum reported by the API that differs from our SHA-256 stops the adoption", async () => {
+test("a checksum reported by the API that differs from the sealed bytes (SHA-256 or MD5) stops the adoption", async () => {
   const withChecksum = (checksum) => setup({ upload: { existing: [{ id: "bu9", state: "COMPLETE", files: [{ id: "bf9", fileName: "A.ipa", fileSize: 10, checksum }] }] } }, { entries: [ours("bu9")] });
   await coded("IOS_BUILD_UPLOAD_FOREIGN", withChecksum({ hash: "3".repeat(64), algorithm: "SHA_256" }).run());
   assert.equal((await withChecksum({ hash: IDENTITY.ipaSha256.toUpperCase(), algorithm: "SHA_256" }).run()).resumed, true);
-  assert.equal((await withChecksum({ hash: "x", algorithm: "MD5" }).run()).resumed, true);
+  await coded("IOS_BUILD_UPLOAD_FOREIGN", withChecksum({ hash: "x", algorithm: "MD5" }).run());
+  assert.equal((await withChecksum({ hash: createHash("md5").update(BYTES).digest("hex"), algorithm: "MD5" }).run()).resumed, true);
 });
 
 test("a journal is required", async () => {
@@ -254,6 +255,11 @@ test("the empty record Xcode's export registered during this build is adopted; o
   const withFile = setup({ upload: { existing: [{ id: "bx3", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:10:00Z", files: [{ id: "bf3", fileName: "A.ipa", fileSize: 10 }] }] } }, { options: { exportWindow: window } });
   await coded("IOS_BUILD_UPLOAD_FOREIGN", withFile.run());
   assert.equal(withFile.fake.puts.length, 0);
+
+  // not the sole record for this version and build (here next to a FAILED one): nothing is adopted
+  const notSole = setup({ upload: { existing: [{ id: "bx5", state: "FAILED", createdDate: "2026-10-18T09:05:00Z" }, { id: "bx6", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:10:00Z", files: [] }] } }, { options: { exportWindow: window } });
+  await coded("IOS_BUILD_UPLOAD_FOREIGN", notSole.run());
+  assert.equal(notSole.fake.puts.length, 0);
 
   const noWindow = setup({ upload: { existing: [{ id: "bx4", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:10:00Z", files: [] }] } });
   await coded("IOS_BUILD_UPLOAD_FOREIGN", noWindow.run());

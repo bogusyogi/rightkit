@@ -75,6 +75,13 @@ export function fileSource(file, evidence) {
         return buffer;
       } finally { closeSync(fd); }
     },
+    /** MD5 of the sealed bytes (what the commit sends), streamed through read() so a changed file is still refused. */
+    md5() {
+      if (this._md5) return this._md5;
+      const hash = createHash("md5");
+      for (let offset = 0; offset < this.size; offset += 8 * 1024 * 1024) hash.update(this.read(offset, Math.min(8 * 1024 * 1024, this.size - offset)));
+      return (this._md5 = hash.digest("hex"));
+    },
   };
 }
 
@@ -156,9 +163,11 @@ export async function uploadIpaToAppStoreConnect({
   // binary's (a second Mac, a fresh vault, a manual upload): our bytes never go into it and its result is never reported as ours.
   // Xcode's own `-exportArchive` (method app-store-connect) registers an empty build upload for the archive's version and build,
   // even with destination export. That record is this build's: adopt it only while it is still AWAITING_UPLOAD with no file, was
-  // created inside the sealed build's own window (exportWindow, from the sealed receipt's builtAt), and matches version and build.
+  // created inside the sealed export's window (exportWindow: exportStartedAt - 30 s to builtAt, from the sealed receipt), and is the
+  // only record of any state for this version and build.
   const fromOwnExport = async (item) => {
     if (!exportWindow || stateOf(item) !== "AWAITING_UPLOAD") return false;
+    if (existing.length !== 1) return false; // the sole record for this version and build, in any state
     const created = Date.parse(text(item.attributes?.createdDate));
     const notBefore = Date.parse(text(exportWindow.notBefore)), notAfter = Date.parse(text(exportWindow.notAfter));
     if (![created, notBefore, notAfter].every(Number.isFinite) || created < notBefore || created > notAfter) return false;
@@ -179,6 +188,8 @@ export async function uploadIpaToAppStoreConnect({
   const checkChecksum = (file) => {
     const reported = file?.attributes?.sourceFileChecksums?.file;
     if (reported?.hash && text(reported.algorithm).toUpperCase() === "SHA_256" && text(reported.hash).toLowerCase() !== source.sha256) fail("IOS_BUILD_UPLOAD_FOREIGN", `build upload file ${text(file.id)} reports a different SHA-256 than the sealed IPA; it is not adopted`);
+    // The commit sends MD5, so a resumed, PROCESSING or COMPLETE file reports MD5: compare it with the sealed bytes too.
+    if (reported?.hash && text(reported.algorithm).toUpperCase() === "MD5" && typeof source.md5 === "function" && text(reported.hash).toLowerCase() !== source.md5()) fail("IOS_BUILD_UPLOAD_FOREIGN", `build upload file ${text(file.id)} reports a different MD5 than the sealed IPA; it is not adopted`);
   };
   const filesOf = async (id) => (await client.getAll(`/v1/buildUploads/${encodeURIComponent(id)}/buildUploadFiles`));
   let buildUploadId;

@@ -270,8 +270,9 @@ export async function runIosUpload({
       log(`right-release upload: uploading ${ipaEvidence.name} through the App Store Connect API (in process, no key file)`);
       const uploaded = await uploadIpaToAppStoreConnect({
         client: client(), appId: plan.appId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, source, fileName: ipaEvidence.name, fetchImpl,
-        // Xcode's export registers an empty build upload during the build; only one created in this window may be adopted.
-        exportWindow: auth.receipt?.builtAt ? { notBefore: new Date(Date.parse(auth.receipt.builtAt) - 60 * 60_000).toISOString(), notAfter: auth.receipt.builtAt } : undefined,
+        // Xcode's export registers an empty build upload during the build; only one created between the sealed export start (less 30 s of
+        // clock skew) and the receipt may be adopted. A receipt without exportStartedAt (sealed before it existed) adopts nothing.
+        exportWindow: auth.receipt?.exportStartedAt && auth.receipt?.builtAt ? { notBefore: new Date(Date.parse(auth.receipt.exportStartedAt) - 30_000).toISOString(), notAfter: auth.receipt.builtAt } : undefined,
         journal: buildUploadJournal(journalDir ?? (env.RIGHT_RELEASE_VAULT_STATE_ROOT ? path.join(path.resolve(env.RIGHT_RELEASE_VAULT_STATE_ROOT), "ios-build-uploads") : path.join(auth.repoRoot, ".right-release", "state", "ios-build-uploads")), plan.appId),
         pollIntervalMs: auth.distribution.pollIntervalSeconds * 1000, timeoutMs: auth.distribution.waitTimeoutSeconds * 1000, ...waits,
         log: (line) => log(`right-release upload: ${line}`),

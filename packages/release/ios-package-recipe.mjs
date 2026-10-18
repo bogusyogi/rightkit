@@ -475,6 +475,8 @@ export async function runIosPackageRecipe({
     const optionsFile = path.join(receiptDir, "ios-export-options.plist");
     const optionsText = exportOptionsPlist(spec);
     fs.writeFileSync(optionsFile, optionsText);
+    // Taken just before the export: xcodebuild registers a build upload for this version and build during it (see ios-build-upload.mjs).
+    const exportStartedAt = now().toISOString();
     step("export", "IOS_PACKAGE_EXPORT_FAILED", "xcodebuild", exportArgv(spec, { root, optionsFile }), { logFile: path.join(receiptDir, "ios-export.log") });
     {
       const produced = fs.existsSync(exportDir) ? fs.readdirSync(exportDir).filter((name) => name.endsWith(".ipa")) : [];
@@ -525,6 +527,7 @@ export async function runIosPackageRecipe({
       contract: IOS_SIGNING_CONTRACT,
       app,
       builtAt: now().toISOString(),
+      exportStartedAt,
       sourceCommit,
       xcodebuild: xcodebuildVersion,
       scheme: spec.scheme,
