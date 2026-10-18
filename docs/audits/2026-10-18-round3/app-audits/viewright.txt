@@ -1,0 +1,19 @@
+ViewRight AUDIT DONE: 17 gaps (14 port-blocking), against published tarballs. Patches: /Volumes/D/scratch/rk-gaps/<n>/ (rev2).
+MISSING #395 @rightkit/doc-render: createMarkdownParser, createMarkdownSanitizer, sanitizeShikiHtml, renderMarkdownToHtmlFragment, sanitizeFullHtmlDocument, sanitizeKatexHtml, sanitizeMermaidSvg
+PARTIAL #396 @rightkit/pdf-ui@0.2.0: compileSearchRegex, isValidSearchRegex, MAX_SEARCH_MATCHES, maxMatches
+MISSING #394 @rightkit/settings-ui ./unstyled (SettingsFrame, FrameSection, AboutView, LegalLinksView, DiagnosticsView, UpdatesView, UpdateStatusLike); @rightkit/legal-ui manifestGateLinks
+PARTIAL #392 @rightkit/react-shell@0.7.0: AnchoredMenu, PresetSwatch, FuseCurves orientation
+PARTIAL #393 @rightkit/platform-ui@0.3.0: isTauri on /headless, relativeTime; @rightkit/tauri-shell isTauri re-export
+MISSING #390 rightkit-logs: LogsRuntime, RecordingGate, BatchPolicy/append_batch, tauri-commands feature; @rightkit/logs createDiagnosticsRecorder, describeReason, DiagnosticEntry
+PARTIAL #386 rightkit-tauri-shell@0.3.2: MenuSpec file/edit_extra/view_entries/window_entries/omit_empty_help/overrides, MenuOverride, OverrideRole, MenuEntry::submenu/Check; rk_shell_set_menu_state, rk_shell_set_menu_item_checked, rk_shell_open_paths_ready; open_paths, webview2_env, webview2_menu, print, preview, os_settings modules; WindowSpec.parent; JS MenuItemState, check/submenu, menu.setChecked/setState
+MISSING #670 rightkit-tauri-shell: associations module + commands + JS types
+MISSING #388 rightkit-fs: test_mode module + forbid_in_release!
+MISSING #389 rightkit-db: DbState, OpenedDatabase, open_writer_migrated_or_degrade, quarantine_migration_failure
+PARTIAL #391 rightkit-license@0.2.2: activate_token, Activation; rightkit-child-process: process_tree_usage, ProcessTreeUsage
+PARTIAL #387 rightkit-qa@0.6.4: control_ext (LegalGate, accept_legal_gate, FailureEvidence, tail_lines), failure_evidence struct, click_until_within; rightkit-qa-driver 0.6.0; @rightkit/qa 0.5.0 (387-qapage delta)
+NEW #764 @rightkit/qa: keyboard text/char, imeSetComposition/imeCommit, ImeCompositionOptions, page.performanceMetrics (qa-input2 delta)
+NEW #765 rightkit-fs: app_dirs::user_dirs::{home,desktop,documents,downloads} (fs-userdirs delta)
+PARTIAL #686 @rightkit/theme@0.3.0: light/dark compound selector, TokenPreset.label
+PARTIAL #397 @rightkit/release@0.3.0: dev hot-reload loop, linux target (not blocking)
+PARTIAL #232 rightkit-tauri-shell@0.3.2: rightkit-qa scenario registrations (not blocking)
+NOTE 386b DevTools: in scope for ViewRight only (Adrian exemption); must stay off for all other apps

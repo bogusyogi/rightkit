@@ -1,0 +1,17 @@
+DONE #713 RotatingTextWriter::open_append_file() and JsonlStore::open_append_file() -> io::Result<File> (rotation applied, append handle usable as Stdio::from(file) for a detached child; owner-only and cross-process lock honoured on the store) | tests in textlog::tests, store::tests
+DONE #520 KeyTokenRedactor (new, with_salt, token, redact), key_token(value, salt), redact_key_values(line, keys): account=/label= style values become stable "#"+16 hex tokens (HMAC-SHA256 keyed by the salt, truncated, via rightkit-crypto 0.1.0, a new dependency), idempotent, quoted values handled | tests in keytext::tests
+DONE #750 (1) clear_tracing_logs(dir, &[prefixes]) -> io::Result<usize> family-wide daily file clear (feature tracing); (2) no-op guard: TracingGuard::noop(), install_tracing_or_warn(config) -> TracingGuard (warns, never fails, harmless on a second call), install_stderr_tracing_once(filter) -> bool | tests in tracing_file::tests
+DONE #642 @rightkit/logs crash.ts (installWindowCrashCapture, scrubWindowCrashText) is exported from the package root; package version bumped 0.1.4 -> 0.1.5 so it publishes
+DONE #760 same as #642 (crash installer in the package, 0.1.5) plus installRendererErrorCapture below
+PARTIAL #390 DONE: JS installRendererErrorCapture(client, {surface,...}) (window error + unhandledrejection, content-free renderer_error event, kind uncaught|rejection, code = error name, dedup, idempotent) and optional persisted localStorage-style ring buffer (readRendererErrorRing); Rust recording gate and drop-oldest cap were already on main (AsyncWriter::set_recording, cap_batch). Missing: Tauri command module rightkit_logs_* (needs a tauri dependency in rightkit-logs; cross-component, belongs with tauri-shell or the app)
+DEFERRED #390 (Tauri rightkit_logs_* command module only) needs a tauri dep, a cross-component design decision (rightkit-logs vs rightkit-tauri-shell); not invented
+ALREADY #239 rotate on open, rotate_now, RotatedNaming::StemNumbered on main (RotatingTextWriter); follow-up open_append_file now DONE under #713 and rotate_numbered(path, keep) added (pub, re-exported) | tests in rotate::tests
+ALREADY #546 stderr_layer exists (src/stderr_fmt.rs); DEFERRED #546 OTLP half: refused by ruling (no-telemetry, decisions.md:1166) and needs OpenTelemetry crates; not in #771 but not implemented
+NOTE: issues.txt also listed #239/#546; other open rightkit-logs issues found by search and already addressed in the 0.3.2 changelog on main: #204 #411 #453 #502 #505 #511 #527 #371 (no change made).
+
+New versions: rightkit-logs 0.3.2 -> 0.3.3 (additive, Cargo.toml and Cargo.lock updated; CHANGELOG 0.3.3 heading added above the existing 0.3.2 section which already held unpublished main items); @rightkit/logs 0.1.4 -> 0.1.5 (package.json, CHANGELOG, README).
+
+Public API changes (none breaking):
+rightkit-logs: RotatingTextWriter::open_append_file; JsonlStore::open_append_file; rotate_numbered; KeyTokenRedactor; key_token; redact_key_values; (feature tracing) clear_tracing_logs, install_tracing_or_warn, TracingGuard::noop, install_stderr_tracing_once.
+@rightkit/logs: installRendererErrorCapture, readRendererErrorRing, RENDERER_ERROR_EVENT, types RendererErrorKind, RendererErrorEntry, RendererErrorCaptureOptions, RingStorage (crash.ts exports unchanged, now published).
+Files: D:\scratch\rk-gaps-work\c2\logs\logs.patch (not compiled or run; main chat to run cargo fmt, check, test and vitest).

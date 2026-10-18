@@ -1,0 +1,14 @@
+PostRight (2026-10-18, self-audit) AUDIT DONE: 12 gaps
+PARTIAL #466 job-queue: run on caller connection/transaction
+PARTIAL #300 ffmpeg: slide count
+PARTIAL #367 time: IANA tz database with DST
+MISSING #296 llm resumable skill executor/multi-step
+MISSING #374 http plain-https URL validator
+MISSING #377 daemon unauthenticated public routes
+MISSING #379 daemon browser bearer-token device auth + per-IP rate limit
+MISSING #382 qa fake CLI/engine fixtures
+MISSING #383 qa browser-preview mock data owner (rk5 patch put it in react-shell release builds = wrong owner)
+MISSING #451 db restore_database / recover_interrupted_restore
+MISSING #458 credentials secret_from_env_file
+MISSING #676 daemon Windows owner-only DACL on Suite private dirs
+App-side: pins stale; spend/platform-rules commented pins 0.2.0 do not exist; spend set_strict_transitions -> with_strict/set_strict

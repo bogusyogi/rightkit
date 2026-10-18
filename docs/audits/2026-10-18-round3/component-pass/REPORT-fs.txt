@@ -1,0 +1,29 @@
+rightkit-fs 0.4.4 -> 0.4.5 (additive only; nothing compiled or run). Patch: D:\scratch\rk-gaps-work\c2\fs\fs.patch (LF, against HEAD "base" 414e437). Cargo.lock rightkit-fs entry bumped to 0.4.5.
+
+DONE #478 lease: holder takeover (dead pid), heartbeat-TTL expiry of a hung live holder, renew/release/peek were ALREADY in 0.4.4 lease.rs; added the missing metadata: LeaseInfo::{exe, kind}, LeaseOptions::kind(..), LeaseInfo::is_this_process(); record gains exe=/kind= lines (still "rightkit-lease v1", old records parse with empty fields); tests for the new fields and for a 0.4.4-shaped record expiring
+DONE #738 (1) publish_group(&[GroupEntry], &GroupOptions) -> GroupPublished: validate, hard-link/copy backups, per-file publish, rollback on failure, cancel gate (Interrupted); new src/publish_group.rs + tests
+DONE #738 (2) remove_tree(root, &RemoveOptions) -> Result<bool>: Windows sharing/lock/access-denied/delete-pending retry, read-only clear, links not followed, link root refused; new src/remove.rs + tests
+DONE #738 (3) Options::data_dir_override(Option<PathBuf>) (release data-dir override, no env var, no feature gate, absolute/.. checked, isolated) and AppDirs::is_real_user_path / is_real_user_path_with (app folders in both namespaces + legacy names + home or above); QA check now shares real_app_folders; tests
+DONE #732 StableId + new_stable_id() now in file_key (feature fs only), exported at crate root; identity::StableId still resolves
+DONE #613 remainder: the StableId half (FileKey-without-json, open_read_nofollow, final_path, link_count, share_read_only, StateDir remove_dir/remove_link/open_shared, Windows stat identity were ALREADY in 0.4.3 handle.rs/state.rs/contain.rs)
+DONE #712 migrate_dir_marked(from, to, &MarkOptions) -> MarkedMigration and is_marked(dir, &MarkOptions): move plus migrated-from.json written into the source first so it moves atomically with the tree; failure restores the source marker state. migrate_dir itself already did rename / empty-destination set-aside / copy-then-remove (ALREADY), unchanged
+DONE #388 test-mode gate: ported patches\388.rev2.patch (src/test_mode.rs: decide, Guard, TestMode, build::{Spec,ReleaseGuard,resolve,emit}, forbid_in_release!, init_or_exit/current/select with feature test-mode, COMPILED_MARKER) + Cargo.toml comment + README + lib.rs docs. Note: lives in rightkit-fs, not rightkit-daemon (daemon mode::decide is suite-service shaped)
+DONE #765 app_dirs::user_dirs::{home,desktop,documents,downloads}: ported patches\fs-userdirs.delta.patch (+ FOLDERID Desktop/Documents/Downloads GUIDs in the known-folder module)
+PARTIAL #399 trash: move_to_trash/list/lookup/restore exist for macOS and Windows list/lookup/restore (ALREADY in 0.4.3); missing: Windows move_to_trash still returns FsError::Unavailable because SHFileOperationW deletes permanently when an item cannot be recycled; it needs an IFileOperation COM binding with FOFX_RECYCLEONDELETE, which cannot be written safely without a Windows compile and a run (vtable offsets). RightKitSwift counterpart is another repo
+PARTIAL #710 (follow-ups): done item 4 (read_zip docs say names are untrusted); missing: 1 (lease stale-guard three-way race: guard-as-generation-file redesign), 2 and 3 (Windows migrate read-only skip / empty-to ACL loss: need Windows behaviour verified), 5 (read_zip size cap parameter would change a public signature), 6 (write_zip re-hash)
+ALREADY #464 (digest::blake3_*, copy_verified_with_digest/progress, 0.4.4), #467 (zip::write_zip/read_zip, 0.4.4), #487 (AppDirs::resolve_with_options + migrate_dir, 0.4.4/0.4.3), #455 fs part (publish_dir, 0.4.3), #676 (private::is_owner_only accepts inherited owner-only ACL, 0.4.3)
+ALREADY (found by the search, all in the 0.4.3/0.4.4 changelog; remaining step is publishing, not code) #373 #452 contain/is_within, #400 open_confined, #401 copy_tree/open_private_append, #500 names, #516 is_hex/unhex, #518 free_bytes, #526 FileKey directories, #532 try_sync_dir, #538 FileKey without json, #626 commit_as, #202 plain, #197/#217/#218/#242/#517 earlier releases; #284 #446 are publish tasks
+REJECTED: none (nothing conflicts with #771; D3 honoured, no branches)
+
+Version: 0.4.5 (minor-compatible for 0.x because every change is additive; Options/LeaseOptions/LeaseInfo are #[non_exhaustive]).
+
+Public API additions (no breaking change):
+- lease: LeaseInfo.exe, LeaseInfo.kind, LeaseInfo::is_this_process, LeaseOptions.kind, LeaseOptions::kind
+- publish_group: publish_group, GroupEntry, GroupOptions, GroupPublished (crate-root re-exports too)
+- remove: remove_tree, RemoveOptions
+- migrate: migrate_dir_marked, is_marked, MarkOptions, MarkedMigration, DEFAULT_MARKER (module path)
+- file_key / crate root: StableId, new_stable_id (feature fs)
+- app_dirs: Options.data_dir, Options::data_dir_override, AppDirs::is_real_user_path, AppDirs::is_real_user_path_with, app_dirs::user_dirs::{home,desktop,documents,downloads}
+- test_mode module (see #388)
+Moved without break: StableId (identity::StableId and rightkit_fs::StableId both resolve to the same alias). Crate-root json re-export of StableId removed in favour of the fs one (same path rightkit_fs::StableId).
+Things for the compile pass to watch: user_dirs.rs and test_mode.rs were ported from older patches and have not been compiled against this tree; Windows-only code paths (remove.rs retry codes, user_dirs known folders) unverified.

@@ -1,0 +1,2476 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..d2c96ce 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6857,7 +6857,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-daemon"
+-version = "0.2.7"
++version = "0.2.8"
+ dependencies = [
+  "axum",
+  "base64 0.23.1",
+diff --git a/crates/rightkit-daemon/CHANGELOG.md b/crates/rightkit-daemon/CHANGELOG.md
+index 84961a2..9d0be5f 100644
+--- a/crates/rightkit-daemon/CHANGELOG.md
++++ b/crates/rightkit-daemon/CHANGELOG.md
+@@ -1,5 +1,20 @@
+ # Changelog
+ 
++## 0.2.8 (unreleased)
++
++Issues #766, #767, #768, #680, #676, #375 (rest), #404 (wake part), #405 (install part), #377 (response helpers and test). Written without compiling or running the build tool; the main chat builds and runs the tests. All additions; nothing breaks.
++
++- Added (#766): `fail_limit` is public and `FailLimiter` is re-exported at the crate root. Keys are `u64` ids (a connection id, or a hash of a peer address), so an app can drop its own copy. Same limits as the host uses.
++- Added (#767): `supervisor::supervise_with(config, SuperviseOptions, launch, probe, on_event)`. `SuperviseOptions::adopt(child)` supervises a child the caller already started and verified as generation 1 (`launch` is first called only when it is gone and the policy restarts it); `SupervisorMode` (a shared number) with `SuperviseOptions::mode`, `SupervisorHandle::mode` and `restart_with_mode(value)` lets a restart start the child in another state, such as a locked launch; `SupervisorHandle::stop_returning_child` ends the supervisor and returns the running child alive (stdin open, nothing killed) for an ordered shutdown. `supervise` is `supervise_with` with the default options.
++- Added (#768): `Client::call_retrying_pooled` and `call_retrying_pooled_until`: the connect closure returns anything that `Borrow<Client>` (an `Arc<Client>` from a pool, a lease guard), so a pooled connection is not dropped after each attempt. `Client::is_closed` tells a pool to discard a connection. `call_retrying_over` and `call_retrying_until` are unchanged.
++- Added (#680): `current_user_sid_string()` is public on Windows (it was crate-private), re-exported at the crate root. The `rightkit-child-process` half of #680 (stdin on output/status) belongs to that crate.
++- Fixed (#676): on Windows `Suite::private_service_subdir`, `data_dir` and every other private directory the crate makes now get the protected owner-only DACL of `rightkit_fs::restrict_owner_only`, so `rightkit_fs::private::is_owner_only` is true for them. Failing to harden is an error (`SuiteError::Insecure`), not an open directory. Unix is unchanged.
++- Added (#375): `stop::stop_on_parent_exit(source, pid)` (polls every 200 ms; compares the OS start marker so a recycled pid is not taken for the parent; cause `Requested`, so `StopCause` is unchanged), `stop::parent_pid()` (Unix `getppid`) and `stop::at_exit(hook)` (C `atexit`; runs last-registered first on a normal exit, panics contained). The signal and stdin parts were in 0.2.7.
++- Added (#404, wake part): module `wake` (`Wake`, `WakeListener`, `WakeError`): Darwin notification on macOS, a named auto-reset event with the owner-only DACL on Windows, a polled counter file in the suite's private `wake` directory elsewhere. A hint without data; posts coalesce. Not built: publish/subscribe events (`events.subscribe`), `ServiceRecord` heartbeat/state fields and the attach-or-fallback client (they change the record schema and the app contract), and the RightKitSwift observer.
++- Added (#405, install part): module `install` (`ServiceSpec`, `ServiceManager`, `SystemdUser`, `LaunchAgent`, `ScheduledTask`, `CommandRunner`, `SystemRunner`, `platform_manager`, pure `render_systemd_unit`, `render_launch_agent_plist`, `render_task_xml`, `windows_quote_arg`). Not built: Windows services (SCM) and a public `verify_authenticode`.
++- Added (#377): `Response::json`, `Response::redirect` and `Response::with_header` so a public-route handler can build its answer, and a test of the public-route path (`tests/remote_daemon.rs`). `Daemon::add_public_route` itself shipped in 0.2.7.
++- Not built: #379 (browser bearer-token device auth), #666 (reload saga). See the report for the reasons.
++
+ ## 0.2.7 (2026-10-17)
+ 
+ Issues #375, #376, #384, #453 (listener part), #504, #596, #377 (public routes). Written without compiling or running the build tool here; CI builds and runs the tests. The crate version is unchanged.
+diff --git a/crates/rightkit-daemon/Cargo.toml b/crates/rightkit-daemon/Cargo.toml
+index 65d08df..f67020d 100644
+--- a/crates/rightkit-daemon/Cargo.toml
++++ b/crates/rightkit-daemon/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-daemon"
+-version = "0.2.7"
++version = "0.2.8"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
+diff --git a/crates/rightkit-daemon/README.md b/crates/rightkit-daemon/README.md
+index 64a64c5..684e1b4 100644
+--- a/crates/rightkit-daemon/README.md
++++ b/crates/rightkit-daemon/README.md
+@@ -177,7 +177,7 @@ Failed secrets are limited (`src/fail_limit.rs`, ported from MailRight): five fa
+ 
+ ## Supervising a daemon-pipe child (`supervisor`)
+ 
+-`supervisor::supervise` watches a `PrivateChild` (an engine the app started and talks to over the daemon pipe) on one thread: it polls for exit, probes with a closure you give it (`ping_probe` connects with the child's own secret, verifies the host and calls `ping`), feeds the `rightkit-child-process` `HealthTracker`, stops an unhealthy or never-ready child (stdin closed, then the tree killed after a grace) and lets `RestartTracker` decide: relaunch after its backoff, wait for `SupervisorHandle::restart_now`, or give up (`Exhausted`). See the module docs for the choices that are easy to get wrong.
++`supervisor::supervise` watches a `PrivateChild` (an engine the app started and talks to over the daemon pipe) on one thread: it polls for exit, probes with a closure you give it (`ping_probe` connects with the child's own secret, verifies the host and calls `ping`), feeds the `rightkit-child-process` `HealthTracker`, stops an unhealthy or never-ready child (stdin closed, then the tree killed after a grace) and lets `RestartTracker` decide: relaunch after its backoff, wait for `SupervisorHandle::restart_now`, or give up (`Exhausted`). See the module docs for the choices that are easy to get wrong. `supervise_with` takes `SuperviseOptions`: `adopt(child)` supervises a child the app already started and verified as the first generation, and a shared `SupervisorMode` lets a restart start the child differently (`SupervisorHandle::restart_with_mode`, for example a locked and an unlocked launch). `SupervisorHandle::stop_returning_child` ends the supervisor without killing the running child and hands it back for an ordered shutdown.
+ 
+ ## Messages above one frame (`chunk`)
+ 
+@@ -185,11 +185,23 @@ The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends
+ 
+ ## Public routes (`remote` feature)
+ 
+-An application route that needs no device signature (a provider webhook, a callback, a redirect) is registered with `Daemon::add_public_route(method, path, body_limit, handler)`. The method and path must match exactly, the path may not be under `/v1`, and the handler does its own verification over `Request::body`. Public routes are checked before any device check and before the daemon-api table.
++An application route that needs no device signature (a provider webhook, a callback, a redirect) is registered with `Daemon::add_public_route(method, path, body_limit, handler)`. The method and path must match exactly, the path may not be under `/v1`, and the handler does its own verification over `Request::body`. Public routes are checked before any device check and before the daemon-api table. A handler builds its answer with `Response::json` or `Response::redirect` (and `with_header`).
+ 
+ ## Stop, ticker and heartbeat (`stop`, `ticker`)
+ 
+-`stop::StopSource` is the one trigger for a host's stop: `stop_on_signals` (SIGINT and SIGTERM on Unix, the console control handler on Windows; a 50 ms watcher thread turns the signal into a trigger) and `stop_on_stdin_close` both feed it, and `StopToken` is what the host's threads wait on. `ticker::spawn_ticker` runs a closure every interval until the stop, and `ticker::spawn_heartbeat` writes a `{pid, updated_ms, state}` record atomically to a path on the same schedule.
++`stop::StopSource` is the one trigger for a host's stop: `stop_on_signals` (SIGINT and SIGTERM on Unix, the console control handler on Windows; a 50 ms watcher thread turns the signal into a trigger) and `stop_on_stdin_close` both feed it, and `StopToken` is what the host's threads wait on. `stop_on_parent_exit(source, pid)` triggers it when a named process (the parent) is gone (cause `Requested`), and `at_exit(hook)` runs a closure when the process ends normally. `ticker::spawn_ticker` runs a closure every interval until the stop, and `ticker::spawn_heartbeat` writes a `{pid, updated_ms, state}` record atomically to a path on the same schedule.
++
++## Wake signal (`wake`)
++
++`wake::Wake::new(&suite, service, name)` is a cross-process "look again" hint: `post()` in one process, `listen()` then `wait(timeout)` in another. macOS uses a Darwin notification, Windows a named auto-reset event with the owner-only DACL, other platforms a counter file in the suite's private `wake` directory. A wake carries no data and is not authenticated on macOS; the receiver re-reads its state and keeps a periodic re-check. Posts coalesce.
++
++## Background program install (`install`)
++
++`install::ServiceSpec` (name, absolute program, arguments, environment, restart policy) plus `ServiceManager::{install, start, stop, status, uninstall}` for `systemd --user` (`SystemdUser`), a launchd LaunchAgent (`LaunchAgent`) and a Task Scheduler logon task (`ScheduledTask`). Each OS tool runs through a replaceable `CommandRunner`, and the unit, plist and task XML come from pure `render_*` functions. A value that cannot be written safely is refused; a task with environment entries is refused (a task has none). Windows services and Authenticode verification are not built.
++
++## Current-user SID (Windows)
++
++`current_user_sid_string()` returns the process token's SID string, for naming a per-user pipe.
+ 
+ ## Build-tool guard (`suite`)
+ 
+diff --git a/crates/rightkit-daemon/src/client.rs b/crates/rightkit-daemon/src/client.rs
+index ccd793f..eb65d8d 100644
+--- a/crates/rightkit-daemon/src/client.rs
++++ b/crates/rightkit-daemon/src/client.rs
+@@ -472,6 +472,12 @@ impl Client {
+         (self.shutdown)();
+     }
+ 
++    /// True once the connection is known to be unusable (aborted, or an earlier call found it
++    /// closed). A pool should drop such a client instead of leasing it again.
++    pub fn is_closed(&self) -> bool {
++        self.dead.load(Ordering::SeqCst)
++    }
++
+     pub fn call(&self, method: &str, params: Value) -> Result<Value, ServiceError> {
+         self.call_events(method, params, &mut |_| {})
+     }
+@@ -914,8 +920,44 @@ impl Client {
+         Self::retry_loop(&connect, method, params, policy, Some(stop), on_event)
+     }
+ 
+-    fn retry_loop(
+-        connect: &dyn Fn(Option<Duration>) -> Result<Client, ConnectError>,
++    /// [`Client::call_retrying_over`] over a connection the caller keeps and reuses: `connect`
++    /// returns anything that borrows a [`Client`] (an `Arc<Client>` from a pool, a lease guard, or
++    /// a plain `&Client`), so a pooled connection is handed back to its pool after each attempt
++    /// instead of being dropped (which closes it). A pool should discard a leased connection for
++    /// which [`Client::is_closed`] is true, or that an attempt failed on, so the next attempt
++    /// connects afresh. The retry rules are the same as [`Client::call_retrying`].
++    pub fn call_retrying_pooled<F, R>(
++        connect: F,
++        method: &str,
++        params: Value,
++        policy: RetryPolicy,
++        on_event: &mut dyn FnMut(&Value),
++    ) -> Result<Value, ServiceError>
++    where
++        F: Fn(Option<Duration>) -> Result<R, ConnectError>,
++        R: std::borrow::Borrow<Client>,
++    {
++        Self::retry_loop(&connect, method, params, policy, None, on_event)
++    }
++
++    /// [`Client::call_retrying_pooled`] with the stop hook of [`Client::call_retrying_until`].
++    pub fn call_retrying_pooled_until<F, R>(
++        connect: F,
++        method: &str,
++        params: Value,
++        policy: RetryPolicy,
++        stop: &(dyn Fn() -> bool + Sync),
++        on_event: &mut dyn FnMut(&Value),
++    ) -> Result<Value, ServiceError>
++    where
++        F: Fn(Option<Duration>) -> Result<R, ConnectError>,
++        R: std::borrow::Borrow<Client>,
++    {
++        Self::retry_loop(&connect, method, params, policy, Some(stop), on_event)
++    }
++
++    fn retry_loop<R: std::borrow::Borrow<Client>>(
++        connect: &dyn Fn(Option<Duration>) -> Result<R, ConnectError>,
+         method: &str,
+         params: Value,
+         policy: RetryPolicy,
+@@ -943,7 +985,7 @@ impl Client {
+                 }
+                 Err(e) => return Err(e.into_service_error()),
+             };
+-            match run_attempt(&c, method, &params, stop, on_event) {
++            match run_attempt(std::borrow::Borrow::<Client>::borrow(&c), method, &params, stop, on_event) {
+                 Ok(v) => return Ok(v),
+                 // Handoff means the host declined the request. A closed connection or a timeout
+                 // may have run it: replayed only when the caller says the request is idempotent.
+@@ -995,6 +1037,30 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn a_pooled_source_may_hand_back_a_borrowed_client_and_a_refused_connect_ends_the_loop() {
++        // No host: every attempt fails to connect with a non-retryable error, which ends the loop
++        // at once. This pins that the pooled entry point accepts a non-`Client` return type.
++        let policy = RetryPolicy {
++            max_attempts: 3,
++            ..RetryPolicy::default()
++        };
++        let err = Client::call_retrying_pooled(
++            |_deadline| -> Result<Arc<Client>, ConnectError> {
++                Err(ConnectError::Service(ServiceError::new(
++                    ERROR_FORBIDDEN,
++                    "refused",
++                )))
++            },
++            "ping",
++            serde_json::json!({}),
++            policy,
++            &mut |_| {},
++        )
++        .unwrap_err();
++        assert_eq!(err.code, ERROR_FORBIDDEN);
++    }
++
+     #[test]
+     fn a_missing_record_is_a_retryable_service_error_not_an_identity_error() {
+         let dir = tempfile::tempdir().unwrap();
+diff --git a/crates/rightkit-daemon/src/install.rs b/crates/rightkit-daemon/src/install.rs
+new file mode 100644
+index 0000000..1a0f2e9
+--- /dev/null
++++ b/crates/rightkit-daemon/src/install.rs
+@@ -0,0 +1,1030 @@
++//! Install, start, stop, query and remove a user-level background program with the OS's own
++//! manager (issues #405 and the CodeRight addition to it): `systemd --user` on Linux, a launchd
++//! LaunchAgent on macOS, a Task Scheduler task on Windows.
++//!
++//! One description ([`ServiceSpec`]) and one trait ([`ServiceManager`]) cover the three. Each
++//! manager renders its definition (unit file, property list, task XML) with a pure function that
++//! tests can read, and runs the OS tool (`systemctl`, `launchctl`, `schtasks`) through a
++//! [`CommandRunner`] the caller can replace, so a test needs no OS manager.
++//!
++//! Choices that are easy to get wrong, and what was chosen:
++//!
++//! * Everything that reaches a definition file or a command line is validated first: the name is
++//!   `[A-Za-z0-9._-]` (1 to 64 characters, no leading dot), the program path is absolute, and no
++//!   argument, environment entry or description holds a control character. A value that cannot
++//!   be written safely is refused, never escaped into something else.
++//! * Quoting is per format: systemd words are double-quoted with `\`, `"`, `%` and `$` escaped; XML
++//!   text is entity-escaped; a Windows command line follows the `CommandLineToArgvW` rules.
++//! * A Task Scheduler task has no environment, so a spec with environment entries is refused on
++//!   Windows rather than started without them.
++//! * Definition files are written owner-only. The Windows task XML is written (UTF-16, the form
++//!   `schtasks` always accepts) to a directory the caller names, which should be private to the
++//!   app, then registered; the XML is removed again on uninstall.
++//! * `status` reports `Unknown` when the tool answered something this code does not recognise
++//!   (the Task Scheduler status words are localised): it never guesses `Running`.
++//! * Not covered: Windows services (SCM) and Authenticode verification (issue #405, open).
++
++use std::io;
++use std::path::{Path, PathBuf};
++use std::process::Command;
++
++/// Longest service name.
++pub const MAX_NAME_LEN: usize = 64;
++
++/// What to run, and whether to run it again after it fails.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ServiceSpec {
++    /// The service name: the unit name, the launchd label, the task name.
++    pub name: String,
++    /// Absolute path of the program.
++    pub exec: PathBuf,
++    pub args: Vec<String>,
++    /// Environment of the program. Refused on Windows (a task has none).
++    pub env: Vec<(String, String)>,
++    pub restart: RestartPolicy,
++    /// A one-line description, shown by the OS tools.
++    pub description: Option<String>,
++}
++
++/// Whether the OS manager starts the program again after it ends.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
++pub enum RestartPolicy {
++    /// Never.
++    Never,
++    /// After an unsuccessful exit (non-zero status or a signal).
++    #[default]
++    OnFailure,
++    /// Whenever it ends.
++    Always,
++}
++
++impl ServiceSpec {
++    /// A spec that starts `exec` with no arguments, restarting on failure.
++    pub fn new(name: impl Into<String>, exec: impl Into<PathBuf>) -> Self {
++        Self {
++            name: name.into(),
++            exec: exec.into(),
++            args: Vec::new(),
++            env: Vec::new(),
++            restart: RestartPolicy::OnFailure,
++            description: None,
++        }
++    }
++
++    #[must_use]
++    pub fn args(mut self, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
++        self.args = args.into_iter().map(Into::into).collect();
++        self
++    }
++
++    #[must_use]
++    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
++        self.env.push((key.into(), value.into()));
++        self
++    }
++
++    #[must_use]
++    pub fn restart(mut self, restart: RestartPolicy) -> Self {
++        self.restart = restart;
++        self
++    }
++
++    #[must_use]
++    pub fn description(mut self, text: impl Into<String>) -> Self {
++        self.description = Some(text.into());
++        self
++    }
++
++    /// Check every field that reaches a definition file or a command line.
++    pub fn validate(&self) -> Result<(), InstallError> {
++        let bad = |what: &str| Err(InstallError::Invalid(what.to_string()));
++        let name_ok = !self.name.is_empty()
++            && self.name.len() <= MAX_NAME_LEN
++            && !self.name.starts_with('.')
++            && self
++                .name
++                .chars()
++                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
++        if !name_ok {
++            return bad("the name must be 1 to 64 characters of [A-Za-z0-9._-] and not start with a dot");
++        }
++        if !self.exec.is_absolute() {
++            return bad("the program path must be absolute");
++        }
++        let exec = self.exec.to_string_lossy();
++        if has_control(&exec) {
++            return bad("the program path holds a control character");
++        }
++        if self.args.iter().any(|a| has_control(a)) {
++            return bad("an argument holds a control character");
++        }
++        for (key, value) in &self.env {
++            let mut chars = key.chars();
++            let key_ok = chars
++                .next()
++                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
++                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
++            if !key_ok {
++                return bad("an environment name must match [A-Za-z_][A-Za-z0-9_]*");
++            }
++            if has_control(value) {
++                return bad("an environment value holds a control character");
++            }
++        }
++        if self.description.as_deref().is_some_and(has_control) {
++            return bad("the description holds a control character");
++        }
++        Ok(())
++    }
++}
++
++fn has_control(s: &str) -> bool {
++    s.chars().any(char::is_control)
++}
++
++/// What an OS manager says about a service.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum InstallStatus {
++    /// No definition is registered under the name.
++    NotInstalled,
++    /// Registered, not running.
++    Stopped,
++    Running,
++    /// Registered, but the tool's answer was not one this code recognises.
++    Unknown,
++}
++
++/// Why an install operation failed.
++#[derive(Debug)]
++pub enum InstallError {
++    /// The spec holds a value that cannot be written safely.
++    Invalid(String),
++    /// This manager cannot express the spec (for example environment entries in a task).
++    Unsupported(String),
++    /// The OS tool ran and refused.
++    Command {
++        program: String,
++        code: Option<i32>,
++        stderr: String,
++    },
++    Io(io::Error),
++}
++
++impl std::fmt::Display for InstallError {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            InstallError::Invalid(s) => write!(f, "invalid service spec: {s}"),
++            InstallError::Unsupported(s) => write!(f, "not supported by this manager: {s}"),
++            InstallError::Command {
++                program,
++                code,
++                stderr,
++            } => match code {
++                Some(c) => write!(f, "{program} failed with status {c}: {}", stderr.trim()),
++                None => write!(f, "{program} failed: {}", stderr.trim()),
++            },
++            InstallError::Io(e) => write!(f, "{e}"),
++        }
++    }
++}
++
++impl std::error::Error for InstallError {
++    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
++        match self {
++            InstallError::Io(e) => Some(e),
++            _ => None,
++        }
++    }
++}
++
++impl From<io::Error> for InstallError {
++    fn from(e: io::Error) -> Self {
++        InstallError::Io(e)
++    }
++}
++
++fn fs_error(e: rightkit_fs::FsError) -> InstallError {
++    InstallError::Io(io::Error::other(e.to_string()))
++}
++
++/// The result of one OS tool run.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct CommandOutput {
++    pub success: bool,
++    pub code: Option<i32>,
++    pub stdout: String,
++    pub stderr: String,
++}
++
++/// Runs the OS tool. The real one is [`SystemRunner`]; tests supply their own.
++pub trait CommandRunner: Send + Sync {
++    /// Run `program` with `args` and wait. `Err` only when the program could not be started.
++    fn run(&self, program: &str, args: &[String]) -> io::Result<CommandOutput>;
++}
++
++/// Runs the program for real, with no shell and no inherited stdin.
++#[derive(Debug, Clone, Copy, Default)]
++pub struct SystemRunner;
++
++impl CommandRunner for SystemRunner {
++    fn run(&self, program: &str, args: &[String]) -> io::Result<CommandOutput> {
++        let mut command = Command::new(program);
++        command
++            .args(args)
++            .stdin(std::process::Stdio::null())
++            .stdout(std::process::Stdio::piped())
++            .stderr(std::process::Stdio::piped());
++        #[cfg(windows)]
++        {
++            use std::os::windows::process::CommandExt;
++            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
++        }
++        let out = command.output()?;
++        Ok(CommandOutput {
++            success: out.status.success(),
++            code: out.status.code(),
++            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
++            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
++        })
++    }
++}
++
++/// Install, start, stop, query and remove one background program.
++pub trait ServiceManager {
++    /// Write the definition and register it. Starts at the next login (and, for launchd, now).
++    /// Installing again replaces the definition.
++    fn install(&self, spec: &ServiceSpec) -> Result<(), InstallError>;
++    fn start(&self, name: &str) -> Result<(), InstallError>;
++    fn stop(&self, name: &str) -> Result<(), InstallError>;
++    fn status(&self, name: &str) -> Result<InstallStatus, InstallError>;
++    /// Stop (best effort), unregister and delete the definition. A name that is not installed
++    /// is not an error.
++    fn uninstall(&self, name: &str) -> Result<(), InstallError>;
++}
++
++fn check_name(name: &str) -> Result<(), InstallError> {
++    ServiceSpec::new(name, if cfg!(windows) { "C:\\x" } else { "/x" }).validate()
++}
++
++fn run_ok(
++    runner: &dyn CommandRunner,
++    program: &str,
++    args: &[&str],
++) -> Result<CommandOutput, InstallError> {
++    let owned: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
++    let out = runner.run(program, &owned)?;
++    if out.success {
++        Ok(out)
++    } else {
++        Err(InstallError::Command {
++            program: program.to_string(),
++            code: out.code,
++            stderr: out.stderr,
++        })
++    }
++}
++
++// ---- systemd --user ------------------------------------------------------------------------
++
++/// Quote one word of a systemd command line or `Environment=` assignment.
++fn systemd_quote(word: &str) -> String {
++    let mut out = String::with_capacity(word.len() + 2);
++    out.push('"');
++    for c in word.chars() {
++        match c {
++            '\\' => out.push_str("\\\\"),
++            '"' => out.push_str("\\\""),
++            // A specifier and an environment expansion: written literally.
++            '%' => out.push_str("%%"),
++            '$' => out.push_str("$$"),
++            c => out.push(c),
++        }
++    }
++    out.push('"');
++    out
++}
++
++/// The `systemd` user unit text for `spec`.
++pub fn render_systemd_unit(spec: &ServiceSpec) -> Result<String, InstallError> {
++    spec.validate()?;
++    let mut unit = String::from("[Unit]\n");
++    let description = spec.description.as_deref().unwrap_or(&spec.name);
++    unit.push_str(&format!("Description={}\n\n", description.replace('%', "%%")));
++    unit.push_str("[Service]\nType=simple\n");
++    let mut words = vec![systemd_quote(&spec.exec.to_string_lossy())];
++    words.extend(spec.args.iter().map(|a| systemd_quote(a)));
++    unit.push_str(&format!("ExecStart={}\n", words.join(" ")));
++    let restart = match spec.restart {
++        RestartPolicy::Never => "no",
++        RestartPolicy::OnFailure => "on-failure",
++        RestartPolicy::Always => "always",
++    };
++    unit.push_str(&format!("Restart={restart}\n"));
++    if spec.restart != RestartPolicy::Never {
++        unit.push_str("RestartSec=5\n");
++    }
++    for (key, value) in &spec.env {
++        // The whole assignment is one quoted word: `Environment="KEY=value"`.
++        let assignment = format!("{key}={value}");
++        let quoted = systemd_quote(&assignment);
++        unit.push_str(&format!("Environment={quoted}\n"));
++    }
++    unit.push_str("\n[Install]\nWantedBy=default.target\n");
++    Ok(unit)
++}
++
++/// `systemd --user` (Linux). Units live in `unit_dir` (normally `~/.config/systemd/user`).
++pub struct SystemdUser<R: CommandRunner = SystemRunner> {
++    runner: R,
++    unit_dir: PathBuf,
++}
++
++impl<R: CommandRunner> SystemdUser<R> {
++    pub fn new(runner: R, unit_dir: impl Into<PathBuf>) -> Self {
++        Self {
++            runner,
++            unit_dir: unit_dir.into(),
++        }
++    }
++
++    fn unit_path(&self, name: &str) -> PathBuf {
++        self.unit_dir.join(format!("{name}.service"))
++    }
++
++    fn ctl(&self, args: &[&str]) -> Result<CommandOutput, InstallError> {
++        let mut all = vec!["--user"];
++        all.extend_from_slice(args);
++        run_ok(&self.runner, "systemctl", &all)
++    }
++}
++
++impl<R: CommandRunner> ServiceManager for SystemdUser<R> {
++    fn install(&self, spec: &ServiceSpec) -> Result<(), InstallError> {
++        let text = render_systemd_unit(spec)?;
++        std::fs::create_dir_all(&self.unit_dir)?;
++        rightkit_fs::write_private_text(&self.unit_path(&spec.name), &text).map_err(fs_error)?;
++        let unit = format!("{}.service", spec.name);
++        self.ctl(&["daemon-reload"])?;
++        self.ctl(&["enable", &unit])?;
++        Ok(())
++    }
++
++    fn start(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        self.ctl(&["start", &format!("{name}.service")]).map(|_| ())
++    }
++
++    fn stop(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        self.ctl(&["stop", &format!("{name}.service")]).map(|_| ())
++    }
++
++    fn status(&self, name: &str) -> Result<InstallStatus, InstallError> {
++        check_name(name)?;
++        if !self.unit_path(name).exists() {
++            return Ok(InstallStatus::NotInstalled);
++        }
++        // `is-active` exits non-zero for every state but `active`, so the words decide.
++        let out = self.runner.run(
++            "systemctl",
++            &[
++                "--user".to_string(),
++                "is-active".to_string(),
++                format!("{name}.service"),
++            ],
++        )?;
++        Ok(match out.stdout.trim() {
++            "active" | "activating" | "reloading" => InstallStatus::Running,
++            "inactive" | "failed" | "deactivating" => InstallStatus::Stopped,
++            _ => InstallStatus::Unknown,
++        })
++    }
++
++    fn uninstall(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        let unit = format!("{name}.service");
++        let path = self.unit_path(name);
++        if !path.exists() {
++            return Ok(());
++        }
++        let _ = self.ctl(&["stop", &unit]);
++        let _ = self.ctl(&["disable", &unit]);
++        std::fs::remove_file(&path)?;
++        self.ctl(&["daemon-reload"])?;
++        Ok(())
++    }
++}
++
++// ---- launchd ---------------------------------------------------------------------------------
++
++/// Escape text for an XML element.
++fn xml_escape(text: &str) -> String {
++    let mut out = String::with_capacity(text.len());
++    for c in text.chars() {
++        match c {
++            '&' => out.push_str("&amp;"),
++            '<' => out.push_str("&lt;"),
++            '>' => out.push_str("&gt;"),
++            '"' => out.push_str("&quot;"),
++            '\'' => out.push_str("&apos;"),
++            c => out.push(c),
++        }
++    }
++    out
++}
++
++/// The LaunchAgent property list for `spec` (the label is the spec's name).
++pub fn render_launch_agent_plist(spec: &ServiceSpec) -> Result<String, InstallError> {
++    spec.validate()?;
++    let mut p = String::new();
++    p.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
++    p.push_str("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
++    p.push_str("<plist version=\"1.0\">\n<dict>\n");
++    p.push_str(&format!(
++        "  <key>Label</key>\n  <string>{}</string>\n",
++        xml_escape(&spec.name)
++    ));
++    p.push_str("  <key>ProgramArguments</key>\n  <array>\n");
++    p.push_str(&format!(
++        "    <string>{}</string>\n",
++        xml_escape(&spec.exec.to_string_lossy())
++    ));
++    for arg in &spec.args {
++        p.push_str(&format!("    <string>{}</string>\n", xml_escape(arg)));
++    }
++    p.push_str("  </array>\n");
++    if !spec.env.is_empty() {
++        p.push_str("  <key>EnvironmentVariables</key>\n  <dict>\n");
++        for (key, value) in &spec.env {
++            p.push_str(&format!(
++                "    <key>{}</key>\n    <string>{}</string>\n",
++                xml_escape(key),
++                xml_escape(value)
++            ));
++        }
++        p.push_str("  </dict>\n");
++    }
++    p.push_str("  <key>RunAtLoad</key>\n  <true/>\n");
++    match spec.restart {
++        RestartPolicy::Never => {}
++        RestartPolicy::OnFailure => p.push_str(
++            "  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n",
++        ),
++        RestartPolicy::Always => p.push_str("  <key>KeepAlive</key>\n  <true/>\n"),
++    }
++    p.push_str("</dict>\n</plist>\n");
++    Ok(p)
++}
++
++/// A launchd LaunchAgent (macOS). Property lists live in `agents_dir` (normally
++/// `~/Library/LaunchAgents`); `uid` is the user's id, for the `gui/<uid>` domain.
++pub struct LaunchAgent<R: CommandRunner = SystemRunner> {
++    runner: R,
++    agents_dir: PathBuf,
++    uid: u32,
++}
++
++impl<R: CommandRunner> LaunchAgent<R> {
++    pub fn new(runner: R, agents_dir: impl Into<PathBuf>, uid: u32) -> Self {
++        Self {
++            runner,
++            agents_dir: agents_dir.into(),
++            uid,
++        }
++    }
++
++    fn plist_path(&self, label: &str) -> PathBuf {
++        self.agents_dir.join(format!("{label}.plist"))
++    }
++
++    fn domain(&self) -> String {
++        format!("gui/{}", self.uid)
++    }
++
++    fn target(&self, label: &str) -> String {
++        format!("gui/{}/{label}", self.uid)
++    }
++}
++
++impl<R: CommandRunner> ServiceManager for LaunchAgent<R> {
++    fn install(&self, spec: &ServiceSpec) -> Result<(), InstallError> {
++        let text = render_launch_agent_plist(spec)?;
++        std::fs::create_dir_all(&self.agents_dir)?;
++        let path = self.plist_path(&spec.name);
++        // Replace a loaded definition: unload the old one first (it may not be loaded).
++        let _ = run_ok(
++            &self.runner,
++            "launchctl",
++            &["bootout", &self.target(&spec.name)],
++        );
++        rightkit_fs::write_private_text(&path, &text).map_err(fs_error)?;
++        run_ok(
++            &self.runner,
++            "launchctl",
++            &["bootstrap", &self.domain(), &path.to_string_lossy()],
++        )?;
++        Ok(())
++    }
++
++    fn start(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        let path = self.plist_path(name);
++        // Already loaded is fine: the kickstart below is what starts it.
++        let _ = run_ok(
++            &self.runner,
++            "launchctl",
++            &["bootstrap", &self.domain(), &path.to_string_lossy()],
++        );
++        run_ok(
++            &self.runner,
++            "launchctl",
++            &["kickstart", &self.target(name)],
++        )
++        .map(|_| ())
++    }
++
++    fn stop(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        // `bootout` unloads the job, which ends it and stops KeepAlive from restarting it.
++        run_ok(&self.runner, "launchctl", &["bootout", &self.target(name)]).map(|_| ())
++    }
++
++    fn status(&self, name: &str) -> Result<InstallStatus, InstallError> {
++        check_name(name)?;
++        let out = self.runner.run(
++            "launchctl",
++            &["print".to_string(), self.target(name)],
++        )?;
++        if out.success {
++            let running = out.stdout.lines().any(|l| l.trim() == "state = running");
++            return Ok(if running {
++                InstallStatus::Running
++            } else {
++                InstallStatus::Stopped
++            });
++        }
++        Ok(if self.plist_path(name).exists() {
++            InstallStatus::Stopped
++        } else {
++            InstallStatus::NotInstalled
++        })
++    }
++
++    fn uninstall(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        let _ = run_ok(&self.runner, "launchctl", &["bootout", &self.target(name)]);
++        match std::fs::remove_file(self.plist_path(name)) {
++            Ok(()) => Ok(()),
++            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
++            Err(e) => Err(e.into()),
++        }
++    }
++}
++
++// ---- Windows Task Scheduler ---------------------------------------------------------------------
++
++/// Quote one argument of a Windows command line (the `CommandLineToArgvW` rules).
++pub fn windows_quote_arg(arg: &str) -> String {
++    if !arg.is_empty() && !arg.chars().any(|c| matches!(c, ' ' | '\t' | '"')) {
++        return arg.to_string();
++    }
++    let mut out = String::from("\"");
++    let mut backslashes = 0usize;
++    for c in arg.chars() {
++        match c {
++            '\\' => backslashes += 1,
++            '"' => {
++                // Backslashes before a quote are doubled, and the quote is escaped.
++                out.push_str(&"\\".repeat(backslashes * 2 + 1));
++                out.push('"');
++                backslashes = 0;
++            }
++            c => {
++                out.push_str(&"\\".repeat(backslashes));
++                backslashes = 0;
++                out.push(c);
++            }
++        }
++    }
++    // Backslashes before the closing quote are doubled.
++    out.push_str(&"\\".repeat(backslashes * 2));
++    out.push('"');
++    out
++}
++
++/// The Task Scheduler XML for `spec`: a logon trigger for the creating user, least privilege, one
++/// instance, no time limit, and a restart on failure when the policy asks for one. Environment
++/// entries are refused ([`InstallError::Unsupported`]).
++pub fn render_task_xml(spec: &ServiceSpec) -> Result<String, InstallError> {
++    spec.validate()?;
++    if !spec.env.is_empty() {
++        return Err(InstallError::Unsupported(
++            "a scheduled task has no environment; set it inside the program".into(),
++        ));
++    }
++    let arguments = spec
++        .args
++        .iter()
++        .map(|a| windows_quote_arg(a))
++        .collect::<Vec<_>>()
++        .join(" ");
++    let mut x = String::new();
++    x.push_str("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n");
++    x.push_str("<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n");
++    x.push_str("  <RegistrationInfo>\n");
++    x.push_str(&format!(
++        "    <Description>{}</Description>\n",
++        xml_escape(spec.description.as_deref().unwrap_or(&spec.name))
++    ));
++    x.push_str("  </RegistrationInfo>\n");
++    x.push_str("  <Triggers>\n    <LogonTrigger>\n      <Enabled>true</Enabled>\n    </LogonTrigger>\n  </Triggers>\n");
++    x.push_str("  <Principals>\n    <Principal id=\"Author\">\n      <LogonType>InteractiveToken</LogonType>\n      <RunLevel>LeastPrivilege</RunLevel>\n    </Principal>\n  </Principals>\n");
++    x.push_str("  <Settings>\n");
++    x.push_str("    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n");
++    x.push_str("    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n");
++    x.push_str("    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n");
++    x.push_str("    <StartWhenAvailable>true</StartWhenAvailable>\n");
++    x.push_str("    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\n");
++    x.push_str("    <Enabled>true</Enabled>\n");
++    if spec.restart != RestartPolicy::Never {
++        x.push_str("    <RestartOnFailure>\n      <Interval>PT1M</Interval>\n      <Count>999</Count>\n    </RestartOnFailure>\n");
++    }
++    x.push_str("  </Settings>\n");
++    x.push_str("  <Actions Context=\"Author\">\n    <Exec>\n");
++    x.push_str(&format!(
++        "      <Command>{}</Command>\n",
++        xml_escape(&spec.exec.to_string_lossy())
++    ));
++    if !arguments.is_empty() {
++        x.push_str(&format!("      <Arguments>{}</Arguments>\n", xml_escape(&arguments)));
++    }
++    x.push_str("    </Exec>\n  </Actions>\n</Task>\n");
++    Ok(x)
++}
++
++/// The task XML as UTF-16 little endian with a byte-order mark, the encoding `schtasks /XML`
++/// accepts on every Windows version.
++pub fn task_xml_utf16(xml: &str) -> Vec<u8> {
++    let mut bytes = vec![0xFF, 0xFE];
++    for unit in xml.encode_utf16() {
++        bytes.extend_from_slice(&unit.to_le_bytes());
++    }
++    bytes
++}
++
++/// A Task Scheduler task (Windows) that starts at logon. `work_dir` is a directory private to the
++/// app, where the task XML is written before it is registered.
++pub struct ScheduledTask<R: CommandRunner = SystemRunner> {
++    runner: R,
++    work_dir: PathBuf,
++}
++
++impl<R: CommandRunner> ScheduledTask<R> {
++    pub fn new(runner: R, work_dir: impl Into<PathBuf>) -> Self {
++        Self {
++            runner,
++            work_dir: work_dir.into(),
++        }
++    }
++
++    fn xml_path(&self, name: &str) -> PathBuf {
++        self.work_dir.join(format!("{name}.task.xml"))
++    }
++}
++
++impl<R: CommandRunner> ServiceManager for ScheduledTask<R> {
++    fn install(&self, spec: &ServiceSpec) -> Result<(), InstallError> {
++        let xml = render_task_xml(spec)?;
++        rightkit_fs::ensure_private_dir(&self.work_dir).map_err(fs_error)?;
++        let path = self.xml_path(&spec.name);
++        rightkit_fs::write_private_file(&path, &task_xml_utf16(&xml)).map_err(fs_error)?;
++        run_ok(
++            &self.runner,
++            "schtasks",
++            &["/Create", "/TN", &spec.name, "/XML", &path.to_string_lossy(), "/F"],
++        )?;
++        Ok(())
++    }
++
++    fn start(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        run_ok(&self.runner, "schtasks", &["/Run", "/TN", name]).map(|_| ())
++    }
++
++    fn stop(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        run_ok(&self.runner, "schtasks", &["/End", "/TN", name]).map(|_| ())
++    }
++
++    fn status(&self, name: &str) -> Result<InstallStatus, InstallError> {
++        check_name(name)?;
++        let out = self.runner.run(
++            "schtasks",
++            &[
++                "/Query".to_string(),
++                "/TN".to_string(),
++                name.to_string(),
++                "/FO".to_string(),
++                "CSV".to_string(),
++                "/NH".to_string(),
++            ],
++        )?;
++        if !out.success {
++            return Ok(InstallStatus::NotInstalled);
++        }
++        // `"\name","next run","Status"`: the last CSV field is the (localised) status word.
++        let line = out.stdout.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
++        let status = line
++            .trim()
++            .trim_end_matches('"')
++            .rsplit("\",\"")
++            .next()
++            .unwrap_or("");
++        Ok(match status {
++            "Running" => InstallStatus::Running,
++            "Ready" | "Disabled" => InstallStatus::Stopped,
++            _ => InstallStatus::Unknown,
++        })
++    }
++
++    fn uninstall(&self, name: &str) -> Result<(), InstallError> {
++        check_name(name)?;
++        let _ = run_ok(&self.runner, "schtasks", &["/End", "/TN", name]);
++        let query = self.status(name)?;
++        if query != InstallStatus::NotInstalled {
++            run_ok(&self.runner, "schtasks", &["/Delete", "/TN", name, "/F"])?;
++        }
++        match std::fs::remove_file(self.xml_path(name)) {
++            Ok(()) => Ok(()),
++            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
++            Err(e) => Err(e.into()),
++        }
++    }
++}
++
++/// The manager of this platform, using the real OS tools: `systemd --user` on Linux, a LaunchAgent
++/// on macOS, a scheduled task on Windows. `work_dir` is a directory private to the app (used for
++/// the Windows task XML; ignored elsewhere). `None` on other platforms, or where the home
++/// directory cannot be read from the account database.
++pub fn platform_manager(work_dir: &Path) -> Option<Box<dyn ServiceManager>> {
++    #[cfg(target_os = "linux")]
++    {
++        let _ = work_dir;
++        let home = crate::suite::passwd_home_dir().ok()?;
++        Some(Box::new(SystemdUser::new(
++            SystemRunner,
++            home.join(".config").join("systemd").join("user"),
++        )))
++    }
++    #[cfg(target_os = "macos")]
++    {
++        let _ = work_dir;
++        let home = crate::suite::passwd_home_dir().ok()?;
++        Some(Box::new(LaunchAgent::new(
++            SystemRunner,
++            home.join("Library").join("LaunchAgents"),
++            crate::transport::current_uid(),
++        )))
++    }
++    #[cfg(windows)]
++    {
++        Some(Box::new(ScheduledTask::new(SystemRunner, work_dir)))
++    }
++    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
++    {
++        let _ = work_dir;
++        None
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Mutex;
++
++    /// Records every command; answers from a queue, then with success and empty output.
++    #[derive(Default)]
++    struct Mock {
++        calls: Mutex<Vec<String>>,
++        answers: Mutex<Vec<CommandOutput>>,
++    }
++
++    impl Mock {
++        fn answering(answers: Vec<CommandOutput>) -> Self {
++            Self {
++                calls: Mutex::new(Vec::new()),
++                answers: Mutex::new(answers),
++            }
++        }
++        fn calls(&self) -> Vec<String> {
++            self.calls.lock().unwrap().clone()
++        }
++    }
++
++    impl CommandRunner for &Mock {
++        fn run(&self, program: &str, args: &[String]) -> io::Result<CommandOutput> {
++            self.calls
++                .lock()
++                .unwrap()
++                .push(format!("{program} {}", args.join(" ")));
++            let mut answers = self.answers.lock().unwrap();
++            Ok(if answers.is_empty() {
++                CommandOutput {
++                    success: true,
++                    ..CommandOutput::default()
++                }
++            } else {
++                answers.remove(0)
++            })
++        }
++    }
++
++    fn out(success: bool, stdout: &str) -> CommandOutput {
++        CommandOutput {
++            success,
++            code: Some(if success { 0 } else { 1 }),
++            stdout: stdout.to_string(),
++            stderr: String::new(),
++        }
++    }
++
++    fn abs(p: &str) -> PathBuf {
++        if cfg!(windows) {
++            PathBuf::from(format!("C:\\{p}"))
++        } else {
++            PathBuf::from(format!("/{p}"))
++        }
++    }
++
++    fn spec() -> ServiceSpec {
++        ServiceSpec::new("com.example.agent", abs("opt/agent"))
++            .args(["--serve", "a b"])
++            .description("Example agent")
++    }
++
++    #[test]
++    fn a_spec_with_an_unsafe_value_is_refused() {
++        let long = "n".repeat(65);
++        for bad in ["", ".hidden", "a b", "../x", "x/y", long.as_str()] {
++            let s = ServiceSpec::new(bad, abs("x"));
++            assert!(matches!(s.validate(), Err(InstallError::Invalid(_))), "{bad:?}");
++        }
++        assert!(ServiceSpec::new("ok", "relative/path").validate().is_err());
++        assert!(spec().args(["bad\nline"]).validate().is_err());
++        assert!(spec().env("1BAD", "v").validate().is_err());
++        assert!(spec().env("K", "v\r").validate().is_err());
++        assert!(spec().description("two\nlines").validate().is_err());
++        assert!(spec().env("GOOD_1", "v").validate().is_ok());
++    }
++
++    #[test]
++    fn a_systemd_unit_quotes_words_and_escapes_specifiers() {
++        let s = ServiceSpec::new("svc", abs("opt/my app"))
++            .args(["--name=\"x\"", "100%", "$HOME", "a\\b"])
++            .env("MODE", "a b")
++            .restart(RestartPolicy::Always);
++        let unit = render_systemd_unit(&s).unwrap();
++        let exec = unit.lines().find(|l| l.starts_with("ExecStart=")).unwrap();
++        assert!(exec.contains("\"--name=\\\"x\\\"\""));
++        assert!(exec.contains("\"100%%\""));
++        assert!(exec.contains("\"$$HOME\""));
++        assert!(exec.contains("\"a\\\\b\""));
++        assert!(unit.contains("Restart=always\n"));
++        assert!(unit.contains("Environment=\"MODE=a b\"\n"));
++        assert!(unit.contains("WantedBy=default.target"));
++        let never = render_systemd_unit(&s.restart(RestartPolicy::Never)).unwrap();
++        assert!(never.contains("Restart=no\n") && !never.contains("RestartSec"));
++    }
++
++    #[test]
++    fn a_launch_agent_plist_escapes_xml_and_sets_keep_alive() {
++        let s = ServiceSpec::new("com.example.agent", abs("opt/a&b"))
++            .args(["<arg>"])
++            .env("K", "\"v\"");
++        let plist = render_launch_agent_plist(&s).unwrap();
++        assert!(plist.contains("a&amp;b"));
++        assert!(plist.contains("<string>&lt;arg&gt;</string>"));
++        assert!(plist.contains("<string>&quot;v&quot;</string>"));
++        assert!(plist.contains("<key>SuccessfulExit</key>"));
++        let always = render_launch_agent_plist(&s.restart(RestartPolicy::Always)).unwrap();
++        assert!(always.contains("<key>KeepAlive</key>\n  <true/>"));
++    }
++
++    #[test]
++    fn a_task_xml_refuses_an_environment_and_quotes_the_command_line() {
++        assert!(matches!(
++            render_task_xml(&spec().env("K", "v")),
++            Err(InstallError::Unsupported(_))
++        ));
++        let xml = render_task_xml(&spec()).unwrap();
++        assert!(xml.contains("<Arguments>--serve &quot;a b&quot;</Arguments>"));
++        assert!(xml.contains("<LogonTrigger>"));
++        assert!(xml.contains("<RestartOnFailure>"));
++        assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
++        let never = render_task_xml(&spec().restart(RestartPolicy::Never)).unwrap();
++        assert!(!never.contains("RestartOnFailure"));
++        let bytes = task_xml_utf16(&xml);
++        assert_eq!(&bytes[..2], &[0xFF, 0xFE]);
++        assert_eq!(bytes.len(), 2 + xml.encode_utf16().count() * 2);
++    }
++
++    #[test]
++    fn windows_arguments_are_quoted_by_the_command_line_rules() {
++        assert_eq!(windows_quote_arg("plain"), "plain");
++        assert_eq!(windows_quote_arg(""), "\"\"");
++        assert_eq!(windows_quote_arg("a b"), "\"a b\"");
++        assert_eq!(windows_quote_arg("say \"hi\""), "\"say \\\"hi\\\"\"");
++        assert_eq!(windows_quote_arg("C:\\dir with\\"), "\"C:\\dir with\\\\\"");
++        assert_eq!(windows_quote_arg("a\\\"b"), "\"a\\\\\\\"b\"");
++    }
++
++    #[test]
++    fn systemd_install_writes_the_unit_and_registers_it() {
++        let dir = tempfile::tempdir().unwrap();
++        let mock = Mock::default();
++        let m = SystemdUser::new(&mock, dir.path().join("units"));
++        m.install(&spec()).unwrap();
++        assert!(dir.path().join("units/com.example.agent.service").exists());
++        assert_eq!(
++            mock.calls(),
++            vec![
++                "systemctl --user daemon-reload",
++                "systemctl --user enable com.example.agent.service"
++            ]
++        );
++    }
++
++    #[test]
++    fn systemd_status_reads_the_state_word_and_uninstall_removes_the_unit() {
++        let dir = tempfile::tempdir().unwrap();
++        let mock = Mock::default();
++        let m = SystemdUser::new(&mock, dir.path());
++        assert_eq!(m.status("svc").unwrap(), InstallStatus::NotInstalled);
++        m.uninstall("svc").unwrap();
++        m.install(&ServiceSpec::new("svc", abs("x"))).unwrap();
++        *mock.answers.lock().unwrap() = vec![out(true, "active\n"), out(false, "inactive\n"), out(false, "weird\n")];
++        assert_eq!(m.status("svc").unwrap(), InstallStatus::Running);
++        assert_eq!(m.status("svc").unwrap(), InstallStatus::Stopped);
++        assert_eq!(m.status("svc").unwrap(), InstallStatus::Unknown);
++        m.uninstall("svc").unwrap();
++        assert!(!dir.path().join("svc.service").exists());
++        assert_eq!(m.status("svc").unwrap(), InstallStatus::NotInstalled);
++        assert!(m.start("../x").is_err());
++    }
++
++    #[test]
++    fn launchd_install_bootstraps_and_status_reads_the_state_line() {
++        let dir = tempfile::tempdir().unwrap();
++        let mock = Mock::default();
++        let m = LaunchAgent::new(&mock, dir.path(), 501);
++        m.install(&spec()).unwrap();
++        let calls = mock.calls();
++        assert_eq!(calls[0], "launchctl bootout gui/501/com.example.agent");
++        assert!(calls[1].starts_with("launchctl bootstrap gui/501 "));
++        assert!(dir.path().join("com.example.agent.plist").exists());
++        *mock.answers.lock().unwrap() = vec![out(true, "x = y\n\tstate = running\n")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::Running);
++        *mock.answers.lock().unwrap() = vec![out(false, "")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::Stopped);
++        m.uninstall("com.example.agent").unwrap();
++        *mock.answers.lock().unwrap() = vec![out(false, "")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::NotInstalled);
++    }
++
++    #[test]
++    fn a_task_is_registered_from_an_xml_file_and_status_reads_the_csv() {
++        let dir = tempfile::tempdir().unwrap();
++        let mock = Mock::default();
++        let m = ScheduledTask::new(&mock, dir.path().join("tasks"));
++        m.install(&spec()).unwrap();
++        let calls = mock.calls();
++        assert!(calls[0].starts_with("schtasks /Create /TN com.example.agent /XML "));
++        assert!(calls[0].ends_with(" /F"));
++        assert!(dir.path().join("tasks/com.example.agent.task.xml").exists());
++        *mock.answers.lock().unwrap() = vec![out(true, "\"\\com.example.agent\",\"N/A\",\"Running\"\r\n")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::Running);
++        *mock.answers.lock().unwrap() = vec![out(true, "\"\\com.example.agent\",\"N/A\",\"Ready\"\r\n")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::Stopped);
++        *mock.answers.lock().unwrap() = vec![out(true, "\"\\com.example.agent\",\"N/A\",\"Bereit\"\r\n")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::Unknown);
++        *mock.answers.lock().unwrap() = vec![out(false, "")];
++        assert_eq!(m.status("com.example.agent").unwrap(), InstallStatus::NotInstalled);
++        m.uninstall("com.example.agent").unwrap();
++        assert!(!dir.path().join("tasks/com.example.agent.task.xml").exists());
++    }
++
++    #[test]
++    fn a_refused_command_is_an_error_with_its_stderr() {
++        let dir = tempfile::tempdir().unwrap();
++        let mock = Mock::answering(vec![CommandOutput {
++            success: false,
++            code: Some(5),
++            stdout: String::new(),
++            stderr: "denied\n".into(),
++        }]);
++        let m = SystemdUser::new(&mock, dir.path());
++        let err = m.install(&ServiceSpec::new("svc", abs("x"))).unwrap_err();
++        assert!(matches!(err, InstallError::Command { code: Some(5), .. }));
++        assert!(err.to_string().contains("denied"));
++    }
++}
+diff --git a/crates/rightkit-daemon/src/lib.rs b/crates/rightkit-daemon/src/lib.rs
+index 7d35041..7fe3128 100644
+--- a/crates/rightkit-daemon/src/lib.rs
++++ b/crates/rightkit-daemon/src/lib.rs
+@@ -50,8 +50,9 @@ mod client;
+ pub mod contract;
+ mod discovery;
+ mod error;
+-mod fail_limit;
++pub mod fail_limit;
+ mod host_identity;
++pub mod install;
+ #[cfg(feature = "link")]
+ pub mod link;
+ pub mod mode;
+@@ -71,8 +72,10 @@ pub mod supervisor;
+ mod takeover_watch;
+ pub mod ticker;
+ mod transport;
++pub mod wake;
+ 
+ pub use client::{Client, ClientConfig, RetryPolicy, DEFAULT_DEADLINE};
++pub use fail_limit::FailLimiter;
+ pub use discovery::{
+     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
+     discover_windows, discover_windows_with, parse_plist_string, parse_reg_query, plan_host,
+@@ -104,7 +107,7 @@ pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason,
+ pub use peer::verify_peer_is_current_user;
+ #[cfg(windows)]
+ pub use peer::{
+-    owner_only_security_attributes, verify_pipe_peer_is_current_user,
++    current_user_sid_string, owner_only_security_attributes, verify_pipe_peer_is_current_user,
+     verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
+ };
+ pub use peer::{PeerError, PeerIdentity};
+diff --git a/crates/rightkit-daemon/src/peer.rs b/crates/rightkit-daemon/src/peer.rs
+index fad0146..54a69cc 100644
+--- a/crates/rightkit-daemon/src/peer.rs
++++ b/crates/rightkit-daemon/src/peer.rs
+@@ -421,8 +421,9 @@ mod win {
+         }
+     }
+ 
+-    /// The SID string of the user running this process.
+-    pub(crate) fn current_user_sid_string() -> io::Result<String> {
++    /// The SID string of the user running this process (`S-1-5-21-...`), from the process
++    /// token. Apps use it to name a per-user pipe or to build their own owner-only descriptor.
++    pub fn current_user_sid_string() -> io::Result<String> {
+         unsafe {
+             let mut tok = HANDLE::default();
+             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok).map_err(win_err)?;
+@@ -579,11 +580,9 @@ mod win {
+     }
+ }
+ 
+-#[cfg(all(windows, test))]
+-pub(crate) use win::current_user_sid_string;
+ #[cfg(windows)]
+ pub use win::{
+-    owner_only_security_attributes, verify_pipe_peer_is_current_user,
++    current_user_sid_string, owner_only_security_attributes, verify_pipe_peer_is_current_user,
+     verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
+ };
+ 
+diff --git a/crates/rightkit-daemon/src/remote/core.rs b/crates/rightkit-daemon/src/remote/core.rs
+index a555d76..dab7b2f 100644
+--- a/crates/rightkit-daemon/src/remote/core.rs
++++ b/crates/rightkit-daemon/src/remote/core.rs
+@@ -82,6 +82,25 @@ impl Response {
+         self.headers.push((k.into(), v.into()));
+         self
+     }
++
++    /// A response with a JSON `body` (`Value::Null` = empty body), for a public route handler
++    /// (issue #377).
++    pub fn json(status: u16, body: Value) -> Self {
++        Self::new(status, body)
++    }
++
++    /// An empty-body redirect to `location` with `status` (301, 302, 303, 307 or 308), for a
++    /// public route handler such as a short-link redirect. The caller validates `location`: a
++    /// redirect to a value taken from the request is an open redirect.
++    pub fn redirect(status: u16, location: &str) -> Self {
++        Self::new(status, Value::Null).header("location", location)
++    }
++
++    /// This response with one more header.
++    #[must_use]
++    pub fn with_header(self, name: &str, value: impl Into<String>) -> Self {
++        self.header(name, value)
++    }
+ }
+ 
+ /// Outcome of delegating an OAuth callback.
+diff --git a/crates/rightkit-daemon/src/stop.rs b/crates/rightkit-daemon/src/stop.rs
+index 5b1e840..de42d4e 100644
+--- a/crates/rightkit-daemon/src/stop.rs
++++ b/crates/rightkit-daemon/src/stop.rs
+@@ -11,6 +11,15 @@
+ //!
+ //! Stdin: [`stop_on_stdin_close`] triggers the source when stdin reaches end of file (see
+ //! [`crate::private::watch_stdin_eof`]).
++//!
++//! Parent: [`stop_on_parent_exit`] triggers the source when a named process (normally the parent
++//! that started this one) is gone. It polls every 200 ms, and a recycled process id is not taken
++//! for the parent because the OS start marker is compared too. The cause is reported as
++//! [`StopCause::Requested`] so the existing `StopCause` stays exhaustive for callers.
++//!
++//! Exit hook: [`at_exit`] runs a closure when the process ends normally (`main` returns or
++//! `std::process::exit`), for a last log line. It does not run on a signal that is not handled,
++//! on `abort`, or on a crash.
+ 
+ use std::io;
+ use std::sync::{Arc, Condvar, Mutex};
+@@ -179,6 +188,117 @@ pub fn stop_on_stdin_close(source: &StopSource) -> JoinHandle<()> {
+     })
+ }
+ 
++/// Trigger `source` (cause [`StopCause::Requested`]) once process `parent_pid` is gone. Polls every
++/// 200 ms and ends when the source is stopped by any input. A pid of 0 is refused
++/// (`InvalidInput`). A process that is already gone triggers on the first poll. Take the pid
++/// from [`parent_pid`] (Unix) or from an argument the parent passed.
++pub fn stop_on_parent_exit(source: &StopSource, parent_pid: u32) -> io::Result<JoinHandle<()>> {
++    if parent_pid == 0 {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "the parent process id is 0",
++        ));
++    }
++    let marker = crate::host_identity::process_start_marker(parent_pid);
++    let source = source.clone();
++    std::thread::Builder::new()
++        .name("rk-stop-parent".into())
++        .spawn(move || {
++            let token = source.token();
++            loop {
++                if token.wait(PARENT_POLL).is_some() {
++                    break;
++                }
++                if !parent_is_running(parent_pid, marker) {
++                    source.trigger(StopCause::Requested);
++                    break;
++                }
++            }
++        })
++}
++
++const PARENT_POLL: Duration = Duration::from_millis(200);
++
++/// True while `pid` runs and, when its start marker was known, is still the same process.
++fn parent_is_running(pid: u32, marker: Option<(u64, u64)>) -> bool {
++    if !crate::transport::pid_alive(pid) {
++        return false;
++    }
++    match (marker, crate::host_identity::process_start_marker(pid)) {
++        (Some(before), Some(now)) => before == now,
++        // Either side unreadable: alive is the best answer there is.
++        _ => true,
++    }
++}
++
++/// The process id of this process's parent, where the OS reports it (Unix `getppid`). `None` on
++/// other platforms. After the parent exits, Unix reparents the process, so the value then names
++/// the new parent (usually 1): read it once at startup and pass it to [`stop_on_parent_exit`].
++pub fn parent_pid() -> Option<u32> {
++    #[cfg(unix)]
++    {
++        extern "C" {
++            fn getppid() -> i32;
++        }
++        // SAFETY: `getppid` takes no arguments and cannot fail.
++        let pid = unsafe { getppid() };
++        u32::try_from(pid).ok().filter(|p| *p != 0)
++    }
++    #[cfg(not(unix))]
++    {
++        None
++    }
++}
++
++type ExitHook = Box<dyn FnOnce() + Send>;
++
++static EXIT_HOOKS: Mutex<Vec<ExitHook>> = Mutex::new(Vec::new());
++static EXIT_REGISTERED: std::sync::Once = std::sync::Once::new();
++
++extern "C" fn run_exit_hooks() {
++    // Last registered runs first, like `atexit`. A panicking hook must not unwind out of an
++    // `extern "C"` function, and must not stop the others.
++    loop {
++        let hook = EXIT_HOOKS
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .pop();
++        match hook {
++            Some(hook) => {
++                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(hook));
++            }
++            None => break,
++        }
++    }
++}
++
++extern "C" {
++    fn atexit(callback: extern "C" fn()) -> i32;
++}
++
++/// Run `hook` once when the process ends normally: `main` returned or `std::process::exit` was
++/// called. Hooks run last-registered first, on the exiting thread, each at most once. Keep them
++/// short and do not start threads or wait on other threads. A hook does not run if the process is
++/// killed, aborts or crashes, or ends on a signal that has no handler; pair it with
++/// [`stop_on_signals`] so an interrupt takes the normal exit path.
++pub fn at_exit(hook: impl FnOnce() + Send + 'static) -> io::Result<()> {
++    EXIT_HOOKS
++        .lock()
++        .unwrap_or_else(|e| e.into_inner())
++        .push(Box::new(hook));
++    let mut registered = true;
++    EXIT_REGISTERED.call_once(|| {
++        // SAFETY: `atexit` is the C library function; the callback is an `extern "C"` function
++        // that never unwinds.
++        registered = unsafe { atexit(run_exit_hooks) } == 0;
++    });
++    if registered {
++        Ok(())
++    } else {
++        Err(io::Error::other("the C library refused to register an exit hook"))
++    }
++}
++
+ #[cfg(unix)]
+ fn install_os_handlers() -> io::Result<()> {
+     for sig in [SIGINT, SIGTERM] {
+@@ -248,6 +368,50 @@ mod tests {
+         assert_eq!(source.token().cause(), Some(StopCause::Terminate));
+     }
+ 
++    #[test]
++    fn a_parent_pid_of_zero_is_refused() {
++        let err = stop_on_parent_exit(&StopSource::new(), 0).unwrap_err();
++        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
++    }
++
++    #[test]
++    fn a_running_parent_does_not_stop_and_a_stopped_source_ends_the_watcher() {
++        let source = StopSource::new();
++        // This test process is alive for the whole test.
++        let watcher = stop_on_parent_exit(&source, std::process::id()).unwrap();
++        assert_eq!(source.token().wait(Duration::from_millis(450)), None);
++        source.trigger(StopCause::Requested);
++        watcher.join().unwrap();
++    }
++
++    #[test]
++    fn an_exited_parent_triggers_the_stop() {
++        let mut command = if cfg!(windows) {
++            let mut c = std::process::Command::new("cmd");
++            c.args(["/C", "exit 0"]);
++            c
++        } else {
++            std::process::Command::new("true")
++        };
++        let mut child = command.spawn().unwrap();
++        let pid = child.id();
++        child.wait().unwrap();
++        let source = StopSource::new();
++        let watcher = stop_on_parent_exit(&source, pid).unwrap();
++        assert_eq!(
++            source.token().wait(Duration::from_secs(5)),
++            Some(StopCause::Requested)
++        );
++        watcher.join().unwrap();
++    }
++
++    #[test]
++    fn a_hook_registered_at_exit_is_accepted() {
++        // The hook runs when the test process ends; here only the registration is checked.
++        at_exit(|| {}).unwrap();
++        at_exit(|| {}).unwrap();
++    }
++
+     #[test]
+     fn a_wait_times_out_until_triggered() {
+         let source = StopSource::new();
+diff --git a/crates/rightkit-daemon/src/suite.rs b/crates/rightkit-daemon/src/suite.rs
+index 1ac9542..55d98a5 100644
+--- a/crates/rightkit-daemon/src/suite.rs
++++ b/crates/rightkit-daemon/src/suite.rs
+@@ -474,8 +474,10 @@ pub fn valid_service_name(s: &str) -> bool {
+             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+ }
+ 
+-/// Create `dir` (and parents) and make the leaf owner-only (0700 on Unix;
+-/// Windows ACLs inherit from the per-user profile).
++/// Create `dir` (and parents) and make the leaf owner-only: 0700 on Unix, and on Windows the
++/// protected owner-only DACL of `rightkit_fs::restrict_owner_only`, so
++/// `rightkit_fs::private::is_owner_only` agrees (issue #676). Failing to harden is an error, never
++/// a directory left open.
+ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
+     std::fs::create_dir_all(dir)?;
+     #[cfg(unix)]
+@@ -492,6 +494,15 @@ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
+             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+         }
+     }
++    #[cfg(windows)]
++    {
++        rightkit_fs::restrict_owner_only(dir).map_err(|e| {
++            SuiteError::Insecure(format!(
++                "{} could not be made owner-only: {e}",
++                dir.display()
++            ))
++        })?;
++    }
+     Ok(())
+ }
+ 
+@@ -521,6 +532,15 @@ mod tests {
+         }
+     }
+ 
++    #[cfg(windows)]
++    #[test]
++    fn a_private_service_subdir_is_owner_only_for_rightkit_fs_on_windows() {
++        let dir = tempfile::tempdir().unwrap();
++        let suite = Suite::at(dir.path()).unwrap();
++        let sub = suite.private_service_subdir("svc", "store").unwrap();
++        assert!(rightkit_fs::private::is_owner_only(&sub).unwrap());
++    }
++
+     #[cfg(any(target_os = "macos", target_os = "linux"))]
+     #[test]
+     fn the_per_user_default_comes_from_the_account_database_under_orthic_labs_shared() {
+diff --git a/crates/rightkit-daemon/src/supervisor.rs b/crates/rightkit-daemon/src/supervisor.rs
+index 98bc677..93f3a0e 100644
+--- a/crates/rightkit-daemon/src/supervisor.rs
++++ b/crates/rightkit-daemon/src/supervisor.rs
+@@ -29,7 +29,16 @@
+ //! * The probe runs on the supervisor thread and may block as long as its own deadline; give it a
+ //!   short one ([`ping_probe`] takes the bound as an argument).
+ //! * The child is created, probed and stopped on the supervisor thread only; the launch closure is
+-//!   the one thing that crosses to it.
++//!   the one thing that crosses to it. A child the caller already started crosses to it too:
++//!   [`supervise_with`] adopts it (issue #767).
++//! * An adopted child is trusted as given: verify it (for example with
++//!   [`Client::connect_expecting`]) before handing it over. The first poll treats it like any other
++//!   generation, so a child that never answers is still stopped and relaunched.
++//! * [`SupervisorHandle::stop_returning_child`] ends the supervisor without killing the running
++//!   child and hands it back, for a caller that shuts its children down in its own order.
++//! * A restart that must start the child differently (for example a locked or unlocked state)
++//!   goes through [`SupervisorMode`]: the launch closure reads the mode, and
++//!   [`SupervisorHandle::restart_with_mode`] sets it and restarts.
+ 
+ use crate::client::{Client, ClientConfig};
+ use crate::host_identity::HostExpectation;
+@@ -40,6 +49,7 @@ use rightkit_child_process::{
+ };
+ use serde_json::json;
+ use std::io;
++use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::mpsc::{self, RecvTimeoutError};
+ use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+@@ -161,14 +171,72 @@ pub type SupervisorEventFn = Arc<dyn Fn(&SupervisorEvent) + Send + Sync>;
+ 
+ enum Cmd {
+     Stop,
++    /// End the supervisor and give the running child back alive.
++    StopReturning,
+     RestartNow,
+ }
+ 
++/// A small number shared between the caller and the launch closure, for a restart that must
++/// start the child differently (for example `0` = unlocked, `1` = locked: the closure adds
++/// `--locked` to the command line when it reads `1`). The meaning of the values is the caller's.
++/// Clones share one value.
++#[derive(Debug, Clone, Default)]
++pub struct SupervisorMode(Arc<AtomicU64>);
++
++impl SupervisorMode {
++    /// A mode holding `value`.
++    pub fn new(value: u64) -> Self {
++        Self(Arc::new(AtomicU64::new(value)))
++    }
++
++    /// The current value. The launch closure reads it each time it makes a child.
++    pub fn get(&self) -> u64 {
++        self.0.load(Ordering::SeqCst)
++    }
++
++    /// Set the value for the next launch. A running child is not touched: use
++    /// [`SupervisorHandle::restart_with_mode`] to restart it in the new mode.
++    pub fn set(&self, value: u64) {
++        self.0.store(value, Ordering::SeqCst);
++    }
++}
++
++/// Extra inputs of [`supervise_with`].
++#[derive(Default)]
++pub struct SuperviseOptions {
++    adopted: Option<PrivateChild>,
++    mode: SupervisorMode,
++}
++
++impl SuperviseOptions {
++    /// No adopted child, mode `0`.
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Supervise `child`, which the caller already started and verified, as the first generation
++    /// instead of calling `launch` for it. The restart accounting starts as for a launched
++    /// child, and `SupervisorEvent::Started` is emitted for it.
++    #[must_use]
++    pub fn adopt(mut self, child: PrivateChild) -> Self {
++        self.adopted = Some(child);
++        self
++    }
++
++    /// Share `mode` with the supervisor (the caller keeps a clone for its launch closure).
++    #[must_use]
++    pub fn mode(mut self, mode: SupervisorMode) -> Self {
++        self.mode = mode;
++        self
++    }
++}
++
+ /// Control of a running supervisor. Dropping it stops the supervisor and its child.
+ pub struct SupervisorHandle {
+     tx: mpsc::Sender<Cmd>,
+     status: Arc<Mutex<SupervisorStatus>>,
+-    thread: Option<std::thread::JoinHandle<()>>,
++    mode: SupervisorMode,
++    thread: Option<std::thread::JoinHandle<Option<PrivateChild>>>,
+ }
+ 
+ impl SupervisorHandle {
+@@ -185,23 +253,44 @@ impl SupervisorHandle {
+         let _ = self.tx.send(Cmd::RestartNow);
+     }
+ 
++    /// The shared mode (see [`SupervisorMode`]).
++    pub fn mode(&self) -> &SupervisorMode {
++        &self.mode
++    }
++
++    /// Set the mode to `value`, then [`restart_now`](Self::restart_now): the child is stopped and
++    /// started again by the launch closure, which sees the new value. The mode is set before the
++    /// restart is queued, so the next launch cannot read the old one.
++    pub fn restart_with_mode(&self, value: u64) {
++        self.mode.set(value);
++        self.restart_now();
++    }
++
+     /// Stop the child (stdin closed, then killed after the grace) and end the supervisor. Waits
+     /// for the thread to finish.
+     pub fn stop(mut self) {
+-        self.stop_inner();
++        let _ = self.stop_inner(Cmd::Stop);
+     }
+ 
+-    fn stop_inner(&mut self) {
+-        let _ = self.tx.send(Cmd::Stop);
+-        if let Some(thread) = self.thread.take() {
+-            let _ = thread.join();
+-        }
++    /// End the supervisor without stopping the running child, and return it: stdin is still open
++    /// and nothing has been killed, so the caller can shut it down in its own order (for example
++    /// after the processes that depend on it). `None` when no child was running (waiting for a
++    /// restart, exhausted, or already gone). The supervisor will not start another child.
++    pub fn stop_returning_child(mut self) -> Option<PrivateChild> {
++        self.stop_inner(Cmd::StopReturning)
++    }
++
++    fn stop_inner(&mut self, cmd: Cmd) -> Option<PrivateChild> {
++        let _ = self.tx.send(cmd);
++        self.thread
++            .take()
++            .and_then(|thread| thread.join().ok().flatten())
+     }
+ }
+ 
+ impl Drop for SupervisorHandle {
+     fn drop(&mut self) {
+-        self.stop_inner();
++        let _ = self.stop_inner(Cmd::Stop);
+     }
+ }
+ 
+@@ -219,6 +308,24 @@ where
+     L: FnMut() -> io::Result<PrivateChild> + Send + 'static,
+     P: FnMut(&PrivateChild) -> bool + Send + 'static,
+ {
++    supervise_with(config, SuperviseOptions::new(), launch, probe, on_event)
++}
++
++/// [`supervise`] with [`SuperviseOptions`]: an already started and verified child to adopt as the
++/// first generation, and a [`SupervisorMode`] shared with the launch closure. With an adopted
++/// child `launch` is first called only when that child is gone and the policy restarts it.
++pub fn supervise_with<L, P>(
++    config: SupervisorConfig,
++    options: SuperviseOptions,
++    launch: L,
++    probe: P,
++    on_event: Option<SupervisorEventFn>,
++) -> io::Result<SupervisorHandle>
++where
++    L: FnMut() -> io::Result<PrivateChild> + Send + 'static,
++    P: FnMut(&PrivateChild) -> bool + Send + 'static,
++{
++    let SuperviseOptions { adopted, mode } = options;
+     let (tx, rx) = mpsc::channel();
+     let status = Arc::new(Mutex::new(SupervisorStatus {
+         state: SupervisorState::Starting,
+@@ -235,6 +342,7 @@ where
+         status: status.clone(),
+         on_event,
+         phase: Phase::Idle(SupervisorState::Stopped),
++        adopted,
+     };
+     let thread = std::thread::Builder::new()
+         .name("rk-supervisor".into())
+@@ -242,6 +350,7 @@ where
+     Ok(SupervisorHandle {
+         tx,
+         status,
++        mode,
+         thread: Some(thread),
+     })
+ }
+@@ -300,6 +409,8 @@ struct Core<L, P> {
+     status: Arc<Mutex<SupervisorStatus>>,
+     on_event: Option<SupervisorEventFn>,
+     phase: Phase,
++    /// A child the caller started; becomes the first generation.
++    adopted: Option<PrivateChild>,
+ }
+ 
+ impl<L, P> Core<L, P>
+@@ -324,8 +435,11 @@ where
+         s.pid = pid;
+     }
+ 
+-    fn run(mut self, rx: mpsc::Receiver<Cmd>) {
+-        self.start();
++    fn run(mut self, rx: mpsc::Receiver<Cmd>) -> Option<PrivateChild> {
++        match self.adopted.take() {
++            Some(child) => self.begin(child),
++            None => self.start(),
++        }
+         loop {
+             let wait = match &self.phase {
+                 Phase::Waiting(_, due) => due
+@@ -337,8 +451,9 @@ where
+                 Ok(Cmd::RestartNow) => self.restart_now(),
+                 Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                     self.shutdown();
+-                    return;
++                    return None;
+                 }
++                Ok(Cmd::StopReturning) => return self.shutdown_returning(),
+                 Err(RecvTimeoutError::Timeout) => self.tick(),
+             }
+         }
+@@ -347,24 +462,7 @@ where
+     /// Launch a child now. A launch failure is charged to the budget like a crash.
+     fn start(&mut self) {
+         match (self.launch)() {
+-            Ok(child) => {
+-                let at = self.at();
+-                let generation = self.tracker.started(at);
+-                self.launches += 1;
+-                let pid = child.child().id();
+-                self.set_status(SupervisorState::Starting, Some(pid));
+-                self.emit(SupervisorEvent::Started {
+-                    launch: self.launches,
+-                    pid,
+-                });
+-                self.phase = Phase::Running(Box::new(Running {
+-                    child,
+-                    generation,
+-                    health: HealthTracker::new(self.cfg.health, at),
+-                    ready: false,
+-                    launch: self.launches,
+-                }));
+-            }
++            Ok(child) => self.begin(child),
+             Err(error) => {
+                 self.emit(SupervisorEvent::LaunchFailed {
+                     error: error.to_string(),
+@@ -375,6 +473,26 @@ where
+         }
+     }
+ 
++    /// Make `child` (launched or adopted) the running generation.
++    fn begin(&mut self, child: PrivateChild) {
++        let at = self.at();
++        let generation = self.tracker.started(at);
++        self.launches += 1;
++        let pid = child.child().id();
++        self.set_status(SupervisorState::Starting, Some(pid));
++        self.emit(SupervisorEvent::Started {
++            launch: self.launches,
++            pid,
++        });
++        self.phase = Phase::Running(Box::new(Running {
++            child,
++            generation,
++            health: HealthTracker::new(self.cfg.health, at),
++            ready: false,
++            launch: self.launches,
++        }));
++    }
++
+     fn apply(&mut self, outcome: RestartOutcome) {
+         match outcome {
+             RestartOutcome::Restart(permit) => {
+@@ -518,6 +636,19 @@ where
+         }
+     }
+ 
++    /// End without stopping the running child; it is handed back to the caller.
++    fn shutdown_returning(&mut self) -> Option<PrivateChild> {
++        self.tracker.shutdown();
++        let child = match std::mem::replace(&mut self.phase, Phase::Idle(SupervisorState::Stopped))
++        {
++            Phase::Running(running) => Some(running.child),
++            _ => None,
++        };
++        self.set_status(SupervisorState::Stopped, None);
++        self.emit(SupervisorEvent::Stopped);
++        child
++    }
++
+     fn shutdown(&mut self) {
+         self.tracker.shutdown();
+         if let Phase::Running(running) =
+@@ -529,3 +660,27 @@ where
+         self.emit(SupervisorEvent::Stopped);
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn a_mode_is_shared_between_clones_and_defaults_to_zero() {
++        let mode = SupervisorMode::default();
++        assert_eq!(mode.get(), 0);
++        let other = mode.clone();
++        other.set(7);
++        assert_eq!(mode.get(), 7);
++        assert_eq!(SupervisorMode::new(3).get(), 3);
++    }
++
++    #[test]
++    fn options_carry_the_shared_mode_to_the_handle() {
++        let mode = SupervisorMode::new(1);
++        let options = SuperviseOptions::new().mode(mode.clone());
++        assert!(options.adopted.is_none());
++        mode.set(2);
++        assert_eq!(options.mode.get(), 2);
++    }
++}
+diff --git a/crates/rightkit-daemon/src/wake.rs b/crates/rightkit-daemon/src/wake.rs
+new file mode 100644
+index 0000000..f330e4d
+--- /dev/null
++++ b/crates/rightkit-daemon/src/wake.rs
+@@ -0,0 +1,470 @@
++//! A cross-process wake signal (issue #404): one process posts, another waits, and the waiter
++//! learns only that it should look again. No data travels with it.
++//!
++//! | Platform | Mechanism |
++//! | --- | --- |
++//! | macOS | Darwin notifications (`notify_post`, `notify_register_file_descriptor`), a per-user, per-suite name |
++//! | Windows | a named auto-reset event in the session namespace (`Local\...`), created with the owner-only DACL |
++//! | Linux and others | a counter file in the suite's private `wake` directory, polled every 50 ms |
++//!
++//! What a wake is, and is not:
++//!
++//! * It is a **hint**. Darwin notifications are not access controlled, so any process may post one
++//!   for the name; a receiver must re-read the state it cares about (a record, a queue, a file)
++//!   instead of acting on the wake itself, and must keep its own periodic re-check for a missed
++//!   one. A post made while nobody listens is lost on macOS and Windows.
++//! * Posts **coalesce**: several posts before the waiter runs wake it once.
++//! * On Windows one name has one event, shared by every listener of that name in the session: a
++//!   post wakes only one waiter. Use one listener per name.
++//! * The name is derived from the suite root, the service and the name together with the user
++//!   (uid or SID), so two suites, or two users, never share a signal. The derivation is a plain
++//!   hash for separation, not a secret.
++//!
++//! Wake-ups across a network, subscriptions that carry data, and the Swift observer are not here.
++
++use crate::suite::{valid_service_name, Suite, SuiteError};
++use std::io;
++use std::time::Duration;
++
++/// Longest signal name.
++pub const MAX_NAME_LEN: usize = 64;
++
++/// Why a signal could not be opened.
++#[derive(Debug)]
++pub enum WakeError {
++    /// The service or signal name is not `[a-z0-9-]` (service) or `[a-z0-9._-]` (signal).
++    BadName(String),
++    Suite(SuiteError),
++    Io(io::Error),
++}
++
++impl std::fmt::Display for WakeError {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            WakeError::BadName(s) => write!(f, "bad wake name: {s}"),
++            WakeError::Suite(e) => write!(f, "{e}"),
++            WakeError::Io(e) => write!(f, "{e}"),
++        }
++    }
++}
++
++impl std::error::Error for WakeError {}
++
++impl From<io::Error> for WakeError {
++    fn from(e: io::Error) -> Self {
++        WakeError::Io(e)
++    }
++}
++
++impl From<SuiteError> for WakeError {
++    fn from(e: SuiteError) -> Self {
++        WakeError::Suite(e)
++    }
++}
++
++/// A named wake signal. Cheap to create; [`post`](Self::post) from any process,
++/// [`listen`](Self::listen) in the one that waits.
++#[derive(Debug, Clone)]
++pub struct Wake {
++    /// Platform-visible identifier, derived once.
++    key: String,
++    /// Directory of the counter file (the fallback mechanism; unused on macOS and Windows).
++    #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
++    dir: std::path::PathBuf,
++}
++
++/// FNV-1a, 64 bit: separates names, is not a security boundary.
++fn fnv1a(parts: &[&str]) -> u64 {
++    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
++    for part in parts {
++        for b in part.bytes().chain(std::iter::once(0u8)) {
++            h ^= u64::from(b);
++            h = h.wrapping_mul(0x0000_0100_0000_01b3);
++        }
++    }
++    h
++}
++
++fn user_tag() -> String {
++    #[cfg(windows)]
++    {
++        crate::peer::current_user_sid_string().unwrap_or_default()
++    }
++    #[cfg(unix)]
++    {
++        crate::transport::current_uid().to_string()
++    }
++    #[cfg(not(any(unix, windows)))]
++    {
++        String::new()
++    }
++}
++
++impl Wake {
++    /// The signal `name` of `service` in `suite`. Creates the private `wake` directory for the
++    /// fallback mechanism only where that mechanism is used.
++    pub fn new(suite: &Suite, service: &str, name: &str) -> Result<Wake, WakeError> {
++        if !valid_service_name(service) {
++            return Err(WakeError::BadName(format!("service {service:?}")));
++        }
++        let name_ok = !name.is_empty()
++            && name.len() <= MAX_NAME_LEN
++            && name
++                .chars()
++                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
++        if !name_ok {
++            return Err(WakeError::BadName(format!("signal {name:?}")));
++        }
++        let root = suite.root().to_string_lossy().into_owned();
++        let tag = fnv1a(&[&root, service, name, &user_tag()]);
++        let key = format!("rk-wake-{tag:016x}");
++        #[cfg(not(any(target_os = "macos", windows)))]
++        let dir = suite.private_service_subdir(service, "wake")?;
++        #[cfg(any(target_os = "macos", windows))]
++        let dir = suite.service_dir(service).join("wake");
++        Ok(Wake { key, dir })
++    }
++
++    /// The identifier the OS mechanism uses (for logs and tests).
++    pub fn key(&self) -> &str {
++        &self.key
++    }
++
++    /// Signal the waiter. `Ok(())` also when nobody listens (macOS and Windows lose the post; the
++    /// fallback keeps it until the next listener starts, which ignores it).
++    pub fn post(&self) -> io::Result<()> {
++        imp::post(self)
++    }
++
++    /// Start waiting. Posts made before this call do not wake the listener.
++    pub fn listen(&self) -> io::Result<WakeListener> {
++        imp::listen(self).map(WakeListener)
++    }
++}
++
++/// The waiting side of a [`Wake`]. Dropping it releases the OS resource.
++pub struct WakeListener(imp::Listener);
++
++impl WakeListener {
++    /// Wait up to `timeout` for a post. True when woken, false on timeout. Several posts since the
++    /// last wait count as one.
++    pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
++        self.0.wait(timeout)
++    }
++}
++
++#[cfg(windows)]
++mod imp {
++    use super::Wake;
++    use std::ffi::c_void;
++    use std::io;
++    use std::time::Duration;
++
++    #[link(name = "kernel32")]
++    extern "system" {
++        fn CreateEventW(
++            attributes: *const c_void,
++            manual_reset: i32,
++            initial_state: i32,
++            name: *const u16,
++        ) -> *mut c_void;
++        fn OpenEventW(access: u32, inherit: i32, name: *const u16) -> *mut c_void;
++        fn SetEvent(handle: *mut c_void) -> i32;
++        fn WaitForSingleObject(handle: *mut c_void, millis: u32) -> u32;
++        fn CloseHandle(handle: *mut c_void) -> i32;
++    }
++
++    const EVENT_MODIFY_STATE: u32 = 0x0002;
++    const WAIT_OBJECT_0: u32 = 0;
++    const WAIT_TIMEOUT: u32 = 258;
++
++    fn wide_name(w: &Wake) -> Vec<u16> {
++        format!("Local\\{}", w.key)
++            .encode_utf16()
++            .chain(std::iter::once(0))
++            .collect()
++    }
++
++    pub fn post(w: &Wake) -> io::Result<()> {
++        let name = wide_name(w);
++        // SAFETY: `name` is a NUL-terminated UTF-16 string that outlives the call.
++        let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
++        if handle.is_null() {
++            let err = io::Error::last_os_error();
++            // ERROR_FILE_NOT_FOUND: nobody listens.
++            return if err.raw_os_error() == Some(2) {
++                Ok(())
++            } else {
++                Err(err)
++            };
++        }
++        // SAFETY: `handle` is a valid event handle opened above.
++        let ok = unsafe { SetEvent(handle) };
++        let result = if ok == 0 {
++            Err(io::Error::last_os_error())
++        } else {
++            Ok(())
++        };
++        // SAFETY: closing the handle this function opened.
++        unsafe { CloseHandle(handle) };
++        result
++    }
++
++    pub struct Listener(*mut c_void);
++
++    // SAFETY: an event handle may be waited on from any thread.
++    unsafe impl Send for Listener {}
++    unsafe impl Sync for Listener {}
++
++    pub fn listen(w: &Wake) -> io::Result<Listener> {
++        let attrs = crate::peer::owner_only_security_attributes()?;
++        let name = wide_name(w);
++        // SAFETY: the attributes guard and the name outlive the call; an auto-reset event that
++        // starts unsignalled.
++        let handle = unsafe { CreateEventW(attrs.as_ptr(), 0, 0, name.as_ptr()) };
++        if handle.is_null() {
++            return Err(io::Error::last_os_error());
++        }
++        Ok(Listener(handle))
++    }
++
++    impl Listener {
++        pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
++            let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
++            // SAFETY: `self.0` is a valid event handle until drop.
++            match unsafe { WaitForSingleObject(self.0, millis) } {
++                WAIT_OBJECT_0 => Ok(true),
++                WAIT_TIMEOUT => Ok(false),
++                _ => Err(io::Error::last_os_error()),
++            }
++        }
++    }
++
++    impl Drop for Listener {
++        fn drop(&mut self) {
++            // SAFETY: closing the handle this value owns.
++            unsafe { CloseHandle(self.0) };
++        }
++    }
++}
++
++#[cfg(target_os = "macos")]
++mod imp {
++    use super::Wake;
++    use std::ffi::{c_char, c_int, CString};
++    use std::io;
++    use std::time::Duration;
++
++    extern "C" {
++        fn notify_post(name: *const c_char) -> u32;
++        fn notify_register_file_descriptor(
++            name: *const c_char,
++            fd: *mut c_int,
++            flags: c_int,
++            token: *mut c_int,
++        ) -> u32;
++        fn notify_cancel(token: c_int) -> u32;
++        fn poll(fds: *mut PollFd, count: u32, timeout_ms: c_int) -> c_int;
++        fn read(fd: c_int, buf: *mut u8, count: usize) -> isize;
++        fn close(fd: c_int) -> c_int;
++    }
++
++    #[repr(C)]
++    struct PollFd {
++        fd: c_int,
++        events: i16,
++        revents: i16,
++    }
++
++    const POLLIN: i16 = 0x0001;
++    const NOTIFY_STATUS_OK: u32 = 0;
++
++    fn name(w: &Wake) -> io::Result<CString> {
++        CString::new(format!("com.orthiclabs.rightkit.{}", w.key)).map_err(io::Error::other)
++    }
++
++    pub fn post(w: &Wake) -> io::Result<()> {
++        let name = name(w)?;
++        // SAFETY: `name` is a NUL-terminated C string that outlives the call.
++        match unsafe { notify_post(name.as_ptr()) } {
++            NOTIFY_STATUS_OK => Ok(()),
++            status => Err(io::Error::other(format!("notify_post returned {status}"))),
++        }
++    }
++
++    pub struct Listener {
++        fd: c_int,
++        token: c_int,
++    }
++
++    pub fn listen(w: &Wake) -> io::Result<Listener> {
++        let name = name(w)?;
++        let (mut fd, mut token) = (-1, 0);
++        // SAFETY: `name` is a C string; `fd` and `token` are valid out-pointers.
++        let status = unsafe { notify_register_file_descriptor(name.as_ptr(), &mut fd, 0, &mut token) };
++        if status != NOTIFY_STATUS_OK || fd < 0 {
++            return Err(io::Error::other(format!(
++                "notify_register_file_descriptor returned {status}"
++            )));
++        }
++        Ok(Listener { fd, token })
++    }
++
++    impl Listener {
++        pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
++            let millis = c_int::try_from(timeout.as_millis()).unwrap_or(c_int::MAX);
++            let mut fds = PollFd {
++                fd: self.fd,
++                events: POLLIN,
++                revents: 0,
++            };
++            // SAFETY: one valid `pollfd`.
++            let ready = unsafe { poll(&mut fds, 1, millis) };
++            if ready < 0 {
++                let err = io::Error::last_os_error();
++                return if err.kind() == io::ErrorKind::Interrupted {
++                    Ok(false)
++                } else {
++                    Err(err)
++                };
++            }
++            if ready == 0 {
++                return Ok(false);
++            }
++            // Each notification writes its 4-byte token. Drain what is queued so a burst wakes once.
++            let mut buf = [0u8; 256];
++            // SAFETY: `buf` is valid for 256 bytes; the descriptor is ours until drop.
++            let n = unsafe { read(self.fd, buf.as_mut_ptr(), buf.len()) };
++            Ok(n > 0)
++        }
++    }
++
++    impl Drop for Listener {
++        fn drop(&mut self) {
++            // SAFETY: cancelling our registration and closing the descriptor it gave us.
++            unsafe {
++                notify_cancel(self.token);
++                close(self.fd);
++            }
++        }
++    }
++}
++
++#[cfg(not(any(windows, target_os = "macos")))]
++mod imp {
++    use super::Wake;
++    use std::io;
++    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
++
++    const POLL: Duration = Duration::from_millis(50);
++
++    fn path(w: &Wake) -> std::path::PathBuf {
++        w.dir.join(format!("{}.wake", w.key))
++    }
++
++    fn read_counter(w: &Wake) -> String {
++        std::fs::read_to_string(path(w)).unwrap_or_default()
++    }
++
++    pub fn post(w: &Wake) -> io::Result<()> {
++        // A nanosecond clock plus the pid: two posts in the same tick still differ by process,
++        // and the file is replaced whole, so a reader sees a complete value.
++        let nanos = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .map(|d| d.as_nanos())
++            .unwrap_or(0);
++        let value = format!("{nanos}:{}", std::process::id());
++        rightkit_fs::write_private_text(&path(w), &value).map_err(io::Error::other)
++    }
++
++    pub struct Listener {
++        wake: Wake,
++        seen: std::sync::Mutex<String>,
++    }
++
++    pub fn listen(w: &Wake) -> io::Result<Listener> {
++        Ok(Listener {
++            seen: std::sync::Mutex::new(read_counter(w)),
++            wake: w.clone(),
++        })
++    }
++
++    impl Listener {
++        pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
++            let end = Instant::now() + timeout;
++            loop {
++                {
++                    let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
++                    let now = read_counter(&self.wake);
++                    if now != *seen {
++                        *seen = now;
++                        return Ok(true);
++                    }
++                }
++                let left = end.saturating_duration_since(Instant::now());
++                if left.is_zero() {
++                    return Ok(false);
++                }
++                std::thread::sleep(left.min(POLL));
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn suite() -> (tempfile::TempDir, Suite) {
++        let dir = tempfile::tempdir().unwrap();
++        let suite = Suite::at(dir.path()).unwrap();
++        (dir, suite)
++    }
++
++    #[test]
++    fn names_are_validated_and_the_key_separates_suites_services_and_names() {
++        let (_d1, s1) = suite();
++        let (_d2, s2) = suite();
++        assert!(Wake::new(&s1, "Bad Service", "x").is_err());
++        assert!(Wake::new(&s1, "svc", "").is_err());
++        assert!(Wake::new(&s1, "svc", "UPPER").is_err());
++        assert!(Wake::new(&s1, "svc", &"n".repeat(MAX_NAME_LEN + 1)).is_err());
++        let a = Wake::new(&s1, "svc", "ping").unwrap();
++        assert_eq!(a.key(), Wake::new(&s1, "svc", "ping").unwrap().key());
++        assert_ne!(a.key(), Wake::new(&s2, "svc", "ping").unwrap().key());
++        assert_ne!(a.key(), Wake::new(&s1, "other", "ping").unwrap().key());
++        assert_ne!(a.key(), Wake::new(&s1, "svc", "pong").unwrap().key());
++    }
++
++    #[test]
++    fn a_post_wakes_a_listener_and_a_quiet_wait_times_out() {
++        let (_dir, suite) = suite();
++        let wake = Wake::new(&suite, "svc", "ping").unwrap();
++        let listener = wake.listen().unwrap();
++        assert!(!listener.wait(Duration::from_millis(80)).unwrap());
++        wake.post().unwrap();
++        assert!(listener.wait(Duration::from_secs(5)).unwrap());
++        // The post was consumed.
++        assert!(!listener.wait(Duration::from_millis(80)).unwrap());
++    }
++
++    #[test]
++    fn a_post_from_another_thread_wakes_a_waiting_listener() {
++        let (_dir, suite) = suite();
++        let wake = Wake::new(&suite, "svc", "cross").unwrap();
++        let listener = wake.listen().unwrap();
++        let poster = wake.clone();
++        let t = std::thread::spawn(move || {
++            std::thread::sleep(Duration::from_millis(100));
++            poster.post().unwrap();
++        });
++        assert!(listener.wait(Duration::from_secs(5)).unwrap());
++        t.join().unwrap();
++    }
++
++    #[test]
++    fn a_post_with_no_listener_is_not_an_error() {
++        let (_dir, suite) = suite();
++        Wake::new(&suite, "svc", "nobody").unwrap().post().unwrap();
++    }
++}
+diff --git a/crates/rightkit-daemon/tests/remote_daemon.rs b/crates/rightkit-daemon/tests/remote_daemon.rs
+index cf570bf..b1cd416 100644
+--- a/crates/rightkit-daemon/tests/remote_daemon.rs
++++ b/crates/rightkit-daemon/tests/remote_daemon.rs
+@@ -1088,3 +1088,55 @@ fn forget_device_requires_revocation_and_lets_the_same_key_enrol_again() {
+     assert_eq!(again.body["deviceId"], dev.id.as_str());
+     assert_eq!(dev.call(&h, "GET", "/v1/uploads/up_x", b"").status, 404);
+ }
++
++// ---- public routes (issue #377) -------------------------------------------------
++
++#[test]
++fn a_public_route_runs_its_handler_without_a_device_and_the_v1_table_stays_closed() {
++    use rightkit_daemon::remote::Response;
++    let h = Harness::new();
++    h.daemon
++        .add_public_route("GET", "/l/go", 64, |_req: &Request| {
++            Response::redirect(302, "https://example.com/landing")
++        })
++        .unwrap();
++    h.daemon
++        .add_public_route("POST", "/hook", 8, |req: &Request| {
++            Response::json(200, json!({ "len": req.body.len() }))
++        })
++        .unwrap();
++    assert!(h
++        .daemon
++        .add_public_route("GET", "/v1/anything", 1, |_| Response::json(200, Value::Null))
++        .is_err());
++    assert!(h
++        .daemon
++        .add_public_route("GET", "/l/go", 1, |_| Response::json(200, Value::Null))
++        .is_err());
++
++    let get = Request {
++        method: "GET".into(),
++        path_and_query: "/l/go?x=1".into(),
++        ..Request::default()
++    };
++    let resp = h.call(get);
++    assert_eq!(resp.status, 302);
++    assert!(resp
++        .headers
++        .contains(&("location".to_string(), "https://example.com/landing".to_string())));
++
++    let ok = Request {
++        method: "POST".into(),
++        path_and_query: "/hook".into(),
++        body: b"12345".to_vec(),
++        ..Request::default()
++    };
++    assert_eq!(h.call(ok).body["len"], 5);
++    let big = Request {
++        method: "POST".into(),
++        path_and_query: "/hook".into(),
++        body: vec![0; 9],
++        ..Request::default()
++    };
++    assert_eq!(h.call(big).status, 413);
++}
+diff --git a/crates/rightkit-daemon/tests/supervisor.rs b/crates/rightkit-daemon/tests/supervisor.rs
+index c426945..1e8ff41 100644
+--- a/crates/rightkit-daemon/tests/supervisor.rs
++++ b/crates/rightkit-daemon/tests/supervisor.rs
+@@ -4,7 +4,8 @@
+ 
+ use rightkit_child_process::{HealthPolicy, RestartMode, RestartPolicy};
+ use rightkit_daemon::supervisor::{
+-    supervise, SupervisorConfig, SupervisorEvent, SupervisorEventFn, SupervisorState,
++    supervise, SupervisorConfig, SupervisorEvent, SupervisorEventFn, SupervisorMode,
++    SupervisorState,
+ };
+ use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+@@ -124,3 +125,32 @@ fn an_on_demand_policy_waits_for_restart_now() {
+     wait_for("the demanded attempt", || *attempts.lock().unwrap() >= 2);
+     handle.stop();
+ }
++
++#[test]
++fn a_restart_with_a_mode_makes_the_launch_closure_see_the_new_value() {
++    let (events, _seen) = recorder();
++    let mode = SupervisorMode::new(0);
++    let seen_modes = Arc::new(Mutex::new(Vec::<u64>::new()));
++    let (reader, sink) = (mode.clone(), seen_modes.clone());
++    let handle = supervise(
++        config(RestartMode::OnDemand, 5),
++        move || {
++            sink.lock().unwrap().push(reader.get());
++            Err(std::io::Error::other("no such engine"))
++        },
++        |_| true,
++        Some(events),
++    )
++    .unwrap();
++    wait_for("the demand wait", || {
++        handle.status().state == SupervisorState::AwaitingDemand
++    });
++    handle.mode().set(1);
++    assert_eq!(handle.mode().get(), 1);
++    handle.restart_with_mode(2);
++    wait_for("a launch in the new mode", || {
++        seen_modes.lock().unwrap().contains(&2)
++    });
++    // Nothing was running, so there is no child to hand back.
++    assert!(handle.stop_returning_child().is_none());
++}

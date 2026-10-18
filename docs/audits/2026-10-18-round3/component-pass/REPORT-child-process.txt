@@ -1,0 +1,50 @@
+rightkit-child-process 0.5.2 -> 0.5.3, additive only (Cargo.toml and the Cargo.lock package entry; no dependent needs a version change). Patch: D:\scratch\rk-gaps-work\c2\child-process\child-process.patch (LF, git diff --cached HEAD). Nothing was built, formatted or tested.
+
+DONE #733 AdoptedProcess::is_running is zombie-aware on Unix (Linux/Android /proc/<pid>/stat state, macOS proc_pidinfo pbi_status); new AdoptedProcess::try_reap() (waitpid WNOHANG on an exited own child; Ok(None) when running, not our child or already reaped; Windows Ok(None))
+DONE #737 (1) StderrTail \r splitting: LineSplit{Newline,NewlineOrCarriageReturn} + StderrTail::{plain_split,capture_split,try_capture_split}; (2) ProcessQuery::exe_prefix(dir); (3) ProcessQuery::arg_containing_ignore_case; (4) OwnedCommand::status_with_timeout(timeout) -> WaitOutcome
+DONE #455 (child-process half) OwnedCommand::output(timeout, max_bytes) -> RunOutput, OwnedCommand::status(timeout) -> WaitOutcome; the rightkit-fs publish_dir, rightkit-crash dump_helper and rightkit-models install_tar_gz_expecting items belong to other components, not touched
+DONE #680 (child-process half) run_with_stdin(program, args, bytes, &RunOptions) and OwnedCommand::output_with_stdin(bytes, timeout, max_bytes); RunOptions unchanged and still Copy; the rightkit-daemon current_user_sid_string item belongs to rightkit-daemon, not touched
+DONE #402 (remaining part) AdoptedIdentity::request_quit() and AdoptedProcess::request_quit(): Windows WM_CLOSE to the identity-proven process's top-level windows (new feature Win32_UI_WindowsAndMessaging), macOS kAEQuitApplication Apple event (src/foreign/quit_macos.rs), other Unix SIGTERM; AdoptedSignal is unchanged
+ALREADY #402 run / open_url / launch_app: src/run.rs, src/launch.rs
+DONE #403 process_usage_of(pid) -> ProcessUsage, process_usage_ext() / process_usage_ext_of(pid) -> ProcessUsageExt { usage, thread_count }, soak_sample(pid, &SoakOptions, &mut Write) NDJSON sampler (SoakOptions, SoakReport, SoakEnd); ProcessUsage unchanged
+ALREADY #540 HeartbeatWatch / HeartbeatConfig / HeartbeatEvent in src/stall.rs
+DONE #391 (child-process half) process_tree_usage(), process_tree_usage_of(pid), sum_process_tree(rows, root), ProcessTreeUsage in src/tree_usage.rs, on the existing process_table(); the rightkit-license unverified-claims half belongs to rightkit-license, not touched
+DONE #592 AdoptedIdentity::terminate_tree(TerminationOptions) -> AdoptedTermination { confirmed_gone, sweep } (src/foreign.rs): refuses own pid, identity-pinned, records descendants, Unix group TERM -> grace -> KILL then identity-checked sweep, Windows leaves-first sweep; returns AdoptedTermination because TreeTermination carries a leader ExitStatus an adopted process cannot supply
+DONE #684 process_group_exists(NonZeroU32) and wait_process_group_gone(pgid, timeout) (Unix, crate root), tokio_support::process_group_exists and tokio_support::wait_group_gone (feature tokio), WindowsJob::active_process_count() and WindowsJob::is_empty() for the Windows side; group ids 0 and 1 are never probed
+DONE #685 WindowsJobBuilder::breakaway_ok(bool), WindowsJob::contain_current_process_allowing_breakaway(), WindowsJob::contain_current_process_with(builder) (JOB_OBJECT_LIMIT_BREAKAWAY_OK)
+DONE #694 AdoptedIdentity::children() (direct children, same start-time guard as descendants) and AdoptedIdentity::current(); the per-pid resident/commit sample is process_usage_of / process_usage_ext_of (resident_bytes = working set, footprint_bytes = Windows PrivateUsage commit)
+ALREADY #556 tokio_support::terminate_session (src/tokio_support.rs:86) and foreign::signal_session / suspend_session / resume_session (src/foreign.rs); the later process_group_exists / wait_group_gone addendum is DONE under #684
+ALREADY #683 AdoptedIdentity::suspend / resume and suspend_session / resume_session, suspend_current_process (src/foreign.rs); AdoptedSignal deliberately left unchanged
+ALREADY #630 same items as #683 (src/foreign.rs)
+ALREADY #591 AdoptedIdentity::from_recorded_unix_ms and start_time (src/foreign.rs)
+ALREADY #593 WindowsJob::contain_current_process (src/windows_job.rs), CREATE_BREAKAWAY_FROM_JOB exported (src/no_window.rs); the breakaway-allowed variant requested in #685 is DONE above
+ALREADY #554 command_std (src/no_window.rs) and tokio_support::command
+ALREADY #629 login_shell::path / env_values (src/login_shell.rs)
+ALREADY #615 reveal::open_folder judges real bundles (src/reveal.rs:316; README 0.5.2)
+ALREADY #539 reveal::open_installer (src/reveal.rs:332)
+ALREADY #644 OwnedCommand::windows_allow_breakaway / windows_allow_silent_breakaway (src/owned.rs:292-304)
+ALREADY #654 OwnedCommand::windows_visible (src/owned.rs:282)
+ALREADY #682 in_job_detached_flags(hidden, ..) uses CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP in the in-job fallback (src/process_windows.rs:119, src/spawn_windows.rs:516); the Dell receipt the issue asks for is still outstanding
+ALREADY #440 WindowsJob::builder().job_memory_limit / process_memory_limit, peak_job_memory, ExitReason::JobMemoryLimit (src/windows_job.rs)
+ALREADY #171 terminate_all_owned / owned_count (src/registry.rs:123) and macOS kill_on_parent_exit (src/process_unix.rs, 0.4.2)
+ALREADY #292 OwnedCommand::spawn_suspended, OwnedChild::resume and is_suspended (src/owned.rs:380, 0.4.3); public and unchanged, nothing further added
+ALREADY #271 PowerAssertion (src/power.rs), ProcessPriority::Efficient (src/owned.rs:55), Windows wakeups_total (src/usage.rs), macOS parent-death tie; the ffmpeg-priority part belongs to rightkit-ffmpeg
+ALREADY #339 spawn_uncontained_detached in-job fallback and spawn_uncontained_detached_strict / stayed_in_parent_job (src/owned.rs:398-410, 800)
+ALREADY #480 process_table() / ProcessEntry (src/process_table.rs:43)
+DEFERRED #555 OwnedCommand::spawn_tokio with tokio streams: the Windows spawn path (src/spawn_windows.rs) hands out std anonymous pipes, which tokio::process::Child{Stdin,Stdout,Stderr}::from_std cannot wrap (they are not overlapped), so it needs a design decision between thread-bridged async pipes (new tokio features io-util, rt, sync and pump threads) and a second native overlapped-pipe spawn path; needs Adrian/lead input, not invented here
+DEFERRED #557 PTY child (ConPTY / pty): a new crate (rightkit-pty) or large new module with sandbox hooks; not invented here
+
+Public API changes (all additive, nothing breaking)
+ AdoptedProcess::{try_reap, request_quit}; is_running is now zombie-aware on Unix (behaviour fix)
+ AdoptedIdentity::{request_quit, terminate_tree, children, current}; AdoptedTermination
+ process_group_exists, wait_process_group_gone (Unix); tokio_support::{process_group_exists, wait_group_gone} (Unix, feature tokio)
+ OwnedCommand::{output, output_with_stdin, status, status_with_timeout}; run_with_stdin
+ LineSplit; StderrTail::{plain_split, capture_split, try_capture_split}
+ ProcessQuery::{exe_prefix, arg_containing_ignore_case}
+ process_usage_of, process_usage_ext, process_usage_ext_of, ProcessUsageExt, soak_sample, SoakOptions, SoakReport, SoakEnd
+ process_tree_usage, process_tree_usage_of, sum_process_tree, ProcessTreeUsage (#[non_exhaustive])
+ Windows: WindowsJobBuilder::breakaway_ok, WindowsJob::{contain_current_process_allowing_breakaway, contain_current_process_with, active_process_count, is_empty}
+ Cargo: new Windows feature Win32_UI_WindowsAndMessaging; Cargo.toml continuous_reason notes the short-lived stdin writer thread
+ Unchanged by design: AdoptedSignal, ProcessUsage, RunOptions (still Copy)
+
+Notes for the compile pass: rustfmt was not run (a few hand-wrapped literals in usage.rs and the one-line lib.rs exports will reformat). Most likely signature fixes: Windows windows-0.62 calls in src/foreign.rs (EnumWindows, PostMessageW with Some(HWND), windows::core::BOOL) and src/usage.rs (OpenProcess closure, PROCESS_QUERY_INFORMATION); macOS FFI in src/foreign/quit_macos.rs (CoreServices Apple events) and mach_timebase_info in src/usage.rs. The unix tree_tests in src/foreign.rs (terminate_tree on a process_group(0) child) are timing-sensitive; the reaper thread there is what keeps the leader from lingering as a zombie.

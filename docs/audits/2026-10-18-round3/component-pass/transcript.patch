@@ -1,0 +1,298 @@
+diff --git a/crates/rightkit-transcript/CHANGELOG.md b/crates/rightkit-transcript/CHANGELOG.md
+index 552e88e..2a7e8fc 100644
+--- a/crates/rightkit-transcript/CHANGELOG.md
++++ b/crates/rightkit-transcript/CHANGELOG.md
+@@ -13,6 +13,12 @@ is unchanged when `source_ms` is absent.
+   end). `words_from_transcript` records it, `normalize_words` preserves it (including when
+   output overlaps are clamped), and it is omitted from JSON when `None`, so old payloads
+   still parse. Constructors default it to `None`.
++- Added sub-millisecond timing (additive, no existing signature changed; #742):
++  `PreciseWord` (`f64` seconds) with `to_timed_word`/`from_timed`,
++  `precise_words_from_seconds`, `precise_words_from_timed`, `parse_timing_json_precise`,
++  `to_timing_json_precise`, `Cue::precise_span`, `Cue::start_secs`, `Cue::end_secs`.
++  `Cue`/`ParsedCue` stay integer ms (SRT/VTT cannot carry finer); cue segmentation
++  still runs on `TimedWord`.
+ - Added `LineMetrics` and `wrap_lines`, and `build_cues_with_metrics`. Measured layout takes
+   a caller-supplied, fallible `measure_width` callback so widths come from the caller's font
+   and size; the crate keeps no font dependency. `build_cues` is unchanged and equals
+diff --git a/crates/rightkit-transcript/src/export.rs b/crates/rightkit-transcript/src/export.rs
+index 5a651ad..9f017c9 100644
+--- a/crates/rightkit-transcript/src/export.rs
++++ b/crates/rightkit-transcript/src/export.rs
+@@ -115,3 +115,51 @@ pub fn to_timing_json(cues: &[Cue], words: &[crate::words::TimedWord]) -> String
+     serde_json::to_string(&serde_json::json!({ "segments": seg, "words": w }))
+         .expect("json serialises")
+ }
++
++/// [`to_timing_json`] with sub-millisecond times. `precise` is parallel to the
++/// normalised words the cues index (see [`Cue::precise_span`]); a cue whose
++/// indices fall outside it keeps its millisecond span. Words are written with
++/// their exact seconds.
++pub fn to_timing_json_precise(cues: &[Cue], precise: &[crate::words::PreciseWord]) -> String {
++    let seg: Vec<serde_json::Value> = cues
++        .iter()
++        .map(|c| {
++            let (s, e) = c
++                .precise_span(precise)
++                .unwrap_or((c.start_secs(), c.end_secs()));
++            serde_json::json!({ "text": c.lines.join(" "), "start": s, "end": e })
++        })
++        .collect();
++    let w: Vec<serde_json::Value> = precise
++        .iter()
++        .map(|w| serde_json::json!({ "text": w.text, "start": w.start_s, "end": w.end_s }))
++        .collect();
++    serde_json::to_string(&serde_json::json!({ "segments": seg, "words": w }))
++        .expect("json serialises")
++}
++
++#[cfg(test)]
++mod precise_tests {
++    use super::*;
++    use crate::words::PreciseWord;
++
++    #[test]
++    fn precise_json_keeps_sub_ms_and_falls_back() {
++        let cue = Cue {
++            start_ms: 1000,
++            end_ms: 1251,
++            lines: vec!["hi".into()],
++            first_word: 0,
++            last_word: 0,
++        };
++        let p = [PreciseWord::new("hi", 1.0004, 1.2506)];
++        let out = to_timing_json_precise(&[cue.clone()], &p);
++        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
++        assert_eq!(v["segments"][0]["start"], 1.0004);
++        assert_eq!(v["segments"][0]["end"], 1.2506);
++        let out = to_timing_json_precise(&[cue], &[]);
++        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
++        assert_eq!(v["segments"][0]["start"], 1.0);
++        assert_eq!(v["segments"][0]["end"], 1.251);
++    }
++}
+diff --git a/crates/rightkit-transcript/src/lib.rs b/crates/rightkit-transcript/src/lib.rs
+index bf9849f..65cd475 100644
+--- a/crates/rightkit-transcript/src/lib.rs
++++ b/crates/rightkit-transcript/src/lib.rs
+@@ -12,7 +12,8 @@
+ //! - [`parse`]: SRT/WebVTT/timing-JSON import (cues -> interpolated words).
+ //! - [`align`]: cue-edge vs word-boundary check used by qualifiers.
+ //!
+-//! All times are integer milliseconds. No audio, no models, no I/O here:
++//! Cue and word times are integer milliseconds; [`PreciseWord`] carries exact
++//! `f64` seconds for sub-millisecond timing JSON. No audio, no models, no I/O here:
+ //! engines hand in `(text, start, end)` and apps write the strings out.
+ 
+ pub mod align;
+@@ -27,10 +28,13 @@ pub use contract::{
+     EndSource, ModelRef, Span, Transcript, TranscriptError, Word, ACCEPTED_SCHEMAS, LEGACY_SCHEMA,
+     SCHEMA,
+ };
+-pub use export::{to_plain_text, to_srt, to_timing_json, to_vtt, Newline};
+-pub use parse::{parse_srt, parse_timing_json, parse_vtt, words_from_cues, ParseError, ParsedCue};
++pub use export::{to_plain_text, to_srt, to_timing_json, to_timing_json_precise, to_vtt, Newline};
++pub use parse::{parse_srt, parse_timing_json, parse_timing_json_precise, parse_vtt, words_from_cues, ParseError, ParsedCue};
+ pub use segment::{
+     build_cues, build_cues_with_metrics, cues_from_spans, group_words, normalize_words, wrap_lines,
+     CaptionConfig, Cue, GroupRules, LineMetrics, Profile,
+ };
+-pub use words::{words_from_seconds, words_from_transcript, TimedWord, MAP_DURATION_TOLERANCE_MS};
++pub use words::{
++    precise_words_from_seconds, precise_words_from_timed, words_from_seconds,
++    words_from_transcript, PreciseWord, TimedWord, MAP_DURATION_TOLERANCE_MS,
++};
+diff --git a/crates/rightkit-transcript/src/parse.rs b/crates/rightkit-transcript/src/parse.rs
+index 00efa13..807080d 100644
+--- a/crates/rightkit-transcript/src/parse.rs
++++ b/crates/rightkit-transcript/src/parse.rs
+@@ -2,7 +2,7 @@
+ //! [`words_from_cues`] spreads each cue's words across its span by character
+ //! count (flagged `EndSource::Interpolated` when put into a `Transcript`).
+ 
+-use crate::words::TimedWord;
++use crate::words::{PreciseWord, TimedWord};
+ 
+ #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+ pub enum ParseError {
+@@ -158,3 +158,39 @@ pub fn parse_timing_json(s: &str) -> Result<Vec<TimedWord>, ParseError> {
+     }
+     Ok(out)
+ }
++
++/// Like [`parse_timing_json`] but keeps the exact seconds (no rounding to ms).
++pub fn parse_timing_json_precise(s: &str) -> Result<Vec<PreciseWord>, ParseError> {
++    let v: serde_json::Value =
++        serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
++    let arr = v
++        .get("words")
++        .and_then(|w| w.as_array())
++        .ok_or_else(|| ParseError::Json("missing words array".into()))?;
++    let mut out = Vec::with_capacity(arr.len());
++    for w in arr {
++        let (Some(t), Some(s), Some(e)) = (
++            w.get("text").and_then(|t| t.as_str()),
++            w.get("start").and_then(|x| x.as_f64()),
++            w.get("end").and_then(|x| x.as_f64()),
++        ) else {
++            return Err(ParseError::Json("word needs text/start/end".into()));
++        };
++        out.push(PreciseWord::new(t, s, e));
++    }
++    Ok(out)
++}
++
++#[cfg(test)]
++mod precise_tests {
++    use super::*;
++
++    #[test]
++    fn precise_timing_json_keeps_sub_ms() {
++        let json = r#"{"words":[{"text":"a","start":0.0004,"end":1.2506}]}"#;
++        let w = parse_timing_json_precise(json).unwrap();
++        assert_eq!((w[0].start_s, w[0].end_s), (0.0004, 1.2506));
++        assert_eq!(parse_timing_json(json).unwrap()[0].end_ms, 1251);
++        assert!(parse_timing_json_precise("{}").is_err());
++    }
++}
+diff --git a/crates/rightkit-transcript/src/segment.rs b/crates/rightkit-transcript/src/segment.rs
+index 60eda02..f0efe89 100644
+--- a/crates/rightkit-transcript/src/segment.rs
++++ b/crates/rightkit-transcript/src/segment.rs
+@@ -90,6 +90,32 @@ impl Cue {
+     pub fn text(&self) -> String {
+         self.lines.join("\n")
+     }
++
++    /// Start in seconds.
++    pub fn start_secs(&self) -> f64 {
++        self.start_ms as f64 / 1000.0
++    }
++
++    /// End in seconds.
++    pub fn end_secs(&self) -> f64 {
++        self.end_ms as f64 / 1000.0
++    }
++
++    /// Sub-millisecond `(start, end)` in seconds, taken from the cue's first and
++    /// last word in `words` (the [`crate::PreciseWord`] list parallel to the
++    /// [`normalize_words`] output the cue indices refer to). When the cue was
++    /// held past its last word to reach `min_cue_ms`, the end is the cue's
++    /// own end. `None` when the indices fall outside `words`.
++    pub fn precise_span(&self, words: &[crate::words::PreciseWord]) -> Option<(f64, f64)> {
++        let first = words.get(self.first_word)?;
++        let last = words.get(self.last_word)?;
++        let end = if self.end_ms > (last.end_s * 1000.0).round() as u64 {
++            self.end_secs()
++        } else {
++            last.end_s
++        };
++        Some((first.start_s, end))
++    }
+ }
+ 
+ fn sentence_end(t: &str) -> bool {
+diff --git a/crates/rightkit-transcript/src/words.rs b/crates/rightkit-transcript/src/words.rs
+index 6bf43dd..92001b9 100644
+--- a/crates/rightkit-transcript/src/words.rs
++++ b/crates/rightkit-transcript/src/words.rs
+@@ -74,6 +74,77 @@ pub fn words_from_seconds<'a>(
+         .collect()
+ }
+ 
++/// A word whose times keep sub-millisecond precision (seconds, `f64`).
++///
++/// [`TimedWord`] is integer milliseconds, so a conversion from engine seconds
++/// loses anything finer than 1 ms. Use this type when the exact engine times
++/// must survive to a precise timing export ([`crate::to_timing_json_precise`])
++/// or to [`crate::Cue::precise_span`]. Cue segmentation itself stays on
++/// [`TimedWord`]; convert with [`PreciseWord::to_timed_word`].
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
++pub struct PreciseWord {
++    pub text: String,
++    pub start_s: f64,
++    pub end_s: f64,
++}
++
++impl PreciseWord {
++    /// Negative or non-finite times clamp to 0.
++    pub fn new(text: impl Into<String>, start_s: f64, end_s: f64) -> Self {
++        Self {
++            text: text.into(),
++            start_s: clamp_secs(start_s),
++            end_s: clamp_secs(end_s),
++        }
++    }
++
++    /// Exact lift of a millisecond word.
++    pub fn from_timed(word: &TimedWord) -> Self {
++        Self {
++            text: word.text.clone(),
++            start_s: word.start_secs(),
++            end_s: word.end_secs(),
++        }
++    }
++
++    /// Round to the nearest millisecond (the same rule as [`words_from_seconds`]).
++    pub fn to_timed_word(&self) -> TimedWord {
++        TimedWord::new(
++            self.text.clone(),
++            secs_f64_to_ms(self.start_s),
++            secs_f64_to_ms(self.end_s),
++        )
++    }
++}
++
++fn clamp_secs(s: f64) -> f64 {
++    if s.is_finite() && s > 0.0 {
++        s
++    } else {
++        0.0
++    }
++}
++
++fn secs_f64_to_ms(s: f64) -> u64 {
++    (clamp_secs(s) * 1000.0).round() as u64
++}
++
++/// Like [`words_from_seconds`] but keeps the exact `f64` seconds. Negative or
++/// non-finite times clamp to 0.
++pub fn precise_words_from_seconds<'a>(
++    items: impl IntoIterator<Item = (&'a str, f64, f64)>,
++) -> Vec<PreciseWord> {
++    items
++        .into_iter()
++        .map(|(t, s, e)| PreciseWord::new(t, s, e))
++        .collect()
++}
++
++/// Millisecond words lifted losslessly to [`PreciseWord`].
++pub fn precise_words_from_timed(words: &[TimedWord]) -> Vec<PreciseWord> {
++    words.iter().map(PreciseWord::from_timed).collect()
++}
++
+ /// Maps a source [`Transcript`] onto an output timeline (cut/edit).
+ ///
+ /// `map` converts a source time (ms) to output time (ms), returning `None`
+@@ -135,6 +206,21 @@ mod tests {
+         assert_eq!(serde_json::from_value::<TimedWord>(value).unwrap(), mapped);
+     }
+ 
++    #[test]
++    fn precise_words_keep_sub_millisecond_times() {
++        let w = precise_words_from_seconds([("hi", 1.0004, 1.2506), ("neg", -1.0, f64::NAN)]);
++        assert_eq!((w[0].start_s, w[0].end_s), (1.0004, 1.2506));
++        assert_eq!((w[1].start_s, w[1].end_s), (0.0, 0.0));
++        let rounded = w[0].to_timed_word();
++        assert_eq!((rounded.start_ms, rounded.end_ms), (1000, 1251));
++        let lifted = PreciseWord::from_timed(&TimedWord::new("a", 1500, 2250));
++        assert_eq!((lifted.start_s, lifted.end_s), (1.5, 2.25));
++        assert_eq!(
++            precise_words_from_timed(&[TimedWord::new("a", 1, 2)]).len(),
++            1
++        );
++    }
++
+     #[test]
+     fn mapping_records_source_and_enforces_duration_tolerance() {
+         let transcript = Transcript::from_words(

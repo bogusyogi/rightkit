@@ -1,0 +1,5 @@
+RustRight (2026-10-18) AUDIT DONE: 3 gaps
+MISSING #292 rightkit-process public suspended spawn (resume pub(crate))
+MISSING #687 rightkit-ownership verdict-cache hit re-reads clean blobs (~5.5s/job)
+NEW #723 @rightkit/release dev/doctor retry RK_ACTIVATION_PENDING/RK_JOB_SUSPENDED/RK_DATA_ROOT_INITIALIZING
+SHIPPED #336 ownership@0.3.1 (consumer bump rustright#109 pending report-mode verdict diff)

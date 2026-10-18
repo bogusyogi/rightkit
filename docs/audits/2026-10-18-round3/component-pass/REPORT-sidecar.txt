@@ -1,0 +1,10 @@
+DONE #634 feature `tokio` (off by default): async_io module with read_json_line_async, read_json_line_opts_async, read_json_line_or_oversized_opts_async, read_json_line_or_oversized_observed_async, read_line_bytes_async, write_json_line_async, write_json_line_flush_async; port of the blocking line loop (same limit/resync/oversized/observer semantics), futures Send, tokio io-util only; tests in src/async_io.rs
+DONE #734(b) WireError.details: Option<serde_json::Value> (skipped when None, tolerant read, null = None), with_details/details/detail(key), tests in src/wire.rs
+PARTIAL #734(a) EngineClient zeroing is not in rightkit-sidecar (job-queue/daemon side); missing: out of this component
+Version: rightkit-sidecar 0.3.0 (was 0.2.1). Cargo.lock updated (version, tokio dep).
+Dependent requirements bumped 0.2.0 -> 0.3.0 in Cargo.toml of rightkit-daemon, job-queue, qa, record, speech-client (needed so path deps resolve); those crates need a release to pick up 0.3.0.
+Public API changes:
+- BREAKING: wire::WireError new pub field `details` (struct-literal construction must add `details: None`; no in-tree literals found)
+- Added: WireError::with_details, details, detail
+- Added (feature tokio): async_io::* listed above; `tokio` feature added to Cargo.toml
+Not compiled; main chat must build with and without --features tokio.

@@ -1,0 +1,361 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..07e7c3c 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6899,9 +6899,10 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-device"
+-version = "0.2.0"
++version = "0.3.0"
+ dependencies = [
+  "getrandom 0.4.3",
++ "rightkit-credentials",
+  "rightkit-license",
+ ]
+ 
+diff --git a/crates/rightkit-device/CHANGELOG.md b/crates/rightkit-device/CHANGELOG.md
+index 396ffe8..5e0605f 100644
+--- a/crates/rightkit-device/CHANGELOG.md
++++ b/crates/rightkit-device/CHANGELOG.md
+@@ -2,6 +2,17 @@
+ 
+ Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
+ 
++## 0.3.0 (2026-10-18)
++
++Breaking (minor bump for 0.x; no crate in this workspace depends on rightkit-device):
++- `AuthorizationDenial` is now `#[non_exhaustive]` and gains `Revoked { id }` and `Refused(String)`. A revoked-id outcome needs its own variant (the app must tell "revoked" from "invalid"); no additive encoding exists. Exhaustive matches in apps need a wildcard arm.
++
++Added:
++- `AuthorizationService::with_revoked_ids(RevokedIds)` / `set_revoked_ids`: `authorize` now verifies with `rightkit_license::verify_token_not_revoked`, so a token whose entitlement id is on the app's list is denied with `Revoked { id }`, ahead of expiry (rightkit#728). The default is an empty list, so existing callers behave as before. `RevokedIds` is re-exported.
++- `AuthorizationService::with_hashed_device_id()` and `with_device_alternates(ids)`: accept a token bound to the raw device id, its `device_id_hash`, or any listed id; the signature is verified once (`verify_token_any_device`, rightkit#610). Requires `rightkit-license` 0.2.2.
++- Feature `credentials`: `CredentialStore<T>`, a `SecureStore` over one account of `rightkit_credentials::Store` (OS keychain; nothing is written to files), with `strings` and `with_codec` constructors and native create-only `set_if_absent` (rightkit#748).
++- Tests for revocation, alternate device ids and the hashed candidate.
++
+ ## 0.2.0 (2026-10-17)
+ 
+ Added:
+diff --git a/crates/rightkit-device/Cargo.toml b/crates/rightkit-device/Cargo.toml
+index a7c61ec..4af5082 100644
+--- a/crates/rightkit-device/Cargo.toml
++++ b/crates/rightkit-device/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-device"
+-version = "0.2.0"
++version = "0.3.0"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Native host services for Right Suite Tauri license and device adapters."
+@@ -11,7 +11,12 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
+ 
+ [dependencies]
+ getrandom = "0.4"
+-rightkit-license = { version = "0.2.0", path = "../rightkit-license" }
++rightkit-license = { version = "0.2.2", path = "../rightkit-license" }
++rightkit-credentials = { version = "0.2.1", path = "../rightkit-credentials", optional = true }
++
++[features]
++# `CredentialStore`: a `SecureStore` adapter over `rightkit_credentials::Store` (OS keychain).
++credentials = ["dep:rightkit-credentials"]
+ 
+ [package.metadata.rightkit]
+ continuous = false
+diff --git a/crates/rightkit-device/README.md b/crates/rightkit-device/README.md
+index 5f60d51..0eb9e39 100644
+--- a/crates/rightkit-device/README.md
++++ b/crates/rightkit-device/README.md
+@@ -39,14 +39,15 @@ operation with its own outcome.
+ ## Public surface
+ 
+ - `SecureStore<T>`: the get, set, and delete trait that each app implements over its keyring.
+-- `LicenseRequirement` (re-exported from `rightkit-license`).
++- `LicenseRequirement` and `RevokedIds` (re-exported from `rightkit-license`).
+ - `DeviceService`: the single managed device service described above.
+ - `device_id_hash(raw)`: lowercase hex SHA-256 of the raw device id; the only form that leaves the machine.
++- `AuthorizationService` builders: `with_revoked_ids` / `set_revoked_ids` (denies a revoked entitlement id), `with_hashed_device_id` and `with_device_alternates` (accept a token bound to the hashed or another device id).
+ - Also public in `src/lib.rs`: `SecureService`, `MutationHook`, `AuthorizationService`, `guard_paid_command`, and `LogService` / `DiagnosticService` over the `LogHost` / `DiagnosticHost` traits.
+ 
+ ## Features
+ 
+-None. The crate has no Cargo features. Dependencies: `getrandom` 0.3 and `rightkit-license`.
++`credentials` (off by default): `CredentialStore<T>`, a `SecureStore` over `rightkit-credentials` (OS keychain, never files). Dependencies: `getrandom` and `rightkit-license`; `rightkit-credentials` only with the feature.
+ 
+ ## Platform support
+ 
+diff --git a/crates/rightkit-device/src/lib.rs b/crates/rightkit-device/src/lib.rs
+index b769389..c2b5e84 100644
+--- a/crates/rightkit-device/src/lib.rs
++++ b/crates/rightkit-device/src/lib.rs
+@@ -5,8 +5,8 @@
+ //! retain their platform keyring implementations, `#[tauri::command]` wrappers,
+ //! managed-state registration, command names, and product-specific side effects.
+ 
+-pub use rightkit_license::LicenseRequirement;
+-use rightkit_license::{verify_token, Entitlement, VerifyError};
++pub use rightkit_license::{LicenseRequirement, RevokedIds};
++use rightkit_license::{verify_token_not_revoked, Entitlement, RevocationError, VerifyError};
+ use std::{
+     marker::PhantomData,
+     sync::Mutex,
+@@ -234,12 +234,17 @@ pub trait LicenseRecord {
+ }
+ 
+ #[derive(Debug, PartialEq, Eq)]
++#[non_exhaustive]
+ pub enum AuthorizationDenial {
+     MissingLicense,
+     MissingToken,
+     MissingDevice,
+     InvalidToken(VerifyError),
+     RequirementNotMet(LicenseRequirement),
++    /// The token is authentic but its entitlement id is on the app's [`RevokedIds`] list.
++    Revoked { id: String },
++    /// Verification refused the token for a reason this crate does not name (fails closed).
++    Refused(String),
+ }
+ 
+ #[derive(Debug, PartialEq, Eq)]
+@@ -272,6 +277,9 @@ pub struct AuthorizationService<'a, R, L, D> {
+     devices: &'a DeviceService<D>,
+     public_key: &'a [u8; 32],
+     expected_app: &'a str,
++    revoked: RevokedIds,
++    hashed_device_id: bool,
++    alternate_device_ids: Vec<String>,
+     record: PhantomData<fn() -> R>,
+ }
+ 
+@@ -292,10 +300,48 @@ where
+             devices,
+             public_key,
+             expected_app,
++            revoked: RevokedIds::new(),
++            hashed_device_id: false,
++            alternate_device_ids: Vec::new(),
+             record: PhantomData,
+         }
+     }
+ 
++    /// Denies any token whose entitlement id is in `revoked` with
++    /// [`AuthorizationDenial::Revoked`]. The id is read only from a token whose signature, app and
++    /// device already verified, and is checked before expiry, so a revoked token reports
++    /// `Revoked` even after it expired. The default is an empty list (nothing revoked).
++    #[must_use]
++    pub fn with_revoked_ids(mut self, revoked: RevokedIds) -> Self {
++        self.revoked = revoked;
++        self
++    }
++
++    /// Replaces the revoked list in place, for hosts that refresh it while the service lives.
++    pub fn set_revoked_ids(&mut self, revoked: RevokedIds) {
++        self.revoked = revoked;
++    }
++
++    /// Also accepts a token bound to `device_id_hash(raw device id)`: typed-key activation binds
++    /// the raw id, lease, bridge and link tokens bind the hash.
++    #[must_use]
++    pub fn with_hashed_device_id(mut self) -> Self {
++        self.hashed_device_id = true;
++        self
++    }
++
++    /// Also accepts a token bound to any of `ids` (exact match), after the raw id and, when
++    /// enabled, its hash. The signature is verified once for all candidates.
++    #[must_use]
++    pub fn with_device_alternates<I, S>(mut self, ids: I) -> Self
++    where
++        I: IntoIterator<Item = S>,
++        S: Into<String>,
++    {
++        self.alternate_device_ids = ids.into_iter().map(Into::into).collect();
++        self
++    }
++
+     pub fn authorize(
+         &self,
+         requirement: LicenseRequirement,
+@@ -326,14 +372,27 @@ where
+         let device_id = self.devices.get()?.ok_or(AuthorizationError::Denied(
+             AuthorizationDenial::MissingDevice,
+         ))?;
+-        let entitlement = verify_token(
++        let mut candidates: Vec<String> = vec![device_id];
++        if self.hashed_device_id {
++            candidates.push(device_id_hash(&candidates[0]));
++        }
++        candidates.extend(self.alternate_device_ids.iter().cloned());
++        let candidate_refs: Vec<&str> = candidates.iter().map(String::as_str).collect();
++        let entitlement = verify_token_not_revoked(
+             token,
+             self.public_key,
+             self.expected_app,
+-            &device_id,
++            &candidate_refs,
+             now_unix,
++            &self.revoked,
+         )
+-        .map_err(|error| AuthorizationError::Denied(AuthorizationDenial::InvalidToken(error)))?;
++        .map_err(|error| {
++            AuthorizationError::Denied(match error {
++                RevocationError::Verify(error) => AuthorizationDenial::InvalidToken(error),
++                RevocationError::Revoked { id } => AuthorizationDenial::Revoked { id },
++                other => AuthorizationDenial::Refused(other.to_string()),
++            })
++        })?;
+         if !entitlement.satisfies(&requirement) {
+             return Err(AuthorizationError::Denied(
+                 AuthorizationDenial::RequirementNotMet(requirement),
+@@ -479,6 +538,87 @@ where
+     }
+ }
+ 
++/// A [`SecureStore`] over one account of a [`rightkit_credentials::Store`] (OS keychain,
++/// Credential Manager, Secret Service or Android Keystore). Secrets are never written to files.
++///
++/// [`CredentialStore::strings`] stores the value as-is (a device id); [`CredentialStore::with_codec`]
++/// stores any `T` through the caller's text encoding (for example a license record as JSON).
++/// `set_if_absent` uses the store's native create-only write, so device-id creation stays atomic
++/// across processes. An empty encoded value is refused (delete instead).
++#[cfg(feature = "credentials")]
++pub struct CredentialStore<T> {
++    store: rightkit_credentials::Store,
++    account: String,
++    encode: fn(&T) -> Result<String, String>,
++    decode: fn(&str) -> Result<T, String>,
++}
++
++#[cfg(feature = "credentials")]
++impl CredentialStore<String> {
++    /// Stores the string itself under `account`.
++    pub fn strings(store: rightkit_credentials::Store, account: impl Into<String>) -> Self {
++        Self::with_codec(store, account, |v| Ok(v.clone()), |s| Ok(s.to_owned()))
++    }
++}
++
++#[cfg(feature = "credentials")]
++impl<T> CredentialStore<T> {
++    /// Stores `T` under `account` as the text produced by `encode`; `decode` must invert it.
++    pub fn with_codec(
++        store: rightkit_credentials::Store,
++        account: impl Into<String>,
++        encode: fn(&T) -> Result<String, String>,
++        decode: fn(&str) -> Result<T, String>,
++    ) -> Self {
++        Self {
++            store,
++            account: account.into(),
++            encode,
++            decode,
++        }
++    }
++}
++
++#[cfg(feature = "credentials")]
++impl<T> SecureStore<T> for CredentialStore<T> {
++    fn get(&self) -> Result<Option<T>, String> {
++        match self.store.get(&self.account).map_err(|e| e.to_string())? {
++            None => Ok(None),
++            Some(secret) => {
++                let text = secret.expose_str().map_err(|e| e.to_string())?;
++                (self.decode)(text).map(Some)
++            }
++        }
++    }
++
++    fn set(&self, value: &T) -> Result<(), String> {
++        let text = (self.encode)(value)?;
++        self.store
++            .set(
++                &self.account,
++                &rightkit_credentials::Secret::from_string(text),
++            )
++            .map_err(|e| e.to_string())
++    }
++
++    fn delete(&self) -> Result<(), String> {
++        self.store
++            .delete(&self.account)
++            .map(|_| ())
++            .map_err(|e| e.to_string())
++    }
++
++    fn set_if_absent(&self, value: &T) -> Result<bool, String> {
++        let text = (self.encode)(value)?;
++        self.store
++            .add_if_absent(
++                &self.account,
++                &rightkit_credentials::Secret::from_string(text),
++            )
++            .map_err(|e| e.to_string())
++    }
++}
++
+ /// Lowercase hex SHA-256 of the raw device id.
+ ///
+ /// This is the only form of the device id that leaves the machine for lease, link and Pro-bridge
+@@ -700,6 +840,63 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn revoked_id_is_denied_and_default_list_changes_nothing() {
++        let licenses = LicenseStore;
++        let devices = DeviceService::new(TestStore(Mutex::new(Some("dev-1".into()))));
++        let open = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright");
++        assert!(open.authorize(LicenseRequirement::pro()).is_ok());
++
++        let revoked = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
++            .with_revoked_ids(RevokedIds::new().with("lic_1"));
++        assert_eq!(
++            revoked.authorize(LicenseRequirement::pro()).unwrap_err(),
++            AuthorizationError::Denied(AuthorizationDenial::Revoked {
++                id: "lic_1".into()
++            })
++        );
++        // Revocation outranks expiry.
++        assert!(matches!(
++            revoked
++                .authorize_with_clock(LicenseRequirement::pro(), || Ok(10_000_000_000))
++                .unwrap_err(),
++            AuthorizationError::Denied(AuthorizationDenial::Revoked { .. })
++        ));
++
++        let other = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
++            .with_revoked_ids(RevokedIds::new().with("lic_other"));
++        assert!(other.authorize(LicenseRequirement::pro()).is_ok());
++    }
++
++    #[test]
++    fn alternate_device_ids_accept_a_token_bound_to_another_id() {
++        let licenses = LicenseStore;
++        // TOKEN is bound to "dev-1"; the stored raw id differs.
++        let devices = DeviceService::new(TestStore(Mutex::new(Some("raw-device".into()))));
++        let plain = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright");
++        assert!(matches!(
++            plain.authorize(LicenseRequirement::pro()).unwrap_err(),
++            AuthorizationError::Denied(AuthorizationDenial::InvalidToken(
++                VerifyError::DeviceMismatch
++            ))
++        ));
++        let hashed = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
++            .with_hashed_device_id();
++        assert!(hashed.authorize(LicenseRequirement::pro()).is_err());
++        let alternate = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
++            .with_device_alternates(["dev-1"]);
++        assert!(alternate.authorize(LicenseRequirement::pro()).is_ok());
++    }
++
++    #[test]
++    fn hashing_still_tries_the_raw_id_first() {
++        let licenses = LicenseStore;
++        let devices = DeviceService::new(TestStore(Mutex::new(Some("dev-1".into()))));
++        let hashed = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
++            .with_hashed_device_id();
++        assert!(hashed.authorize(LicenseRequirement::pro()).is_ok());
++    }
++
+     struct FileStore(std::path::PathBuf);
+ 
+     impl SecureStore<String> for FileStore {

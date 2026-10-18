@@ -1,0 +1,12 @@
+rightkit-mcp: version 0.7.0 -> 0.7.1 (additive; nothing built or run)
+ALREADY #283 items 1-4 | 0.7.0: CallHandle/serve_stdio_concurrent_on/InitializeOverrides/ResourceNotFound (server.rs, error.rs), TransformContext::request (with_request_transform), RequestValidation::Strict, CallHandle::notify_progress_number
+DONE #283 item 5 | new `client` feature (default on) gating ureq, rightkit-http, rightkit-fs and the modules client/pool/trust/config/auth/advanced_http; default-features=false is server-only (ServerHost, LeasedPool, types, client_features data types). advanced-http and testing imply client. PendingApproval moved to error.rs (still exported at crate root and rightkit_mcp::trust). Caveat: a consumer already on default-features=false that uses the client must add features=["client"]. wasm32 also needs the host's getrandom backend; not verified.
+ALREADY #238 | CallHandle, concurrent stdio, cancel, InitializeOverrides, with_cancelled_response in 0.7.0
+ALREADY #243 | ServerNotification/NotificationHandler in client_features.rs, delivered by client.rs in 0.7.0
+ALREADY #421 | ServerHost::with_batch_policy_for_version in 0.7.0
+ALREADY #550 | TrustStore gate/gate_stdio/credential_write_allowed/pending_approval/*_with_fingerprint/try_load_migrating in trust.rs
+DONE #549 (comment items) | LeasedPool::acquire_async/try_acquire_async (runtime-agnostic, waker based, cancel-safe) and with_max_entries/max_entries + AcquireError::{Failed,PoolFull(snapshot)}; acquire maps full to McpError::PoolFull; core #549 (LeasedPool) already in leased_pool.rs
+DONE #708 | try_load_migrating sends a document whose records array fails the native parse to migrate (Some -> store, None -> InvalidData with native error); native files unchanged; tests updated/added in tests/trust_gate.rs
+ALREADY #545 | publish tracking issue; 0.7.0 is already on crates.io, 0.7.1 needs publishing (release step, not a code gap)
+Public API changes (all additive, none breaking): feature `client` (default); LeasedPool::{with_max_entries, max_entries, try_acquire, acquire_async, try_acquire_async}; enum AcquireError<K>; From<AcquireError<K>> for McpError; rightkit_mcp::PendingApproval root export is now from error (same type, same paths).
+Notes for the main chat: ci/gate.config.json not touched; consider a lib-only check of rightkit-mcp with --no-default-features. Cargo.lock only bumps rightkit-mcp to 0.7.1. Patch: D:\scratch\rk-gaps-work\c2\mcp\mcp.patch

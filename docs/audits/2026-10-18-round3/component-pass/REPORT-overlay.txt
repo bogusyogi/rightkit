@@ -1,0 +1,10 @@
+DONE #413 pure `capture` module (WDA/NSWindowSharing constants + windows_affinity/macos_sharing_type) and `windows::exclude_from_capture(hwnd, exclude)` via SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE), tests | PARTIAL #413 missing: macOS NSWindow.sharingType call in Rust (needs an objc binding the crate lacks; Swift side applies capture::macos_sharing_type); rightkit-audio::play_once belongs to the audio component
+DONE #525 `windows::covering_window(hwnd, own_pids)` Windows z-order walk (GetWindow/GetClassNameW/DwmGetWindowAttribute cloaked) feeding existing pure covering_window; enables Win32_Graphics_Dwm feature
+ALREADY #548 crate src/stack.rs (StackLayout, stack_above, place), 0.1.2
+ALREADY #645 style_has_no_frame, is_foreign_fullscreen_overhang in src/lib.rs, 0.1.2
+ALREADY #361 item 5: windows::create_overlay_window in src/lib.rs | DEFERRED #361 items 1-4: Swift/RightKitSwift (Mac side), not Rust
+ALREADY #244 overlay item: windows::foreground_is_borderless_fullscreen (0.1.1/0.1.2) | DEFERRED #244 other components' items
+DEFERRED #625 npm package @rightkit/app-update, not this crate; #188 #189 rightkit-automation/RightKitSwift, not this crate; #506 tracking issue
+Version: rightkit-overlay 0.1.2 -> 0.1.3 (Cargo.toml, Cargo.lock, CHANGELOG), non-breaking.
+Public API changes (all additive): mod capture (WDA_NONE, WDA_EXCLUDEFROMCAPTURE, NS_WINDOW_SHARING_NONE, NS_WINDOW_SHARING_READ_ONLY, windows_affinity, macos_sharing_type); windows::exclude_from_capture; windows::covering_window (non-Windows stubs return false/None).
+Unverified: nothing compiled. Windows imports in lib.rs were merged by text replace (GetClassNameW, GetWindow, SetWindowDisplayAffinity, GW_HWNDPREV, DwmGetWindowAttribute); check the build and rustfmt.

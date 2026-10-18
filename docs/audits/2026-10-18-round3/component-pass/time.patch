@@ -1,0 +1,1715 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..5924688 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6976,7 +6976,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-fsindex"
+-version = "0.4.1"
++version = "0.4.2"
+ dependencies = [
+  "libc",
+  "memchr",
+@@ -7459,7 +7459,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-time"
+-version = "0.1.0"
++version = "0.1.1"
+ 
+ [[package]]
+ name = "rightkit-transcript"
+diff --git a/crates/rightkit-fsindex/CHANGELOG.md b/crates/rightkit-fsindex/CHANGELOG.md
+index d4b78fb..3754fed 100644
+--- a/crates/rightkit-fsindex/CHANGELOG.md
++++ b/crates/rightkit-fsindex/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## 0.4.2 (unreleased)
++
++Ignore-aware repository walk (Orthic-Labs/rightkit#417, for Pulse blueprint/watch/ledger). Additive: no existing item changed. std only, every platform, independent of the index.
++
++- `walk_repo(root, &WalkOptions, visitor) -> io::Result<WalkOutcome>`: depth-first, file-name-ordered traversal that skips what `.gitignore` excludes. Honours nested `.gitignore` files (deeper overrides shallower, last matching rule wins), negation (`!`), directory-only rules (`dir/`), anchoring, `*`, `?`, `[a-z]`, `\` escapes and `**` (leading, middle, trailing), plus `.git/info/exclude`. `.git` is never reported or entered; ignored directories are not entered, so nothing below them is re-included (git's rule).
++- `WalkOptions` (`#[non_exhaustive]`, build from `Default`): `ignore_file_names` (default `.gitignore`; add `.ignore`), `use_git_info_exclude`, `extra_ignore_files` (e.g. the global excludes file, lowest precedence), `skip_hidden`, `max_depth`, `max_entries`, `case_insensitive` (default on Windows and macOS).
++- Visitor returns `WalkControl::{Continue, SkipDir, Stop}`; `WalkEntry { path, rel_path (always '/'), depth, kind: WalkKind, size }`; `WalkOutcome { entries, ignored, errors, truncated }`. An unreadable subdirectory is counted, not fatal. Symlinks are reported as `WalkKind::Symlink` and never followed.
++- `GitIgnore` (`new`, `push_rules(base, text)`, `pop_rules`, `is_ignored(rel_path, is_dir)`) is public for callers that run their own traversal.
++- Not covered: reading `core.excludesFile` from git config (pass the file through `extra_ignore_files`) and `.gitattributes`.
++
+ ## 0.4.1 (2026-10-17)
+ 
+ - Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+diff --git a/crates/rightkit-fsindex/Cargo.toml b/crates/rightkit-fsindex/Cargo.toml
+index 1fa2375..f50bf08 100644
+--- a/crates/rightkit-fsindex/Cargo.toml
++++ b/crates/rightkit-fsindex/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-fsindex"
+-version = "0.4.1"
++version = "0.4.2"
+ edition = "2021"
+ rust-version = "1.98.0"
+ publish = true
+diff --git a/crates/rightkit-fsindex/README.md b/crates/rightkit-fsindex/README.md
+index 3de4343..fb18e6a 100644
+--- a/crates/rightkit-fsindex/README.md
++++ b/crates/rightkit-fsindex/README.md
+@@ -16,6 +16,10 @@ let changes = index.subscribe();                    // Receiver<ChangeBatch>
+ index.status();                                     // roots readable?, skipped/unreadable dirs, FDA, resume
+ ```
+ 
++## Repository walk (0.4.2)
++
++`walk_repo(root, &WalkOptions::default(), |entry| WalkControl::Continue)` walks a tree in file-name order and skips whatever `.gitignore` (nested files, negation, `**`, directory-only rules) and `.git/info/exclude` exclude; `.git` is never entered and symlinks are not followed. `GitIgnore` exposes the matcher alone. std only, all platforms, no index needed.
++
+ ## Platform support
+ 
+ macOS (v1): `getattrlistbulk` crawl (parallel, std threads), FSEvents upkeep with event-ID
+diff --git a/crates/rightkit-fsindex/src/lib.rs b/crates/rightkit-fsindex/src/lib.rs
+index 4693046..db2765a 100644
+--- a/crates/rightkit-fsindex/src/lib.rs
++++ b/crates/rightkit-fsindex/src/lib.rs
+@@ -25,6 +25,7 @@ mod limits;
+ mod names;
+ mod query;
+ mod store;
++mod walk;
+ 
+ pub use config::*;
+ pub use error::{Error, Result};
+@@ -33,6 +34,11 @@ pub use index::{
+     SearchOptions, SizeInfo, SortKey, Status,
+ };
+ pub use query::Query;
++/// Ignore-aware repository walk (0.4.2): honours `.gitignore`, nested ignore files and
++/// `.git/info/exclude`. See [`walk_repo`].
++pub use walk::{
++    walk_repo, GitIgnore, WalkControl, WalkEntry, WalkKind, WalkOptions, WalkOutcome,
++};
+ 
+ /// macOS typed FSEvents watcher (0.2.0). See [`FsEventsWatcher`].
+ #[cfg(target_os = "macos")]
+diff --git a/crates/rightkit-fsindex/src/walk.rs b/crates/rightkit-fsindex/src/walk.rs
+new file mode 100644
+index 0000000..0ea6a0c
+--- /dev/null
++++ b/crates/rightkit-fsindex/src/walk.rs
+@@ -0,0 +1,689 @@
++//! Ignore-aware repository walk: a deterministic directory traversal that honours
++//! `.gitignore` files (nested, negations, anchoring, `**`, directory-only rules) plus
++//! `.git/info/exclude`. std only; works on every platform and does not use the index.
++//!
++//! ```no_run
++//! use rightkit_fsindex::{walk_repo, WalkControl, WalkOptions};
++//! let opts = WalkOptions::default();
++//! let outcome = walk_repo(std::path::Path::new("/work/repo"), &opts, |e| {
++//!     println!("{}", e.rel_path);
++//!     WalkControl::Continue
++//! })
++//! .unwrap();
++//! println!("{} files, {} ignored", outcome.entries, outcome.ignored);
++//! ```
++//!
++//! Not covered: the user's global excludes file (`core.excludesFile`; pass it through
++//! [`WalkOptions::extra_ignore_files`]), and following symlinks (they are reported as
++//! [`WalkKind::Symlink`] and never entered).
++
++use std::fs;
++use std::io;
++use std::path::{Path, PathBuf};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++enum Seg {
++    /// `**` as a whole path segment: zero or more directories.
++    DoubleStar,
++    Glob(Vec<u8>),
++}
++
++#[derive(Debug, Clone)]
++struct IgnoreRule {
++    segs: Vec<Seg>,
++    negate: bool,
++    dir_only: bool,
++    /// Matched against the path below the rule's base; otherwise against the file name only.
++    anchored: bool,
++}
++
++#[derive(Debug, Clone)]
++struct Frame {
++    /// Directory the rules apply below, relative to the walk root: `""` or `"a/b/"`.
++    base: String,
++    rules: Vec<IgnoreRule>,
++}
++
++/// A stack of gitignore rule sets. Later (deeper) sets override earlier ones, and inside one
++/// set the last matching rule wins, as in git.
++#[derive(Debug, Clone, Default)]
++pub struct GitIgnore {
++    frames: Vec<Frame>,
++    case_insensitive: bool,
++}
++
++impl GitIgnore {
++    /// An empty matcher. `case_insensitive` folds ASCII case (git's `core.ignorecase`).
++    pub fn new(case_insensitive: bool) -> GitIgnore {
++        GitIgnore {
++            frames: Vec::new(),
++            case_insensitive,
++        }
++    }
++
++    /// Push the rules of one ignore file. `base` is the directory holding it, relative to the
++    /// walk root with `/` separators (`""` for the root, `"sub/dir"` otherwise). Returns the
++    /// number of rules added.
++    pub fn push_rules(&mut self, base: &str, text: &str) -> usize {
++        let rules: Vec<IgnoreRule> = text.lines().filter_map(parse_rule).collect();
++        let n = rules.len();
++        let mut base = base.trim_matches('/').to_string();
++        if !base.is_empty() {
++            base.push('/');
++        }
++        self.frames.push(Frame { base, rules });
++        n
++    }
++
++    /// Remove the most recently pushed rule set.
++    pub fn pop_rules(&mut self) {
++        self.frames.pop();
++    }
++
++    /// True when `rel_path` (relative to the walk root, `/` separated, no leading slash) is
++    /// ignored. `is_dir` selects directory-only rules. Parents are not consulted: a walker
++    /// that never enters an ignored directory gets git's "cannot re-include below an excluded
++    /// directory" behaviour for free.
++    pub fn is_ignored(&self, rel_path: &str, is_dir: bool) -> bool {
++        for frame in self.frames.iter().rev() {
++            let Some(below) = rel_path.strip_prefix(frame.base.as_str()) else {
++                continue;
++            };
++            if below.is_empty() {
++                continue;
++            }
++            for rule in frame.rules.iter().rev() {
++                if rule.dir_only && !is_dir {
++                    continue;
++                }
++                if rule.matches(below, self.case_insensitive) {
++                    return !rule.negate;
++                }
++            }
++        }
++        false
++    }
++}
++
++fn parse_rule(line: &str) -> Option<IgnoreRule> {
++    let mut line = line.trim_end_matches('\r');
++    // Unescaped trailing spaces are not significant.
++    while line.ends_with(' ') && !line.ends_with("\\ ") {
++        line = &line[..line.len() - 1];
++    }
++    if line.is_empty() || line.starts_with('#') {
++        return None;
++    }
++    let (negate, mut pat) = match line.strip_prefix('!') {
++        Some(rest) => (true, rest),
++        None => (false, line),
++    };
++    // `\#` and `\!` escape a leading special character; the glob matcher unescapes it.
++    let dir_only = pat.ends_with('/');
++    if dir_only {
++        pat = pat.trim_end_matches('/');
++    }
++    if pat.is_empty() {
++        return None;
++    }
++    let anchored = pat.contains('/');
++    let pat = pat.trim_start_matches('/');
++    let segs: Vec<Seg> = pat
++        .split('/')
++        .filter(|s| !s.is_empty())
++        .map(|s| {
++            if s == "**" {
++                Seg::DoubleStar
++            } else {
++                Seg::Glob(s.as_bytes().to_vec())
++            }
++        })
++        .collect();
++    if segs.is_empty() {
++        return None;
++    }
++    Some(IgnoreRule {
++        segs,
++        negate,
++        dir_only,
++        anchored,
++    })
++}
++
++impl IgnoreRule {
++    fn matches(&self, below: &str, ci: bool) -> bool {
++        if self.anchored {
++            let parts: Vec<&str> = below.split('/').collect();
++            match_segs(&self.segs, &parts, ci)
++        } else {
++            let name = below.rsplit('/').next().unwrap_or(below);
++            match_segs(&self.segs, &[name], ci)
++        }
++    }
++}
++
++fn match_segs(p: &[Seg], s: &[&str], ci: bool) -> bool {
++    match p.split_first() {
++        None => s.is_empty(),
++        Some((Seg::DoubleStar, rest)) => {
++            if rest.is_empty() {
++                // A trailing `/**` matches everything inside, not the directory itself.
++                return !s.is_empty();
++            }
++            (0..=s.len()).any(|k| match_segs(rest, &s[k..], ci))
++        }
++        Some((Seg::Glob(g), rest)) => match s.split_first() {
++            Some((first, tail)) => glob(g, first.as_bytes(), ci) && match_segs(rest, tail, ci),
++            None => false,
++        },
++    }
++}
++
++fn eq(a: u8, b: u8, ci: bool) -> bool {
++    a == b || (ci && a.eq_ignore_ascii_case(&b))
++}
++
++/// Match a `[...]` class starting at `p[pi] == b'['` against `ch`: (matched, index after `]`),
++/// or `None` when the class is not closed (the `[` is then a literal).
++fn class(p: &[u8], pi: usize, ch: u8, ci: bool) -> Option<(bool, usize)> {
++    let mut i = pi + 1;
++    let negate = matches!(p.get(i), Some(b'!') | Some(b'^'));
++    if negate {
++        i += 1;
++    }
++    let mut matched = false;
++    let mut first = true;
++    loop {
++        let c = *p.get(i)?;
++        if c == b']' && !first {
++            return Some((matched != negate, i + 1));
++        }
++        first = false;
++        let lo = if c == b'\\' {
++            i += 1;
++            *p.get(i)?
++        } else {
++            c
++        };
++        if p.get(i + 1) == Some(&b'-') && p.get(i + 2).is_some_and(|&n| n != b']') {
++            let hi = p[i + 2];
++            let in_range = |x: u8| lo <= x && x <= hi;
++            if in_range(ch)
++                || (ci && (in_range(ch.to_ascii_lowercase()) || in_range(ch.to_ascii_uppercase())))
++            {
++                matched = true;
++            }
++            i += 3;
++        } else {
++            if eq(lo, ch, ci) {
++                matched = true;
++            }
++            i += 1;
++        }
++    }
++}
++
++/// Glob match of one path segment (no `/` in `t`): `*`, `?`, `[...]`, `\x`.
++fn glob(p: &[u8], t: &[u8], ci: bool) -> bool {
++    let (mut pi, mut ti) = (0usize, 0usize);
++    let mut star: Option<(usize, usize)> = None;
++    loop {
++        if pi < p.len() {
++            match p[pi] {
++                b'*' => {
++                    star = Some((pi + 1, ti));
++                    pi += 1;
++                    continue;
++                }
++                b'?' if ti < t.len() => {
++                    pi += 1;
++                    ti += 1;
++                    continue;
++                }
++                b'[' if ti < t.len() => match class(p, pi, t[ti], ci) {
++                    Some((true, next)) => {
++                        pi = next;
++                        ti += 1;
++                        continue;
++                    }
++                    Some((false, _)) => {}
++                    None => {
++                        if eq(b'[', t[ti], ci) {
++                            pi += 1;
++                            ti += 1;
++                            continue;
++                        }
++                    }
++                },
++                b'\\' if pi + 1 < p.len() && ti < t.len() => {
++                    if eq(p[pi + 1], t[ti], ci) {
++                        pi += 2;
++                        ti += 1;
++                        continue;
++                    }
++                }
++                c if ti < t.len() && c != b'?' && c != b'[' && c != b'\\' && eq(c, t[ti], ci) => {
++                    pi += 1;
++                    ti += 1;
++                    continue;
++                }
++                _ => {}
++            }
++        } else if ti == t.len() {
++            return true;
++        }
++        match star {
++            Some((sp, st)) if st < t.len() => {
++                star = Some((sp, st + 1));
++                pi = sp;
++                ti = st + 1;
++            }
++            _ => return false,
++        }
++    }
++}
++
++/// What the walk visitor wants next.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum WalkControl {
++    /// Keep going (descend into a directory).
++    Continue,
++    /// Do not enter this directory (ignored for a file).
++    SkipDir,
++    /// End the walk now.
++    Stop,
++}
++
++/// Kind of a walked entry.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum WalkKind {
++    File,
++    Dir,
++    /// A symbolic link; never followed.
++    Symlink,
++    /// A socket, device or other special file.
++    Other,
++}
++
++/// One entry reported by [`walk_repo`].
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct WalkEntry {
++    /// Absolute (or root-relative, as the caller passed it) path.
++    pub path: PathBuf,
++    /// Path relative to the walk root, `/` separated on every platform.
++    pub rel_path: String,
++    /// 1 for direct children of the root.
++    pub depth: usize,
++    pub kind: WalkKind,
++    /// Byte length for files, 0 otherwise.
++    pub size: u64,
++}
++
++/// What a walk did.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct WalkOutcome {
++    /// Entries reported to the visitor.
++    pub entries: usize,
++    /// Entries (files and whole directories) skipped by ignore rules.
++    pub ignored: usize,
++    /// Directories that could not be read.
++    pub errors: usize,
++    /// True when `max_entries` ended the walk or the visitor returned [`WalkControl::Stop`].
++    pub truncated: bool,
++}
++
++/// Options for [`walk_repo`]. Build with `WalkOptions::default()` and set fields.
++#[derive(Debug, Clone)]
++#[non_exhaustive]
++pub struct WalkOptions {
++    /// Ignore file names read in every directory, later names overriding earlier ones.
++    /// Default `[".gitignore"]`; add `".ignore"` for ripgrep-style files, or empty to disable.
++    pub ignore_file_names: Vec<String>,
++    /// Read `<root>/.git/info/exclude` (default true).
++    pub use_git_info_exclude: bool,
++    /// Extra ignore files (for example the global excludes file), lowest precedence,
++    /// applied as if they sat in the root.
++    pub extra_ignore_files: Vec<PathBuf>,
++    /// Skip names starting with `.` (default false). `.git` is always skipped.
++    pub skip_hidden: bool,
++    /// Deepest level reported and entered; `None` is unlimited.
++    pub max_depth: Option<usize>,
++    /// End the walk after this many reported entries; `None` is unlimited.
++    pub max_entries: Option<usize>,
++    /// Fold ASCII case when matching rules. Default true on Windows and macOS, false elsewhere.
++    pub case_insensitive: bool,
++}
++
++impl Default for WalkOptions {
++    fn default() -> Self {
++        WalkOptions {
++            ignore_file_names: vec![".gitignore".to_string()],
++            use_git_info_exclude: true,
++            extra_ignore_files: Vec::new(),
++            skip_hidden: false,
++            max_depth: None,
++            max_entries: None,
++            case_insensitive: cfg!(any(windows, target_os = "macos")),
++        }
++    }
++}
++
++struct Walker<'a, F> {
++    opts: &'a WalkOptions,
++    ignore: GitIgnore,
++    visit: F,
++    out: WalkOutcome,
++    stopped: bool,
++}
++
++fn read_text(path: &Path) -> Option<String> {
++    let meta = fs::metadata(path).ok()?;
++    if !meta.is_file() || meta.len() > 4 << 20 {
++        return None;
++    }
++    fs::read(path)
++        .ok()
++        .map(|b| String::from_utf8_lossy(&b).into_owned())
++}
++
++/// Walk `root` depth first in file-name order, reporting every entry that no ignore rule
++/// excludes. `.git` is never reported or entered. An unreadable subdirectory is counted in
++/// [`WalkOutcome::errors`] and skipped; an unreadable `root` is an error.
++pub fn walk_repo<F>(root: &Path, opts: &WalkOptions, visit: F) -> io::Result<WalkOutcome>
++where
++    F: FnMut(&WalkEntry) -> WalkControl,
++{
++    if !fs::metadata(root)?.is_dir() {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "walk root is not a directory",
++        ));
++    }
++    let mut ignore = GitIgnore::new(opts.case_insensitive);
++    for f in &opts.extra_ignore_files {
++        if let Some(text) = read_text(f) {
++            ignore.push_rules("", &text);
++        }
++    }
++    if opts.use_git_info_exclude {
++        if let Some(text) = read_text(&root.join(".git").join("info").join("exclude")) {
++            ignore.push_rules("", &text);
++        }
++    }
++    let mut w = Walker {
++        opts,
++        ignore,
++        visit,
++        out: WalkOutcome::default(),
++        stopped: false,
++    };
++    w.dir(root, "", 1)?;
++    Ok(w.out)
++}
++
++impl<F: FnMut(&WalkEntry) -> WalkControl> Walker<'_, F> {
++    fn dir(&mut self, dir: &Path, rel: &str, depth: usize) -> io::Result<()> {
++        let mut children: Vec<(String, fs::DirEntry)> = fs::read_dir(dir)?
++            .filter_map(Result::ok)
++            .map(|e| (e.file_name().to_string_lossy().into_owned(), e))
++            .collect();
++        children.sort_by(|a, b| a.0.cmp(&b.0));
++
++        let mut pushed = 0usize;
++        for name in &self.opts.ignore_file_names {
++            if let Some(text) = read_text(&dir.join(name)) {
++                self.ignore.push_rules(rel, &text);
++                pushed += 1;
++            }
++        }
++
++        for (name, entry) in children {
++            if self.stopped {
++                break;
++            }
++            if name == ".git" || (self.opts.skip_hidden && name.starts_with('.')) {
++                continue;
++            }
++            let Ok(ft) = entry.file_type() else {
++                self.out.errors += 1;
++                continue;
++            };
++            let kind = if ft.is_symlink() {
++                WalkKind::Symlink
++            } else if ft.is_dir() {
++                WalkKind::Dir
++            } else if ft.is_file() {
++                WalkKind::File
++            } else {
++                WalkKind::Other
++            };
++            let rel_path = if rel.is_empty() {
++                name.clone()
++            } else {
++                format!("{rel}/{name}")
++            };
++            if self.ignore.is_ignored(&rel_path, kind == WalkKind::Dir) {
++                self.out.ignored += 1;
++                continue;
++            }
++            let size = if kind == WalkKind::File {
++                entry.metadata().map_or(0, |m| m.len())
++            } else {
++                0
++            };
++            let we = WalkEntry {
++                path: entry.path(),
++                rel_path,
++                depth,
++                kind,
++                size,
++            };
++            self.out.entries += 1;
++            let ctl = (self.visit)(&we);
++            if ctl == WalkControl::Stop {
++                self.out.truncated = true;
++                self.stopped = true;
++                break;
++            }
++            if self.opts.max_entries.is_some_and(|m| self.out.entries >= m) {
++                self.out.truncated = true;
++                self.stopped = true;
++                break;
++            }
++            if kind == WalkKind::Dir
++                && ctl == WalkControl::Continue
++                && self.opts.max_depth.is_none_or(|m| depth < m)
++                && self.dir(&we.path, &we.rel_path, depth + 1).is_err()
++            {
++                self.out.errors += 1;
++            }
++        }
++        for _ in 0..pushed {
++            self.ignore.pop_rules();
++        }
++        Ok(())
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn ign(text: &str) -> GitIgnore {
++        let mut g = GitIgnore::new(false);
++        g.push_rules("", text);
++        g
++    }
++
++    #[test]
++    fn basename_and_anchored_rules() {
++        let g = ign("*.log\n/build\ndocs/*.tmp\n");
++        assert!(g.is_ignored("a.log", false));
++        assert!(g.is_ignored("deep/er/a.log", false));
++        assert!(g.is_ignored("build", true));
++        assert!(!g.is_ignored("sub/build", true));
++        assert!(g.is_ignored("docs/x.tmp", false));
++        assert!(!g.is_ignored("docs/sub/x.tmp", false));
++        assert!(!g.is_ignored("a.txt", false));
++    }
++
++    #[test]
++    fn dir_only_negation_and_last_match_wins() {
++        let g = ign("target/\n*.rs\n!keep.rs\n# comment\n\n");
++        assert!(g.is_ignored("target", true));
++        assert!(!g.is_ignored("target", false));
++        assert!(g.is_ignored("src/a.rs", false));
++        assert!(!g.is_ignored("src/keep.rs", false));
++    }
++
++    #[test]
++    fn double_star_forms() {
++        let g = ign("**/cache\nlogs/**\na/**/z\n");
++        assert!(g.is_ignored("cache", true));
++        assert!(g.is_ignored("x/y/cache", true));
++        assert!(g.is_ignored("logs/a", false));
++        assert!(g.is_ignored("logs/a/b", false));
++        assert!(!g.is_ignored("logs", true));
++        assert!(g.is_ignored("a/z", false));
++        assert!(g.is_ignored("a/b/c/z", false));
++        assert!(!g.is_ignored("b/a/z", false));
++    }
++
++    #[test]
++    fn glob_classes_escapes_and_case() {
++        let g = ign("file[0-9].txt\n?.o\n\\#hash\n!\\!bang\nfoo\\ \n");
++        assert!(g.is_ignored("file7.txt", false));
++        assert!(!g.is_ignored("fileA.txt", false));
++        assert!(g.is_ignored("a.o", false));
++        assert!(!g.is_ignored("ab.o", false));
++        assert!(g.is_ignored("#hash", false));
++        assert!(g.is_ignored("foo ", false));
++        let mut ci = GitIgnore::new(true);
++        ci.push_rules("", "README\n");
++        assert!(ci.is_ignored("readme", false));
++        assert!(!ign("README\n").is_ignored("readme", false));
++    }
++
++    #[test]
++    fn nested_files_override_parents() {
++        let mut g = GitIgnore::new(false);
++        g.push_rules("", "*.dat\n");
++        g.push_rules("sub", "!keep.dat\n/only.txt\n");
++        assert!(g.is_ignored("a.dat", false));
++        assert!(g.is_ignored("sub/x.dat", false));
++        assert!(!g.is_ignored("sub/keep.dat", false));
++        assert!(g.is_ignored("sub/only.txt", false));
++        assert!(!g.is_ignored("other/only.txt", false));
++        g.pop_rules();
++        assert!(g.is_ignored("sub/keep.dat", false));
++    }
++
++    fn write(root: &Path, rel: &str, body: &str) {
++        let p = root.join(rel);
++        fs::create_dir_all(p.parent().unwrap()).unwrap();
++        fs::write(p, body).unwrap();
++    }
++
++    fn collect(root: &Path, opts: &WalkOptions) -> (Vec<String>, WalkOutcome) {
++        let mut seen = Vec::new();
++        let out = walk_repo(root, opts, |e| {
++            seen.push(e.rel_path.clone());
++            WalkControl::Continue
++        })
++        .unwrap();
++        (seen, out)
++    }
++
++    #[test]
++    fn walk_honours_gitignore_and_skips_dot_git() {
++        let d = tempfile::tempdir().unwrap();
++        let r = d.path();
++        write(r, ".gitignore", "target/\n*.log\n");
++        write(r, ".git/HEAD", "ref");
++        write(r, ".git/info/exclude", "secret.txt\n");
++        write(r, "secret.txt", "x");
++        write(r, "a.txt", "hello");
++        write(r, "debug.log", "x");
++        write(r, "target/out.bin", "x");
++        write(r, "src/main.rs", "fn main(){}");
++        write(r, "src/.gitignore", "gen/\n!debug.log\n");
++        write(r, "src/gen/g.rs", "x");
++        write(r, "src/debug.log", "x");
++        let (seen, out) = collect(r, &WalkOptions::default());
++        assert_eq!(
++            seen,
++            vec![
++                ".gitignore",
++                "a.txt",
++                "src",
++                "src/.gitignore",
++                "src/debug.log",
++                "src/main.rs"
++            ]
++        );
++        // debug.log, target, secret.txt, src/gen
++        assert_eq!(out.ignored, 4);
++        assert!(!out.truncated);
++        assert_eq!(out.errors, 0);
++    }
++
++    #[test]
++    fn walk_limits_hidden_and_visitor_control() {
++        let d = tempfile::tempdir().unwrap();
++        let r = d.path();
++        write(r, ".hidden", "x");
++        write(r, "a/b/c.txt", "x");
++        write(r, "a/d.txt", "x");
++        write(r, "z.txt", "xyz");
++
++        let o = WalkOptions {
++            skip_hidden: true,
++            max_depth: Some(2),
++            ..WalkOptions::default()
++        };
++        let (seen, _) = collect(r, &o);
++        assert_eq!(seen, vec!["a", "a/b", "a/d.txt", "z.txt"]);
++
++        let o = WalkOptions {
++            max_entries: Some(2),
++            ..WalkOptions::default()
++        };
++        let (seen, out) = collect(r, &o);
++        assert_eq!(seen.len(), 2);
++        assert!(out.truncated);
++
++        let mut skipped = Vec::new();
++        let out = walk_repo(r, &WalkOptions::default(), |e| {
++            skipped.push(e.rel_path.clone());
++            if e.rel_path == "a" {
++                WalkControl::SkipDir
++            } else {
++                WalkControl::Continue
++            }
++        })
++        .unwrap();
++        assert_eq!(skipped, vec![".hidden", "a", "z.txt"]);
++        assert!(!out.truncated);
++
++        let mut sizes = Vec::new();
++        walk_repo(r, &WalkOptions::default(), |e| {
++            if e.rel_path == "z.txt" {
++                sizes.push(e.size);
++            }
++            WalkControl::Continue
++        })
++        .unwrap();
++        assert_eq!(sizes, vec![3]);
++    }
++
++    #[test]
++    fn walk_rejects_a_file_root() {
++        let d = tempfile::tempdir().unwrap();
++        write(d.path(), "f", "x");
++        let err = walk_repo(&d.path().join("f"), &WalkOptions::default(), |_| {
++            WalkControl::Continue
++        })
++        .unwrap_err();
++        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
++    }
++}
+diff --git a/crates/rightkit-time/CHANGELOG.md b/crates/rightkit-time/CHANGELOG.md
+index 00b7315..4d292f9 100644
+--- a/crates/rightkit-time/CHANGELOG.md
++++ b/crates/rightkit-time/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.1.1 (unreleased)
++
++Additive: no existing item changed (Orthic-Labs/rightkit#367).
++
++- `format_rfc3339_utc(unix_secs) -> String`: `YYYY-MM-DDTHH:MM:SSZ`, e.g. `0` -> `1970-01-01T00:00:00Z`, `951782400` -> `2000-02-29T00:00:00Z`. For license/lease stamps (CodeRight).
++- IANA named zones with DST, std only, no new dependency: `TimeZone::load(name)` reads the OS tz database (TZif files under `/usr/share/zoneinfo` and the usual alternatives on Unix and macOS); `TimeZone::load_from_dir(dir, name)` and `TimeZone::from_tzif(name, bytes)` take a bundled database; `TimeZone::utc()`. `offset_at(unix)` -> `ZoneOffset { utc_offset_secs, is_dst, abbreviation }`, `to_datetime(unix)`, and `resolve_local(&DateTime) -> LocalResolution` (`Single`, `Ambiguous { earlier, later }`, `Gap { .. }`) for wall-clock input across DST changes. TZif versions 1-4, including the POSIX TZ footer for instants past the last transition. `TzError` reports invalid names (path escapes are refused), missing zones and malformed data.
++- Windows: there are no TZif files, so `TimeZone::load` returns `TzError::NotFound` there unless the host bundles a tzdata directory and calls `load_from_dir`. Native Windows registry/ICU zone resolution is not implemented (it needs a `windows`/ICU dependency and a mapping from Windows zone ids to IANA names).
++- Chose the OS database over `jiff`/`chrono-tz` so the crate stays dependency-free and needs no allowlist decision (the blocker noted in #367).
++
+ ## 0.1.0 (2026-10-17)
+ 
+ - New crate 0.1.0 (Orthic-Labs/rightkit#367, #369). `days_from_civil` / `civil_from_days` (Hinnant), `is_leap_year`, `days_in_month`, `weekday`, `Date::add_days`, `DateTime` with `parse_rfc3339` / `format_rfc3339` / `unix_seconds` / `from_unix`, and `format_http_date` / `parse_http_date` (RFC 7231 IMF-fixdate). std only.
+diff --git a/crates/rightkit-time/Cargo.toml b/crates/rightkit-time/Cargo.toml
+index 40fc326..5f6d5d3 100644
+--- a/crates/rightkit-time/Cargo.toml
++++ b/crates/rightkit-time/Cargo.toml
+@@ -1,13 +1,13 @@
+ [package]
+ name = "rightkit-time"
+-version = "0.1.0"
++version = "0.1.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+-description = "Time owner: RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting, std only."
++description = "Time owner: RFC 3339 parse and format, fixed UTC offsets, IANA named zones with DST from the OS tz database, civil date math and HTTP-date formatting, std only."
+ readme = "README.md"
+ repository = "https://github.com/bogusyogi/rightkit"
+-keywords = ["time", "rfc3339", "http-date", "calendar"]
++keywords = ["time", "rfc3339", "http-date", "calendar", "timezone"]
+ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+ 
+ [dependencies]
+diff --git a/crates/rightkit-time/README.md b/crates/rightkit-time/README.md
+index 0d6991e..04b72ae 100644
+--- a/crates/rightkit-time/README.md
++++ b/crates/rightkit-time/README.md
+@@ -1,12 +1,15 @@
+ # rightkit-time
+ 
+-Civil date math, RFC 3339 and HTTP-date formatting with no dependencies. Not yet published (0.1.0). Catalog capability: `time-civil` (to be added by the lead).
++Civil date math, RFC 3339 and HTTP-date formatting, and IANA named time zones with DST, with no dependencies. Not yet published (0.1.1). Catalog capability: `time-civil` (to be added by the lead).
+ 
+ - `days_from_civil(y, m, d) -> i64` and `civil_from_days(z) -> (i64, u32, u32)`: days since 1970-01-01 (Howard Hinnant's algorithms), proleptic Gregorian.
+ - `is_leap_year`, `days_in_month`, `weekday` (0 = Sunday), `Date::add_days`.
+ - `DateTime { year, month, day, hour, minute, second, nanos, offset_secs }`: `parse_rfc3339(&str)`, `format_rfc3339()`, `unix_seconds()`, `from_unix(secs, offset_secs)`. Offsets are fixed (`Z` or `+hh:mm`); second 60 is accepted when written and not normalised.
+ - `format_http_date(unix_secs) -> String` and `parse_http_date(&str) -> Option<i64>`: IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`), for Retry-After and mock responses.
+ 
++- `format_rfc3339_utc(unix_secs) -> String`: `YYYY-MM-DDTHH:MM:SSZ`.
++- `TimeZone`: `load("America/New_York")` reads the OS tz database (TZif; `/usr/share/zoneinfo` on Unix and macOS), `load_from_dir(dir, name)` / `from_tzif(name, bytes)` for a bundled database, `offset_at(unix) -> ZoneOffset`, `to_datetime(unix)`, `resolve_local(&DateTime) -> LocalResolution` (`Single`, `Ambiguous`, `Gap`).
++
+ ## Not here
+ 
+-Named time zones and DST rules (no tz database): callers pass a fixed offset. Adding a tz owner needs an allowlisted dependency decision.
++Windows has no TZif files: `TimeZone::load` returns `TzError::NotFound` there, so bundle a tzdata directory and use `load_from_dir`. Native Windows registry/ICU resolution (and Windows-id to IANA mapping) is not implemented.
+diff --git a/crates/rightkit-time/rightkit-ownership.json b/crates/rightkit-time/rightkit-ownership.json
+index a1a6ae6..5f3ddb9 100644
+--- a/crates/rightkit-time/rightkit-ownership.json
++++ b/crates/rightkit-time/rightkit-ownership.json
+@@ -3,12 +3,12 @@
+   "capabilities": [
+     {
+       "capability": "time-civil",
+-      "summary": "RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting",
++      "summary": "RFC 3339 parse and format, fixed UTC offsets, IANA named zones with DST (OS tz database), civil date math and HTTP-date formatting",
+       "fingerprints": [],
+       "detection": "declaration-only",
+       "policyNotes": [
+         "Declaration-only: apps call this crate instead of hand-rolling RFC 3339, civil date math or HTTP-date formatting.",
+-        "No time zone database: named zones and DST rules are not owned here; callers pass a fixed offset."
++        "Named zones and DST come from TimeZone (OS TZif database; Windows needs a bundled tzdata directory): do not hand-keep offset tables."
+       ]
+     }
+   ]
+diff --git a/crates/rightkit-time/src/lib.rs b/crates/rightkit-time/src/lib.rs
+index fb16e33..dda5aba 100644
+--- a/crates/rightkit-time/src/lib.rs
++++ b/crates/rightkit-time/src/lib.rs
+@@ -1,4 +1,9 @@
+-//! Civil date math, RFC 3339 and HTTP-date formatting. std only.
++//! Civil date math, RFC 3339 and HTTP-date formatting, and IANA named time zones with DST
++//! (read from the OS tz database, see [`TimeZone`]). std only.
++
++mod tz;
++
++pub use tz::{LocalResolution, TimeZone, TzError, ZoneOffset};
+ 
+ const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+ const MONTHS: [&str; 12] = [
+@@ -260,6 +265,15 @@ impl DateTime {
+     }
+ }
+ 
++/// Format Unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (RFC 3339, UTC, whole seconds), e.g.
++/// `0` gives `1970-01-01T00:00:00Z` and `951_782_400` gives `2000-02-29T00:00:00Z`.
++/// Meant for years 0000-9999, the range RFC 3339 can express.
++pub fn format_rfc3339_utc(unix_secs: i64) -> String {
++    DateTime::from_unix(unix_secs, 0)
++        .expect("offset 0 is always valid")
++        .format_rfc3339()
++}
++
+ /// Format Unix seconds as an RFC 7231 IMF-fixdate, e.g. `Sun, 06 Nov 1994 08:49:37 GMT`.
+ pub fn format_http_date(unix_secs: i64) -> String {
+     let t = DateTime::from_unix(unix_secs, 0).expect("offset 0 is always valid");
+@@ -390,6 +404,13 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn format_rfc3339_utc_examples() {
++        assert_eq!(format_rfc3339_utc(0), "1970-01-01T00:00:00Z");
++        assert_eq!(format_rfc3339_utc(951_782_400), "2000-02-29T00:00:00Z");
++        assert_eq!(format_rfc3339_utc(-1), "1969-12-31T23:59:59Z");
++    }
++
+     #[test]
+     fn http_date_rfc7231() {
+         assert_eq!(
+diff --git a/crates/rightkit-time/src/tz.rs b/crates/rightkit-time/src/tz.rs
+new file mode 100644
+index 0000000..bedd0f1
+--- /dev/null
++++ b/crates/rightkit-time/src/tz.rs
+@@ -0,0 +1,795 @@
++//! IANA named time zones with DST, read from a system tz database (TZif files). std only.
++//!
++//! The database is the operating system's own: `/usr/share/zoneinfo` (and the usual
++//! alternatives) on Unix and macOS. Windows ships no TZif files, so there
++//! [`TimeZone::load`] reports [`TzError::NotFound`] unless a directory is supplied through
++//! [`TimeZone::load_from_dir`] or the bytes through [`TimeZone::from_tzif`] (a host can bundle
++//! a tzdata directory). No third-party crate is involved, so no supply-chain decision is
++//! needed.
++
++use std::fmt;
++use std::path::Path;
++
++use crate::{civil_from_days, days_from_civil, days_in_month, is_leap_year, weekday, DateTime};
++
++/// Largest TZif file read, in bytes. Real zones are a few KiB.
++const MAX_TZIF_BYTES: u64 = 1 << 20;
++
++/// Directories searched by [`TimeZone::load`], in order.
++#[cfg(unix)]
++const SYSTEM_DIRS: &[&str] = &[
++    "/usr/share/zoneinfo",
++    "/usr/share/lib/zoneinfo",
++    "/usr/lib/zoneinfo",
++    "/etc/zoneinfo",
++];
++#[cfg(not(unix))]
++const SYSTEM_DIRS: &[&str] = &[];
++
++/// Why a zone could not be resolved.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum TzError {
++    /// The zone name is empty, absolute, or contains a path-escaping component.
++    InvalidName,
++    /// No tz database has this zone (or this host has no tz database directory).
++    NotFound,
++    /// The file is not valid TZif data.
++    Malformed(&'static str),
++    /// Reading the file failed.
++    Io(String),
++}
++
++impl fmt::Display for TzError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            TzError::InvalidName => f.write_str("invalid time zone name"),
++            TzError::NotFound => f.write_str("time zone not found in the tz database"),
++            TzError::Malformed(why) => write!(f, "malformed TZif data: {why}"),
++            TzError::Io(e) => write!(f, "reading time zone data failed: {e}"),
++        }
++    }
++}
++
++impl std::error::Error for TzError {}
++
++/// The UTC offset in force at an instant.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ZoneOffset {
++    /// Seconds east of UTC. May be a non-whole-minute value for historic local mean time.
++    pub utc_offset_secs: i32,
++    /// True while daylight saving time is in force.
++    pub is_dst: bool,
++    /// The zone abbreviation, e.g. `PST`, `CEST`.
++    pub abbreviation: String,
++}
++
++/// How a civil (wall clock) time maps onto the timeline in a zone.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum LocalResolution {
++    /// Exactly one instant has this wall clock reading.
++    Single(i64),
++    /// The wall clock reading happens twice (clocks went back): the earlier and later instant.
++    Ambiguous { earlier: i64, later: i64 },
++    /// The wall clock reading never happens (clocks jumped forward). The instants are what
++    /// the reading means under the offset before and after the jump.
++    Gap {
++        with_pre_offset: i64,
++        with_post_offset: i64,
++    },
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++enum Rule {
++    /// `Mm.w.d`: month, week 1-5 (5 = last), weekday 0 = Sunday.
++    Month { m: u32, w: u32, d: u32 },
++    /// `Jn`: day 1-365, February 29 never counted.
++    Julian1(u32),
++    /// `n`: day 0-365, February 29 counted in leap years.
++    Zero(u32),
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++struct PosixDst {
++    offset: ZoneOffset,
++    start: Rule,
++    start_time: i32,
++    end: Rule,
++    end_time: i32,
++}
++
++/// The POSIX TZ string that follows the last transition in a TZif v2+ file.
++#[derive(Debug, Clone, PartialEq, Eq)]
++struct PosixTz {
++    std: ZoneOffset,
++    dst: Option<PosixDst>,
++}
++
++/// A named IANA time zone: UTC offset and DST rules over time.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct TimeZone {
++    name: String,
++    transitions: Vec<i64>,
++    transition_types: Vec<u8>,
++    types: Vec<ZoneOffset>,
++    footer: Option<PosixTz>,
++}
++
++impl TimeZone {
++    /// The UTC zone, without touching the file system.
++    pub fn utc() -> TimeZone {
++        TimeZone {
++            name: "UTC".to_string(),
++            transitions: Vec::new(),
++            transition_types: Vec::new(),
++            types: vec![ZoneOffset {
++                utc_offset_secs: 0,
++                is_dst: false,
++                abbreviation: "UTC".to_string(),
++            }],
++            footer: None,
++        }
++    }
++
++    /// Resolve `name` (e.g. `America/New_York`) from the operating system's tz database.
++    pub fn load(name: &str) -> Result<TimeZone, TzError> {
++        validate_name(name)?;
++        if name == "UTC" || name == "Etc/UTC" {
++            let mut z = TimeZone::utc();
++            z.name = name.to_string();
++            return Ok(z);
++        }
++        for dir in SYSTEM_DIRS {
++            match TimeZone::load_from_dir(Path::new(dir), name) {
++                Err(TzError::NotFound) => continue,
++                other => return other,
++            }
++        }
++        Err(TzError::NotFound)
++    }
++
++    /// Resolve `name` from a tz database directory laid out like `/usr/share/zoneinfo`.
++    pub fn load_from_dir(dir: &Path, name: &str) -> Result<TimeZone, TzError> {
++        validate_name(name)?;
++        let path = dir.join(name);
++        let meta = match std::fs::metadata(&path) {
++            Ok(m) => m,
++            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(TzError::NotFound),
++            Err(e) => return Err(TzError::Io(e.to_string())),
++        };
++        if !meta.is_file() {
++            return Err(TzError::NotFound);
++        }
++        if meta.len() > MAX_TZIF_BYTES {
++            return Err(TzError::Malformed("file too large"));
++        }
++        let bytes = std::fs::read(&path).map_err(|e| TzError::Io(e.to_string()))?;
++        TimeZone::from_tzif(name, &bytes)
++    }
++
++    /// Build a zone from the bytes of a TZif file (RFC 8536, versions 1 to 4).
++    pub fn from_tzif(name: &str, bytes: &[u8]) -> Result<TimeZone, TzError> {
++        parse_tzif(name, bytes)
++    }
++
++    /// The name this zone was loaded under.
++    pub fn name(&self) -> &str {
++        &self.name
++    }
++
++    /// The offset, DST flag and abbreviation in force at `unix_secs`.
++    pub fn offset_at(&self, unix_secs: i64) -> ZoneOffset {
++        let past_last = match self.transitions.last() {
++            Some(&last) => unix_secs >= last,
++            None => true,
++        };
++        if past_last {
++            if let Some(f) = &self.footer {
++                return f.offset_at(unix_secs);
++            }
++        }
++        let idx = self.transitions.partition_point(|&t| t <= unix_secs);
++        let ty = if idx == 0 {
++            // Before the first transition: the first non-DST type, else type 0 (RFC 8536).
++            self.types
++                .iter()
++                .find(|t| !t.is_dst)
++                .unwrap_or(&self.types[0])
++        } else {
++            &self.types[self.transition_types[idx - 1] as usize]
++        };
++        ty.clone()
++    }
++
++    /// The civil time of `unix_secs` in this zone. `offset_secs` carries the real offset; it
++    /// can be a value [`crate::valid_offset_secs`] rejects (old local mean time), in which case
++    /// [`DateTime::format_rfc3339`] writes the same instant as UTC.
++    pub fn to_datetime(&self, unix_secs: i64) -> DateTime {
++        let off = self.offset_at(unix_secs).utc_offset_secs;
++        let local = unix_secs + off as i64;
++        let (year, month, day) = civil_from_days(local.div_euclid(86_400));
++        let sod = local.rem_euclid(86_400) as u32;
++        DateTime {
++            year,
++            month,
++            day,
++            hour: sod / 3600,
++            minute: sod % 3600 / 60,
++            second: sod % 60,
++            nanos: 0,
++            offset_secs: off,
++        }
++    }
++
++    /// Map the wall clock fields of `local` (year, month, day, hour, minute, second; its
++    /// `offset_secs` and `nanos` are ignored) to instants in this zone. `None` when a field
++    /// is out of range.
++    pub fn resolve_local(&self, local: &DateTime) -> Option<LocalResolution> {
++        if !(1..=12).contains(&local.month)
++            || local.day == 0
++            || local.day > days_in_month(local.year, local.month)
++            || local.hour > 23
++            || local.minute > 59
++            || local.second > 60
++        {
++            return None;
++        }
++        let l = days_from_civil(local.year, local.month, local.day) * 86_400
++            + local.hour as i64 * 3600
++            + local.minute as i64 * 60
++            + local.second as i64;
++        // Offsets in force a little before and after cover any single transition.
++        let probe = 2 * 86_400;
++        let before = self.offset_at(l - probe).utc_offset_secs;
++        let after = self.offset_at(l + probe).utc_offset_secs;
++        let mut valid: Vec<i64> = Vec::new();
++        for o in [before, after] {
++            let t = l - o as i64;
++            if self.offset_at(t).utc_offset_secs == o && !valid.contains(&t) {
++                valid.push(t);
++            }
++        }
++        valid.sort_unstable();
++        Some(match valid.as_slice() {
++            [one] => LocalResolution::Single(*one),
++            [a, b] => LocalResolution::Ambiguous {
++                earlier: *a,
++                later: *b,
++            },
++            _ => LocalResolution::Gap {
++                with_pre_offset: l - before as i64,
++                with_post_offset: l - after as i64,
++            },
++        })
++    }
++}
++
++fn validate_name(name: &str) -> Result<(), TzError> {
++    if name.is_empty() || name.len() > 64 || name.starts_with('/') || name.ends_with('/') {
++        return Err(TzError::InvalidName);
++    }
++    for part in name.split('/') {
++        if part.is_empty() || part == "." || part == ".." {
++            return Err(TzError::InvalidName);
++        }
++        if !part
++            .bytes()
++            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'-' | b'.'))
++        {
++            return Err(TzError::InvalidName);
++        }
++    }
++    Ok(())
++}
++
++// ---------------------------------------------------------------------------------------------
++// TZif parsing
++// ---------------------------------------------------------------------------------------------
++
++struct Header {
++    version: u8,
++    isutcnt: usize,
++    isstdcnt: usize,
++    leapcnt: usize,
++    timecnt: usize,
++    typecnt: usize,
++    charcnt: usize,
++}
++
++impl Header {
++    fn parse(b: &[u8]) -> Result<Header, TzError> {
++        if b.len() < 44 || &b[0..4] != b"TZif" {
++            return Err(TzError::Malformed("missing TZif magic"));
++        }
++        let n = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
++        Ok(Header {
++            version: b[4],
++            isutcnt: n(20),
++            isstdcnt: n(24),
++            leapcnt: n(28),
++            timecnt: n(32),
++            typecnt: n(36),
++            charcnt: n(40),
++        })
++    }
++
++    fn data_len(&self, time_size: usize) -> Option<usize> {
++        self.timecnt
++            .checked_mul(time_size + 1)?
++            .checked_add(self.typecnt.checked_mul(6)?)?
++            .checked_add(self.charcnt)?
++            .checked_add(self.leapcnt.checked_mul(time_size + 4)?)?
++            .checked_add(self.isstdcnt)?
++            .checked_add(self.isutcnt)
++    }
++}
++
++fn parse_tzif(name: &str, bytes: &[u8]) -> Result<TimeZone, TzError> {
++    let h1 = Header::parse(bytes)?;
++    let mut body = &bytes[44..];
++    let mut hdr = h1;
++    let mut time_size = 4usize;
++    if hdr.version >= b'2' {
++        let skip = hdr
++            .data_len(4)
++            .ok_or(TzError::Malformed("v1 block size overflow"))?;
++        if body.len() < skip {
++            return Err(TzError::Malformed("truncated v1 block"));
++        }
++        let rest = &body[skip..];
++        hdr = Header::parse(rest)?;
++        body = &rest[44..];
++        time_size = 8;
++    }
++    let need = hdr
++        .data_len(time_size)
++        .ok_or(TzError::Malformed("block size overflow"))?;
++    if body.len() < need {
++        return Err(TzError::Malformed("truncated data block"));
++    }
++    if hdr.typecnt == 0 || hdr.charcnt == 0 {
++        return Err(TzError::Malformed("no local time types"));
++    }
++    let mut pos = 0usize;
++    let mut transitions = Vec::with_capacity(hdr.timecnt);
++    for _ in 0..hdr.timecnt {
++        let t = if time_size == 8 {
++            i64::from_be_bytes(body[pos..pos + 8].try_into().unwrap())
++        } else {
++            i32::from_be_bytes(body[pos..pos + 4].try_into().unwrap()) as i64
++        };
++        transitions.push(t);
++        pos += time_size;
++    }
++    if transitions.windows(2).any(|w| w[0] > w[1]) {
++        return Err(TzError::Malformed("transitions not ascending"));
++    }
++    let transition_types = body[pos..pos + hdr.timecnt].to_vec();
++    pos += hdr.timecnt;
++    if transition_types.iter().any(|&i| i as usize >= hdr.typecnt) {
++        return Err(TzError::Malformed("transition type out of range"));
++    }
++    let raw_types = &body[pos..pos + hdr.typecnt * 6];
++    pos += hdr.typecnt * 6;
++    let chars = &body[pos..pos + hdr.charcnt];
++    pos += hdr.charcnt;
++    pos += hdr.leapcnt * (time_size + 4) + hdr.isstdcnt + hdr.isutcnt;
++
++    let mut types = Vec::with_capacity(hdr.typecnt);
++    for i in 0..hdr.typecnt {
++        let r = &raw_types[i * 6..i * 6 + 6];
++        let off = i32::from_be_bytes([r[0], r[1], r[2], r[3]]);
++        let abbr_idx = r[5] as usize;
++        if abbr_idx >= chars.len() {
++            return Err(TzError::Malformed("abbreviation index out of range"));
++        }
++        let end = chars[abbr_idx..]
++            .iter()
++            .position(|&c| c == 0)
++            .map_or(chars.len(), |p| abbr_idx + p);
++        types.push(ZoneOffset {
++            utc_offset_secs: off,
++            is_dst: r[4] != 0,
++            abbreviation: String::from_utf8_lossy(&chars[abbr_idx..end]).into_owned(),
++        });
++    }
++
++    let mut footer = None;
++    if time_size == 8 {
++        let tail = &body[pos..];
++        if tail.first() == Some(&b'\n') {
++            if let Some(end) = tail[1..].iter().position(|&c| c == b'\n') {
++                let s = std::str::from_utf8(&tail[1..1 + end])
++                    .map_err(|_| TzError::Malformed("footer is not UTF-8"))?;
++                if !s.is_empty() {
++                    footer = Some(parse_posix_tz(s).ok_or(TzError::Malformed("bad footer"))?);
++                }
++            }
++        }
++    }
++
++    Ok(TimeZone {
++        name: name.to_string(),
++        transitions,
++        transition_types,
++        types,
++        footer,
++    })
++}
++
++// ---------------------------------------------------------------------------------------------
++// POSIX TZ strings (the TZif footer)
++// ---------------------------------------------------------------------------------------------
++
++struct Cur<'a> {
++    b: &'a [u8],
++    i: usize,
++}
++
++impl<'a> Cur<'a> {
++    fn peek(&self) -> Option<u8> {
++        self.b.get(self.i).copied()
++    }
++
++    fn eat(&mut self, c: u8) -> bool {
++        if self.peek() == Some(c) {
++            self.i += 1;
++            true
++        } else {
++            false
++        }
++    }
++
++    fn name(&mut self) -> Option<String> {
++        let start;
++        if self.eat(b'<') {
++            start = self.i;
++            while self.peek()? != b'>' {
++                self.i += 1;
++            }
++            let s = std::str::from_utf8(&self.b[start..self.i]).ok()?.to_string();
++            self.i += 1;
++            (s.len() >= 3).then_some(s)
++        } else {
++            start = self.i;
++            while self.peek().is_some_and(|c| c.is_ascii_alphabetic()) {
++                self.i += 1;
++            }
++            (self.i - start >= 3)
++                .then(|| String::from_utf8_lossy(&self.b[start..self.i]).into_owned())
++        }
++    }
++
++    fn number(&mut self, max: u32) -> Option<u32> {
++        let start = self.i;
++        let mut v = 0u32;
++        while let Some(c) = self.peek().filter(u8::is_ascii_digit) {
++            v = v.checked_mul(10)?.checked_add((c - b'0') as u32)?;
++            if v > max {
++                return None;
++            }
++            self.i += 1;
++        }
++        (self.i > start).then_some(v)
++    }
++
++    /// `[+-]hh[:mm[:ss]]` in seconds.
++    fn clock(&mut self, max_hours: u32) -> Option<i32> {
++        let neg = if self.eat(b'-') {
++            true
++        } else {
++            self.eat(b'+');
++            false
++        };
++        let h = self.number(max_hours)? as i32;
++        let (mut m, mut s) = (0, 0);
++        if self.eat(b':') {
++            m = self.number(59)? as i32;
++            if self.eat(b':') {
++                s = self.number(59)? as i32;
++            }
++        }
++        let v = h * 3600 + m * 60 + s;
++        Some(if neg { -v } else { v })
++    }
++
++    fn rule(&mut self) -> Option<(Rule, i32)> {
++        let rule = if self.eat(b'M') {
++            let m = self.number(12)?;
++            if !self.eat(b'.') {
++                return None;
++            }
++            let w = self.number(5)?;
++            if !self.eat(b'.') {
++                return None;
++            }
++            let d = self.number(6)?;
++            if m == 0 || w == 0 {
++                return None;
++            }
++            Rule::Month { m, w, d }
++        } else if self.eat(b'J') {
++            let n = self.number(365)?;
++            if n == 0 {
++                return None;
++            }
++            Rule::Julian1(n)
++        } else {
++            Rule::Zero(self.number(365)?)
++        };
++        let time = if self.eat(b'/') {
++            self.clock(167)?
++        } else {
++            2 * 3600
++        };
++        Some((rule, time))
++    }
++}
++
++fn parse_posix_tz(s: &str) -> Option<PosixTz> {
++    let mut c = Cur {
++        b: s.as_bytes(),
++        i: 0,
++    };
++    let std_name = c.name()?;
++    // POSIX offsets are positive west of UTC.
++    let std_off = -c.clock(24)?;
++    let std = ZoneOffset {
++        utc_offset_secs: std_off,
++        is_dst: false,
++        abbreviation: std_name,
++    };
++    if c.peek().is_none() {
++        return Some(PosixTz { std, dst: None });
++    }
++    let dst_name = c.name()?;
++    let dst_off = match c.peek() {
++        Some(b',') | None => std_off + 3600,
++        _ => -c.clock(24)?,
++    };
++    if !c.eat(b',') {
++        return None;
++    }
++    let (start, start_time) = c.rule()?;
++    if !c.eat(b',') {
++        return None;
++    }
++    let (end, end_time) = c.rule()?;
++    if c.peek().is_some() {
++        return None;
++    }
++    Some(PosixTz {
++        std,
++        dst: Some(PosixDst {
++            offset: ZoneOffset {
++                utc_offset_secs: dst_off,
++                is_dst: true,
++                abbreviation: dst_name,
++            },
++            start,
++            start_time,
++            end,
++            end_time,
++        }),
++    })
++}
++
++/// Seconds since the epoch of local midnight-based `rule` + `time` in year `y`, as wall clock.
++fn rule_local_secs(y: i64, rule: &Rule, time: i32) -> i64 {
++    let day = match *rule {
++        Rule::Month { m, w, d } => {
++            let wd1 = weekday(y, m, 1) as i64;
++            let mut day = 1 + (d as i64 - wd1).rem_euclid(7) + (w as i64 - 1) * 7;
++            let dim = days_in_month(y, m) as i64;
++            while day > dim {
++                day -= 7;
++            }
++            days_from_civil(y, m, 1) + day - 1
++        }
++        Rule::Julian1(n) => {
++            let mut k = n as i64 - 1;
++            if is_leap_year(y) && n >= 60 {
++                k += 1;
++            }
++            days_from_civil(y, 1, 1) + k
++        }
++        Rule::Zero(n) => days_from_civil(y, 1, 1) + n as i64,
++    };
++    day * 86_400 + time as i64
++}
++
++impl PosixTz {
++    fn offset_at(&self, t: i64) -> ZoneOffset {
++        let Some(dst) = &self.dst else {
++            return self.std.clone();
++        };
++        let std_off = self.std.utc_offset_secs as i64;
++        let dst_off = dst.offset.utc_offset_secs as i64;
++        let year = civil_from_days((t + std_off).div_euclid(86_400)).0;
++        let start = rule_local_secs(year, &dst.start, dst.start_time) - std_off;
++        let end = rule_local_secs(year, &dst.end, dst.end_time) - dst_off;
++        let in_dst = if start < end {
++            t >= start && t < end
++        } else {
++            !(t >= end && t < start)
++        };
++        if in_dst {
++            dst.offset.clone()
++        } else {
++            self.std.clone()
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn dt(y: i64, mo: u32, d: u32, h: u32, mi: u32, s: u32) -> DateTime {
++        DateTime {
++            year: y,
++            month: mo,
++            day: d,
++            hour: h,
++            minute: mi,
++            second: s,
++            nanos: 0,
++            offset_secs: 0,
++        }
++    }
++
++    /// A TZif v2 file with no transitions and the given footer: the zone is the footer alone.
++    fn footer_only(footer: &str) -> Vec<u8> {
++        let mut v = Vec::new();
++        let header = |v: &mut Vec<u8>| {
++            v.extend_from_slice(b"TZif2");
++            v.extend_from_slice(&[0u8; 15]);
++            for n in [0u32, 0, 0, 0, 1, 4] {
++                v.extend_from_slice(&n.to_be_bytes());
++            }
++        };
++        let block = |v: &mut Vec<u8>| {
++            v.extend_from_slice(&0i32.to_be_bytes());
++            v.extend_from_slice(&[0, 0]);
++            v.extend_from_slice(b"UTC\0");
++        };
++        header(&mut v);
++        block(&mut v);
++        header(&mut v);
++        block(&mut v);
++        v.push(b'\n');
++        v.extend_from_slice(footer.as_bytes());
++        v.push(b'\n');
++        v
++    }
++
++    fn ny() -> TimeZone {
++        TimeZone::from_tzif("America/New_York", &footer_only("EST5EDT,M3.2.0,M11.1.0")).unwrap()
++    }
++
++    #[test]
++    fn us_eastern_dst_from_footer() {
++        let z = ny();
++        // 2026-01-15T12:00:00Z is winter.
++        let w = z.offset_at(1_768_478_400);
++        assert_eq!(
++            (w.utc_offset_secs, w.is_dst, w.abbreviation.as_str()),
++            (-18_000, false, "EST")
++        );
++        // 2026-07-15T12:00:00Z is summer.
++        let s = z.offset_at(1_784_116_800);
++        assert_eq!(
++            (s.utc_offset_secs, s.is_dst, s.abbreviation.as_str()),
++            (-14_400, true, "EDT")
++        );
++        // DST began 2026-03-08T07:00:00Z and ended 2026-11-01T06:00:00Z.
++        assert!(!z.offset_at(1_772_953_199).is_dst);
++        assert!(z.offset_at(1_772_953_200).is_dst);
++        assert!(z.offset_at(1_793_512_799).is_dst);
++        assert!(!z.offset_at(1_793_512_800).is_dst);
++    }
++
++    #[test]
++    fn southern_hemisphere_footer() {
++        let z = TimeZone::from_tzif(
++            "Australia/Sydney",
++            &footer_only("AEST-10AEDT,M10.1.0,M4.1.0/3"),
++        )
++        .unwrap();
++        // January is summer (DST) in Sydney, July is not.
++        assert!(z.offset_at(1_768_478_400).is_dst);
++        assert_eq!(z.offset_at(1_768_478_400).utc_offset_secs, 39_600);
++        assert!(!z.offset_at(1_784_116_800).is_dst);
++        assert_eq!(z.offset_at(1_784_116_800).utc_offset_secs, 36_000);
++    }
++
++    #[test]
++    fn local_resolution_gap_and_overlap() {
++        let z = ny();
++        // 2026-03-08 02:30 does not exist.
++        match z.resolve_local(&dt(2026, 3, 8, 2, 30, 0)).unwrap() {
++            LocalResolution::Gap {
++                with_pre_offset,
++                with_post_offset,
++            } => assert_eq!(with_pre_offset - with_post_offset, 3600),
++            other => panic!("{other:?}"),
++        }
++        // 2026-11-01 01:30 happens twice.
++        match z.resolve_local(&dt(2026, 11, 1, 1, 30, 0)).unwrap() {
++            LocalResolution::Ambiguous { earlier, later } => assert_eq!(later - earlier, 3600),
++            other => panic!("{other:?}"),
++        }
++        // An ordinary time maps to one instant that converts back.
++        let LocalResolution::Single(t) = z.resolve_local(&dt(2026, 6, 1, 9, 0, 0)).unwrap() else {
++            panic!("expected Single");
++        };
++        let back = z.to_datetime(t);
++        assert_eq!((back.hour, back.offset_secs), (9, -14_400));
++        assert!(z.resolve_local(&dt(2026, 2, 30, 0, 0, 0)).is_none());
++    }
++
++    #[test]
++    fn transition_table_before_footer() {
++        // One transition at t=1000 from type 0 (STD, +1h) to type 1 (DST, +2h), no footer.
++        let mut v = Vec::new();
++        v.extend_from_slice(b"TZif1");
++        v.extend_from_slice(&[0u8; 15]);
++        for n in [0u32, 0, 0, 1, 2, 8] {
++            v.extend_from_slice(&n.to_be_bytes());
++        }
++        v.extend_from_slice(&1000i32.to_be_bytes());
++        v.push(1);
++        v.extend_from_slice(&3600i32.to_be_bytes());
++        v.extend_from_slice(&[0, 0]);
++        v.extend_from_slice(&7200i32.to_be_bytes());
++        v.extend_from_slice(&[1, 4]);
++        v.extend_from_slice(b"STD\0DST\0");
++        let z = TimeZone::from_tzif("Test/Zone", &v).unwrap();
++        assert_eq!(z.offset_at(999).abbreviation, "STD");
++        assert_eq!(z.offset_at(1000).abbreviation, "DST");
++        assert_eq!(z.offset_at(i64::MAX / 2).abbreviation, "DST");
++    }
++
++    #[test]
++    fn rejects_bad_data_and_names() {
++        assert!(matches!(
++            TimeZone::from_tzif("x", b"nope"),
++            Err(TzError::Malformed(_))
++        ));
++        let mut cut = footer_only("EST5EDT,M3.2.0,M11.1.0");
++        cut.truncate(60);
++        assert!(TimeZone::from_tzif("x", &cut).is_err());
++        for bad in ["", "/etc/passwd", "../x", "a/../b", "a//b", "a\\b", "C:x"] {
++            assert_eq!(TimeZone::load(bad), Err(TzError::InvalidName), "{bad}");
++        }
++        assert_eq!(
++            TimeZone::load_from_dir(Path::new("."), "No/Such_Zone_Anywhere"),
++            Err(TzError::NotFound)
++        );
++    }
++
++    #[test]
++    fn utc_and_posix_parsing() {
++        let z = TimeZone::load("UTC").unwrap();
++        assert_eq!(z.offset_at(123).utc_offset_secs, 0);
++        assert_eq!(z.to_datetime(0).format_rfc3339(), "1970-01-01T00:00:00Z");
++        let p = parse_posix_tz("<+0530>-5:30").unwrap();
++        assert_eq!(p.std.utc_offset_secs, 19_800);
++        assert!(p.dst.is_none());
++        let p = parse_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
++        let d = p.dst.unwrap();
++        assert_eq!((d.offset.utc_offset_secs, d.end_time), (7200, 3 * 3600));
++        assert!(parse_posix_tz("EST5EDT").is_none());
++        assert!(parse_posix_tz("EST5EDT,M13.1.0,M11.1.0").is_none());
++    }
++
++    #[test]
++    #[cfg(unix)]
++    fn system_database_when_present() {
++        if let Ok(z) = TimeZone::load("America/New_York") {
++            let s = z.offset_at(1_784_116_800);
++            assert_eq!((s.utc_offset_secs, s.is_dst), (-14_400, true));
++            let w = z.offset_at(1_768_478_400);
++            assert_eq!((w.utc_offset_secs, w.is_dst), (-18_000, false));
++        }
++    }
++}

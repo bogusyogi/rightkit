@@ -1,0 +1,683 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..b37df05 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7377,11 +7377,12 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-sidecar"
+-version = "0.2.1"
++version = "0.3.0"
+ dependencies = [
+  "libc",
+  "serde",
+  "serde_json",
++ "tokio",
+  "windows-sys 0.61.2",
+ ]
+ 
+diff --git a/crates/rightkit-daemon/Cargo.toml b/crates/rightkit-daemon/Cargo.toml
+index 65d08df..055a588 100644
+--- a/crates/rightkit-daemon/Cargo.toml
++++ b/crates/rightkit-daemon/Cargo.toml
+@@ -10,7 +10,7 @@ readme = "README.md"
+ include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+ 
+ [dependencies]
+-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
++rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"
+ rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+diff --git a/crates/rightkit-job-queue/Cargo.toml b/crates/rightkit-job-queue/Cargo.toml
+index 2f13c14..9ba9115 100644
+--- a/crates/rightkit-job-queue/Cargo.toml
++++ b/crates/rightkit-job-queue/Cargo.toml
+@@ -46,7 +46,7 @@ ffi = ["supervisor", "dep:rightkit-daemon"]
+ [dependencies]
+ rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
+ rightkit-db = { version = "0.4.0", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
+-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar", optional = true }
++rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar", optional = true }
+ rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
+ rightkit-crash = { version = "0.3.0", path = "../rightkit-crash", default-features = false, optional = true }
+ rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = true }
+diff --git a/crates/rightkit-qa/Cargo.toml b/crates/rightkit-qa/Cargo.toml
+index 1c07e63..e871353 100644
+--- a/crates/rightkit-qa/Cargo.toml
++++ b/crates/rightkit-qa/Cargo.toml
+@@ -32,7 +32,7 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
+ 
+ [dependencies]
+ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
++rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+ rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
+ rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+ rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
+diff --git a/crates/rightkit-record/Cargo.toml b/crates/rightkit-record/Cargo.toml
+index 570b3a9..24d2671 100644
+--- a/crates/rightkit-record/Cargo.toml
++++ b/crates/rightkit-record/Cargo.toml
+@@ -21,7 +21,7 @@ path = "src/bin/rightkit-record-helper/main.rs"
+ 
+ [dependencies]
+ rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts" }
+-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
++rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"
+ blake3 = "1.8"
+diff --git a/crates/rightkit-sidecar/CHANGELOG.md b/crates/rightkit-sidecar/CHANGELOG.md
+index 4ffc7d0..fa7c4c1 100644
+--- a/crates/rightkit-sidecar/CHANGELOG.md
++++ b/crates/rightkit-sidecar/CHANGELOG.md
+@@ -1,5 +1,10 @@
+ # Changelog
+ 
++## 0.3.0
++
++- Added (rightkit#634, additive, feature `tokio`, off by default): `async_io` with `read_json_line_async`, `read_json_line_opts_async`, `read_json_line_or_oversized_opts_async`, `read_json_line_or_oversized_observed_async`, `read_line_bytes_async`, `write_json_line_async` and `write_json_line_flush_async`, over `AsyncBufRead + Unpin` and `AsyncWrite + Unpin`. Same limit, bounded-resync, blank-line, oversized-value, observer and error behaviour as the blocking functions (the line loop is a port of `next_line`); the futures are `Send`. Depends only on tokio `io-util`: no runtime, task or timer. Tests are in `src/async_io.rs`. Not compiled when written.
++- BREAKING (rightkit#734 part b, minor bump for 0.x): `wire::WireError` has a new public field `details: Option<serde_json::Value>`, so code that builds `WireError { .. }` as a struct literal must add `details: None` or use `WireError::new` / `WireError::retryable`. On the wire it is written only when present and read tolerantly: a frame without it, or with `null`, parses with `None`, and a 0.2 peer ignores it. New: `WireError::with_details`, `WireError::details`, `WireError::detail(key)`. Tests are in `src/wire.rs`. Not compiled when written.
++
+ ## 0.2.1
+ 
+ - Added (rightkit#190, additive): `length_prefixed::read_frame_bytes_deadline` and `write_frame_bytes_deadline` move one length-prefixed frame over any `Read` or `Write` before an absolute `Instant`, waiting through a readiness callback (`Ready`: given the time left, returns whether the stream is ready). For transports that are not a plain descriptor or overlapped handle (the descriptor-based `read_frame_deadline` and `write_frame_deadline` from 0.2.0 are unchanged). Same wire format and error mapping as `deadline`: a deadline is `FrameError::TimedOut { partial_bytes }` (0 means still on a frame boundary), a zero length or empty body is `Io(InvalidData)`, a length above the limit is `TooLarge` (a write sends nothing; a read leaves the body unread, close the stream), and an end of stream, including a clean one between frames, is `Io(UnexpectedEof)` (message `peer closed before a frame header` for the clean case), never `Ok(None)`. `Interrupted` and `WouldBlock` retry until the deadline. Tests: `tests/deadline_generic.rs`. Not compiled when written.
+diff --git a/crates/rightkit-sidecar/Cargo.toml b/crates/rightkit-sidecar/Cargo.toml
+index 86e45a8..4d3368f 100644
+--- a/crates/rightkit-sidecar/Cargo.toml
++++ b/crates/rightkit-sidecar/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-sidecar"
+-version = "0.2.1"
++version = "0.3.0"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Bounded JSON-lines transport primitives for Right Suite sidecars."
+@@ -15,7 +15,15 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"
+ 
++# Async reader/writer (`async_io`): only tokio's io-util traits, no runtime and no timers.
++tokio = { version = "1", default-features = false, features = ["io-util"], optional = true }
++
++[features]
++default = []
++tokio = ["dep:tokio"]
++
+ [dev-dependencies]
++tokio = { version = "1", default-features = false, features = ["io-util", "rt", "macros"] }
+ # Tests build `serde_json::value::RawValue`, which serde_json gates behind `raw_value`.
+ serde_json = { version = "1.0.154", features = ["raw_value"] }
+ 
+diff --git a/crates/rightkit-sidecar/README.md b/crates/rightkit-sidecar/README.md
+index d886ab1..f89fa1b 100644
+--- a/crates/rightkit-sidecar/README.md
++++ b/crates/rightkit-sidecar/README.md
+@@ -25,7 +25,9 @@ Do not use it for schemas or request routing. Those belong to the app or to `rig
+ 
+ ## Cargo features
+ 
+-None. The crate has no `[features]` table. Dependencies: `serde` and `serde_json`, plus `libc` on Unix and `windows-sys` on Windows.
++`tokio` (off by default) adds the `async_io` module: `read_json_line_async`, `write_json_line_flush_async` and the `_opts`, `_or_oversized`, `_observed` and bytes variants, over tokio's `AsyncBufRead` and `AsyncWrite`, with the same limit and resync behaviour as the blocking functions. It needs only tokio's `io-util`. Dependencies: `serde` and `serde_json`, plus `libc` on Unix and `windows-sys` on Windows.
++
++`wire::WireError` carries an optional structured `details` value (`with_details`, `details()`, `detail(key)`), written only when present.
+ 
+ ## Usage
+ 
+diff --git a/crates/rightkit-sidecar/src/async_io.rs b/crates/rightkit-sidecar/src/async_io.rs
+new file mode 100644
+index 0000000..4a4a8c3
+--- /dev/null
++++ b/crates/rightkit-sidecar/src/async_io.rs
+@@ -0,0 +1,423 @@
++//! Tokio versions of the bounded JSON-lines reader and writer (feature `tokio`).
++//!
++//! These mirror [`crate::read_json_line_or_oversized_opts`] and
++//! [`crate::write_json_line_flush`] over `AsyncBufRead` and `AsyncWrite` with the same
++//! limit, resynchronisation, blank-line, oversized-frame and error semantics, for a child
++//! whose stdout is a tokio stream. Nothing here spawns a task or starts a timer: the
++//! caller's `.await` drives every read and write. The deadline in [`crate::ReadLimits`] is
++//! checked between chunks, as in the blocking reader; wrap the call in
++//! `tokio::time::timeout` to bound a single blocked read.
++
++use std::io;
++use std::pin::Pin;
++use std::time::Instant;
++
++use serde::{de::DeserializeOwned, Serialize};
++use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
++
++use super::{
++    encode_json_line, is_blank_line, FrameError, Incoming, LimitCounts, Line, Oversized,
++    ReadOptions, ReceivedLine, Terminator, OVERSIZE_HEAD_BYTES,
++};
++
++/// Async [`crate::read_json_line`]: one frame; an oversized frame is
++/// [`FrameError::TooLarge`] once it is consumed through its newline.
++pub async fn read_json_line_async<R, T>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++) -> Result<Option<T>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++    T: DeserializeOwned,
++{
++    read_json_line_opts_async(reader, buffer, limit, ReadOptions::default()).await
++}
++
++/// Async [`crate::read_json_line_opts`] with [`ReadOptions`].
++pub async fn read_json_line_opts_async<R, T>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++) -> Result<Option<T>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++    T: DeserializeOwned,
++{
++    match read_json_line_or_oversized_opts_async(reader, buffer, limit, opts).await? {
++        None => Ok(None),
++        Some(Incoming::Frame(value)) => Ok(Some(value)),
++        Some(Incoming::Oversized(_)) => Err(FrameError::TooLarge { limit }),
++    }
++}
++
++/// Async [`crate::read_json_line_or_oversized_opts`]. `buffer` on return follows the
++/// blocking function: empty for a frame, an oversized line, EOF and I/O errors; the raw
++/// line for [`FrameError::Json`] and [`FrameError::InvalidUtf8`].
++pub async fn read_json_line_or_oversized_opts_async<R, T>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++) -> Result<Option<Incoming<T>>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++    T: DeserializeOwned,
++{
++    read_json_line_or_oversized_observed_async(reader, buffer, limit, opts, &mut |_| {}).await
++}
++
++/// Async [`crate::read_json_line_or_oversized_observed`].
++pub async fn read_json_line_or_oversized_observed_async<R, T>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++    observe: &mut (dyn FnMut(ReceivedLine) + Send),
++) -> Result<Option<Incoming<T>>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++    T: DeserializeOwned,
++{
++    match next_line_async(reader, buffer, limit, opts, observe).await? {
++        None => Ok(None),
++        Some(Line::Oversized(over)) => Ok(Some(Incoming::Oversized(over))),
++        Some(Line::Frame) => {
++            if std::str::from_utf8(buffer.as_slice()).is_err() {
++                return Err(FrameError::InvalidUtf8 { len: buffer.len() });
++            }
++            match serde_json::from_slice::<T>(buffer.as_slice()) {
++                Ok(value) => {
++                    buffer.clear();
++                    Ok(Some(Incoming::Frame(value)))
++                }
++                Err(err) => Err(FrameError::Json(err)),
++            }
++        }
++    }
++}
++
++/// Async [`crate::read_line_bytes`]: one line's bytes, nothing parsed.
++pub async fn read_line_bytes_async<R>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++) -> Result<Option<Vec<u8>>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++{
++    match next_line_async(reader, buffer, limit, opts, &mut |_| {}).await? {
++        None => Ok(None),
++        Some(Line::Oversized(_)) => Err(FrameError::TooLarge { limit }),
++        Some(Line::Frame) => Ok(Some(std::mem::take(buffer))),
++    }
++}
++
++async fn next_line_async<R>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++    observe: &mut (dyn FnMut(ReceivedLine) + Send),
++) -> Result<Option<Line>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++{
++    match next_line_inner_async(reader, buffer, limit, opts, observe).await {
++        Ok(line) => Ok(line),
++        Err(err) => {
++            buffer.clear();
++            Err(err)
++        }
++    }
++}
++
++async fn next_line_inner_async<R>(
++    reader: &mut R,
++    buffer: &mut Vec<u8>,
++    limit: usize,
++    opts: ReadOptions,
++    observe: &mut (dyn FnMut(ReceivedLine) + Send),
++) -> Result<Option<Line>, FrameError>
++where
++    R: AsyncBufRead + Unpin,
++{
++    let limits = opts.limits;
++    let cap = limit.saturating_add(1);
++    'line: loop {
++        buffer.clear();
++        let mut overflow: Option<Oversized> = None;
++        let mut discarded = 0usize;
++        let mut raw = 0usize;
++        let mut terminator = Terminator::None;
++        let mut last_content: Option<u8> = None;
++        loop {
++            if limits.deadline.is_some_and(|d| Instant::now() >= d) {
++                return Err(FrameError::Io(io::Error::new(
++                    io::ErrorKind::TimedOut,
++                    "json frame deadline exceeded",
++                )));
++            }
++            let chunk = match reader.fill_buf().await {
++                Ok(c) => c,
++                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
++                Err(err) => return Err(FrameError::Io(err)),
++            };
++            if chunk.is_empty() {
++                if let Some(over) = overflow {
++                    observe(ReceivedLine {
++                        raw_len: raw,
++                        terminator,
++                    });
++                    return Ok(Some(Line::Oversized(over)));
++                }
++                if buffer.is_empty() {
++                    return Ok(None);
++                }
++                break;
++            }
++            let newline = chunk.iter().position(|b| *b == b'\n');
++            let take = newline.map_or(chunk.len(), |i| i + 1);
++            raw = raw.saturating_add(take);
++            let content = &chunk[..newline.unwrap_or(take)];
++            if let Some(byte) = content.last() {
++                last_content = Some(*byte);
++            }
++            if newline.is_some() {
++                terminator = if last_content == Some(b'\r') {
++                    Terminator::CrLf
++                } else {
++                    Terminator::Lf
++                };
++            }
++            if let Some(over) = overflow.as_mut() {
++                discarded = discarded.saturating_add(take);
++                over.bytes = over.bytes.saturating_add(content.len());
++            } else if buffer.len() + content.len() > cap {
++                let seen = buffer.len() + content.len();
++                let mut head = std::mem::take(buffer);
++                head.truncate(OVERSIZE_HEAD_BYTES);
++                let room = OVERSIZE_HEAD_BYTES - head.len();
++                head.extend_from_slice(&content[..room.min(content.len())]);
++                overflow = Some(Oversized {
++                    limit,
++                    head,
++                    bytes: seen,
++                });
++                discarded = take;
++            } else {
++                buffer.extend_from_slice(content);
++            }
++            Pin::new(&mut *reader).consume(take);
++            if newline.is_some() {
++                break;
++            }
++            if overflow.is_some() && discarded > limits.max_discard {
++                return Err(FrameError::Io(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    format!(
++                        "json frame exceeded {limit}-byte limit and no newline within {} bytes",
++                        limits.max_discard
++                    ),
++                )));
++            }
++        }
++        observe(ReceivedLine {
++            raw_len: raw,
++            terminator,
++        });
++        if let Some(over) = overflow {
++            buffer.clear();
++            return Ok(Some(Line::Oversized(over)));
++        }
++        let mut end = buffer.len();
++        if end > 0 && buffer[end - 1] == b'\r' {
++            end -= 1;
++        }
++        if end == 0 {
++            if opts.skip_empty_lines {
++                continue 'line;
++            }
++            buffer.clear();
++            return Err(FrameError::EmptyLine);
++        }
++        if opts.skip_whitespace_only_lines && is_blank_line(&buffer[..end], opts.whitespace) {
++            continue 'line;
++        }
++        let counted = match opts.limit_counts {
++            LimitCounts::Payload => end,
++            LimitCounts::RawLineBytes => raw,
++        };
++        if counted > limit {
++            let head = buffer[..end.min(OVERSIZE_HEAD_BYTES)].to_vec();
++            buffer.clear();
++            return Ok(Some(Line::Oversized(Oversized {
++                limit,
++                head,
++                bytes: counted,
++            })));
++        }
++        buffer.truncate(end);
++        return Ok(Some(Line::Frame));
++    }
++}
++
++/// Async [`crate::write_json_line`]: encode (nothing is written if over `limit`), then
++/// write the line. Does not flush.
++pub async fn write_json_line_async<W, T>(
++    writer: &mut W,
++    value: &T,
++    limit: usize,
++) -> Result<(), FrameError>
++where
++    W: AsyncWrite + Unpin,
++    T: Serialize,
++{
++    let encoded = encode_json_line(value, limit)?;
++    writer.write_all(&encoded).await?;
++    Ok(())
++}
++
++/// Async [`crate::write_json_line_flush`]: [`write_json_line_async`] then a flush.
++pub async fn write_json_line_flush_async<W, T>(
++    writer: &mut W,
++    value: &T,
++    limit: usize,
++) -> Result<(), FrameError>
++where
++    W: AsyncWrite + Unpin,
++    T: Serialize,
++{
++    write_json_line_async(writer, value, limit).await?;
++    writer.flush().await?;
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::Value;
++
++    #[tokio::test]
++    async fn reads_frames_skips_blank_and_ends_with_none() {
++        let mut reader: &[u8] = b"\n\r\n{\"a\":1}\r\n{\"b\":2}";
++        let mut buf = Vec::new();
++        let a: Option<Value> = read_json_line_async(&mut reader, &mut buf, 64)
++            .await
++            .unwrap();
++        assert_eq!(a.unwrap()["a"], 1);
++        let b: Option<Value> = read_json_line_async(&mut reader, &mut buf, 64)
++            .await
++            .unwrap();
++        assert_eq!(b.unwrap()["b"], 2);
++        let c: Option<Value> = read_json_line_async(&mut reader, &mut buf, 64)
++            .await
++            .unwrap();
++        assert!(c.is_none());
++    }
++
++    #[tokio::test]
++    async fn oversized_frame_is_discarded_and_stream_resyncs() {
++        let mut reader: &[u8] = b"{\"id\":9,\"pad\":\"xxxxxxxxxxxxxxxxxxxx\"}\n{\"ok\":true}\n";
++        let mut buf = Vec::new();
++        let first = read_json_line_async::<_, Value>(&mut reader, &mut buf, 16).await;
++        assert!(matches!(first, Err(FrameError::TooLarge { limit: 16 })));
++        assert!(buf.is_empty());
++        let second: Option<Value> = read_json_line_async(&mut reader, &mut buf, 64)
++            .await
++            .unwrap();
++        assert_eq!(second.unwrap()["ok"], true);
++    }
++
++    #[tokio::test]
++    async fn oversized_is_a_value_with_id() {
++        let mut reader: &[u8] = b"{\"id\":9,\"pad\":\"xxxxxxxxxxxxxxxxxxxx\"}\n";
++        let mut buf = Vec::new();
++        let got = read_json_line_or_oversized_opts_async::<_, Value>(
++            &mut reader,
++            &mut buf,
++            16,
++            ReadOptions::default(),
++        )
++        .await
++        .unwrap();
++        match got {
++            Some(Incoming::Oversized(o)) => assert_eq!(o.id(), Some(9)),
++            other => panic!("expected oversized, got {other:?}"),
++        }
++    }
++
++    #[tokio::test]
++    async fn malformed_json_keeps_raw_line_and_resyncs() {
++        let mut reader: &[u8] = b"{nope\n{}\n";
++        let mut buf = Vec::new();
++        let r = read_json_line_async::<_, Value>(&mut reader, &mut buf, 64).await;
++        assert!(matches!(r, Err(FrameError::Json(_))));
++        assert_eq!(buf, b"{nope");
++        let next: Option<Value> = read_json_line_async(&mut reader, &mut buf, 64)
++            .await
++            .unwrap();
++        assert!(next.is_some());
++    }
++
++    #[tokio::test]
++    async fn no_newline_is_cut_off_after_max_discard() {
++        let data = vec![b'x'; 1024];
++        let mut reader: &[u8] = &data;
++        let mut buf = Vec::new();
++        let opts = ReadOptions {
++            limits: crate::ReadLimits {
++                max_discard: 8,
++                deadline: None,
++            },
++            ..ReadOptions::default()
++        };
++        let r = read_json_line_opts_async::<_, Value>(&mut reader, &mut buf, 4, opts).await;
++        assert!(matches!(r, Err(FrameError::Io(ref e)) if e.kind() == io::ErrorKind::InvalidData));
++    }
++
++    #[tokio::test]
++    async fn observer_sees_every_line() {
++        let mut reader: &[u8] = b"\n{\"a\":1}\n";
++        let mut buf = Vec::new();
++        let mut seen = Vec::new();
++        let got = read_json_line_or_oversized_observed_async::<_, Value>(
++            &mut reader,
++            &mut buf,
++            64,
++            ReadOptions::default(),
++            &mut |l| seen.push((l.raw_len, l.terminator)),
++        )
++        .await
++        .unwrap();
++        assert!(matches!(got, Some(Incoming::Frame(_))));
++        assert_eq!(seen, vec![(1, Terminator::Lf), (8, Terminator::Lf)]);
++    }
++
++    #[tokio::test]
++    async fn write_flush_writes_one_line_and_refuses_oversize() {
++        let mut out: Vec<u8> = Vec::new();
++        write_json_line_flush_async(&mut out, &serde_json::json!({"a": 1}), 64)
++            .await
++            .unwrap();
++        assert_eq!(out, b"{\"a\":1}\n");
++        let mut out2: Vec<u8> = Vec::new();
++        let r =
++            write_json_line_flush_async(&mut out2, &serde_json::json!({"a": "long value"}), 4)
++                .await;
++        assert!(matches!(r, Err(FrameError::TooLarge { limit: 4 })));
++        assert!(out2.is_empty());
++    }
++
++    #[tokio::test]
++    async fn read_line_bytes_returns_raw_bytes() {
++        let mut reader: &[u8] = b"not json\r\n";
++        let mut buf = Vec::new();
++        let got = read_line_bytes_async(&mut reader, &mut buf, 64, ReadOptions::default())
++            .await
++            .unwrap();
++        assert_eq!(got.unwrap(), b"not json");
++    }
++}
+diff --git a/crates/rightkit-sidecar/src/lib.rs b/crates/rightkit-sidecar/src/lib.rs
+index e622560..850e721 100644
+--- a/crates/rightkit-sidecar/src/lib.rs
++++ b/crates/rightkit-sidecar/src/lib.rs
+@@ -32,7 +32,13 @@
+ //!   handle (overlapped I/O on Windows), and report [`FrameError::TimedOut`]
+ //!   with the bytes already transferred. [`DeadlineFramed`] owns the stream.
+ //!   Available on Unix and Windows only. The blocking API above is unchanged.
++//! - [`async_io`] (feature `tokio`, off by default) holds the same bounded reader and
++//!   writer over tokio's `AsyncBufRead` and `AsyncWrite`: `read_json_line_async`,
++//!   `write_json_line_flush_async` and the `_opts`, `_or_oversized` and `_observed`
++//!   variants, with identical limit and resynchronisation behaviour.
+ 
++#[cfg(feature = "tokio")]
++pub mod async_io;
+ #[cfg(any(unix, windows))]
+ pub mod deadline;
+ pub mod length_prefixed;
+diff --git a/crates/rightkit-sidecar/src/wire.rs b/crates/rightkit-sidecar/src/wire.rs
+index 0f526ab..8f60b34 100644
+--- a/crates/rightkit-sidecar/src/wire.rs
++++ b/crates/rightkit-sidecar/src/wire.rs
+@@ -33,6 +33,12 @@ pub struct WireError {
+     pub message: String,
+     #[serde(default)]
+     pub retryable: bool,
++    /// Optional structured detail next to the message (for example the platform a
++    /// `needs_auth` error is about). Absent from the wire when `None`; a peer that
++    /// predates the field ignores it, and a frame without it parses with `None`. A
++    /// `null` value also reads as `None`.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub details: Option<Value>,
+ }
+ 
+ impl WireError {
+@@ -41,6 +47,7 @@ impl WireError {
+             code: code.into(),
+             message: message.into(),
+             retryable: false,
++            details: None,
+         }
+     }
+     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
+@@ -48,8 +55,22 @@ impl WireError {
+             code: code.into(),
+             message: message.into(),
+             retryable: true,
++            details: None,
+         }
+     }
++    /// This error with structured `details` attached.
++    pub fn with_details(mut self, details: Value) -> Self {
++        self.details = Some(details);
++        self
++    }
++    /// The structured details, if the peer sent any.
++    pub fn details(&self) -> Option<&Value> {
++        self.details.as_ref()
++    }
++    /// One field of an object-valued `details`, if present.
++    pub fn detail(&self, key: &str) -> Option<&Value> {
++        self.details.as_ref()?.get(key)
++    }
+ }
+ 
+ /// One frame of the envelope.
+@@ -148,3 +169,46 @@ impl Frame {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++
++    #[test]
++    fn details_absent_is_not_serialized() {
++        let e = WireError::new("x", "y");
++        let text = serde_json::to_string(&e).unwrap();
++        assert!(!text.contains("details"), "{text}");
++        assert_eq!(e.details(), None);
++    }
++
++    #[test]
++    fn details_round_trip() {
++        let e = WireError::new("needs_auth", "sign in").with_details(json!({"platform": "x"}));
++        let text = serde_json::to_string(&e).unwrap();
++        let back: WireError = serde_json::from_str(&text).unwrap();
++        assert_eq!(back, e);
++        assert_eq!(back.detail("platform"), Some(&json!("x")));
++        assert_eq!(back.detail("missing"), None);
++    }
++
++    #[test]
++    fn older_peer_without_details_parses() {
++        let e: WireError = serde_json::from_str(r#"{"code":"c","message":"m"}"#).unwrap();
++        assert_eq!(e, WireError::new("c", "m"));
++        let e: WireError = serde_json::from_str(r#"{"code":"c","details":null}"#).unwrap();
++        assert_eq!(e.details, None);
++    }
++
++    #[test]
++    fn details_survive_a_response_frame() {
++        let frame = Frame::err(
++            3,
++            WireError::retryable("busy", "later").with_details(json!([1, 2])),
++        );
++        let text = serde_json::to_string(&frame).unwrap();
++        let back: Frame = serde_json::from_str(&text).unwrap();
++        assert_eq!(back, frame);
++    }
++}
+diff --git a/crates/rightkit-speech-client/Cargo.toml b/crates/rightkit-speech-client/Cargo.toml
+index b288f55..ee2bdd0 100644
+--- a/crates/rightkit-speech-client/Cargo.toml
++++ b/crates/rightkit-speech-client/Cargo.toml
+@@ -11,7 +11,7 @@ include = ["src/**", "tests/**", "README.md", "API.md", "INDEX.md", "CHANGELOG.m
+ 
+ [dependencies]
+ rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon" }
+-rightkit-sidecar = { version = "0.2.0", path = "../rightkit-sidecar" }
++rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+ rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"

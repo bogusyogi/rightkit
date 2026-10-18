@@ -1,0 +1,867 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..fd4172e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6887,7 +6887,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-db"
+-version = "0.4.3"
++version = "0.4.4"
+ dependencies = [
+  "libc",
+  "rightkit-fs",
+diff --git a/crates/rightkit-db/CHANGELOG.md b/crates/rightkit-db/CHANGELOG.md
+index 5300e3e..00f87a0 100644
+--- a/crates/rightkit-db/CHANGELOG.md
++++ b/crates/rightkit-db/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.4.4 (2026-10-18)
++
++All additive; no existing item changed. Not compiled when written.
++
++- Additive: `MigrateHooks` with `with_backup_name`, `with_before_backup`, `with_verify_backup` and `with_retain_backups` (closures that may capture state), plus `migrate_with_hooks`, `DbOptions::open_writer_migrated_with_hooks` and `DbOptions::open_writer_migrated_or_degrade_with_hooks` (Orthic-Labs/rightkit#770). The `fn`-pointer fields on `MigrateOptions` cannot carry a key, a timestamp, a message count or a free-disk check. A hook that is set replaces the matching `MigrateOptions` field for that call (`backup_name`, `verify_backup`, `backup_retention`); `with_before_backup(|db, backup| ..)` is new and runs before the backup is written, so `Err(reason)` stops the migration as `DbError::Backup` with nothing written. The same plain-file-name and reserved-name checks apply to a hooked name. Closure type aliases `BackupNameHook`, `BeforeBackupHook`, `VerifyBackupHook`, `RetainBackupsHook` are exported. The `MigrateOptions` fields stay as they are, so no struct literal breaks. Tests in `tests/migrate_hooks.rs`.
++- Additive: `WalCheckpointJob::tick_min(conn, min_wal_bytes)`, `tick_min_at`, and `tick_min_frames(conn, min_frames)`: the PASSIVE minimum is given per call and replaces the policy's `passive_above_bytes` for that call (frames are turned into a lower bound in bytes from `PRAGMA page_size`) (Orthic-Labs/rightkit#769). `WalCheckpointJob::tick_passive_then_restart(conn, min_wal_bytes)` and `_at`, returning the new `WalCheckpointSequence { passive, restart }`: PASSIVE runs when the log is at least the minimum, and a RESTART follows in the same call only if that PASSIVE did not finish (busy, or fewer frames copied than the log holds) and the log is at least `restart_above_bytes` with the database idle for `quiet_for`. A PASSIVE that finished never escalates. All share the job's single-flight guard. `tick` and `tick_at` behave as before. Tests in `tests/checkpoint_job.rs`.
++- Additive: `ReadPool::readers_opened()`, the number of reader connections the pool has built (the first one included, shared by clones) (Orthic-Labs/rightkit#726). `ReadPool::from_opener` already lets a test count inside its own opener; for connections of every kind, count calls to the `DbOptions::init` hook, which runs once per connection opened, read-only pool readers included. Tests in `tests/read_pool.rs`.
++- Already present, no change in this release: `restore_database`, `restore_database_locked`, `recover_interrupted_restore` and `recover_interrupted_restore_locked` with a kept previous store, rollback and journal recovery (#451, 0.4.3); `replace_database` with `StoreLock` (#311, 0.4.3); `open_writer_migrated_or_degrade` with `RecoveryPolicy` stamp and sidecar options (#389, 0.4.3); `ReadPool::get_timeout` (#173), `remove_database_files` (#199), numbered `QuarantineStamp::Custom` retries (#541), the `write_pending_marker` writer (#608), and the MailRight items of #563 (`Zeroizing`, `write_txn_unchecked`, `ReadPool::from_opener`, backup name/verify/retention, `stored_version_is_newer`, `checkpoint_restart`), and `WalCheckpointJob` (#494).
++
+ ## 0.4.3 (2026-10-17)
+ 
+ - Fix: `recover_interrupted_restore` no longer drops the journal while sidecars of the previous store are still at the kept name. A stop between the renames of a put-back (main file back, `-wal`/`-shm`/`-journal` not yet) now resumes the sidecar moves whether or not the live main file exists; the journal goes only after every kept file is back, so committed WAL-only rows are not lost. Not compiled when written.
+diff --git a/crates/rightkit-db/Cargo.toml b/crates/rightkit-db/Cargo.toml
+index 85ee349..0014ab7 100644
+--- a/crates/rightkit-db/Cargo.toml
++++ b/crates/rightkit-db/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-db"
+-version = "0.4.3"
++version = "0.4.4"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
+diff --git a/crates/rightkit-db/README.md b/crates/rightkit-db/README.md
+index d7b8ecf..d2cf5e9 100644
+--- a/crates/rightkit-db/README.md
++++ b/crates/rightkit-db/README.md
+@@ -74,12 +74,12 @@ let migrations = MigrateOptions {
+ - `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`. `VersionStorage::Table { table, key }` uses `key` and `value` columns compatible with Blueprint's `meta` table. `VersionStorage::VersionTable { table, version_column, applied_at_column }` is the other shape: one row per applied version (`src/migrate.rs:67-84`). Values are decimal text. Identifiers accept ASCII letters, digits and underscores. Keys are bound parameters. A missing table or key reads as zero. Table creation and version writes share each migration transaction. `migration_version` reads the chosen storage, and `rollback_to_with_storage` reverses it. `user_version` and `rollback_to` keep the default storage.
+ - `DbOptions::restore_from(backup_path)` checks every `PRAGMA integrity_check` row, including CHECK constraints, before it restores an existing live database through SQLite's backup API. A read transaction holds the validated source snapshot until the copy finishes. A missing or corrupt backup leaves the live database untouched. A missing live database is refused. The backup must use the options' SQLCipher key. The free function `restore_from(options, destination, backup_path)` restores into an existing mutable connection, including in-memory stores. The destination must be writable and outside any transaction. Busy and locked retries are bounded by the options' timeout.
+ - `replace_database(options, replacement, lock_options)` atomically replaces the live database file with a validated copy under `StoreLock::exclusive` (`<db>.store-lock`). Processes that keep connections open hold `StoreLock::shared` meanwhile; the lock is advisory and cooperative. Close every connection to the live database first (required on Windows). The replacement must use the options' SQLCipher key. `replace_database_locked` is the same step for a caller that already holds the exclusive guard.
+-- `ReadPool::from_opener(cap, opener)` builds a pool whose readers come from a closure, for tests over a connection the test builds. The pool enforces `cap`, `get_timeout`, and the close rules; `query_only` is the opener's job.
++- `ReadPool::readers_opened()` counts the readers a pool has built, for tests that assert how many connections a path opened; count calls to the `DbOptions::init` hook to count connections of every kind. `ReadPool::from_opener(cap, opener)` builds a pool whose readers come from a closure, for tests over a connection the test builds. The pool enforces `cap`, `get_timeout`, and the close rules; `query_only` is the opener's job.
+ - `open_writer_migrated_or_degrade(migrations, &MigrateOptions, RecoveryPolicy)` is `open_writer_migrated` with recovery. A file that is corrupt, not a database, or fails its integrity check (at open, or as a migration step's SQLite error) is quarantined and recreated under the policy's stamp and sidecar options when `quarantine_corrupt` (plain) or `quarantine_keyed` (keyed) allows it, then migrated again. When the policy does not allow it, or the store still cannot be opened, the connection is a private in-memory store, migrated the same way. `OpenOrDegrade::degraded` (`Degraded { reason, quarantined, quarantine_incomplete, in_memory }`) reports either case. Any other error (busy, permission, I/O, a newer database, an invalid migration list) is returned, not degraded.
+-- `MigrateOptions::backup_name: Option<fn(current, target) -> String>` names the pre-migration backup (default `<db>.pre-v<target>.bak`; a name that is not a plain file name, or is the database, a live sidecar or a recovery file beside it, is refused before the backup is made). `MigrateOptions::verify_backup: Option<fn(&Path) -> Result<(), String>>` checks the backup before the first step; a failure stops the migration and keeps the backup. `MigrateOptions::backup_retention: Option<usize>` keeps only the newest `n` `<db>.pre-*.bak` backups after each backup (best effort; default keeps all).
++- `MigrateOptions::backup_name: Option<fn(current, target) -> String>` names the pre-migration backup (default `<db>.pre-v<target>.bak`; a name that is not a plain file name, or is the database, a live sidecar or a recovery file beside it, is refused before the backup is made). `MigrateOptions::verify_backup: Option<fn(&Path) -> Result<(), String>>` checks the backup before the first step; a failure stops the migration and keeps the backup. `MigrateOptions::backup_retention: Option<usize>` keeps only the newest `n` `<db>.pre-*.bak` backups after each backup (best effort; default keeps all). For state the `fn` pointers cannot carry (a key, a timestamp, a message count, a free-disk check), build `MigrateHooks::new().with_backup_name(..).with_before_backup(..).with_verify_backup(..).with_retain_backups(..)` (closures) and call `migrate_with_hooks`, `open_writer_migrated_with_hooks` or `open_writer_migrated_or_degrade_with_hooks`; a set hook replaces the matching option field.
+ - `write_pending_marker(db, from, to)` writes the `<db>.migrating` marker atomically with the pid and `started_at_unix`, the same file `migrate` writes. `pending_marker_started_at(db)` returns its start time (`0` for a marker written before the time was recorded); `PendingMarker` keeps its three fields.
+ - `stored_version_is_newer(conn, storage, migrations)` reports whether the stored version is above the newest migration, reading only.
+-- `checkpoint_restart(conn)` is `PRAGMA wal_checkpoint(RESTART)`. `WalCheckpointJob` (with `WalCheckpointPolicy`) is a caller-driven checkpoint job: `note_activity` on each use, and `tick(conn)` from the loop or timer the owner already runs. PASSIVE once the `-wal` reaches `passive_above_bytes`; RESTART once it reaches `restart_above_bytes` and the database has been idle for `quiet_for`. A tick is single-flight. The crate starts no thread.
++- `checkpoint_restart(conn)` is `PRAGMA wal_checkpoint(RESTART)`. `WalCheckpointJob` (with `WalCheckpointPolicy`) is a caller-driven checkpoint job: `note_activity` on each use, and `tick(conn)` from the loop or timer the owner already runs. PASSIVE once the `-wal` reaches `passive_above_bytes`; RESTART once it reaches `restart_above_bytes` and the database has been idle for `quiet_for`. A tick is single-flight. The crate starts no thread. `tick_min(conn, min_wal_bytes)` and `tick_min_frames(conn, min_frames)` take the PASSIVE minimum per call; `tick_passive_then_restart(conn, min_wal_bytes)` runs PASSIVE and escalates to RESTART only when that PASSIVE did not finish and the RESTART size and quiet period are met (`WalCheckpointSequence { passive, restart }`).
+ - `rightkit_db::Zeroizing` re-exports `zeroize::Zeroizing`, the wrapper of the key fields and of the `open_writer_with_key_candidates` slice, so callers need no `zeroize` dependency.
+ - `restore_database(options, replacement, &RestoreOptions, lock_options)` is `replace_database` for a restore that must not lose the old store: the previous file and its sidecars are kept at `<db>.pre-restore-<ms>` (the path is in the returned `RestoreReceipt`), a failed placement or `RestoreOptions::verify` puts them back and keeps the bad copy at `<db>.restore-failed-<ms>`, and a crash mid-quarantine is finished by `recover_interrupted_restore` (call it before opening the store; a restore calls it first). `restore_database_locked` is the same under a held `StoreLock::exclusive`.
+ 
+diff --git a/crates/rightkit-db/src/checkpoint_job.rs b/crates/rightkit-db/src/checkpoint_job.rs
+index 06d8ea5..9006c69 100644
+--- a/crates/rightkit-db/src/checkpoint_job.rs
++++ b/crates/rightkit-db/src/checkpoint_job.rs
+@@ -105,24 +105,38 @@ impl WalCheckpointJob {
+ 
+     /// [`Self::tick`] at `now`, for callers that keep their own clock.
+     pub fn tick_at(&self, conn: &Connection, now: Instant) -> Result<Option<WalCheckpointRun>> {
+-        if self
+-            .running
+-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+-            .is_err()
+-        {
++        self.tick_min_at(conn, self.policy.passive_above_bytes, now)
++    }
++
++    /// [`Self::tick`] with a minimum log size for this call. `min_wal_bytes` replaces the policy's
++    /// `passive_above_bytes` for the PASSIVE decision only: the log must be at least that many
++    /// bytes. The RESTART threshold and quiet period still come from the policy. Lets a caller
++    /// that sizes the trigger per call (for example by how much it just wrote) share one job.
++    pub fn tick_min(
++        &self,
++        conn: &Connection,
++        min_wal_bytes: u64,
++    ) -> Result<Option<WalCheckpointRun>> {
++        self.tick_min_at(conn, min_wal_bytes, Instant::now())
++    }
++
++    /// [`Self::tick_min`] at `now`, for callers that keep their own clock.
++    pub fn tick_min_at(
++        &self,
++        conn: &Connection,
++        min_wal_bytes: u64,
++        now: Instant,
++    ) -> Result<Option<WalCheckpointRun>> {
++        let Some(_flight) = Flight::enter(&self.running) else {
+             return Ok(None);
+-        }
+-        let _flight = Flight(&self.running);
++        };
+         let wal_bytes = std::fs::metadata(&self.wal).map_or(0, |m| m.len());
+         if wal_bytes == 0 {
+             return Ok(None);
+         }
+-        let idle = now.saturating_duration_since(*lock_recover(&self.last_activity));
+-        let restart_due =
+-            wal_bytes >= self.policy.restart_above_bytes && idle >= self.policy.quiet_for;
+-        let mode = if restart_due {
++        let mode = if self.restart_due(wal_bytes, now) {
+             WalCheckpointMode::Restart
+-        } else if wal_bytes >= self.policy.passive_above_bytes {
++        } else if wal_bytes >= min_wal_bytes {
+             WalCheckpointMode::Passive
+         } else {
+             return Ok(None);
+@@ -137,11 +151,107 @@ impl WalCheckpointJob {
+             status,
+         }))
+     }
++
++    /// [`Self::tick_min`] with the minimum given in WAL frames, not bytes: the log must hold at
++    /// least `min_frames` frames. The size is worked out from `PRAGMA page_size` (a frame is a
++    /// page plus a 24-byte frame header, after a 32-byte log header), so it is a lower bound on
++    /// the frames the file holds, not a read of them.
++    pub fn tick_min_frames(
++        &self,
++        conn: &Connection,
++        min_frames: u64,
++    ) -> Result<Option<WalCheckpointRun>> {
++        let min = frames_to_bytes(conn, min_frames)?;
++        self.tick_min(conn, min)
++    }
++
++    /// The restart-only-after-an-incomplete-PASSIVE rule. When the log is at least
++    /// `min_wal_bytes`, a PASSIVE checkpoint runs. Only if it did not finish (SQLite reported busy,
++    /// or fewer frames copied than the log holds), and the log is also at least the policy's
++    /// `restart_above_bytes` with the database idle for `quiet_for`, a RESTART follows in the same
++    /// call. A PASSIVE that finished never escalates, however large the log is. `Ok` with both
++    /// fields `None` when nothing was due or another tick is still running.
++    pub fn tick_passive_then_restart(
++        &self,
++        conn: &Connection,
++        min_wal_bytes: u64,
++    ) -> Result<WalCheckpointSequence> {
++        self.tick_passive_then_restart_at(conn, min_wal_bytes, Instant::now())
++    }
++
++    /// [`Self::tick_passive_then_restart`] at `now`, for callers that keep their own clock.
++    pub fn tick_passive_then_restart_at(
++        &self,
++        conn: &Connection,
++        min_wal_bytes: u64,
++        now: Instant,
++    ) -> Result<WalCheckpointSequence> {
++        let mut sequence = WalCheckpointSequence::default();
++        let Some(_flight) = Flight::enter(&self.running) else {
++            return Ok(sequence);
++        };
++        let wal_bytes = std::fs::metadata(&self.wal).map_or(0, |m| m.len());
++        if wal_bytes == 0 || wal_bytes < min_wal_bytes {
++            return Ok(sequence);
++        }
++        let status = checkpoint(conn, "PRAGMA wal_checkpoint(PASSIVE)")?;
++        sequence.passive = Some(WalCheckpointRun {
++            mode: WalCheckpointMode::Passive,
++            wal_bytes,
++            status,
++        });
++        let incomplete = status.busy != 0
++            || (status.log_frames >= 0 && status.checkpointed_frames < status.log_frames);
++        if incomplete && self.restart_due(wal_bytes, now) {
++            let status = checkpoint_restart(conn)?;
++            sequence.restart = Some(WalCheckpointRun {
++                mode: WalCheckpointMode::Restart,
++                wal_bytes,
++                status,
++            });
++        }
++        Ok(sequence)
++    }
++
++    fn restart_due(&self, wal_bytes: u64, now: Instant) -> bool {
++        let idle = now.saturating_duration_since(*lock_recover(&self.last_activity));
++        wal_bytes >= self.policy.restart_above_bytes && idle >= self.policy.quiet_for
++    }
++}
++
++/// What one [`WalCheckpointJob::tick_passive_then_restart`] did: the PASSIVE it ran, and the
++/// RESTART that followed an incomplete one.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct WalCheckpointSequence {
++    /// The PASSIVE checkpoint, `None` when the log was below the minimum.
++    pub passive: Option<WalCheckpointRun>,
++    /// The RESTART that followed an incomplete PASSIVE, `None` when none was needed or due.
++    pub restart: Option<WalCheckpointRun>,
++}
++
++/// Lower bound, in bytes, of a log holding `frames` frames: 32-byte header plus
++/// `page_size + 24` per frame. Zero frames is zero bytes.
++fn frames_to_bytes(conn: &Connection, frames: u64) -> Result<u64> {
++    if frames == 0 {
++        return Ok(0);
++    }
++    let page: i64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
++    let frame = u64::try_from(page).unwrap_or(0).saturating_add(24);
++    Ok(frames.saturating_mul(frame).saturating_add(32))
+ }
+ 
+ /// Clears the single-flight flag when a tick ends, including on an error.
+ struct Flight<'a>(&'a AtomicBool);
+ 
++impl<'a> Flight<'a> {
++    /// Claims the flag, or `None` when another tick holds it.
++    fn enter(flag: &'a AtomicBool) -> Option<Self> {
++        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
++            .ok()
++            .map(|_| Self(flag))
++    }
++}
++
+ impl Drop for Flight<'_> {
+     fn drop(&mut self) {
+         self.0.store(false, Ordering::Release);
+diff --git a/crates/rightkit-db/src/lib.rs b/crates/rightkit-db/src/lib.rs
+index eb5f88e..60864d8 100644
+--- a/crates/rightkit-db/src/lib.rs
++++ b/crates/rightkit-db/src/lib.rs
+@@ -8,6 +8,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+ use std::ffi::OsString;
+ use std::ops::Deref;
+ use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+ use std::time::{Duration, Instant};
+ /// The zeroizing wrapper that the SQLCipher key fields and key candidates use, re-exported so
+@@ -34,12 +35,14 @@ pub use backup::{
+ };
+ pub use checkpoint_job::{
+     WalCheckpointJob, WalCheckpointMode, WalCheckpointPolicy, WalCheckpointRun,
++    WalCheckpointSequence,
+ };
+ pub use migrate::{
+-    add_column_if_missing, column_exists, migrate, migration_version, pending_marker,
+-    pending_marker_started_at, rollback_to, rollback_to_with_storage, stored_version_is_newer,
+-    user_version, write_pending_marker, Degraded, LegacyVersionTable, MigrateOptions, Migration,
+-    MigrationReport, OpenOrDegrade, PendingMarker, Step, VersionStorage,
++    add_column_if_missing, column_exists, migrate, migrate_with_hooks, migration_version,
++    pending_marker, pending_marker_started_at, rollback_to, rollback_to_with_storage,
++    stored_version_is_newer, user_version, write_pending_marker, BackupNameHook, BeforeBackupHook,
++    Degraded, LegacyVersionTable, MigrateHooks, MigrateOptions, Migration, MigrationReport,
++    OpenOrDegrade, PendingMarker, RetainBackupsHook, Step, VerifyBackupHook, VersionStorage,
+ };
+ #[cfg(feature = "cipher")]
+ pub use recover::rekey;
+@@ -844,6 +847,8 @@ type ReaderOpener = Box<dyn Fn() -> Result<Connection> + Send + Sync>;
+ struct ReadPoolInner {
+     open: ReaderOpener,
+     cap: usize,
++    /// Readers this pool has opened successfully, the first one included.
++    opened: AtomicUsize,
+     state: Mutex<ReadPoolState>,
+     /// Wakes a `get` waiting for capacity, and every waiter when the pool closes.
+     available: Condvar,
+@@ -861,7 +866,9 @@ struct ReadPoolState {
+ 
+ impl ReadPoolInner {
+     fn open_reader(&self) -> Result<Connection> {
+-        (self.open)()
++        let conn = (self.open)()?;
++        self.opened.fetch_add(1, Ordering::Relaxed);
++        Ok(conn)
+     }
+ }
+ 
+@@ -936,6 +943,7 @@ impl ReadPool {
+             inner: Arc::new(ReadPoolInner {
+                 open,
+                 cap,
++                opened: AtomicUsize::new(0),
+                 state: Mutex::new(ReadPoolState::default()),
+                 available: Condvar::new(),
+                 drained: Condvar::new(),
+@@ -1108,6 +1116,18 @@ impl ReadPool {
+     pub fn total_len(&self) -> usize {
+         lock_recover(&self.inner.state).total
+     }
++
++    /// How many reader connections this pool has opened since it was built, the one opened at
++    /// construction included. A reader that failed to open is not counted, and a reader returned
++    /// to the pool and handed out again is not counted twice. For tests that assert how many
++    /// connections a code path opened: record it, run the code, compare.
++    ///
++    /// Clones of a pool share the count. To count connections of every kind (writer, reader,
++    /// in-memory), count calls to the [`DbOptions::init`] hook instead: it runs once on every
++    /// connection the options open, read-only pool readers included.
++    pub fn readers_opened(&self) -> usize {
++        self.inner.opened.load(Ordering::Relaxed)
++    }
+ }
+ 
+ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+diff --git a/crates/rightkit-db/src/migrate.rs b/crates/rightkit-db/src/migrate.rs
+index dbb174a..265f8fb 100644
+--- a/crates/rightkit-db/src/migrate.rs
++++ b/crates/rightkit-db/src/migrate.rs
+@@ -20,6 +20,7 @@ use crate::recover::{
+ use crate::{DbError, DbOptions, Result};
+ use rusqlite::{Connection, ErrorCode, OptionalExtension};
+ use std::path::{Path, PathBuf};
++use std::sync::Arc;
+ use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ pub enum Step {
+@@ -137,6 +138,82 @@ pub struct MigrateOptions {
+     pub backup_retention: Option<usize>,
+ }
+ 
++/// Names the pre-migration backup from the current and target versions.
++pub type BackupNameHook = Arc<dyn Fn(i64, i64) -> String + Send + Sync>;
++/// Runs before the pre-migration backup is taken, with the database and the backup path.
++/// `Err(reason)` stops the migration before anything is written.
++pub type BeforeBackupHook =
++    Arc<dyn Fn(&Path, &Path) -> std::result::Result<(), String> + Send + Sync>;
++/// Checks the finished pre-migration backup; `Err(reason)` stops the migration.
++pub type VerifyBackupHook = Arc<dyn Fn(&Path) -> std::result::Result<(), String> + Send + Sync>;
++/// Prunes old backups after a new one was taken, given the database and the new backup.
++pub type RetainBackupsHook = Arc<dyn Fn(&Path, &Path) + Send + Sync>;
++
++/// Stateful hooks around the pre-migration backup, for [`migrate_with_hooks`] and
++/// [`DbOptions::open_writer_migrated_with_hooks`].
++///
++/// The `fn`-pointer fields on [`MigrateOptions`] cannot capture anything. These hooks are closures,
++/// so they can carry a key, a clock, a message count to compare, or a free-disk check. A hook that
++/// is set replaces the matching [`MigrateOptions`] field for that call; one that is not set leaves
++/// that field in force. Build with [`MigrateHooks::new`] and the `with_*` methods.
++#[derive(Clone, Default)]
++pub struct MigrateHooks {
++    backup_name: Option<BackupNameHook>,
++    before_backup: Option<BeforeBackupHook>,
++    verify_backup: Option<VerifyBackupHook>,
++    retain_backups: Option<RetainBackupsHook>,
++}
++
++impl MigrateHooks {
++    /// No hooks: [`MigrateOptions`] alone decides.
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Name the backup (replaces [`MigrateOptions::backup_name`]). The same plain-file-name rules
++    /// apply: a name with a path separator or NUL, or one that is the database, a sidecar or a
++    /// recovery file, is refused as [`DbError::Backup`].
++    pub fn with_backup_name(
++        mut self,
++        namer: impl Fn(i64, i64) -> String + Send + Sync + 'static,
++    ) -> Self {
++        self.backup_name = Some(Arc::new(namer));
++        self
++    }
++
++    /// Run `gate(db, backup)` before the backup is taken, for example to refuse when the disk
++    /// cannot hold a copy. `Err(reason)` stops the migration with [`DbError::Backup`]; no backup
++    /// was written and the database is untouched.
++    pub fn with_before_backup(
++        mut self,
++        gate: impl Fn(&Path, &Path) -> std::result::Result<(), String> + Send + Sync + 'static,
++    ) -> Self {
++        self.before_backup = Some(Arc::new(gate));
++        self
++    }
++
++    /// Check the finished backup before the first step (replaces
++    /// [`MigrateOptions::verify_backup`]). `Err(reason)` stops the migration with
++    /// [`DbError::Backup`]; the backup is kept.
++    pub fn with_verify_backup(
++        mut self,
++        verify: impl Fn(&Path) -> std::result::Result<(), String> + Send + Sync + 'static,
++    ) -> Self {
++        self.verify_backup = Some(Arc::new(verify));
++        self
++    }
++
++    /// Prune old backups yourself (replaces [`MigrateOptions::backup_retention`]). Called with the
++    /// database and the backup just taken, after the check passed. It cannot fail the migration.
++    pub fn with_retain_backups(
++        mut self,
++        retain: impl Fn(&Path, &Path) + Send + Sync + 'static,
++    ) -> Self {
++        self.retain_backups = Some(Arc::new(retain));
++        self
++    }
++}
++
+ impl Default for MigrateOptions {
+     fn default() -> Self {
+         Self {
+@@ -384,15 +461,22 @@ fn check_storage(storage: &VersionStorage) -> Result<()> {
+ 
+ /// Where the pre-migration backup goes: `<db>.pre-v<target>.bak`, or the name from
+ /// [`MigrateOptions::backup_name`]. The name must be a plain file name other than the database's.
+-fn backup_path(db: &Path, options: &MigrateOptions, current: i64, target: i64) -> Result<PathBuf> {
++fn backup_path(
++    db: &Path,
++    options: &MigrateOptions,
++    hooks: &MigrateHooks,
++    current: i64,
++    target: i64,
++) -> Result<PathBuf> {
+     let name = db
+         .file_name()
+         .ok_or(DbError::InvalidDatabasePath)?
+         .to_string_lossy()
+         .into_owned();
+-    let file = match options.backup_name {
+-        Some(namer) => namer(current, target),
+-        None => format!("{name}.pre-v{target}.bak"),
++    let file = match (&hooks.backup_name, options.backup_name) {
++        (Some(namer), _) => namer(current, target),
++        (None, Some(namer)) => namer(current, target),
++        (None, None) => format!("{name}.pre-v{target}.bak"),
+     };
+     if file.is_empty() || file.contains(['/', '\\', '\0']) || file == "." || file == ".." {
+         return Err(DbError::Backup(format!(
+@@ -550,6 +634,18 @@ pub fn migrate(
+     db_path: Option<&Path>,
+     migrations: &[Migration],
+     options: &MigrateOptions,
++) -> Result<MigrationReport> {
++    migrate_with_hooks(conn, db_path, migrations, options, &MigrateHooks::default())
++}
++
++/// [`migrate`] with stateful [`MigrateHooks`] around the pre-migration backup. A hook that is set
++/// replaces the matching [`MigrateOptions`] field; with `MigrateHooks::new()` this is `migrate`.
++pub fn migrate_with_hooks(
++    conn: &Connection,
++    db_path: Option<&Path>,
++    migrations: &[Migration],
++    options: &MigrateOptions,
++    hooks: &MigrateHooks,
+ ) -> Result<MigrationReport> {
+     validate(migrations)?;
+     check_storage(&options.version_storage)?;
+@@ -589,18 +685,30 @@ pub fn migrate(
+ 
+     if current > 0 && options.backup {
+         if let Some(path) = db_path {
+-            let backup = backup_path(path, options, current, max)?;
++            let backup = backup_path(path, options, hooks, current, max)?;
++            if let Some(gate) = &hooks.before_backup {
++                gate(path, &backup).map_err(|reason| {
++                    DbError::Backup(format!("pre-migration backup refused: {reason}"))
++                })?;
++            }
+             let backup_options = options
+                 .backup_options
+                 .clone()
+                 .unwrap_or_else(|| DbOptions::new(path));
+             crate::online_backup_to(&backup_options, conn, &backup, None)?;
+-            if let Some(verify) = options.verify_backup {
+-                verify(&backup).map_err(|reason| {
+-                    DbError::Backup(format!("pre-migration backup failed its check: {reason}"))
+-                })?;
++            let check = match (&hooks.verify_backup, options.verify_backup) {
++                (Some(verify), _) => Some(verify(&backup)),
++                (None, Some(verify)) => Some(verify(&backup)),
++                (None, None) => None,
++            };
++            if let Some(Err(reason)) = check {
++                return Err(DbError::Backup(format!(
++                    "pre-migration backup failed its check: {reason}"
++                )));
+             }
+-            if let Some(keep) = options.backup_retention {
++            if let Some(retain) = &hooks.retain_backups {
++                retain(path, &backup);
++            } else if let Some(keep) = options.backup_retention {
+                 prune_backups(path, &backup, keep);
+             }
+             report.backup = Some(backup);
+@@ -788,11 +896,22 @@ impl DbOptions {
+         &self,
+         migrations: &[Migration],
+         options: &MigrateOptions,
++    ) -> Result<(Connection, MigrationReport)> {
++        self.open_writer_migrated_with_hooks(migrations, options, &MigrateHooks::default())
++    }
++
++    /// [`Self::open_writer_migrated`] with stateful [`MigrateHooks`] around the pre-migration
++    /// backup (see [`migrate_with_hooks`]).
++    pub fn open_writer_migrated_with_hooks(
++        &self,
++        migrations: &[Migration],
++        options: &MigrateOptions,
++        hooks: &MigrateHooks,
+     ) -> Result<(Connection, MigrationReport)> {
+         let conn = self.open_writer()?;
+         let mut options = options.clone();
+         options.backup_options.get_or_insert_with(|| self.clone());
+-        let report = migrate(&conn, Some(&self.path), migrations, &options)?;
++        let report = migrate_with_hooks(&conn, Some(&self.path), migrations, &options, hooks)?;
+         Ok((conn, report))
+     }
+ 
+@@ -814,6 +933,24 @@ impl DbOptions {
+         migrations: &[Migration],
+         options: &MigrateOptions,
+         policy: RecoveryPolicy,
++    ) -> Result<OpenOrDegrade> {
++        self.open_writer_migrated_or_degrade_with_hooks(
++            migrations,
++            options,
++            policy,
++            &MigrateHooks::default(),
++        )
++    }
++
++    /// [`Self::open_writer_migrated_or_degrade`] with stateful [`MigrateHooks`] around the
++    /// pre-migration backup. The hooks apply to the on-disk store, on the first attempt and again
++    /// after a quarantine; the in-memory fallback takes no backup, so they never run there.
++    pub fn open_writer_migrated_or_degrade_with_hooks(
++        &self,
++        migrations: &[Migration],
++        options: &MigrateOptions,
++        policy: RecoveryPolicy,
++        hooks: &MigrateHooks,
+     ) -> Result<OpenOrDegrade> {
+         // A quarantine an earlier run could not finish or undo: never create a replacement over
+         // the split files.
+@@ -825,7 +962,7 @@ impl DbOptions {
+             );
+             return self.degrade_in_memory(migrations, options, reason, None, true);
+         }
+-        let error = match self.open_writer_migrated(migrations, options) {
++        let error = match self.open_writer_migrated_with_hooks(migrations, options, hooks) {
+             Ok((conn, report)) => {
+                 return Ok(OpenOrDegrade {
+                     conn,
+@@ -860,7 +997,7 @@ impl DbOptions {
+                 );
+             }
+         };
+-        match self.open_writer_migrated(migrations, options) {
++        match self.open_writer_migrated_with_hooks(migrations, options, hooks) {
+             Ok((conn, report)) => Ok(OpenOrDegrade {
+                 conn,
+                 report,
+diff --git a/crates/rightkit-db/tests/checkpoint_job.rs b/crates/rightkit-db/tests/checkpoint_job.rs
+index eaf19e9..5c159f3 100644
+--- a/crates/rightkit-db/tests/checkpoint_job.rs
++++ b/crates/rightkit-db/tests/checkpoint_job.rs
+@@ -93,3 +93,79 @@ fn a_finished_tick_releases_the_single_flight_guard() {
+     assert!(job.tick_at(&conn, Instant::now()).unwrap().is_some());
+     assert!(job.tick_at(&conn, Instant::now()).unwrap().is_some());
+ }
++
++#[test]
++fn a_per_call_minimum_replaces_the_passive_threshold() {
++    let dir = tempfile::tempdir().unwrap();
++    let (path, conn) = wal_writer(&dir);
++    let job = WalCheckpointJob::new(&path, policy(u64::MAX, u64::MAX, Duration::ZERO)).unwrap();
++    assert!(
++        job.tick(&conn).unwrap().is_none(),
++        "the policy threshold is unreachable"
++    );
++    assert!(job.tick_min(&conn, u64::MAX).unwrap().is_none());
++    let run = job
++        .tick_min(&conn, 1)
++        .unwrap()
++        .expect("the per-call minimum is met");
++    assert_eq!(run.mode, WalCheckpointMode::Passive);
++}
++
++#[test]
++fn a_per_call_minimum_in_frames_is_a_lower_bound_on_the_log() {
++    let dir = tempfile::tempdir().unwrap();
++    let (path, conn) = wal_writer(&dir);
++    let job = WalCheckpointJob::new(&path, policy(u64::MAX, u64::MAX, Duration::ZERO)).unwrap();
++    assert!(job.tick_min_frames(&conn, u64::MAX).unwrap().is_none());
++    assert!(job.tick_min_frames(&conn, 1).unwrap().is_some());
++}
++
++#[test]
++fn a_finished_passive_never_escalates_to_restart() {
++    let dir = tempfile::tempdir().unwrap();
++    let (path, conn) = wal_writer(&dir);
++    let job = WalCheckpointJob::new(&path, policy(1, 1, Duration::ZERO)).unwrap();
++    let sequence = job.tick_passive_then_restart(&conn, 1).unwrap();
++    let passive = sequence.passive.expect("a PASSIVE ran");
++    assert_eq!(passive.mode, WalCheckpointMode::Passive);
++    assert_eq!(passive.status.busy, 0);
++    assert!(sequence.restart.is_none(), "no reader held the log back");
++}
++
++#[test]
++fn below_the_minimum_neither_checkpoint_runs() {
++    let dir = tempfile::tempdir().unwrap();
++    let (path, conn) = wal_writer(&dir);
++    let job = WalCheckpointJob::new(&path, policy(1, 1, Duration::ZERO)).unwrap();
++    let sequence = job.tick_passive_then_restart(&conn, u64::MAX).unwrap();
++    assert!(sequence.passive.is_none() && sequence.restart.is_none());
++}
++
++#[test]
++fn an_incomplete_passive_is_followed_by_restart_once_quiet() {
++    let dir = tempfile::tempdir().unwrap();
++    let (path, conn) = wal_writer(&dir);
++    // Do not wait on the reader below: RESTART reports busy instead of sleeping on it.
++    conn.busy_timeout(Duration::ZERO).unwrap();
++    let reader = DbOptions::new(&path).open_reader().unwrap();
++    reader.execute_batch("BEGIN;").unwrap();
++    reader
++        .query_row("SELECT count(*) FROM t", [], |row| row.get::<_, i64>(0))
++        .unwrap();
++    // New frames after the reader's snapshot: PASSIVE cannot copy them while the reader lives.
++    conn.execute_batch("INSERT INTO t VALUES ('y');").unwrap();
++
++    let busy = WalCheckpointJob::new(&path, policy(1, 1, Duration::from_secs(3600))).unwrap();
++    busy.note_activity_at(Instant::now());
++    let sequence = busy.tick_passive_then_restart(&conn, 1).unwrap();
++    let passive = sequence.passive.expect("a PASSIVE ran");
++    assert!(passive.status.checkpointed_frames < passive.status.log_frames);
++    assert!(sequence.restart.is_none(), "not quiet long enough");
++
++    let quiet = WalCheckpointJob::new(&path, policy(1, 1, Duration::from_secs(1))).unwrap();
++    let later = Instant::now() + Duration::from_secs(5);
++    let sequence = quiet.tick_passive_then_restart_at(&conn, 1, later).unwrap();
++    assert!(sequence.passive.is_some());
++    let restart = sequence.restart.expect("an incomplete PASSIVE escalates");
++    assert_eq!(restart.mode, WalCheckpointMode::Restart);
++}
+diff --git a/crates/rightkit-db/tests/migrate_hooks.rs b/crates/rightkit-db/tests/migrate_hooks.rs
+new file mode 100644
+index 0000000..8b08d8a
+--- /dev/null
++++ b/crates/rightkit-db/tests/migrate_hooks.rs
+@@ -0,0 +1,187 @@
++//! Stateful migration backup hooks: closures that capture state for the backup name, a gate before
++//! the backup, a check after it, and pruning. Real SQLite files.
++
++use rightkit_db::{
++    migrate_with_hooks, user_version, DbError, DbOptions, MigrateHooks, MigrateOptions, Migration,
++};
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::Arc;
++
++fn migrations() -> Vec<Migration> {
++    vec![
++        Migration::sql(1, "create", "CREATE TABLE t(v INTEGER);"),
++        Migration::sql(2, "add_w", "ALTER TABLE t ADD COLUMN w INTEGER;"),
++    ]
++}
++
++fn fresh(dir: &tempfile::TempDir) -> PathBuf {
++    dir.path().canonicalize().unwrap().join("app.sqlite")
++}
++
++/// A writer at schema version 1, so the next migrate has an existing database to back up.
++fn at_version_one(path: &Path) -> rightkit_db::rusqlite::Connection {
++    let conn = DbOptions::new(path).open_writer().unwrap();
++    rightkit_db::migrate(
++        &conn,
++        Some(path),
++        &migrations()[..1],
++        &MigrateOptions::default(),
++    )
++    .unwrap();
++    conn
++}
++
++#[test]
++fn a_closure_that_captures_state_names_the_backup() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let stamp = String::from("20261018T101500");
++    let hooks = MigrateHooks::new()
++        .with_backup_name(move |from, to| format!("snap-{stamp}-v{from}-v{to}.bak"));
++    let report = migrate_with_hooks(
++        &conn,
++        Some(&path),
++        &migrations(),
++        &MigrateOptions::default(),
++        &hooks,
++    )
++    .unwrap();
++    let expected = path.with_file_name("snap-20261018T101500-v1-v2.bak");
++    assert_eq!(report.backup, Some(expected.clone()));
++    assert!(expected.exists());
++    assert_eq!(user_version(&conn).unwrap(), 2);
++}
++
++#[test]
++fn a_hooked_name_gets_the_same_plain_name_checks() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let hooks = MigrateHooks::new().with_backup_name(|_, _| "../escape.bak".to_string());
++    let error = migrate_with_hooks(
++        &conn,
++        Some(&path),
++        &migrations(),
++        &MigrateOptions::default(),
++        &hooks,
++    )
++    .unwrap_err();
++    assert!(matches!(error, DbError::Backup(_)), "{error:?}");
++    assert_eq!(user_version(&conn).unwrap(), 1);
++}
++
++#[test]
++fn a_before_backup_gate_can_refuse_and_nothing_is_written() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let free_bytes = 10_u64;
++    let hooks = MigrateHooks::new().with_before_backup(move |db, _backup| {
++        let needed = std::fs::metadata(db).map_or(0, |m| m.len());
++        if free_bytes < needed {
++            Err(format!("only {free_bytes} bytes free, {needed} needed"))
++        } else {
++            Ok(())
++        }
++    });
++    let error = migrate_with_hooks(
++        &conn,
++        Some(&path),
++        &migrations(),
++        &MigrateOptions::default(),
++        &hooks,
++    )
++    .unwrap_err();
++    match error {
++        DbError::Backup(message) => assert!(message.contains("bytes free"), "{message}"),
++        other => panic!("expected Backup, got {other:?}"),
++    }
++    assert_eq!(user_version(&conn).unwrap(), 1);
++    assert!(!path.with_file_name("app.sqlite.pre-v2.bak").exists());
++}
++
++#[test]
++fn a_stateful_verify_runs_on_the_backup_and_can_stop_the_migration() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let calls = Arc::new(AtomicUsize::new(0));
++    let seen = calls.clone();
++    let hooks = MigrateHooks::new().with_verify_backup(move |backup| {
++        seen.fetch_add(1, Ordering::SeqCst);
++        if backup.exists() {
++            Err("message count differs".to_string())
++        } else {
++            Ok(())
++        }
++    });
++    let error = migrate_with_hooks(
++        &conn,
++        Some(&path),
++        &migrations(),
++        &MigrateOptions::default(),
++        &hooks,
++    )
++    .unwrap_err();
++    assert!(matches!(error, DbError::Backup(_)), "{error:?}");
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    assert_eq!(user_version(&conn).unwrap(), 1, "no step ran");
++    assert!(
++        path.with_file_name("app.sqlite.pre-v2.bak").exists(),
++        "the backup is kept"
++    );
++}
++
++#[test]
++fn a_retention_hook_replaces_the_count_based_pruning() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let called = Arc::new(AtomicUsize::new(0));
++    let seen = called.clone();
++    let hooks = MigrateHooks::new().with_retain_backups(move |db, newest| {
++        seen.fetch_add(1, Ordering::SeqCst);
++        assert_eq!(db.file_name().unwrap(), "app.sqlite");
++        assert!(newest.exists());
++    });
++    let options = MigrateOptions {
++        backup_retention: Some(0),
++        ..MigrateOptions::default()
++    };
++    let report = migrate_with_hooks(&conn, Some(&path), &migrations(), &options, &hooks).unwrap();
++    assert_eq!(called.load(Ordering::SeqCst), 1);
++    assert!(report.backup.unwrap().exists());
++}
++
++#[test]
++fn no_hooks_behaves_like_migrate() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    let conn = at_version_one(&path);
++    let report = migrate_with_hooks(
++        &conn,
++        Some(&path),
++        &migrations(),
++        &MigrateOptions::default(),
++        &MigrateHooks::new(),
++    )
++    .unwrap();
++    assert_eq!(
++        report.backup,
++        Some(path.with_file_name("app.sqlite.pre-v2.bak"))
++    );
++}
++
++#[test]
++fn open_writer_migrated_with_hooks_runs_the_hooks() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = fresh(&dir);
++    drop(at_version_one(&path));
++    let hooks = MigrateHooks::new().with_backup_name(|_, to| format!("kept-v{to}.bak"));
++    let (_conn, report) = DbOptions::new(&path)
++        .open_writer_migrated_with_hooks(&migrations(), &MigrateOptions::default(), &hooks)
++        .unwrap();
++    assert_eq!(report.backup, Some(path.with_file_name("kept-v2.bak")));
++}
+diff --git a/crates/rightkit-db/tests/read_pool.rs b/crates/rightkit-db/tests/read_pool.rs
+index 286ef48..ef5a50e 100644
+--- a/crates/rightkit-db/tests/read_pool.rs
++++ b/crates/rightkit-db/tests/read_pool.rs
+@@ -462,3 +462,35 @@ fn read_only_readers_run_the_init_hook() {
+     let reader = pool.get().unwrap();
+     assert_eq!(pragma_i64(&reader, "recursive_triggers"), 1);
+ }
++
++#[test]
++fn readers_opened_counts_pool_builds_not_checkouts() {
++    let dir = tempfile::tempdir().unwrap();
++    let (options, _writer) = fixture(&dir);
++    let pool = options.open_read_pool(2).unwrap();
++    assert_eq!(pool.readers_opened(), 1, "the first reader opens with the pool");
++    drop(pool.get().unwrap());
++    drop(pool.get().unwrap());
++    assert_eq!(pool.readers_opened(), 1, "a returned reader is reused");
++    let first = pool.get().unwrap();
++    let second = pool.get().unwrap();
++    assert_eq!(pool.readers_opened(), 2, "the second checkout opened a new reader");
++    drop((first, second));
++    assert_eq!(pool.clone().readers_opened(), 2, "clones share the count");
++}
++
++#[test]
++fn the_init_hook_counts_every_connection_opened() {
++    let dir = tempfile::tempdir().unwrap();
++    let (mut options, _writer) = fixture(&dir);
++    let opened = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
++    let seen = opened.clone();
++    options.init = Some(std::sync::Arc::new(move |_: &Connection| {
++        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++        Ok(())
++    }));
++    let pool = options.open_read_pool(1).unwrap();
++    let _writer = options.open_writer().unwrap();
++    assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 2);
++    assert_eq!(pool.readers_opened(), 1);
++}

@@ -1,0 +1,29 @@
+rightkit-automation 0.4.4 -> 0.4.5 (additive; published 0.4.4 == baseline, verified against crates.io)
+DONE #689 RawInput::key_down/key_up/key_press now fill wScan via MapVirtualKeyW (win::input::scan_for_vk); with_scan(0) restores old behaviour; tests updated | input.rs
+DONE #360 comment 4 (the 4 El additions): El::supports_text_edit(), framework_id(), try_pid() -> Result<Option<u32>,UiaError> with UiaError::ElementNotAvailable, try_native_hwnd(), try_control_type()/control_type()/control_type_name(); also fixed swapped UIA HRESULTs in win_err (NOTSUPPORTED 0x80040204, ELEMENTNOTAVAILABLE 0x80040201)
+ALREADY #360 items 1-8 and earlier comments: focused_element, runtime_id, find_by_native_window_handle, is_editable, value_is_empty, read_value/read_document_text(+_checked), terminal_rows, set_value_if_empty, opaque El, with_deadline*, element_at_point, point_is_hyperlink, focused_field_* , El::copy_attribute_raw (win/uia.rs, win/bounded.rs, macos/ax.rs); with_deadline_mutation exists for the optional SetValue item
+DONE #412 screen-region capture: win::region (capture_region, capture_region_png, virtual_screen) + macos::capture_region_png
+DONE #412 clipboard listener + raw formats: win::clipboard (ClipboardListener, list_formats, read_raw, ReadLimits, FormatData, cf::*)
+DONE #412 WM_DROPFILES: win::dropfiles (drop_files, accepts_files). Interpretation: Pulse send_sys.rs posts a drop TO another window, so this is the send side; a receiving drop target in an own window is app/Tauri-owned and not added
+ALREADY #412 PII checksum detectors + label lists: src/sensitive.rs, policy.rs (0.4.4)
+ALREADY #412 foreign window placement: win::set_window_frame (win/mod.rs), macos ax::El::set_point/set_size/set_frame (macos/ax.rs)
+ALREADY #290 media/system keys: src/media_keys.rs (send_media_key, MediaKey)
+ALREADY #529 Pulse word lists: policy::credential_label / classify_risk (0.4.4)
+PARTIAL #434 task_dialog_click (win/dialog.rs) and msaa default_action (win/msaa.rs) already on main; DONE now: win::ime compose/commit/cancel/candidate_rect + Cargo features Win32_UI_Input_Ime and Win32_System_LibraryLoader; missing: composition cursor argument (Win32 has no setter) and IME control of windows in OTHER processes (IMM32 only serves the calling process; documented, returns Unsupported); candidate_rect is class-name heuristic
+ALREADY #188 AX set_point/set_size/set_frame (macos/ax.rs) and caller event marker (src/marker.rs); a Windows set_window_frame also exists
+ALREADY #177 capture-safe probe: src/capture_safety.rs, win/capture_safety.rs, macos/capture_safety.rs
+ALREADY #244 (automation items): caller marker, set_point/set_size, AX attribute path not gated by interaction switches (ax::El::attribute). Other crates' items in #244 are not this component
+DEFERRED #430 not an automation-crate gap (QA/automation CLI installer work, owned by rightkit-qa / release); body only mentions the crate name
+REJECTED: none (nothing conflicts with #771 D1-D5)
+
+New version: 0.4.5 (Cargo.toml, workspace Cargo.lock entry updated; CHANGELOG 0.4.5 (unreleased); README table row and Windows feature list)
+Public API changes (all additive, none breaking):
+- win::scan_for_vk, RawInput::with_scan; behaviour change: RawKey.scan now non-zero for key_down/key_up/key_press
+- win::uia::UiaError, El::try_pid/try_native_hwnd/try_control_type/control_type/control_type_name/framework_id/supports_text_edit
+- win::region::{RegionImage, virtual_screen, capture_region, capture_region_png}
+- win::clipboard::{ClipboardFormat, FormatData, ClipboardData, RawClipboard, ReadLimits, cf, standard_format_name, is_handle_format, list_formats, read_raw, ClipboardChange, ClipboardListener}
+- win::dropfiles::{MAX_DROP_FILES, accepts_files, drop_files}
+- win::ime::{compose, commit, cancel, candidate_rect}
+- macos::capture_region_png
+Compile risks for the main chat: cargo fmt needed on new files (rustfmt not available here); windows 0.62 signatures were checked against the registry source (BitBlt, GetDIBits, Imm*, GlobalAlloc, VARIANT_BOOL.0) but nothing was built; clipboard wndproc/thread-local callback and VARIANT bool read in supports_text_edit are the least certain spots; macOS region capture shares write_png refactor in macos/capture.rs.
+Patch: D:\scratch\rk-gaps-work\c2\automation\automation.patch

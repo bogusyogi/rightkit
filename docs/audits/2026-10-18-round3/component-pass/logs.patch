@@ -1,0 +1,1151 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..f043ea7 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7085,11 +7085,12 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-logs"
+-version = "0.3.2"
++version = "0.3.3"
+ dependencies = [
+  "getrandom 0.4.3",
+  "libc",
+  "rightkit-child-process",
++ "rightkit-crypto",
+  "rightkit-fs",
+  "rightkit-logs",
+  "serde",
+diff --git a/crates/rightkit-logs/CHANGELOG.md b/crates/rightkit-logs/CHANGELOG.md
+index 05195af..86eea2a 100644
+--- a/crates/rightkit-logs/CHANGELOG.md
++++ b/crates/rightkit-logs/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## 0.3.3
++
++Additive; no breaking changes. New dependency: `rightkit-crypto` 0.1.0 (blake3, serde_json). Not compiled or run here; verification is the main chat's batch.
++
++- **Log file handle for a detached child (rightkit#713, and rightkit#239 follow-up).** `RotatingTextWriter::open_append_file()` and `JsonlStore::open_append_file()` run the open-time and size rotation, then open the current file for append and return the `File`, so it can be a child's stdio (`Stdio::from(file)`). The store honours `with_owner_only` and the cross-process rotation lock. Bytes written through the handle are not scrubbed, counted or rotated while it is open. `rotate_numbered(path, keep)` (re-exported) shifts a file into `path.1` .. `path.keep` on demand and drops the oldest; the caller owns the size check.
++- **Key-token text redactor (rightkit#520).** New `KeyTokenRedactor` (`new`, `with_salt`, `token`, `redact`), `key_token(value, salt)` and `redact_key_values(line, keys)`: the value of each configured `key=value` pair in a text line (for example `account=`, `label=`) becomes `#` plus 16 hex digits (HMAC-SHA256 keyed with the salt, truncated to 8 bytes, via `rightkit-crypto`), stable across lines and platforms; use an app-private secret salt, because an empty or public salt leaves short values guessable. Case-insensitive keys at word starts, quoted values keep their quotes, empty values and existing tokens are left alone (idempotent). `RedactionPolicy` is unchanged.
++- **Family-wide daily clear and warn-and-continue init (rightkit#750).** With feature `tracing`: `clear_tracing_logs(dir, &[prefixes])` deletes every `<prefix>.YYYY-MM-DD.jsonl` of the given prefixes and returns the count (other files untouched; a missing directory is `Ok(0)`). `install_tracing_or_warn(config)` never fails: it warns on stderr and returns the new `TracingGuard::noop()` when setup fails or a global subscriber exists, and `install_stderr_tracing_once(filter)` returns whether it installed. `install_tracing` is unchanged.
++- Unchanged because already present: stderr layer (rightkit#546, `stderr_layer`), rotate-on-open and `stem.N.ext` names (rightkit#239), recording gate and drop-oldest batch cap (rightkit#390 Rust part). The OTLP export half of rightkit#546 stays out (refused by ruling).
++- Tests: `keytext::tests`, `textlog::tests`, `store::tests`, `rotate::tests`, `tracing_file::tests`.
++
+ ## 0.3.2 (2026-10-17)
+ 
+ - **URL and OAuth secret text redaction (rightkit#371).** New `redact_url_text(&str) -> String` (re-exported from the crate root): each `scheme://` URL keeps scheme, host and path, loses userinfo and fragment, and a query becomes `?[redacted]`; `name=value` pairs whose name is a known secret parameter (`access_token`, `refresh_token`, `id_token`, `client_secret`, `code`, `state`, `token`, `key`, `password`, and similar) keep the name and the value becomes `[redacted]`. Other text is unchanged. Additive; `RedactionPolicy` and `scrub_text` are unchanged. Tests in `scrub::url_text_tests`. Not compiled or run.
+diff --git a/crates/rightkit-logs/Cargo.toml b/crates/rightkit-logs/Cargo.toml
+index a62b5c5..0b73be3 100644
+--- a/crates/rightkit-logs/Cargo.toml
++++ b/crates/rightkit-logs/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-logs"
+-version = "0.3.2"
++version = "0.3.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."
+@@ -32,6 +32,7 @@ serde_json = "1"
+ ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
+ getrandom = "0.4"
+ rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
++rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+ tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+ tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "fmt", "json", "env-filter"], optional = true }
+ tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
+diff --git a/crates/rightkit-logs/README.md b/crates/rightkit-logs/README.md
+index cabe740..8aa53fc 100644
+--- a/crates/rightkit-logs/README.md
++++ b/crates/rightkit-logs/README.md
+@@ -50,6 +50,8 @@ With `features = ["tracing"]`, the writer creates `<dir>/<file_prefix>.YYYY-MM-D
+ - Opening a day's file prunes the directory to the newest `max_files` daily files (default 3), today's included, oldest first. Only names of the exact form `<prefix>.YYYY-MM-DD.jsonl` are touched.
+ - Lines pass through a bounded queue of `TracingFileConfig::queue_lines` lines (default 128_000, the `tracing-appender` limit; `0` behaves as `1`). When the queue is full, the line is dropped and counted; the caller never blocks. Read the running total with `TracingGuard::dropped_events()`. Check it at shutdown or in diagnostics to see whether bursts lost lines. Dropping the guard waits at most `shutdown_send_timeout` (default 100 ms) to queue its stop request and `shutdown_wait` (default 1 s) for the writer to flush; on timeout it detaches the writer and counts the unwritten lines, so a stalled disk cannot hang shutdown.
+ - `tracing_layer_checked::<S>(config)` is the fallible form of `tracing_layer`. It returns `io::Result` for an invalid prefix or filter, an unusable directory or file open, or a worker that cannot start, instead of writing to stderr.
++- `install_tracing_or_warn(config)` never fails: on any setup error, or when a global subscriber is already installed, it prints one `[rightkit-logs]` line on stderr and returns `TracingGuard::noop()`, so a warn-and-continue init has a guard to hold and a second call is harmless. `install_stderr_tracing_once(filter)` is the same idea for the stderr-only subscriber (returns whether it installed).
++- `clear_tracing_logs(dir, &["app", "engine"])` deletes every daily file of the given prefixes and returns the count, for a family-wide "clear logs" action. Only names of the exact daily form are touched.
+ - With `json: true` and `flatten_event: true`, event fields are top-level keys. `env_filter: None` reads `RUST_LOG`, then falls back to `info`.
+ - `tracing_log_sources(config, "app")` lists the newest `max_files` daily files as sources named `app-0`, `app-1`, and so on, oldest first. `collect_tracing_diagnostics` runs those sources through the normal bounded, redacted collection policy.
+ 
+@@ -152,3 +154,9 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
+ - Required hosts: macOS and Windows.
+ - Status exposure: `TracingGuard::status()` in `src/tracing_file.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+ - Measured: not yet measured.
++
++## Text log files
++
++- `RotatingTextWriter::open_append_file()` and `JsonlStore::open_append_file()` apply rotation and return an append `File`, so a detached child can write straight into the log (`Stdio::from(file)` as its stderr). Output written through the handle is not scrubbed, counted or rotated while the handle is open.
++- `rotate_numbered(path, keep)` shifts `path` into `path.1` ... `path.keep` now, dropping the oldest; the caller decides when.
++- `KeyTokenRedactor::new(["account", "label"]).with_salt("app").redact(line)` replaces the value of each `key=value` pair in a text line with a stable token (`#` and 16 hex digits), so the same account shows the same token on every line without being written. `key_token(value, salt)` and `redact_key_values(line, keys)` are the one-off forms. Tokens are HMAC-SHA256 (keyed with the salt, truncated to 16 hex digits); use an app-private secret salt.
+diff --git a/crates/rightkit-logs/src/keytext.rs b/crates/rightkit-logs/src/keytext.rs
+new file mode 100644
+index 0000000..369c05d
+--- /dev/null
++++ b/crates/rightkit-logs/src/keytext.rs
+@@ -0,0 +1,264 @@
++//! Text-line redaction that replaces the value of chosen `key=value` pairs with a stable token.
++//!
++//! [`RedactionPolicy`](crate::RedactionPolicy) works on JSON keys. Plain text log lines such as
++//! `sync ok account=ada@example.com label=Work` carry the same data inline. A
++//! [`KeyTokenRedactor`] replaces each such value with a token derived from the value, so the same
++//! account always shows the same token and a reader can still tell two accounts apart and follow
++//! one across lines, without the value itself being written.
++
++const TOKEN_MARK: u8 = b'#';
++const TOKEN_HEX_LEN: usize = 16;
++
++/// A stable token for `value`: `#` and 16 lower-case hex digits, the first 8 bytes of
++/// HMAC-SHA256 keyed with `salt` over `value` (`rightkit_crypto::hmac_sha256`).
++///
++/// The same `(value, salt)` always gives the same token, on every platform. Without the salt the
++/// token cannot be recomputed from a guessed value, so keep `salt` an app-private secret (for
++/// example a random per-install string): with an empty or public salt, a value with few
++/// possibilities (a short label) can still be found by trying candidates. The token is truncated
++/// to 64 bits, which is enough to tell accounts apart in a log, not to authenticate anything.
++pub fn key_token(value: &str, salt: &str) -> String {
++    let mac = rightkit_crypto::hmac_sha256(salt.as_bytes(), value.as_bytes());
++    let hex = rightkit_crypto::hex_encode(&mac[..TOKEN_HEX_LEN / 2]);
++    format!("#{hex}")
++}
++
++/// Replaces the value of each configured `key=` pair in a text line with [`key_token`].
++///
++/// Keys match case-insensitively at a word start (`account=` matches `Account=` but not
++/// `my_account=`). A value runs to the next whitespace or one of `, ; & ) ] }`, or, when it starts
++/// with `"` or `'`, to the matching quote (the quotes stay). An empty value, and a value that is
++/// already a token, are left unchanged, so redacting twice gives the same text. All other text is
++/// untouched; combine with [`scrub_text`](crate::scrub_text) for credentials and paths.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct KeyTokenRedactor {
++    /// Lower-case `key=` needles.
++    needles: Vec<String>,
++    salt: String,
++}
++
++impl KeyTokenRedactor {
++    /// Redact the values of `keys` (for example `["account", "label"]`). A trailing `=` on a key
++    /// is ignored and empty keys are skipped.
++    pub fn new<I, S>(keys: I) -> Self
++    where
++        I: IntoIterator<Item = S>,
++        S: AsRef<str>,
++    {
++        let needles = keys
++            .into_iter()
++            .map(|key| {
++                key.as_ref()
++                    .trim()
++                    .trim_end_matches('=')
++                    .to_ascii_lowercase()
++            })
++            .filter(|key| !key.is_empty())
++            .map(|key| format!("{key}="))
++            .collect();
++        Self {
++            needles,
++            salt: String::new(),
++        }
++    }
++
++    /// The HMAC key for every token. Use an app-private secret: tokens then differ between apps
++    /// and cannot be recomputed from guessed values. Default is empty (unkeyed in effect).
++    pub fn with_salt(mut self, salt: impl Into<String>) -> Self {
++        self.salt = salt.into();
++        self
++    }
++
++    /// The token for `value` under this redactor's salt (see [`key_token`]).
++    pub fn token(&self, value: &str) -> String {
++        key_token(value, &self.salt)
++    }
++
++    /// `line` with the value of every configured `key=` replaced by its token.
++    pub fn redact(&self, line: &str) -> String {
++        if self.needles.is_empty() {
++            return line.to_string();
++        }
++        let lower = line.to_ascii_lowercase();
++        let bytes = line.as_bytes();
++        let mut out = String::with_capacity(line.len());
++        let mut pos = 0usize;
++        while pos < line.len() {
++            let Some((start, needle_len)) = self.next_match(&lower, bytes, pos) else {
++                break;
++            };
++            let value_start = start + needle_len;
++            let (inner_start, inner_end, after) = value_span(line, value_start);
++            out.push_str(&line[pos..inner_start]);
++            let inner = &line[inner_start..inner_end];
++            if inner.is_empty() || is_token(inner) {
++                out.push_str(inner);
++            } else {
++                out.push_str(&self.token(inner));
++            }
++            out.push_str(&line[inner_end..after]);
++            pos = after;
++        }
++        out.push_str(&line[pos..]);
++        out
++    }
++
++    /// Earliest `key=` at or after `from` that starts a word: `(start, needle length)`.
++    fn next_match(&self, lower: &str, bytes: &[u8], from: usize) -> Option<(usize, usize)> {
++        let mut best: Option<(usize, usize)> = None;
++        for needle in &self.needles {
++            let mut search = from;
++            while let Some(rel) = lower[search..].find(needle.as_str()) {
++                let start = search + rel;
++                if start == 0 || !is_key_byte(bytes[start - 1]) {
++                    if best.is_none_or(|(found, _)| start < found) {
++                        best = Some((start, needle.len()));
++                    }
++                    break;
++                }
++                // `start` is the first byte of an ASCII needle, so `start + 1` is a boundary.
++                search = start + 1;
++            }
++        }
++        best
++    }
++}
++
++/// [`KeyTokenRedactor`] with no salt, for one-off calls: the value of each of `keys` in `line`
++/// becomes its [`key_token`].
++pub fn redact_key_values(line: &str, keys: &[&str]) -> String {
++    KeyTokenRedactor::new(keys.iter().copied()).redact(line)
++}
++
++fn is_key_byte(byte: u8) -> bool {
++    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'
++}
++
++fn is_token(text: &str) -> bool {
++    let bytes = text.as_bytes();
++    bytes.len() == TOKEN_HEX_LEN + 1
++        && bytes[0] == TOKEN_MARK
++        && bytes[1..]
++            .iter()
++            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
++}
++
++/// `(inner start, inner end, end of the whole value including a closing quote)` for the value
++/// that begins at `value_start`.
++fn value_span(line: &str, value_start: usize) -> (usize, usize, usize) {
++    let bytes = line.as_bytes();
++    match bytes.get(value_start) {
++        Some(&quote) if quote == b'"' || quote == b'\'' => {
++            let inner_start = value_start + 1;
++            match line[inner_start..].find(quote as char) {
++                Some(rel) => (inner_start, inner_start + rel, inner_start + rel + 1),
++                None => (inner_start, line.len(), line.len()),
++            }
++        }
++        _ => {
++            let end = bytes[value_start.min(bytes.len())..]
++                .iter()
++                .position(|b| b.is_ascii_whitespace() || b",;&)]}".contains(b))
++                .map_or(line.len(), |rel| value_start + rel);
++            (value_start, end, end)
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn token_is_stable_and_distinguishes_values_and_salts() {
++        let mac = rightkit_crypto::hmac_sha256(b"s", b"a@b.c");
++        assert_eq!(
++            key_token("a@b.c", "s"),
++            format!("#{}", rightkit_crypto::hex_encode(&mac[..8]))
++        );
++        assert_eq!(key_token("a@b.c", "s").len(), 17);
++        assert_eq!(key_token("a@b.c", "s"), key_token("a@b.c", "s"));
++        assert_ne!(key_token("a@b.c", "s"), key_token("a@b.c", "t"));
++        assert_ne!(key_token("a@b.c", "s"), key_token("d@b.c", "s"));
++    }
++
++    #[test]
++    fn replaces_account_and_label_values_and_keeps_the_rest() {
++        let r = KeyTokenRedactor::new(["account", "label"]);
++        let out = r.redact("sync ok account=ada@example.com label=Work n=3");
++        assert_eq!(
++            out,
++            format!(
++                "sync ok account={} label={} n=3",
++                r.token("ada@example.com"),
++                r.token("Work")
++            )
++        );
++        assert!(!out.contains("ada@example.com"));
++    }
++
++    #[test]
++    fn same_value_gives_the_same_token_on_every_line() {
++        let r = KeyTokenRedactor::new(["account"]);
++        let token = r.token("ada@example.com");
++        assert!(r
++            .redact("one account=ada@example.com")
++            .ends_with(&format!("account={token}")));
++        assert!(r
++            .redact("two account=ada@example.com, done")
++            .contains(&format!("account={token}, done")));
++    }
++
++    #[test]
++    fn keys_match_case_insensitively_at_word_starts_only() {
++        let r = KeyTokenRedactor::new(["account"]);
++        let out = r.redact("my_account=keep Account=hide");
++        assert!(out.starts_with("my_account=keep "));
++        assert!(!out.contains("hide"));
++    }
++
++    #[test]
++    fn quoted_values_keep_their_quotes_and_unterminated_runs_to_the_end() {
++        let r = KeyTokenRedactor::new(["label"]);
++        let out = r.redact("label=\"Work stuff\" next label='x y");
++        assert_eq!(
++            out,
++            format!(
++                "label=\"{}\" next label='{}",
++                r.token("Work stuff"),
++                r.token("x y")
++            )
++        );
++    }
++
++    #[test]
++    fn empty_values_and_existing_tokens_are_left_alone_so_redaction_is_idempotent() {
++        let r = KeyTokenRedactor::new(["account"]);
++        assert_eq!(r.redact("account= next"), "account= next");
++        let once = r.redact("account=ada");
++        assert_eq!(r.redact(&once), once);
++    }
++
++    #[test]
++    fn salt_changes_tokens_and_no_keys_is_a_no_op() {
++        let plain = KeyTokenRedactor::new(["account"]);
++        let salted = KeyTokenRedactor::new(["account"]).with_salt("app");
++        assert_ne!(plain.token("ada"), salted.token("ada"));
++        assert_eq!(
++            KeyTokenRedactor::new(Vec::<String>::new()).redact("account=ada"),
++            "account=ada"
++        );
++        assert_eq!(
++            redact_key_values("account=ada", &["account"]),
++            format!("account={}", key_token("ada", ""))
++        );
++    }
++
++    #[test]
++    fn handles_non_ascii_text_around_the_pairs() {
++        let r = KeyTokenRedactor::new(["account"]);
++        let out = r.redact("né account=ada é");
++        assert!(out.starts_with("né account=#"));
++        assert!(out.ends_with(" é"));
++    }
++}
+diff --git a/crates/rightkit-logs/src/lib.rs b/crates/rightkit-logs/src/lib.rs
+index a131eba..6a6a175 100644
+--- a/crates/rightkit-logs/src/lib.rs
++++ b/crates/rightkit-logs/src/lib.rs
+@@ -6,6 +6,7 @@ mod collect;
+ mod consent;
+ mod event;
+ pub mod identity;
++mod keytext;
+ #[cfg(feature = "log-bridge")]
+ mod log_bridge;
+ mod outbox;
+@@ -34,20 +35,22 @@ pub use consent::{Consent, ConsentStore};
+ pub use event::{cap_batch, EventRecord, Level, DEFAULT_BATCH_CAP, LOGS_DROPPED_EVENT};
+ #[cfg(feature = "log-bridge")]
+ pub use log_bridge::init_log_bridge;
++pub use keytext::{key_token, redact_key_values, KeyTokenRedactor};
+ pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, OutboxStatus};
+ pub use redact::RedactionPolicy;
+-pub use rotate::RotatedNaming;
++pub use rotate::{rotate_numbered, RotatedNaming};
+ pub use scrub::{redact_quoted, redact_url_text, scrub_text, scrub_text_counted, scrub_value};
+ #[cfg(feature = "tracing")]
+ pub use stderr_fmt::stderr_layer;
+ #[cfg(feature = "tracing")]
+-pub use stderr_tracing::install_stderr_tracing;
++pub use stderr_tracing::{install_stderr_tracing, install_stderr_tracing_once};
+ pub use store::{tail_bytes, JsonlStore, StoreStatus};
+ pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture, StderrLine};
+ #[cfg(feature = "tracing")]
+ pub use tracing_file::{
+-    collect_tracing_diagnostics, install_tracing, tracing_layer, tracing_layer_checked,
+-    tracing_log_sources, LogWriterStatus, TracingFileConfig, TracingGuard,
++    clear_tracing_logs, collect_tracing_diagnostics, install_tracing, install_tracing_or_warn,
++    tracing_layer, tracing_layer_checked, tracing_log_sources, LogWriterStatus,
++    TracingFileConfig, TracingGuard,
+ };
+ #[cfg(feature = "http")]
+ pub use upload::HttpTransport;
+diff --git a/crates/rightkit-logs/src/rotate.rs b/crates/rightkit-logs/src/rotate.rs
+index c06c953..9ff2d4f 100644
+--- a/crates/rightkit-logs/src/rotate.rs
++++ b/crates/rightkit-logs/src/rotate.rs
+@@ -133,6 +133,19 @@ pub(crate) fn roll_generations(
+     fs::rename(path, gen_path(1))
+ }
+ 
++/// Shift `path` into the numbered chain `path.1`, `path.2`, ... `path.keep` now, whatever its
++/// size: the oldest (`path.keep`) is removed, each `path.k` becomes `path.k+1`, and `path`
++/// becomes `path.1`. `keep` of `0` behaves as `1`. A missing or empty `path` is left alone
++/// (`Ok`). The caller decides when to rotate (for example on a size check); nothing here reads
++/// the size.
++pub fn rotate_numbered(path: &Path, keep: u32) -> io::Result<()> {
++    match fs::metadata(path) {
++        Ok(m) if m.len() > 0 => {}
++        _ => return Ok(()),
++    }
++    roll_generations(path, keep, "app.log", RotatedNaming::Suffix)
++}
++
+ /// After a failed rotation: refuse the append once the current file is at twice the rotation size.
+ pub(crate) fn refuse_at_hard_cap(path: &Path, max_file_bytes: u64) -> io::Result<()> {
+     if max_file_bytes == 0 {
+@@ -148,3 +161,46 @@ pub(crate) fn refuse_at_hard_cap(path: &Path, max_file_bytes: u64) -> io::Result
+         path.display()
+     )))
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn dir(label: &str) -> PathBuf {
++        let d = std::env::temp_dir().join(format!(
++            "rightkit-logs-rotate-{label}-{}-{}",
++            std::process::id(),
++            crate::now_ms()
++        ));
++        let _ = fs::remove_dir_all(&d);
++        fs::create_dir_all(&d).unwrap();
++        d
++    }
++
++    #[test]
++    fn rotate_numbered_shifts_the_chain_and_drops_the_oldest() {
++        let d = dir("numbered");
++        let log = d.join("daemon.log");
++        for run in ["one", "two", "three", "four"] {
++            fs::write(&log, run).unwrap();
++            rotate_numbered(&log, 3).unwrap();
++        }
++        assert!(!log.exists());
++        let read = |n: &str| fs::read_to_string(d.join(n)).unwrap();
++        assert_eq!(read("daemon.log.1"), "four");
++        assert_eq!(read("daemon.log.2"), "three");
++        assert_eq!(read("daemon.log.3"), "two");
++        assert!(!d.join("daemon.log.4").exists());
++    }
++
++    #[test]
++    fn rotate_numbered_leaves_a_missing_or_empty_file_alone() {
++        let d = dir("numbered-empty");
++        let log = d.join("daemon.log");
++        rotate_numbered(&log, 2).unwrap();
++        fs::write(&log, "").unwrap();
++        rotate_numbered(&log, 2).unwrap();
++        assert!(log.exists());
++        assert!(!d.join("daemon.log.1").exists());
++    }
++}
+diff --git a/crates/rightkit-logs/src/stderr_tracing.rs b/crates/rightkit-logs/src/stderr_tracing.rs
+index 2c80f52..c4a403a 100644
+--- a/crates/rightkit-logs/src/stderr_tracing.rs
++++ b/crates/rightkit-logs/src/stderr_tracing.rs
+@@ -93,6 +93,13 @@ pub fn install_stderr_tracing(default_filter: &str) -> io::Result<()> {
+         .map_err(|error| io::Error::other(error.to_string()))
+ }
+ 
++/// Idempotent form of [`install_stderr_tracing`]: it never fails. When a global
++/// subscriber is already installed, it does nothing and returns `false` without printing, so a
++/// second call is a no-op; it returns `true` when it installed the stderr subscriber.
++pub fn install_stderr_tracing_once(default_filter: &str) -> bool {
++    install_stderr_tracing(default_filter).is_ok()
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/crates/rightkit-logs/src/store.rs b/crates/rightkit-logs/src/store.rs
+index 3df09bd..b369eab 100644
+--- a/crates/rightkit-logs/src/store.rs
++++ b/crates/rightkit-logs/src/store.rs
+@@ -123,6 +123,25 @@ impl JsonlStore {
+         tail_bytes(&self.path, max_bytes)
+     }
+ 
++    /// Apply size rotation, then open the current file for append and return the handle, so a
++    /// detached child process can write to it directly (for example `Stdio::from(file)` as the
++    /// child's stderr). Honours [`with_owner_only`](Self::with_owner_only) and the cross-process
++    /// lock for the rotation step.
++    ///
++    /// Bytes the child writes through the handle bypass this store: they are not scrubbed, not
++    /// counted, and not rotated while the handle is open (rotation happens at the next call here
++    /// or the next append). A failed rotation is counted in [`status`](Self::status) and the
++    /// handle is still returned while the file is below the hard cap.
++    pub fn open_append_file(&self) -> io::Result<File> {
++        let _guard = self
++            .append_lock
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++        let (file, lock) = self.open_locked(false, 0)?;
++        drop(lock);
++        Ok(file)
++    }
++
+     pub fn append(&self, event: &EventRecord) -> io::Result<()> {
+         let value = serde_json::to_value(event).map_err(io::Error::other)?;
+         self.append_value(&value)
+@@ -177,7 +196,23 @@ impl JsonlStore {
+ 
+     fn append_serialized_locked(&self, value: &Value, before_overflow: bool) -> io::Result<()> {
+         let mut line = serde_json::to_vec(value).map_err(io::Error::other)?;
+-        line.push(b'\n');
++        line.push(b'
++');
++        let (mut file, lock) = self.open_locked(before_overflow, line.len() as u64)?;
++        let result = file.write_all(&line);
++        drop(file);
++        drop(lock);
++        result
++    }
++
++    /// Create the parent directory, apply size rotation for `incoming` bytes, and open the file
++    /// for append. With the cross-process lock enabled, the sidecar lock is returned and must be
++    /// held until the caller has finished writing.
++    fn open_locked(
++        &self,
++        before_overflow: bool,
++        incoming: u64,
++    ) -> io::Result<(File, Option<File>)> {
+         if let Some(parent) = self.path.parent() {
+             fs::create_dir_all(parent)?;
+         }
+@@ -201,12 +236,12 @@ impl JsonlStore {
+             None
+         };
+         if lock.is_some() || !self.cross_process_lock {
+-            if let Err(error) = self.rotate_files(before_overflow, line.len() as u64) {
++            if let Err(error) = self.rotate_files(before_overflow, incoming) {
+                 self.record_rotation_failure(&error.to_string());
+                 self.refuse_at_hard_cap()?;
+             }
+         }
+-        let mut file = if self.owner_only {
++        let file = if self.owner_only {
+             rightkit_fs::open_private_append(&self.path)?
+         } else {
+             OpenOptions::new()
+@@ -214,10 +249,7 @@ impl JsonlStore {
+                 .append(true)
+                 .open(&self.path)?
+         };
+-        let result = file.write_all(&line);
+-        drop(file);
+-        drop(lock);
+-        result
++        Ok((file, lock))
+     }
+ 
+     fn record_rotation_failure(&self, error: &str) {
+@@ -333,6 +365,23 @@ mod tests {
+         EventRecord::new(n, crate::Level::Info, "tick").with_field("n", serde_json::json!(n))
+     }
+ 
++    #[test]
++    fn open_append_file_rotates_then_returns_an_appending_handle() {
++        let d = dir("handle");
++        let store = JsonlStore::new(d.join("events.jsonl"), 10);
++        store.append_value(&serde_json::json!({"a": "xxxxxxxxxxxx"})).unwrap();
++        let mut f = store.open_append_file().unwrap();
++        f.write_all(b"{\"child\":1}
++").unwrap();
++        drop(f);
++        assert!(d.join("events.jsonl.1").exists());
++        assert_eq!(
++            fs::read_to_string(d.join("events.jsonl")).unwrap(),
++            "{\"child\":1}
++"
++        );
++    }
++
+     #[test]
+     fn tail_bytes_reads_only_the_last_bytes() {
+         let d = dir("tail");
+diff --git a/crates/rightkit-logs/src/textlog.rs b/crates/rightkit-logs/src/textlog.rs
+index a00a074..37f6fd5 100644
+--- a/crates/rightkit-logs/src/textlog.rs
++++ b/crates/rightkit-logs/src/textlog.rs
+@@ -3,7 +3,7 @@
+ use crate::rotate::{self, RotatedNaming};
+ use crate::scrub::scrub_text;
+ use crate::store::StoreStatus;
+-use std::fs::{self, OpenOptions};
++use std::fs::{self, File, OpenOptions};
+ use std::io::{self, Read, Write};
+ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Mutex};
+@@ -98,6 +98,30 @@ impl RotatingTextWriter {
+         result
+     }
+ 
++    /// Apply the open-time rotation (once) and size rotation, then open the current file for
++    /// append and return the handle, so a detached child process can write straight into the log
++    /// (for example `Stdio::from(file)` as the child's stderr or stdout). Call it once per child
++    /// launch; each call re-checks the size and rotates when the file has reached the limit.
++    ///
++    /// Bytes the child writes through the handle bypass this writer: they are not scrubbed, not
++    /// counted, and not rotated while the handle is open. A failed rotation is counted in
++    /// [`status`](Self::status) and the handle is still returned while the file is below the
++    /// hard cap. A failure to open is returned and counted as a failed append.
++    pub fn open_append_file(&self) -> io::Result<File> {
++        let mut guard = self.lock.lock().unwrap_or_else(|p| p.into_inner());
++        let result = self.open_locked(&mut guard);
++        if let Err(error) = &result {
++            self.record(|status| {
++                status.failed_appends = status.failed_appends.saturating_add(1);
++                status.last_error = Some(format!(
++                    "open {} for append failed ({error})",
++                    self.path.display()
++                ));
++            });
++        }
++        result
++    }
++
+     pub fn path(&self) -> &Path {
+         &self.path
+     }
+@@ -129,6 +153,17 @@ impl RotatingTextWriter {
+     }
+ 
+     fn write_locked(&self, line: &str, opened: &mut bool) -> io::Result<()> {
++        let mut file = self.open_locked(opened)?;
++        let mut bytes = Vec::with_capacity(line.len() + 1);
++        bytes.extend_from_slice(line.as_bytes());
++        bytes.push(b'
++');
++        file.write_all(&bytes)
++    }
++
++    /// Create the parent directory, run the open-time and size rotations, and open the current
++    /// file for append.
++    fn open_locked(&self, opened: &mut bool) -> io::Result<File> {
+         if let Some(parent) = self.path.parent() {
+             fs::create_dir_all(parent)?;
+         }
+@@ -160,14 +195,10 @@ impl RotatingTextWriter {
+             });
+             rotate::refuse_at_hard_cap(&self.path, self.max_file_bytes)?;
+         }
+-        let mut file = OpenOptions::new()
++        OpenOptions::new()
+             .create(true)
+             .append(true)
+-            .open(&self.path)?;
+-        let mut bytes = Vec::with_capacity(line.len() + 1);
+-        bytes.extend_from_slice(line.as_bytes());
+-        bytes.push(b'\n');
+-        file.write_all(&bytes)
++            .open(&self.path)
+     }
+ 
+     fn record(&self, update: impl FnOnce(&mut StoreStatus)) {
+@@ -273,6 +304,53 @@ mod tests {
+         d
+     }
+ 
++    #[test]
++    fn open_append_file_returns_an_appending_handle_after_rotation() {
++        let d = dir("handle");
++        let w = RotatingTextWriter::new(d.join("job.log"), 10);
++        w.write_line("first-line-xxxxxxxx").unwrap();
++        // The file is at the limit, so opening rotates it and returns a fresh file.
++        let mut f = w.open_append_file().unwrap();
++        f.write_all(b"child-1
++").unwrap();
++        drop(f);
++        let mut f = w.open_append_file().unwrap();
++        f.write_all(b"child-2
++").unwrap();
++        drop(f);
++        assert_eq!(
++            fs::read_to_string(d.join("job.log.1")).unwrap(),
++            "first-line-xxxxxxxx
++"
++        );
++        assert_eq!(
++            fs::read_to_string(d.join("job.log")).unwrap(),
++            "child-1
++child-2
++"
++        );
++    }
++
++    #[test]
++    fn open_append_file_creates_missing_directories_and_honours_rotate_on_open() {
++        let d = dir("handle-open");
++        let path = d.join("sub").join("job.log");
++        let w = RotatingTextWriter::new(&path, 0).with_rotate_on_open(true);
++        w.write_line("old-run").unwrap();
++        let w2 = RotatingTextWriter::new(&path, 0).with_rotate_on_open(true);
++        let mut f = w2.open_append_file().unwrap();
++        f.write_all(b"new-run
++").unwrap();
++        drop(f);
++        assert_eq!(fs::read_to_string(&path).unwrap(), "new-run
++");
++        assert_eq!(
++            fs::read_to_string(d.join("sub").join("job.log.1")).unwrap(),
++            "old-run
++"
++        );
++    }
++
+     #[test]
+     fn default_keeps_one_generation() {
+         let d = dir("one");
+diff --git a/crates/rightkit-logs/src/tracing_file.rs b/crates/rightkit-logs/src/tracing_file.rs
+index be231c9..8a653a5 100644
+--- a/crates/rightkit-logs/src/tracing_file.rs
++++ b/crates/rightkit-logs/src/tracing_file.rs
+@@ -128,6 +128,13 @@ impl TracingGuard {
+         self.dropped.load(Ordering::Relaxed)
+     }
+ 
++    /// A guard that owns no writer: dropping it does nothing and every counter reads zero. It is
++    /// what [`install_tracing_or_warn`] returns when logging could not be set up, so the caller's
++    /// "warn and continue" path still has a guard to hold.
++    pub fn noop() -> Self {
++        detached().1
++    }
++
+     /// Detaches the worker (the handle is dropped, which leaves the thread running) and counts
+     /// the lines it has not finished writing.
+     fn abandon(&mut self, _detached_worker: JoinHandle<()>) {
+@@ -189,6 +196,51 @@ pub fn install_tracing(config: TracingFileConfig) -> io::Result<TracingGuard> {
+     Ok(guard)
+ }
+ 
++/// Warn-and-continue form of [`install_tracing`]: it never fails. When logging cannot be set up
++/// (an invalid prefix or filter, an unusable directory, or a global subscriber that is already
++/// installed), it prints one `[rightkit-logs] ...` line on stderr and returns
++/// [`TracingGuard::noop`], so the app carries on without file logs and calling it again is
++/// harmless. On success it is the same as [`install_tracing`].
++pub fn install_tracing_or_warn(config: TracingFileConfig) -> TracingGuard {
++    let dir = config.dir.clone();
++    match install_tracing(config) {
++        Ok(guard) => guard,
++        Err(error) => {
++            report(&dir, &error);
++            TracingGuard::noop()
++        }
++    }
++}
++
++/// Delete every daily file `<prefix>.YYYY-MM-DD.jsonl` in `dir` for each of `file_prefixes`, and
++/// return how many were removed. Use it for a "clear logs" action over a whole family of logs
++/// (for example the app's own prefix and its engine's) in one call. Only names of that exact form
++/// are touched, so other files and rotated copies in the directory stay. A missing directory
++/// removes nothing (`Ok(0)`). Every file is attempted; if some cannot be removed (for example one
++/// held open without delete sharing), the first error is returned after the rest were tried. A
++/// running [`TracingGuard`] keeps writing: on Windows and Unix its open file is unlinked and the
++/// next write after midnight (or after the next install) creates a fresh one.
++pub fn clear_tracing_logs(dir: &Path, file_prefixes: &[&str]) -> io::Result<usize> {
++    let mut removed = 0usize;
++    let mut first_error: Option<io::Error> = None;
++    for prefix in file_prefixes {
++        validate_prefix(prefix)?;
++        for name in daily_file_names(dir, prefix)? {
++            match fs::remove_file(dir.join(&name)) {
++                Ok(()) => removed += 1,
++                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
++                Err(error) => {
++                    first_error.get_or_insert(error);
++                }
++            }
++        }
++    }
++    match first_error {
++        Some(error) => Err(error),
++        None => Ok(removed),
++    }
++}
++
+ /// A file layer for apps that compose their own subscriber, such as one that also writes
+ /// stderr. Opens today's file and applies retention before it returns. Setup failures are
+ /// reported on stderr and retried on the next write, so this never fails the caller.
+@@ -595,6 +647,45 @@ mod tests {
+         path
+     }
+ 
++    #[test]
++    fn clear_tracing_logs_removes_only_daily_files_of_the_given_prefixes() {
++        let dir = temp_dir("clear");
++        for name in [
++            "app.2026-10-01.jsonl",
++            "app.2026-10-02.jsonl",
++            "engine.2026-10-02.jsonl",
++            "other.2026-10-02.jsonl",
++            "app.notes.txt",
++            "app.2026-10-02.jsonl.1",
++        ] {
++            fs::write(dir.join(name), "x").unwrap();
++        }
++        let removed = clear_tracing_logs(&dir, &["app", "engine"]).unwrap();
++        assert_eq!(removed, 3);
++        assert!(dir.join("other.2026-10-02.jsonl").exists());
++        assert!(dir.join("app.notes.txt").exists());
++        assert!(dir.join("app.2026-10-02.jsonl.1").exists());
++        assert_eq!(clear_tracing_logs(&dir, &["app"]).unwrap(), 0);
++        assert_eq!(clear_tracing_logs(&dir.join("missing"), &["app"]).unwrap(), 0);
++        assert!(clear_tracing_logs(&dir, &["bad/prefix"]).is_err());
++    }
++
++    #[test]
++    fn noop_guard_drops_quietly_and_reads_zero() {
++        let guard = TracingGuard::noop();
++        assert_eq!(guard.dropped_events(), 0);
++        assert_eq!(guard.status().pending_lines, 0);
++        drop(guard);
++    }
++
++    #[test]
++    fn install_tracing_or_warn_returns_a_noop_guard_on_a_bad_config() {
++        let dir = temp_dir("warn");
++        let guard = install_tracing_or_warn(TracingFileConfig::new(&dir, "bad/prefix"));
++        assert_eq!(guard.dropped_events(), 0);
++        assert!(guard.worker.is_none());
++    }
++
+     #[test]
+     fn civil_dates_match_known_days() {
+         assert_eq!(civil_from_days(0), (1970, 1, 1));
+diff --git a/packages/logs/CHANGELOG.md b/packages/logs/CHANGELOG.md
+index 4e53355..acb087f 100644
+--- a/packages/logs/CHANGELOG.md
++++ b/packages/logs/CHANGELOG.md
+@@ -1,5 +1,10 @@
+ # Changelog
+ 
+-## Unreleased
++## 0.1.5
++
++- **Publishes the window crash capture (rightkit#642, rightkit#760).** npm 0.1.4 was published without `crash.ts`; `installWindowCrashCapture`, `scrubWindowCrashText`, `RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND` and their types are exported from the package root in this version (already in the source below). Version bumped so the next publish carries them.
++- **Renderer error capture and persisted ring buffer (rightkit#390, rightkit#760).** `installRendererErrorCapture(client, { surface, target?, storage?, storageKey?, maxEntries?, dedupMs?, now? })` registers window `error` and `unhandledrejection` listeners and logs a content-free `renderer_error` event with `surface`, `kind` (`uncaught` | `rejection`) and `code` (the error name only; no message or stack). The app's `allowedFields` must include `surface`, `kind` and `code`. Repeats of the same kind and code within `dedupMs` (default 1000) are counted, not logged. With `storage` (for example `localStorage`), the newest `maxEntries` (default 50) entries `{ ts_ms, surface, kind, code, count }` persist across reloads; `readRendererErrorRing(storage, key?)` reads them. Idempotent per target; uninstall function returned; never throws into the page. Additive. The Tauri command module and the Rust recording gate and drop-oldest cap are on the `rightkit-logs` side (the Rust cap is in 0.3.2).
++
++Also in 0.1.5 (previously listed as Unreleased):
+ 
+ - Owner gap OG16-5, JavaScript side (additive, nothing installed by default). `installWindowCrashCapture({ invoke, ... })` captures `window` `error` and `unhandledrejection`, scrubs the text (known secrets via `redactValues`, bearer tokens, JWTs, emails, long hex, home paths, URL query and fragment), caps message and stack size, rate-limits (5 per minute, 25 per page by default) and sends one `{ report }` to the app-registered `rightkit_crash_window_error` command (`RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND`). Send failures are swallowed. Rust half: `rightkit-crash` feature `window-errors`.
+diff --git a/packages/logs/README.md b/packages/logs/README.md
+index ec826b6..d362aea 100644
+--- a/packages/logs/README.md
++++ b/packages/logs/README.md
+@@ -15,7 +15,7 @@ Nothing uploads automatically. The user collects a diagnostics bundle and decide
+ 
+ | Import | Contents |
+ |---|---|
+-| `@rightkit/logs` | `createLogsClient(config)`; constants `RIGHTKIT_LOGS_WRITE_COMMAND` (`rightkit_logs_write`), `RIGHTKIT_LOGS_COLLECT_COMMAND` (`rightkit_logs_collect`), `RIGHTKIT_LOGS_CLEAR_COMMAND` (`rightkit_logs_clear`); types `LogLevel`, `LogFields`, `StructuredLogEvent`, `LogsInvoke`, `LogsClientConfig`, `LogsClient` |
++| `@rightkit/logs` | `createLogsClient(config)`; constants `RIGHTKIT_LOGS_WRITE_COMMAND` (`rightkit_logs_write`), `RIGHTKIT_LOGS_COLLECT_COMMAND` (`rightkit_logs_collect`), `RIGHTKIT_LOGS_CLEAR_COMMAND` (`rightkit_logs_clear`); types `LogLevel`, `LogFields`, `StructuredLogEvent`, `LogsInvoke`, `LogsClientConfig`, `LogsClient`; `installWindowCrashCapture`, `scrubWindowCrashText`, `RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND` (window crash reports to the app's crash command); `installRendererErrorCapture`, `readRendererErrorRing`, `RENDERER_ERROR_EVENT` (content-free `renderer_error` events and an optional persisted ring buffer) |
+ 
+ `LogsClientConfig`: `invoke`, `allowedFields` (closed list of field names that reach disk), `maxBufferedEvents`, `flushIntervalMs` (0 for explicit flush), `now`.
+ 
+diff --git a/packages/logs/package.json b/packages/logs/package.json
+index 8c6c686..a91248b 100644
+--- a/packages/logs/package.json
++++ b/packages/logs/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@rightkit/logs",
+-  "version": "0.1.4",
++  "version": "0.1.5",
+   "description": "Local-only structured logging and diagnostics client for Right Suite apps.",
+   "license": "MIT OR Apache-2.0",
+   "packageManager": "pnpm@11.24.0",
+diff --git a/packages/logs/src/index.ts b/packages/logs/src/index.ts
+index 778b4fc..32af7f1 100644
+--- a/packages/logs/src/index.ts
++++ b/packages/logs/src/index.ts
+@@ -189,3 +189,4 @@ export function createLogsClient(config: LogsClientConfig): LogsClient {
+   };
+ }
+ export * from './crash.js';
++export * from './renderer-errors.js';
+diff --git a/packages/logs/src/renderer-errors.test.ts b/packages/logs/src/renderer-errors.test.ts
+new file mode 100644
+index 0000000..d46699f
+--- /dev/null
++++ b/packages/logs/src/renderer-errors.test.ts
+@@ -0,0 +1,121 @@
++import { describe, expect, it, vi } from 'vitest';
++import {
++  RENDERER_ERROR_EVENT,
++  installRendererErrorCapture,
++  readRendererErrorRing,
++  type RingStorage,
++} from './renderer-errors.js';
++import type { WindowCrashTarget } from './crash.js';
++
++function fakeTarget() {
++  const handlers = new Map<string, (e: unknown) => void>();
++  const target: WindowCrashTarget = {
++    addEventListener: (t, l) => void handlers.set(t, l),
++    removeEventListener: (t) => void handlers.delete(t),
++  };
++  return { target, handlers };
++}
++
++function memoryStorage(): RingStorage & { data: Map<string, string> } {
++  const data = new Map<string, string>();
++  return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
++}
++
++describe('installRendererErrorCapture', () => {
++  it('logs a content-free renderer_error with the error name as code', () => {
++    const client = { error: vi.fn() };
++    const { target, handlers } = fakeTarget();
++    installRendererErrorCapture(client, { surface: 'main', target });
++    handlers.get('error')!({ error: new TypeError('secret user text') });
++    handlers.get('unhandledrejection')!({ reason: 'plain string' });
++    expect(client.error).toHaveBeenNthCalledWith(1, RENDERER_ERROR_EVENT, {
++      surface: 'main',
++      kind: 'uncaught',
++      code: 'TypeError',
++    });
++    expect(client.error).toHaveBeenNthCalledWith(2, RENDERER_ERROR_EVENT, {
++      surface: 'main',
++      kind: 'rejection',
++      code: 'Error',
++    });
++    expect(JSON.stringify(client.error.mock.calls)).not.toContain('secret user text');
++  });
++
++  it('is idempotent per target and uninstalls cleanly', () => {
++    const client = { error: vi.fn() };
++    const { target, handlers } = fakeTarget();
++    const off = installRendererErrorCapture(client, { surface: 'main', target });
++    const again = installRendererErrorCapture(client, { surface: 'main', target });
++    expect(again).toBe(off);
++    expect(handlers.size).toBe(2);
++    off();
++    expect(handlers.size).toBe(0);
++    installRendererErrorCapture(client, { surface: 'main', target });
++    expect(handlers.size).toBe(2);
++  });
++
++  it('deduplicates repeats inside the window and counts them in the ring buffer', () => {
++    const client = { error: vi.fn() };
++    const { target, handlers } = fakeTarget();
++    const storage = memoryStorage();
++    let t = 1000;
++    installRendererErrorCapture(client, { surface: 's', target, storage, dedupMs: 500, now: () => t });
++    const boom = () => handlers.get('error')!({ error: new RangeError('x') });
++    boom();
++    t = 1200;
++    boom();
++    t = 3000;
++    boom();
++    expect(client.error).toHaveBeenCalledTimes(2);
++    const ring = readRendererErrorRing(storage);
++    expect(ring.map((e) => e.count)).toEqual([2, 1]);
++    expect(ring[0]).toMatchObject({ surface: 's', kind: 'uncaught', code: 'RangeError' });
++  });
++
++  it('keeps only the newest entries and survives broken or corrupt storage', () => {
++    const client = { error: vi.fn() };
++    const { target, handlers } = fakeTarget();
++    const storage = memoryStorage();
++    let t = 0;
++    installRendererErrorCapture(client, {
++      surface: 's',
++      target,
++      storage,
++      maxEntries: 2,
++      dedupMs: 0,
++      now: () => (t += 10),
++    });
++    for (const name of ['A', 'B', 'C']) {
++      const e = new Error('m');
++      e.name = name;
++      handlers.get('error')!({ error: e });
++    }
++    expect(readRendererErrorRing(storage).map((e) => e.code)).toEqual(['B', 'C']);
++    storage.data.set('rightkit.logs.renderer_errors', '{not json');
++    expect(readRendererErrorRing(storage)).toEqual([]);
++    const { target: t2, handlers: h2 } = fakeTarget();
++    const broken: RingStorage = {
++      getItem: () => {
++        throw new Error('blocked');
++      },
++      setItem: () => {
++        throw new Error('blocked');
++      },
++    };
++    installRendererErrorCapture(client, { surface: 's', target: t2, storage: broken });
++    expect(() => h2.get('error')!({ error: new Error('x') })).not.toThrow();
++  });
++
++  it('never throws when the client throws', () => {
++    const { target, handlers } = fakeTarget();
++    installRendererErrorCapture(
++      {
++        error: () => {
++          throw new Error('boom');
++        },
++      },
++      { surface: 's', target },
++    );
++    expect(() => handlers.get('unhandledrejection')!({ reason: new Error('x') })).not.toThrow();
++  });
++});
+diff --git a/packages/logs/src/renderer-errors.ts b/packages/logs/src/renderer-errors.ts
+new file mode 100644
+index 0000000..763df54
+--- /dev/null
++++ b/packages/logs/src/renderer-errors.ts
+@@ -0,0 +1,134 @@
++import type { LogsClient } from './index.js';
++import type { WindowCrashTarget } from './crash.js';
++
++/** Event name written for every captured renderer error. */
++export const RENDERER_ERROR_EVENT = 'renderer_error';
++
++export type RendererErrorKind = 'uncaught' | 'rejection';
++
++/** The slice of `Storage` the persisted ring buffer needs. Injected so non-DOM hosts work. */
++export interface RingStorage {
++  getItem(key: string): string | null;
++  setItem(key: string, value: string): void;
++}
++
++/** One persisted, content-free entry. */
++export interface RendererErrorEntry {
++  ts_ms: number;
++  surface: string;
++  kind: RendererErrorKind;
++  code: string;
++  /** Times this kind and code repeated in a row (deduplicated). */
++  count: number;
++}
++
++export interface RendererErrorCaptureOptions {
++  /** Which UI surface the listener runs in. Sent as the `surface` field. */
++  surface: string;
++  /** Default: `globalThis`. */
++  target?: WindowCrashTarget;
++  /** Persist the newest entries here (for example `localStorage`) so they survive a reload. */
++  storage?: RingStorage;
++  /** Storage key. Default `rightkit.logs.renderer_errors`. */
++  storageKey?: string;
++  /** Newest entries kept in storage. Default 50. */
++  maxEntries?: number;
++  /** An identical kind and code within this many ms of the previous one is counted, not logged
++   * again. Default 1000. */
++  dedupMs?: number;
++  now?: () => number;
++}
++
++const DEFAULT_KEY = 'rightkit.logs.renderer_errors';
++const installed = new WeakMap<object, () => void>();
++
++function errorCode(reason: unknown): string {
++  let name: unknown;
++  if (reason instanceof Error) name = reason.name;
++  else if (reason !== null && typeof reason === 'object') name = (reason as { name?: unknown }).name;
++  return typeof name === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(name) ? name : 'Error';
++}
++
++/** Reads the persisted ring buffer. Returns `[]` when storage is missing, empty or corrupt. */
++export function readRendererErrorRing(
++  storage: RingStorage,
++  storageKey: string = DEFAULT_KEY,
++): RendererErrorEntry[] {
++  try {
++    const parsed: unknown = JSON.parse(storage.getItem(storageKey) ?? '[]');
++    return Array.isArray(parsed) ? (parsed as RendererErrorEntry[]) : [];
++  } catch {
++    return [];
++  }
++}
++
++/**
++ * Opt-in: capture window `error` and `unhandledrejection` as content-free `renderer_error`
++ * events on `client`: fields `surface`, `kind` (`uncaught` | `rejection`) and `code` (the error
++ * name only, never the message or stack). The app's `allowedFields` must include `surface`,
++ * `kind` and `code`. Repeats of the same kind and code inside `dedupMs` are counted, not
++ * logged. With `storage`, the newest `maxEntries` entries are also kept in a ring buffer that
++ * survives a reload (read it with {@link readRendererErrorRing}).
++ *
++ * Idempotent per target: a second call returns the first call's uninstall function and adds no
++ * listeners. Nothing here throws into the page.
++ */
++export function installRendererErrorCapture(
++  client: Pick<LogsClient, 'error'>,
++  options: RendererErrorCaptureOptions,
++): () => void {
++  const target = options.target ?? (globalThis as unknown as WindowCrashTarget);
++  const existing = installed.get(target as object);
++  if (existing) return existing;
++
++  const now = options.now ?? Date.now;
++  const dedupMs = Math.max(0, options.dedupMs ?? 1_000);
++  const maxEntries = Math.max(1, options.maxEntries ?? 50);
++  const storageKey = options.storageKey ?? DEFAULT_KEY;
++  let last: { kind: RendererErrorKind; code: string; at: number; entry: RendererErrorEntry } | null = null;
++
++  function persist(entry: RendererErrorEntry, repeated: boolean): void {
++    const storage = options.storage;
++    if (!storage) return;
++    try {
++      const ring = readRendererErrorRing(storage, storageKey);
++      if (repeated && ring.length > 0) ring[ring.length - 1] = entry;
++      else ring.push(entry);
++      storage.setItem(storageKey, JSON.stringify(ring.slice(-maxEntries)));
++    } catch {
++      // storage can be full or blocked; capture must not raise
++    }
++  }
++
++  function record(kind: RendererErrorKind, reason: unknown): void {
++    try {
++      const code = errorCode(reason);
++      const at = now();
++      if (last && last.kind === kind && last.code === code && at - last.at <= dedupMs) {
++        last.entry.count += 1;
++        last.at = at;
++        persist(last.entry, true);
++        return;
++      }
++      const entry: RendererErrorEntry = { ts_ms: at, surface: options.surface, kind, code, count: 1 };
++      last = { kind, code, at, entry };
++      client.error(RENDERER_ERROR_EVENT, { surface: options.surface, kind, code });
++      persist(entry, false);
++    } catch {
++      // never raise from the error path
++    }
++  }
++
++  const onError = (event: any): void => record('uncaught', event?.error ?? event);
++  const onRejection = (event: any): void => record('rejection', event?.reason);
++
++  target.addEventListener('error', onError);
++  target.addEventListener('unhandledrejection', onRejection);
++  const uninstall = (): void => {
++    target.removeEventListener('error', onError);
++    target.removeEventListener('unhandledrejection', onRejection);
++    installed.delete(target as object);
++  };
++  installed.set(target as object, uninstall);
++  return uninstall;
++}

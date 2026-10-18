@@ -1,0 +1,697 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..aec81cb 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7046,7 +7046,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-job-queue"
+-version = "0.3.2"
++version = "0.3.3"
+ dependencies = [
+  "rightkit-child-process",
+  "rightkit-crash",
+@@ -7060,6 +7060,7 @@ dependencies = [
+  "tempfile",
+  "time",
+  "uuid",
++ "zeroize",
+ ]
+ 
+ [[package]]
+diff --git a/crates/rightkit-job-queue/CHANGELOG.md b/crates/rightkit-job-queue/CHANGELOG.md
+index e9a217c..aed5186 100644
+--- a/crates/rightkit-job-queue/CHANGELOG.md
++++ b/crates/rightkit-job-queue/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## 0.3.3 (unreleased)
++
++All additive; a caller that uses none of it behaves as in 0.3.2. Written without running Cargo, CI-only.
++
++- **Outbound request frames are wiped (bogusyogi/rightkit#734).** `EngineClient` (and so `EngineSupervisor`) no longer leaves a request's bytes in memory: the frame is encoded straight into an exactly sized buffer that is zeroed when the writer thread has written it (or the write failed, or the frame was over the limit), and every string in the request `Value` is zeroed as soon as it is encoded. Secrets in an `Init`/`ModelStoreEnsure`-style `params` therefore do not outlive the call. Limits: object keys and numbers inside `Value`, the caller's own copies of `params`, and `EngineSupervisor::set_snapshot` (which keeps its params on purpose to replay them after a restart) are not wiped; pass a secret by `call`, not as a snapshot. New dependency `zeroize` 1.9 (under `protocol`).
++- **`JobError::details` (bogusyogi/rightkit#734).** `JobError::with_details(Value)` / `details() -> Option<&Value>` carry structured data with an error (for example the platform of a `needs_auth`) instead of packing it into the message. `to_json` / `to_json_with` emit it as `"details"` (so it reaches the dispatcher's error frames, a job's stored `error`, and the C ABI error JSON); `EngineClient` reads `error.details` from an engine's error reply back into the `JobError`; it takes part in equality, and a `null` clears it. No `details` key is written when there are none. The sidecar `wire::WireError` type (in `rightkit-sidecar`) is not changed here; this crate builds its error frames as JSON.
++- **Blocking, cancel-aware job lock acquire (bogusyogi/rightkit#721).** `JobLocks::acquire(job_id, timeout) -> JobResult<Option<JobLock>>`, `JobLocks::acquire_cancellable(job_id, timeout, cancel) -> JobResult<LockWait>` (`LockWait::{Acquired, TimedOut, Cancelled}`, `#[non_exhaustive]`), `JobLocks::lock_path(job_id)` and `JobLocks::dir()`. Waiters for one job id in a process queue in arrival order, `cancel` is checked about every 100 ms, and a waiter leaves the queue when it ends. Replaces polling `try_lock` in a sleep loop. `try_lock` is unchanged.
++- **#466:** already in this crate's 0.3.2 notes below (`JobTable`, `jobs_table`, `unique`, `due_column`, `row_revision`); nothing further added.
++- Tests: `tests/job_lock.rs` (acquire, timeout, cancel, arrival order), unit tests in `src/client.rs` (wiping, exact-size encoding, size limit, error `details` parsed from a reply) and `src/error.rs` (`details` in JSON and equality).
++
+ ## 0.3.2 (2026-10-17)
+ 
+ All additive; a store, runner or config that uses none of it behaves as in 0.3.2.
+diff --git a/crates/rightkit-job-queue/Cargo.toml b/crates/rightkit-job-queue/Cargo.toml
+index 2f13c14..6d456f5 100644
+--- a/crates/rightkit-job-queue/Cargo.toml
++++ b/crates/rightkit-job-queue/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-job-queue"
+-version = "0.3.2"
++version = "0.3.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
+@@ -20,8 +20,8 @@ default = []
+ # `InlineCancelRegistry`, and with `supervisor` the `EngineSupervisor` / `EngineClient`.
+ store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
+ # The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
+-# (gates `rightkit-sidecar`).
+-protocol = ["dep:rightkit-sidecar"]
++# (gates `rightkit-sidecar`, and `zeroize` for the wiped outbound request buffers).
++protocol = ["dep:rightkit-sidecar", "dep:zeroize"]
+ # The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
+ # Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
+ contract = ["store", "protocol"]
+@@ -53,6 +53,7 @@ rightkit-daemon = { version = "0.2.0", path = "../rightkit-daemon", optional = t
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"
+ uuid = { version = "1", features = ["v4"], optional = true }
++zeroize = { version = "1.9", optional = true }
+ 
+ [dev-dependencies]
+ # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
+diff --git a/crates/rightkit-job-queue/README.md b/crates/rightkit-job-queue/README.md
+index 3df86b0..c8c1307 100644
+--- a/crates/rightkit-job-queue/README.md
++++ b/crates/rightkit-job-queue/README.md
+@@ -218,6 +218,8 @@ Equality of `JobError` ignores the classification.
+ - `Runner::sweep_unclaimed(root) -> Vec<PathBuf>` removes child directories of `root` that contain no path claimed by a non-terminal job (`JobStore::claimed_paths`). Plain files are left alone and a symlink is never followed out of `root`. Call it only when this process is the sole engine for `root`. Not calling it is the off switch.
+ - **Claim scope.** `sweep_unclaimed` and `claimed_paths` claim the artifacts of **non-terminal** jobs only, so a finished job that keeps its media directory until it is deleted loses it to a sweep. `JobStore::claimed_paths_with(ClaimScope)` and `Runner::sweep_unclaimed_with(root, ClaimScope)` choose: `ClaimScope::NonTerminal` is the existing behaviour (and the default); `ClaimScope::All` claims the artifact paths of every job row still in the store, whatever its status, plus `<scratch_root>/<job_id>` of every row when `StoreConfig::scratch_root` is set. A row that was deleted or pruned claims nothing, so its directory becomes an orphan again.
+ - **Work directories (0.3.2).** `StoreConfig::work_root(root)` names a directory of per-request work directories, `<root>/<request_id>`. `claimed_paths_with` claims them (non-terminal jobs for `NonTerminal`, every job for `All`) and `delete` removes the job's directory with it.
++- **Wiped requests and error details (0.3.3).** `EngineClient` zeroes each outbound request frame once written, so secrets in `params` do not linger. `JobError::with_details(value)` / `details()` carry structured data in the error JSON (`"details"`), read back from an engine's reply.
++- **Waiting for a job lock (0.3.3).** `JobLocks::acquire(job_id, timeout)` and `acquire_cancellable(job_id, timeout, cancel)` wait for the lock (arrival order within the process, cancel checked about every 100 ms) instead of polling `try_lock`; `lock_path(job_id)` and `dir()` expose the lock file location.
+ - **Lock files (0.3.2).** The runner removes `<id>.lock` when the job is terminal. `JobLocks::remove`, `JobLocks::sweep(keep)` and `Runner::sweep_job_locks()` clear files left by crashes or earlier versions (call them only for finished or gone jobs).
+ - **Write-behind (0.3.2).** `JobStore::admit` (a new job), `set_ext_later` (a checkpoint in extension columns) and `delete_later` hold a write that storage refuses (`db` or `io`) and retry it in order after the next successful write and on `flush_deferred()`. Held writes are memory only and bounded by `MAX_DEFERRED_OPS`; `shutdown_detailed()` flushes them and lists what is left in `SettlementShutdown::deferred`. A held admission is not a row: `get` says `job_not_found` until it lands (`provisional_jobs()` lists it).
+ - **Caller connection, named table, due query, revision (unreleased).** `JobTable` (`JobStore::table()`, or `JobTable::new(&cfg)`) runs enqueue, transition, complete, fail, hold_submission, resolve and reads on a `&Connection` or `&Transaction` you supply, so job writes commit with your own rows and roll back with them. `StoreConfig::jobs_table(name)` names the table, `unique(cols)` adds UNIQUE constraints, `due_column(col)` enables `due(now, limit)`, and `row_revision(col)` with `Expect::new().revision(n)` gives a compare-and-swap that fails with `revision_conflict`.
+diff --git a/crates/rightkit-job-queue/src/client.rs b/crates/rightkit-job-queue/src/client.rs
+index 8d4f3bd..7065a5f 100644
+--- a/crates/rightkit-job-queue/src/client.rs
++++ b/crates/rightkit-job-queue/src/client.rs
+@@ -6,14 +6,58 @@ use std::sync::{Arc, Condvar, Mutex};
+ use std::time::{Duration, Instant};
+ 
+ use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
+-use rightkit_sidecar::{
+-    read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
+-};
++use rightkit_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
+ use serde_json::{json, Value};
++use zeroize::{Zeroize, Zeroizing};
+ 
+ use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};
+ use crate::wire::{finite_frame_limit, DEFAULT_FRAME_LIMIT};
+ 
++/// Overwrites every string in `value` (object values and array items, recursively) with zeros
++/// and empties it. Object keys and numbers cannot be reached through `serde_json::Value` and are
++/// left; a request's secrets travel as string values.
++fn zeroize_value(value: &mut Value) {
++    match value {
++        Value::String(s) => s.zeroize(),
++        Value::Array(items) => items.iter_mut().for_each(zeroize_value),
++        Value::Object(map) => map.values_mut().for_each(zeroize_value),
++        _ => {}
++    }
++}
++
++/// A `Write` that only counts bytes.
++struct CountingWriter(usize);
++impl Write for CountingWriter {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
++        self.0 += buf.len();
++        Ok(buf.len())
++    }
++    fn flush(&mut self) -> std::io::Result<()> {
++        Ok(())
++    }
++}
++
++/// Encodes one request frame as a JSON line into a buffer that is wiped on drop. The size is
++/// measured first and the buffer allocated exactly, so no grown-and-abandoned copy of the bytes is
++/// left behind, and the bytes are wiped on every path (limit exceeded included).
++fn encode_request_zeroizing(
++    frame: &Value,
++    limit: usize,
++) -> Result<Zeroizing<Vec<u8>>, FrameError> {
++    let mut count = CountingWriter(0);
++    serde_json::to_writer(&mut count, frame)?;
++    if count.0 > limit {
++        return Err(FrameError::TooLarge { limit });
++    }
++    let mut buf = Zeroizing::new(Vec::with_capacity(count.0 + 1));
++    serde_json::to_writer(&mut *buf, frame)?;
++    if buf.contains(&b'\n') {
++        return Err(FrameError::EmbeddedNewline);
++    }
++    buf.push(b'\n');
++    Ok(buf)
++}
++
+ type OnEvent = Box<dyn Fn(&Value) + Send>;
+ 
+ /// One progress event of a call as the engine framed it: the request `id` the
+@@ -218,7 +262,7 @@ struct Closed {
+ }
+ 
+ /// One frame for the writer thread and the channel its write result goes back on.
+-type WriteRequest = (Vec<u8>, Sender<std::io::Result<()>>);
++type WriteRequest = (Zeroizing<Vec<u8>>, Sender<std::io::Result<()>>);
+ type Subscribers = Arc<Mutex<Vec<Sender<Value>>>>;
+ 
+ /// State shared with the reader thread and the bounded-shutdown helper.
+@@ -417,11 +461,14 @@ impl EngineClient {
+                 ));
+             }
+         };
+-        let (wtx, wrx) = channel::<(Vec<u8>, Sender<std::io::Result<()>>)>();
++        let (wtx, wrx) = channel::<WriteRequest>();
+         let mut writer = writer;
+         std::thread::spawn(move || {
+             for (bytes, reply) in wrx {
+                 let r = writer.write_all(&bytes).and_then(|_| writer.flush());
++                // The encoded request may carry secrets: wipe it as soon as it is written
++                // (or the write failed), not whenever the allocator reuses the memory.
++                drop(bytes);
+                 let _ = reply.send(r);
+             }
+         });
+@@ -846,15 +893,22 @@ impl Core {
+                     wants_events: on_event.is_some() || budget.idle.is_some(),
+                 },
+             );
+-        let frame = json!({"type": "request", "id": id, "method": method, "params": params});
+-        let mut bytes = Vec::new();
+-        if let Err(e) = write_json_line(&mut bytes, &frame, self.frame_limit) {
+-            self.pending
+-                .lock()
+-                .unwrap_or_else(|e| e.into_inner())
+-                .remove(&id);
+-            return Err(JobError::supervisor("engine_write", e.to_string()));
+-        }
++        let mut frame = json!({"type": "request", "id": id, "method": method, "params": params});
++        let encoded = encode_request_zeroizing(&frame, self.frame_limit);
++        // The request (and any secret in its params) is wiped from the frame value as soon as it
++        // is encoded; the encoded bytes are wiped when the writer thread is done with them.
++        zeroize_value(&mut frame);
++        drop(frame);
++        let bytes = match encoded {
++            Ok(b) => b,
++            Err(e) => {
++                self.pending
++                    .lock()
++                    .unwrap_or_else(|e| e.into_inner())
++                    .remove(&id);
++                return Err(JobError::supervisor("engine_write", e.to_string()));
++            }
++        };
+         let (rtx, rrx) = channel();
+         let queued = self
+             .writes
+@@ -1026,6 +1080,10 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value, fallback_code: &str
+                         .unwrap_or(NO_DETAIL);
+                     let mut e = JobError::new(code, message);
+                     e.retryable = v["error"]["retryable"].as_bool().unwrap_or(false);
++                    // `details` is optional structured data; anything but `null` is kept as sent.
++                    if let Some(d) = v["error"].get("details").filter(|d| !d.is_null()) {
++                        e = e.with_details(d.clone());
++                    }
+                     Err(e)
+                 };
+                 let _ = p.tx.send(Msg::Done(r));
+@@ -1086,3 +1144,67 @@ mod exit_record_tests {
+         assert!(released.load(std::sync::atomic::Ordering::SeqCst));
+     }
+ }
++
++#[cfg(test)]
++mod request_wipe_tests {
++    use super::*;
++
++    #[test]
++    fn zeroize_value_wipes_nested_strings_and_keeps_the_shape() {
++        let mut v = json!({"a": "secret", "b": ["tok", {"c": "key"}], "n": 7, "t": true});
++        zeroize_value(&mut v);
++        assert_eq!(v["a"], "");
++        assert_eq!(v["b"][0], "");
++        assert_eq!(v["b"][1]["c"], "");
++        assert_eq!(v["n"], 7);
++        assert_eq!(v["t"], true);
++    }
++
++    #[test]
++    fn a_request_encodes_to_exactly_one_line_in_an_exact_buffer() {
++        let frame = json!({"type": "request", "id": 3, "method": "m", "params": {"k": "v\nw"}});
++        let bytes = encode_request_zeroizing(&frame, 1024).unwrap();
++        assert_eq!(bytes.last(), Some(&b'\n'));
++        assert_eq!(bytes.iter().filter(|b| **b == b'\n').count(), 1);
++        assert_eq!(bytes.len(), bytes.capacity());
++        let back: Value = serde_json::from_slice(&bytes).unwrap();
++        assert_eq!(back, frame);
++    }
++
++    #[test]
++    fn an_oversized_request_is_refused_before_any_bytes_are_kept() {
++        let frame = json!({"type": "request", "id": 1, "method": "m", "params": "x".repeat(100)});
++        assert!(matches!(
++            encode_request_zeroizing(&frame, 50),
++            Err(FrameError::TooLarge { limit: 50 })
++        ));
++    }
++
++    #[test]
++    fn an_error_reply_keeps_its_details() {
++        let map: PendingMap = Arc::default();
++        let subs: Subscribers = Arc::default();
++        let (tx, rx) = channel();
++        map.lock().unwrap().insert(
++            9,
++            Pending {
++                tx,
++                wants_events: false,
++            },
++        );
++        dispatch(
++            &map,
++            &subs,
++            &json!({"type":"response","id":9,"ok":false,
++                "error":{"code":"needs_auth","message":"sign in","details":{"platform":"x"}}}),
++            "engine_error",
++        );
++        match rx.recv().unwrap() {
++            Msg::Done(Err(e)) => {
++                assert_eq!(e.code, "needs_auth");
++                assert_eq!(e.details().unwrap()["platform"], "x");
++            }
++            _ => panic!("expected an error reply"),
++        }
++    }
++}
+diff --git a/crates/rightkit-job-queue/src/error.rs b/crates/rightkit-job-queue/src/error.rs
+index 66bcce5..8151ffc 100644
+--- a/crates/rightkit-job-queue/src/error.rs
++++ b/crates/rightkit-job-queue/src/error.rs
+@@ -19,14 +19,18 @@ pub enum ErrorOrigin {
+ /// Typed engine error: `code` is the stable wire identifier. `retryable`
+ /// errors pause a running job (it stays recoverable) instead of failing it.
+ ///
+-/// Equality compares `code`, `message`, `retryable` and `origin`; the database classification
+-/// behind [`JobError::open_failure`] is derived from the same failure and does not take part.
++/// Equality compares `code`, `message`, `retryable`, `origin` and `details`; the database
++/// classification behind [`JobError::open_failure`] is derived from the same failure and does
++/// not take part.
+ #[derive(Debug, Clone)]
+ pub struct JobError {
+     pub code: String,
+     pub message: String,
+     pub retryable: bool,
+     pub origin: ErrorOrigin,
++    /// Optional structured data that travels with the error (a platform name, a missing scope,
++    /// a field list): set with [`JobError::with_details`], read with [`JobError::details`].
++    details: Option<serde_json::Value>,
+     /// What kind of database failure this error came from, when it came from one.
+     #[cfg(feature = "store")]
+     db_failure: Option<OpenFailure>,
+@@ -38,6 +42,7 @@ impl PartialEq for JobError {
+             && self.message == other.message
+             && self.retryable == other.retryable
+             && self.origin == other.origin
++            && self.details == other.details
+     }
+ }
+ 
+@@ -169,6 +174,7 @@ impl JobError {
+             message: message.into(),
+             retryable: false,
+             origin: ErrorOrigin::Engine,
++            details: None,
+             #[cfg(feature = "store")]
+             db_failure: None,
+         }
+@@ -179,6 +185,7 @@ impl JobError {
+             message: message.into(),
+             retryable: true,
+             origin: ErrorOrigin::Engine,
++            details: None,
+             #[cfg(feature = "store")]
+             db_failure: None,
+         }
+@@ -232,6 +239,18 @@ impl JobError {
+     pub fn supervisor_retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
+         Self::retryable(code, message).with_origin(ErrorOrigin::Supervisor)
+     }
++    /// Attaches structured `details` (any JSON value except `null`; `null` clears them). They are
++    /// carried in [`JobError::to_json`] / [`JobError::to_json_with`] as `"details"`, so they reach
++    /// the wire, a job's stored error and the C ABI, and are read back from an engine's error
++    /// reply by `EngineClient`. A consumer no longer packs data into the message text.
++    pub fn with_details(mut self, details: serde_json::Value) -> Self {
++        self.details = if details.is_null() { None } else { Some(details) };
++        self
++    }
++    /// The structured data attached with [`JobError::with_details`], or `None`.
++    pub fn details(&self) -> Option<&serde_json::Value> {
++        self.details.as_ref()
++    }
+     /// Records where the error arose.
+     pub fn with_origin(mut self, origin: ErrorOrigin) -> Self {
+         self.origin = origin;
+@@ -322,11 +341,15 @@ impl JobError {
+     /// Like [`JobError::to_json`], omitting `retryable` when `include_retryable`
+     /// is false (an app whose wire `error` is `{code, message}`).
+     pub fn to_json_with(&self, include_retryable: bool) -> serde_json::Value {
+-        if include_retryable {
++        let mut v = if include_retryable {
+             serde_json::json!({"code": self.code, "message": self.message, "retryable": self.retryable})
+         } else {
+             serde_json::json!({"code": self.code, "message": self.message})
++        };
++        if let (Some(d), Some(o)) = (&self.details, v.as_object_mut()) {
++            o.insert("details".to_string(), d.clone());
+         }
++        v
+     }
+ }
+ 
+@@ -463,6 +486,19 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn details_travel_in_json_and_equality() {
++        let plain = JobError::new("needs_auth", "sign in");
++        assert!(plain.details().is_none());
++        assert!(plain.to_json().get("details").is_none());
++        let e = plain.clone().with_details(serde_json::json!({"platform": "x"}));
++        assert_eq!(e.details().unwrap()["platform"], "x");
++        assert_eq!(e.to_json()["details"]["platform"], "x");
++        assert_eq!(e.to_json_with(false)["details"]["platform"], "x");
++        assert_ne!(e, plain);
++        assert!(e.clone().with_details(serde_json::Value::Null).details().is_none());
++    }
++
+     #[test]
+     fn errors_that_never_touched_the_database_have_no_classification() {
+         assert_eq!(JobError::new("config", "bad").open_failure(), None);
+diff --git a/crates/rightkit-job-queue/src/ffi.rs b/crates/rightkit-job-queue/src/ffi.rs
+index ac7365a..907ad93 100644
+--- a/crates/rightkit-job-queue/src/ffi.rs
++++ b/crates/rightkit-job-queue/src/ffi.rs
+@@ -75,7 +75,7 @@ pub const RKP_DEADLINE: i32 = 3;
+ pub const RKP_SHUTTING_DOWN: i32 = 4;
+ pub const RKP_INCOMPATIBLE: i32 = 5;
+ pub const RKP_STALE_HANDLE: i32 = 6;
+-/// An engine or service error; the message is JSON `{"code","message","retryable"}`.
++/// An engine or service error; the message is JSON `{"code","message","retryable"}` plus `"details"` when the error has any.
+ pub const RKP_NATIVE: i32 = 7;
+ pub const RKP_PANIC: i32 = 8;
+ pub const RKP_NOT_CONFIGURED: i32 = 9;
+@@ -375,10 +375,7 @@ fn job_fail(e: JobError) -> Fail {
+         "not_ready" => Fail::new(RKP_NOT_READY, e.message),
+         "down" if e.message.contains("shut down") => Fail::new(RKP_SHUTTING_DOWN, e.message),
+         "down" => Fail::new(RKP_NOT_READY, e.message),
+-        _ => Fail::new(
+-            RKP_NATIVE,
+-            json!({"code": e.code, "message": e.message, "retryable": e.retryable}).to_string(),
+-        ),
++        _ => Fail::new(RKP_NATIVE, e.to_json().to_string()),
+     }
+ }
+ 
+diff --git a/crates/rightkit-job-queue/src/lib.rs b/crates/rightkit-job-queue/src/lib.rs
+index ff4f570..61cbbc6 100644
+--- a/crates/rightkit-job-queue/src/lib.rs
++++ b/crates/rightkit-job-queue/src/lib.rs
+@@ -69,7 +69,7 @@ pub use rightkit_db::RecoveryPolicy;
+ #[cfg(feature = "store")]
+ pub use runner::{
+     AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks,
+-    RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
++    LockWait, RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
+ };
+ #[cfg(feature = "store")]
+ pub use sched::{Gate, InteractiveGuard, Priority};
+diff --git a/crates/rightkit-job-queue/src/runner.rs b/crates/rightkit-job-queue/src/runner.rs
+index e19d075..21c50d2 100644
+--- a/crates/rightkit-job-queue/src/runner.rs
++++ b/crates/rightkit-job-queue/src/runner.rs
+@@ -1,10 +1,11 @@
+ use std::panic::{catch_unwind, AssertUnwindSafe};
++use std::collections::{HashMap, VecDeque};
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+-use std::sync::Arc;
++use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+ 
+-use rightkit_fs::{FileLock, FsError};
++use rightkit_fs::{FileLock, FsError, LockOptions};
+ use serde_json::{json, Value};
+ 
+ use crate::config::Ext;
+@@ -81,11 +82,144 @@ fn lock_error(error: FsError) -> JobError {
+ #[derive(Clone)]
+ pub struct JobLocks {
+     dir: PathBuf,
++    /// In-process FIFO of the callers waiting in [`JobLocks::acquire_cancellable`], per job id.
++    /// Shared by clones of this value.
++    waiters: Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
++    next_ticket: Arc<AtomicU64>,
+ }
+ 
++/// How a wait for a job lock ended ([`JobLocks::acquire_cancellable`]).
++#[non_exhaustive]
++pub enum LockWait {
++    /// The lock is held by the caller.
++    Acquired(JobLock),
++    /// The timeout ran out while another holder (or a caller queued ahead) kept the lock.
++    TimedOut,
++    /// The caller's `cancel` check returned `true` before the lock was taken.
++    Cancelled,
++}
++
++/// A place in a job's wait queue; leaves the queue when dropped.
++struct WaitSlot<'a> {
++    waiters: &'a Mutex<HashMap<String, VecDeque<u64>>>,
++    job_id: &'a str,
++    ticket: u64,
++}
++
++impl<'a> WaitSlot<'a> {
++    fn join(
++        waiters: &'a Mutex<HashMap<String, VecDeque<u64>>>,
++        job_id: &'a str,
++        ticket: u64,
++    ) -> Self {
++        waiters
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .entry(job_id.to_string())
++            .or_default()
++            .push_back(ticket);
++        Self {
++            waiters,
++            job_id,
++            ticket,
++        }
++    }
++
++    fn is_head(&self) -> bool {
++        self.waiters
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .get(self.job_id)
++            .and_then(|q| q.front())
++            == Some(&self.ticket)
++    }
++}
++
++impl Drop for WaitSlot<'_> {
++    fn drop(&mut self) {
++        let mut map = self.waiters.lock().unwrap_or_else(|e| e.into_inner());
++        if let Some(q) = map.get_mut(self.job_id) {
++            q.retain(|t| *t != self.ticket);
++            if q.is_empty() {
++                map.remove(self.job_id);
++            }
++        }
++    }
++}
++
++/// Longest the lock wait blocks inside the file lock before it re-checks `cancel`.
++const LOCK_WAIT_SLICE: Duration = Duration::from_millis(100);
++/// Pause of a queued (not first) waiter between turns.
++const LOCK_QUEUE_PAUSE: Duration = Duration::from_millis(10);
++
+ impl JobLocks {
+     pub fn new(dir: impl Into<PathBuf>) -> Self {
+-        Self { dir: dir.into() }
++        Self {
++            dir: dir.into(),
++            waiters: Arc::new(Mutex::new(HashMap::new())),
++            next_ticket: Arc::new(AtomicU64::new(0)),
++        }
++    }
++
++    /// The directory the `<job_id>.lock` files live in.
++    pub fn dir(&self) -> &Path {
++        &self.dir
++    }
++
++    /// The path of the lock file of `job_id` (`<dir>/<job_id>.lock`), so a caller can hand it to
++    /// another lock primitive or show it. `bad_input` for an empty id or one containing `/`, `\`
++    /// or `.`. The file may not exist yet; taking the lock creates it.
++    pub fn lock_path(&self, job_id: &str) -> JobResult<PathBuf> {
++        self.path(job_id)
++    }
++
++    /// Waits up to `timeout` for the lock of `job_id`: `Ok(Some(lock))` once held, `Ok(None)`
++    /// when the timeout ran out first (`Duration::ZERO` tries once). Callers of this method and
++    /// of [`JobLocks::acquire_cancellable`] in this process are served in arrival order. Use it
++    /// instead of polling [`JobLocks::try_lock`] in a sleep loop.
++    pub fn acquire(&self, job_id: &str, timeout: Duration) -> JobResult<Option<JobLock>> {
++        Ok(match self.acquire_cancellable(job_id, timeout, || false)? {
++            LockWait::Acquired(lock) => Some(lock),
++            _ => None,
++        })
++    }
++
++    /// As [`JobLocks::acquire`], and `cancel` is checked about every 100 ms (and before each
++    /// attempt) so a caller that was cancelled or is shutting down stops waiting without taking
++    /// the lock. Waiters for one job id in this process queue in arrival order, so a late caller
++    /// does not overtake an earlier one; a [`JobLocks::try_lock`] caller is not queued and may
++    /// take a free lock first. A waiter that times out, is cancelled or returns an error leaves
++    /// the queue at once. Across processes the order is the operating system's.
++    pub fn acquire_cancellable(
++        &self,
++        job_id: &str,
++        timeout: Duration,
++        cancel: impl Fn() -> bool,
++    ) -> JobResult<LockWait> {
++        let path = self.path(job_id)?;
++        std::fs::create_dir_all(&self.dir)?;
++        let deadline = Instant::now().checked_add(timeout);
++        let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
++        let slot = WaitSlot::join(&self.waiters, job_id, ticket);
++        loop {
++            if cancel() {
++                return Ok(LockWait::Cancelled);
++            }
++            let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
++            if slot.is_head() {
++                let slice = remaining.map_or(LOCK_WAIT_SLICE, |r| r.min(LOCK_WAIT_SLICE));
++                match FileLock::acquire(&path, &LockOptions::wait(slice)) {
++                    Ok(lock) => return Ok(LockWait::Acquired(JobLock { _lock: lock })),
++                    Err(FsError::Locked { .. } | FsError::LockTimeout { .. }) => {}
++                    Err(error) => return Err(lock_error(error)),
++                }
++            } else {
++                std::thread::sleep(remaining.map_or(LOCK_QUEUE_PAUSE, |r| r.min(LOCK_QUEUE_PAUSE)));
++            }
++            if deadline.is_some_and(|d| Instant::now() >= d) {
++                return Ok(LockWait::TimedOut);
++            }
++        }
+     }
+ 
+     fn path(&self, job_id: &str) -> JobResult<PathBuf> {
+diff --git a/crates/rightkit-job-queue/tests/job_lock.rs b/crates/rightkit-job-queue/tests/job_lock.rs
+index ba3286e..ccbbb6f 100644
+--- a/crates/rightkit-job-queue/tests/job_lock.rs
++++ b/crates/rightkit-job-queue/tests/job_lock.rs
+@@ -38,3 +38,98 @@ fn released_lock_is_free_while_other_threads_spawn_children() {
+     stop.store(true, Ordering::SeqCst);
+     spawner.join().unwrap();
+ }
++
++#[test]
++fn acquire_waits_for_the_holder_and_times_out_when_it_stays() {
++    use std::time::{Duration, Instant};
++
++    let dir = tempfile::tempdir().unwrap();
++    let locks = JobLocks::new(dir.path().join("locks"));
++    assert!(locks
++        .lock_path("job-2")
++        .unwrap()
++        .ends_with("job-2.lock"));
++    assert!(locks.lock_path("../x").is_err());
++
++    // Free lock: taken at once, even with a zero timeout.
++    let held = locks.acquire("job-2", Duration::ZERO).unwrap().unwrap();
++    // Held: a short wait times out.
++    let started = Instant::now();
++    assert!(locks
++        .acquire("job-2", Duration::from_millis(150))
++        .unwrap()
++        .is_none());
++    assert!(started.elapsed() >= Duration::from_millis(140));
++
++    // A waiter takes the lock soon after the holder lets go.
++    let waiter = {
++        let locks = locks.clone();
++        std::thread::spawn(move || locks.acquire("job-2", Duration::from_secs(10)).unwrap().is_some())
++    };
++    std::thread::sleep(Duration::from_millis(200));
++    drop(held);
++    assert!(waiter.join().unwrap());
++}
++
++#[test]
++fn acquire_cancellable_stops_when_cancelled_and_leaves_the_queue() {
++    use rightkit_job_queue::LockWait;
++    use std::time::Duration;
++
++    let dir = tempfile::tempdir().unwrap();
++    let locks = JobLocks::new(dir.path().join("locks"));
++    let held = locks.try_lock("job-3").unwrap().unwrap();
++
++    let cancel = Arc::new(AtomicBool::new(false));
++    let waiter = {
++        let (locks, cancel) = (locks.clone(), cancel.clone());
++        std::thread::spawn(move || {
++            matches!(
++                locks
++                    .acquire_cancellable("job-3", Duration::from_secs(30), || {
++                        cancel.load(Ordering::SeqCst)
++                    })
++                    .unwrap(),
++                LockWait::Cancelled
++            )
++        })
++    };
++    std::thread::sleep(Duration::from_millis(150));
++    cancel.store(true, Ordering::SeqCst);
++    assert!(waiter.join().unwrap(), "a cancelled wait reports Cancelled");
++
++    // The cancelled waiter left the queue: the next caller is not held up behind it.
++    drop(held);
++    assert!(matches!(
++        locks
++            .acquire_cancellable("job-3", Duration::ZERO, || false)
++            .unwrap(),
++        LockWait::Acquired(_)
++    ));
++}
++
++#[test]
++fn earlier_waiters_are_served_first() {
++    use std::sync::Mutex;
++    use std::time::Duration;
++
++    let dir = tempfile::tempdir().unwrap();
++    let locks = JobLocks::new(dir.path().join("locks"));
++    let held = locks.try_lock("job-4").unwrap().unwrap();
++    let order = Arc::new(Mutex::new(Vec::new()));
++    let mut handles = Vec::new();
++    for n in 0..3 {
++        let (locks, order) = (locks.clone(), order.clone());
++        handles.push(std::thread::spawn(move || {
++            let lock = locks.acquire("job-4", Duration::from_secs(20)).unwrap().unwrap();
++            order.lock().unwrap().push(n);
++            drop(lock);
++        }));
++        std::thread::sleep(Duration::from_millis(200));
++    }
++    drop(held);
++    for h in handles {
++        h.join().unwrap();
++    }
++    assert_eq!(*order.lock().unwrap(), vec![0, 1, 2]);
++}

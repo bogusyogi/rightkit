@@ -1,0 +1,62 @@
+SHIPPED #125 rightkit-automation@0.4.4
+SHIPPED #262 @rightkit/release@0.3.0
+SHIPPED #290 rightkit-automation@0.4.4
+SHIPPED #319 @rightkit/release@0.3.0
+SHIPPED #180 rightkit-hotkeys@0.1.2
+SHIPPED #181 rightkit-hotkeys@0.1.2
+SHIPPED #226 rightkit-llm@0.3.0 + rightkit-models@0.4.4
+SHIPPED #247 rightkit-tauri-shell@0.3.2
+SHIPPED #453 rightkit-logs@0.3.2 + rightkit-daemon@0.2.7
+SHIPPED #679 rightkit-asr@0.2.4
+MISSING #229 rightkit-tauri-runtime-wry needs: a published RightKit-owned patched tauri-runtime-wry (or a documented [patch] source) or confirmation that upstream 2.12.x fixed the Rc/Arc clone-drop race; no crate exists, lane only commented
+PARTIAL #360 rightkit-automation@0.4.4 missing: the 4 planned El additions (TextEdit pattern probe supports_text_edit, El::framework_id, El::pid returning Result with an ElementNotAvailable variant, Result-returning native_hwnd and a cheap El::control_type); point_is_hyperlink, focused_element_is_password/editable, focused_field_context/raw_text, copy_attribute_raw, send_media_key, with_deadline_mutation are all in 0.4.4
+PARTIAL #361 RightKitSwift@0.8.0 + rightkit-overlay@0.1.2 missing: runtime-mutable key eligibility (canBecomeKey is final from a let configuration), non-final RightKitOverlayPanel so Pulse panels can subclass it; shipped: RightKitOverlay product exported, setClickThrough and startsClickThrough, macOS 14 floor (HeardRightPillMac already targets .v14), Rust create_overlay_window without WS_EX_LAYERED
+MISSING #363 RightKitSwift needs: public warm AVAudioEngine capture owner and a 16 kHz mono PCM file recorder with metering (also on watchOS); 0.8.0 has only a private installTap in LiveDictationSession
+MISSING #364 RightKitSwift needs: public CoreMLModelValidator surface, public async Core ML model loader, and a model-download owner (background URLSession, SHA verify, /v1/model-grants client, transactional activation); nothing public in RightKitSpeech 0.8.0
+MISSING #365 RightKitSwift needs: HTTP JSON client, LLM provider client, update-check owner, requestWindowsLinkCode and the account session client; no RightKitSwift 0.9.0 tag exists (latest tag is 0.8.0)
+MISSING #448 rightkit-app-update needs: Rust updater owner (custom headers, raw manifest JSON, minisign verify, download/install) plus a rightkit-http fetch bridge in @rightkit/tauri; crate does not exist and HeardRight still pins tauri-plugin-updater and tauri-plugin-http
+PARTIAL #455 rightkit-fs@0.4.3 + rightkit-crash@0.3.2 + rightkit-models@0.4.4 missing: rightkit-child-process OwnedCommand::output(timeout, max_bytes) and status(timeout) (comment); publish_dir, dump_helper::run and install_tar_gz_expecting are shipped
+MISSING #680 rightkit-daemon needs: public current_user_sid_string (still pub(crate)); rightkit-child-process needs run/output with stdin input (RunOptions has no stdin bytes)
+OK rightkit-app-settings@0.2.3
+OK rightkit-asr@0.2.4
+OK rightkit-audio@0.3.1
+OK rightkit-automation@0.4.4
+OK rightkit-child-process@0.5.1
+OK rightkit-crash@0.3.2
+OK rightkit-credentials@0.2.1
+OK rightkit-daemon@0.2.7
+OK rightkit-db@0.4.3
+OK rightkit-device@0.2.0
+OK rightkit-ffmpeg@0.2.9
+OK rightkit-fs@0.4.3
+OK rightkit-hotkeys@0.1.2
+OK rightkit-http@0.3.5
+OK rightkit-license@0.2.2
+OK rightkit-llm@0.3.0
+OK rightkit-logs@0.3.2
+OK rightkit-models@0.4.4
+OK rightkit-onnx@0.2.6
+OK rightkit-overlay@0.1.2
+OK rightkit-qa@0.6.4
+OK rightkit-sidecar@0.2.1
+OK rightkit-speech-client@0.3.6
+OK rightkit-sync@0.2.2
+OK rightkit-tauri-shell@0.3.2
+OK rightkit-transcript@0.3.0
+OK rightkit-vad@0.1.2
+OK @rightkit/app-update@0.3.0
+OK @rightkit/legal@0.6.0
+OK @rightkit/legal-ui@0.4.0
+OK @rightkit/license@0.2.0
+OK @rightkit/logs@0.1.4
+OK @rightkit/onboarding@0.6.0
+OK @rightkit/platform-ui@0.3.0
+OK @rightkit/react-shell@0.7.0
+OK @rightkit/settings-ui@0.6.0
+OK @rightkit/tauri@0.2.2
+OK @rightkit/theme@0.3.0
+OK @rightkit/qa@0.5.0
+OK @rightkit/qa-chrome@0.1.6
+OK @rightkit/release@0.3.0
+OK RightKitSwift@0.8.0 (pinned by ios-native and HeardRightPillMac; every imported product exists)
+AUDIT DONE: HeardRight 9 gaps

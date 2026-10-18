@@ -1,0 +1,17 @@
+CutRight RIGHTKIT GAP AUDIT (from Cut VM, Mac), against published tarballs.
+PARTIAL #449 rightkit-audio@0.3.1 missing: PlaybackSource, OutputPlayback, OutputGain, PlaybackOptions, OutputSession::start, test-mode test_audio_output counters (rk-gaps/G3)
+PARTIAL #454 rightkit-audio@0.3.1 missing: audio_sync align_pcm wrapper (rk-gaps/G4)
+PARTIAL #354 rightkit-ffmpeg@0.2.9 missing: verified-else-dev runtime handle shape (rk-gaps/353-354)
+MISSING #353 rightkit-ffmpeg needs: hw/sw encoder selection (rk-gaps/353-354)
+MISSING #355 rightkit-qa needs: detectors module: black/freeze/silence intervals, clipped-run counter, loudness intervals (rk-gaps/355)
+MISSING #359 rightkit-playback needs: set_asset_scope (rk-gaps/359)
+MISSING #459 rightkit-transcript needs: TimedWord.source_ms + measured segmentation (rk-gaps/G6)
+MISSING #464 rightkit-fs needs: blake3 feature + copy_verified progress (rk-gaps/G8-G9)
+MISSING #467 rightkit-fs needs: zip feature exposing stored writer (rk-gaps/G8-G9)
+MISSING #468 rightkit-qa needs: isolation::RunIsolation; @rightkit/qa ./dialog export (rk-gaps/G10-G11)
+NEW #717 @rightkit/release needs: winPackage accepts absolute managed-target artifact paths
+NEW #722 @rightkit/release needs: runtime-manifest refresh between nested signing and seal (release + tauri-devid)
+NEW #724 @rightkit/release needs: stage-sidecar stages DirectML.dll with Windows onnxruntime
+NEW #725 @rightkit/release needs: --locked in generated Tauri recipe commands
+AUDIT DONE: CutRight 14 gaps (3 PARTIAL, 7 MISSING, 4 NEW)
+Already in round-2 checkpoint ea691005: #353, #359, #459, #464, #467 (and #354's handle work if covered by ffmpeg 0.2.10; verify in component pass).

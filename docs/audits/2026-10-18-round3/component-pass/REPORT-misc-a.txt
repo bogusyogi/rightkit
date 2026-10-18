@@ -1,0 +1,39 @@
+misc-a report (patch: D:\scratch\rk-gaps-work\c2\misc-a\misc-a.patch, against ea691005, LF, nothing built or run)
+
+ISSUES
+DONE #544 rightkit-file-watch: ChangeCoalescer::drain_detailed() -> DetailedBatch { batch, raw_kinds (per-path distinct notify EventKinds), overflows (rescan/overflow/error count since last drain), source_clock }, push_record(&WatchEventRecord) keeps raw_kind, source_clock() (monotonic absorbed-event count, never reset), overflow_count(); drain() unchanged; unit tests.
+ALREADY #547 rightkit-file-watch: WatchSessionManager (src/session.rs, 0.4.1).
+DONE #528 rightkit-docs: check_zip_limits (public generic zip-entry limits check), check_package (full OOXML preflight), refuse_external_links (TargetMode="External" and externalLinks/ parts -> new DocsError::ExternalLink, code external_link, opt-in; read/write still only list external links as omitted); Package::preflight factored out. Embedded OLE/ActiveX/VBA refusal ALREADY present (src/package.rs, 0.1.1). Unit tests.
+DONE #751 rightkit-sync: WireError kind "persistence" both directions (from_sync_error / into_sync_error), API.md updated, unit tests.
+PARTIAL #407 rightkit-send: DONE Transport trait + TransportReply + TcpTransport + deliver_with (send policy over any carrier; deliver unchanged in signature/behaviour and now calls deliver_with), generic trust subject (trust::TrustStore made public; its key was already an opaque 1..128 char lowercase string), mock-carrier unit tests, docs. ALREADY _pulse-send._tcp is the Bonjour type (src/bonjour.rs). DEFERRED: receive side over a non-TCP carrier (receive.rs is bound to Service state and the TLS proof model; needs a design for an inbound Transport / proof level), @rightkit/send-ui package and the Tauri command adapter (new package and tauri-shell/cross-component decision).
+ALREADY #537 rightkit-send: Entry::open_reader() in src/send.rs (0.2.0).
+PARTIAL #421 hooks DONE: StdinDeadline, read_payload_deadline, PayloadReadError, HookEvent::from_reader_deadline, run_with_deadline, run_deadline (2 s first byte / 400 ms quiet defaults). agent-tools DONE: BoundedToolbox (bounded worker call, timeout, in-flight cap, stuck_workers, external cancel) in src/bounded.rs; feature "mcp": ToolboxProvider implements rightkit_mcp::ToolProvider (src/mcp.rs). rightkit-mcp per-version batch policy is ALREADY in rightkit-mcp (ServerHost::with_batch_policy_for_version, src/server.rs:841; not my crate). PARTIAL only in that exit_if_stuck policy is left to the host via stuck_workers().
+DONE #551 rightkit-hooks: feature "host" (adds optional regex): HookSpec, parse_hook_specs_json, parse_hook_output (note: takes stderr as an extra argument, needed for exit code 2), fails_closed, HookChain::run -> ChainReport/Verdict/HookResult, ProcessLaunch + LaunchRequest + LaunchOutcome + ShellLauncher. Unit tests with a scripted launcher; shell test uses echo / exit 3.
+ALREADY #533 rightkit-hooks: notice-only compose_reply (src/dispatch.rs, 0.2.0).
+ALREADY #543 rightkit-hooks: src/membrane.rs wire types (0.2.0).
+ALREADY #534 rightkit-hooks: ruling on the issue = receipts stay in Pulse; ReceiptStore::membrane (0.2.0) is the shared layout. No further work.
+ALREADY #175 rightkit-agent-tools: CallContextExt::peer_executable (src/peer.rs, 0.1.5).
+ALREADY #515 rightkit-agent-tools: validate_args_strict (src/spec.rs, 0.1.5).
+No #771 conflicts found.
+
+VERSIONS (all non-breaking; Cargo.toml + Cargo.lock bumped)
+rightkit-file-watch 0.4.1 -> 0.4.2
+rightkit-docs 0.1.1 -> 0.1.2
+rightkit-sync 0.2.2 -> 0.2.3
+rightkit-send 0.2.0 -> 0.2.1
+rightkit-hooks 0.2.0 -> 0.2.1 (Cargo.lock: rightkit-hooks gains "regex")
+rightkit-agent-tools 0.1.5 -> 0.1.6 (Cargo.lock: gains "rightkit-mcp"; new optional dep rightkit-mcp 0.7.0 path)
+
+PUBLIC API CHANGES (none breaking)
+file-watch: coalesce::DetailedBatch (re-exported), ChangeCoalescer::{drain_detailed, push_record, source_clock, overflow_count}.
+docs: PackageCheck, check_zip_limits, check_package, refuse_external_links, DocsError::ExternalLink (enum is non_exhaustive).
+sync: none in types; WireError kind string "persistence".
+send: send::{Transport, TransportReply, TcpTransport, deliver_with} (also re-exported at root), trust::TrustStore public (root re-export).
+hooks: StdinDeadline, PayloadReadError, read_payload_deadline, HookEvent::from_reader_deadline, run_with_deadline, run_deadline; feature "host": module host (HookSpec, Permission, ParsedHook, parse_hook_specs_json, parse_hook_output, fails_closed, LaunchRequest, LaunchOutcome, ProcessLaunch, ShellLauncher, Verdict, HookResult, ChainReport, HookChain, DEFAULT_HOOK_TIMEOUT, OUTPUT_CAP).
+agent-tools: BoundedToolbox, ERR_TIMEOUT, ERR_BUSY, ERR_PANICKED, DEFAULT_MAX_IN_FLIGHT; feature "mcp": mcp::{ToolboxProvider, descriptor}.
+
+FOR THE COMPILE PASS
+- rustfmt was not available here; run cargo fmt per crate (some new lines are over 100 columns).
+- hooks Cargo.toml continuous_reason and agent-tools resources metadata were updated for the new threads; check the runtime-budget checker accepts them.
+- Cargo.lock edited by hand (version bumps, regex, rightkit-mcp); confirm with cargo check --locked.
+- Windows ShellLauncher uses cmd /C with raw_arg and CREATE_NO_WINDOW; unproven on the Dell. A timeout kills the shell only, not its children (documented).

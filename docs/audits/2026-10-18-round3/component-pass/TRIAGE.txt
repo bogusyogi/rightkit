@@ -1,0 +1,65 @@
+TRIAGE of 47 unowned open issues (HEAD ea691005, D:\Claude\rightkit; #771 read: D1 no .previous, D2 no DevTools, D3 no branches, D4 no creds in files, D5 no estimates)
+
+== OWNER ==
+#367 OWNER rightkit-time | add free fn format_rfc3339_utc(unix_secs: i64) -> String (CodeRight comment); parse/format/civil math already on main; named-zone tz database stays blocked (jiff not on allowlist), callers pass fixed offsets
+#388 OWNER rightkit-tauri-shell | one published Tauri-app test-mode API: feature->cfg build helper, runtime decide/refuse, compile_error release guards; builds on rightkit-fs AppDirs test-mode (in tree since 4d3f71cf, needs publish) and rightkit-daemon mode::decide (suite-shaped, not reusable as is)
+#383 OWNER @rightkit/tauri | generic in-page mock invoke/data-source harness for browser preview (PostRight's ~4200 lines are app data); needs a second consumer under the 2-consumer rule or it goes back to the app
+#417 OWNER rightkit-llm | canonical JSON already DONE in rightkit-crypto; remaining: LLM token counting (o200k) in rightkit-llm, and ignore-aware repo walk (.gitignore) in rightkit-fsindex (nothing on main)
+#428 OWNER @rightkit/release | native multi-exe payloads: NSIS from staged multi-exe payload, CFBundleVersion from commit count, fetchSmartctl JS consumer + Windows row, ORT/DirectML non-Tauri payload, stage-receipt lookup, exact-root portable dev install, logon-session signing, Windows hook launcher; none on main (D1 already applies to dev install)
+#499 OWNER rightkit-credentials | cross-platform OS user verification (WinRT UserConsentVerifier, LAContext, 60 s timeout); not on main (only ownership-approval scripts); comment cites rk-merge/credentials.patch outside main
+#345 OWNER @rightkit/release | entrypoint exists since 0.2.173 (winPackage/macPackage); open work is MailRight #80 gaps (env/envFile keys on macPackage/winPackage, cargoTargetRoot with relative dest); per-product inventory/deletion is tracking
+#672 OWNER rightkit-tauri-shell | Rust host handlers for rightkit.settings.get/patch, models.list/install/cancel/remove, secrets.presence/set/clear, settings.changed and models.entry events, composing app-settings + models + credentials; plus a localStorage import helper; no handler in crates/
+#675 OWNER @rightkit/release | icons ico|icns pack is on main (icon-pack.mjs); missing: render hand-tuned frames from a master, PNG set, DMG background generator
+#700 OWNER rightkit-oauth | add CallbackListener::wait_post_json_with(timeout, cancel, allowed_origin, validate) rejecting a body 400/403 before the 200 ack and continuing the wait; only wait_post_json exists
+#723 OWNER @rightkit/release | dev/doctor must retry RK_ACTIVATION_PENDING, RK_JOB_SUSPENDED, RK_DATA_ROOT_INITIALIZING, RK_BROKER_UNAVAILABLE within a reconnect budget (or go through the rustright client); no handling on main
+#763 OWNER @rightkit/release | delete staging copies, bundles and work folders after a successful publish (keep receipt), bound retained artefacts by count/age, never copy the whole repo per release; publish scripts too
+
+== SWIFT ==
+#521 SWIFT RightKitOverlay | RightKitOverlayPanel: runtime-settable key permission (canBecomeKey is final from immutable config, Overlay.swift:503)
+#522 SWIFT RightKitOverlay | RightKitOverlayPanel styleMask option (currently fixed [.borderless,.nonactivatingPanel], Overlay.swift:383)
+#523 SWIFT RightKitOverlay | RightKitOverlayFullScreen off-main context/evaluate split
+#553 SWIFT RightKitAppleCredentials | SyncedEnvelopeStore: revisioned envelope with tombstones, pull/publish/publishTombstone, CredentialSyncOutcome .erased/.unreadable; absent
+#594 SWIFT RightKitLiveActivity | keyed multi-activity LiveActivityHost (start/update/end/endAll(except:) by key); single-activity host only
+#595 SWIFT RightKitSpeech | LiveDictationSession Event.stopped and per-segment final handling; absent
+#597 SWIFT RightKitSpeech | AVAudioSession interruption/route-change/media-services-reset handling plus Event.interrupted; absent
+#599 SWIFT RightKitSpeech | opt-in onDeviceOnly: Bool = true network fallback (fail-closed stays default); comment says post-port, low priority
+#601 SWIFT RightKitCredentials | SecretsStore.keys(prefix:) and SecretsBackend list(namespace:); absent
+#602 SWIFT RightKitCredentials | per-item non-secret tag (kSecAttrGeneric) readable without the value; absent
+#603 SWIFT RightKitLicense | make LicenseActivationClient.platform() public (internal static at LicenseClient.swift:683)
+#604 SWIFT RightKitLicense | injectable ContinuityBridgeTransport for ContinuityBridgeClient (depends on #701)
+#605 SWIFT RightKitAppleCredentials | AppleCredentialStore account validator/arbitraryAccounts policy, raw-data read/write/delete, accounts(service:) enumeration; absent
+#667 SWIFT RightKitNetPolicy | opt-in loopback/private allow-set (RightKitAddressClass) with metadata/link-local always denied, RightKitPolicyRedirectGuard, policy-aware URLSession helper; absent
+#699 SWIFT RightKitAppleCredentials | read(_:scope:broadSynced:) using kSecAttrSynchronizableAny and status() on the store's own service; AppleCredentialError.missingEntitlement exists but reads never widen (RightKitAppleCredentials.swift:233)
+#701 SWIFT RightKitLicense | ContinuityBridgeClient (bridge/from-activation, from-storekit, exchange) with typed failures; absent
+#702 SWIFT RightKitLicense | KeychainLicenseStore device-id options: seed closure, accessibility, re-seed on corrupt id; absent
+
+== NEWCRATE ==
+#408 NEWCRATE rightkit-mesh | adopt Pulse's iroh device mesh (Mesh, Mailbox, Sync, Bulk, Circle, mDNS) as crates/rightkit-mesh, register device-mesh; durable KeyStore over rightkit-credentials, reuse rightkit-sync cipher/KeyProvider; needs 2-consumer admission check and iroh on the deny.toml allowlist
+#557 NEWCRATE rightkit-pty | async managed PTY child: containment (Job/group), tokio AsyncRead/AsyncWrite with bounded acked writes, resize with pixel size, canonical-EOF shutdown, ConPTY/AppContainer, caller-wrapped argv; rightkit-sandbox::PtySession is sync and child-process has no PTY (c2 INTEGRATION-NOTES already says "pty new crate")
+
+== DONE-ON-MAIN ==
+#174 DONE-ON-MAIN packages/legal-ui, pdf-ui, react-shell, settings-ui, crates/rightkit-mcp | legal-ui eligibilityLabels.legendVisible; pdf-ui CSS vars + truncationNotice; Titlebar options in react-shell CHANGELOG; settings-ui keepMounted; rightkit-mcp RawJson/to_wire_string
+#229 DONE-ON-MAIN vendor/tauri-runtime-wry | patched tauri-runtime-wry 2.12.2 vendored, docs/design/tauri-runtime-wry-windows-rc.md (upstream not fixed); only apps adopting the [patch] source remains
+#259 DONE-ON-MAIN packages/release/development.mjs | fixed staging via stagingPathOf, swapInstalledMacosBundle with no backup; the .previous clause is withdrawn per #771 D1
+#260 DONE-ON-MAIN packages/release/development.mjs | same as #259 (fixed staging name, signMacosDevelopmentBundle in place); .previous clause withdrawn per D1
+#292 DONE-ON-MAIN crates/rightkit-child-process/src/owned.rs | OwnedCommand::spawn_suspended + OwnedChild::resume/is_suspended (title's "rightkit-process" is the renamed child-process); RustRight pins the legacy crate and must move
+#296 DONE-ON-MAIN crates/rightkit-workflow/src/sequence.rs | feature `sequence`: Sequence, SequenceRun::open/run_next, Gate::before_perform, journal resume (design in docs/design/new-owners-2026-10-17.md)
+#359 DONE-ON-MAIN crates/rightkit-playback | 0.3.0 set_asset_scope plus authorised_media_source_id/set_authoriser/allow_roots
+#374 DONE-ON-MAIN crates/rightkit-http/src/netpolicy.rs | validate_public_https_url (https only, no userinfo, public host)
+#379 DONE-ON-MAIN crates/rightkit-identity/src/bearer.rs | browser bearer-token device auth with per-IP rate limit (issue text predates it)
+#480 DONE-ON-MAIN crates/rightkit-child-process (process_table, ProcessEntry) | cross-platform pid/ppid/cmdline/working set
+#491 DONE-ON-MAIN packages/release (stage-sidecar.mjs, media-sidecar.mjs) | ffmpeg sources fetch, mixed variants, remote extract, probe; confirm the Windows export-ass row in crates/rightkit-ffmpeg/catalog/artifacts.json at build time
+#492 DONE-ON-MAIN packages/release (media-sidecar.mjs, stage-sidecar.mjs) | universal-apple-darwin lipo merge for ffmpeg and onnxruntime
+#503 DONE-ON-MAIN crates/rightkit-identity/src/build_info.rs | BuildIdentity, build_identity!, build_script::emit (git rev, dirty, profile, channel, UTC)
+#691 DONE-ON-MAIN packages/release CHANGELOG 0.4.0 | cmake kind: cmakeBin, platformGenerators, architecture (-A), VS-bundled cmake
+#692 DONE-ON-MAIN packages/release CHANGELOG 0.4.0 | ffmpeg local sources {path,member}, prebuilt universal {aarch64,x86_64} lipo
+
+== NOT-CODE ==
+#318 NOT-CODE | zstd owner deferred by the 2-consumer rule (docs/design/new-owners-2026-10-17.md); reopen when probe G passes and a second product names a use; design rightkit-compress already recorded
+
+== CONFLICTS-771 ==
+(none whole-issue; #259 and #260 carry a .previous clause that conflicts with D1 and is already withdrawn in their comments)
+
+== SUMMARY ==
+OWNER 12 | SWIFT 17 | NEWCRATE 2 | DONE-ON-MAIN 15 | NOT-CODE 1 | CONFLICTS-771 0 | total 47
+OWNER per target: @rightkit/release 5 (#428 #345 #675 #723 #763) | rightkit-tauri-shell 2 (#388 #672) | rightkit-time 1 (#367) | @rightkit/tauri 1 (#383) | rightkit-llm 1 (#417, plus rightkit-fsindex walk part) | rightkit-credentials 1 (#499) | rightkit-oauth 1 (#700)

@@ -1,0 +1,21 @@
+GenRight (2026-10-18) AUDIT DONE: 18 gaps
+PARTIAL #473 spend (carry-over, atomic multi-allowance, scopes, invoice recon, cap audit) -> spend 0.2.0 in ea691005, verify
+PARTIAL #491/#492 release -> release 0.4.0 in ea691005 (691/692); #693 export-ass row open
+MISSING #476 motion -> motion 0.2.0 in ea691005
+MISSING #478 fs lease -> fs 0.4.4 in ea691005
+MISSING #480 child-process table -> 0.5.2 in ea691005
+MISSING #691 #692 release -> 0.4.0 in ea691005
+MISSING #693 ffmpeg export-ass row (resolver override in 0.2.10)
+NEW #712 fs/daemon move-and-mark migration (check vs fs 0.4.4 migrate_dir #487)
+NEW #713 logs detached child stderr handle
+NEW #714 media-ui thumbnail tile
+NEW #715 legal-ui [[FILL]] highlight hook
+NEW #716 media-ui mask painting
+NEW #718 http request_may_have_been_delivered
+NEW #719 ffmpeg encode-input normalisation
+CLOSED #720 fs 0.4.3 zip already cross-platform stored (Gen correction)
+NEW #721 job-queue blocking JobLocks acquire
+ADDENDUM: NEW #733 child-process zombie-aware is_running / reap own child
+#478 needs: holder takeover, heartbeat TTL staleness (hung live holder expires), pid+exe+kind metadata -> verify fs 0.4.4 lease.rs covers all three in component pass
+#721 JobLocks queue/cancel-aware wait
+Total 19 gaps; port coding done, holding.

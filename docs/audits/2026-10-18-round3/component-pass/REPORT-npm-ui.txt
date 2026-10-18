@@ -1,0 +1,54 @@
+npm-ui REPORT (round 2). Patch: D:\scratch\rk-gaps-work\c2\npm-ui\npm-ui.patch (LF, against ea691005). Nothing was built, tested or installed.
+
+DONE #394 settings-ui: new subpath @rightkit/settings-ui/unstyled (SettingsFrame, UpdatesView, updateStatusText, LegalLinksView, AboutView, DiagnosticsView; react only, no rk- class), ported from patches/394.rev2.patch with its tests and README line; legal-ui: manifestGateLinks + policyGateDocuments accepts the manifest documents (role, then title), ported from the same patch
+PARTIAL #394 missing: the @rightkit/app-update persisted check cache with stale-on-failure (createPersistedCheckCache in patches/394.rev2.patch) belongs to the app-update component, not in this folder; the patch file is still valid for that owner
+DONE #620 settings-ui: SettingsModal (role=dialog aria-modal, backdrop and Escape close, focus trap with restore, dirty banner, Reload/Discard/Save footer, "Discard unsaved changes?" close guard or custom confirmDiscard, pending lock, #settings=<id> deep link, header title/subtitle, footer slot, Cmd/Ctrl-F search focus) plus parseSettingsHash/formatSettingsHash; self-contained, imports only react (does not use react-shell ModalShell, so /core stays react-only)
+DONE #730 settings-ui: SettingRow proGate (Pro badge, locked fieldset, reason, Upgrade button); IndexProgress line; modelsSection disabled (all or per model, reason string), disabledNote, showStatus/statusLabels so install state shows while the feature is off; diagnosticsSection logTail (multi-file tail preview with Reveal) and tailLines
+DONE #754 settings-ui: SelectBox and PathPicker (ported from patches/npm-qa-settings-license.patch, settings-ui part only); doctorSection probe + notes (generic DoctorOptions<P>, uses the existing useDoctor probe/report); modelsSection per-model disable and per-row actions slot
+DONE #686 theme: presetCss modeAttribute (light presets get [data-theme="light"], dark stays on the base selector); TokenPreset.label; presetList(presets)
+DONE #758 theme: shade(hex, percent) channel-scaling lighten/darken. ASSUMPTION: the issue does not give ScrapeRight's formula; implemented the common (100+percent)/100 per-channel scale, documented in the doc comment and CHANGELOG. If ScrapeRight's formula differs the lead should say so
+ALREADY #535 theme 0.3.0 CHANGELOG: applyBrand writes --rk-wordmark-font in dark mode (src/runtime.ts / tokens.test.ts)
+ALREADY #618 theme 0.3.0: presetCss attribute, aliasCss, tailwindThemeCss, aliasTokens/SUITE_ALIASES (src/css.ts, src/tokens.ts)
+DONE #759 platform-ui: root index now re-exports the toast bus (createToastBus, defaultToastBus, toast, DEFAULT_TOAST_TTL and types)
+ALREADY #393 platform-ui 0.3.0: isTauri (src/index.ts), blockNativeContextMenu (src/context-menu.ts), relativeTimeFrom (src/time.ts); the license/tauri-shell re-export part is in those components
+ALREADY #623 platform-ui 0.3.0 useFocusTrap scope "document" and skipUnrendered (src/focus.ts)
+ALREADY #668 platform-ui 0.3.0 useDismiss isInside (src/dismiss.ts)
+ALREADY #669 platform-ui 0.3.0 useDismiss onFocusOut / reason "focus" (src/dismiss.ts)
+PARTIAL #426 platform-ui: added chordFromEvent/isModifierKey (shortcut recorder), usePersistedState + readPersisted/writePersisted/clearPersisted, installHoverGuard (stale WebView2 :hover; exact Pulse main.tsx logic not visible, so it arms on window blur/pointer leave and clears on next move); missing: hover/press wash tokens, Select/Checkbox/Slider, secret PromptDialog (and the controlled value/onChange comment), Notice, toned ProgressBar, wordmark font fetch/ship are react-shell/app-shell work, not this folder
+DONE #715 legal-ui: LegalDocumentBody highlightPattern + renderPlaceholder + LEGAL_FILL_PATTERN ([[FILL: ...]]), default <mark class="rk-legal-placeholder">, covers paragraphs, headings, list items and text format
+ALREADY #470 legal-ui 0.4.0: LegalDocumentBody exported from the root (src/index.ts)
+ALREADY #174 legal-ui legend (0.2.3), pdf-ui surface variables and truncationNotice (0.1.7), settings-ui keepMounted/paint/nativePreSize (0.4.5); Titlebar and mcp RawValue parts belong to react-shell and rightkit-mcp
+DONE #714 media-ui: MediaThumbnail (non-interactive video frame / audio artwork tile, optional duration, resolveSrc adapter, decorative unless labelled)
+DONE #716 media-ui: MaskPainter (brush, eraser, undo, hasMask, exportPng white-on-black or alpha through handleRef) plus pure maskMath helpers; no toolbar, host supplies buttons
+DONE #396 pdf-ui: range transport (PdfRangeSource as PdfViewer source, createPdfRangeTransport, pdfRangeDocumentInit); password parity (attachPasswordHandler options initialPassword + onCancel, PdfViewer password + onPasswordCancel); page unload (unloadPages); link layer (linkLayer, renderPdfLinkLayer); search options (searchOptions, searchOptionsUi, onSearchOptionsChange); pageLayers extension point for edit layers
+PARTIAL #396 missing: a built-in annotation editor. The package ships only the pageLayers slot where a host mounts pdf.js's AnnotationEditorLayer; an editor needs a save path (rightkit-pdf) and a UX decision. Regex find (0.2.0) and the streamTextContent text-layer source (0.1.6) already existed
+ALREADY #273 pdf-ui 0.1.8: per-character folding, whitespace collapse, joinHyphenated (src/searchUtils.ts)
+ALREADY #616 i18n 0.2.0: locales, normalizeLocale, persistence, function messages (src/index.tsx)
+ALREADY #241 i18n sync t() and isLoaded (0.1.1, src/index.tsx); the rightkit-cache part is another component
+DEFERRED #416 i18n Rust runtime: a new crate (rightkit-i18n), needs Adrian/lead sign-off on catalog format shared with the JS package
+ALREADY #223 settings-ui e2e already closes through the qa-chrome bounded close (e2e/browser.ts close(), settings.e2e.test.ts afterAll)
+DEFERRED #672 settings-ui shell-adapter Rust host handlers: Rust work on the tauri-shell/app-settings crates, not in this folder
+NOT-MINE #366 #506 (publish and tracking issues); #614 #617 #624 (react-shell) were found by search and left to that component
+
+Versions:
+@rightkit/settings-ui 0.6.0 -> 0.7.0 (additive; new subpath ./unstyled)
+@rightkit/theme 0.3.0 -> 0.4.0 (additive)
+@rightkit/platform-ui 0.3.0 -> 0.3.1 (additive)
+@rightkit/legal-ui 0.4.0 -> 0.5.0 (additive)
+@rightkit/media-ui 0.3.4 -> 0.4.0 (additive)
+@rightkit/pdf-ui 0.2.0 -> 0.3.0 (additive)
+@rightkit/i18n unchanged (0.2.0)
+
+Public API changes (none breaking; all additive designs, no exhaustive enum or required field changed):
+settings-ui: SettingsModal, SettingsModalProps, SettingsModalLabels, parseSettingsHash, formatSettingsHash, SelectBox, PathPicker (+props types), IndexProgress, IndexProgressProps, ProGate, SettingRowProps.proGate, ModelsOptions.disabled/disabledNote/showStatus/statusLabels/actions, DoctorOptions<P = undefined>.probe/notes and doctorSection<P>, DiagnosticsOptions.logTail, LogTailOptions, LogTailFile, tailLines, subpath ./unstyled
+theme: presetCss PresetCssOptions.modeAttribute, TokenPreset.label, presetList, PresetListEntry, shade
+platform-ui: root exports createToastBus, defaultToastBus, toast, DEFAULT_TOAST_TTL and toast types; chordFromEvent, isModifierKey, installHoverGuard (root and ./headless); usePersistedState, readPersisted, writePersisted, clearPersisted (./headless)
+legal-ui: LegalDocumentBody highlightPattern/renderPlaceholder, LEGAL_FILL_PATTERN, manifestGateLinks, policyGateDocuments urls accepts ManifestDocumentLike[], DefaultPolicyDocumentLike.role (optional)
+media-ui: MediaThumbnail, MaskPainter, MaskPainterHandle, MaskExportOptions, MaskTool, maskCanvasPoint, maskBrushDiameter, maskPixelsForExport, maskHasPaint
+pdf-ui: PdfRangeSource (PdfViewer source widened to PdfSource | PdfRangeSource), createPdfRangeTransport, pdfRangeDocumentInit, renderPdfLinkLayer, PasswordFlowOptions, PdfViewer props password/onPasswordCancel/unloadPages/linkLayer/pageLayers/searchOptions/searchOptionsUi/onSearchOptionsChange, PdfPageLayerInfo
+
+Notes for the integration owner:
+- Not compiled or run. New tests: settings-ui src/gaps-0.7.test.tsx, pickers.test.tsx, unstyled.test.tsx; legal-ui LegalDocumentBody.test.tsx and policyDocuments.test.ts; theme tokens.test.ts; platform-ui root-toast.test.ts, interaction.test.ts; media-ui thumbnail-mask.test.tsx; pdf-ui test/viewer-options-0.3.test.ts.
+- settings-ui package.json exports gained ./unstyled; core-entry.test.ts export-key list was updated to match.
+- No INDEX.md, pnpm-lock or ownership-catalog edits (generated or outside the component folder).
+- pdf-ui PdfViewer.tsx: type-check the PDFDataRangeTransport usage in src/rangeTransport.ts against pdfjs-dist 6.4.299 first.

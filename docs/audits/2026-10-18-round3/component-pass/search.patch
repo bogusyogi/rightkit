@@ -1,0 +1,2690 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..7603789 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6924,7 +6924,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-embed"
+-version = "0.6.0"
++version = "0.6.1"
+ dependencies = [
+  "objc2",
+  "objc2-core-ml",
+@@ -7355,9 +7355,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-search"
+-version = "0.4.0"
++version = "0.4.1"
+ dependencies = [
++ "regex",
+  "rusqlite",
++ "sha2 0.10.9",
+  "tempfile",
+ ]
+ 
+diff --git a/crates/rightkit-embed/CHANGELOG.md b/crates/rightkit-embed/CHANGELOG.md
+index b048cd2..dd33acf 100644
+--- a/crates/rightkit-embed/CHANGELOG.md
++++ b/crates/rightkit-embed/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.6.1 (unreleased)
++
++Additive release: no existing item changed, so 0.6.0 callers compile and behave unchanged. Written, unverified: not compiled or run.
++
++- **Resident index follows writes (Orthic-Labs/rightkit#418).** `ResidentIndex::new(dimension)`, `upsert(key, vector)` (quantises and inserts or replaces in key order), `remove(key)`, `contains(key)`, `keys()` and `memory_bytes()`. A resident index can now be kept current from the app's own writes instead of re-reading the whole table; `VectorStore::resident_index` stays the bulk load. Quantisation is one shared helper, so an index built row by row equals one built in a single pass.
++- **Filtered nearest (#418).** `ResidentIndex::nearest_where(query, limit, keep)` scores only the rows whose key `keep` accepts (an account, a folder), so `limit` counts accepted rows. `nearest` is `nearest_where` with every key accepted.
++- **ANN / sqlite-vec vec0 (Orthic-Labs/rightkit#496): not added.** The ruling on #496 makes the resident int8 index the single owner and requires MailRight to measure it at 160k rows before any sqlite-vec `vec0` backend is considered; `vec0` would also add a native SQLite extension. Nothing is changed for it here.
++- Already in 0.6.0, no change: `bundle_files` (#565), `installed_model_dir` (#582), `reciprocal_rank_fusion` and `RRF_K` (#496). `rightkit-search` 0.4.1 also carries a pure rank-fusion module (with weights) for callers that fuse BM25 with these results.
++
+ ## 0.6.0 (2026-10-17)
+ 
+ - **Resident int8 vector index.** New `ResidentIndex` (`src/resident.rs`) and `VectorStore::resident_index(model_id)`: one read of a model's vectors into memory, each row quantised to `i8` with one `f32` scale (`absmax / 127`). `ResidentIndex::nearest(query, limit)` scores by cosine on the dequantised rows and orders ties by key, like `VectorStore::nearest`, without a SQLite scan per query. It is a snapshot: later writes are not seen. Written, unverified: not compiled or run.
+diff --git a/crates/rightkit-embed/Cargo.toml b/crates/rightkit-embed/Cargo.toml
+index 71c0d2e..c8fd757 100644
+--- a/crates/rightkit-embed/Cargo.toml
++++ b/crates/rightkit-embed/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-embed"
+-version = "0.6.0"
++version = "0.6.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+diff --git a/crates/rightkit-embed/README.md b/crates/rightkit-embed/README.md
+index 8d6ac9d..c1f2881 100644
+--- a/crates/rightkit-embed/README.md
++++ b/crates/rightkit-embed/README.md
+@@ -79,7 +79,7 @@ let vectors = embedder.embed_batch(["first text", "second text"])?;
+ 
+ ## Vector helpers and model directories
+ 
+-- `VectorStore::resident_index(model_id)` returns a `ResidentIndex`: an in-memory int8 snapshot of one model's vectors (per-row `i8` codes and an `f32` scale). Its `nearest(query, limit)` ranks by cosine on the dequantised rows. It does not see writes made after it was built.
++- `VectorStore::resident_index(model_id)` returns a `ResidentIndex`: an in-memory int8 snapshot of one model's vectors (per-row `i8` codes and an `f32` scale). Its `nearest(query, limit)` ranks by cosine on the dequantised rows. It does not see writes made after it was built. `ResidentIndex::new(dim)` plus `upsert(key, vector)` and `remove(key)` keep one current without a new snapshot, and `nearest_where(query, limit, keep)` scores only the keys `keep` accepts.
+ - `reciprocal_rank_fusion(&[&[K]], k)` fuses ranked lists by reciprocal rank (`RRF_K` = 60 is the conventional `k`). It is pure Rust with no feature gate.
+ - `bundle_files(dir)` names the files the Core ML, E40 or Q4 layout requires, checks they exist, and returns `None` when `dir` is none of them.
+ - `installed_model_dir(exe, subdir)` returns `<resources>/<subdir>` for an installed app: `Contents/Resources` in a macOS bundle, the executable's directory on Windows, `<exe dir>/resources` elsewhere. It returns the candidate without checking it exists.
+diff --git a/crates/rightkit-embed/src/resident.rs b/crates/rightkit-embed/src/resident.rs
+index 50d3251..6849876 100644
+--- a/crates/rightkit-embed/src/resident.rs
++++ b/crates/rightkit-embed/src/resident.rs
+@@ -41,32 +41,97 @@ impl ResidentIndex {
+         };
+         for (key, vector) in vectors {
+             validate(&vector, dimension)?;
+-            let absmax = vector
+-                .iter()
+-                .fold(0.0_f32, |max, value| max.max(value.abs()));
+-            let scale = absmax / 127.0;
+-            let mut sum_squares = 0.0_f64;
+-            if scale > 0.0 {
+-                for value in &vector {
+-                    let code = (value / scale).round().clamp(-127.0, 127.0) as i8;
+-                    index.codes.push(code);
+-                    sum_squares += f64::from(code) * f64::from(code);
+-                }
+-            } else {
+-                index.codes.resize(index.codes.len() + dimension, 0);
+-            }
++            let (codes, scale, norm) = quantise(&vector);
++            index.codes.extend_from_slice(&codes);
+             index.scales.push(scale);
+-            index.norms.push(f64::from(scale) * sum_squares.sqrt());
++            index.norms.push(norm);
+             index.keys.push(key);
+         }
+         Ok(index)
+     }
+ 
++    /// An empty index of `dimension`-wide rows, to fill with [`ResidentIndex::upsert`].
++    /// A dimension of 0 is refused, as [`VectorStore::from_connection`] refuses it.
++    ///
++    /// [`VectorStore::from_connection`]: crate::VectorStore::from_connection
++    pub fn new(dimension: usize) -> Result<Self, VectorError> {
++        if dimension == 0 {
++            return Err(VectorError::Dimension {
++                expected: 1,
++                actual: 0,
++            });
++        }
++        Self::from_vectors(dimension, Vec::new())
++    }
++
+     /// Vector width of every row.
+     pub fn dimension(&self) -> usize {
+         self.dimension
+     }
+ 
++    /// Quantises `vector` and stores it under `key`, replacing the row if the key exists, so a
++    /// resident index can follow later writes without a new snapshot. The vector must have
++    /// [`ResidentIndex::dimension`] finite values. Rows stay ordered by key, so an insert
++    /// moves the rows after it (linear in the index size); use [`VectorStore::resident_index`]
++    /// for a bulk load.
++    ///
++    /// [`VectorStore::resident_index`]: crate::VectorStore::resident_index
++    pub fn upsert(&mut self, key: &str, vector: &[f32]) -> Result<(), VectorError> {
++        validate(vector, self.dimension)?;
++        let (codes, scale, norm) = quantise(vector);
++        match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
++            Ok(row) => {
++                self.codes[row * self.dimension..(row + 1) * self.dimension]
++                    .copy_from_slice(&codes);
++                self.scales[row] = scale;
++                self.norms[row] = norm;
++            }
++            Err(row) => {
++                let at = row * self.dimension;
++                self.codes.splice(at..at, codes);
++                self.scales.insert(row, scale);
++                self.norms.insert(row, norm);
++                self.keys.insert(row, key.to_owned());
++            }
++        }
++        Ok(())
++    }
++
++    /// Removes the row stored under `key`; true when there was one.
++    pub fn remove(&mut self, key: &str) -> bool {
++        match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
++            Ok(row) => {
++                self.codes
++                    .drain(row * self.dimension..(row + 1) * self.dimension);
++                self.scales.remove(row);
++                self.norms.remove(row);
++                self.keys.remove(row);
++                true
++            }
++            Err(_) => false,
++        }
++    }
++
++    /// True when a row is stored under `key`.
++    pub fn contains(&self, key: &str) -> bool {
++        self.keys
++            .binary_search_by(|probe| probe.as_str().cmp(key))
++            .is_ok()
++    }
++
++    /// The keys, ascending.
++    pub fn keys(&self) -> impl Iterator<Item = &str> {
++        self.keys.iter().map(String::as_str)
++    }
++
++    /// Heap bytes held by the index: the codes, the scales, the norms and the keys.
++    pub fn memory_bytes(&self) -> usize {
++        self.codes.len()
++            + self.scales.len() * std::mem::size_of::<f32>()
++            + self.norms.len() * std::mem::size_of::<f64>()
++            + self.keys.iter().map(String::len).sum::<usize>()
++    }
++
+     /// Number of rows.
+     pub fn len(&self) -> usize {
+         self.keys.len()
+@@ -83,6 +148,18 @@ impl ResidentIndex {
+     ///
+     /// [`VectorStore::nearest`]: crate::VectorStore::nearest
+     pub fn nearest(&self, query: &[f32], limit: usize) -> Result<Vec<Nearest>, VectorError> {
++        self.nearest_where(query, limit, |_| true)
++    }
++
++    /// [`ResidentIndex::nearest`] over only the rows whose key `keep` accepts (for example the
++    /// keys of one account or folder), so the filter runs before scoring and `limit` counts
++    /// accepted rows.
++    pub fn nearest_where(
++        &self,
++        query: &[f32],
++        limit: usize,
++        keep: impl Fn(&str) -> bool,
++    ) -> Result<Vec<Nearest>, VectorError> {
+         validate(query, self.dimension)?;
+         if limit == 0 || self.keys.is_empty() {
+             return Ok(Vec::new());
+@@ -93,6 +170,7 @@ impl ResidentIndex {
+             .sum::<f64>()
+             .sqrt();
+         let mut scored: Vec<(usize, f32)> = (0..self.keys.len())
++            .filter(|row| keep(&self.keys[*row]))
+             .map(|row| {
+                 let codes = &self.codes[row * self.dimension..(row + 1) * self.dimension];
+                 let dot: f64 = query
+@@ -139,6 +217,29 @@ impl ResidentIndex {
+     }
+ }
+ 
++/// `i8` codes, the scale (`absmax / 127`, 0 for an all-zero row) and the norm of the
++/// dequantised row, for one already validated vector.
++fn quantise(vector: &[f32]) -> (Vec<i8>, f32, f64) {
++    let absmax = vector
++        .iter()
++        .fold(0.0_f32, |max, value| max.max(value.abs()));
++    let scale = absmax / 127.0;
++    if scale > 0.0 {
++        let mut sum_squares = 0.0_f64;
++        let codes: Vec<i8> = vector
++            .iter()
++            .map(|value| {
++                let code = (value / scale).round().clamp(-127.0, 127.0) as i8;
++                sum_squares += f64::from(code) * f64::from(code);
++                code
++            })
++            .collect();
++        (codes, scale, f64::from(scale) * sum_squares.sqrt())
++    } else {
++        (vec![0; vector.len()], scale, 0.0)
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -206,6 +307,58 @@ mod tests {
+         assert!(index.nearest(&[1.0, 0.0], 0).unwrap().is_empty());
+     }
+ 
++    #[test]
++    fn upsert_and_remove_follow_a_snapshot_and_keep_key_order() {
++        let mut index = ResidentIndex::new(2).unwrap();
++        assert!(index.is_empty());
++        index.upsert("b", &[0.0, 1.0]).unwrap();
++        index.upsert("a", &[1.0, 0.0]).unwrap();
++        index.upsert("c", &[0.7, 0.7]).unwrap();
++        assert_eq!(index.keys().collect::<Vec<_>>(), vec!["a", "b", "c"]);
++        assert_eq!(index.len(), 3);
++        assert!(index.contains("b"));
++        let hits = index.nearest(&[1.0, 0.0], 3).unwrap();
++        assert_eq!(hits[0].key, "a");
++        // Replacing a row changes its vector in place.
++        index.upsert("b", &[1.0, 0.0]).unwrap();
++        assert_eq!(index.len(), 3);
++        let hits = index.nearest(&[1.0, 0.0], 3).unwrap();
++        assert_eq!(hits[0].key, "a");
++        assert_eq!(hits[1].key, "b");
++        assert!(index.remove("a"));
++        assert!(!index.remove("a"));
++        assert_eq!(index.keys().collect::<Vec<_>>(), vec!["b", "c"]);
++        assert_eq!(index.nearest(&[1.0, 0.0], 1).unwrap()[0].key, "b");
++        // Same result as quantising the same rows in one go.
++        let bulk = ResidentIndex::from_vectors(
++            2,
++            vec![("b".into(), vec![1.0, 0.0]), ("c".into(), vec![0.7, 0.7])],
++        )
++        .unwrap();
++        assert_eq!(index, bulk);
++        assert!(index.memory_bytes() > 0);
++        assert!(index.upsert("d", &[1.0]).is_err());
++        assert!(ResidentIndex::new(0).is_err());
++    }
++
++    #[test]
++    fn nearest_where_filters_before_scoring() {
++        let index = index(&[
++            ("acct1:a", vec![1.0, 0.0]),
++            ("acct2:b", vec![1.0, 0.0]),
++            ("acct2:c", vec![0.0, 1.0]),
++        ]);
++        let hits = index
++            .nearest_where(&[1.0, 0.0], 5, |key| key.starts_with("acct2:"))
++            .unwrap();
++        let keys: Vec<&str> = hits.iter().map(|hit| hit.key.as_str()).collect();
++        assert_eq!(keys, vec!["acct2:b", "acct2:c"]);
++        assert!(index
++            .nearest_where(&[1.0, 0.0], 5, |_| false)
++            .unwrap()
++            .is_empty());
++    }
++
+     #[test]
+     fn dimension_and_non_finite_input_are_refused() {
+         let index = index(&[("a", vec![1.0, 0.0])]);
+diff --git a/crates/rightkit-search/CHANGELOG.md b/crates/rightkit-search/CHANGELOG.md
+index f4d9542..38aefff 100644
+--- a/crates/rightkit-search/CHANGELOG.md
++++ b/crates/rightkit-search/CHANGELOG.md
+@@ -1,5 +1,17 @@
+ # Changelog
+ 
++## 0.4.1 (unreleased)
++
++Additive release: every item below is new; no existing item changed, so 0.4.0 callers compile and behave unchanged. Nothing here was compiled or run locally; CI is the compiler.
++
++- **BM25 ranking (Orthic-Labs/rightkit#418).** New `bm25` module: `tokenize(text)` (folded runs of alphanumerics), `Bm25Params { k1, b }` (defaults 1.2 and 0.75; `Bm25Params::new` sanitises), and `Bm25Index<K>` (`insert`, `insert_tokens`, `remove`, `contains`, `len`, `score`, `search(query, limit)`), an in-memory Okapi BM25 ranker for result sets that are not in an FTS5 table. Ties order by key.
++- **FTS5 index management and ranking (#418, feature `sqlite`, on by default).** New `fts5` module: `Fts5Table` defines an FTS5 table in three layouts (own content, `external_content(table, rowid_column)` projection of a source table, `contentless`) with `tokenizer`, `prefixes` and `contentless_delete`; `create_sql`, `trigger_sql` (the three insert/update/delete triggers of a projection), `ensure`, `exists`, `drop_table`, `rebuild`, `optimize`, `integrity_check`, `index_row`, `remove_row`, `bm25_expr(weights)`, `ranked_sql(weights)` and `search(conn, match_expr, weights, limit)` returning `Fts5Hit { rowid, score }` (higher is better, the negation of SQLite's `bm25()`). Names are checked as plain identifiers and the tokenizer spec is restricted, so no caller string reaches SQL; the `MATCH` expression and row values are bound parameters. `Fts5Error` is `#[non_exhaustive]`. Pair with `Query::fts()` to get the `MATCH` expression.
++- **`html_to_text(html)` (#418, folded in from #495).** Strips tags; skips `script`, `style`, `head`, `template` and comments; turns block elements and `<br>` into line breaks; decodes common named and all numeric character references; collapses whitespace. Total: malformed markup never fails.
++- **Rank fusion (#496).** New `fusion` module: `reciprocal_rank_fusion(&[&[K]], k)`, `weighted_reciprocal_rank_fusion(rankings, weights, k)` and `RRF_K` (60), pure and std-only, for merging a lexical ranking (BM25, FTS5) with a semantic one. `rightkit-embed` 0.6.0 already carries an equivalent unweighted function; the search crate is the owner the #496 ruling names, and the embed copy stays so no dependent changes.
++- **Workspace regex content search (#580, opt-in feature `workspace-grep`, adds `regex` and `sha2`).** New `grep` module: `grep_page(root, files, &GrepRequest, &CancelToken) -> GrepPage` runs one page of a line-regex search in three modes (`Content` with context lines, `FilesWithMatches`, `Count`) under a `GrepBudget` (results, bytes per file and per page, files, deadline), ends with a `GrepStatus` (`Complete`, `Truncated`, `Cancelled`, `Deadline`) and a `GrepCursor` that resumes at the exact line. The cursor is bound to the root and the search (pattern, case, mode, context, glob) by SHA-256 and a mismatch is `GrepError::CursorMismatch`; text form via `encode` / `decode`. Optional `*`, `**`, `?` glob filter. Paths are validated (no absolute, no `..`), symbolic links, binary (NUL in the first 8 KiB), oversize and unreadable files are skipped and counted. **The file list is the caller's:** the `.gitignore`-aware walk is the separate owner of Orthic-Labs/rightkit#417 and is not implemented here.
++- **Already shipped in 0.4.0, no change here:** keyset paging with a lookup-resolved tiebreak, a range bound and a CTE-embedded `LIMIT` (#598: `Keyset::range_bound`, `Keyset::cursor_expr`, `Compiled::page_clauses`), and parent-row (thread) scope bindings (#166, #172: `ChildScope`, `Binding::SqlMulti`, `Binding::SqlByShape`).
++- **Tests:** unit tests in each new module (`bm25`, `fts5` over in-memory SQLite, `html`, `fusion`, `grep` over temp directories).
++
+ ## 0.4.0 (2026-10-17)
+ 
+ - **Keyset paging (Orthic-Labs/rightkit#598):** `Keyset::range_bound()` (opt-in, no public field added) adds a redundant bound on the first sort column when a cursor is given (`<=` for `desc`, `>=` for `asc`), so an index on that column can seek to the page. It selects no row the cursor predicate would not; without a cursor nothing is added.
+diff --git a/crates/rightkit-search/Cargo.toml b/crates/rightkit-search/Cargo.toml
+index a182431..3407a42 100644
+--- a/crates/rightkit-search/Cargo.toml
++++ b/crates/rightkit-search/Cargo.toml
+@@ -1,10 +1,10 @@
+ [package]
+ name = "rightkit-search"
+-version = "0.4.0"
++version = "0.4.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+-description = "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index."
++description = "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, FTS5 index management, BM25, rank fusion, snippets, and an in-memory filename index."
+ readme = "README.md"
+ repository = "https://github.com/bogusyogi/rightkit"
+ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+@@ -15,9 +15,13 @@ default = ["sqlite"]
+ sqlite = ["dep:rusqlite"]
+ # Cockpit-derived in-memory filename index (substring/extension/size/kind, pagination).
+ filename-index = []
++# Budgeted, resumable regex content search over a caller-supplied file list (`grep` module).
++workspace-grep = ["dep:regex", "dep:sha2"]
+ 
+ [dependencies]
++regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"], optional = true }
+ rusqlite = { version = "0.40.2", default-features = false, optional = true }
++sha2 = { version = "0.10", optional = true }
+ 
+ [dev-dependencies]
+ rusqlite = { version = "0.40.2", features = ["bundled"] }
+diff --git a/crates/rightkit-search/README.md b/crates/rightkit-search/README.md
+index a07f247..790a3b7 100644
+--- a/crates/rightkit-search/README.md
++++ b/crates/rightkit-search/README.md
+@@ -12,6 +12,7 @@ Product-neutral search query language for Right Suite apps. It owns the tokenize
+ |---|---|---|---|
+ | `sqlite` | on | `rusqlite` | The `rusqlite::ToSql` impl for `Param` (`src/sql.rs:17-25`); the SQL predicate compiler itself (`src/sql.rs`, `src/lib.rs:13`) is not gated. |
+ | `filename-index` | off | none | In-memory filename index (`src/filename.rs`). |
++| `workspace-grep` | off | `regex`, `sha2` | `grep` module: budgeted, resumable regex content search over a caller-supplied file list (no directory walk, no `.gitignore` handling). |
+ 
+ Disable `sqlite` (`default-features = false`) to use the parser and data model without `rusqlite`.
+ 
+@@ -34,6 +35,13 @@ Illustrative; not compiled as a doctest. For compiled usage against a real SQLit
+ 
+ `Schema::scope(ChildScope::new("messages m", "m.thread_id = t.id"))` makes bindings describe the child row while the `WHERE` body filters the parent: positive terms co-occur in one child (`EXISTS`), each negated term is its own `NOT EXISTS`. Refinements (0.4.0): `.negated_text_like(&["m.subject", "m.snippet"])` makes negated free text also `LIKE`-match those columns besides FTS; `.op_source("label", "thread_labels l", "l.thread_id = t.id")` evaluates an operator over another child table; `Binding::SqlMulti { sql, kinds }` binds one operator value to several `?` (with `ValueKind::Prefix`/`Suffix`); `Binding::SqlByShape { domain, address, bare, lowercase }` picks the SQL from the value (`@domain`, contains `@`, bare); `.negated_text_unescaped()` makes negated text a verbatim `%term%` LIKE (no `ESCAPE`, no alphanumeric skip). See `tests/scope_e2e.rs`.
+ 
++## Ranking, FTS5 management and HTML text (0.4.1)
++
++- `bm25::Bm25Index` ranks documents held in memory (Okapi BM25 over `tokenize`d text); `fusion::reciprocal_rank_fusion` merges ranked lists, for example a lexical list with a vector-search list.
++- `fts5::Fts5Table` creates and maintains the FTS5 table (own content, an external-content projection with its triggers, or contentless), rebuilds, optimizes and integrity-checks it, and ranks with SQLite's `bm25()` and per-column weights. The `MATCH` expression comes from `Query::fts()`.
++- `html_to_text` turns an HTML body into the plain text to index or excerpt.
++- With `workspace-grep`, `grep::grep_page` searches a list of workspace files by regex within a budget and returns a cursor bound to the search.
++
+ ## Paging, substring matching and bounded scans
+ 
+ Three additions for paging and free-text search, all in 0.2.1. Each is purely additive. Shared pieces are the query syntax (`Query`), operator filters (`Schema`), `Keyset`/`Cursor`, and `Span`. What differs by backend is how free text is evaluated.
+diff --git a/crates/rightkit-search/src/bm25.rs b/crates/rightkit-search/src/bm25.rs
+new file mode 100644
+index 0000000..13d4d10
+--- /dev/null
++++ b/crates/rightkit-search/src/bm25.rs
+@@ -0,0 +1,297 @@
++//! In-memory Okapi BM25 ranking over documents the caller holds, for result sets that
++//! SQLite's FTS5 `bm25()` cannot rank (several sources, non-FTS rows, re-ranking a short
++//! list). For FTS5 tables use [`crate::fts5`], which ranks inside SQLite.
++//!
++//! Text is folded with [`crate::fold::fold`] and split into runs of alphanumeric characters;
++//! the same [`tokenize`] is used for documents and queries. A query scores a document by the
++//! sum over its distinct terms of `idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * len / avglen))`,
++//! with `idf = ln(1 + (N - n + 0.5) / (n + 0.5))`, which is never negative.
++
++use crate::fold::fold;
++use std::collections::{HashMap, HashSet};
++use std::hash::Hash;
++
++/// Splits `text` into folded terms: maximal runs of alphanumeric characters, case-folded by
++/// [`fold`]. Punctuation and whitespace separate terms and are dropped.
++pub fn tokenize(text: &str) -> Vec<String> {
++    let folded = fold(text);
++    folded
++        .split(|c: char| !c.is_alphanumeric())
++        .filter(|t| !t.is_empty())
++        .map(str::to_owned)
++        .collect()
++}
++
++/// BM25 tuning constants.
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct Bm25Params {
++    /// Term-frequency saturation, 0 or more. Default 1.2.
++    pub k1: f64,
++    /// Length normalisation, 0 to 1. Default 0.75.
++    pub b: f64,
++}
++
++impl Default for Bm25Params {
++    fn default() -> Self {
++        Self { k1: 1.2, b: 0.75 }
++    }
++}
++
++impl Bm25Params {
++    /// A non-finite or negative `k1` becomes the default; `b` is clamped to 0..=1 and a
++    /// non-finite `b` becomes the default.
++    pub fn new(k1: f64, b: f64) -> Self {
++        let d = Self::default();
++        Self {
++            k1: if k1.is_finite() && k1 >= 0.0 {
++                k1
++            } else {
++                d.k1
++            },
++            b: if b.is_finite() {
++                b.clamp(0.0, 1.0)
++            } else {
++                d.b
++            },
++        }
++    }
++}
++
++#[derive(Debug, Clone)]
++struct Doc {
++    len: u32,
++    /// Distinct terms, to remove the document from the postings.
++    terms: Vec<String>,
++}
++
++/// An in-memory BM25 index keyed by `K`. Inserting an existing key replaces the document.
++#[derive(Debug, Clone)]
++pub struct Bm25Index<K: Eq + Hash + Clone + Ord> {
++    params: Bm25Params,
++    docs: HashMap<K, Doc>,
++    /// term -> (document key -> term frequency)
++    postings: HashMap<String, HashMap<K, u32>>,
++    total_len: u64,
++}
++
++impl<K: Eq + Hash + Clone + Ord> Default for Bm25Index<K> {
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
++impl<K: Eq + Hash + Clone + Ord> Bm25Index<K> {
++    pub fn new() -> Self {
++        Self::with_params(Bm25Params::default())
++    }
++
++    pub fn with_params(params: Bm25Params) -> Self {
++        Self {
++            params: Bm25Params::new(params.k1, params.b),
++            docs: HashMap::new(),
++            postings: HashMap::new(),
++            total_len: 0,
++        }
++    }
++
++    pub fn params(&self) -> Bm25Params {
++        self.params
++    }
++
++    /// Number of documents.
++    pub fn len(&self) -> usize {
++        self.docs.len()
++    }
++
++    pub fn is_empty(&self) -> bool {
++        self.docs.is_empty()
++    }
++
++    pub fn contains(&self, key: &K) -> bool {
++        self.docs.contains_key(key)
++    }
++
++    /// Indexes `text` under `key`, replacing any earlier document with that key.
++    pub fn insert(&mut self, key: K, text: &str) {
++        self.insert_tokens(key, tokenize(text));
++    }
++
++    /// Indexes already-tokenised terms (for a caller with its own tokenizer; query terms
++    /// are still produced by [`tokenize`], so fold terms the same way).
++    pub fn insert_tokens(&mut self, key: K, tokens: Vec<String>) {
++        self.remove(&key);
++        let len = u32::try_from(tokens.len()).unwrap_or(u32::MAX);
++        let mut freq: HashMap<String, u32> = HashMap::new();
++        for token in tokens {
++            *freq.entry(token).or_insert(0) += 1;
++        }
++        let mut terms = Vec::with_capacity(freq.len());
++        for (term, tf) in freq {
++            self.postings
++                .entry(term.clone())
++                .or_default()
++                .insert(key.clone(), tf);
++            terms.push(term);
++        }
++        self.total_len += u64::from(len);
++        self.docs.insert(key, Doc { len, terms });
++    }
++
++    /// Removes a document; true when it was present.
++    pub fn remove(&mut self, key: &K) -> bool {
++        let Some(doc) = self.docs.remove(key) else {
++            return false;
++        };
++        self.total_len -= u64::from(doc.len);
++        for term in doc.terms {
++            if let Some(posting) = self.postings.get_mut(&term) {
++                posting.remove(key);
++                if posting.is_empty() {
++                    self.postings.remove(&term);
++                }
++            }
++        }
++        true
++    }
++
++    /// The score of `key` for `query`, or `None` when the document is absent. A document
++    /// that shares no term with the query scores 0.
++    pub fn score(&self, query: &str, key: &K) -> Option<f64> {
++        let doc = self.docs.get(key)?;
++        let avg = self.average_len();
++        let mut total = 0.0;
++        for term in distinct(tokenize(query)) {
++            if let Some(tf) = self.postings.get(&term).and_then(|p| p.get(key)) {
++                total += self.term_score(&term, *tf, doc.len, avg);
++            }
++        }
++        Some(total)
++    }
++
++    /// The `limit` best documents for `query`, best first, ties by key. Only documents that
++    /// share at least one term with the query are returned.
++    pub fn search(&self, query: &str, limit: usize) -> Vec<(K, f64)> {
++        if limit == 0 || self.docs.is_empty() {
++            return Vec::new();
++        }
++        let avg = self.average_len();
++        let mut scores: HashMap<&K, f64> = HashMap::new();
++        for term in distinct(tokenize(query)) {
++            let Some(posting) = self.postings.get(&term) else {
++                continue;
++            };
++            for (key, tf) in posting {
++                let len = self.docs.get(key).map_or(0, |d| d.len);
++                *scores.entry(key).or_insert(0.0) += self.term_score(&term, *tf, len, avg);
++            }
++        }
++        let mut ranked: Vec<(K, f64)> = scores.into_iter().map(|(k, s)| (k.clone(), s)).collect();
++        ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
++        ranked.truncate(limit);
++        ranked
++    }
++
++    fn average_len(&self) -> f64 {
++        if self.docs.is_empty() {
++            0.0
++        } else {
++            self.total_len as f64 / self.docs.len() as f64
++        }
++    }
++
++    fn term_score(&self, term: &str, tf: u32, doc_len: u32, avg_len: f64) -> f64 {
++        let n = self.postings.get(term).map_or(0, HashMap::len) as f64;
++        let total = self.docs.len() as f64;
++        let idf = (1.0 + (total - n + 0.5) / (n + 0.5)).ln();
++        let tf = f64::from(tf);
++        let norm = if avg_len > 0.0 {
++            1.0 - self.params.b + self.params.b * f64::from(doc_len) / avg_len
++        } else {
++            1.0
++        };
++        idf * tf * (self.params.k1 + 1.0) / (tf + self.params.k1 * norm)
++    }
++}
++
++fn distinct(tokens: Vec<String>) -> Vec<String> {
++    let mut seen = HashSet::new();
++    tokens
++        .into_iter()
++        .filter(|t| seen.insert(t.clone()))
++        .collect()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn tokenize_folds_and_splits_on_non_alphanumerics() {
++        assert_eq!(
++            tokenize("Hello, World! foo_bar-9"),
++            vec!["hello", "world", "foo", "bar", "9"]
++        );
++        assert!(tokenize("  ...  ").is_empty());
++        assert_eq!(tokenize("Stra\u{df}e"), vec!["strasse"]);
++    }
++
++    #[test]
++    fn rarer_terms_and_higher_frequency_rank_first() {
++        let mut index = Bm25Index::new();
++        index.insert(1u32, "rust rust rust language");
++        index.insert(2, "rust language guide");
++        index.insert(3, "garden guide");
++        let hits = index.search("rust", 10);
++        let keys: Vec<u32> = hits.iter().map(|h| h.0).collect();
++        assert_eq!(keys, vec![1, 2]);
++        assert!(hits[0].1 > hits[1].1 && hits[1].1 > 0.0);
++        // "rust" is in two documents of three, "garden" in one: the rarer term scores higher.
++        let garden = index.score("garden", &3).unwrap();
++        let guide = index.score("guide", &3).unwrap();
++        assert!(garden > guide);
++    }
++
++    #[test]
++    fn shorter_documents_win_at_equal_frequency() {
++        let mut index = Bm25Index::new();
++        index.insert("long", "needle a b c d e f g h i j k l m n o p");
++        index.insert("short", "needle a");
++        let hits = index.search("needle", 2);
++        assert_eq!(hits[0].0, "short");
++    }
++
++    #[test]
++    fn replace_and_remove_keep_the_statistics_consistent() {
++        let mut index = Bm25Index::new();
++        index.insert(1u32, "alpha beta");
++        index.insert(1, "gamma");
++        assert_eq!(index.len(), 1);
++        assert!(index.search("alpha", 5).is_empty());
++        assert_eq!(index.search("gamma", 5).len(), 1);
++        assert!(index.remove(&1));
++        assert!(!index.remove(&1));
++        assert!(index.is_empty());
++        assert!(index.search("gamma", 5).is_empty());
++        assert_eq!(index.score("gamma", &1), None);
++    }
++
++    #[test]
++    fn ties_order_by_key_and_limits_are_honoured() {
++        let mut index = Bm25Index::new();
++        index.insert(2u32, "same text");
++        index.insert(1, "same text");
++        index.insert(3, "same text");
++        let keys: Vec<u32> = index.search("same", 2).into_iter().map(|h| h.0).collect();
++        assert_eq!(keys, vec![1, 2]);
++        assert!(index.search("same", 0).is_empty());
++        assert!(index.search("", 5).is_empty());
++    }
++
++    #[test]
++    fn params_are_sanitised() {
++        let p = Bm25Params::new(f64::NAN, 7.0);
++        assert_eq!(p.k1, 1.2);
++        assert_eq!(p.b, 1.0);
++        assert_eq!(Bm25Params::new(-1.0, f64::INFINITY), Bm25Params::default());
++    }
++}
+diff --git a/crates/rightkit-search/src/fts5.rs b/crates/rightkit-search/src/fts5.rs
+new file mode 100644
+index 0000000..bb9cc7f
+--- /dev/null
++++ b/crates/rightkit-search/src/fts5.rs
+@@ -0,0 +1,637 @@
++//! FTS5 index management and BM25 ranking inside SQLite (feature `sqlite`).
++//!
++//! [`crate::sql::Schema`] compiles a query to a `MATCH` predicate; this module owns the other
++//! half: creating the FTS5 table, keeping it in step with the rows it indexes, rebuilding and
++//! checking it, and ranking hits with SQLite's built-in `bm25()`.
++//!
++//! Three layouts are supported by [`Fts5Table`]:
++//!
++//! - **Own content** (default): the FTS table stores the text. Write with
++//!   [`Fts5Table::index_row`] and [`Fts5Table::remove_row`].
++//! - **External content** ([`Fts5Table::external_content`]): the FTS table is a projection of
++//!   columns of a source table and stores no text of its own. [`Fts5Table::ensure`] also creates
++//!   the three triggers that keep it in step with the source, so writes go to the source table.
++//! - **Contentless** ([`Fts5Table::contentless`]): only the index is stored. Deleting a row
++//!   needs SQLite 3.43 or later and [`Fts5Table::contentless_delete`].
++//!
++//! Every name that reaches SQL is checked as a plain identifier (ASCII letters, digits and
++//! underscore, not starting with a digit) and the tokenizer spec is restricted to letters,
++//! digits, spaces, `_` and `=`, so no caller string can add SQL. Values and the `MATCH`
++//! expression are always bound parameters.
++
++use rusqlite::{Connection, ToSql};
++use std::fmt;
++
++/// Failure to build or run an FTS5 statement.
++#[derive(Debug)]
++#[non_exhaustive]
++pub enum Fts5Error {
++    /// A table, column or rowid name that is not a plain identifier.
++    InvalidIdentifier(String),
++    /// A tokenizer spec with a character outside letters, digits, space, `_` and `=`.
++    InvalidTokenizer(String),
++    /// The table has no columns.
++    NoColumns,
++    /// A row with the wrong number of values, or a weight list of the wrong length.
++    ColumnCount {
++        expected: usize,
++        got: usize,
++    },
++    /// A BM25 weight that is not a finite number.
++    InvalidWeight,
++    /// The operation does not apply to this layout (for example writing the FTS table
++    /// directly when it is an external-content projection).
++    Unsupported(&'static str),
++    Sqlite(rusqlite::Error),
++}
++
++impl fmt::Display for Fts5Error {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            Self::InvalidIdentifier(name) => write!(f, "not a plain SQL identifier: {name:?}"),
++            Self::InvalidTokenizer(spec) => write!(f, "unsupported tokenizer spec: {spec:?}"),
++            Self::NoColumns => write!(f, "FTS5 table has no columns"),
++            Self::ColumnCount { expected, got } => {
++                write!(f, "expected {expected} values, got {got}")
++            }
++            Self::InvalidWeight => write!(f, "BM25 weight is not finite"),
++            Self::Unsupported(why) => write!(f, "unsupported: {why}"),
++            Self::Sqlite(e) => write!(f, "SQLite: {e}"),
++        }
++    }
++}
++
++impl std::error::Error for Fts5Error {
++    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
++        match self {
++            Self::Sqlite(e) => Some(e),
++            _ => None,
++        }
++    }
++}
++
++impl From<rusqlite::Error> for Fts5Error {
++    fn from(e: rusqlite::Error) -> Self {
++        Self::Sqlite(e)
++    }
++}
++
++fn check_ident(name: &str) -> Result<(), Fts5Error> {
++    let mut chars = name.chars();
++    let ok = match chars.next() {
++        Some(c) => {
++            (c.is_ascii_alphabetic() || c == '_')
++                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
++        }
++        None => false,
++    };
++    if ok {
++        Ok(())
++    } else {
++        Err(Fts5Error::InvalidIdentifier(name.to_owned()))
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++enum Content {
++    Own,
++    External { table: String, rowid: String },
++    Contentless,
++}
++
++/// One ranked hit: the FTS rowid and a score where higher is better (the negation of
++/// SQLite's `bm25()`, which is lower for better matches).
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct Fts5Hit {
++    pub rowid: i64,
++    pub score: f64,
++}
++
++/// Definition of one FTS5 table. See the module documentation for the layouts.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Fts5Table {
++    name: String,
++    columns: Vec<String>,
++    tokenizer: Option<String>,
++    prefixes: Vec<u32>,
++    content: Content,
++    contentless_delete: bool,
++}
++
++impl Fts5Table {
++    /// An own-content table named `name` with `columns`.
++    pub fn new(name: &str, columns: &[&str]) -> Result<Self, Fts5Error> {
++        check_ident(name)?;
++        if columns.is_empty() {
++            return Err(Fts5Error::NoColumns);
++        }
++        for column in columns {
++            check_ident(column)?;
++        }
++        Ok(Self {
++            name: name.to_owned(),
++            columns: columns.iter().map(|c| (*c).to_owned()).collect(),
++            tokenizer: None,
++            prefixes: Vec::new(),
++            content: Content::Own,
++            contentless_delete: false,
++        })
++    }
++
++    /// Sets the tokenizer spec, for example `unicode61 remove_diacritics 2` or
++    /// `porter unicode61`. Only letters, digits, spaces, `_` and `=` are accepted.
++    pub fn tokenizer(mut self, spec: &str) -> Result<Self, Fts5Error> {
++        let ok = !spec.trim().is_empty()
++            && spec
++                .chars()
++                .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '='));
++        if !ok {
++            return Err(Fts5Error::InvalidTokenizer(spec.to_owned()));
++        }
++        self.tokenizer = Some(spec.trim().to_owned());
++        Ok(self)
++    }
++
++    /// Prefix index lengths (`prefix='2 3'`), so `ab*` queries do not scan the term list.
++    pub fn prefixes(mut self, lengths: &[u32]) -> Self {
++        self.prefixes = lengths.iter().copied().filter(|n| *n > 0).collect();
++        self
++    }
++
++    /// Makes the table a projection of `table`: it stores no text, reads it back from `table`
++    /// by `rowid_column`, and `ensure` creates triggers that mirror inserts, updates and
++    /// deletes. The FTS column names must be columns of `table`.
++    pub fn external_content(mut self, table: &str, rowid_column: &str) -> Result<Self, Fts5Error> {
++        check_ident(table)?;
++        check_ident(rowid_column)?;
++        self.content = Content::External {
++            table: table.to_owned(),
++            rowid: rowid_column.to_owned(),
++        };
++        Ok(self)
++    }
++
++    /// Makes the table contentless: only the index is kept, snippets and column reads are
++    /// unavailable.
++    pub fn contentless(mut self) -> Self {
++        self.content = Content::Contentless;
++        self
++    }
++
++    /// For a contentless table, allows `DELETE` and `UPDATE` (`contentless_delete=1`,
++    /// SQLite 3.43 or later).
++    pub fn contentless_delete(mut self, on: bool) -> Self {
++        self.contentless_delete = on;
++        self
++    }
++
++    pub fn name(&self) -> &str {
++        &self.name
++    }
++
++    pub fn columns(&self) -> &[String] {
++        &self.columns
++    }
++
++    /// `CREATE VIRTUAL TABLE IF NOT EXISTS ...`.
++    pub fn create_sql(&self) -> String {
++        let mut parts: Vec<String> = self.columns.clone();
++        if let Some(spec) = &self.tokenizer {
++            parts.push(format!("tokenize = '{spec}'"));
++        }
++        if !self.prefixes.is_empty() {
++            let list: Vec<String> = self.prefixes.iter().map(u32::to_string).collect();
++            parts.push(format!("prefix = '{}'", list.join(" ")));
++        }
++        match &self.content {
++            Content::Own => {}
++            Content::External { table, rowid } => {
++                parts.push(format!("content = '{table}'"));
++                parts.push(format!("content_rowid = '{rowid}'"));
++            }
++            Content::Contentless => {
++                parts.push("content = ''".to_owned());
++                if self.contentless_delete {
++                    parts.push("contentless_delete = 1".to_owned());
++                }
++            }
++        }
++        format!(
++            "CREATE VIRTUAL TABLE IF NOT EXISTS {} USING fts5({})",
++            self.name,
++            parts.join(", ")
++        )
++    }
++
++    /// The three `CREATE TRIGGER IF NOT EXISTS` statements that keep an external-content
++    /// table in step with its source table; empty for the other layouts.
++    pub fn trigger_sql(&self) -> Vec<String> {
++        let Content::External { table, rowid } = &self.content else {
++            return Vec::new();
++        };
++        let name = &self.name;
++        let cols = self.columns.join(", ");
++        let new_vals: Vec<String> = self.columns.iter().map(|c| format!("new.{c}")).collect();
++        let old_vals: Vec<String> = self.columns.iter().map(|c| format!("old.{c}")).collect();
++        let new_vals = new_vals.join(", ");
++        let old_vals = old_vals.join(", ");
++        let insert = format!("INSERT INTO {name}(rowid, {cols}) VALUES (new.{rowid}, {new_vals});");
++        let delete = format!(
++            "INSERT INTO {name}({name}, rowid, {cols}) VALUES ('delete', old.{rowid}, {old_vals});"
++        );
++        vec![
++            format!("CREATE TRIGGER IF NOT EXISTS {name}_ai AFTER INSERT ON {table} BEGIN {insert} END"),
++            format!("CREATE TRIGGER IF NOT EXISTS {name}_ad AFTER DELETE ON {table} BEGIN {delete} END"),
++            format!(
++                "CREATE TRIGGER IF NOT EXISTS {name}_au AFTER UPDATE ON {table} BEGIN {delete} {insert} END"
++            ),
++        ]
++    }
++
++    /// Creates the table and, for external content, its triggers. Safe to call at every start.
++    /// It does not index rows that already exist in the source; call [`Fts5Table::rebuild`]
++    /// once after creating a projection over a populated table.
++    pub fn ensure(&self, conn: &Connection) -> Result<(), Fts5Error> {
++        conn.execute_batch(&self.create_sql())?;
++        for sql in self.trigger_sql() {
++            conn.execute_batch(&sql)?;
++        }
++        Ok(())
++    }
++
++    /// True when the table exists in the main database.
++    pub fn exists(&self, conn: &Connection) -> Result<bool, Fts5Error> {
++        let n: i64 = conn.query_row(
++            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
++            [&self.name],
++            |row| row.get(0),
++        )?;
++        Ok(n > 0)
++    }
++
++    /// Drops the triggers and the table.
++    pub fn drop_table(&self, conn: &Connection) -> Result<(), Fts5Error> {
++        let name = &self.name;
++        conn.execute_batch(&format!(
++            "DROP TRIGGER IF EXISTS {name}_ai; DROP TRIGGER IF EXISTS {name}_ad; \
++             DROP TRIGGER IF EXISTS {name}_au; DROP TABLE IF EXISTS {name};"
++        ))?;
++        Ok(())
++    }
++
++    /// Re-reads the source rows and rebuilds the whole index (`'rebuild'`). For an own-content
++    /// table it rebuilds from the stored text. Not available for a contentless table.
++    pub fn rebuild(&self, conn: &Connection) -> Result<(), Fts5Error> {
++        if self.content == Content::Contentless {
++            return Err(Fts5Error::Unsupported(
++                "a contentless table cannot be rebuilt",
++            ));
++        }
++        self.command(conn, "rebuild")
++    }
++
++    /// Merges the index segments (`'optimize'`).
++    pub fn optimize(&self, conn: &Connection) -> Result<(), Fts5Error> {
++        self.command(conn, "optimize")
++    }
++
++    /// Runs `'integrity-check'`. For an external-content projection it also compares the
++    /// index with the source table. A mismatch is an `Err(Fts5Error::Sqlite(..))`.
++    pub fn integrity_check(&self, conn: &Connection) -> Result<(), Fts5Error> {
++        let rank = i64::from(matches!(self.content, Content::External { .. }));
++        conn.execute(
++            &format!(
++                "INSERT INTO {0}({0}, rank) VALUES ('integrity-check', ?1)",
++                self.name
++            ),
++            [rank],
++        )?;
++        Ok(())
++    }
++
++    fn command(&self, conn: &Connection, command: &str) -> Result<(), Fts5Error> {
++        conn.execute_batch(&format!(
++            "INSERT INTO {0}({0}) VALUES ('{command}')",
++            self.name
++        ))?;
++        Ok(())
++    }
++
++    /// Inserts or replaces the row `rowid` of an own-content table (or inserts into a
++    /// contentless one). `values` pair with the columns by position.
++    pub fn index_row(
++        &self,
++        conn: &Connection,
++        rowid: i64,
++        values: &[&str],
++    ) -> Result<(), Fts5Error> {
++        self.writable()?;
++        if values.len() != self.columns.len() {
++            return Err(Fts5Error::ColumnCount {
++                expected: self.columns.len(),
++                got: values.len(),
++            });
++        }
++        if self.content == Content::Own || self.contentless_delete {
++            conn.execute(
++                &format!("DELETE FROM {} WHERE rowid = ?1", self.name),
++                [rowid],
++            )?;
++        }
++        let marks: Vec<String> = (2..=values.len() + 1).map(|i| format!("?{i}")).collect();
++        let sql = format!(
++            "INSERT INTO {}(rowid, {}) VALUES (?1, {})",
++            self.name,
++            self.columns.join(", "),
++            marks.join(", ")
++        );
++        let mut params: Vec<&dyn ToSql> = Vec::with_capacity(values.len() + 1);
++        params.push(&rowid);
++        for value in values {
++            params.push(value);
++        }
++        conn.execute(&sql, rusqlite::params_from_iter(params))?;
++        Ok(())
++    }
++
++    /// Removes the row `rowid` from an own-content table, or from a contentless table created
++    /// with [`Fts5Table::contentless_delete`]. Returns true when a row was removed.
++    pub fn remove_row(&self, conn: &Connection, rowid: i64) -> Result<bool, Fts5Error> {
++        self.writable()?;
++        if self.content == Content::Contentless && !self.contentless_delete {
++            return Err(Fts5Error::Unsupported(
++                "deleting from a contentless table needs contentless_delete",
++            ));
++        }
++        let n = conn.execute(
++            &format!("DELETE FROM {} WHERE rowid = ?1", self.name),
++            [rowid],
++        )?;
++        Ok(n > 0)
++    }
++
++    fn writable(&self) -> Result<(), Fts5Error> {
++        match self.content {
++            Content::External { .. } => Err(Fts5Error::Unsupported(
++                "write to the source table; its triggers update the projection",
++            )),
++            _ => Ok(()),
++        }
++    }
++
++    /// The SQL expression `bm25(table, w1, w2, ...)`, one weight per column in order (a
++    /// larger weight makes that column count more). `None` weights every column 1.
++    /// SQLite's `bm25()` is lower for better matches, so order ascending.
++    pub fn bm25_expr(&self, weights: Option<&[f64]>) -> Result<String, Fts5Error> {
++        let Some(weights) = weights else {
++            return Ok(format!("bm25({})", self.name));
++        };
++        if weights.len() != self.columns.len() {
++            return Err(Fts5Error::ColumnCount {
++                expected: self.columns.len(),
++                got: weights.len(),
++            });
++        }
++        if weights.iter().any(|w| !w.is_finite()) {
++            return Err(Fts5Error::InvalidWeight);
++        }
++        let list: Vec<String> = weights.iter().map(|w| format!("{w:?}")).collect();
++        Ok(format!("bm25({}, {})", self.name, list.join(", ")))
++    }
++
++    /// `SELECT rowid, <bm25> AS score FROM t WHERE t MATCH ?1 ORDER BY score LIMIT ?2`.
++    pub fn ranked_sql(&self, weights: Option<&[f64]>) -> Result<String, Fts5Error> {
++        Ok(format!(
++            "SELECT rowid, {} AS score FROM {} WHERE {} MATCH ?1 ORDER BY score, rowid LIMIT ?2",
++            self.bm25_expr(weights)?,
++            self.name,
++            self.name
++        ))
++    }
++
++    /// Runs `match_expr` (for example from [`crate::terms::Query::fts`]) and returns the best
++    /// `limit` rows, best first, ties by rowid. `Fts5Hit::score` is higher for better matches.
++    pub fn search(
++        &self,
++        conn: &Connection,
++        match_expr: &str,
++        weights: Option<&[f64]>,
++        limit: usize,
++    ) -> Result<Vec<Fts5Hit>, Fts5Error> {
++        if limit == 0 {
++            return Ok(Vec::new());
++        }
++        let sql = self.ranked_sql(weights)?;
++        let mut stmt = conn.prepare(&sql)?;
++        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
++        let rows = stmt.query_map(rusqlite::params![match_expr, limit], |row| {
++            Ok(Fts5Hit {
++                rowid: row.get(0)?,
++                score: -row.get::<_, f64>(1)?,
++            })
++        })?;
++        let mut hits = Vec::new();
++        for row in rows {
++            hits.push(row?);
++        }
++        Ok(hits)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn identifiers_and_tokenizers_are_validated() {
++        assert!(matches!(
++            Fts5Table::new("bad name", &["a"]),
++            Err(Fts5Error::InvalidIdentifier(_))
++        ));
++        assert!(matches!(
++            Fts5Table::new("t", &["a; DROP TABLE x"]),
++            Err(Fts5Error::InvalidIdentifier(_))
++        ));
++        assert!(matches!(
++            Fts5Table::new("t", &[]),
++            Err(Fts5Error::NoColumns)
++        ));
++        let t = Fts5Table::new("t", &["a"]).unwrap();
++        assert!(matches!(
++            t.clone().tokenizer("unicode61'); DROP TABLE x; --"),
++            Err(Fts5Error::InvalidTokenizer(_))
++        ));
++        assert!(t.tokenizer("porter unicode61 remove_diacritics 2").is_ok());
++    }
++
++    #[test]
++    fn create_sql_covers_each_layout() {
++        let own = Fts5Table::new("msg_fts", &["subject", "body"])
++            .unwrap()
++            .tokenizer("unicode61 remove_diacritics 2")
++            .unwrap()
++            .prefixes(&[2, 3]);
++        assert_eq!(
++            own.create_sql(),
++            "CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(subject, body, \
++             tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3')"
++        );
++        let ext = Fts5Table::new("msg_fts", &["subject"])
++            .unwrap()
++            .external_content("messages", "id")
++            .unwrap();
++        assert!(ext
++            .create_sql()
++            .ends_with("content = 'messages', content_rowid = 'id')"));
++        assert_eq!(ext.trigger_sql().len(), 3);
++        assert!(own.trigger_sql().is_empty());
++        let none = Fts5Table::new("c", &["a"])
++            .unwrap()
++            .contentless()
++            .contentless_delete(true);
++        assert!(none
++            .create_sql()
++            .ends_with("content = '', contentless_delete = 1)"));
++    }
++
++    #[test]
++    fn own_content_index_search_and_remove() {
++        let conn = Connection::open_in_memory().unwrap();
++        let t = Fts5Table::new("docs", &["title", "body"]).unwrap();
++        t.ensure(&conn).unwrap();
++        t.ensure(&conn).unwrap();
++        assert!(t.exists(&conn).unwrap());
++        t.index_row(&conn, 1, &["rust guide", "rust rust rust"])
++            .unwrap();
++        t.index_row(&conn, 2, &["garden", "a rust note"]).unwrap();
++        t.index_row(&conn, 3, &["cooking", "pasta"]).unwrap();
++        t.index_row(&conn, 4, &["travel", "maps"]).unwrap();
++        t.index_row(&conn, 5, &["music", "scales"]).unwrap();
++        let hits = t.search(&conn, "rust", None, 10).unwrap();
++        let ids: Vec<i64> = hits.iter().map(|h| h.rowid).collect();
++        assert_eq!(ids, vec![1, 2]);
++        assert!(hits[0].score > hits[1].score);
++        // Replacing a row removes the old terms.
++        t.index_row(&conn, 1, &["pasta", "x"]).unwrap();
++        let ids: Vec<i64> = t
++            .search(&conn, "rust", None, 10)
++            .unwrap()
++            .iter()
++            .map(|h| h.rowid)
++            .collect();
++        assert_eq!(ids, vec![2]);
++        assert!(t.remove_row(&conn, 2).unwrap());
++        assert!(!t.remove_row(&conn, 2).unwrap());
++        assert!(t.search(&conn, "rust", None, 10).unwrap().is_empty());
++        assert!(t.search(&conn, "pasta", None, 0).unwrap().is_empty());
++        t.integrity_check(&conn).unwrap();
++        t.optimize(&conn).unwrap();
++        assert!(matches!(
++            t.index_row(&conn, 9, &["only one"]),
++            Err(Fts5Error::ColumnCount {
++                expected: 2,
++                got: 1
++            })
++        ));
++    }
++
++    #[test]
++    fn weights_make_a_column_count_more() {
++        let conn = Connection::open_in_memory().unwrap();
++        let t = Fts5Table::new("docs", &["title", "body"]).unwrap();
++        t.ensure(&conn).unwrap();
++        t.index_row(&conn, 1, &["needle", "filler filler filler"])
++            .unwrap();
++        t.index_row(&conn, 2, &["filler", "needle filler filler"])
++            .unwrap();
++        for id in 3..=6 {
++            t.index_row(&conn, id, &["other", "unrelated text"])
++                .unwrap();
++        }
++        let by_title = t.search(&conn, "needle", Some(&[10.0, 1.0]), 10).unwrap();
++        assert_eq!(by_title[0].rowid, 1);
++        let by_body = t.search(&conn, "needle", Some(&[1.0, 10.0]), 10).unwrap();
++        assert_eq!(by_body[0].rowid, 2);
++        assert!(matches!(
++            t.bm25_expr(Some(&[1.0])),
++            Err(Fts5Error::ColumnCount {
++                expected: 2,
++                got: 1
++            })
++        ));
++        assert!(matches!(
++            t.bm25_expr(Some(&[1.0, f64::NAN])),
++            Err(Fts5Error::InvalidWeight)
++        ));
++        assert_eq!(
++            t.bm25_expr(Some(&[2.0, 0.5])).unwrap(),
++            "bm25(docs, 2.0, 0.5)"
++        );
++    }
++
++    #[test]
++    fn external_content_projection_follows_the_source_table() {
++        let conn = Connection::open_in_memory().unwrap();
++        conn.execute_batch(
++            "CREATE TABLE messages(id INTEGER PRIMARY KEY, subject TEXT, body TEXT);
++             INSERT INTO messages(subject, body) VALUES ('before', 'existing words');",
++        )
++        .unwrap();
++        let t = Fts5Table::new("msg_fts", &["subject", "body"])
++            .unwrap()
++            .external_content("messages", "id")
++            .unwrap();
++        t.ensure(&conn).unwrap();
++        // Rows that existed before the projection need one rebuild.
++        assert!(t.search(&conn, "existing", None, 5).unwrap().is_empty());
++        t.rebuild(&conn).unwrap();
++        assert_eq!(t.search(&conn, "existing", None, 5).unwrap().len(), 1);
++        conn.execute(
++            "INSERT INTO messages(subject, body) VALUES ('hello', 'new text')",
++            [],
++        )
++        .unwrap();
++        assert_eq!(t.search(&conn, "hello", None, 5).unwrap()[0].rowid, 2);
++        conn.execute("UPDATE messages SET subject = 'changed' WHERE id = 2", [])
++            .unwrap();
++        assert!(t.search(&conn, "hello", None, 5).unwrap().is_empty());
++        assert_eq!(t.search(&conn, "changed", None, 5).unwrap().len(), 1);
++        conn.execute("DELETE FROM messages WHERE id = 2", [])
++            .unwrap();
++        assert!(t.search(&conn, "changed", None, 5).unwrap().is_empty());
++        t.integrity_check(&conn).unwrap();
++        assert!(matches!(
++            t.index_row(&conn, 1, &["a", "b"]),
++            Err(Fts5Error::Unsupported(_))
++        ));
++        t.drop_table(&conn).unwrap();
++        assert!(!t.exists(&conn).unwrap());
++    }
++
++    #[test]
++    fn contentless_tables_index_and_gate_delete() {
++        let conn = Connection::open_in_memory().unwrap();
++        let t = Fts5Table::new("c", &["text"]).unwrap().contentless();
++        t.ensure(&conn).unwrap();
++        t.index_row(&conn, 7, &["findable words"]).unwrap();
++        assert_eq!(t.search(&conn, "findable", None, 5).unwrap()[0].rowid, 7);
++        assert!(matches!(
++            t.remove_row(&conn, 7),
++            Err(Fts5Error::Unsupported(_))
++        ));
++        assert!(matches!(t.rebuild(&conn), Err(Fts5Error::Unsupported(_))));
++    }
++
++    #[test]
++    fn match_expression_is_bound_not_spliced() {
++        let conn = Connection::open_in_memory().unwrap();
++        let t = Fts5Table::new("docs", &["body"]).unwrap();
++        t.ensure(&conn).unwrap();
++        t.index_row(&conn, 1, &["plain words"]).unwrap();
++        // Not valid FTS5 syntax: it is an SQLite error, never executed as SQL.
++        assert!(t
++            .search(&conn, "x'); DROP TABLE docs; --", None, 5)
++            .is_err());
++        assert!(t.exists(&conn).unwrap());
++    }
++}
+diff --git a/crates/rightkit-search/src/fusion.rs b/crates/rightkit-search/src/fusion.rs
+new file mode 100644
+index 0000000..ee366c4
+--- /dev/null
++++ b/crates/rightkit-search/src/fusion.rs
+@@ -0,0 +1,112 @@
++//! Reciprocal-rank fusion (RRF) of ranked lists, for merging a lexical ranking (BM25, FTS5)
++//! with a semantic one (nearest vectors). Pure: no model, no database, no feature gate.
++
++use std::collections::{HashMap, HashSet};
++use std::hash::Hash;
++
++/// The damping constant of the original RRF paper (Cormack, Clarke and Buettcher, 2009).
++pub const RRF_K: f64 = 60.0;
++
++/// Fuses ranked lists, best first, by reciprocal rank. An item scores `sum(1 / (k + rank))`
++/// over every list that holds it, with rank starting at 1, so an item near the top of several
++/// lists beats one at the top of only one. Returns each item once, best score first. Items with
++/// equal scores keep the order in which they first appear across the lists.
++///
++/// An item may appear at most once per list; a repeat in one list counts at its first rank.
++/// A `k` that is not finite or is negative returns an empty result. Use [`RRF_K`] for the
++/// conventional value.
++pub fn reciprocal_rank_fusion<K: Eq + Hash + Clone>(rankings: &[&[K]], k: f64) -> Vec<(K, f64)> {
++    let weights = vec![1.0; rankings.len()];
++    weighted_reciprocal_rank_fusion(rankings, &weights, k)
++}
++
++/// [`reciprocal_rank_fusion`] with one weight per list: an item scores
++/// `sum(weight / (k + rank))`. `weights` pairs with `rankings` by position; a list without a
++/// weight counts with weight 1, and a weight that is not finite or is negative drops that list.
++pub fn weighted_reciprocal_rank_fusion<K: Eq + Hash + Clone>(
++    rankings: &[&[K]],
++    weights: &[f64],
++    k: f64,
++) -> Vec<(K, f64)> {
++    if !k.is_finite() || k < 0.0 {
++        return Vec::new();
++    }
++    let mut slots: HashMap<K, usize> = HashMap::new();
++    let mut fused: Vec<(K, f64)> = Vec::new();
++    for (list, ranking) in rankings.iter().enumerate() {
++        let weight = weights.get(list).copied().unwrap_or(1.0);
++        if !weight.is_finite() || weight < 0.0 {
++            continue;
++        }
++        let mut seen: HashSet<&K> = HashSet::with_capacity(ranking.len());
++        for (position, item) in ranking.iter().enumerate() {
++            if !seen.insert(item) {
++                continue;
++            }
++            let contribution = weight / (k + position as f64 + 1.0);
++            match slots.get(item) {
++                Some(&slot) => fused[slot].1 += contribution,
++                None => {
++                    slots.insert(item.clone(), fused.len());
++                    fused.push((item.clone(), contribution));
++                }
++            }
++        }
++    }
++    // Stable sort: equal scores keep first-appearance order.
++    fused.sort_by(|left, right| right.1.total_cmp(&left.1));
++    fused
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn items_in_several_lists_outrank_a_single_top_hit() {
++        let lexical = ["a", "b", "c"];
++        let semantic = ["b", "d", "a"];
++        let fused = reciprocal_rank_fusion(&[&lexical[..], &semantic[..]], RRF_K);
++        let order: Vec<&str> = fused.iter().map(|(key, _)| *key).collect();
++        assert_eq!(order, vec!["b", "a", "d", "c"]);
++        let b = 1.0 / 62.0 + 1.0 / 61.0;
++        assert!((fused[0].1 - b).abs() < 1e-12);
++    }
++
++    #[test]
++    fn ties_keep_first_appearance_and_repeats_count_once() {
++        let first = ["x", "y", "x"];
++        let second = ["y", "x"];
++        let fused = reciprocal_rank_fusion(&[&first[..], &second[..]], 0.0);
++        let order: Vec<&str> = fused.iter().map(|(key, _)| *key).collect();
++        assert_eq!(order, vec!["x", "y"]);
++        assert!((fused[0].1 - 1.5).abs() < 1e-12);
++        assert!((fused[1].1 - 1.5).abs() < 1e-12);
++    }
++
++    #[test]
++    fn empty_input_and_invalid_k_are_empty() {
++        let none: [&[u32]; 0] = [];
++        assert!(reciprocal_rank_fusion(&none, RRF_K).is_empty());
++        let one = [1u32, 2];
++        assert!(reciprocal_rank_fusion(&[&one[..]], -1.0).is_empty());
++        assert!(reciprocal_rank_fusion(&[&one[..]], f64::NAN).is_empty());
++        assert_eq!(reciprocal_rank_fusion(&[&one[..]], RRF_K).len(), 2);
++    }
++
++    #[test]
++    fn weights_scale_a_list_and_invalid_weights_drop_it() {
++        let lexical = ["a", "b"];
++        let semantic = ["b", "a"];
++        let fused =
++            weighted_reciprocal_rank_fusion(&[&lexical[..], &semantic[..]], &[1.0, 3.0], 0.0);
++        let order: Vec<&str> = fused.iter().map(|(key, _)| *key).collect();
++        assert_eq!(order, vec!["b", "a"]);
++        assert!((fused[0].1 - (1.0 / 2.0 + 3.0 / 1.0)).abs() < 1e-12);
++        let dropped =
++            weighted_reciprocal_rank_fusion(&[&lexical[..], &semantic[..]], &[f64::NAN, 1.0], 0.0);
++        let order: Vec<&str> = dropped.iter().map(|(key, _)| *key).collect();
++        assert_eq!(order, vec!["b", "a"]);
++        assert!((dropped[0].1 - 1.0).abs() < 1e-12);
++    }
++}
+diff --git a/crates/rightkit-search/src/grep.rs b/crates/rightkit-search/src/grep.rs
+new file mode 100644
+index 0000000..31ccadf
+--- /dev/null
++++ b/crates/rightkit-search/src/grep.rs
+@@ -0,0 +1,912 @@
++//! Budgeted, resumable regex content search over a caller-supplied list of workspace files
++//! (feature `workspace-grep`; Orthic-Labs/rightkit#580).
++//!
++//! [`grep_page`] runs one page of a search: a regex over the lines of each file, in the three
++//! shapes of a code-search tool ([`GrepMode`]), within a [`GrepBudget`] (results, bytes per
++//! file and per page, files per page, deadline) and a [`CancelToken`]. The page ends with a
++//! [`GrepStatus`], and when more remains, a [`GrepCursor`] that resumes exactly there. The
++//! cursor is bound to the root and to the search (pattern, case, mode, context, glob) by a
++//! SHA-256 digest, so a cursor from another search or workspace is refused, not silently
++//! applied. Budgets are not part of the binding: a caller may change them between pages.
++//!
++//! **The file list is the caller's.** This module does not walk the directory tree and does not
++//! read `.gitignore`: the ignore-aware walk is a separate owner (Orthic-Labs/rightkit#417).
++//! Pass the workspace-relative, `/`-separated paths that walk produced. Paths are validated
++//! (no absolute path, no `..`), symbolic links are skipped, and files that are over the byte
++//! budget, contain a NUL byte in their first 8 KiB, or cannot be read are counted in
++//! [`GrepPage::files_skipped`] and not searched. Lines are split like [`str::lines`]; invalid
++//! UTF-8 is replaced, not refused.
++
++use regex::RegexBuilder;
++use sha2::{Digest, Sha256};
++use std::fmt;
++use std::fs;
++use std::io;
++use std::path::{Component, Path};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::Arc;
++use std::time::Instant;
++
++/// A clonable cancellation flag. Clones share one flag; [`CancelToken::cancel`] on any clone
++/// stops a running [`grep_page`] at its next check (at least once per file and every 4096 lines).
++#[derive(Debug, Clone, Default)]
++pub struct CancelToken(Arc<AtomicBool>);
++
++impl CancelToken {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    pub fn cancel(&self) {
++        self.0.store(true, Ordering::Relaxed);
++    }
++
++    pub fn is_cancelled(&self) -> bool {
++        self.0.load(Ordering::Relaxed)
++    }
++}
++
++/// What a search returns for each file that matches.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[non_exhaustive]
++pub enum GrepMode {
++    /// Each matching line, with `context` lines around it.
++    Content,
++    /// The path of each file with at least one match.
++    FilesWithMatches,
++    /// The number of matching lines of each file with at least one match.
++    Count,
++}
++
++impl GrepMode {
++    fn tag(self) -> &'static str {
++        match self {
++            Self::Content => "content",
++            Self::FilesWithMatches => "files",
++            Self::Count => "count",
++        }
++    }
++}
++
++/// Per-page limits. Every field has a default from [`GrepBudget::default`].
++#[derive(Debug, Clone, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct GrepBudget {
++    /// Results per page (a match line, a file or a count each count one).
++    pub max_results: usize,
++    /// Files larger than this are skipped, not searched.
++    pub max_file_bytes: u64,
++    /// Bytes of result text per page (match lines and context, and paths); the page ends
++    /// before the result that would pass it, but always holds at least one result.
++    pub max_page_bytes: usize,
++    /// Files opened per page.
++    pub max_files: usize,
++    /// The page ends with [`GrepStatus::Deadline`] once this instant has passed.
++    pub deadline: Option<Instant>,
++}
++
++impl Default for GrepBudget {
++    fn default() -> Self {
++        Self {
++            max_results: 200,
++            max_file_bytes: 2 * 1024 * 1024,
++            max_page_bytes: 256 * 1024,
++            max_files: 5_000,
++            deadline: None,
++        }
++    }
++}
++
++/// How a page ended.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[non_exhaustive]
++pub enum GrepStatus {
++    /// Every file was searched; `next` is `None`.
++    Complete,
++    /// A budget (results, bytes or files) ended the page; `next` resumes.
++    Truncated,
++    /// The [`CancelToken`] was set; `next` resumes.
++    Cancelled,
++    /// The deadline passed; `next` resumes.
++    Deadline,
++}
++
++/// One search request. Build with [`GrepRequest::new`] and the `with_*` methods.
++#[derive(Debug, Clone)]
++#[non_exhaustive]
++pub struct GrepRequest {
++    pub pattern: String,
++    pub case_sensitive: bool,
++    pub mode: GrepMode,
++    /// Lines of context before and after each match ([`GrepMode::Content`] only).
++    pub context: usize,
++    /// Optional path filter: `*` (not `/`), `**` (anything), `?`. A glob without `/` matches the
++    /// file name; one with `/` matches the whole relative path.
++    pub glob: Option<String>,
++    pub budget: GrepBudget,
++    pub cursor: Option<GrepCursor>,
++}
++
++impl GrepRequest {
++    /// A case-sensitive [`GrepMode::Content`] search for `pattern` with no context.
++    pub fn new(pattern: &str) -> Self {
++        Self {
++            pattern: pattern.to_owned(),
++            case_sensitive: true,
++            mode: GrepMode::Content,
++            context: 0,
++            glob: None,
++            budget: GrepBudget::default(),
++            cursor: None,
++        }
++    }
++
++    pub fn with_case_sensitive(mut self, on: bool) -> Self {
++        self.case_sensitive = on;
++        self
++    }
++
++    pub fn with_mode(mut self, mode: GrepMode) -> Self {
++        self.mode = mode;
++        self
++    }
++
++    pub fn with_context(mut self, lines: usize) -> Self {
++        self.context = lines;
++        self
++    }
++
++    pub fn with_glob(mut self, glob: &str) -> Self {
++        self.glob = Some(glob.to_owned());
++        self
++    }
++
++    pub fn with_budget(mut self, budget: GrepBudget) -> Self {
++        self.budget = budget;
++        self
++    }
++
++    pub fn with_cursor(mut self, cursor: GrepCursor) -> Self {
++        self.cursor = Some(cursor);
++        self
++    }
++}
++
++/// One result of a page.
++#[derive(Debug, Clone, PartialEq, Eq)]
++#[non_exhaustive]
++pub enum GrepResult {
++    Match {
++        path: String,
++        /// 1-based line number.
++        line: u64,
++        text: String,
++        before: Vec<String>,
++        after: Vec<String>,
++    },
++    File {
++        path: String,
++    },
++    Count {
++        path: String,
++        count: u64,
++    },
++}
++
++/// One page of results.
++#[derive(Debug, Clone, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct GrepPage {
++    pub results: Vec<GrepResult>,
++    pub status: GrepStatus,
++    /// Resume point; `None` exactly when `status` is [`GrepStatus::Complete`].
++    pub next: Option<GrepCursor>,
++    /// Files opened and searched on this page.
++    pub files_scanned: usize,
++    /// Files skipped on this page: over the byte budget, binary, a symbolic link or unreadable.
++    pub files_skipped: usize,
++}
++
++/// Failure to run a search.
++#[derive(Debug)]
++#[non_exhaustive]
++pub enum GrepError {
++    /// The pattern is not a valid regex (or is over the size limit).
++    Pattern(String),
++    /// The glob is empty, too long or has too many wildcards.
++    Glob(String),
++    /// The cursor text is not a cursor.
++    BadCursor,
++    /// The cursor belongs to a different root or search.
++    CursorMismatch,
++    /// A file path that is absolute or contains `..` or a non-normal component.
++    UnsafePath(String),
++}
++
++impl fmt::Display for GrepError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            Self::Pattern(e) => write!(f, "invalid pattern: {e}"),
++            Self::Glob(e) => write!(f, "invalid glob: {e}"),
++            Self::BadCursor => write!(f, "malformed grep cursor"),
++            Self::CursorMismatch => write!(f, "cursor belongs to a different root or search"),
++            Self::UnsafePath(p) => write!(f, "unsafe workspace path: {p:?}"),
++        }
++    }
++}
++
++impl std::error::Error for GrepError {}
++
++/// Resume point of a search, bound to its root and parameters by a SHA-256 digest.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct GrepCursor {
++    binding: [u8; 32],
++    /// Resume in this file...
++    path: String,
++    /// ...after this 1-based line (0 = from the start of the file).
++    line: u64,
++}
++
++impl GrepCursor {
++    /// Text form: `g1.<binding hex>.<line>.<path hex>`.
++    pub fn encode(&self) -> String {
++        format!(
++            "g1.{}.{}.{}",
++            hex(&self.binding),
++            self.line,
++            hex(self.path.as_bytes())
++        )
++    }
++
++    /// Inverse of [`GrepCursor::encode`]. Whether the cursor fits a search is checked by
++    /// [`grep_page`].
++    pub fn decode(text: &str) -> Result<Self, GrepError> {
++        let mut parts = text.splitn(4, '.');
++        if parts.next() != Some("g1") {
++            return Err(GrepError::BadCursor);
++        }
++        let binding_hex = parts.next().ok_or(GrepError::BadCursor)?;
++        let line = parts
++            .next()
++            .and_then(|l| l.parse::<u64>().ok())
++            .ok_or(GrepError::BadCursor)?;
++        let path_hex = parts.next().ok_or(GrepError::BadCursor)?;
++        let binding_bytes = unhex(binding_hex).ok_or(GrepError::BadCursor)?;
++        let binding: [u8; 32] = binding_bytes.try_into().map_err(|_| GrepError::BadCursor)?;
++        let path = String::from_utf8(unhex(path_hex).ok_or(GrepError::BadCursor)?)
++            .map_err(|_| GrepError::BadCursor)?;
++        Ok(Self {
++            binding,
++            path,
++            line,
++        })
++    }
++
++    /// The workspace-relative path the search resumes in.
++    pub fn path(&self) -> &str {
++        &self.path
++    }
++}
++
++fn hex(bytes: &[u8]) -> String {
++    let mut out = String::with_capacity(bytes.len() * 2);
++    for b in bytes {
++        out.push_str(&format!("{b:02x}"));
++    }
++    out
++}
++
++fn unhex(text: &str) -> Option<Vec<u8>> {
++    if text.len() % 2 != 0 || !text.is_ascii() {
++        return None;
++    }
++    (0..text.len() / 2)
++        .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok())
++        .collect()
++}
++
++fn binding(root: &Path, req: &GrepRequest) -> [u8; 32] {
++    let mut hasher = Sha256::new();
++    let mut field = |bytes: &[u8]| {
++        hasher.update((bytes.len() as u64).to_le_bytes());
++        hasher.update(bytes);
++    };
++    field(b"rightkit-search/grep/1");
++    field(root.to_string_lossy().as_bytes());
++    field(req.pattern.as_bytes());
++    field(&[u8::from(req.case_sensitive)]);
++    field(req.mode.tag().as_bytes());
++    field(&(req.context as u64).to_le_bytes());
++    field(req.glob.as_deref().unwrap_or("").as_bytes());
++    hasher.finalize().into()
++}
++
++const MAX_GLOB_LEN: usize = 256;
++const MAX_GLOB_STARS: usize = 8;
++
++fn check_glob(glob: &str) -> Result<(), GrepError> {
++    if glob.is_empty() || glob.len() > MAX_GLOB_LEN {
++        return Err(GrepError::Glob("empty or longer than 256 bytes".to_owned()));
++    }
++    if glob.chars().filter(|c| *c == '*').count() > MAX_GLOB_STARS {
++        return Err(GrepError::Glob("more than 8 wildcards".to_owned()));
++    }
++    Ok(())
++}
++
++fn glob_match(pattern: &[char], text: &[char]) -> bool {
++    match pattern.first() {
++        None => text.is_empty(),
++        Some('*') => {
++            if pattern.get(1) == Some(&'*') {
++                let rest = &pattern[2..];
++                if rest.first() == Some(&'/') && glob_match(&rest[1..], text) {
++                    return true;
++                }
++                (0..=text.len()).any(|i| glob_match(rest, &text[i..]))
++            } else {
++                let rest = &pattern[1..];
++                let mut i = 0;
++                loop {
++                    if glob_match(rest, &text[i..]) {
++                        return true;
++                    }
++                    if i < text.len() && text[i] != '/' {
++                        i += 1;
++                    } else {
++                        return false;
++                    }
++                }
++            }
++        }
++        Some('?') => {
++            matches!(text.first(), Some(c) if *c != '/') && glob_match(&pattern[1..], &text[1..])
++        }
++        Some(c) => text.first() == Some(c) && glob_match(&pattern[1..], &text[1..]),
++    }
++}
++
++fn matches_glob(glob: &[char], has_slash: bool, path: &str) -> bool {
++    let target = if has_slash {
++        path
++    } else {
++        path.rsplit('/').next().unwrap_or(path)
++    };
++    let text: Vec<char> = target.chars().collect();
++    glob_match(glob, &text)
++}
++
++fn check_path(path: &str) -> Result<(), GrepError> {
++    let p = Path::new(path);
++    let ok = !path.is_empty()
++        && !path.contains('\\')
++        && p.components().all(|c| matches!(c, Component::Normal(_)));
++    if ok {
++        Ok(())
++    } else {
++        Err(GrepError::UnsafePath(path.to_owned()))
++    }
++}
++
++/// How often the line loop checks the cancel token and deadline.
++const CHECK_EVERY_LINES: usize = 4096;
++
++/// Runs one page of a search over `files` (workspace-relative, `/`-separated paths) under
++/// `root`. The list is sorted and de-duplicated here, so the order of the input does not
++/// matter, but the same set must be passed for every page of one search: a cursor resumes at
++/// the first listed path at or after the one it names.
++///
++/// # Errors
++///
++/// [`GrepError::Pattern`] / [`GrepError::Glob`] for a bad request, [`GrepError::BadCursor`] /
++/// [`GrepError::CursorMismatch`] for a cursor that is not this search's, and
++/// [`GrepError::UnsafePath`] for a path in `files` that escapes the root. Per-file read
++/// failures are not errors: the file is counted in `files_skipped`.
++pub fn grep_page(
++    root: &Path,
++    files: &[String],
++    request: &GrepRequest,
++    cancel: &CancelToken,
++) -> Result<GrepPage, GrepError> {
++    let regex = RegexBuilder::new(&request.pattern)
++        .case_insensitive(!request.case_sensitive)
++        .size_limit(10 * 1024 * 1024)
++        .build()
++        .map_err(|e| GrepError::Pattern(e.to_string()))?;
++    let glob: Option<(Vec<char>, bool)> = match &request.glob {
++        Some(g) => {
++            check_glob(g)?;
++            Some((g.chars().collect(), g.contains('/')))
++        }
++        None => None,
++    };
++    let bind = binding(root, request);
++    let (resume_path, resume_line) = match &request.cursor {
++        Some(c) if c.binding != bind => return Err(GrepError::CursorMismatch),
++        Some(c) => (Some(c.path.as_str()), c.line),
++        None => (None, 0),
++    };
++
++    let mut sorted: Vec<&str> = files.iter().map(String::as_str).collect();
++    for path in &sorted {
++        check_path(path)?;
++    }
++    sorted.sort_unstable();
++    sorted.dedup();
++    let start = resume_path.map_or(0, |p| sorted.partition_point(|f| *f < p));
++
++    let budget = &request.budget;
++    let max_results = budget.max_results.max(1);
++    let cursor_at = |path: &str, line: u64| GrepCursor {
++        binding: bind,
++        path: path.to_owned(),
++        line,
++    };
++    let mut page = GrepPage {
++        results: Vec::new(),
++        status: GrepStatus::Complete,
++        next: None,
++        files_scanned: 0,
++        files_skipped: 0,
++    };
++    let mut page_bytes = 0usize;
++    let mut opened = 0usize;
++
++    for path in &sorted[start..] {
++        // A cursor only resumes mid-file in the file it names.
++        let skip_to = if resume_path == Some(*path) {
++            resume_line
++        } else {
++            0
++        };
++        if let Some((g, slash)) = &glob {
++            if !matches_glob(g, *slash, path) {
++                continue;
++            }
++        }
++        if cancel.is_cancelled() {
++            return Ok(stop(page, GrepStatus::Cancelled, cursor_at(path, skip_to)));
++        }
++        if budget.deadline.is_some_and(|d| Instant::now() >= d) {
++            return Ok(stop(page, GrepStatus::Deadline, cursor_at(path, skip_to)));
++        }
++        if opened >= budget.max_files.max(1) {
++            return Ok(stop(page, GrepStatus::Truncated, cursor_at(path, skip_to)));
++        }
++        let full = root.join(path);
++        let text = match read_searchable(&full, budget.max_file_bytes) {
++            Some(text) => text,
++            None => {
++                page.files_skipped += 1;
++                continue;
++            }
++        };
++        opened += 1;
++        page.files_scanned += 1;
++
++        let lines: Vec<&str> = text.lines().collect();
++        let mut count = 0u64;
++        let mut last_emitted = skip_to;
++        for (i, line) in lines.iter().enumerate() {
++            if i % CHECK_EVERY_LINES == CHECK_EVERY_LINES - 1 {
++                if cancel.is_cancelled() {
++                    return Ok(stop(
++                        page,
++                        GrepStatus::Cancelled,
++                        cursor_at(path, last_emitted),
++                    ));
++                }
++                if budget.deadline.is_some_and(|d| Instant::now() >= d) {
++                    return Ok(stop(
++                        page,
++                        GrepStatus::Deadline,
++                        cursor_at(path, last_emitted),
++                    ));
++                }
++            }
++            let number = i as u64 + 1;
++            if number <= skip_to || !regex.is_match(line) {
++                continue;
++            }
++            count += 1;
++            if request.mode != GrepMode::Content {
++                continue;
++            }
++            let before: Vec<String> = lines[i.saturating_sub(request.context)..i]
++                .iter()
++                .map(|l| (*l).to_owned())
++                .collect();
++            let after_end = lines
++                .len()
++                .min(i.saturating_add(1).saturating_add(request.context));
++            let after: Vec<String> = lines[i + 1..after_end]
++                .iter()
++                .map(|l| (*l).to_owned())
++                .collect();
++            let size = path.len()
++                + line.len()
++                + before
++                    .iter()
++                    .chain(after.iter())
++                    .map(String::len)
++                    .sum::<usize>();
++            let full_page = page.results.len() >= max_results
++                || (!page.results.is_empty() && page_bytes + size > budget.max_page_bytes);
++            if full_page {
++                return Ok(stop(
++                    page,
++                    GrepStatus::Truncated,
++                    cursor_at(path, last_emitted),
++                ));
++            }
++            page_bytes += size;
++            last_emitted = number;
++            page.results.push(GrepResult::Match {
++                path: (*path).to_owned(),
++                line: number,
++                text: (*line).to_owned(),
++                before,
++                after,
++            });
++        }
++        if request.mode != GrepMode::Content && count > 0 {
++            let size = path.len();
++            let full_page = page.results.len() >= max_results
++                || (!page.results.is_empty() && page_bytes + size > budget.max_page_bytes);
++            if full_page {
++                return Ok(stop(page, GrepStatus::Truncated, cursor_at(path, 0)));
++            }
++            page_bytes += size;
++            page.results.push(match request.mode {
++                GrepMode::Count => GrepResult::Count {
++                    path: (*path).to_owned(),
++                    count,
++                },
++                _ => GrepResult::File {
++                    path: (*path).to_owned(),
++                },
++            });
++        }
++    }
++    Ok(page)
++}
++
++fn stop(mut page: GrepPage, status: GrepStatus, next: GrepCursor) -> GrepPage {
++    page.status = status;
++    page.next = Some(next);
++    page
++}
++
++/// The text of a regular, non-link, non-binary file within the byte budget, else `None`.
++fn read_searchable(path: &Path, max_bytes: u64) -> Option<String> {
++    let meta = fs::symlink_metadata(path).ok()?;
++    if !meta.is_file() || meta.len() > max_bytes {
++        return None;
++    }
++    let bytes = read_bounded(path, max_bytes).ok()?;
++    let head = &bytes[..bytes.len().min(8192)];
++    if head.contains(&0) {
++        return None;
++    }
++    Some(String::from_utf8_lossy(&bytes).into_owned())
++}
++
++/// Reads at most `max_bytes + 1` bytes, so a file that grew after the metadata check is still
++/// bounded; one that grew past the budget is refused.
++fn read_bounded(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
++    use io::Read;
++    let mut buf = Vec::new();
++    fs::File::open(path)?
++        .take(max_bytes.saturating_add(1))
++        .read_to_end(&mut buf)?;
++    if buf.len() as u64 > max_bytes {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "file over budget",
++        ));
++    }
++    Ok(buf)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::time::Duration;
++
++    fn workspace() -> tempfile::TempDir {
++        let dir = tempfile::tempdir().unwrap();
++        let w = |name: &str, body: &str| {
++            let path = dir.path().join(name);
++            fs::create_dir_all(path.parent().unwrap()).unwrap();
++            fs::write(path, body).unwrap();
++        };
++        w(
++            "a.rs",
++            "fn main() {}\n// TODO one\nlet x = 1;\n// TODO two\n",
++        );
++        w("src/b.rs", "// todo lower\nnothing\n");
++        w("src/c.txt", "TODO in text\nTODO again\nTODO third\n");
++        w("bin.dat", "TODO\0binary");
++        dir
++    }
++
++    fn files() -> Vec<String> {
++        ["src/c.txt", "a.rs", "src/b.rs", "bin.dat", "missing.rs"]
++            .iter()
++            .map(|s| (*s).to_owned())
++            .collect()
++    }
++
++    fn lines(page: &GrepPage) -> Vec<(String, u64)> {
++        page.results
++            .iter()
++            .map(|r| match r {
++                GrepResult::Match { path, line, .. } => (path.clone(), *line),
++                other => panic!("unexpected {other:?}"),
++            })
++            .collect()
++    }
++
++    #[test]
++    fn content_mode_finds_lines_with_context_in_path_order() {
++        let dir = workspace();
++        let req = GrepRequest::new("TODO").with_context(1);
++        let page = grep_page(dir.path(), &files(), &req, &CancelToken::new()).unwrap();
++        assert_eq!(page.status, GrepStatus::Complete);
++        assert!(page.next.is_none());
++        assert_eq!(
++            lines(&page),
++            vec![
++                ("a.rs".to_owned(), 2),
++                ("a.rs".to_owned(), 4),
++                ("src/c.txt".to_owned(), 1),
++                ("src/c.txt".to_owned(), 2),
++                ("src/c.txt".to_owned(), 3),
++            ]
++        );
++        // bin.dat (binary) and missing.rs (unreadable) are skipped; the rest searched.
++        assert_eq!(page.files_skipped, 2);
++        assert_eq!(page.files_scanned, 3);
++        match &page.results[0] {
++            GrepResult::Match {
++                before,
++                after,
++                text,
++                ..
++            } => {
++                assert_eq!(text, "// TODO one");
++                assert_eq!(before, &vec!["fn main() {}".to_owned()]);
++                assert_eq!(after, &vec!["let x = 1;".to_owned()]);
++            }
++            other => panic!("{other:?}"),
++        }
++    }
++
++    #[test]
++    fn case_insensitive_files_and_count_modes() {
++        let dir = workspace();
++        let cancel = CancelToken::new();
++        let req = GrepRequest::new("todo")
++            .with_case_sensitive(false)
++            .with_mode(GrepMode::FilesWithMatches);
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        let paths: Vec<&str> = page
++            .results
++            .iter()
++            .map(|r| match r {
++                GrepResult::File { path } => path.as_str(),
++                other => panic!("{other:?}"),
++            })
++            .collect();
++        assert_eq!(paths, vec!["a.rs", "src/b.rs", "src/c.txt"]);
++        let req = GrepRequest::new("TODO").with_mode(GrepMode::Count);
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        assert_eq!(
++            page.results,
++            vec![
++                GrepResult::Count {
++                    path: "a.rs".into(),
++                    count: 2
++                },
++                GrepResult::Count {
++                    path: "src/c.txt".into(),
++                    count: 3
++                },
++            ]
++        );
++    }
++
++    #[test]
++    fn glob_filters_by_name_or_path() {
++        let dir = workspace();
++        let cancel = CancelToken::new();
++        let req = GrepRequest::new("(?i)todo")
++            .with_mode(GrepMode::Count)
++            .with_glob("*.rs");
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        assert_eq!(page.results.len(), 2);
++        let req = GrepRequest::new("(?i)todo")
++            .with_mode(GrepMode::Count)
++            .with_glob("src/**");
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        assert_eq!(page.results.len(), 2);
++        let req = GrepRequest::new("(?i)todo")
++            .with_mode(GrepMode::Count)
++            .with_glob("src/*.txt");
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        assert_eq!(page.results.len(), 1);
++        assert!(matches!(
++            grep_page(
++                dir.path(),
++                &files(),
++                &GrepRequest::new("x").with_glob(""),
++                &cancel
++            ),
++            Err(GrepError::Glob(_))
++        ));
++    }
++
++    #[test]
++    fn result_budget_truncates_and_the_cursor_resumes_without_gaps() {
++        let dir = workspace();
++        let cancel = CancelToken::new();
++        let budget = GrepBudget {
++            max_results: 2,
++            ..GrepBudget::default()
++        };
++        let mut all = Vec::new();
++        let mut cursor: Option<GrepCursor> = None;
++        let mut pages = 0;
++        loop {
++            let mut req = GrepRequest::new("TODO").with_budget(budget.clone());
++            if let Some(c) = cursor.take() {
++                // The cursor survives its text form.
++                req = req.with_cursor(GrepCursor::decode(&c.encode()).unwrap());
++            }
++            let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++            pages += 1;
++            assert!(page.results.len() <= 2);
++            all.extend(lines(&page));
++            match page.status {
++                GrepStatus::Complete => break,
++                GrepStatus::Truncated => cursor = page.next,
++                other => panic!("{other:?}"),
++            }
++            assert!(pages < 10);
++        }
++        assert_eq!(pages, 3);
++        assert_eq!(all.len(), 5);
++        assert_eq!(all[0], ("a.rs".to_owned(), 2));
++        assert_eq!(all[4], ("src/c.txt".to_owned(), 3));
++    }
++
++    #[test]
++    fn page_byte_budget_always_returns_one_result() {
++        let dir = workspace();
++        let budget = GrepBudget {
++            max_page_bytes: 1,
++            ..GrepBudget::default()
++        };
++        let req = GrepRequest::new("TODO").with_budget(budget);
++        let page = grep_page(dir.path(), &files(), &req, &CancelToken::new()).unwrap();
++        assert_eq!(page.results.len(), 1);
++        assert_eq!(page.status, GrepStatus::Truncated);
++        assert_eq!(page.next.unwrap().path(), "a.rs");
++    }
++
++    #[test]
++    fn files_budget_deadline_and_cancel_stop_with_a_cursor() {
++        let dir = workspace();
++        let budget = GrepBudget {
++            max_files: 1,
++            ..GrepBudget::default()
++        };
++        let req = GrepRequest::new("TODO").with_budget(budget);
++        let page = grep_page(dir.path(), &files(), &req, &CancelToken::new()).unwrap();
++        assert_eq!(page.status, GrepStatus::Truncated);
++        assert_eq!(page.files_scanned, 1);
++        assert_eq!(page.next.as_ref().unwrap().path(), "bin.dat");
++
++        let past = Instant::now()
++            .checked_sub(Duration::from_secs(1))
++            .unwrap_or_else(Instant::now);
++        let budget = GrepBudget {
++            deadline: Some(past),
++            ..GrepBudget::default()
++        };
++        let req = GrepRequest::new("TODO").with_budget(budget);
++        let page = grep_page(dir.path(), &files(), &req, &CancelToken::new()).unwrap();
++        assert_eq!(page.status, GrepStatus::Deadline);
++        assert!(page.results.is_empty());
++        assert!(page.next.is_some());
++
++        let cancel = CancelToken::new();
++        cancel.clone().cancel();
++        let page = grep_page(dir.path(), &files(), &GrepRequest::new("TODO"), &cancel).unwrap();
++        assert_eq!(page.status, GrepStatus::Cancelled);
++        assert!(page.next.is_some());
++    }
++
++    #[test]
++    fn cursor_is_bound_to_root_and_search() {
++        let dir = workspace();
++        let other = workspace();
++        let cancel = CancelToken::new();
++        let budget = GrepBudget {
++            max_results: 1,
++            ..GrepBudget::default()
++        };
++        let req = GrepRequest::new("TODO").with_budget(budget.clone());
++        let cursor = grep_page(dir.path(), &files(), &req, &cancel)
++            .unwrap()
++            .next
++            .unwrap();
++        let other_pattern = GrepRequest::new("TODOS")
++            .with_budget(budget.clone())
++            .with_cursor(cursor.clone());
++        assert!(matches!(
++            grep_page(dir.path(), &files(), &other_pattern, &cancel),
++            Err(GrepError::CursorMismatch)
++        ));
++        let same = GrepRequest::new("TODO")
++            .with_budget(budget)
++            .with_cursor(cursor);
++        assert!(matches!(
++            grep_page(other.path(), &files(), &same, &cancel),
++            Err(GrepError::CursorMismatch)
++        ));
++        assert!(matches!(
++            GrepCursor::decode("nonsense"),
++            Err(GrepError::BadCursor)
++        ));
++        assert!(matches!(
++            GrepCursor::decode("g1.zz.0.00"),
++            Err(GrepError::BadCursor)
++        ));
++    }
++
++    #[test]
++    fn unsafe_paths_bad_patterns_and_oversize_files_are_handled() {
++        let dir = workspace();
++        let cancel = CancelToken::new();
++        for bad in ["../x", "/abs", "a/../b", "", "a\\b"] {
++            let list = vec![bad.to_owned()];
++            assert!(
++                matches!(
++                    grep_page(dir.path(), &list, &GrepRequest::new("x"), &cancel),
++                    Err(GrepError::UnsafePath(_))
++                ),
++                "{bad}"
++            );
++        }
++        assert!(matches!(
++            grep_page(dir.path(), &files(), &GrepRequest::new("("), &cancel),
++            Err(GrepError::Pattern(_))
++        ));
++        let budget = GrepBudget {
++            max_file_bytes: 10,
++            ..GrepBudget::default()
++        };
++        let req = GrepRequest::new("TODO").with_budget(budget);
++        let page = grep_page(dir.path(), &files(), &req, &cancel).unwrap();
++        // Every file is over 10 bytes, so every file is skipped.
++        assert!(page.results.is_empty());
++        assert_eq!(page.files_scanned, 0);
++    }
++
++    #[test]
++    fn glob_matcher_cases() {
++        let m = |g: &str, t: &str| {
++            let g: Vec<char> = g.chars().collect();
++            let t: Vec<char> = t.chars().collect();
++            glob_match(&g, &t)
++        };
++        assert!(m("*.rs", "main.rs"));
++        assert!(!m("*.rs", "src/main.rs"));
++        assert!(m("**/*.rs", "src/deep/main.rs"));
++        assert!(m("**/*.rs", "main.rs"));
++        assert!(m("src/**", "src/a/b"));
++        assert!(m("a?c", "abc"));
++        assert!(!m("a?c", "a/c"));
++    }
++}
+diff --git a/crates/rightkit-search/src/html.rs b/crates/rightkit-search/src/html.rs
+new file mode 100644
+index 0000000..bff9606
+--- /dev/null
++++ b/crates/rightkit-search/src/html.rs
+@@ -0,0 +1,280 @@
++//! HTML to plain text for indexing and snippets (MailRight `fts_text.rs`): tags are dropped,
++//! `script`, `style`, `head` and comment contents are skipped, block elements and `<br>`
++//! become line breaks, character references are decoded and whitespace is collapsed.
++//!
++//! This is a text extractor, not a sanitiser and not a renderer: its output is plain text
++//! and must never be treated as safe HTML. Malformed markup never fails; an unterminated
++//! tag or comment ends the output at that point.
++
++/// Elements whose whole content is dropped.
++const SKIPPED: [&str; 4] = ["script", "style", "head", "template"];
++
++/// Elements that end a line when they open or close.
++const BLOCK: [&str; 27] = [
++    "p",
++    "div",
++    "br",
++    "hr",
++    "li",
++    "ul",
++    "ol",
++    "tr",
++    "table",
++    "h1",
++    "h2",
++    "h3",
++    "h4",
++    "h5",
++    "h6",
++    "blockquote",
++    "pre",
++    "section",
++    "article",
++    "header",
++    "footer",
++    "nav",
++    "aside",
++    "dl",
++    "dt",
++    "dd",
++    "address",
++];
++
++/// Converts `html` to plain text. Runs of spaces and tabs become one space, each line is
++/// trimmed, more than one blank line in a row becomes one, and the result is trimmed.
++pub fn html_to_text(html: &str) -> String {
++    let lower = html.to_ascii_lowercase();
++    let bytes = html.as_bytes();
++    let mut raw = String::with_capacity(html.len());
++    let mut i = 0usize;
++    while i < bytes.len() {
++        match bytes[i] {
++            b'<' => {
++                let rest = &lower[i..];
++                if rest.starts_with("<!--") {
++                    match rest[4..].find("-->") {
++                        Some(end) => i += 4 + end + 3,
++                        None => break,
++                    }
++                    continue;
++                }
++                let next = bytes.get(i + 1).copied().unwrap_or(0);
++                if !(next.is_ascii_alphabetic() || next == b'/' || next == b'!' || next == b'?') {
++                    raw.push('<');
++                    i += 1;
++                    continue;
++                }
++                let Some(end) = tag_end(bytes, i + 1) else {
++                    break;
++                };
++                let tag = &lower[i + 1..end];
++                let closing = tag.starts_with('/');
++                let name: String = tag
++                    .trim_start_matches('/')
++                    .chars()
++                    .take_while(|c| c.is_ascii_alphanumeric())
++                    .collect();
++                i = end + 1;
++                if !closing && !tag.ends_with('/') && SKIPPED.contains(&name.as_str()) {
++                    let close = format!("</{name}");
++                    match lower[i..].find(&close) {
++                        Some(at) => {
++                            let from = i + at;
++                            i = match tag_end(bytes, from + 1) {
++                                Some(e) => e + 1,
++                                None => bytes.len(),
++                            };
++                        }
++                        None => break,
++                    }
++                } else if BLOCK.contains(&name.as_str()) {
++                    raw.push('\n');
++                } else if name == "td" || name == "th" {
++                    raw.push(' ');
++                }
++            }
++            b'&' => {
++                let (decoded, used) = decode_reference(&html[i..]);
++                raw.push_str(&decoded);
++                i += used;
++            }
++            _ => {
++                // Copy a run of ordinary text in one step (boundaries are ASCII, so valid UTF-8).
++                let start = i;
++                while i < bytes.len() && bytes[i] != b'<' && bytes[i] != b'&' {
++                    i += 1;
++                }
++                raw.push_str(&html[start..i]);
++            }
++        }
++    }
++    collapse(&raw)
++}
++
++/// Index of the `>` that closes the tag whose content starts at `from`, skipping quoted
++/// attribute values.
++fn tag_end(bytes: &[u8], from: usize) -> Option<usize> {
++    let mut quote: Option<u8> = None;
++    for (offset, &b) in bytes.get(from..)?.iter().enumerate() {
++        match quote {
++            Some(q) if b == q => quote = None,
++            Some(_) => {}
++            None if b == b'"' || b == b'\'' => quote = Some(b),
++            None if b == b'>' => return Some(from + offset),
++            None => {}
++        }
++    }
++    None
++}
++
++/// Decodes the character reference at the start of `s` (which begins with `&`). Returns the
++/// text and the bytes consumed; an unknown or malformed reference is kept literally (one byte
++/// consumed, the `&` itself).
++fn decode_reference(s: &str) -> (String, usize) {
++    let end = match s.char_indices().take(12).find(|(_, c)| *c == ';') {
++        Some((at, _)) => at,
++        None => return ("&".to_owned(), 1),
++    };
++    let name = &s[1..end];
++    let used = end + 1;
++    if let Some(num) = name.strip_prefix('#') {
++        let code = match num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
++            Some(hex) => u32::from_str_radix(hex, 16).ok(),
++            None => num.parse::<u32>().ok(),
++        };
++        let Some(code) = code else {
++            return ("&".to_owned(), 1);
++        };
++        return match char::from_u32(code) {
++            Some('\u{a0}') => (" ".to_owned(), used),
++            Some(c) if c != '\0' => (c.to_string(), used),
++            _ => ("\u{fffd}".to_owned(), used),
++        };
++    }
++    let text = match name {
++        "amp" => "&",
++        "lt" => "<",
++        "gt" => ">",
++        "quot" => "\"",
++        "apos" => "'",
++        "nbsp" => " ",
++        "copy" => "\u{a9}",
++        "reg" => "\u{ae}",
++        "trade" => "\u{2122}",
++        "hellip" => "\u{2026}",
++        "mdash" => "\u{2014}",
++        "ndash" => "\u{2013}",
++        "lsquo" => "\u{2018}",
++        "rsquo" => "\u{2019}",
++        "ldquo" => "\u{201c}",
++        "rdquo" => "\u{201d}",
++        "bull" => "\u{2022}",
++        "middot" => "\u{b7}",
++        "euro" => "\u{20ac}",
++        "pound" => "\u{a3}",
++        "yen" => "\u{a5}",
++        "cent" => "\u{a2}",
++        "deg" => "\u{b0}",
++        "times" => "\u{d7}",
++        _ => return ("&".to_owned(), 1),
++    };
++    (text.to_owned(), used)
++}
++
++fn collapse(raw: &str) -> String {
++    let mut out = String::with_capacity(raw.len());
++    let mut blank_run = 0usize;
++    for line in raw.split('\n') {
++        let mut cleaned = String::with_capacity(line.len());
++        let mut space = false;
++        for c in line.chars() {
++            if c.is_whitespace() || c == '\u{200b}' {
++                space = true;
++            } else {
++                if space && !cleaned.is_empty() {
++                    cleaned.push(' ');
++                }
++                space = false;
++                cleaned.push(c);
++            }
++        }
++        if cleaned.is_empty() {
++            blank_run += 1;
++            continue;
++        }
++        if !out.is_empty() {
++            out.push('\n');
++            if blank_run > 0 {
++                out.push('\n');
++            }
++        }
++        blank_run = 0;
++        out.push_str(&cleaned);
++    }
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::html_to_text;
++
++    #[test]
++    fn tags_drop_and_blocks_break_lines() {
++        assert_eq!(
++            html_to_text("<p>Hello <b>big</b> world</p><p>Second</p>"),
++            "Hello big world\n\nSecond"
++        );
++        assert_eq!(html_to_text("a<br>b<br/>c"), "a\nb\nc");
++        assert_eq!(html_to_text("<td>x</td><td>y</td>"), "x y");
++    }
++
++    #[test]
++    fn script_style_head_and_comments_are_skipped() {
++        let html = "<html><head><title>T</title><style>p{color:red}</style></head>\
++                    <body><!-- hidden -->Visible<script>var a = '<b>';</script> text</body></html>";
++        assert_eq!(html_to_text(html), "Visible text");
++        assert_eq!(html_to_text("<SCRIPT>x</SCRIPT>after"), "after");
++    }
++
++    #[test]
++    fn references_are_decoded() {
++        assert_eq!(
++            html_to_text("a&amp;b &lt;c&gt; &quot;d&quot; &#65;&#x42;"),
++            "a&b <c> \"d\" AB"
++        );
++        assert_eq!(html_to_text("x&nbsp;&nbsp;y"), "x y");
++        assert_eq!(
++            html_to_text("R&D & more &unknown; &#xZZ;"),
++            "R&D & more &unknown; &#xZZ;"
++        );
++        assert_eq!(html_to_text("&#0;"), "\u{fffd}");
++    }
++
++    #[test]
++    fn quoted_attributes_may_hold_a_greater_than() {
++        assert_eq!(html_to_text("<a title=\"1 > 0\">link</a>"), "link");
++    }
++
++    #[test]
++    fn stray_less_than_is_text_and_unterminated_markup_stops() {
++        assert_eq!(html_to_text("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");
++        assert_eq!(html_to_text("kept <div class=\"never closed"), "kept");
++        assert_eq!(html_to_text("kept <!-- never closed"), "kept");
++        assert_eq!(html_to_text("kept<script>never closed"), "kept");
++    }
++
++    #[test]
++    fn whitespace_collapses_and_blank_lines_reduce_to_one() {
++        assert_eq!(html_to_text("  a \t\t b  \n\n\n\n c  "), "a b\n\nc");
++        assert_eq!(html_to_text(""), "");
++        assert_eq!(html_to_text("<div></div>"), "");
++    }
++
++    #[test]
++    fn multibyte_text_survives() {
++        assert_eq!(
++            html_to_text("<p>caf\u{e9} \u{65e5}\u{672c}</p>&euro;"),
++            "caf\u{e9} \u{65e5}\u{672c}\n\u{20ac}"
++        );
++    }
++}
+diff --git a/crates/rightkit-search/src/lib.rs b/crates/rightkit-search/src/lib.rs
+index 3c235b7..90e3cef 100644
+--- a/crates/rightkit-search/src/lib.rs
++++ b/crates/rightkit-search/src/lib.rs
+@@ -8,10 +8,18 @@
+ //! - [`fold`] / [`matcher`]: case-folded substring matching over explicit haystacks (no index).
+ //! - [`page`]: keyset paging over compiled predicates, with opaque cursors.
+ //! - [`scan`]: budgeted, resumable scans over sources that cannot be filtered in SQL.
++//! - [`bm25`]: in-memory Okapi BM25 ranking and the shared [`bm25::tokenize`].
++//! - [`fusion`]: reciprocal-rank fusion of ranked lists (lexical plus semantic).
++//! - [`html`]: HTML to plain text for indexing and snippets.
++//! - `fts5` (feature `sqlite`): FTS5 table, projection triggers, rebuild/optimize/integrity check, `bm25()` ranking.
++//! - `grep` (feature `workspace-grep`): budgeted, resumable regex content search over a caller-supplied file list.
+ //! - `filename` (feature `filename-index`): Cockpit-derived in-memory filename index.
+ 
+ pub mod ast;
++pub mod bm25;
+ pub mod fold;
++pub mod fusion;
++pub mod html;
+ pub mod lexer;
+ pub mod matcher;
+ pub mod page;
+@@ -23,9 +31,16 @@ pub mod values;
+ 
+ #[cfg(feature = "filename-index")]
+ pub mod filename;
++#[cfg(feature = "sqlite")]
++pub mod fts5;
++#[cfg(feature = "workspace-grep")]
++pub mod grep;
+ 
+ pub use ast::{Leaf, Node, ParseError, Syntax};
++pub use bm25::{tokenize, Bm25Index, Bm25Params};
+ pub use fold::{check_fold_version, fold, fold_with, FoldOptions, RebuildNeeded, FOLD_VERSION};
++pub use fusion::{reciprocal_rank_fusion, weighted_reciprocal_rank_fusion, RRF_K};
++pub use html::html_to_text;
+ pub use matcher::{MatchError, Snippet, TextMatcher};
+ pub use page::{Cursor, CursorError, Keyset, PageClauses, PagedSql};
+ pub use scan::{read_text_prefix, scan_page, ScanBudget, ScanPage};

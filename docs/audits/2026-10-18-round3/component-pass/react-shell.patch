@@ -1,0 +1,1021 @@
+diff --git a/packages/react-shell/CHANGELOG.md b/packages/react-shell/CHANGELOG.md
+index bd3ab9e..beb7e03 100644
+--- a/packages/react-shell/CHANGELOG.md
++++ b/packages/react-shell/CHANGELOG.md
+@@ -1,5 +1,18 @@
+ # Changelog
+ 
++## 0.7.1
++
++Additive (#729, #755, #614, #426, #392, #174). Defaults render the same markup and CSS values as 0.7.0.
++
++- `Table` (typed columns, `rowKey`, caption, `empty`, `dense`, `striped`, `onRowClick` with Enter and Space, `selectedKey` as `aria-current`) and `Textarea`; classes `rk-table`, `rk-textarea` (#729). `Select` now takes `id`, `name` and `aria-describedby`, so a `Field` label can name it. Types `TableColumn`, `TableProps`, `SelectProps`.
++- `ModalShell`/`Dialog` `width` also takes a CSS length string, and `false` writes no inline width so a class can size the surface with `min()` or `clamp()` (#755).
++- `useShortcuts(defs, options?)` works without a `ShellProvider`: it uses the provider's registry when there is one, `options.registry` when given, and otherwise a private registry attached to `window`. New type `UseShortcutsOptions` (#755).
++- Class `.rk-hairline` (`--top`, `--bottom`) draws the `--rk-line-2` hairline as a border (#614).
++- `PromptDialog` is controllable: `value` and `onChange` (then `initialValue` is ignored); `requireValue` disables confirm while the text is blank (#426).
++- `ActionDialog` actions take `title` (tooltip). `ErrorBoundary fallback(error, reset, info)` passes React's `ErrorInfo` (`null` on the first fallback render, set right after). `ShortcutHelp` takes a plain `shortcuts` list (`{ label, chord, group? }`) and `platform` when there is no registry; `registry` is now optional. New `useAnchoredMenu(itemCount)` and `AnchoredMenu`: a button-triggered dropdown with roving focus, ArrowDown and ArrowUp on the trigger opening on the first or last row, Home and End, Tab and Escape closing with focus returned to the trigger, `aria-haspopup` and `aria-expanded` (#392).
++- `color-scheme` opt-out: the stylesheet sets `color-scheme: light|dark` on `:root`; put `data-rk-color-scheme="host"` on `<html>` to make it `normal` so the host's own value applies (#174). The caption cursor and outline tokens (`--rk-caption-cursor`, `--rk-caption-outline`, `--rk-caption-outline-offset`) shipped in 0.6.7.
++- Rejected here: a browser-preview mock data source (#383). A mock must never ship in release builds; it belongs in `@rightkit/qa`.
++
+ ## 0.7.0 (2026-10-17)
+ 
+ Additive, shipped in 0.7.0. Defaults render the same markup and CSS values as 0.6.8, except where noted.
+diff --git a/packages/react-shell/README.md b/packages/react-shell/README.md
+index 499e162..4f695ac 100644
+--- a/packages/react-shell/README.md
++++ b/packages/react-shell/README.md
+@@ -241,24 +241,27 @@ Every addition is optional. The CHANGELOG lists them with their defaults.
+ 
+ | Area | API | Notes |
+ |---|---|---|
+-| Errors | `ErrorBoundary resetKey` | The error clears when the key changes (`Object.is`). |
++| Errors | `ErrorBoundary resetKey`, `fallback(error, reset, info)` | The error clears when the key changes (`Object.is`). `info` is React's `ErrorInfo`, `null` on the first fallback render. |
++| Shortcuts (React) | `useShortcuts(defs, { registry?, platform? })` | Works without a `ShellProvider`: a private registry is attached to `window`. |
+ | Menus | `ContextMenu anchor`, `placement` | Opens from an element or rectangle; `bottom-start`, `bottom-end`, `top-start`, `top-end`; flips when it would overflow. `anchorPoint()` is the pure placement function. |
+ | Menus | `Popover` | Anchored panel for arbitrary content. Outside press ignores the anchor, so the opener's own click toggles it. Escape and resize or scroll close it. |
+ | Appearance | `AppearanceMenu presets / preset / onPresetChange / fonts / font / onFontChange`, `applyBodyFont(family)` | Presets show a swatch (up to three colours); fonts show their face. The app applies the choice. |
+ | Shortcuts | `ShortcutRecorder`, `chordFromEvent(event, platform)` | The recorder takes the next chord; Escape cancels, Backspace clears. Host dialogs should pass `escape={false}`. |
+ | Shortcuts | `mod+digit`, `mod+arrow` | Pseudo-keys match any digit or any arrow. Read `event.key` in `run`. |
+ | Shortcuts | `conflicts()` `kind`, `list()` `unassigned`, `suspend()`, `resume()` | A prefix conflict is a one-press chord that starts a sequence. Suspend stops every binding for modal capture. |
+-| Dialogs | `ModalShell`/`Dialog` `escape`, `dismissible` | `dismissible` may be a function: a `false` return refuses the dismissal before the exit animation. `PromptDialog secret` masks the input. |
++| Dialogs | `ModalShell`/`Dialog` `escape`, `dismissible`, `width` (string or `false`), `ActionDialog` action `title`, `PromptDialog value / onChange / requireValue` | `dismissible` may be a function: a `false` return refuses the dismissal before the exit animation. `PromptDialog secret` masks the input. |
+ | Toasts | `ToastViewport placement="top-end"`, `dedupe="newest"`, `maxVisible` | `ShellProvider toastOptions` passes the last two. |
+ | Palette | `CommandPalette query / onQueryChange / activeIndex / onActiveChange / onRun / groupOrder / renderRow / scopeLabel`, `Command.kind`, `Command.sublabel` | Controlled mode when `query` or `activeIndex` is given. Home and End move the highlight only while the field is empty. |
+-| Help | `ShortcutHelp slots`, `renderGroup` | `renderGroup(group, defaultSection)` returns the section it replaces. |
++| Help | `ShortcutHelp slots`, `renderGroup`, `shortcuts` | `renderGroup(group, defaultSection)` returns the section it replaces. `shortcuts` is a plain `{ label, chord, group? }[]` for apps with no registry. |
+ | Layout | `AppShell sidebarResizable`, `onSidebarWidthChange`, `ShellLabels.resizeSidebar` | Drag or arrow keys; `storageKey` persists the width. |
+ | Navigation | `NavList itemProps`, `itemCheck`, `collapsedGroups`, `onToggleGroup`, `renderTwisty`; `NavItem.ariaLabel` | `itemProps` carries drop-target handlers and a highlight class; click and keys stay the shell's. |
++| Data | `Table` (`columns`, `rows`, `rowKey`, `empty`, `dense`, `striped`, `onRowClick`, `selectedKey`), `Textarea` | Rows are real `tr` elements; a clickable row is a Tab stop with Enter and Space. `Select` takes `id`, `name` and `aria-describedby` for `Field`. |
++| Menus | `useAnchoredMenu(itemCount)`, `AnchoredMenu` | Button-triggered dropdown with roving focus; ArrowDown or ArrowUp on the trigger opens on the first or last row. |
+ | Controls | `Card onClick / label / flush / selected`, `Checkbox`, `Select`, `Slider`, `Notice`, `ProgressBar`, `Skeleton`, `SkeletonRows` | A clickable card is a button with Enter and Space. `Notice` `warn` and `bad` announce as alerts. |
+ | State | `usePersistedState(key, initial)` | `key` null keeps it in memory. Reads and writes never throw. |
+ | Platform | `installHoverGuard()` | Sets `data-rk-pointer` so hover washes stop when the pointer leaves the window (WebView2). Returns the detach function. |
+ 
+-Tokens: `--rk-wash-hover`, `--rk-wash-press` (hover and press washes), `--rk-line-2` (hairline), `--rk-font-body` (set by `applyBodyFont`), `--rk-toast-top-end-offset`, `--rk-toast-end-offset`.
++Tokens: `--rk-wash-hover`, `--rk-wash-press` (hover and press washes), `--rk-line-2` (hairline), `--rk-font-body` (set by `applyBodyFont`), `--rk-toast-top-end-offset`, `--rk-toast-end-offset`. Class `.rk-hairline` (`--top`, `--bottom`) draws the `--rk-line-2` hairline. To use your own `color-scheme`, set `data-rk-color-scheme="host"` on `<html>`.
+ 
+ ## Adopting with a locked UI
+ 
+diff --git a/packages/react-shell/package.json b/packages/react-shell/package.json
+index f52d0af..fd89bb7 100644
+--- a/packages/react-shell/package.json
++++ b/packages/react-shell/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@rightkit/react-shell",
+-  "version": "0.7.0",
++  "version": "0.7.1",
+   "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
+   "license": "MIT OR Apache-2.0",
+   "type": "module",
+diff --git a/packages/react-shell/shell.css b/packages/react-shell/shell.css
+index ab9f059..9c6b0fa 100644
+--- a/packages/react-shell/shell.css
++++ b/packages/react-shell/shell.css
+@@ -139,6 +139,8 @@
+ .rk-item-row > .rk-item { flex: 1 1 auto; min-width: 0; }
+ .rk-side-resizer { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 2; }
+ .rk-shell.is-narrow .rk-side-resizer { display: none; }
++.rk-table { width: 100%; }
++.rk-textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; }
+ 
+ /* @rightkit/react-shell — visual: colour, radius, type, spacing, sizes, shadows and motion.
+    Pair with shell.structure.css. shell.css is both files in one; shell.layered.css imports both
+@@ -425,6 +427,29 @@
+ .rk-card.is-flush { padding: 0; }
+ .rk-check__input { margin: 0; }
+ .rk-toasts[data-placement="top-end"] .rk-toast { animation-name: rk-toast-in-top; }
++.rk-hairline { border: 1px solid var(--rk-line-2); }
++.rk-hairline--top { border-width: 1px 0 0; }
++.rk-hairline--bottom { border-width: 0 0 1px; }
++.rk-table { border-collapse: collapse; color: var(--rk-ink); font-size: 12.5px; }
++.rk-table caption { padding: 0 0 8px; color: var(--rk-ink-2); font-weight: 600; text-align: start; }
++.rk-table th, .rk-table td { padding: 8px 10px; border-bottom: 1px solid var(--rk-line-2); text-align: start; vertical-align: middle; }
++.rk-table th { color: var(--rk-ink-2); font-size: 11px; font-weight: 600; }
++.rk-table .is-end { text-align: end; }
++.rk-table .is-center { text-align: center; }
++.rk-table--dense th, .rk-table--dense td { padding: 4px 10px; }
++.rk-table--striped tbody tr:nth-child(even) { background: var(--rk-fill); }
++.rk-table__row--interactive { cursor: default; }
++.rk-table__row--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
++.rk-table__row.is-selected { background: var(--rk-sel); }
++.rk-table td.rk-table__empty { padding: 16px 10px; color: var(--rk-ink-3); text-align: center; }
++:root:not([data-rk-pointer="off"]) .rk-table__row--interactive:not(.is-selected):hover { background: var(--rk-wash-hover); }
++.rk-textarea { min-height: 72px; padding: 6px 10px; border: 0; border-radius: 8px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; resize: vertical; }
++.rk-textarea:focus { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
++.rk-textarea[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad); }
++.rk-textarea::placeholder { color: var(--rk-ink-3); }
++.rk-textarea:disabled { opacity: .5; }
++/* Opt out of the shell's color-scheme (a host that sets its own on :root): <html data-rk-color-scheme="host">. */
++html:root[data-rk-color-scheme="host"] { color-scheme: normal; }
+ @media (prefers-reduced-motion: reduce) {
+   .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+   .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { transition: none; }
+diff --git a/packages/react-shell/shell.structure.css b/packages/react-shell/shell.structure.css
+index 2dfc777..dee28eb 100644
+--- a/packages/react-shell/shell.structure.css
++++ b/packages/react-shell/shell.structure.css
+@@ -138,3 +138,5 @@
+ .rk-item-row > .rk-item { flex: 1 1 auto; min-width: 0; }
+ .rk-side-resizer { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 2; }
+ .rk-shell.is-narrow .rk-side-resizer { display: none; }
++.rk-table { width: 100%; }
++.rk-textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; }
+diff --git a/packages/react-shell/shell.visual.css b/packages/react-shell/shell.visual.css
+index 42c73de..617c99d 100644
+--- a/packages/react-shell/shell.visual.css
++++ b/packages/react-shell/shell.visual.css
+@@ -283,6 +283,29 @@
+ .rk-card.is-flush { padding: 0; }
+ .rk-check__input { margin: 0; }
+ .rk-toasts[data-placement="top-end"] .rk-toast { animation-name: rk-toast-in-top; }
++.rk-hairline { border: 1px solid var(--rk-line-2); }
++.rk-hairline--top { border-width: 1px 0 0; }
++.rk-hairline--bottom { border-width: 0 0 1px; }
++.rk-table { border-collapse: collapse; color: var(--rk-ink); font-size: 12.5px; }
++.rk-table caption { padding: 0 0 8px; color: var(--rk-ink-2); font-weight: 600; text-align: start; }
++.rk-table th, .rk-table td { padding: 8px 10px; border-bottom: 1px solid var(--rk-line-2); text-align: start; vertical-align: middle; }
++.rk-table th { color: var(--rk-ink-2); font-size: 11px; font-weight: 600; }
++.rk-table .is-end { text-align: end; }
++.rk-table .is-center { text-align: center; }
++.rk-table--dense th, .rk-table--dense td { padding: 4px 10px; }
++.rk-table--striped tbody tr:nth-child(even) { background: var(--rk-fill); }
++.rk-table__row--interactive { cursor: default; }
++.rk-table__row--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
++.rk-table__row.is-selected { background: var(--rk-sel); }
++.rk-table td.rk-table__empty { padding: 16px 10px; color: var(--rk-ink-3); text-align: center; }
++:root:not([data-rk-pointer="off"]) .rk-table__row--interactive:not(.is-selected):hover { background: var(--rk-wash-hover); }
++.rk-textarea { min-height: 72px; padding: 6px 10px; border: 0; border-radius: 8px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; resize: vertical; }
++.rk-textarea:focus { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
++.rk-textarea[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad); }
++.rk-textarea::placeholder { color: var(--rk-ink-3); }
++.rk-textarea:disabled { opacity: .5; }
++/* Opt out of the shell's color-scheme (a host that sets its own on :root): <html data-rk-color-scheme="host">. */
++html:root[data-rk-color-scheme="host"] { color-scheme: normal; }
+ @media (prefers-reduced-motion: reduce) {
+   .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+   .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { transition: none; }
+diff --git a/packages/react-shell/src/css.test.ts b/packages/react-shell/src/css.test.ts
+index 5332990..f538d88 100644
+--- a/packages/react-shell/src/css.test.ts
++++ b/packages/react-shell/src/css.test.ts
+@@ -172,7 +172,7 @@ describe("shell.css split", () => {
+   });
+ 
+   it("package version, exports and files list the new stylesheets", () => {
+-    expect(pkg.version).toBe("0.7.0");
++    expect(pkg.version).toBe("0.7.1");
+     for (const name of ["shell.css", "shell.layered.css", "shell.structure.css", "shell.visual.css", "suite-aliases.css"]) {
+       expect(pkg.exports[`./${name}`]).toBe(`./${name}`);
+       expect(pkg.files).toContain(name);
+diff --git a/packages/react-shell/src/react.tsx b/packages/react-shell/src/react.tsx
+index ba94921..aad7ddf 100644
+--- a/packages/react-shell/src/react.tsx
++++ b/packages/react-shell/src/react.tsx
+@@ -7,6 +7,7 @@ export * from "./react/contextmenu.js";
+ export * from "./react/toasts.js";
+ export * from "./react/palette.js";
+ export * from "./react/popover.js";
++export * from "./react/anchored-menu.js";
+ export * from "./react/recorder.js";
+ export * from "./react/provider.js";
+ export * from "./react/layout.js";
+diff --git a/packages/react-shell/src/react/anchored-menu.tsx b/packages/react-shell/src/react/anchored-menu.tsx
+new file mode 100644
+index 0000000..de36d18
+--- /dev/null
++++ b/packages/react-shell/src/react/anchored-menu.tsx
+@@ -0,0 +1,256 @@
++import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
++import { createPortal } from "react-dom";
++import { useDismiss } from "@rightkit/platform-ui/headless";
++import { Kbd } from "@rightkit/platform-ui/react";
++import { floatingPanelStyle, type FloatingPanelStyle } from "../geometry.js";
++import { anchorPoint, type MenuItem, type MenuPlacement } from "./contextmenu.js";
++import { useShellOptional } from "./provider.js";
++import type { SlotClasses } from "./slots.js";
++import { cx } from "./ui.js";
++
++export interface UseAnchoredMenuOptions {
++  /** Rows that cannot take focus (disabled). Arrows, Home and End skip them. */
++  isDisabled?: (index: number) => boolean;
++  /** Called when the menu opens or closes. */
++  onOpenChange?: (open: boolean) => void;
++}
++
++export interface AnchoredMenuState<Trigger extends HTMLElement = HTMLButtonElement, Root extends HTMLElement = HTMLDivElement> {
++  open: boolean;
++  /** Index of the focused row, or -1. */
++  focusIndex: number;
++  /** Put on the element that holds the rows (it is also the outside-press container). */
++  rootRef: RefObject<Root | null>;
++  /** Put on the trigger button. Presses on it never count as outside presses, and focus returns to it on close. */
++  triggerRef: RefObject<Trigger | null>;
++  /** `itemRefs.current[i] = element` for each row, so focus can follow `focusIndex`. */
++  itemRefs: { current: Array<HTMLElement | null> };
++  /** Open with focus on the first enabled row (default), the last, or a given index. */
++  openMenu: (at?: "first" | "last" | number) => void;
++  /** Close; focus returns to the trigger unless `restoreFocus` is false. */
++  closeMenu: (restoreFocus?: boolean) => void;
++  /** Spread-ready `onKeyDown` for the trigger: ArrowDown opens on the first row, ArrowUp on the last, Escape closes. */
++  handleTriggerKeyDown: (event: ReactKeyboardEvent<Element>) => void;
++  /** `onKeyDown` for the menu: arrows, Home, End move; Tab and Escape close with focus restored. */
++  handleMenuKeyDown: (event: ReactKeyboardEvent<Element>) => void;
++}
++
++/**
++ * Behaviour of a button-triggered dropdown with roving focus (the counterpart of `ContextMenu`, which is positioned by
++ * x/y and keeps focus on the menu). The hook renders nothing: use it with your own markup, or use `AnchoredMenu`.
++ * ArrowDown or ArrowUp on the trigger opens the menu on the first or last row; inside, arrows, Home and End move
++ * (wrapping), Tab and Escape close, an outside press, a resize or a scroll outside closes, and focus returns to the
++ * trigger. Set `aria-haspopup="menu"` and `aria-expanded={open}` on the trigger.
++ */
++export function useAnchoredMenu<Trigger extends HTMLElement = HTMLButtonElement, Root extends HTMLElement = HTMLDivElement>(itemCount: number, options: UseAnchoredMenuOptions = {}): AnchoredMenuState<Trigger, Root> {
++  const [open, setOpen] = useState(false);
++  const [focusIndex, setFocusIndex] = useState(-1);
++  const rootRef = useRef<Root | null>(null);
++  const triggerRef = useRef<Trigger | null>(null);
++  const itemRefs = useRef<Array<HTMLElement | null>>([]);
++  const optionsRef = useRef(options);
++  optionsRef.current = options;
++  const countRef = useRef(itemCount);
++  countRef.current = itemCount;
++
++  const enabledIndexes = useCallback(() => {
++    const out: number[] = [];
++    for (let i = 0; i < countRef.current; i++) if (!optionsRef.current.isDisabled?.(i)) out.push(i);
++    return out;
++  }, []);
++
++  const openRef = useRef(false);
++
++  const closeMenu = useCallback((restoreFocus = true) => {
++    if (openRef.current) {
++      openRef.current = false;
++      setOpen(false);
++      optionsRef.current.onOpenChange?.(false);
++    }
++    setFocusIndex(-1);
++    if (restoreFocus) triggerRef.current?.focus?.({ preventScroll: true });
++  }, []);
++
++  const openMenu = useCallback(
++    (at: "first" | "last" | number = "first") => {
++      const idx = enabledIndexes();
++      const target = typeof at === "number" ? at : at === "last" ? idx[idx.length - 1] ?? -1 : idx[0] ?? -1;
++      setFocusIndex(target);
++      if (!openRef.current) {
++        openRef.current = true;
++        setOpen(true);
++        optionsRef.current.onOpenChange?.(true);
++      }
++    },
++    [enabledIndexes],
++  );
++
++  useDismiss(() => closeMenu(false), { enabled: open, escape: false, container: rootRef, ignore: [triggerRef], onResize: true, onScroll: true });
++
++  // Move DOM focus with the roving index.
++  useEffect(() => {
++    if (open && focusIndex >= 0) itemRefs.current[focusIndex]?.focus({ preventScroll: true });
++  }, [open, focusIndex]);
++
++  const move = (to: (idx: number[], at: number) => number | undefined) => {
++    const idx = enabledIndexes();
++    if (!idx.length) return;
++    const next = to(idx, idx.indexOf(focusIndex));
++    if (next !== undefined) setFocusIndex(next);
++  };
++
++  const handleTriggerKeyDown = (event: ReactKeyboardEvent<Element>) => {
++    if (event.nativeEvent.isComposing) return;
++    if (event.key === "ArrowDown") {
++      event.preventDefault();
++      openMenu("first");
++    } else if (event.key === "ArrowUp") {
++      event.preventDefault();
++      openMenu("last");
++    } else if (event.key === "Escape" && open) {
++      event.preventDefault();
++      event.stopPropagation();
++      closeMenu();
++    }
++  };
++
++  const handleMenuKeyDown = (event: ReactKeyboardEvent<Element>) => {
++    if (event.nativeEvent.isComposing) return;
++    switch (event.key) {
++      case "ArrowDown":
++        event.preventDefault();
++        move((idx, at) => idx[(at + 1) % idx.length]);
++        break;
++      case "ArrowUp":
++        event.preventDefault();
++        move((idx, at) => idx[at <= 0 ? idx.length - 1 : at - 1]);
++        break;
++      case "Home":
++        event.preventDefault();
++        move((idx) => idx[0]);
++        break;
++      case "End":
++        event.preventDefault();
++        move((idx) => idx[idx.length - 1]);
++        break;
++      case "Escape":
++        event.preventDefault();
++        event.stopPropagation();
++        closeMenu();
++        break;
++      case "Tab":
++        // Tab leaves the menu: close and let focus continue from the trigger.
++        closeMenu();
++        break;
++      default:
++        break;
++    }
++  };
++
++  return { open, focusIndex, rootRef, triggerRef, itemRefs, openMenu, closeMenu, handleTriggerKeyDown, handleMenuKeyDown };
++}
++
++/** Props to spread on the trigger element of an `AnchoredMenu`. */
++export interface AnchoredMenuTriggerProps {
++  ref: RefObject<HTMLButtonElement | null>;
++  "aria-haspopup": "menu";
++  "aria-expanded": boolean;
++  "aria-controls": string | undefined;
++  onClick: () => void;
++  onKeyDown: (event: ReactKeyboardEvent<Element>) => void;
++}
++
++export interface AnchoredMenuProps {
++  /** Accessible name of the menu. */
++  label: string;
++  items: readonly MenuItem[];
++  /** Renders the trigger; spread `props` on a button and use `state.open` for a pressed look. */
++  trigger: (props: AnchoredMenuTriggerProps, state: { open: boolean }) => ReactNode;
++  /** Side of the trigger the menu opens on. Default `bottom-start`. */
++  placement?: MenuPlacement;
++  /** Menu width in px. Default 200. */
++  width?: number;
++  className?: string;
++  /** Extra classes per region: `root` (menu), `item`, `separator`, `label`, `lead`. */
++  slots?: SlotClasses<"root" | "item" | "separator" | "label" | "lead">;
++  /** Called when the menu opens or closes. */
++  onOpenChange?: (open: boolean) => void;
++}
++
++/**
++ * Button-triggered dropdown menu: `useAnchoredMenu` plus the shell's menu markup, positioned from the trigger and
++ * flipped when it would overflow. Rows are `button[role=menuitem]`, one Tab stop at a time (roving focus); a chosen
++ * item's `run` fires after the menu closes and focus has returned to the trigger.
++ */
++export function AnchoredMenu({ label, items, trigger, placement = "bottom-start", width = 200, className, slots, onOpenChange }: AnchoredMenuProps) {
++  const menu = useAnchoredMenu(items.length, { isDisabled: (i) => items[i]?.disabled === true, onOpenChange });
++  const shellPlatform = useShellOptional()?.platform;
++  const menuId = useRef(`rk-amenu-${Math.random().toString(36).slice(2, 8)}`).current;
++  const [pos, setPos] = useState<FloatingPanelStyle | null>(null);
++
++  useLayoutEffect(() => {
++    if (!menu.open) return;
++    const rect = menu.triggerRef.current?.getBoundingClientRect();
++    if (!rect) return;
++    const viewport = { width: window.innerWidth, height: window.innerHeight };
++    const height = menu.rootRef.current?.offsetHeight || items.length * 28 + 12;
++    const at = anchorPoint({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, placement, { width, height }, viewport);
++    setPos(floatingPanelStyle({ x: at.x, y: at.y, width, estimatedHeight: height, viewportWidth: viewport.width, viewportHeight: viewport.height }));
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [menu.open, placement, width, items.length]);
++
++  const triggerProps: AnchoredMenuTriggerProps = {
++    ref: menu.triggerRef,
++    "aria-haspopup": "menu",
++    "aria-expanded": menu.open,
++    "aria-controls": menu.open ? menuId : undefined,
++    onClick: () => (menu.open ? menu.closeMenu(false) : menu.openMenu("first")),
++    onKeyDown: menu.handleTriggerKeyDown,
++  };
++
++  return (
++    <>
++      {trigger(triggerProps, { open: menu.open })}
++      {menu.open
++        ? createPortal(
++            <div
++              ref={menu.rootRef}
++              id={menuId}
++              role="menu"
++              aria-label={label}
++              className={cx("rk-menu", className, slots?.root)}
++              style={pos ?? { visibility: "hidden" }}
++              onKeyDown={menu.handleMenuKeyDown}
++            >
++              {items.map((item, i) => (
++                <div key={item.id}>
++                  {item.separatorBefore ? <div className={cx("rk-menu__sep", slots?.separator)} role="separator" /> : null}
++                  <button
++                    type="button"
++                    ref={(el) => {
++                      menu.itemRefs.current[i] = el;
++                    }}
++                    role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
++                    aria-checked={item.checked}
++                    disabled={item.disabled}
++                    tabIndex={i === menu.focusIndex ? 0 : -1}
++                    className={cx("rk-menu__item", i === menu.focusIndex && "is-active", item.danger && "is-danger", item.disabled && "is-disabled", slots?.item)}
++                    onClick={() => {
++                      if (item.disabled) return;
++                      menu.closeMenu();
++                      item.run?.();
++                    }}
++                  >
++                    <span className={cx("rk-menu__lead", slots?.lead)} aria-hidden="true">{item.checked ? "✓" : item.icon}</span>
++                    <span className={cx("rk-menu__label", slots?.label)}>{item.label}</span>
++                    {item.shortcut ? <Kbd chord={item.shortcut} gap={1} platform={shellPlatform} /> : null}
++                  </button>
++                </div>
++              ))}
++            </div>,
++            document.body,
++          )
++        : null}
++    </>
++  );
++}
+diff --git a/packages/react-shell/src/react/errors.tsx b/packages/react-shell/src/react/errors.tsx
+index a384768..b679846 100644
+--- a/packages/react-shell/src/react/errors.tsx
++++ b/packages/react-shell/src/react/errors.tsx
+@@ -2,8 +2,12 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
+ 
+ export interface ErrorBoundaryProps {
+   children: ReactNode;
+-  /** Custom fallback; receives the error and a reset function. */
+-  fallback?: (error: Error, reset: () => void) => ReactNode;
++  /**
++   * Custom fallback; receives the error, a reset function and React's `ErrorInfo` (the component stack), so an app can
++   * name the crashed subsystem. `info` is `null` on the first render of the fallback and set on the render right after
++   * (React reports it once the error is caught).
++   */
++  fallback?: (error: Error, reset: () => void, info: ErrorInfo | null) => ReactNode;
+   onError?: (error: Error, info: ErrorInfo) => void;
+   label?: string;
+   /**
+@@ -14,22 +18,23 @@ export interface ErrorBoundaryProps {
+ }
+ 
+ /** Keeps one broken view from blanking the whole frame; the chrome stays usable. */
+-export class ErrorBoundary extends Component<ErrorBoundaryProps, { error: Error | null }> {
+-  state = { error: null as Error | null };
++export class ErrorBoundary extends Component<ErrorBoundaryProps, { error: Error | null; info: ErrorInfo | null }> {
++  state = { error: null as Error | null, info: null as ErrorInfo | null };
+   static getDerivedStateFromError(error: Error) {
+     return { error };
+   }
+   componentDidCatch(error: Error, info: ErrorInfo) {
++    this.setState({ info });
+     this.props.onError?.(error, info);
+   }
+   componentDidUpdate(prevProps: Readonly<ErrorBoundaryProps>) {
+-    if (this.state.error && !Object.is(prevProps.resetKey, this.props.resetKey)) this.setState({ error: null });
++    if (this.state.error && !Object.is(prevProps.resetKey, this.props.resetKey)) this.setState({ error: null, info: null });
+   }
+-  reset = () => this.setState({ error: null });
++  reset = () => this.setState({ error: null, info: null });
+   render() {
+-    const { error } = this.state;
++    const { error, info } = this.state;
+     if (!error) return this.props.children;
+-    if (this.props.fallback) return this.props.fallback(error, this.reset);
++    if (this.props.fallback) return this.props.fallback(error, this.reset, info);
+     return (
+       <div className="rk-empty" role="alert">
+         <strong>{this.props.label ?? "Something went wrong"}</strong>
+diff --git a/packages/react-shell/src/react/overlays.tsx b/packages/react-shell/src/react/overlays.tsx
+index 8d04d42..8435aaa 100644
+--- a/packages/react-shell/src/react/overlays.tsx
++++ b/packages/react-shell/src/react/overlays.tsx
+@@ -8,7 +8,12 @@ export interface ModalShellProps {
+   /** Accessible name when there is no visible title. */
+   label: string;
+   onClose: () => void;
+-  width?: number;
++  /**
++   * Surface width. A number is px (default 440); a string is any CSS width, for example `"min(560px, 100%)"`. The
++   * surface never exceeds the viewport. `false` writes no inline width, so the width comes from CSS (a class given in
++   * `className`), which can then use `min()`, `clamp()` or container units.
++   */
++  width?: number | string | false;
+   align?: "center" | "top";
+   /** Pass false when the dialog sets its own initial focus. */
+   autoFocus?: boolean;
+@@ -118,7 +123,7 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
+         aria-labelledby={named ? undefined : labelledBy}
+         aria-describedby={describedBy}
+         tabIndex={-1}
+-        style={{ width }}
++        style={width === false ? undefined : { width }}
+         className={cx("rk-modal", closing && "is-closing", className, slots?.root)}
+       >
+         {children}
+@@ -173,6 +178,8 @@ export interface DialogAction {
+   /** Focus this button when the dialog opens. */
+   autoFocus?: boolean;
+   disabled?: boolean;
++  /** Tooltip (`title`) of the button, for example the file name a "Save" button acts on. */
++  title?: string;
+ }
+ 
+ export interface ActionDialogProps extends Omit<DialogProps, "actions" | "role"> {
+@@ -193,7 +200,7 @@ export function ActionDialog({ actions, role = "dialog", autoFocus, ...dialog }:
+       role={role}
+       autoFocus={autoFocus ?? !actions.some((a) => a.autoFocus)}
+       actions={actions.map((a, i) => (
+-        <Button key={a.id ?? i} variant={a.variant} className={a.className} disabled={a.disabled} autoFocus={a.autoFocus} onClick={a.onClick}>{a.label}</Button>
++        <Button key={a.id ?? i} variant={a.variant} className={a.className} disabled={a.disabled} title={a.title} autoFocus={a.autoFocus} onClick={a.onClick}>{a.label}</Button>
+       ))}
+     />
+   );
+@@ -244,17 +251,32 @@ export interface PromptDialogProps {
+   validate?: (value: string) => string | null;
+   /** Masks the value (a password or PIN). The input gets `type="password"` and no autofill or spellcheck. Default false. */
+   secret?: boolean;
++  /**
++   * Controlled value. When set, the field shows this text and `onChange` receives every edit; `initialValue` is
++   * ignored. Leave it out for the built-in state.
++   */
++  value?: string;
++  /** Called with the new text on every edit. Pair it with `value`. */
++  onChange?: (value: string) => void;
++  /** Disable the confirm button while the value is empty or only whitespace. Default false. */
++  requireValue?: boolean;
+   onSubmit: (value: string) => void;
+   onCancel: () => void;
+ }
+ 
+ /** Single-field text prompt (rename, new folder), or a masked prompt for a secret such as a PIN. */
+-export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, secret = false, onSubmit, onCancel, className, slots }: PromptDialogProps) {
+-  const [value, setValue] = useState(initialValue);
++export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, secret = false, value: valueProp, onChange, requireValue = false, onSubmit, onCancel, className, slots }: PromptDialogProps) {
++  const [inner, setInner] = useState(initialValue);
++  const value = valueProp ?? inner;
++  const setValue = (next: string) => {
++    if (valueProp === undefined) setInner(next);
++    onChange?.(next);
++  };
+   const [error, setError] = useState<string | null>(null);
+   const inputId = useId();
+   const submit = (e: FormEvent) => {
+     e.preventDefault();
++    if (requireValue && value.trim() === "") return;
+     const problem = validate?.(value) ?? null;
+     setError(problem);
+     if (!problem) onSubmit(value);
+@@ -267,7 +289,7 @@ export function PromptDialog({ title, label, initialValue = "", placeholder, con
+         {error ? <small className="rk-modal__error" role="alert">{error}</small> : null}
+         <div className="rk-modal__actions">
+           <Button onClick={onCancel}>{cancelLabel}</Button>
+-          <Button variant="primary" type="submit">{confirmLabel}</Button>
++          <Button variant="primary" type="submit" disabled={requireValue && value.trim() === ""}>{confirmLabel}</Button>
+         </div>
+       </form>
+     </Dialog>
+diff --git a/packages/react-shell/src/react/palette.tsx b/packages/react-shell/src/react/palette.tsx
+index bc5fe1d..8e0c9d0 100644
+--- a/packages/react-shell/src/react/palette.tsx
++++ b/packages/react-shell/src/react/palette.tsx
+@@ -1,5 +1,6 @@
+ import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+ import { Kbd } from "@rightkit/platform-ui/react";
++import type { Platform } from "@rightkit/platform-ui";
+ import type { Command } from "../commands.js";
+ import { rankCommands } from "@rightkit/platform-ui/headless";
+ import { groupByName, initialPaletteSelection, selectByKeyboard, selectByPointer, type PaletteSelection } from "../match.js";
+@@ -284,8 +285,22 @@ export function CommandPalette({
+   );
+ }
+ 
++/** One row of a registry-less `ShortcutHelp` list. */
++export interface ShortcutHelpEntry {
++  label: string;
++  /** Chord to display, for example `mod+k`; a sequence is steps separated by a space (`g i`). Display only. */
++  chord: string;
++  /** Section heading. Entries without one go under "General". Sections are in first-seen order. */
++  group?: string;
++}
++
+ export interface ShortcutHelpProps {
+-  registry: ShortcutRegistry;
++  /** Shortcuts read from a `createShortcutRegistry`, so the list cannot drift. Give this or `shortcuts`. */
++  registry?: ShortcutRegistry;
++  /** A plain list for apps without a registry. Used when `registry` is not given. */
++  shortcuts?: readonly ShortcutHelpEntry[];
++  /** Platform used to draw the keys when there is no `registry`. Default: the provider's, else host detection. */
++  platform?: Platform;
+   onClose: () => void;
+   title?: string;
+   /** Extra classes per region: `root` (dialog), `title`, `grid`, `section`, `item` (row), `keys` (chord list). */
+@@ -297,9 +312,22 @@ export interface ShortcutHelpProps {
+   renderGroup?: (group: { title: string; items: readonly ShortcutInfo[] }, defaultSection: ReactNode) => ReactNode;
+ }
+ 
++function groupShortcutEntries(entries: readonly ShortcutHelpEntry[]): Array<{ title: string; items: ShortcutInfo[] }> {
++  const groups = new Map<string, ShortcutInfo[]>();
++  entries.forEach((entry, i) => {
++    const title = entry.group ?? "General";
++    const list = groups.get(title) ?? [];
++    list.push({ id: `entry-${i}`, label: entry.label, group: title, chords: [entry.chord], defaults: [entry.chord], rebindable: false, hidden: false, overridden: false, unassigned: false });
++    groups.set(title, list);
++  });
++  return [...groups].map(([title, items]) => ({ title, items }));
++}
++
+ /** Discoverable-shortcut overlay rendered straight from the registry, so it cannot drift. */
+-export function ShortcutHelp({ registry, onClose, title = "Keyboard shortcuts", slots, renderGroup }: ShortcutHelpProps) {
+-  const groups = registry.groups();
++export function ShortcutHelp({ registry, shortcuts, platform: platformProp, onClose, title = "Keyboard shortcuts", slots, renderGroup }: ShortcutHelpProps) {
++  const providedPlatform = useShellOptional()?.platform;
++  const platform = registry?.platform ?? platformProp ?? providedPlatform;
++  const groups = registry ? registry.groups() : groupShortcutEntries(shortcuts ?? []);
+   const titleId = useId();
+   const ref = useRef<HTMLDivElement>(null);
+   const { closing, close } = useModalDismiss(onClose, { escape: true });
+@@ -324,7 +352,7 @@ export function ShortcutHelp({ registry, onClose, title = "Keyboard shortcuts",
+                         {chordSteps(item.chords[0]).map((step, i) => (
+                           <span key={i} className="rk-help__step">
+                             {i > 0 ? <em>then</em> : null}
+-                            <Kbd chord={step} gap={1} platform={registry.platform} />
++                            <Kbd chord={step} gap={1} platform={platform} />
+                           </span>
+                         ))}
+                       </span>
+diff --git a/packages/react-shell/src/react/provider.tsx b/packages/react-shell/src/react/provider.tsx
+index a567c25..364de38 100644
+--- a/packages/react-shell/src/react/provider.tsx
++++ b/packages/react-shell/src/react/provider.tsx
+@@ -251,9 +251,28 @@ export function useCommands(commands: readonly Command[]): void {
+   }, [registry, signature, latest]);
+ }
+ 
+-/** Register shortcuts for the lifetime of the calling component. */
+-export function useShortcuts(defs: readonly ShortcutDef[]): void {
+-  const { registry } = useShell();
++export interface UseShortcutsOptions {
++  /**
++   * Registry to register on. Default: the `ShellProvider`'s registry; with no provider, a private registry that this hook
++   * attaches to `window` itself. A registry given here is registered on only: whoever created it calls `attach`
++   * (a `ShellProvider` given the same registry already does).
++   */
++  registry?: ShortcutRegistry;
++  /** Platform for the private registry used without a provider. Default: host detection. */
++  platform?: Platform;
++}
++
++/**
++ * Register shortcuts for the lifetime of the calling component. Works with or without a `ShellProvider`: inside one it
++ * uses the provider's registry (same as 0.7.0); outside one it creates a private registry and listens on `window`.
++ */
++export function useShortcuts(defs: readonly ShortcutDef[], options: UseShortcutsOptions = {}): void {
++  const provided = useShellOptional()?.registry;
++  const explicit = options.registry;
++  const platformOption = options.platform;
++  const standalone = useMemo(() => (explicit || provided ? null : createShortcutRegistry({ platform: platformOption ?? getPlatform() })), [explicit, provided, platformOption]);
++  const registry = explicit ?? provided ?? standalone!;
++  useEffect(() => (standalone ? standalone.attach(window) : undefined), [standalone]);
+   const latest = useLatest(defs);
+   const signature = defs.map((d) => [d.id, typeof d.chord === "string" ? d.chord : d.chord.join("|"), d.label, d.group ?? ""].join("\u0000")).join("\u0001");
+   useEffect(() => {
+diff --git a/packages/react-shell/src/react/round2-gaps.test.tsx b/packages/react-shell/src/react/round2-gaps.test.tsx
+new file mode 100644
+index 0000000..a0741f9
+--- /dev/null
++++ b/packages/react-shell/src/react/round2-gaps.test.tsx
+@@ -0,0 +1,124 @@
++// Markup-level checks for the 0.7.1 additions (Table, Textarea, Select attributes, ModalShell width, controlled
++// PromptDialog, DialogAction title, registry-less ShortcutHelp, AnchoredMenu, provider-less useShortcuts).
++import { describe, expect, it } from "vitest";
++import { renderToStaticMarkup } from "react-dom/server";
++import { AnchoredMenu } from "./anchored-menu.js";
++import { ActionDialog, ModalShell, PromptDialog } from "./overlays.js";
++import { ShortcutHelp } from "./palette.js";
++import { useShortcuts } from "./provider.js";
++import { Select, Table, Textarea } from "./ui.js";
++
++const noop = () => undefined;
++
++describe("Table", () => {
++  const columns = [
++    { id: "name", header: "Name", cell: (r: { name: string; n: number }) => r.name },
++    { id: "n", header: "Count", align: "end" as const, width: 80, cell: (r: { name: string; n: number }) => r.n },
++  ];
++  const rows = [{ name: "a", n: 1 }, { name: "b", n: 2 }];
++  it("renders a labelled table with column-scoped headers and aligned cells", () => {
++    const html = renderToStaticMarkup(<Table label="Items" columns={columns} rows={rows} rowKey={(r) => r.name} caption="Cap" />);
++    expect(html).toContain('<table aria-label="Items" class="rk-table">');
++    expect(html).toContain("<caption>Cap</caption>");
++    expect(html).toContain('<th scope="col">Name</th>');
++    expect(html).toContain('<th scope="col" class="is-end" style="width:80px">Count</th>');
++    expect(html).toContain('<td class="is-end">2</td>');
++  });
++  it("marks dense, striped, interactive and selected rows", () => {
++    const html = renderToStaticMarkup(<Table label="Items" dense striped columns={columns} rows={rows} rowKey={(r) => r.name} onRowClick={noop} selectedKey="b" />);
++    expect(html).toContain("rk-table rk-table--dense rk-table--striped");
++    expect(html).toContain('class="rk-table__row rk-table__row--interactive is-selected" aria-current="true" tabindex="0"');
++  });
++  it("shows the empty content in one full-width cell", () => {
++    const html = renderToStaticMarkup(<Table label="Items" columns={columns} rows={[]} rowKey={(r) => r.name} empty="Nothing here" />);
++    expect(html).toContain('colspan="2"');
++    expect(html).toContain("Nothing here");
++  });
++});
++
++describe("Textarea and Select", () => {
++  it("Textarea takes native attributes and the shell class", () => {
++    const html = renderToStaticMarkup(<Textarea className="x" placeholder="Notes" rows={5} aria-invalid />);
++    expect(html).toContain('class="rk-textarea x"');
++    expect(html).toContain('rows="5"');
++    expect(html).toContain('placeholder="Notes"');
++  });
++  it("Select forwards id, name and aria-describedby", () => {
++    const html = renderToStaticMarkup(<Select label="Mode" id="m" name="mode" aria-describedby="m-note" value="a" options={[{ value: "a", label: "A" }]} onChange={noop} />);
++    expect(html).toContain('id="m"');
++    expect(html).toContain('name="mode"');
++    expect(html).toContain('aria-describedby="m-note"');
++  });
++});
++
++describe("ModalShell width", () => {
++  it("defaults to 440px, takes a CSS length, and `false` writes no inline width", () => {
++    expect(renderToStaticMarkup(<ModalShell label="x" onClose={noop}>b</ModalShell>)).toContain('style="width:440px"');
++    expect(renderToStaticMarkup(<ModalShell label="x" width="min(560px, 100%)" onClose={noop}>b</ModalShell>)).toContain("width:min(560px, 100%)");
++    const css = renderToStaticMarkup(<ModalShell label="x" width={false} onClose={noop}>b</ModalShell>);
++    expect(css).not.toContain("width:");
++    expect(css).not.toContain("style=");
++  });
++});
++
++describe("PromptDialog", () => {
++  it("controlled value is shown instead of initialValue", () => {
++    const html = renderToStaticMarkup(<PromptDialog title="Rename" label="Name" initialValue="old" value="typed" onChange={noop} onSubmit={noop} onCancel={noop} />);
++    expect(html).toContain('value="typed"');
++    expect(html).not.toContain('value="old"');
++  });
++  it("requireValue disables confirm while the value is blank", () => {
++    const blank = renderToStaticMarkup(<PromptDialog title="T" label="L" value="  " onChange={noop} requireValue onSubmit={noop} onCancel={noop} />);
++    expect(blank).toMatch(/<button[^>]*type="submit"[^>]*disabled/);
++    const filled = renderToStaticMarkup(<PromptDialog title="T" label="L" value="x" onChange={noop} requireValue onSubmit={noop} onCancel={noop} />);
++    expect(filled).not.toMatch(/<button[^>]*type="submit"[^>]*disabled/);
++  });
++});
++
++describe("DialogAction title", () => {
++  it("is the button tooltip", () => {
++    const html = renderToStaticMarkup(<ActionDialog title="Save?" onClose={noop} actions={[{ label: "Save", title: "Save notes.txt", onClick: noop }]} />);
++    expect(html).toContain('title="Save notes.txt"');
++  });
++});
++
++describe("ShortcutHelp without a registry", () => {
++  it("lists a plain {label, chord} array, grouped in first-seen order", () => {
++    const html = renderToStaticMarkup(
++      <ShortcutHelp
++        onClose={noop}
++        platform="windows"
++        shortcuts={[
++          { label: "Open", chord: "mod+o" },
++          { label: "Find", chord: "mod+f", group: "Search" },
++          { label: "Save", chord: "mod+s" },
++        ]}
++      />,
++    );
++    expect(html.indexOf("<h3>General</h3>")).toBeGreaterThan(-1);
++    expect(html.indexOf("<h3>General</h3>")).toBeLessThan(html.indexOf("<h3>Search</h3>"));
++    expect(html).toContain("<span>Open</span>");
++    expect(html).toContain("<span>Save</span>");
++  });
++});
++
++describe("AnchoredMenu", () => {
++  it("renders only the trigger while closed, with menu button semantics", () => {
++    const html = renderToStaticMarkup(
++      <AnchoredMenu label="Actions" items={[{ id: "a", label: "A" }]} trigger={(props, { open }) => <button type="button" aria-haspopup={props["aria-haspopup"]} aria-expanded={props["aria-expanded"]} data-open={open}>More</button>} />,
++    );
++    expect(html).toContain('aria-haspopup="menu"');
++    expect(html).toContain('aria-expanded="false"');
++    expect(html).not.toContain('role="menu"');
++  });
++});
++
++describe("useShortcuts without a provider", () => {
++  it("renders without a ShellProvider (registration happens in effects)", () => {
++    function Probe() {
++      useShortcuts([{ id: "probe", chord: "mod+j", label: "Probe", run: noop }]);
++      return <span>ok</span>;
++    }
++    expect(renderToStaticMarkup(<Probe />)).toBe("<span>ok</span>");
++  });
++});
+diff --git a/packages/react-shell/src/react/ui.tsx b/packages/react-shell/src/react/ui.tsx
+index 6df2311..d901796 100644
+--- a/packages/react-shell/src/react/ui.tsx
++++ b/packages/react-shell/src/react/ui.tsx
+@@ -1,4 +1,4 @@
+-import { forwardRef, useId, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
++import { forwardRef, useId, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type TextareaHTMLAttributes } from "react";
+ 
+ export { Kbd } from "@rightkit/platform-ui/react";
+ 
+@@ -28,6 +28,11 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
+   return <input ref={ref} className={cx("rk-input", className)} {...rest} />;
+ });
+ 
++/** Multi-line text field in the shell's look. Takes every native `textarea` attribute; pair it with `Field` for a label. */
++export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, rows = 3, ...rest }, ref) {
++  return <textarea ref={ref} rows={rows} className={cx("rk-textarea", className)} {...rest} />;
++});
++
+ export interface ToggleProps {
+   checked: boolean;
+   onChange: (checked: boolean) => void;
+@@ -174,9 +179,24 @@ export interface SelectOption<T extends string> {
+   disabled?: boolean;
+ }
+ 
+-export function Select<T extends string>({ value, options, onChange, label, disabled, className }: { value: T; options: readonly SelectOption<T>[]; onChange: (value: T) => void; label: string; disabled?: boolean; className?: string }) {
++export interface SelectProps<T extends string> {
++  value: T;
++  options: readonly SelectOption<T>[];
++  onChange: (value: T) => void;
++  /** Accessible name. */
++  label: string;
++  disabled?: boolean;
++  className?: string;
++  /** Element id, so a `Field` label (`htmlFor`) can name the select. */
++  id?: string;
++  /** Ids of the elements that describe the select (for example a `Field` note). */
++  "aria-describedby"?: string;
++  name?: string;
++}
++
++export function Select<T extends string>({ value, options, onChange, label, disabled, className, id, name, "aria-describedby": describedBy }: SelectProps<T>) {
+   return (
+-    <select className={cx("rk-select", className)} aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>
++    <select id={id} name={name} aria-describedby={describedBy} className={cx("rk-select", className)} aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>
+       {options.map((option) => (
+         <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
+       ))}
+@@ -214,6 +234,96 @@ export function Slider({ value, onChange, label, min = 0, max = 100, step = 1, d
+   );
+ }
+ 
++/** One column of a `Table`. */
++export interface TableColumn<T> {
++  /** Stable key for the column. */
++  id: string;
++  /** Header content. */
++  header: ReactNode;
++  /** Cell content for one row. */
++  cell: (row: T, index: number) => ReactNode;
++  /** Text alignment of header and cells. Default `start`. */
++  align?: "start" | "center" | "end";
++  /** Column width (CSS length or number of px). */
++  width?: number | string;
++  /** Extra class on the column's cells. */
++  className?: string;
++}
++
++export interface TableProps<T> {
++  columns: readonly TableColumn<T>[];
++  rows: readonly T[];
++  /** Stable key per row. */
++  rowKey: (row: T, index: number) => string;
++  /** Accessible name of the table. */
++  label: string;
++  /** Visible caption above the table. */
++  caption?: ReactNode;
++  /** Shown in one full-width row when there are no rows. */
++  empty?: ReactNode;
++  /** Tighter row padding. */
++  dense?: boolean;
++  /** Tinted alternate rows. */
++  striped?: boolean;
++  /** Makes each row a button-like row (Tab stop, Enter and Space). A key from a control inside the row stays with that control. */
++  onRowClick?: (row: T, index: number) => void;
++  /** Key (from `rowKey`) of the highlighted row; exposed as `aria-current`. */
++  selectedKey?: string | null;
++  className?: string;
++}
++
++/** Data table in the shell's look: a real `table` with column headers (`scope="col"`), optional row activation and selection. */
++export function Table<T>({ columns, rows, rowKey, label, caption, empty, dense, striped, onRowClick, selectedKey, className }: TableProps<T>) {
++  const alignClass = (align: TableColumn<T>["align"]) => (align === "end" ? "is-end" : align === "center" ? "is-center" : undefined);
++  const interactive = onRowClick !== undefined;
++  return (
++    <table aria-label={label} className={cx("rk-table", dense && "rk-table--dense", striped && "rk-table--striped", className)}>
++      {caption ? <caption>{caption}</caption> : null}
++      <thead>
++        <tr>
++          {columns.map((c) => (
++            <th key={c.id} scope="col" className={cx(alignClass(c.align))} style={c.width !== undefined ? { width: c.width } : undefined}>{c.header}</th>
++          ))}
++        </tr>
++      </thead>
++      <tbody>
++        {rows.length === 0 && empty ? (
++          <tr>
++            <td colSpan={Math.max(1, columns.length)} className="rk-table__empty">{empty}</td>
++          </tr>
++        ) : null}
++        {rows.map((row, index) => {
++          const key = rowKey(row, index);
++          return (
++            <tr
++              key={key}
++              className={cx("rk-table__row", interactive && "rk-table__row--interactive", selectedKey === key && "is-selected")}
++              aria-current={selectedKey === key ? "true" : undefined}
++              tabIndex={interactive ? 0 : undefined}
++              onClick={onRowClick ? () => onRowClick(row, index) : undefined}
++              onKeyDown={
++                onRowClick
++                  ? (event) => {
++                      if (event.target !== event.currentTarget) return;
++                      if (event.key === "Enter" || event.key === " ") {
++                        event.preventDefault();
++                        onRowClick(row, index);
++                      }
++                    }
++                  : undefined
++              }
++            >
++              {columns.map((c) => (
++                <td key={c.id} className={cx(alignClass(c.align), c.className)}>{c.cell(row, index)}</td>
++              ))}
++            </tr>
++          );
++        })}
++      </tbody>
++    </table>
++  );
++}
++
+ /** Inline notice. `warn` and `bad` announce as alerts; the others as status. */
+ export interface NoticeProps {
+   tone?: "info" | "ok" | "warn" | "bad";
+diff --git a/packages/react-shell/test-fixtures/shell-added-since-0.5.1.txt b/packages/react-shell/test-fixtures/shell-added-since-0.5.1.txt
+index c6a85fa..353919b 100644
+--- a/packages/react-shell/test-fixtures/shell-added-since-0.5.1.txt
++++ b/packages/react-shell/test-fixtures/shell-added-since-0.5.1.txt
+@@ -234,3 +234,52 @@
+ | :root:not([data-rk-pointer="off"]) .rk-seg__item:not(.is-on):hover | background: var(--rk-wash-hover)
+ | :root:not([data-rk-pointer="off"]) .rk-toggle[aria-checked="false"]:not(:disabled):hover | background: var(--rk-wash-press)
+ | :where(.rk-top, .rk-top__title, .rk-side, .rk-plane, .rk-nav, .rk-item__label, .rk-brand-foot, .rk-page__band, .rk-page__scroll, .rk-page__head h1, .rk-field label, .rk-modal__title, .rk-modal__label, .rk-palette__label, .rk-toast__msg) | color: var(--rk-ink)
++| .rk-table | width: 100%
++| .rk-textarea | display: block
++| .rk-textarea | box-sizing: border-box
++| .rk-textarea | width: 100%
++| .rk-textarea | min-width: 0
++| .rk-hairline | border: 1px solid var(--rk-line-2)
++| .rk-hairline--top | border-width: 1px 0 0
++| .rk-hairline--bottom | border-width: 0 0 1px
++| .rk-table | border-collapse: collapse
++| .rk-table | color: var(--rk-ink)
++| .rk-table | font-size: 12.5px
++| .rk-table caption | padding: 0 0 8px
++| .rk-table caption | color: var(--rk-ink-2)
++| .rk-table caption | font-weight: 600
++| .rk-table caption | text-align: start
++| .rk-table th, .rk-table td | padding: 8px 10px
++| .rk-table th, .rk-table td | border-bottom: 1px solid var(--rk-line-2)
++| .rk-table th, .rk-table td | text-align: start
++| .rk-table th, .rk-table td | vertical-align: middle
++| .rk-table th | color: var(--rk-ink-2)
++| .rk-table th | font-size: 11px
++| .rk-table th | font-weight: 600
++| .rk-table .is-end | text-align: end
++| .rk-table .is-center | text-align: center
++| .rk-table--dense th, .rk-table--dense td | padding: 4px 10px
++| .rk-table--striped tbody tr:nth-child(even) | background: var(--rk-fill)
++| .rk-table__row--interactive | cursor: default
++| .rk-table__row--interactive:focus-visible | outline: 2px solid var(--rk-focus)
++| .rk-table__row--interactive:focus-visible | outline-offset: -2px
++| .rk-table__row.is-selected | background: var(--rk-sel)
++| .rk-table td.rk-table__empty | padding: 16px 10px
++| .rk-table td.rk-table__empty | color: var(--rk-ink-3)
++| .rk-table td.rk-table__empty | text-align: center
++| :root:not([data-rk-pointer="off"]) .rk-table__row--interactive:not(.is-selected):hover | background: var(--rk-wash-hover)
++| .rk-textarea | min-height: 72px
++| .rk-textarea | padding: 6px 10px
++| .rk-textarea | border: 0
++| .rk-textarea | border-radius: 8px
++| .rk-textarea | background: var(--rk-fill-2)
++| .rk-textarea | color: var(--rk-ink)
++| .rk-textarea | font: inherit
++| .rk-textarea | outline: none
++| .rk-textarea | resize: vertical
++| .rk-textarea:focus | background: var(--rk-elevated)
++| .rk-textarea:focus | box-shadow: 0 0 0 2px var(--rk-focus)
++| .rk-textarea[aria-invalid="true"] | box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad)
++| .rk-textarea::placeholder | color: var(--rk-ink-3)
++| .rk-textarea:disabled | opacity: .5
++| html:root[data-rk-color-scheme="host"] | color-scheme: normal

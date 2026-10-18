@@ -1,0 +1,11 @@
+ffmpeg (rightkit-ffmpeg) -> 0.2.11 (additive; 0.2.10 was unpublished, 0.2.11 follows it)
+DONE #719 FfmpegCommand::h264_compatible_input() / h264_compatible_input_with(Option<&str>) + h264_compatible_filter(): pad=ceil(iw/2)*2:ceil(ih/2)*2 + -pix_fmt yuv420p, unit tests
+DONE #581 parse_time_duration(&str)->Option<Duration> (ffmpeg unsigned grammar: HH:MM:SS[.m], MM:SS, S[.f][s|ms|us]); ExtractOptions start/duration docs point at it; unit tests. (extract_args builder itself already on main 0.2.9; start_text/duration_text fields NOT added to avoid breaking ExtractOptions literals: the issue allowed the parser alternative)
+DONE #739 UnverifiedRequest::path_lookup(tool) constructor + find_tool_on_path(tool); PATH-by-bare-name lookup already existed as allow_path_lookup (dev builds only), now has a direct entry point and test
+ALREADY #353 encoders module (select_delivery, select_qualified_delivery, select_intermediate, etc.) in 0.2.10 CHANGELOG
+ALREADY #354 handle::ToolHandle / FfmpegHandle / FfprobeHandle, verify_*_or_development, resolve_ffmpeg_handle in src/handle.rs
+ALREADY #693 part 2: ResolveOptions::override_first + resolve_*_handle_with (src/handle.rs). Part 1: approved row ffmpeg-7.1.5-export-ass-zimg-windows-x64 already in catalog/artifacts.json (line 632, libass/drawtext/zscale); no catalog change, GenRight should use variant export-ass-zimg on Windows and drop the BtbN build
+PARTIAL #300 quickprobe already covers duration (duration_s), file size (size_bytes), codec (codec/audio_codec), GIF frame_count; doc now states this. missing: slide count (deck formats PDF/PPTX are a document probe, not a media-container property; belongs to a pdf/pptx probe crate, cross-component decision for Adrian)
+DEFERRED #246 Linux catalog rows: no approved Linux artifact or hash exists in catalog and none may be invented; bundling Ember's decode/export variant is a right-release lane item, not rightkit-ffmpeg code
+Public API additions (none breaking): command::parse_time_duration, command::h264_compatible_filter, FfmpegCommand::h264_compatible_input, FfmpegCommand::h264_compatible_input_with, UnverifiedRequest::path_lookup, unverified::find_tool_on_path (all re-exported at crate root). Cargo.lock rightkit-ffmpeg entry bumped to 0.2.11.
+Patch: D:\scratch\rk-gaps-work\c2\ffmpeg\ffmpeg.patch (diff of staged tree vs base)

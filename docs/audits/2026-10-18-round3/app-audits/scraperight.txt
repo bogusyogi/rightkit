@@ -1,0 +1,3 @@
+ScrapeRight (2026-10-18) AUDIT DONE: 70 gaps in 28 issues #734, #736-#762 (all NEW; earlier gaps had only been messaged, never filed)
+BLOCKING: #736 browser public ManagedRoot (no CfT install), #734 job-queue zero secret frame bytes
+Per-component: job-queue #734; browser #736; child-process #737; fs #738; ffmpeg #739; audio #740; models #741; transcript #742; pdf #743 PDFium; http #744; onnx #745; tauri-shell #746; license #747 #756; device #748; credentials #749; logs #750 #760; sync #751; qa #752 #761; release #753 (ffmpeg hash BUG in 0.3.0 + 10 items); settings-ui #754; react-shell #755; app-update #757; theme #758; platform-ui #759; RightKitSwift #762

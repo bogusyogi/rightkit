@@ -1,0 +1,11 @@
+PARTIAL #367 rightkit-time 0.1.1: added format_rfc3339_utc(i64) (exact 1970-01-01T00:00:00Z / 2000-02-29T00:00:00Z) and IANA named zones with DST, std only, from the OS tz database (TZif v1-4 + POSIX footer): TimeZone::{load, load_from_dir, from_tzif, utc, name, offset_at, to_datetime, resolve_local}, ZoneOffset, LocalResolution{Single,Ambiguous,Gap}, TzError. OS database chosen over jiff/chrono-tz so no allowlist/supply-chain decision is needed; missing: native Windows registry/ICU zone resolution (needs a windows/ICU dependency plus Windows-id to IANA mapping; DEFERRED, supply-chain/design). On Windows TimeZone::load returns TzError::NotFound unless the host bundles a tzdata dir and uses load_from_dir. RFC 3339 parse/format/civil math already existed (ALREADY, rightkit-time src/lib.rs).
+DONE #417 rightkit-fsindex 0.4.2: ignore-aware repo walk. walk_repo(root,&WalkOptions,visitor)->io::Result<WalkOutcome> with .gitignore (nested, negation, dir-only, anchoring, * ? [..] \ **), .git/info/exclude, extra ignore files, skip_hidden, max_depth, max_entries, case_insensitive; GitIgnore matcher public. std only. The other two asks in #417 (canonical JSON, LLM token counting) belong to rightkit-contracts / rightkit-llm, not this component (not touched).
+ALREADY #369 HTTP-date helper: rightkit-time format_http_date/parse_http_date (src/lib.rs). Not an fsindex/time gap.
+ALREADY #228 rightkit-fsindex Windows backend: on main at 0.4.0 (windows_search.rs, windows_usn.rs); remaining MFT/USN path resolution + watch is the issue's own "coded-awaiting-publish" lane, untouched here.
+NOT TOUCHED #393 relative time formatter: belongs to @rightkit/platform-ui, not rightkit-time.
+
+Versions: rightkit-time 0.1.0 -> 0.1.1 (additive); rightkit-fsindex 0.4.1 -> 0.4.2 (additive). Cargo.lock updated for both. No breaking changes.
+Public API additions:
+ rightkit-time: format_rfc3339_utc; TimeZone, ZoneOffset, LocalResolution, TzError (all new).
+ rightkit-fsindex: walk_repo, WalkOptions (#[non_exhaustive]), WalkEntry, WalkKind, WalkControl, WalkOutcome, GitIgnore (all new).
+Files: patch at D:\scratch\rk-gaps-work\c2\time\time.patch (not compiled, rustfmt unavailable: main chat must run cargo fmt/check/test).

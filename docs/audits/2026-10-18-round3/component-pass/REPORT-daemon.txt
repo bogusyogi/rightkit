@@ -1,0 +1,30 @@
+rightkit-daemon: 0.2.7 -> 0.2.8 (all additions, no breaking change). Patch: D:\scratch\rk-gaps-work\c2\daemon\daemon.patch (against base, LF). Nothing built or run.
+
+DONE #766 `fail_limit` is now `pub mod`, and `FailLimiter` is re-exported at the crate root.
+DONE #767 `supervisor::supervise_with(config, SuperviseOptions, launch, probe, on_event)`: `SuperviseOptions::adopt(child)` (caller-verified first generation), `SupervisorMode` (shared u64) + `SupervisorHandle::{mode, restart_with_mode}` for lock-state restarts, `SupervisorHandle::stop_returning_child()` returns the live child without killing it. `supervise` delegates to it.
+DONE #768 `Client::call_retrying_pooled` and `call_retrying_pooled_until` (connect closure returns any `Borrow<Client>`, e.g. `Arc<Client>`), plus `Client::is_closed()` for pools. `retry_loop` is generic over the borrow; `call_retrying_over` and `call_retrying_until` are unchanged.
+DONE #680 (daemon half) `current_user_sid_string()` is public on Windows and re-exported at the crate root. The rightkit-child-process half (stdin on output/status) belongs to the child-process pass.
+DONE #676 `make_private_dir` now calls `rightkit_fs::restrict_owner_only` on Windows (protected owner-only DACL). A failure is `SuiteError::Insecure`. Covers private_service_subdir, data_dir, service dirs and app roots. Windows-only test added.
+DONE #375 `stop::stop_on_parent_exit(source, pid)` (200 ms poll, start-marker check against pid reuse, cause `Requested` so `StopCause` stays non-breaking), `stop::parent_pid()` (Unix getppid), `stop::at_exit(hook)` (C `atexit`, LIFO, panics contained). Signals and stdin watch already existed in 0.2.7. Tests added.
+ALREADY #377 `Daemon::add_public_route` (remote feature) exists in 0.2.7. Added `Response::json`, `Response::redirect`, `Response::with_header` so a handler can build answers (the fields were pub but constructors were private), and a test in tests/remote_daemon.rs. Note: the route lives on the daemon's HTTPS listener; PostRight's separate plain-HTTP listener is the app's deployment choice, not a daemon feature. A handler can only answer JSON bodies (Value), so a plain-text Meta hub.challenge echo works only as a bare JSON number.
+PARTIAL #404 done: module `wake` (`Wake::{new,post,listen}`, `WakeListener::wait`): Darwin notify on macOS, named auto-reset event with owner-only DACL on Windows (raw kernel32 externs), polled counter file in the suite's private `wake` dir elsewhere; tests added. Missing: publish/subscribe events (`events.subscribe`/topics), `ServiceRecord` heartbeat/state/extra fields, attach-or-fallback client (these change the discovery record schema and the app event contract: cross-component decision, also touches rightkit-job-queue), and the RightKitSwift observe wrapper.
+PARTIAL #405 done: module `install` (`ServiceSpec`, `ServiceManager::{install,start,stop,status,uninstall}`, `SystemdUser`, `LaunchAgent`, `ScheduledTask` with Task Scheduler XML, injectable `CommandRunner`, `platform_manager`, pure render functions, input validation, Windows arg quoting); tests with a mock runner. Missing: DEFERRED public `verify_authenticode(path)` (WinVerifyTrust: security-sensitive FFI with revocation/cache/signer-identity choices that a passing build would not validate; needs a decision on what "trusted" returns, publisher pinning, and a Windows test with a signed binary) and Windows SCM service install (needs elevation; the task is the user-level route). RightKitSwift launch-agent wrapper is outside this crate.
+DEFERRED #379 Browser bearer-token device auth with per-IP limit: security-sensitive and not self-contained. It needs the peer address plumbed from the TLS accept loop into `Request`, a new auth class beside the frozen daemon-api v1 route table (rightkit-contracts), token minting/hashed storage in the durable state schema, revocation routes and the device-model decision (browser token vs signed-request device). Building blocks now exist (`FailLimiter` exported, `Response::redirect/json`, public routes). Needs Adrian/lead decision on the contract change.
+DEFERRED #666 Crash-safe daemon reload saga: needs an async tokio API with `async_trait` hooks (new dependency), a decision on where `ActivationFence`/staged-binary swap lives (rightkit-fs vs here; fs is another component) and its journal format; large, cross-component, and a wrong rollback step would still compile. Best done as its own module after that decision.
+
+New version: rightkit-daemon 0.2.8 (Cargo.toml and Cargo.lock updated; CHANGELOG "0.2.8 (unreleased)"; README sections added).
+
+Public API additions (none breaking):
+- Crate root: `FailLimiter`, `pub mod fail_limit`, `pub mod install`, `pub mod wake`, `current_user_sid_string` (Windows).
+- `Client::{call_retrying_pooled, call_retrying_pooled_until, is_closed}`.
+- `supervisor::{supervise_with, SuperviseOptions, SupervisorMode}`, `SupervisorHandle::{mode, restart_with_mode, stop_returning_child}`.
+- `stop::{stop_on_parent_exit, parent_pid, at_exit}`.
+- `remote::Response::{json, redirect, with_header}` (remote feature).
+- `install::*` (ServiceSpec, RestartPolicy, InstallStatus, InstallError, CommandOutput, CommandRunner, SystemRunner, ServiceManager, SystemdUser, LaunchAgent, ScheduledTask, platform_manager, render_systemd_unit, render_launch_agent_plist, render_task_xml, task_xml_utf16, windows_quote_arg, MAX_NAME_LEN).
+- `wake::{Wake, WakeListener, WakeError, MAX_NAME_LEN}`.
+
+Things for the compile/test pass to check (not built here):
+- cargo fmt will reflow some long lines (client.rs run_attempt call, install.rs, stop.rs).
+- `stop::at_exit` declares C `atexit` via extern "C"; confirm it links on Windows MSVC and macOS (std links the CRT; if not, drop to Unix-only).
+- wake.rs Windows uses raw kernel32 externs and macOS declares notify_* / poll (nfds as u32); confirm on each host.
+- ownership/fingerprint gate (rightkit-ownership.json) and runtime-budget evidence for 0.2.8 were not touched; the new threads (parent watch, wake fallback poll) are opt-in and add no idle wake-ups by default.

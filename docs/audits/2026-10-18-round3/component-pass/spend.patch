@@ -1,0 +1,1618 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..4d70e44 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7402,6 +7402,7 @@ dependencies = [
+ name = "rightkit-spend"
+ version = "0.2.0"
+ dependencies = [
++ "rightkit-crypto",
+  "rightkit-db",
+  "tempfile",
+  "thiserror 2.0.21",
+diff --git a/crates/rightkit-spend/CHANGELOG.md b/crates/rightkit-spend/CHANGELOG.md
+index 74dc868..8199cd7 100644
+--- a/crates/rightkit-spend/CHANGELOG.md
++++ b/crates/rightkit-spend/CHANGELOG.md
+@@ -13,6 +13,7 @@ GenRight's ledger port (bogusyogi/rightkit#473, duplicate of #462): the semantic
+ - **Fail closed.** A stored allowance limit that is not a finite non-negative number (`inf`, `NaN` text, a negative) reads as 0, so the allowance refuses every non-zero reservation until the owner resets it through `set_allowance`. `micro_from_units(f64)` converts decimal units and rejects `NaN`, infinities and negatives.
+ - **Optional overrun gate.** `Ledger::with_overrun_gate(false)` / `set_overrun_gate`: overruns are still flagged, counted and acknowledgeable, but never block `reserve`. On by default.
+ - **Variants.** Every new write has `_in` (caller's `Transaction`) and `_on` (caller's `&Connection` with an open transaction, `NoActiveTransaction` otherwise) forms and runs in a savepoint: `reserve_multi`, `mark_in_flight_group`, `commit_group`, `release_group`, `set_device_allowance`, `record_provider_reported`, `adjust_actual`, `reconcile_invoice`.
++- **Approved budgets (bogusyogi/rightkit#422, #530; additive, schema version 4, migration `spend-approved-budgets`).** New tables `spend_approved_budgets`, `spend_approved_seals`, `spend_grants`, `spend_grant_reports`, `spend_approval_audit`; the audit and report tables carry triggers that refuse update and delete. New types `ApprovedBudget`, `BudgetStatus`, `Grant`, `GrantReport`, `GrantExpiry`, `ApprovalAudit`, `SealKey`; constants `GRANT_TTL_DEFAULT_SECS`, `GRANT_TTL_MAX_SECS`, `APPROVED_MAX_MICRO`; new `SpendError::ApprovedBudget { code, message }` (the enum is `#[non_exhaustive]`). New methods, each with `_in` and `_on` forms for the writes: `create_approved_budget`, `approve_budget` (bound to `ApprovedBudget::approval_bind`, sealed with HMAC-SHA256 under a caller-held `SealKey`, idempotent), `issue_grant` / `issue_grant_from` (a per-project or per-budget reserve; refuses an unapproved budget, a budget whose seal fails, and an amount above what is available), `report_grant` (idempotent by report id, `report_conflict` on a changed grant or amount, overspend recorded and flagged `overrun`), `close_grant`, `expire_grants` (release on expiry); reads `approved_budget`, `approved_budgets`, `approved_budget_status`, `verify_budget_seal`, `grant`, `grants`, `approval_audit`. New dependency: `rightkit-crypto` 0.1.0.
+ - Semantics that differ from GenRight's `ledger.rs` are listed in the README ("Differences from GenRight's ledger").
+ - Not compiled or run when written; verification is the lead's build and test run.
+ 
+diff --git a/crates/rightkit-spend/Cargo.toml b/crates/rightkit-spend/Cargo.toml
+index 70bc1c8..b778595 100644
+--- a/crates/rightkit-spend/Cargo.toml
++++ b/crates/rightkit-spend/Cargo.toml
+@@ -4,7 +4,7 @@ version = "0.2.0"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+-description = "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, atomic multi-cap reserve, carry-over, budgets, reconciliation, cap audit."
++description = "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, atomic multi-cap reserve, carry-over, budgets, reconciliation, cap audit, owner-approved sealed budgets with grants."
+ readme = "README.md"
+ repository = "https://github.com/bogusyogi/rightkit"
+ keywords = ["spend", "budget", "ledger", "sqlite"]
+@@ -12,6 +12,7 @@ categories = ["database"]
+ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+ 
+ [dependencies]
++rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+ rightkit-db = { version = "0.4.2", path = "../rightkit-db", default-features = false }
+ thiserror = "2"
+ 
+diff --git a/crates/rightkit-spend/README.md b/crates/rightkit-spend/README.md
+index 8e2bad6..b907cba 100644
+--- a/crates/rightkit-spend/README.md
++++ b/crates/rightkit-spend/README.md
+@@ -67,6 +67,10 @@ ledger.commit_group("job-42", 118_000)?;
+ - A stored limit that is not a finite non-negative number reads as 0 (the allowance refuses everything non-zero until reset through `set_allowance`). `micro_from_units(f64)` rejects `NaN`, infinities and negatives.
+ - `with_overrun_gate(false)`: overruns are still flagged and counted but never block `reserve`.
+ 
++## Approved budgets, grants and sealed approval
++
++A second tier for an owner-approved pool per project (Pulse's budget model, bogusyogi/rightkit#422, #530). `create_approved_budget(project, currency, limit_micro)` makes an unapproved budget; nothing issues from it. The app shows the owner the budget and `ApprovedBudget::approval_bind()`, gets the owner's answer in its own UI, then calls `approve_budget(id, approver, bind, &SealKey)`: a budget changed since is refused `budget_changed`, and the approval is sealed with HMAC-SHA256 over (id, project, limit, currency, approved_at) under a `SealKey` the app keeps outside the database (an OS credential store). `issue_grant(project, amount | None, ttl, &key)` (or `issue_grant_from(budget_id, ..)`) reserves part of an approved, sealed budget for a tool: `available = limit - spent - unspent part of open unexpired grants`, so two callers are never handed the same money, and a budget whose seal is missing or wrong (edited database) refuses `seal_invalid`. `report_grant(grant, spent, report_id, final)` records actual spend once per report id (same id and amount: `duplicate`; another grant or amount: `report_conflict`); overspend is recorded and flagged `overrun`, never refused. A grant releases its unspent part on expiry (immediately in the arithmetic; `expire_grants()` stamps and audits it), on `close_grant`, or on a final report. `approval_audit(budget, limit)` reads the audit table, which the database refuses to update or delete from, as it does the report table. Refusals are `SpendError::ApprovedBudget { code, message }` with a stable code. Who counts as the owner, and the seal key, are the app's.
++
+ ## Differences from GenRight's ledger
+ 
+ GenRight's ledger counts USD floats in a `ledger` table keyed by job and attempt, with caps in a `settings` table. This crate keeps integer micro-units and its own allowance and reservation rows, so: a cap is an allowance row (a cap change is a revisioned compare-and-swap, not a settings write); the "attempt" is a reservation; a monthly or device total is its own allowance rather than a `LIKE` over a day column; carry-over is opt-in per cap instead of built into the daily cap; GenRight's process budget was a global static and is a field of the `Ledger`; GenRight's invoice reconciliation never changed a settled amount and still does not unless `adjust_committed` or `adjust_actual` is used; GenRight's `1e-9` float tolerance is gone (integers compare exactly); an invoice period is a unix-seconds range over `created_at`, not UTC days; the device id is the caller's, not generated here.
+@@ -77,7 +81,7 @@ Allowance amounts, the scope mapping, the estimate arithmetic (tokens times pric
+ 
+ ## Dependencies
+ 
+-`rightkit-db` (rusqlite, SQLite) and `thiserror`. The ledger owns one connection; open a second one for the app's own queries. Enable a `rightkit-db` feature such as `bundled` or a SQLCipher feature in the app, as for any other crate on `rightkit-db`.
++`rightkit-db` (rusqlite, SQLite), `rightkit-crypto` (HMAC-SHA256 seal) and `thiserror`. The ledger owns one connection; open a second one for the app's own queries. Enable a `rightkit-db` feature such as `bundled` or a SQLCipher feature in the app, as for any other crate on `rightkit-db`.
+ 
+ ## Usage
+ 
+diff --git a/crates/rightkit-spend/rightkit-ownership.json b/crates/rightkit-spend/rightkit-ownership.json
+index 623ce83..411ad5a 100644
+--- a/crates/rightkit-spend/rightkit-ownership.json
++++ b/crates/rightkit-spend/rightkit-ownership.json
+@@ -3,7 +3,7 @@
+   "capabilities": [
+     {
+       "capability": "spend-ledger",
+-      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`/`_on`) variants, strict transition mode, carry-over, atomic multi-cap reserve with epoch-reset device allowance, caller and process budgets, provider-reported cost and invoice reconciliation, cap-setting audit, optional overrun gate",
++      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`/`_on`) variants, strict transition mode, carry-over, atomic multi-cap reserve with epoch-reset device allowance, caller and process budgets, provider-reported cost and invoice reconciliation, cap-setting audit, optional overrun gate, owner-approved sealed budgets with grants, idempotent reports, release on expiry and append-only audit",
+       "fingerprints": [],
+       "detection": "declaration-only",
+       "policyNotes": [
+diff --git a/crates/rightkit-spend/src/approved.rs b/crates/rightkit-spend/src/approved.rs
+new file mode 100644
+index 0000000..b6b59d8
+--- /dev/null
++++ b/crates/rightkit-spend/src/approved.rs
+@@ -0,0 +1,1415 @@
++//! Approved budgets: an owner-approved, sealed spend pool per project that hands out short
++//! leases ([`Grant`]) and takes back reports of what was actually spent (bogusyogi/rightkit#422,
++//! #530; the model of Pulse's `core/src/budget.rs`).
++//!
++//! This is a second, coarser tier beside the allowance and reservation ledger: a tool asks the
++//! owner of the money for a [`Grant`] (a per-budget reserve), spends within it, and reports the
++//! actual spend (a per-budget report). The ledger keeps the money state; the tool only holds a
++//! grant. Money is integer micro-units, as everywhere in this crate.
++//!
++//! Rules, each held in one write transaction:
++//!
++//! * A grant is only issued from an *approved* budget, and issuing it reserves its amount:
++//!   `available = limit - spent - (unspent part of every open, unexpired grant)`. Two callers
++//!   asking at once cannot be handed the same money.
++//! * Release on expiry: a grant whose `expires_at` has passed no longer holds its unspent part,
++//!   at once (the arithmetic compares with the clock), and [`Ledger::expire_grants`] stamps it
++//!   closed and writes the audit row. [`Ledger::close_grant`] and a final report release the
++//!   unspent part early.
++//! * A report is idempotent by report id: the same id with the same grant and amount returns the
++//!   first result and changes nothing; the same id with another grant or amount is refused
++//!   (`report_conflict`).
++//! * A report is never refused for being too large: the money is gone, so it is recorded and
++//!   flagged `overrun` ([`GrantReport::overrun`]).
++//! * Every change appends a row to an audit table that the database refuses to update or delete
++//!   from; the report table is append-only the same way.
++//! * Approval is bound and sealed. [`ApprovedBudget::approval_bind`] is the one value the owner
++//!   is shown and approves; [`Ledger::approve_budget`] refuses (`budget_changed`) when the stored
++//!   budget no longer matches the bind the owner approved. An approved budget carries an
++//!   HMAC-SHA256 seal over (id, project, limit, currency, approved_at) under a [`SealKey`] the
++//!   app keeps (an OS credential store, for example); issuing refuses (`seal_invalid`) a budget
++//!   whose seal is missing or does not verify, so an edit of the database that approves a budget
++//!   or raises its limit is detected. A process that can read the key can still forge a seal.
++//!
++//! Who counts as the owner is the app's decision: it gets the owner's answer (a click in its own
++//! UI, never a terminal) and only then calls [`Ledger::approve_budget`]. The crate cannot tell.
++//!
++//! Failures that a caller branches on are [`SpendError::ApprovedBudget`] with a stable `code`:
++//! `bad_project`, `bad_currency`, `bad_amount`, `bad_ttl`, `bad_report_id`, `unknown_budget`,
++//! `unknown_grant`, `no_budget`, `not_approved`, `seal_invalid`, `budget_changed`, `exhausted`,
++//! `over_budget`, `report_conflict`.
++
++use super::*;
++use rightkit_crypto::{ct_eq, hex_encode, hmac_sha256, sha256};
++
++/// Default lease of a grant, in seconds.
++pub const GRANT_TTL_DEFAULT_SECS: i64 = 3600;
++/// Longest lease of a grant, in seconds.
++pub const GRANT_TTL_MAX_SECS: i64 = 24 * 3600;
++/// The largest amount accepted for a limit, a grant or a report (1e9 units), so sums stay far
++/// inside `i64`.
++pub const APPROVED_MAX_MICRO: i64 = 1_000_000_000 * 1_000_000;
++
++const BUDGET_PREFIX: &str = "bud";
++const GRANT_PREFIX: &str = "grt";
++const SEAL_DOMAIN: &[u8] = b"rightkit.spend.approved-budget.seal.v1";
++const BIND_DOMAIN: &[u8] = b"rightkit.spend.approved-budget.approve.v1";
++
++/// The secret that seals approved budgets (at least 16 bytes). The app keeps it outside the
++/// database. `Debug` never prints it.
++#[derive(Clone)]
++pub struct SealKey(Vec<u8>);
++
++impl SealKey {
++    /// A key from at least 16 bytes of secret material.
++    pub fn new(secret: &[u8]) -> Result<Self> {
++        if secret.len() < 16 {
++            return Err(SpendError::BadInput(
++                "seal key must be at least 16 bytes".into(),
++            ));
++        }
++        Ok(Self(secret.to_vec()))
++    }
++}
++
++impl std::fmt::Debug for SealKey {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str("SealKey(..)")
++    }
++}
++
++/// A budget the owner approves for a project.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct ApprovedBudget {
++    /// `bud-` plus an 8-digit count.
++    pub id: String,
++    pub project: String,
++    /// Three upper-case letters.
++    pub currency: String,
++    pub limit_micro: i64,
++    /// Reported spend, including overruns.
++    pub spent_micro: i64,
++    pub created_at: i64,
++    /// Set when the owner's approval was recorded and sealed.
++    pub approved_at: Option<i64>,
++}
++
++impl ApprovedBudget {
++    pub fn is_approved(&self) -> bool {
++        self.approved_at.is_some()
++    }
++
++    /// The one value an approval is bound to: a hash over the id, project, currency and limit.
++    /// Show the owner these facts, ask for the answer bound to this string, and pass it back to
++    /// [`Ledger::approve_budget`]; a budget changed in between no longer matches.
++    pub fn approval_bind(&self) -> String {
++        let mut message = BIND_DOMAIN.to_vec();
++        for field in [
++            self.id.as_bytes(),
++            self.project.as_bytes(),
++            self.currency.as_bytes(),
++            self.limit_micro.to_string().as_bytes(),
++        ] {
++            length_prefixed(&mut message, field);
++        }
++        hex_encode(&sha256(&message))
++    }
++}
++
++/// A budget with what is held against it at the moment of the call.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct BudgetStatus {
++    pub budget: ApprovedBudget,
++    /// Unspent part of every open, unexpired grant.
++    pub held_micro: i64,
++    /// `limit - spent - held`, never below zero: what can still be granted.
++    pub available_micro: i64,
++}
++
++/// A lease on part of an approved budget.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct Grant {
++    /// `grt-` plus an 8-digit count.
++    pub id: String,
++    pub budget_id: String,
++    pub amount_micro: i64,
++    /// Sum of the reports recorded against the grant.
++    pub spent_micro: i64,
++    pub issued_at: i64,
++    pub expires_at: i64,
++    /// Set when the grant was closed (final report, [`Ledger::close_grant`]) or expired
++    /// ([`Ledger::expire_grants`]).
++    pub closed_at: Option<i64>,
++}
++
++impl Grant {
++    /// `amount - spent`, never below zero.
++    pub fn remaining_micro(&self) -> i64 {
++        self.amount_micro.saturating_sub(self.spent_micro).max(0)
++    }
++
++    /// Open and not yet expired at `now`: the grant still holds its unspent part.
++    pub fn holds_at(&self, now: i64) -> bool {
++        self.closed_at.is_none() && self.expires_at > now
++    }
++}
++
++/// The result of [`Ledger::report_grant`].
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct GrantReport {
++    pub report_id: String,
++    /// The report id was already recorded with the same grant and amount; nothing was added.
++    pub duplicate: bool,
++    pub grant: Grant,
++    pub budget: ApprovedBudget,
++    /// The grant's spend exceeds its amount or the budget's spend exceeds its limit. Recorded,
++    /// never refused.
++    pub overrun: bool,
++}
++
++/// What [`Ledger::expire_grants`] did.
++#[derive(Clone, Debug, PartialEq, Eq, Default)]
++#[non_exhaustive]
++pub struct GrantExpiry {
++    /// Grants stamped closed at their `expires_at`.
++    pub expired: Vec<Grant>,
++    /// Their unspent amounts, now free again.
++    pub released_micro: i64,
++}
++
++/// One row of the append-only audit of approved budgets.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct ApprovalAudit {
++    pub seq: i64,
++    /// Unix seconds.
++    pub at: i64,
++    /// `create`, `approve`, `issue`, `report`, `close` or `expire`.
++    pub action: String,
++    /// The approver for `approve`, else the ledger's actor ([`Ledger::with_actor`]).
++    pub who: String,
++    pub budget_id: Option<String>,
++    pub grant_id: Option<String>,
++    pub amount_micro: Option<i64>,
++    pub report_id: Option<String>,
++    pub note: Option<String>,
++}
++
++fn refuse(code: &'static str, message: impl Into<String>) -> SpendError {
++    SpendError::ApprovedBudget {
++        code,
++        message: message.into(),
++    }
++}
++
++fn length_prefixed(out: &mut Vec<u8>, field: &[u8]) {
++    out.extend_from_slice(&(field.len() as u64).to_be_bytes());
++    out.extend_from_slice(field);
++}
++
++fn id_of(prefix: &str, seq: i64) -> String {
++    format!("{prefix}-{seq:08}")
++}
++
++fn seq_from(prefix: &str, id: &str) -> Option<i64> {
++    id.strip_prefix(prefix)
++        .and_then(|rest| rest.strip_prefix('-'))
++        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
++        .and_then(|n| n.parse::<i64>().ok())
++}
++
++fn valid_project(project: &str) -> Result<()> {
++    let ok = !project.is_empty()
++        && project.len() <= 64
++        && project
++            .bytes()
++            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
++    if ok {
++        Ok(())
++    } else {
++        Err(refuse(
++            "bad_project",
++            "a project id is 1 to 64 letters, digits, '.', '_' or '-'",
++        ))
++    }
++}
++
++fn valid_currency(currency: &str) -> Result<String> {
++    if currency.len() == 3 && currency.bytes().all(|b| b.is_ascii_alphabetic()) {
++        Ok(currency.to_ascii_uppercase())
++    } else {
++        Err(refuse(
++            "bad_currency",
++            "a currency is a 3-letter code such as USD",
++        ))
++    }
++}
++
++fn valid_report_id(id: &str) -> Result<()> {
++    if !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_graphic()) {
++        Ok(())
++    } else {
++        Err(refuse(
++            "bad_report_id",
++            "a report id is 1 to 128 visible characters without spaces",
++        ))
++    }
++}
++
++fn valid_amount(what: &str, micro: i64, allow_zero: bool) -> Result<i64> {
++    if micro > APPROVED_MAX_MICRO || micro < 0 || (micro == 0 && !allow_zero) {
++        return Err(refuse(
++            "bad_amount",
++            format!("{what} must be {} to {APPROVED_MAX_MICRO} micro-units", u8::from(!allow_zero)),
++        ));
++    }
++    Ok(micro)
++}
++
++const BUDGET_COLUMNS: &str =
++    "seq, project, currency, limit_micro, spent_micro, created_at, approved_at";
++const GRANT_COLUMNS: &str =
++    "seq, budget_seq, amount_micro, spent_micro, issued_at, expires_at, closed_at";
++
++fn budget_from_row(row: &Row<'_>) -> rusqlite::Result<ApprovedBudget> {
++    let seq: i64 = row.get(0)?;
++    Ok(ApprovedBudget {
++        id: id_of(BUDGET_PREFIX, seq),
++        project: row.get(1)?,
++        currency: row.get(2)?,
++        limit_micro: row.get(3)?,
++        spent_micro: row.get(4)?,
++        created_at: row.get(5)?,
++        approved_at: row.get(6)?,
++    })
++}
++
++fn grant_from_row(row: &Row<'_>) -> rusqlite::Result<Grant> {
++    let seq: i64 = row.get(0)?;
++    let budget_seq: i64 = row.get(1)?;
++    Ok(Grant {
++        id: id_of(GRANT_PREFIX, seq),
++        budget_id: id_of(BUDGET_PREFIX, budget_seq),
++        amount_micro: row.get(2)?,
++        spent_micro: row.get(3)?,
++        issued_at: row.get(4)?,
++        expires_at: row.get(5)?,
++        closed_at: row.get(6)?,
++    })
++}
++
++fn find_budget_seq(conn: &Connection, seq: i64) -> Result<ApprovedBudget> {
++    conn.query_row(
++        &format!("SELECT {BUDGET_COLUMNS} FROM spend_approved_budgets WHERE seq = ?1"),
++        [seq],
++        budget_from_row,
++    )
++    .optional()?
++    .ok_or_else(|| refuse("unknown_budget", format!("no budget {}", id_of(BUDGET_PREFIX, seq))))
++}
++
++fn find_budget(conn: &Connection, id: &str) -> Result<ApprovedBudget> {
++    let seq = seq_from(BUDGET_PREFIX, id)
++        .ok_or_else(|| refuse("unknown_budget", format!("no budget {id}")))?;
++    find_budget_seq(conn, seq)
++}
++
++fn find_grant_seq(conn: &Connection, seq: i64) -> Result<Grant> {
++    conn.query_row(
++        &format!("SELECT {GRANT_COLUMNS} FROM spend_grants WHERE seq = ?1"),
++        [seq],
++        grant_from_row,
++    )
++    .optional()?
++    .ok_or_else(|| refuse("unknown_grant", format!("no grant {}", id_of(GRANT_PREFIX, seq))))
++}
++
++fn grant_seq(id: &str) -> Result<i64> {
++    seq_from(GRANT_PREFIX, id).ok_or_else(|| refuse("unknown_grant", format!("no grant {id}")))
++}
++
++fn budget_seq_of(budget: &ApprovedBudget) -> i64 {
++    seq_from(BUDGET_PREFIX, &budget.id).unwrap_or(0)
++}
++
++/// The unspent part of every open, unexpired grant of a budget.
++fn held_micro(conn: &Connection, budget_seq: i64, at: i64) -> Result<i64> {
++    Ok(conn.query_row(
++        "SELECT COALESCE(SUM(MAX(amount_micro - spent_micro, 0)), 0) FROM spend_grants \
++         WHERE budget_seq = ?1 AND closed_at IS NULL AND expires_at > ?2",
++        params![budget_seq, at],
++        |row| row.get(0),
++    )?)
++}
++
++fn available_micro(budget: &ApprovedBudget, held: i64) -> i64 {
++    budget
++        .limit_micro
++        .saturating_sub(budget.spent_micro)
++        .saturating_sub(held)
++        .max(0)
++}
++
++#[allow(clippy::too_many_arguments)]
++fn audit_row(
++    conn: &Connection,
++    at: i64,
++    action: &str,
++    who: &str,
++    budget_seq: Option<i64>,
++    grant_seq: Option<i64>,
++    amount_micro: Option<i64>,
++    report_id: Option<&str>,
++    note: Option<&str>,
++) -> Result<()> {
++    conn.execute(
++        "INSERT INTO spend_approval_audit (at, action, who, budget_seq, grant_seq, amount_micro, \
++         report_id, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
++        params![at, action, who, budget_seq, grant_seq, amount_micro, report_id, note],
++    )?;
++    Ok(())
++}
++
++fn seal_message(budget: &ApprovedBudget, approved_at: i64) -> Vec<u8> {
++    let mut message = SEAL_DOMAIN.to_vec();
++    for field in [
++        budget.id.as_bytes(),
++        budget.project.as_bytes(),
++        budget.limit_micro.to_string().as_bytes(),
++        budget.currency.as_bytes(),
++        approved_at.to_string().as_bytes(),
++    ] {
++        length_prefixed(&mut message, field);
++    }
++    message
++}
++
++fn seal_tag(key: &SealKey, budget: &ApprovedBudget, approved_at: i64) -> [u8; 32] {
++    hmac_sha256(&key.0, &seal_message(budget, approved_at))
++}
++
++fn unhex(text: &str) -> Option<Vec<u8>> {
++    if !text.len().is_multiple_of(2) || !text.is_ascii() {
++        return None;
++    }
++    (0..text.len() / 2)
++        .map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).ok())
++        .collect()
++}
++
++/// Whether the approved budget's stored seal verifies under `key` (constant-time compare).
++fn seal_holds(conn: &Connection, key: &SealKey, budget: &ApprovedBudget) -> Result<bool> {
++    let Some(approved_at) = budget.approved_at else {
++        return Ok(false);
++    };
++    let stored: Option<String> = conn
++        .query_row(
++            "SELECT seal FROM spend_approved_seals WHERE budget_seq = ?1",
++            [budget_seq_of(budget)],
++            |row| row.get(0),
++        )
++        .optional()?;
++    let Some(tag) = stored.as_deref().and_then(unhex) else {
++        return Ok(false);
++    };
++    Ok(ct_eq(&seal_tag(key, budget, approved_at), &tag))
++}
++
++fn create_impl(
++    conn: &Connection,
++    ctx: &Ctx,
++    project: &str,
++    currency: &str,
++    limit_micro: i64,
++) -> Result<ApprovedBudget> {
++    valid_project(project)?;
++    let currency = valid_currency(currency)?;
++    valid_amount("a budget limit", limit_micro, false)?;
++    conn.execute(
++        "INSERT INTO spend_approved_budgets (project, currency, limit_micro, created_at) \
++         VALUES (?1, ?2, ?3, ?4)",
++        params![project, currency, limit_micro, ctx.now],
++    )?;
++    let seq = conn.last_insert_rowid();
++    audit_row(
++        conn,
++        ctx.now,
++        "create",
++        &ctx.actor,
++        Some(seq),
++        None,
++        Some(limit_micro),
++        None,
++        Some(&format!("project={project} currency={currency}")),
++    )?;
++    find_budget_seq(conn, seq)
++}
++
++fn approve_impl(
++    conn: &Connection,
++    ctx: &Ctx,
++    budget_id: &str,
++    approver: &str,
++    expected_bind: &str,
++    key: &SealKey,
++) -> Result<ApprovedBudget> {
++    non_empty("approver", approver)?;
++    let budget = find_budget(conn, budget_id)?;
++    if budget.approved_at.is_none() {
++        if !ct_eq(budget.approval_bind().as_bytes(), expected_bind.as_bytes()) {
++            return Err(refuse(
++                "budget_changed",
++                "the budget is not the one the owner approved; nothing was approved",
++            ));
++        }
++        let seq = budget_seq_of(&budget);
++        let changed = conn.execute(
++            "UPDATE spend_approved_budgets SET approved_at = ?2, approved_by = ?3 \
++             WHERE seq = ?1 AND approved_at IS NULL",
++            params![seq, ctx.now, approver],
++        )?;
++        if changed == 1 {
++            conn.execute(
++                "INSERT OR REPLACE INTO spend_approved_seals (budget_seq, seal) VALUES (?1, ?2)",
++                params![seq, hex_encode(&seal_tag(key, &budget, ctx.now))],
++            )?;
++            audit_row(
++                conn,
++                ctx.now,
++                "approve",
++                approver,
++                Some(seq),
++                None,
++                Some(budget.limit_micro),
++                None,
++                None,
++            )?;
++        }
++    }
++    find_budget(conn, budget_id)
++}
++
++/// Where a grant may come from.
++enum Source<'a> {
++    /// The first approved, sealed budget of the project that can cover the amount.
++    Project(&'a str),
++    /// One named budget.
++    Budget(&'a str),
++}
++
++fn issue_impl(
++    conn: &Connection,
++    ctx: &Ctx,
++    source: Source<'_>,
++    amount_micro: Option<i64>,
++    ttl_secs: Option<i64>,
++    key: &SealKey,
++) -> Result<Grant> {
++    let wanted = amount_micro
++        .map(|a| valid_amount("a grant amount", a, false))
++        .transpose()?;
++    let ttl = ttl_secs.unwrap_or(GRANT_TTL_DEFAULT_SECS);
++    if !(1..=GRANT_TTL_MAX_SECS).contains(&ttl) {
++        return Err(refuse(
++            "bad_ttl",
++            format!("a grant lasts 1 to {GRANT_TTL_MAX_SECS} seconds"),
++        ));
++    }
++    let (label, budgets): (String, Vec<ApprovedBudget>) = match source {
++        Source::Project(project) => {
++            valid_project(project)?;
++            let mut stmt = conn.prepare(&format!(
++                "SELECT {BUDGET_COLUMNS} FROM spend_approved_budgets WHERE project = ?1 \
++                 ORDER BY created_at, seq"
++            ))?;
++            let rows = stmt
++                .query_map([project], budget_from_row)?
++                .collect::<std::result::Result<Vec<_>, _>>()?;
++            if rows.is_empty() {
++                return Err(refuse(
++                    "no_budget",
++                    format!("project {project} has no budget; create one"),
++                ));
++            }
++            (format!("project {project}"), rows)
++        }
++        Source::Budget(id) => (format!("budget {id}"), vec![find_budget(conn, id)?]),
++    };
++    let approved: Vec<&ApprovedBudget> = budgets.iter().filter(|b| b.is_approved()).collect();
++    if approved.is_empty() {
++        return Err(refuse(
++            "not_approved",
++            format!("{label} has no approved budget; the owner must approve one"),
++        ));
++    }
++    // A budget whose seal is missing or wrong was approved or changed outside the ledger: it
++    // never issues.
++    let mut sealed: Vec<&ApprovedBudget> = Vec::new();
++    let mut broken: Vec<&str> = Vec::new();
++    for budget in approved {
++        if seal_holds(conn, key, budget)? {
++            sealed.push(budget);
++        } else {
++            broken.push(&budget.id);
++        }
++    }
++    if sealed.is_empty() {
++        return Err(refuse(
++            "seal_invalid",
++            format!(
++                "budget {} failed its seal: the database was changed outside the ledger, so \
++                 nothing is issued; create and approve a new budget",
++                broken.join(", ")
++            ),
++        ));
++    }
++    let mut chosen: Option<(&ApprovedBudget, i64)> = None;
++    let mut most = 0;
++    for budget in sealed {
++        let free = available_micro(budget, held_micro(conn, budget_seq_of(budget), ctx.now)?);
++        most = most.max(free);
++        let fits = match wanted {
++            Some(w) => free >= w,
++            None => free > 0,
++        };
++        if fits {
++            chosen = Some((budget, wanted.unwrap_or(free)));
++            break;
++        }
++    }
++    let Some((budget, granted)) = chosen else {
++        return Err(if most == 0 {
++            refuse("exhausted", format!("{label} has no allowance left to issue"))
++        } else {
++            refuse(
++                "over_budget",
++                format!("{label} has only {most} micro-units available"),
++            )
++        });
++    };
++    let expires = ctx.now.saturating_add(ttl);
++    let budget_seq = budget_seq_of(budget);
++    conn.execute(
++        "INSERT INTO spend_grants (budget_seq, amount_micro, issued_at, expires_at) \
++         VALUES (?1, ?2, ?3, ?4)",
++        params![budget_seq, granted, ctx.now, expires],
++    )?;
++    let seq = conn.last_insert_rowid();
++    audit_row(
++        conn,
++        ctx.now,
++        "issue",
++        &ctx.actor,
++        Some(budget_seq),
++        Some(seq),
++        Some(granted),
++        None,
++        Some(&format!("expires_at={expires}")),
++    )?;
++    find_grant_seq(conn, seq)
++}
++
++fn close_row(conn: &Connection, seq: i64, at: i64) -> Result<bool> {
++    Ok(conn.execute(
++        "UPDATE spend_grants SET closed_at = ?2 WHERE seq = ?1 AND closed_at IS NULL",
++        params![seq, at],
++    )? == 1)
++}
++
++fn report_impl(
++    conn: &Connection,
++    ctx: &Ctx,
++    grant_id: &str,
++    spent_micro: i64,
++    report_id: &str,
++    final_report: bool,
++) -> Result<GrantReport> {
++    valid_amount("a reported spend", spent_micro, true)?;
++    valid_report_id(report_id)?;
++    let seq = grant_seq(grant_id)?;
++    let previous: Option<(i64, i64)> = conn
++        .query_row(
++            "SELECT grant_seq, spent_micro FROM spend_grant_reports WHERE report_id = ?1",
++            [report_id],
++            |row| Ok((row.get(0)?, row.get(1)?)),
++        )
++        .optional()?;
++    let duplicate = match previous {
++        Some((prior_grant, prior_spent)) => {
++            if prior_grant != seq || prior_spent != spent_micro {
++                return Err(refuse(
++                    "report_conflict",
++                    format!(
++                        "report {report_id} was already recorded for grant {} with spend {prior_spent}",
++                        id_of(GRANT_PREFIX, prior_grant)
++                    ),
++                ));
++            }
++            true
++        }
++        None => false,
++    };
++    let grant = find_grant_seq(conn, seq)?;
++    let budget_seq = seq_from(BUDGET_PREFIX, &grant.budget_id).unwrap_or(0);
++    let budget = find_budget_seq(conn, budget_seq)?;
++    if !duplicate {
++        let new_grant_spent = grant
++            .spent_micro
++            .checked_add(spent_micro)
++            .ok_or(SpendError::Overflow)?;
++        let new_budget_spent = budget
++            .spent_micro
++            .checked_add(spent_micro)
++            .ok_or(SpendError::Overflow)?;
++        conn.execute(
++            "INSERT INTO spend_grant_reports (report_id, grant_seq, spent_micro, reported_at, \
++             is_final) VALUES (?1, ?2, ?3, ?4, ?5)",
++            params![report_id, seq, spent_micro, ctx.now, i64::from(final_report)],
++        )?;
++        conn.execute(
++            "UPDATE spend_grants SET spent_micro = ?2 WHERE seq = ?1",
++            params![seq, new_grant_spent],
++        )?;
++        conn.execute(
++            "UPDATE spend_approved_budgets SET spent_micro = ?2 WHERE seq = ?1",
++            params![budget_seq, new_budget_spent],
++        )?;
++        if final_report {
++            close_row(conn, seq, ctx.now)?;
++        }
++        let overrun = new_grant_spent > grant.amount_micro || new_budget_spent > budget.limit_micro;
++        audit_row(
++            conn,
++            ctx.now,
++            "report",
++            &ctx.actor,
++            Some(budget_seq),
++            Some(seq),
++            Some(spent_micro),
++            Some(report_id),
++            Some(&format!(
++                "grant_spent={new_grant_spent} budget_spent={new_budget_spent} final={final_report} overrun={overrun}"
++            )),
++        )?;
++    } else if final_report && grant.closed_at.is_none() {
++        // A repeat of a report recorded without `final_report` still closes the grant when this
++        // one asks for it: spend is not counted twice, the release is.
++        close_row(conn, seq, ctx.now)?;
++        audit_row(
++            conn,
++            ctx.now,
++            "close",
++            &ctx.actor,
++            Some(budget_seq),
++            Some(seq),
++            None,
++            Some(report_id),
++            Some("duplicate final report"),
++        )?;
++    }
++    let grant = find_grant_seq(conn, seq)?;
++    let budget = find_budget_seq(conn, budget_seq)?;
++    let overrun = grant.spent_micro > grant.amount_micro || budget.spent_micro > budget.limit_micro;
++    Ok(GrantReport {
++        report_id: report_id.to_owned(),
++        duplicate,
++        grant,
++        budget,
++        overrun,
++    })
++}
++
++fn close_impl(conn: &Connection, ctx: &Ctx, grant_id: &str, reason: Option<&str>) -> Result<Grant> {
++    let seq = grant_seq(grant_id)?;
++    let grant = find_grant_seq(conn, seq)?;
++    if grant.closed_at.is_none() && close_row(conn, seq, ctx.now)? {
++        audit_row(
++            conn,
++            ctx.now,
++            "close",
++            &ctx.actor,
++            seq_from(BUDGET_PREFIX, &grant.budget_id),
++            Some(seq),
++            Some(grant.remaining_micro()),
++            None,
++            reason,
++        )?;
++    }
++    find_grant_seq(conn, seq)
++}
++
++fn expire_impl(conn: &Connection, ctx: &Ctx) -> Result<GrantExpiry> {
++    let due: Vec<Grant> = {
++        let mut stmt = conn.prepare(&format!(
++            "SELECT {GRANT_COLUMNS} FROM spend_grants WHERE closed_at IS NULL AND expires_at <= ?1 \
++             ORDER BY seq"
++        ))?;
++        let rows = stmt
++            .query_map([ctx.now], grant_from_row)?
++            .collect::<std::result::Result<Vec<_>, _>>()?;
++        rows
++    };
++    let mut out = GrantExpiry::default();
++    for grant in due {
++        let seq = grant_seq(&grant.id)?;
++        // Stamped at its own expiry, not now: that is when it stopped holding money.
++        if close_row(conn, seq, grant.expires_at)? {
++            let released = grant.remaining_micro();
++            audit_row(
++                conn,
++                ctx.now,
++                "expire",
++                &ctx.actor,
++                seq_from(BUDGET_PREFIX, &grant.budget_id),
++                Some(seq),
++                Some(released),
++                None,
++                None,
++            )?;
++            out.released_micro = out
++                .released_micro
++                .checked_add(released)
++                .ok_or(SpendError::Overflow)?;
++            out.expired.push(find_grant_seq(conn, seq)?);
++        }
++    }
++    Ok(out)
++}
++
++impl Ledger {
++    /// A new budget for `project`, not yet approved: nothing can be issued from it. `currency`
++    /// is a 3-letter code (stored upper-case); `limit_micro` is above zero and at most
++    /// [`APPROVED_MAX_MICRO`].
++    pub fn create_approved_budget(
++        &mut self,
++        project: &str,
++        currency: &str,
++        limit_micro: i64,
++    ) -> Result<ApprovedBudget> {
++        self.run(|conn, ctx| create_impl(conn, ctx, project, currency, limit_micro))
++    }
++
++    /// [`Ledger::create_approved_budget`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn create_approved_budget_in(
++        &self,
++        tx: &Transaction<'_>,
++        project: &str,
++        currency: &str,
++        limit_micro: i64,
++    ) -> Result<ApprovedBudget> {
++        self.run_in(tx, |conn, ctx| {
++            create_impl(conn, ctx, project, currency, limit_micro)
++        })
++    }
++
++    /// [`Ledger::create_approved_budget`] on a connection with an open transaction.
++    pub fn create_approved_budget_on(
++        &self,
++        conn: &Connection,
++        project: &str,
++        currency: &str,
++        limit_micro: i64,
++    ) -> Result<ApprovedBudget> {
++        self.run_on(conn, |conn, ctx| {
++            create_impl(conn, ctx, project, currency, limit_micro)
++        })
++    }
++
++    /// Record the owner's approval of a budget and seal it. Call it only once the owner has
++    /// answered an approval bound to `expected_bind` ([`ApprovedBudget::approval_bind`]); a
++    /// budget that no longer matches is refused `budget_changed` and nothing is approved.
++    /// `approver` is recorded in the audit. Approving an approved budget changes and records
++    /// nothing.
++    pub fn approve_budget(
++        &mut self,
++        budget_id: &str,
++        approver: &str,
++        expected_bind: &str,
++        key: &SealKey,
++    ) -> Result<ApprovedBudget> {
++        self.run(|conn, ctx| approve_impl(conn, ctx, budget_id, approver, expected_bind, key))
++    }
++
++    /// [`Ledger::approve_budget`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn approve_budget_in(
++        &self,
++        tx: &Transaction<'_>,
++        budget_id: &str,
++        approver: &str,
++        expected_bind: &str,
++        key: &SealKey,
++    ) -> Result<ApprovedBudget> {
++        self.run_in(tx, |conn, ctx| {
++            approve_impl(conn, ctx, budget_id, approver, expected_bind, key)
++        })
++    }
++
++    /// [`Ledger::approve_budget`] on a connection with an open transaction.
++    pub fn approve_budget_on(
++        &self,
++        conn: &Connection,
++        budget_id: &str,
++        approver: &str,
++        expected_bind: &str,
++        key: &SealKey,
++    ) -> Result<ApprovedBudget> {
++        self.run_on(conn, |conn, ctx| {
++            approve_impl(conn, ctx, budget_id, approver, expected_bind, key)
++        })
++    }
++
++    /// Issue a grant for `project` from its first approved, sealed budget that can cover it, and
++    /// reserve the amount. `amount_micro` of `None` asks for everything available in that
++    /// budget. `ttl_secs` (default [`GRANT_TTL_DEFAULT_SECS`], at most [`GRANT_TTL_MAX_SECS`])
++    /// is how long the grant holds its unspent part. Refusals: `no_budget`, `not_approved`,
++    /// `seal_invalid`, `exhausted`, `over_budget`.
++    pub fn issue_grant(
++        &mut self,
++        project: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run(|conn, ctx| {
++            issue_impl(conn, ctx, Source::Project(project), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// [`Ledger::issue_grant`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn issue_grant_in(
++        &self,
++        tx: &Transaction<'_>,
++        project: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run_in(tx, |conn, ctx| {
++            issue_impl(conn, ctx, Source::Project(project), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// [`Ledger::issue_grant`] on a connection with an open transaction.
++    pub fn issue_grant_on(
++        &self,
++        conn: &Connection,
++        project: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run_on(conn, |conn, ctx| {
++            issue_impl(conn, ctx, Source::Project(project), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// As [`Ledger::issue_grant`], from the one budget `budget_id` (a per-budget reserve).
++    pub fn issue_grant_from(
++        &mut self,
++        budget_id: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run(|conn, ctx| {
++            issue_impl(conn, ctx, Source::Budget(budget_id), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// [`Ledger::issue_grant_from`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn issue_grant_from_in(
++        &self,
++        tx: &Transaction<'_>,
++        budget_id: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run_in(tx, |conn, ctx| {
++            issue_impl(conn, ctx, Source::Budget(budget_id), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// [`Ledger::issue_grant_from`] on a connection with an open transaction.
++    pub fn issue_grant_from_on(
++        &self,
++        conn: &Connection,
++        budget_id: &str,
++        amount_micro: Option<i64>,
++        ttl_secs: Option<i64>,
++        key: &SealKey,
++    ) -> Result<Grant> {
++        self.run_on(conn, |conn, ctx| {
++            issue_impl(conn, ctx, Source::Budget(budget_id), amount_micro, ttl_secs, key)
++        })
++    }
++
++    /// Record actual spend against a grant, once per `report_id` (a per-budget report). The
++    /// same id with the same grant and amount returns the first result with `duplicate` set;
++    /// the same id with another grant or amount is refused `report_conflict`. `final_report`
++    /// also closes the grant, which releases what it did not spend. Spend over the grant or the
++    /// budget is recorded and flagged [`GrantReport::overrun`], never refused: the money has
++    /// gone. A grant that already expired still takes the report.
++    pub fn report_grant(
++        &mut self,
++        grant_id: &str,
++        spent_micro: i64,
++        report_id: &str,
++        final_report: bool,
++    ) -> Result<GrantReport> {
++        self.run(|conn, ctx| report_impl(conn, ctx, grant_id, spent_micro, report_id, final_report))
++    }
++
++    /// [`Ledger::report_grant`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn report_grant_in(
++        &self,
++        tx: &Transaction<'_>,
++        grant_id: &str,
++        spent_micro: i64,
++        report_id: &str,
++        final_report: bool,
++    ) -> Result<GrantReport> {
++        self.run_in(tx, |conn, ctx| {
++            report_impl(conn, ctx, grant_id, spent_micro, report_id, final_report)
++        })
++    }
++
++    /// [`Ledger::report_grant`] on a connection with an open transaction.
++    pub fn report_grant_on(
++        &self,
++        conn: &Connection,
++        grant_id: &str,
++        spent_micro: i64,
++        report_id: &str,
++        final_report: bool,
++    ) -> Result<GrantReport> {
++        self.run_on(conn, |conn, ctx| {
++            report_impl(conn, ctx, grant_id, spent_micro, report_id, final_report)
++        })
++    }
++
++    /// Close a grant now, releasing its unspent part. Closing a closed grant changes nothing.
++    pub fn close_grant(&mut self, grant_id: &str, reason: Option<&str>) -> Result<Grant> {
++        self.run(|conn, ctx| close_impl(conn, ctx, grant_id, reason))
++    }
++
++    /// [`Ledger::close_grant`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn close_grant_in(
++        &self,
++        tx: &Transaction<'_>,
++        grant_id: &str,
++        reason: Option<&str>,
++    ) -> Result<Grant> {
++        self.run_in(tx, |conn, ctx| close_impl(conn, ctx, grant_id, reason))
++    }
++
++    /// [`Ledger::close_grant`] on a connection with an open transaction.
++    pub fn close_grant_on(
++        &self,
++        conn: &Connection,
++        grant_id: &str,
++        reason: Option<&str>,
++    ) -> Result<Grant> {
++        self.run_on(conn, |conn, ctx| close_impl(conn, ctx, grant_id, reason))
++    }
++
++    /// Release on expiry: stamp every open grant whose lease has run out as closed (at its own
++    /// expiry time) and audit it. Availability does not wait for this call: an expired grant
++    /// stops holding money the moment it expires. Run it from the app's tick or before showing
++    /// the audit.
++    pub fn expire_grants(&mut self) -> Result<GrantExpiry> {
++        self.run(expire_impl)
++    }
++
++    /// [`Ledger::expire_grants`] inside the caller's transaction ([`Ledger::begin`]).
++    pub fn expire_grants_in(&self, tx: &Transaction<'_>) -> Result<GrantExpiry> {
++        self.run_in(tx, expire_impl)
++    }
++
++    /// [`Ledger::expire_grants`] on a connection with an open transaction.
++    pub fn expire_grants_on(&self, conn: &Connection) -> Result<GrantExpiry> {
++        self.run_on(conn, expire_impl)
++    }
++
++    /// One approved budget by id (`bud-00000001`); `unknown_budget` when there is none.
++    pub fn approved_budget(&self, budget_id: &str) -> Result<ApprovedBudget> {
++        find_budget(&self.conn, budget_id)
++    }
++
++    /// Every budget, oldest first, optionally only those of one project.
++    pub fn approved_budgets(&self, project: Option<&str>) -> Result<Vec<ApprovedBudget>> {
++        let mut stmt = self.conn.prepare(&format!(
++            "SELECT {BUDGET_COLUMNS} FROM spend_approved_budgets \
++             WHERE (?1 IS NULL OR project = ?1) ORDER BY created_at, seq"
++        ))?;
++        let rows = stmt.query_map([project], budget_from_row)?;
++        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
++    }
++
++    /// A budget with what is held and still available at this moment.
++    pub fn approved_budget_status(&self, budget_id: &str) -> Result<BudgetStatus> {
++        let budget = find_budget(&self.conn, budget_id)?;
++        let held = held_micro(&self.conn, budget_seq_of(&budget), self.now())?;
++        Ok(BudgetStatus {
++            available_micro: available_micro(&budget, held),
++            held_micro: held,
++            budget,
++        })
++    }
++
++    /// Whether the budget is approved and its stored seal verifies under `key`.
++    pub fn verify_budget_seal(&self, budget_id: &str, key: &SealKey) -> Result<bool> {
++        let budget = find_budget(&self.conn, budget_id)?;
++        seal_holds(&self.conn, key, &budget)
++    }
++
++    /// One grant by id (`grt-00000001`); `unknown_grant` when there is none.
++    pub fn grant(&self, grant_id: &str) -> Result<Grant> {
++        find_grant_seq(&self.conn, grant_seq(grant_id)?)
++    }
++
++    /// Every grant of a budget, oldest first.
++    pub fn grants(&self, budget_id: &str) -> Result<Vec<Grant>> {
++        let budget = find_budget(&self.conn, budget_id)?;
++        let mut stmt = self.conn.prepare(&format!(
++            "SELECT {GRANT_COLUMNS} FROM spend_grants WHERE budget_seq = ?1 ORDER BY seq"
++        ))?;
++        let rows = stmt.query_map([budget_seq_of(&budget)], grant_from_row)?;
++        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
++    }
++
++    /// The newest `limit` (1 to 1000) audit rows, newest first, optionally for one budget.
++    pub fn approval_audit(
++        &self,
++        budget_id: Option<&str>,
++        limit: i64,
++    ) -> Result<Vec<ApprovalAudit>> {
++        let budget_seq = match budget_id {
++            Some(id) => Some(budget_seq_of(&find_budget(&self.conn, id)?)),
++            None => None,
++        };
++        let mut stmt = self.conn.prepare(
++            "SELECT seq, at, action, who, budget_seq, grant_seq, amount_micro, report_id, note \
++             FROM spend_approval_audit WHERE (?1 IS NULL OR budget_seq = ?1) \
++             ORDER BY seq DESC LIMIT ?2",
++        )?;
++        let rows = stmt.query_map(params![budget_seq, limit.clamp(1, 1000)], |row| {
++            let budget: Option<i64> = row.get(4)?;
++            let grant: Option<i64> = row.get(5)?;
++            Ok(ApprovalAudit {
++                seq: row.get(0)?,
++                at: row.get(1)?,
++                action: row.get(2)?,
++                who: row.get(3)?,
++                budget_id: budget.map(|s| id_of(BUDGET_PREFIX, s)),
++                grant_id: grant.map(|s| id_of(GRANT_PREFIX, s)),
++                amount_micro: row.get(6)?,
++                report_id: row.get(7)?,
++                note: row.get(8)?,
++            })
++        })?;
++        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::atomic::{AtomicI64, Ordering};
++    use std::sync::Arc;
++
++    struct Fx {
++        ledger: Ledger,
++        clock: Arc<AtomicI64>,
++        key: SealKey,
++    }
++
++    fn fx() -> Fx {
++        let clock = Arc::new(AtomicI64::new(1_000));
++        let c = Arc::clone(&clock);
++        let ledger = Ledger::attach_with_clock(Connection::open_in_memory().unwrap(), move || {
++            c.load(Ordering::SeqCst)
++        })
++        .unwrap();
++        Fx {
++            ledger,
++            clock,
++            key: SealKey::new(b"0123456789abcdef0123456789abcdef").unwrap(),
++        }
++    }
++
++    fn approved(f: &mut Fx, limit: i64) -> ApprovedBudget {
++        let b = f.ledger.create_approved_budget("proj", "usd", limit).unwrap();
++        f.ledger
++            .approve_budget(&b.id, "owner", &b.approval_bind(), &f.key)
++            .unwrap()
++    }
++
++    fn code(err: SpendError) -> &'static str {
++        match err {
++            SpendError::ApprovedBudget { code, .. } => code,
++            other => panic!("not an approved-budget refusal: {other}"),
++        }
++    }
++
++    #[test]
++    fn seal_key_needs_material_and_never_prints() {
++        assert!(SealKey::new(b"short").is_err());
++        assert_eq!(format!("{:?}", fx().key), "SealKey(..)");
++    }
++
++    #[test]
++    fn unapproved_budget_issues_nothing() {
++        let mut f = fx();
++        let b = f.ledger.create_approved_budget("proj", "usd", 1_000).unwrap();
++        assert_eq!(b.currency, "USD");
++        assert!(!b.is_approved());
++        assert_eq!(code(f.ledger.issue_grant("proj", None, None, &f.key).unwrap_err()), "not_approved");
++        assert_eq!(code(f.ledger.issue_grant("nobody", None, None, &f.key).unwrap_err()), "no_budget");
++    }
++
++    #[test]
++    fn approval_is_bound_and_idempotent() {
++        let mut f = fx();
++        let b = f.ledger.create_approved_budget("proj", "USD", 1_000).unwrap();
++        let err = f
++            .ledger
++            .approve_budget(&b.id, "owner", "deadbeef", &f.key)
++            .unwrap_err();
++        assert_eq!(code(err), "budget_changed");
++        assert!(!f.ledger.approved_budget(&b.id).unwrap().is_approved());
++        let first = f
++            .ledger
++            .approve_budget(&b.id, "owner", &b.approval_bind(), &f.key)
++            .unwrap();
++        assert_eq!(first.approved_at, Some(1_000));
++        f.clock.store(2_000, Ordering::SeqCst);
++        let again = f
++            .ledger
++            .approve_budget(&b.id, "other", &b.approval_bind(), &f.key)
++            .unwrap();
++        assert_eq!(again.approved_at, Some(1_000));
++        let log = f.ledger.approval_audit(Some(&b.id), 10).unwrap();
++        assert_eq!(
++            log.iter().map(|r| r.action.as_str()).collect::<Vec<_>>(),
++            ["approve", "create"]
++        );
++        assert_eq!(log[0].who, "owner");
++        assert!(f.ledger.verify_budget_seal(&b.id, &f.key).unwrap());
++    }
++
++    #[test]
++    fn a_raised_limit_or_wrong_key_breaks_the_seal() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        f.ledger
++            .connection()
++            .execute("UPDATE spend_approved_budgets SET limit_micro = 9000", [])
++            .unwrap();
++        assert!(!f.ledger.verify_budget_seal(&b.id, &f.key).unwrap());
++        assert_eq!(code(f.ledger.issue_grant("proj", None, None, &f.key).unwrap_err()), "seal_invalid");
++
++        let mut g = fx();
++        let b = approved(&mut g, 1_000);
++        let other = SealKey::new(b"ffffffffffffffffffffffffffffffff").unwrap();
++        assert!(!g.ledger.verify_budget_seal(&b.id, &other).unwrap());
++        g.ledger
++            .connection()
++            .execute("DELETE FROM spend_approved_seals", [])
++            .unwrap();
++        assert_eq!(code(g.ledger.issue_grant_from(&b.id, None, None, &g.key).unwrap_err()), "seal_invalid");
++    }
++
++    #[test]
++    fn issuing_reserves_so_two_callers_cannot_share_money() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        let one = f.ledger.issue_grant("proj", Some(600), None, &f.key).unwrap();
++        assert_eq!(one.amount_micro, 600);
++        assert_eq!(one.expires_at, 1_000 + GRANT_TTL_DEFAULT_SECS);
++        assert_eq!(
++            code(f.ledger.issue_grant("proj", Some(500), None, &f.key).unwrap_err()),
++            "over_budget"
++        );
++        let rest = f.ledger.issue_grant("proj", None, Some(60), &f.key).unwrap();
++        assert_eq!(rest.amount_micro, 400);
++        assert_eq!(
++            code(f.ledger.issue_grant("proj", None, None, &f.key).unwrap_err()),
++            "exhausted"
++        );
++        let status = f.ledger.approved_budget_status(&b.id).unwrap();
++        assert_eq!((status.held_micro, status.available_micro), (1_000, 0));
++    }
++
++    #[test]
++    fn ttl_and_amount_are_checked() {
++        let mut f = fx();
++        approved(&mut f, 1_000);
++        assert_eq!(code(f.ledger.issue_grant("proj", Some(1), Some(0), &f.key).unwrap_err()), "bad_ttl");
++        assert_eq!(
++            code(f.ledger.issue_grant("proj", Some(1), Some(GRANT_TTL_MAX_SECS + 1), &f.key).unwrap_err()),
++            "bad_ttl"
++        );
++        assert_eq!(code(f.ledger.issue_grant("proj", Some(0), None, &f.key).unwrap_err()), "bad_amount");
++        assert_eq!(code(f.ledger.create_approved_budget("p r", "USD", 5).unwrap_err()), "bad_project");
++        assert_eq!(code(f.ledger.create_approved_budget("p", "US", 5).unwrap_err()), "bad_currency");
++        assert_eq!(code(f.ledger.create_approved_budget("p", "USD", 0).unwrap_err()), "bad_amount");
++    }
++
++    #[test]
++    fn expiry_releases_the_unspent_part() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(700), Some(100), &f.key).unwrap();
++        f.ledger.report_grant(&g.id, 200, "r1", false).unwrap();
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 300);
++        f.clock.store(1_100, Ordering::SeqCst);
++        // Already free by the arithmetic, before anything is stamped.
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 800);
++        let expiry = f.ledger.expire_grants().unwrap();
++        assert_eq!(expiry.released_micro, 500);
++        assert_eq!(expiry.expired.len(), 1);
++        assert_eq!(expiry.expired[0].closed_at, Some(1_100));
++        assert!(f.ledger.expire_grants().unwrap().expired.is_empty());
++        // An expired grant still takes the report of money already spent.
++        let late = f.ledger.report_grant(&g.id, 50, "r2", false).unwrap();
++        assert_eq!(late.grant.spent_micro, 250);
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 750);
++        let actions: Vec<String> = f
++            .ledger
++            .approval_audit(Some(&b.id), 50)
++            .unwrap()
++            .into_iter()
++            .map(|r| r.action)
++            .collect();
++        assert_eq!(actions, ["report", "expire", "report", "issue", "approve", "create"]);
++    }
++
++    #[test]
++    fn report_is_idempotent_and_conflicts_are_refused() {
++        let mut f = fx();
++        approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(500), None, &f.key).unwrap();
++        let first = f.ledger.report_grant(&g.id, 120, "rep-1", false).unwrap();
++        assert!(!first.duplicate);
++        let again = f.ledger.report_grant(&g.id, 120, "rep-1", false).unwrap();
++        assert!(again.duplicate);
++        assert_eq!(again.budget.spent_micro, 120);
++        assert_eq!(
++            code(f.ledger.report_grant(&g.id, 121, "rep-1", false).unwrap_err()),
++            "report_conflict"
++        );
++        let g2 = f.ledger.issue_grant("proj", Some(100), None, &f.key).unwrap();
++        assert_eq!(
++            code(f.ledger.report_grant(&g2.id, 120, "rep-1", false).unwrap_err()),
++            "report_conflict"
++        );
++        assert_eq!(code(f.ledger.report_grant(&g.id, 1, "bad id", false).unwrap_err()), "bad_report_id");
++        assert_eq!(code(f.ledger.report_grant("grt-00000099", 1, "x", false).unwrap_err()), "unknown_grant");
++    }
++
++    #[test]
++    fn overrun_is_recorded_not_refused() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(400), None, &f.key).unwrap();
++        let r = f.ledger.report_grant(&g.id, 450, "r1", false).unwrap();
++        assert!(r.overrun);
++        assert_eq!(r.grant.spent_micro, 450);
++        assert_eq!(f.ledger.approved_budget(&b.id).unwrap().spent_micro, 450);
++        let within = f.ledger.issue_grant("proj", Some(100), None, &f.key);
++        assert!(within.is_ok());
++    }
++
++    #[test]
++    fn final_report_closes_and_a_repeat_can_close_too() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(600), None, &f.key).unwrap();
++        f.ledger.report_grant(&g.id, 100, "r1", false).unwrap();
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 400);
++        let closing = f.ledger.report_grant(&g.id, 100, "r1", true).unwrap();
++        assert!(closing.duplicate);
++        assert_eq!(closing.grant.closed_at, Some(1_000));
++        assert_eq!(closing.budget.spent_micro, 100);
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 900);
++        let g2 = f.ledger.issue_grant("proj", Some(100), None, &f.key).unwrap();
++        let last = f.ledger.report_grant(&g2.id, 10, "r2", true).unwrap();
++        assert!(last.grant.closed_at.is_some());
++    }
++
++    #[test]
++    fn close_grant_releases_once() {
++        let mut f = fx();
++        let b = approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(600), None, &f.key).unwrap();
++        let closed = f.ledger.close_grant(&g.id, Some("tool exited")).unwrap();
++        assert_eq!(closed.closed_at, Some(1_000));
++        f.clock.store(1_500, Ordering::SeqCst);
++        assert_eq!(f.ledger.close_grant(&g.id, None).unwrap().closed_at, Some(1_000));
++        assert_eq!(f.ledger.approved_budget_status(&b.id).unwrap().available_micro, 1_000);
++        let closes = f
++            .ledger
++            .approval_audit(None, 50)
++            .unwrap()
++            .into_iter()
++            .filter(|r| r.action == "close")
++            .count();
++        assert_eq!(closes, 1);
++    }
++
++    #[test]
++    fn issue_grant_from_names_one_budget() {
++        let mut f = fx();
++        let first = approved(&mut f, 100);
++        let second = approved(&mut f, 1_000);
++        let from_second = f.ledger.issue_grant_from(&second.id, Some(500), None, &f.key).unwrap();
++        assert_eq!(from_second.budget_id, second.id);
++        // The project-wide issue takes the first budget that fits.
++        let wide = f.ledger.issue_grant("proj", Some(50), None, &f.key).unwrap();
++        assert_eq!(wide.budget_id, first.id);
++        let spill = f.ledger.issue_grant("proj", Some(300), None, &f.key).unwrap();
++        assert_eq!(spill.budget_id, second.id);
++        assert_eq!(f.ledger.grants(&second.id).unwrap().len(), 2);
++        assert_eq!(f.ledger.approved_budgets(Some("proj")).unwrap().len(), 2);
++        assert!(f.ledger.approved_budgets(Some("other")).unwrap().is_empty());
++    }
++
++    #[test]
++    fn audit_and_reports_refuse_edits() {
++        let mut f = fx();
++        approved(&mut f, 1_000);
++        let g = f.ledger.issue_grant("proj", Some(500), None, &f.key).unwrap();
++        f.ledger.report_grant(&g.id, 10, "r1", false).unwrap();
++        let conn = f.ledger.connection();
++        for sql in [
++            "UPDATE spend_approval_audit SET note = 'x'",
++            "DELETE FROM spend_approval_audit",
++            "UPDATE spend_grant_reports SET spent_micro = 0",
++            "DELETE FROM spend_grant_reports",
++        ] {
++            assert!(conn.execute(sql, []).is_err(), "{sql} must be refused");
++        }
++    }
++
++    #[test]
++    fn in_variants_roll_back_with_the_caller() {
++        let mut f = fx();
++        {
++            let tx = f.ledger.begin().unwrap();
++            f.ledger
++                .create_approved_budget_in(&tx, "proj", "USD", 1_000)
++                .unwrap();
++        }
++        assert!(f.ledger.approved_budgets(None).unwrap().is_empty());
++        let conn = f.ledger.connection();
++        assert!(matches!(
++            f.ledger.create_approved_budget_on(conn, "proj", "USD", 5),
++            Err(SpendError::NoActiveTransaction)
++        ));
++    }
++}
+diff --git a/crates/rightkit-spend/src/lib.rs b/crates/rightkit-spend/src/lib.rs
+index b5e74f7..00675f6 100644
+--- a/crates/rightkit-spend/src/lib.rs
++++ b/crates/rightkit-spend/src/lib.rs
+@@ -74,6 +74,12 @@
+ //! ledger and move no cap. [`Ledger::adjust_actual`] (and `reconcile_invoice` with
+ //! `adjust_committed`) corrects a committed actual and the allowance total with it.
+ //!
++//! Approved budgets: [`Ledger::create_approved_budget`], [`Ledger::approve_budget`] (owner
++//! approval bound to [`ApprovedBudget::approval_bind`] and sealed with HMAC-SHA256 under a
++//! [`SealKey`]), [`Ledger::issue_grant`] (a per-budget reserve that releases on expiry),
++//! [`Ledger::report_grant`] (a per-budget report, idempotent by report id) and an append-only
++//! audit ([`Ledger::approval_audit`]); see the `approved` module docs on [`Grant`].
++//!
+ //! Audit: every allowance create or limit change and every device-allowance set or clear writes
+ //! a row read back with [`Ledger::cap_audit`]. A stored limit that is not a finite non-negative
+ //! number reads as 0, so the allowance refuses every non-zero reservation (fail closed).
+@@ -93,11 +99,16 @@ use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
+ 
+ pub use rightkit_db::rusqlite;
+ 
++mod approved;
+ mod audit;
+ mod budget;
+ mod group;
+ mod reconcile;
+ mod scope;
++pub use approved::{
++    ApprovalAudit, ApprovedBudget, BudgetStatus, Grant, GrantExpiry, GrantReport, SealKey,
++    APPROVED_MAX_MICRO, GRANT_TTL_DEFAULT_SECS, GRANT_TTL_MAX_SECS,
++};
+ pub use audit::CapAudit;
+ pub use budget::{Budget, BudgetKind, BudgetSpend};
+ pub use group::{Cap, DeviceAllowance, GroupOutcome};
+@@ -168,6 +179,12 @@ pub enum SpendError {
+     /// The invoice reference is already recorded with another provider, period or total.
+     #[error("invoice reference {invoice_ref:?} is already recorded with a different provider, period or total")]
+     InvoiceConflict { invoice_ref: String },
++    /// An approved-budget refusal (see the `approved` docs on [`Ledger::issue_grant`]). `code`
++    /// is stable: `bad_project`, `bad_currency`, `bad_amount`, `bad_ttl`, `bad_report_id`,
++    /// `unknown_budget`, `unknown_grant`, `no_budget`, `not_approved`, `seal_invalid`,
++    /// `budget_changed`, `exhausted`, `over_budget`, `report_conflict`.
++    #[error("{message} ({code})")]
++    ApprovedBudget { code: &'static str, message: String },
+ }
+ 
+ /// Where a reservation is in its life.
+@@ -553,10 +570,67 @@ CREATE TABLE spend_invoice_lines (
+ );
+ ";
+ 
++/// Approved budgets: sealed per-project pools, grants, idempotent reports, append-only audit.
++/// Purely additive.
++const SCHEMA_V4: &str = "
++CREATE TABLE spend_approved_budgets (
++    seq INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    currency TEXT NOT NULL,
++    limit_micro INTEGER NOT NULL CHECK (limit_micro > 0),
++    spent_micro INTEGER NOT NULL DEFAULT 0 CHECK (spent_micro >= 0),
++    created_at INTEGER NOT NULL,
++    approved_at INTEGER,
++    approved_by TEXT
++);
++CREATE INDEX spend_approved_budgets_by_project ON spend_approved_budgets (project, created_at);
++CREATE TABLE spend_approved_seals (
++    budget_seq INTEGER PRIMARY KEY REFERENCES spend_approved_budgets (seq),
++    seal TEXT NOT NULL
++);
++CREATE TABLE spend_grants (
++    seq INTEGER PRIMARY KEY AUTOINCREMENT,
++    budget_seq INTEGER NOT NULL REFERENCES spend_approved_budgets (seq),
++    amount_micro INTEGER NOT NULL CHECK (amount_micro > 0),
++    spent_micro INTEGER NOT NULL DEFAULT 0 CHECK (spent_micro >= 0),
++    issued_at INTEGER NOT NULL,
++    expires_at INTEGER NOT NULL,
++    closed_at INTEGER
++);
++CREATE INDEX spend_grants_by_budget ON spend_grants (budget_seq, closed_at, expires_at);
++CREATE TABLE spend_grant_reports (
++    report_id TEXT PRIMARY KEY,
++    grant_seq INTEGER NOT NULL REFERENCES spend_grants (seq),
++    spent_micro INTEGER NOT NULL CHECK (spent_micro >= 0),
++    reported_at INTEGER NOT NULL,
++    is_final INTEGER NOT NULL CHECK (is_final IN (0, 1))
++);
++CREATE TABLE spend_approval_audit (
++    seq INTEGER PRIMARY KEY AUTOINCREMENT,
++    at INTEGER NOT NULL,
++    action TEXT NOT NULL,
++    who TEXT NOT NULL,
++    budget_seq INTEGER,
++    grant_seq INTEGER,
++    amount_micro INTEGER,
++    report_id TEXT,
++    note TEXT
++);
++CREATE TRIGGER spend_approval_audit_no_update BEFORE UPDATE ON spend_approval_audit
++    BEGIN SELECT RAISE(ABORT, 'approval audit is append-only'); END;
++CREATE TRIGGER spend_approval_audit_no_delete BEFORE DELETE ON spend_approval_audit
++    BEGIN SELECT RAISE(ABORT, 'approval audit is append-only'); END;
++CREATE TRIGGER spend_grant_reports_no_update BEFORE UPDATE ON spend_grant_reports
++    BEGIN SELECT RAISE(ABORT, 'grant reports are append-only'); END;
++CREATE TRIGGER spend_grant_reports_no_delete BEFORE DELETE ON spend_grant_reports
++    BEGIN SELECT RAISE(ABORT, 'grant reports are append-only'); END;
++";
++
+ const MIGRATIONS: &[Migration] = &[
+     Migration::sql(1, "spend-ledger", SCHEMA_V1),
+     Migration::sql(2, "spend-account-currency-unknown", SCHEMA_V2),
+     Migration::sql(3, "spend-caps-groups-budgets-reconcile", SCHEMA_V3),
++    Migration::sql(4, "spend-approved-budgets", SCHEMA_V4),
+ ];
+ 
+ const ALLOWANCE_COLUMNS: &str =

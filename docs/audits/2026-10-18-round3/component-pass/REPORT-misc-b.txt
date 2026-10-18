@@ -1,0 +1,39 @@
+DONE #743 rightkit-pdf 0.3.3: opt-in feature `pdfium`, module pdfium::PdfiumEngine (load / load_verified by SHA-256, page_count, page_text, text_by_pages, render_page to RGBA, typed PdfiumError, one engine per process, absolute library path only, 60M-pixel cap). Links/ships no PDFium; optional dep pdfium-render 0.9.3 (runtime-loaded, no image feature). Unverified: pdfium_latest (7881 API set) vs catalog chromium/8021; catalog Windows row is still `planned` (ScrapeRight on 7920), so a live Windows load is unproven. tests/pdfium_live.rs (ignored, RIGHTKIT_PDFIUM_LIBRARY) is the host check. Cargo.lock needs the pdfium-render entries (CI patch); rightkit-pdf entry bumped.
+DONE #745 rightkit-onnx 0.2.7: developer_override_candidate now warns once on stderr when the variable is set but `dev-overrides` is off (still returns None); new developer_override_candidate_checked() -> Result<Option<RuntimeCandidate>, DeveloperOverrideIgnored> returns the reason; new const developer_overrides_enabled(). Unit test checked_override_reports_a_disabled_override. README + CHANGELOG.
+ALREADY #476 rightkit-motion 0.2.0 in tree (unpublished; published is 0.1.0): frame driver render::{FrameSource, render, render_with_fallback, RenderJob}; encoder pick + fallback encoder::{pick_encoder, target_bitrate, Quality}; ProRes 4444 + VP9 alpha encoder::{pick_alpha_encoder, AlphaSupport, build_command}; PNG stills/poster render::{capture_still, export_still, export_poster, poster_frame}; PNG->PPM/PAM frame::{png_to_ppm, png_to_pam}. Feature `encode`. No change made, no bump; it ships on publish. Item 1 of #463 (rightkit-browser transparent screenshots) belongs to rightkit-browser, not this component.
+DONE #687 rightkit-ownership 0.3.2: the inputs probe (content_inventory) now uses inventory::git_listed_inventory_with(.., CleanBodies::OidOnly): clean files keyed by index blob oid (digest git:<oid>, cache key gitblob:<oid> unchanged), sizes from cat-file --batch-check (size limit and blob existence still enforced), NO cat-file --batch body read; dirty/untracked files still read and hashed, racy-entry handling and all other key components unchanged. The protected scan still uses git_listed_inventory (CleanBodies::Read). Test oid_only_inventory_keys_clean_files_by_oid_without_reading_bodies.
+ALREADY #194 rightkit-oauth: Mastodon/X presets, keychain TokenStore, durable PendingStateStore, bare refresh with rotation (0.7.0, published in 0.8.0). Its later CodeRight comments are DONE in 0.8.1: exchange_code_with_verifier(code, &Secret, redirect_uri), refresh_token(&Secret), and async twins exchange_code_async / exchange_code_with_verifier_async / refresh_async / refresh_token_async (feature `async`). (from_parts constructor not added: exchange_code_with_verifier covers the stated need.)
+DONE #697 rightkit-oauth 0.8.1: GatewayExchange::{exchange_async, exchange_tokens_async, exchange_raw_async, refresh_async} over rightkit_http::AsyncClient (feature `async`); GatewayExchange::new_allowing_insecure_host(endpoint, host) and allow_insecure_host(host): explicit exact-host plain-http opt-in, off by default. Note: the constructor form is used because new() validates the URL before a builder method could run.
+DONE #700 rightkit-oauth 0.8.1: CallbackListener::wait_post_json_with(timeout, cancel, allowed_origin, validate); Err(text) answers 400 with text and the wait continues; wait_post_json delegates to it.
+ALREADY #586 rightkit-oauth 0.8.0: OAuthClient::with_token_param, LoopbackAuthorization::wait_code, OAuthClient::with_revocation_url + revoke (src/lib.rs).
+ALREADY #587 rightkit-oauth 0.8.0: callback::CallbackBind::{redirect_host, custom_bind_address} + CallbackListener::bind_with (src/callback.rs).
+ALREADY #588 rightkit-oauth 0.8.0: CallbackListener::wait_post_json (src/callback.rs), CORS preflight and Private-Network headers.
+ALREADY #589 rightkit-oauth 0.8.0: GatewayExchange::{exchange_tokens, exchange_raw, with_refresh_endpoint, refresh} (src/gateway.rs).
+ALREADY #600 rightkit-oauth 0.8.0: MemoryTokenStore (src/lib.rs).
+ALREADY #279 rightkit-oauth 0.8.0: browser module, SignInSurface, OAuthClient::sign_in_with_browser (default system browser, embedded webview refused).
+ALREADY #162 rightkit-oauth: `google` feature (GoogleIdVerifier, GoogleSession, google_signin preset), src/google.rs.
+DEFERRED #583 subscription auth is rightkit-llm work (consumes rightkit-oauth's exchange_code_with_verifier / refresh_token now available); not an oauth change.
+DEFERRED #665 OpenAI Responses provider is rightkit-llm, not oauth.
+DEFERRED #639 strip_coop_headers is rightkit-tauri-shell, not oauth.
+DEFERRED #638 popup origins/ProtocolConsent is rightkit-tauri-shell, not oauth.
+DEFERRED #648 and #696 AddressPolicy helpers (allow_loopback / allow_host_of) are rightkit-http; #697's async calls take whatever policy the caller put on its AsyncClient.
+DEFERRED #627 RightKitSwift RightKitOAuth is the Swift package, not this crate.
+DEFERRED #370 neutral crypto owner (HMAC, constant-time compare) is a new crate / cross-component decision; oauth keeps its in-crate helpers.
+DEFERRED #705 and #567 are rightkit-agents, not oauth (matched on body text only).
+DEFERRED #545 is a publish-tracking issue, not a code gap.
+ALREADY #170 #274 #275 #276 #277 #278 #282 rightkit-pdf (rasterize, redact, organise, forms, optimize, extraction harness, writer): in tree (0.3.1/0.3.2), awaiting publish; no change.
+DEFERRED #396 is @rightkit/pdf-ui (npm package), not the crate. #273 pdf-ui and #174 UI wave likewise.
+DEFERRED #688 record/pdf ignored asset tests: needs real assets and per-unit gate entries from the qualification owner; no crate change possible edit-only.
+ALREADY #178 #429 rightkit-onnx 0.2.6: verify_library_in_manifest, configure_runtime_verified, rightkit-onnx-provision are in tree and published (ADOPTION lists 0.2.6).
+DEFERRED #206 #207 #265 rightkit-onnx / asr: need live Android / Windows DirectML runs (needs-live-run), not edit-only.
+ALREADY #336 rightkit-ownership 0.3.1: bounded inventory workers and reuse (src/inventory.rs). DEFERRED #385 #417 #408 #362 #677 #346 #281: other owners or cross-component decisions (template rename, shared primitives, mesh, allowlist, ownership release pin, disk hygiene, @rightkit/legal).
+DEFERRED #263-class motion neighbours #264 #321 #298 #267: already shipped in 0.1.0/0.2.0 where motion-owned (#264, #321 beats/sheet); #298 is rightkit-llm, #267 is Chrome-for-Testing provisioning.
+
+New versions: rightkit-pdf 0.3.3, rightkit-onnx 0.2.7, rightkit-ownership 0.3.2, rightkit-oauth 0.8.1, rightkit-motion unchanged (0.2.0, unpublished). Cargo.lock bumped for the four crates; pdfium-render lock entries need the CI patch.
+
+Public API changes (none breaking):
+- rightkit-pdf: new feature `pdfium`, module pdfium (PdfiumEngine, PdfiumError, PdfiumPageImage, MAX_PIXELS, DPI_RANGE).
+- rightkit-onnx: developer_overrides_enabled(), developer_override_candidate_checked(), DeveloperOverrideIgnored; developer_override_candidate now prints a one-time stderr warning when ignored.
+- rightkit-ownership: inventory::CleanBodies, inventory::git_listed_inventory_with. Behaviour: the inputs probe no longer reads clean blob bodies.
+- rightkit-oauth: OAuthClient::{exchange_code_with_verifier, refresh_token}; feature `async` with OAuthClient::{exchange_code_async, exchange_code_with_verifier_async, refresh_async, refresh_token_async} and GatewayExchange::{exchange_async, exchange_tokens_async, exchange_raw_async, refresh_async}; GatewayExchange::{new_allowing_insecure_host, allow_insecure_host}; CallbackListener::wait_post_json_with. Minor behaviour: exchange_code now rejects a malformed verifier or a redirect_uri with whitespace (never the case for begin_loopback requests).
+Nothing was built or run. Patch: D:\scratch\rk-gaps-work\c2\misc-b\misc-b.patch (LF).

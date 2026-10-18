@@ -1,0 +1,2 @@
+RightSites: 0 new; tracked #508 (RightKitSwift stale URL github.com/bogusyogi/rightkit-swift 404, needs private-repo access + repin to bogusyogi/rightkit 0.8.0). Oddity: rightsites package.json name=sellright, ios/ copy of SellRight.
+SellRight: 0 new; tracked #508, #138 (managed Swift verification, coded-awaiting-publish).

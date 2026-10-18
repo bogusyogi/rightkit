@@ -1,0 +1,2389 @@
+diff --git a/packages/app-update/CHANGELOG.md b/packages/app-update/CHANGELOG.md
+index fbfa501..761561b 100644
+--- a/packages/app-update/CHANGELOG.md
++++ b/packages/app-update/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.4.0 (unreleased)
++
++- **Breaking (settled decision D1, no `.previous` copy; Orthic-Labs/rightkit#771).** Removed `previousInstallPath` and `PREVIOUS_SUFFIX`. `createBootProbation().begin(from, to)` no longer takes `{ installPath }`; `BootProbationRecord` loses `installPath` and `previousPath`; the `rollback` decision and the `onRollback` info lose `installPath` and `restorePath` / `previousPath`. The update replaces the app in place and keeps no backup, and a stale `.previous` is deleted by the install swap (this package never touches disk). A boot that fails probation is reported as `{ kind: 'rollback', toVersion, restoreVersion, bootAttempts }`: it names the version to get back, and nothing is restored from a local copy, so the host tells the user to install `restoreVersion` again. A stored record from 0.3.x is migrated (path fields dropped) the next time it is written. Versioned as a 0.x minor because exports and the record and decision shapes were removed. `@rightkit/tauri` declares `@rightkit/app-update` `>=0.2.5 <0.4`, so its peer range must be widened to include 0.4.
++- Add `buildActivationHeaders({ appName, activationToken, appValue, deviceValue })` (#731): `Authorization: Bearer <activation>` plus `X-<appName>-App` and `X-<appName>-Device`, rejecting empty, multi-line or non-ASCII values.
++- Add `updaterTarget(os, arch)` and `manifestPlatformKeys(target)` (#757): `macos` maps to `darwin`, `arm64` to `aarch64`, `x64` and `amd64` to `x86_64`; darwin targets fall back to `darwin-universal` then `darwin`.
++- Add `createRuntimeCheck({ invoke, Channel })` and `check(options?)` (#448, JS half): a `CheckForUpdate` over native `rightkit_app_update_check` / `rightkit_app_update_install` commands with check headers and install headers kept separate, `Started` / `Progress` / `Finished` events forwarded, and the raw manifest preserved. `RuntimeUpdate` gains optional `currentVersion`, `date`, `body`. The native crate `rightkit-app-update` is deferred; without it these commands do not exist.
++- Add `createBootReporter({ stage, ok })` (#448): renderer-side reporter for a native boot owner; `ok()` sends once and stage failures never break the UI.
++- Not built or run locally; CI is the compiler.
++
+ ## 0.3.0 (2026-10-17)
+ 
+ - Added `downloadAvailable()` and `installStaged(handle)` (verify-only download prefetch), `createUpdateConsentRunner`, a `staged` status and phase, and the `./react` subpath (`UpdateOverlay`, `UpdateConsentCard`).
+diff --git a/packages/app-update/README.md b/packages/app-update/README.md
+index b95dfaf..38d413f 100644
+--- a/packages/app-update/README.md
++++ b/packages/app-update/README.md
+@@ -7,7 +7,7 @@ It does not build, sign, publish or upload anything. `@rightkit/release` owns th
+ | Item | Value |
+ |---|---|
+ | Where it runs | App webview UI (Tauri apps) |
+-| Rust pair | None. No Rust crate in `crates/` implements the updater. `rightkit-device` has no updater code. |
++| Rust pair | None yet. The native updater owner (`rightkit-app-update`, #448 and #415) is not shipped; `createRuntimeCheck` targets its command names. |
+ | Version | see INDEX.md |
+ | License | MIT OR Apache-2.0 |
+ 
+@@ -43,7 +43,7 @@ Status flow: `checking`, then `available`, then `downloading`, then `ready`. `re
+ - `verifyMetadata(update, ctx)` config hook: reject update metadata before it is offered. Tauri's updater plugin still verifies the artifact signature against the app's configured pubkey; this package performs no signature verification itself (delegated, by design).
+ - `relaunch` + `relaunchAfterInstall`: relaunch after `ready`.
+ - `strictInstallHeaders`: never reuse manifest-check headers for the artifact download.
+-- `createBootProbation`: boot-probation / rollback-decision state machine; the host supplies storage and performs the restore.
++- `createBootProbation`: boot-probation / rollback-decision state machine; the host supplies storage and reports a failed probation (no backup is kept).
+ - `createCheckGate`: check cache and debounce. `resolveChannel` / `validateChannels`: channel endpoint selection. `compareVersions` / `isNewerVersion`: semver compare. `assertSingleUpdatesVersion`: duplicate-copy guard.
+ - `@rightkit/app-update/contract-vectors`: test fixtures subpath (the main entry still re-exports them).
+ 
+@@ -73,6 +73,16 @@ The runtime adapter (Tauri updater) exposes only the combined `downloadAndInstal
+ 
+ `@rightkit/app-update/react` exports `UpdateOverlay` and `UpdateConsentCard`, typed against `UpdateOverlayModel` and `UpdateConsentState`. `react` is an optional peer dependency; the root entry never imports React.
+ 
++## Activation headers, targets and native check
++
++- `buildActivationHeaders({ appName, activationToken, appValue, deviceValue })` returns `Authorization: Bearer <token>`, `X-<appName>-App` and `X-<appName>-Device` for `getHeaders`. It throws on empty or multi-line values. Use `getInstallHeaders` or `strictInstallHeaders` for the artifact download.
++- `updaterTarget(os, arch)` gives `darwin-aarch64`, `darwin-x86_64`, `darwin-universal`, `windows-x86_64` and so on (`macos` is `darwin`); `manifestPlatformKeys(target)` lists the manifest `platforms` keys to try (`darwin-aarch64`, then `darwin-universal`, then `darwin`).
++- `createRuntimeCheck({ invoke, Channel })` and `check(options?)` return a `CheckForUpdate` over native `rightkit_app_update_check` and `rightkit_app_update_install` commands (pending the native crate). `createBootReporter({ stage, ok })` reports boot progress to a native boot owner.
++
++## Boot probation and rollback
++
++`createBootProbation` counts boots after an update. There is no backup: updates replace the app in place and keep no `.previous` copy (decision D1). A boot that fails probation returns `{ kind: 'rollback', toVersion, restoreVersion, bootAttempts }` and calls `onRollback({ fromVersion, toVersion })`; show the user a message to install `restoreVersion` again. Nothing is restored from a local copy.
++
+ ## Known issues
+ 
+ - Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.
+diff --git a/packages/app-update/package.json b/packages/app-update/package.json
+index 52c8989..da75947 100644
+--- a/packages/app-update/package.json
++++ b/packages/app-update/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@rightkit/app-update",
+-  "version": "0.3.0",
++  "version": "0.4.0",
+   "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
+   "license": "MIT OR Apache-2.0",
+   "packageManager": "pnpm@11.24.0",
+diff --git a/packages/app-update/src/activation-headers.test.ts b/packages/app-update/src/activation-headers.test.ts
+new file mode 100644
+index 0000000..95a6a1d
+--- /dev/null
++++ b/packages/app-update/src/activation-headers.test.ts
+@@ -0,0 +1,21 @@
++import { describe, expect, it } from 'vitest';
++import { buildActivationHeaders } from './index.js';
++
++const ok = { appName: 'MailRight', activationToken: 'tok', appValue: 'mailright', deviceValue: 'dev-1' };
++
++describe('buildActivationHeaders', () => {
++  it('builds the bearer and the two app headers', () => {
++    expect(buildActivationHeaders(ok)).toEqual({
++      Authorization: 'Bearer tok',
++      'X-MailRight-App': 'mailright',
++      'X-MailRight-Device': 'dev-1',
++    });
++  });
++
++  it('rejects empty, multi-line and non-ASCII values and bad names', () => {
++    expect(() => buildActivationHeaders({ ...ok, activationToken: '' })).toThrow(TypeError);
++    expect(() => buildActivationHeaders({ ...ok, activationToken: 'a\r\nX: y' })).toThrow(TypeError);
++    expect(() => buildActivationHeaders({ ...ok, deviceValue: 'é' })).toThrow(TypeError);
++    expect(() => buildActivationHeaders({ ...ok, appName: 'Mail Right' })).toThrow(TypeError);
++  });
++});
+diff --git a/packages/app-update/src/activation-headers.ts b/packages/app-update/src/activation-headers.ts
+new file mode 100644
+index 0000000..eedd973
+--- /dev/null
++++ b/packages/app-update/src/activation-headers.ts
+@@ -0,0 +1,40 @@
++import type { UpdateHeaders } from './index.js';
++
++export interface ActivationHeadersInput {
++  /** Product name used in the custom header names: `X-<appName>-App` and `X-<appName>-Device` (for example `MailRight`). */
++  appName: string;
++  /** The activation token, sent as `Authorization: Bearer <token>`. */
++  activationToken: string;
++  /** Value of `X-<appName>-App` (the app identifier the update server expects). */
++  appValue: string;
++  /** Value of `X-<appName>-Device` (the device identifier). */
++  deviceValue: string;
++}
++
++const NAME_PART = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
++// Visible ASCII plus space and tab; rejects CR, LF and other control characters (header injection).
++const SAFE_VALUE = /^[\t\x20-\x7e]+$/;
++
++function requireValue(label: string, value: string): string {
++  if (typeof value !== 'string' || value.trim() === '' || !SAFE_VALUE.test(value)) {
++    throw new TypeError(`activation headers: ${label} must be a non-empty single-line ASCII string`);
++  }
++  return value.trim();
++}
++
++/**
++ * Build the activation-authenticated manifest request headers apps pass as `getHeaders` of
++ * `createAutoUpdateClient`: `Authorization: Bearer <activation>`, `X-<appName>-App` and `X-<appName>-Device`.
++ * Throws on an empty or multi-line value so a bad credential never reaches the network. Use it for the
++ * manifest check only; keep artifact downloads on `getInstallHeaders` / `strictInstallHeaders`.
++ */
++export function buildActivationHeaders(input: ActivationHeadersInput): UpdateHeaders {
++  if (typeof input.appName !== 'string' || !NAME_PART.test(input.appName)) {
++    throw new TypeError('activation headers: appName must be letters, digits and hyphens');
++  }
++  return {
++    Authorization: `Bearer ${requireValue('activationToken', input.activationToken)}`,
++    [`X-${input.appName}-App`]: requireValue('appValue', input.appValue),
++    [`X-${input.appName}-Device`]: requireValue('deviceValue', input.deviceValue),
++  };
++}
+diff --git a/packages/app-update/src/boot-report.test.ts b/packages/app-update/src/boot-report.test.ts
+new file mode 100644
+index 0000000..6ce2856
+--- /dev/null
++++ b/packages/app-update/src/boot-report.test.ts
+@@ -0,0 +1,20 @@
++import { describe, expect, it, vi } from 'vitest';
++import { createBootReporter } from './index.js';
++
++describe('createBootReporter', () => {
++  it('forwards stages and swallows bridge failures', async () => {
++    const stage = vi.fn(() => { throw new Error('gone'); });
++    const reporter = createBootReporter({ stage, ok: vi.fn() });
++    await expect(reporter.stage('ui')).resolves.toBeUndefined();
++    expect(stage).toHaveBeenCalledWith('ui');
++  });
++
++  it('sends ok once, and retries after a failure', async () => {
++    const ok = vi.fn().mockRejectedValueOnce(new Error('x')).mockResolvedValue(undefined);
++    const reporter = createBootReporter({ stage: vi.fn(), ok });
++    expect(await reporter.ok()).toBe(false);
++    expect(await reporter.ok()).toBe(true);
++    expect(await reporter.ok()).toBe(true);
++    expect(ok).toHaveBeenCalledTimes(2);
++  });
++});
+diff --git a/packages/app-update/src/boot-report.ts b/packages/app-update/src/boot-report.ts
+new file mode 100644
+index 0000000..f06e055
+--- /dev/null
++++ b/packages/app-update/src/boot-report.ts
+@@ -0,0 +1,40 @@
++/** Native owner callbacks a renderer reports boot progress to (for example Tauri `invoke('boot_stage')` / `invoke('boot_ok')`). */
++export interface BootReportBridge {
++  stage(name: string): Promise<void> | void;
++  ok(): Promise<void> | void;
++}
++
++export interface BootReporter {
++  /** Report a named boot stage (for example `ui-mounted`). Failures are swallowed so reporting never breaks the UI. */
++  stage(name: string): Promise<void>;
++  /** Report that the new version is healthy. Sends once; later calls are no-ops. Returns false when the bridge failed. */
++  ok(): Promise<boolean>;
++}
++
++/**
++ * Small renderer-side reporter over an invoke-based native boot owner. It carries no backup or restore step
++ * (decision D1): the native side only detects a failed boot after an update; the host then tells the user which
++ * release to install again.
++ */
++export function createBootReporter(bridge: BootReportBridge): BootReporter {
++  let sent = false;
++  return {
++    async stage(name) {
++      try {
++        await bridge.stage(name);
++      } catch {
++        // Reporting is best effort.
++      }
++    },
++    async ok() {
++      if (sent) return true;
++      try {
++        await bridge.ok();
++        sent = true;
++        return true;
++      } catch {
++        return false;
++      }
++    },
++  };
++}
+diff --git a/packages/app-update/src/index.ts b/packages/app-update/src/index.ts
+index a0ea2d7..d3370c9 100644
+--- a/packages/app-update/src/index.ts
++++ b/packages/app-update/src/index.ts
+@@ -1,421 +1,432 @@
+-import type { UpdateTier } from './contract-vectors.js';
+-export type { UpdateTier, UpdateHostContractVector } from './contract-vectors.js';
+-/** Kept on the main entry for compatibility; prefer `@rightkit/app-update/contract-vectors` in tests. */
+-export { UPDATE_HOST_CONTRACT_VECTORS } from './contract-vectors.js';
+-
+-export type UpdateHeaders = Record<string, string>;
+-
+-export type UpdateDownloadEvent =
+-  | { event: 'Started'; data: { contentLength?: number } }
+-  | { event: 'Progress'; data: { chunkLength: number } }
+-  | { event: 'Finished'; data?: unknown }
+-  | { event: string; data?: unknown };
+-
+-export type UpdateInstallOptions = { headers?: UpdateHeaders };
+-
+-export interface RuntimeUpdate {
+-  version: string;
+-  /** Exact manifest metadata returned by Tauri's updater check. */
+-  rawJson?: Record<string, unknown>;
+-  downloadAndInstall(
+-    onEvent?: (event: UpdateDownloadEvent) => void,
+-    options?: UpdateInstallOptions,
+-  ): Promise<void>;
+-}
+-
+-export type CheckForUpdate = (options?: { headers?: UpdateHeaders }) => Promise<RuntimeUpdate | null>;
+-
+-export type AutoUpdateStatus =
+-  | { kind: 'idle' }
+-  | { kind: 'checking' }
+-  | { kind: 'up_to_date' }
+-  | {
+-      kind: 'available';
+-      version: string;
+-      tier: UpdateTier | null;
+-      eligible: boolean;
+-      reason?: 'auto_install_off' | 'pro_required';
+-    }
+-  | { kind: 'deferred'; version: string; tier: UpdateTier | null; reason: string }
+-  | { kind: 'downloading'; version: string; tier: UpdateTier | null; pct: number }
+-  | { kind: 'ready'; version: string; tier: UpdateTier | null }
+-  /** Download step finished: the update is verified and staged, and nothing is installed yet (additive, #625). */
+-  | { kind: 'staged'; version: string; tier: UpdateTier }
+-  | { kind: 'error'; message: string };
+-
+-/**
+- * Opaque handle returned by `downloadAvailable()`. It names one verified update; `installStaged()` accepts only
+- * a handle this client issued for the update that is still current (a newer check invalidates it).
+- */
+-export interface StagedUpdateHandle {
+-  readonly version: string;
+-  readonly tier: UpdateTier;
+-}
+-
+-export type DownloadAvailableResult =
+-  | { ok: true; handle: StagedUpdateHandle; status: AutoUpdateStatus }
+-  | { ok: false; status: AutoUpdateStatus };
+-
+-export interface AutoUpdateClientConfig {
+-  check: CheckForUpdate;
+-  /** Metadata-only Pro release version used to nudge ineligible Free users. */
+-  getProUpdateVersion?: () => Promise<string | null> | string | null;
+-  /** Manifest-check headers; also the legacy install fallback when no separate callback is set. */
+-  getHeaders?: () => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
+-  /**
+-   * Headers used to download/install an eligible artifact. When absent, the
+-   * manifest-check headers are reused for backward compatibility. New apps
+-   * should always provide this callback to make cross-origin policy explicit.
+-   * It runs after canInstall, immediately before download, and is not cached.
+-   */
+-  getInstallHeaders?: (
+-    tier: UpdateTier,
+-    context: { checkHeaders?: UpdateHeaders },
+-  ) => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
+-  /**
+-   * When true and no `getInstallHeaders` is set, the artifact download gets no
+-   * headers instead of reusing the manifest-check headers. Default false keeps the
+-   * legacy reuse; new apps should set this (or `getInstallHeaders`) so a manifest
+-   * credential is never sent to a different artifact origin.
+-   */
+-  strictInstallHeaders?: boolean;
+-  getTier?: (
+-    version: string,
+-    context: { headers?: UpdateHeaders },
+-  ) => Promise<UpdateTier | null> | UpdateTier | null;
+-  /**
+-   * Optional app-side validation of the signed update metadata (for example an
+-   * extra signature or digest check over `update.rawJson`). Return false or throw
+-   * to reject the update; it then surfaces as an `error` status and is never
+-   * offered. Tauri's updater plugin still verifies the artifact signature against
+-   * the configured pubkey; this hook is additional and defaults to none.
+-   */
+-  verifyMetadata?: (
+-    update: RuntimeUpdate,
+-    context: { headers?: UpdateHeaders },
+-  ) => Promise<boolean | void> | boolean | void;
+-  /**
+-   * Host relaunch action (for example `@tauri-apps/plugin-process` `relaunch`).
+-   * Only invoked when `relaunchAfterInstall` is true.
+-   */
+-  relaunch?: () => Promise<void> | void;
+-  /** Relaunch automatically after `ready`. Default false: the host shows its own restart prompt. */
+-  relaunchAfterInstall?: boolean;
+-  canInstall?: () => Promise<boolean> | boolean;
+-  isEligible?: (
+-    tier: UpdateTier | null,
+-    context: { headers?: UpdateHeaders },
+-  ) => Promise<boolean> | boolean;
+-  shouldAutoInstall?: (
+-    tier: UpdateTier | null,
+-    context: { headers?: UpdateHeaders },
+-  ) => Promise<boolean> | boolean;
+-  deferReason?: () => string;
+-  onStatus?: (status: AutoUpdateStatus) => void;
+-  onError?: (error: unknown) => void;
+-}
+-
+-export interface AutoUpdateClient {
+-  checkOnce(): Promise<AutoUpdateStatus>;
+-  /**
+-   * Download step. Runtime adapters expose only the combined `downloadAndInstall`, so this step is a
+-   * verify-only prefetch: it confirms the checked, verified and eligible update and stages a handle without
+-   * fetching the artifact. The bytes are fetched by `installStaged()`.
+-   */
+-  downloadAvailable(): Promise<DownloadAvailableResult>;
+-  /** Install step: consumes the handle, resolves install headers, and runs the combined adapter install. */
+-  installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus>;
+-  /** Combined compatibility path, implemented as `downloadAvailable` then `installStaged` without a 'staged' emit. */
+-  installAvailable(): Promise<AutoUpdateStatus>;
+-}
+-
+-export interface ReleaseStatus {
+-  schema: 1;
+-  appKey: string;
+-  platform: string | null;
+-  patchVersion: string | null;
+-  updateVersion: string | null;
+-}
+-
+-export async function fetchReleaseStatus(
+-  url: string,
+-  fetchImpl: typeof fetch = fetch,
+-): Promise<ReleaseStatus> {
+-  const response = await fetchImpl(url, { cache: 'no-store' });
+-  if (!response.ok) throw new Error(`release status request failed (${response.status})`);
+-  const value: unknown = await response.json();
+-  if (!isReleaseStatus(value)) throw new Error('release status response is invalid');
+-  return value;
+-}
+-
+-function isReleaseStatus(value: unknown): value is ReleaseStatus {
+-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+-  const record = value as Record<string, unknown>;
+-  const allowed = new Set(['schema', 'appKey', 'platform', 'patchVersion', 'updateVersion']);
+-  if (Object.keys(record).some((key) => !allowed.has(key))) return false;
+-  const nullableString = (input: unknown) => input === null || typeof input === 'string';
+-  return record.schema === 1
+-    && typeof record.appKey === 'string'
+-    && record.appKey.length > 0
+-    && nullableString(record.platform)
+-    && nullableString(record.patchVersion)
+-    && nullableString(record.updateVersion);
+-}
+-
+-export function updateTierFromManifest(rawJson: Record<string, unknown> | undefined): UpdateTier {
+-  const tier = rawJson?.tier;
+-  if (tier !== 'patch' && tier !== 'update') {
+-    throw new Error('update manifest tier must be "patch" or "update"');
+-  }
+-  return tier;
+-}
+-
+-/** A check result held until it is downloaded, installed, or superseded by a newer check generation. */
+-interface AvailableRecord {
+-  update: RuntimeUpdate;
+-  tier: UpdateTier;
+-  checkHeaders?: UpdateHeaders;
+-  generation: number;
+-}
+-
+-export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpdateClient {
+-  const shouldAutoInstall = config.shouldAutoInstall ?? (() => false);
+-  const isEligible = config.isEligible ?? ((tier) => tier !== 'update');
+-  const deferReason = config.deferReason ?? (() => 'host_not_idle');
+-  let generation = 0;
+-  let available: AvailableRecord | null = null;
+-  let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
+-  const handleByRecord = new WeakMap<object, StagedUpdateHandle>();
+-  const recordByHandle = new WeakMap<StagedUpdateHandle, AvailableRecord>();
+-
+-  function emit(status: AutoUpdateStatus): AutoUpdateStatus {
+-    config.onStatus?.(status);
+-    return status;
+-  }
+-
+-  function emitForGeneration(status: AutoUpdateStatus, expectedGeneration: number): AutoUpdateStatus {
+-    return generation === expectedGeneration ? emit(status) : status;
+-  }
+-
+-  function idleWhenStale(expectedGeneration: number): AutoUpdateStatus | null {
+-    return generation === expectedGeneration ? null : { kind: 'idle' };
+-  }
+-
+-  async function checkOnce(): Promise<AutoUpdateStatus> {
+-    const checkGeneration = ++generation;
+-    available = null;
+-    ineligibleAvailable = null;
+-    try {
+-      emit({ kind: 'checking' });
+-      const headers = await config.getHeaders?.();
+-      const staleAfterHeaders = idleWhenStale(checkGeneration);
+-      if (staleAfterHeaders) return staleAfterHeaders;
+-      const update = await config.check(headers ? { headers } : undefined);
+-      const staleAfterCheck = idleWhenStale(checkGeneration);
+-      if (staleAfterCheck) return staleAfterCheck;
+-      if (!update) {
+-        const proUpdateVersion = await config.getProUpdateVersion?.();
+-        const staleAfterStatus = idleWhenStale(checkGeneration);
+-        if (staleAfterStatus) return staleAfterStatus;
+-        if (proUpdateVersion) {
+-          return emit({
+-            kind: 'available',
+-            version: proUpdateVersion,
+-            tier: 'update',
+-            eligible: false,
+-            reason: 'pro_required',
+-          });
+-        }
+-        return emit({ kind: 'up_to_date' });
+-      }
+-
+-      const tier = config.getTier
+-        ? await config.getTier(update.version, { headers })
+-        : updateTierFromManifest(update.rawJson);
+-      const staleAfterTier = idleWhenStale(checkGeneration);
+-      if (staleAfterTier) return staleAfterTier;
+-      if (tier !== 'patch' && tier !== 'update') {
+-        throw new Error('update manifest tier must be "patch" or "update"');
+-      }
+-      if (config.verifyMetadata) {
+-        const verified = await config.verifyMetadata(update, { headers });
+-        const staleAfterVerify = idleWhenStale(checkGeneration);
+-        if (staleAfterVerify) return staleAfterVerify;
+-        if (verified === false) throw new Error('update metadata verification failed');
+-      }
+-      const eligible = await isEligible(tier, { headers });
+-      const staleAfterEligibility = idleWhenStale(checkGeneration);
+-      if (staleAfterEligibility) return staleAfterEligibility;
+-      available = eligible
+-        ? { update, tier, checkHeaders: headers, generation: checkGeneration }
+-        : null;
+-      const nextAvailableStatus: Extract<AutoUpdateStatus, { kind: 'available' }> = {
+-        kind: 'available',
+-        version: update.version,
+-        tier,
+-        eligible,
+-        reason: !eligible && tier === 'update' ? 'pro_required' : 'auto_install_off',
+-      };
+-      ineligibleAvailable = eligible ? null : nextAvailableStatus;
+-      const availableStatus = emit(nextAvailableStatus);
+-      if (!eligible) return availableStatus;
+-      const autoInstall = await shouldAutoInstall(tier, { headers });
+-      const staleAfterPolicy = idleWhenStale(checkGeneration);
+-      if (staleAfterPolicy) return staleAfterPolicy;
+-      if (!autoInstall) return availableStatus;
+-
+-      const claimed = claimAvailable(checkGeneration);
+-      return claimed ? install(claimed) : availableStatus;
+-    } catch (error) {
+-      if (generation !== checkGeneration) return { kind: 'idle' };
+-      available = null;
+-      ineligibleAvailable = null;
+-      config.onError?.(error);
+-      return emit({ kind: 'error', message: String(error) });
+-    }
+-  }
+-
+-  /** Returns a handle for the current available update without consuming it; null when nothing is staged-able. */
+-  function stage(): StagedUpdateHandle | null {
+-    const current = available;
+-    if (!current) return null;
+-    let handle = handleByRecord.get(current);
+-    if (!handle) {
+-      handle = Object.freeze({ version: current.update.version, tier: current.tier });
+-      handleByRecord.set(current, handle);
+-      recordByHandle.set(handle, current);
+-    }
+-    return handle;
+-  }
+-
+-  async function downloadAvailable(): Promise<DownloadAvailableResult> {
+-    const handle = stage();
+-    if (!handle) {
+-      return { ok: false, status: ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' }) };
+-    }
+-    const status = emit({ kind: 'staged', version: handle.version, tier: handle.tier });
+-    return { ok: true, handle, status };
+-  }
+-
+-  async function installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus> {
+-    // Synchronous claim before any await: overlapping installs of one handle run once.
+-    const record = recordByHandle.get(handle);
+-    if (!record || available !== record) {
+-      return emit({ kind: 'error', message: 'staged update is no longer current; check for updates again' });
+-    }
+-    available = null;
+-    return install(record);
+-  }
+-
+-  async function installAvailable(): Promise<AutoUpdateStatus> {
+-    const handle = stage();
+-    if (!handle) return ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' });
+-    return installStaged(handle);
+-  }
+-
+-  function claimAvailable(expectedGeneration?: number) {
+-    const claimed = available;
+-    if (!claimed || (expectedGeneration !== undefined && claimed.generation !== expectedGeneration)) {
+-      return null;
+-    }
+-    available = null;
+-    return claimed;
+-  }
+-
+-  async function install(claimed: AvailableRecord): Promise<AutoUpdateStatus> {
+-    const { update, tier, checkHeaders, generation: installGeneration } = claimed;
+-    try {
+-      const safe = await config.canInstall?.() ?? true;
+-      if (!safe) {
+-        const deferredStatus: AutoUpdateStatus = {
+-          kind: 'deferred',
+-          version: update.version,
+-          tier,
+-          reason: deferReason(),
+-        };
+-        if (generation === installGeneration && available === null) available = claimed;
+-        return emitForGeneration(deferredStatus, installGeneration);
+-      }
+-      if (generation !== installGeneration) return { kind: 'idle' };
+-
+-      const installHeaders = config.getInstallHeaders
+-        ? await config.getInstallHeaders(tier, { checkHeaders })
+-        : config.strictInstallHeaders ? undefined : checkHeaders;
+-      if (generation !== installGeneration) return { kind: 'idle' };
+-      let total = 0;
+-      let received = 0;
+-      await update.downloadAndInstall((event) => {
+-        if (event.event === 'Started' && isStartedEvent(event)) {
+-          total = event.data.contentLength ?? 0;
+-          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct: 0 }, installGeneration);
+-        } else if (event.event === 'Progress' && isProgressEvent(event)) {
+-          received += event.data.chunkLength;
+-          const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
+-          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct }, installGeneration);
+-        }
+-      }, installHeaders ? { headers: installHeaders } : undefined);
+-
+-      const ready = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
+-      if (config.relaunchAfterInstall && config.relaunch && generation === installGeneration) {
+-        await config.relaunch();
+-      }
+-      return ready;
+-    } catch (error) {
+-      const errorStatus: AutoUpdateStatus = { kind: 'error', message: String(error) };
+-      if (generation !== installGeneration) return errorStatus;
+-      config.onError?.(error);
+-      return emit(errorStatus);
+-    }
+-  }
+-
+-  return { checkOnce, downloadAvailable, installStaged, installAvailable };
+-}
+-
+-function isStartedEvent(event: UpdateDownloadEvent): event is { event: 'Started'; data: { contentLength?: number } } {
+-  return typeof event.data === 'object' && event.data !== null;
+-}
+-
+-function isProgressEvent(event: UpdateDownloadEvent): event is { event: 'Progress'; data: { chunkLength: number } } {
+-  return (
+-    typeof event.data === 'object'
+-    && event.data !== null
+-    && 'chunkLength' in event.data
+-    && typeof event.data.chunkLength === 'number'
+-  );
+-}
+-
+-export { compareVersions, isNewerVersion, parseVersion, type ParsedVersion } from './version.js';
++import type { UpdateTier } from './contract-vectors.js';
++export type { UpdateTier, UpdateHostContractVector } from './contract-vectors.js';
++/** Kept on the main entry for compatibility; prefer `@rightkit/app-update/contract-vectors` in tests. */
++export { UPDATE_HOST_CONTRACT_VECTORS } from './contract-vectors.js';
++
++export type UpdateHeaders = Record<string, string>;
++
++export type UpdateDownloadEvent =
++  | { event: 'Started'; data: { contentLength?: number } }
++  | { event: 'Progress'; data: { chunkLength: number } }
++  | { event: 'Finished'; data?: unknown }
++  | { event: string; data?: unknown };
++
++export type UpdateInstallOptions = { headers?: UpdateHeaders };
++
++export interface RuntimeUpdate {
++  version: string;
++  /** Exact manifest metadata returned by Tauri's updater check. */
++  rawJson?: Record<string, unknown>;
++  downloadAndInstall(
++    onEvent?: (event: UpdateDownloadEvent) => void,
++    options?: UpdateInstallOptions,
++  ): Promise<void>;
++}
++
++export type CheckForUpdate = (options?: { headers?: UpdateHeaders }) => Promise<RuntimeUpdate | null>;
++
++export type AutoUpdateStatus =
++  | { kind: 'idle' }
++  | { kind: 'checking' }
++  | { kind: 'up_to_date' }
++  | {
++      kind: 'available';
++      version: string;
++      tier: UpdateTier | null;
++      eligible: boolean;
++      reason?: 'auto_install_off' | 'pro_required';
++    }
++  | { kind: 'deferred'; version: string; tier: UpdateTier | null; reason: string }
++  | { kind: 'downloading'; version: string; tier: UpdateTier | null; pct: number }
++  | { kind: 'ready'; version: string; tier: UpdateTier | null }
++  /** Download step finished: the update is verified and staged, and nothing is installed yet (additive, #625). */
++  | { kind: 'staged'; version: string; tier: UpdateTier }
++  | { kind: 'error'; message: string };
++
++/**
++ * Opaque handle returned by `downloadAvailable()`. It names one verified update; `installStaged()` accepts only
++ * a handle this client issued for the update that is still current (a newer check invalidates it).
++ */
++export interface StagedUpdateHandle {
++  readonly version: string;
++  readonly tier: UpdateTier;
++}
++
++export type DownloadAvailableResult =
++  | { ok: true; handle: StagedUpdateHandle; status: AutoUpdateStatus }
++  | { ok: false; status: AutoUpdateStatus };
++
++export interface AutoUpdateClientConfig {
++  check: CheckForUpdate;
++  /** Metadata-only Pro release version used to nudge ineligible Free users. */
++  getProUpdateVersion?: () => Promise<string | null> | string | null;
++  /** Manifest-check headers; also the legacy install fallback when no separate callback is set. */
++  getHeaders?: () => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
++  /**
++   * Headers used to download/install an eligible artifact. When absent, the
++   * manifest-check headers are reused for backward compatibility. New apps
++   * should always provide this callback to make cross-origin policy explicit.
++   * It runs after canInstall, immediately before download, and is not cached.
++   */
++  getInstallHeaders?: (
++    tier: UpdateTier,
++    context: { checkHeaders?: UpdateHeaders },
++  ) => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
++  /**
++   * When true and no `getInstallHeaders` is set, the artifact download gets no
++   * headers instead of reusing the manifest-check headers. Default false keeps the
++   * legacy reuse; new apps should set this (or `getInstallHeaders`) so a manifest
++   * credential is never sent to a different artifact origin.
++   */
++  strictInstallHeaders?: boolean;
++  getTier?: (
++    version: string,
++    context: { headers?: UpdateHeaders },
++  ) => Promise<UpdateTier | null> | UpdateTier | null;
++  /**
++   * Optional app-side validation of the signed update metadata (for example an
++   * extra signature or digest check over `update.rawJson`). Return false or throw
++   * to reject the update; it then surfaces as an `error` status and is never
++   * offered. Tauri's updater plugin still verifies the artifact signature against
++   * the configured pubkey; this hook is additional and defaults to none.
++   */
++  verifyMetadata?: (
++    update: RuntimeUpdate,
++    context: { headers?: UpdateHeaders },
++  ) => Promise<boolean | void> | boolean | void;
++  /**
++   * Host relaunch action (for example `@tauri-apps/plugin-process` `relaunch`).
++   * Only invoked when `relaunchAfterInstall` is true.
++   */
++  relaunch?: () => Promise<void> | void;
++  /** Relaunch automatically after `ready`. Default false: the host shows its own restart prompt. */
++  relaunchAfterInstall?: boolean;
++  canInstall?: () => Promise<boolean> | boolean;
++  isEligible?: (
++    tier: UpdateTier | null,
++    context: { headers?: UpdateHeaders },
++  ) => Promise<boolean> | boolean;
++  shouldAutoInstall?: (
++    tier: UpdateTier | null,
++    context: { headers?: UpdateHeaders },
++  ) => Promise<boolean> | boolean;
++  deferReason?: () => string;
++  onStatus?: (status: AutoUpdateStatus) => void;
++  onError?: (error: unknown) => void;
++}
++
++export interface AutoUpdateClient {
++  checkOnce(): Promise<AutoUpdateStatus>;
++  /**
++   * Download step. Runtime adapters expose only the combined `downloadAndInstall`, so this step is a
++   * verify-only prefetch: it confirms the checked, verified and eligible update and stages a handle without
++   * fetching the artifact. The bytes are fetched by `installStaged()`.
++   */
++  downloadAvailable(): Promise<DownloadAvailableResult>;
++  /** Install step: consumes the handle, resolves install headers, and runs the combined adapter install. */
++  installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus>;
++  /** Combined compatibility path, implemented as `downloadAvailable` then `installStaged` without a 'staged' emit. */
++  installAvailable(): Promise<AutoUpdateStatus>;
++}
++
++export interface ReleaseStatus {
++  schema: 1;
++  appKey: string;
++  platform: string | null;
++  patchVersion: string | null;
++  updateVersion: string | null;
++}
++
++export async function fetchReleaseStatus(
++  url: string,
++  fetchImpl: typeof fetch = fetch,
++): Promise<ReleaseStatus> {
++  const response = await fetchImpl(url, { cache: 'no-store' });
++  if (!response.ok) throw new Error(`release status request failed (${response.status})`);
++  const value: unknown = await response.json();
++  if (!isReleaseStatus(value)) throw new Error('release status response is invalid');
++  return value;
++}
++
++function isReleaseStatus(value: unknown): value is ReleaseStatus {
++  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
++  const record = value as Record<string, unknown>;
++  const allowed = new Set(['schema', 'appKey', 'platform', 'patchVersion', 'updateVersion']);
++  if (Object.keys(record).some((key) => !allowed.has(key))) return false;
++  const nullableString = (input: unknown) => input === null || typeof input === 'string';
++  return record.schema === 1
++    && typeof record.appKey === 'string'
++    && record.appKey.length > 0
++    && nullableString(record.platform)
++    && nullableString(record.patchVersion)
++    && nullableString(record.updateVersion);
++}
++
++export function updateTierFromManifest(rawJson: Record<string, unknown> | undefined): UpdateTier {
++  const tier = rawJson?.tier;
++  if (tier !== 'patch' && tier !== 'update') {
++    throw new Error('update manifest tier must be "patch" or "update"');
++  }
++  return tier;
++}
++
++/** A check result held until it is downloaded, installed, or superseded by a newer check generation. */
++interface AvailableRecord {
++  update: RuntimeUpdate;
++  tier: UpdateTier;
++  checkHeaders?: UpdateHeaders;
++  generation: number;
++}
++
++export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpdateClient {
++  const shouldAutoInstall = config.shouldAutoInstall ?? (() => false);
++  const isEligible = config.isEligible ?? ((tier) => tier !== 'update');
++  const deferReason = config.deferReason ?? (() => 'host_not_idle');
++  let generation = 0;
++  let available: AvailableRecord | null = null;
++  let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
++  const handleByRecord = new WeakMap<object, StagedUpdateHandle>();
++  const recordByHandle = new WeakMap<StagedUpdateHandle, AvailableRecord>();
++
++  function emit(status: AutoUpdateStatus): AutoUpdateStatus {
++    config.onStatus?.(status);
++    return status;
++  }
++
++  function emitForGeneration(status: AutoUpdateStatus, expectedGeneration: number): AutoUpdateStatus {
++    return generation === expectedGeneration ? emit(status) : status;
++  }
++
++  function idleWhenStale(expectedGeneration: number): AutoUpdateStatus | null {
++    return generation === expectedGeneration ? null : { kind: 'idle' };
++  }
++
++  async function checkOnce(): Promise<AutoUpdateStatus> {
++    const checkGeneration = ++generation;
++    available = null;
++    ineligibleAvailable = null;
++    try {
++      emit({ kind: 'checking' });
++      const headers = await config.getHeaders?.();
++      const staleAfterHeaders = idleWhenStale(checkGeneration);
++      if (staleAfterHeaders) return staleAfterHeaders;
++      const update = await config.check(headers ? { headers } : undefined);
++      const staleAfterCheck = idleWhenStale(checkGeneration);
++      if (staleAfterCheck) return staleAfterCheck;
++      if (!update) {
++        const proUpdateVersion = await config.getProUpdateVersion?.();
++        const staleAfterStatus = idleWhenStale(checkGeneration);
++        if (staleAfterStatus) return staleAfterStatus;
++        if (proUpdateVersion) {
++          return emit({
++            kind: 'available',
++            version: proUpdateVersion,
++            tier: 'update',
++            eligible: false,
++            reason: 'pro_required',
++          });
++        }
++        return emit({ kind: 'up_to_date' });
++      }
++
++      const tier = config.getTier
++        ? await config.getTier(update.version, { headers })
++        : updateTierFromManifest(update.rawJson);
++      const staleAfterTier = idleWhenStale(checkGeneration);
++      if (staleAfterTier) return staleAfterTier;
++      if (tier !== 'patch' && tier !== 'update') {
++        throw new Error('update manifest tier must be "patch" or "update"');
++      }
++      if (config.verifyMetadata) {
++        const verified = await config.verifyMetadata(update, { headers });
++        const staleAfterVerify = idleWhenStale(checkGeneration);
++        if (staleAfterVerify) return staleAfterVerify;
++        if (verified === false) throw new Error('update metadata verification failed');
++      }
++      const eligible = await isEligible(tier, { headers });
++      const staleAfterEligibility = idleWhenStale(checkGeneration);
++      if (staleAfterEligibility) return staleAfterEligibility;
++      available = eligible
++        ? { update, tier, checkHeaders: headers, generation: checkGeneration }
++        : null;
++      const nextAvailableStatus: Extract<AutoUpdateStatus, { kind: 'available' }> = {
++        kind: 'available',
++        version: update.version,
++        tier,
++        eligible,
++        reason: !eligible && tier === 'update' ? 'pro_required' : 'auto_install_off',
++      };
++      ineligibleAvailable = eligible ? null : nextAvailableStatus;
++      const availableStatus = emit(nextAvailableStatus);
++      if (!eligible) return availableStatus;
++      const autoInstall = await shouldAutoInstall(tier, { headers });
++      const staleAfterPolicy = idleWhenStale(checkGeneration);
++      if (staleAfterPolicy) return staleAfterPolicy;
++      if (!autoInstall) return availableStatus;
++
++      const claimed = claimAvailable(checkGeneration);
++      return claimed ? install(claimed) : availableStatus;
++    } catch (error) {
++      if (generation !== checkGeneration) return { kind: 'idle' };
++      available = null;
++      ineligibleAvailable = null;
++      config.onError?.(error);
++      return emit({ kind: 'error', message: String(error) });
++    }
++  }
++
++  /** Returns a handle for the current available update without consuming it; null when nothing is staged-able. */
++  function stage(): StagedUpdateHandle | null {
++    const current = available;
++    if (!current) return null;
++    let handle = handleByRecord.get(current);
++    if (!handle) {
++      handle = Object.freeze({ version: current.update.version, tier: current.tier });
++      handleByRecord.set(current, handle);
++      recordByHandle.set(handle, current);
++    }
++    return handle;
++  }
++
++  async function downloadAvailable(): Promise<DownloadAvailableResult> {
++    const handle = stage();
++    if (!handle) {
++      return { ok: false, status: ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' }) };
++    }
++    const status = emit({ kind: 'staged', version: handle.version, tier: handle.tier });
++    return { ok: true, handle, status };
++  }
++
++  async function installStaged(handle: StagedUpdateHandle): Promise<AutoUpdateStatus> {
++    // Synchronous claim before any await: overlapping installs of one handle run once.
++    const record = recordByHandle.get(handle);
++    if (!record || available !== record) {
++      return emit({ kind: 'error', message: 'staged update is no longer current; check for updates again' });
++    }
++    available = null;
++    return install(record);
++  }
++
++  async function installAvailable(): Promise<AutoUpdateStatus> {
++    const handle = stage();
++    if (!handle) return ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' });
++    return installStaged(handle);
++  }
++
++  function claimAvailable(expectedGeneration?: number) {
++    const claimed = available;
++    if (!claimed || (expectedGeneration !== undefined && claimed.generation !== expectedGeneration)) {
++      return null;
++    }
++    available = null;
++    return claimed;
++  }
++
++  async function install(claimed: AvailableRecord): Promise<AutoUpdateStatus> {
++    const { update, tier, checkHeaders, generation: installGeneration } = claimed;
++    try {
++      const safe = await config.canInstall?.() ?? true;
++      if (!safe) {
++        const deferredStatus: AutoUpdateStatus = {
++          kind: 'deferred',
++          version: update.version,
++          tier,
++          reason: deferReason(),
++        };
++        if (generation === installGeneration && available === null) available = claimed;
++        return emitForGeneration(deferredStatus, installGeneration);
++      }
++      if (generation !== installGeneration) return { kind: 'idle' };
++
++      const installHeaders = config.getInstallHeaders
++        ? await config.getInstallHeaders(tier, { checkHeaders })
++        : config.strictInstallHeaders ? undefined : checkHeaders;
++      if (generation !== installGeneration) return { kind: 'idle' };
++      let total = 0;
++      let received = 0;
++      await update.downloadAndInstall((event) => {
++        if (event.event === 'Started' && isStartedEvent(event)) {
++          total = event.data.contentLength ?? 0;
++          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct: 0 }, installGeneration);
++        } else if (event.event === 'Progress' && isProgressEvent(event)) {
++          received += event.data.chunkLength;
++          const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
++          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct }, installGeneration);
++        }
++      }, installHeaders ? { headers: installHeaders } : undefined);
++
++      const ready = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
++      if (config.relaunchAfterInstall && config.relaunch && generation === installGeneration) {
++        await config.relaunch();
++      }
++      return ready;
++    } catch (error) {
++      const errorStatus: AutoUpdateStatus = { kind: 'error', message: String(error) };
++      if (generation !== installGeneration) return errorStatus;
++      config.onError?.(error);
++      return emit(errorStatus);
++    }
++  }
++
++  return { checkOnce, downloadAvailable, installStaged, installAvailable };
++}
++
++function isStartedEvent(event: UpdateDownloadEvent): event is { event: 'Started'; data: { contentLength?: number } } {
++  return typeof event.data === 'object' && event.data !== null;
++}
++
++function isProgressEvent(event: UpdateDownloadEvent): event is { event: 'Progress'; data: { chunkLength: number } } {
++  return (
++    typeof event.data === 'object'
++    && event.data !== null
++    && 'chunkLength' in event.data
++    && typeof event.data.chunkLength === 'number'
++  );
++}
++
++export { compareVersions, isNewerVersion, parseVersion, type ParsedVersion } from './version.js';
++export {
++  resolveChannel,
++  validateChannels,
++  type UpdateChannelConfig,
++  type UpdateChannelMap,
++  type UpdateChannelName,
++} from './channels.js';
++export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
++export {
++  createBootProbation,
++  type BootProbation,
++  type BootProbationConfig,
++  type BootProbationDecision,
++  type BootProbationRecord,
++  type BootProbationStorage,
++} from './probation.js';
++export {
++  UPDATES_PACKAGE_VERSION,
++  assertSingleUpdatesVersion,
++  registerUpdatesInstance,
++} from './single-instance.js';
++export {
++  createUpdateConsent,
++  createUpdateConsentRunner,
++  deriveUpdateOverlay,
++  type UpdateConsentOperations,
++  type UpdateConsentAction,
++  type UpdateConsentController,
++  type UpdateConsentState,
++  type UpdateOverlayModel,
++  type UpdateOverlayPhase,
++} from './overlay.js';
+ export {
+-  resolveChannel,
+-  validateChannels,
+-  type UpdateChannelConfig,
+-  type UpdateChannelMap,
+-  type UpdateChannelName,
+-} from './channels.js';
+-export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
+-export {
+-  createBootProbation,
+-  previousInstallPath,
+-  PREVIOUS_SUFFIX,
+-  type BootProbation,
+-  type BootProbationConfig,
+-  type BootProbationDecision,
+-  type BootProbationRecord,
+-  type BootProbationStorage,
+-} from './probation.js';
+-export {
+-  UPDATES_PACKAGE_VERSION,
+-  assertSingleUpdatesVersion,
+-  registerUpdatesInstance,
+-} from './single-instance.js';
+-export {
+-  createUpdateConsent,
+-  createUpdateConsentRunner,
+-  deriveUpdateOverlay,
+-  type UpdateConsentOperations,
+-  type UpdateConsentAction,
+-  type UpdateConsentController,
+-  type UpdateConsentState,
+-  type UpdateOverlayModel,
+-  type UpdateOverlayPhase,
+-} from './overlay.js';
++  check,
++  createRuntimeCheck,
++  RIGHTKIT_APP_UPDATE_CHECK_COMMAND,
++  RIGHTKIT_APP_UPDATE_INSTALL_COMMAND,
++  type RuntimeChannel,
++  type RuntimeChannelConstructor,
++  type RuntimeInvoke,
++  type RuntimeUpdateHost,
++} from './runtime-check.js';
++export { manifestPlatformKeys, updaterTarget, type UpdaterOs } from './target.js';
++export { buildActivationHeaders, type ActivationHeadersInput } from './activation-headers.js';
++export { createBootReporter, type BootReporter, type BootReportBridge } from './boot-report.js';
+diff --git a/packages/app-update/src/probation.test.ts b/packages/app-update/src/probation.test.ts
+index 9d99033..8725463 100644
+--- a/packages/app-update/src/probation.test.ts
++++ b/packages/app-update/src/probation.test.ts
+@@ -1,75 +1,79 @@
+-import { describe, expect, it, vi } from 'vitest';
+-import { createBootProbation, previousInstallPath, type BootProbationRecord } from './probation.js';
+-
+-function memory() {
+-  let record: BootProbationRecord | null = null;
+-  return {
+-    read: () => record,
+-    write: (r: BootProbationRecord) => { record = r; },
+-    clear: () => { record = null; },
+-    peek: () => record,
+-  };
+-}
+-
+-describe('boot probation', () => {
+-  it('reports none when no install is pending', async () => {
+-    const p = createBootProbation({ storage: memory() });
+-    expect(await p.evaluateBoot('1.0.0')).toEqual({ kind: 'none' });
+-  });
+-  it('allows maxBootAttempts boots then requests rollback and calls the hook once', async () => {
+-    const storage = memory();
+-    const onRollback = vi.fn();
+-    const p = createBootProbation({ storage, maxBootAttempts: 2, onRollback });
+-    await p.begin('1.0.0', '1.1.0');
+-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 1 });
+-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 2 });
+-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
+-      kind: 'rollback', restoreVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 3,
+-    });
+-    expect(onRollback).toHaveBeenCalledTimes(1);
+-    expect(onRollback).toHaveBeenCalledWith({ fromVersion: '1.0.0', toVersion: '1.1.0' });
+-    expect(storage.peek()).toBeNull();
+-  });
+-  it('acknowledge clears the record so later boots are none', async () => {
+-    const storage = memory();
+-    const p = createBootProbation({ storage });
+-    await p.begin('1.0.0', '1.1.0');
+-    await p.evaluateBoot('1.1.0');
+-    await p.acknowledgeHealthy();
+-    expect(await p.evaluateBoot('1.1.0')).toEqual({ kind: 'none' });
+-  });
+-  it('clears a record for a different running version as stale, without rollback', async () => {
+-    const storage = memory();
+-    const onRollback = vi.fn();
+-    const p = createBootProbation({ storage, onRollback });
+-    await p.begin('1.0.0', '1.1.0');
+-    expect(await p.evaluateBoot('1.0.0')).toEqual({ kind: 'stale' });
+-    expect(onRollback).not.toHaveBeenCalled();
+-    expect(storage.peek()).toBeNull();
+-  });
+-  it('rejects an invalid attempt limit', () => {
+-    expect(() => createBootProbation({ storage: memory(), maxBootAttempts: 0 })).toThrow(/positive integer/);
+-  });
+-  it('defines the rollback copy as <install>.previous beside the fixed path', () => {
+-    expect(previousInstallPath('/Applications/Mail.app')).toBe('/Applications/Mail.app.previous');
+-    expect(previousInstallPath('/Applications/Mail.app/')).toBe('/Applications/Mail.app.previous');
+-    expect(previousInstallPath('C:\\Apps\\Mail')).toBe('C:\\Apps\\Mail.previous');
+-    expect(() => previousInstallPath('')).toThrow(/non-empty/);
+-    expect(() => previousInstallPath('/')).toThrow(/filesystem root/);
+-    expect(() => previousInstallPath('/Applications/Mail.app.previous')).toThrow(/fixed install path/);
+-  });
+-  it('a rollback names <install>.previous as the copy to rename back over the install path', async () => {
+-    const storage = memory();
+-    const onRollback = vi.fn();
+-    const p = createBootProbation({ storage, maxBootAttempts: 1, onRollback });
+-    await p.begin('1.0.0', '1.1.0', { installPath: '/Applications/Mail.app' });
+-    expect(storage.peek()).toMatchObject({ installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous' });
+-    await p.evaluateBoot('1.1.0');
+-    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
+-      kind: 'rollback', installPath: '/Applications/Mail.app', restorePath: '/Applications/Mail.app.previous',
+-    });
+-    expect(onRollback).toHaveBeenCalledWith({
+-      fromVersion: '1.0.0', toVersion: '1.1.0', installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous',
+-    });
+-  });
+-});
++import { describe, expect, it, vi } from 'vitest';
++import { createBootProbation, type BootProbationRecord } from './probation.js';
++
++function memory() {
++  let record: BootProbationRecord | null = null;
++  return {
++    read: () => record,
++    write: (r: BootProbationRecord) => { record = r; },
++    clear: () => { record = null; },
++    peek: () => record,
++  };
++}
++
++describe('boot probation', () => {
++  it('reports none when no install is pending', async () => {
++    const p = createBootProbation({ storage: memory() });
++    expect(await p.evaluateBoot('1.0.0')).toEqual({ kind: 'none' });
++  });
++  it('allows maxBootAttempts boots then requests rollback and calls the hook once', async () => {
++    const storage = memory();
++    const onRollback = vi.fn();
++    const p = createBootProbation({ storage, maxBootAttempts: 2, onRollback });
++    await p.begin('1.0.0', '1.1.0');
++    expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 1 });
++    expect(await p.evaluateBoot('1.1.0')).toMatchObject({ kind: 'probation', bootAttempts: 2 });
++    expect(await p.evaluateBoot('1.1.0')).toMatchObject({
++      kind: 'rollback', restoreVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 3,
++    });
++    expect(onRollback).toHaveBeenCalledTimes(1);
++    expect(onRollback).toHaveBeenCalledWith({ fromVersion: '1.0.0', toVersion: '1.1.0' });
++    expect(storage.peek()).toBeNull();
++  });
++  it('acknowledge clears the record so later boots are none', async () => {
++    const storage = memory();
++    const p = createBootProbation({ storage });
++    await p.begin('1.0.0', '1.1.0');
++    await p.evaluateBoot('1.1.0');
++    await p.acknowledgeHealthy();
++    expect(await p.evaluateBoot('1.1.0')).toEqual({ kind: 'none' });
++  });
++  it('clears a record for a different running version as stale, without rollback', async () => {
++    const storage = memory();
++    const onRollback = vi.fn();
++    const p = createBootProbation({ storage, onRollback });
++    await p.begin('1.0.0', '1.1.0');
++    expect(await p.evaluateBoot('1.0.0')).toEqual({ kind: 'stale' });
++    expect(onRollback).not.toHaveBeenCalled();
++    expect(storage.peek()).toBeNull();
++  });
++  it('rejects an invalid attempt limit', () => {
++    expect(() => createBootProbation({ storage: memory(), maxBootAttempts: 0 })).toThrow(/positive integer/);
++  });
++  it('a failed probation names the version to restore and carries no path or backup', async () => {
++    const storage = memory();
++    const onRollback = vi.fn();
++    const p = createBootProbation({ storage, maxBootAttempts: 1, onRollback });
++    await p.begin('1.0.0', '1.1.0');
++    expect(storage.peek()).toEqual({ fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 0 });
++    await p.evaluateBoot('1.1.0');
++    const decision = await p.evaluateBoot('1.1.0');
++    expect(decision).toEqual({ kind: 'rollback', toVersion: '1.1.0', restoreVersion: '1.0.0', bootAttempts: 2 });
++    expect(onRollback).toHaveBeenCalledWith({ fromVersion: '1.0.0', toVersion: '1.1.0' });
++  });
++  it('drops path fields from a record written by 0.3.x when it is rewritten', async () => {
++    const storage = memory();
++    storage.write({
++      fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 0,
++      installPath: '/Applications/Mail.app', previousPath: '/Applications/Mail.app.previous',
++    } as BootProbationRecord);
++    const p = createBootProbation({ storage });
++    await p.evaluateBoot('1.1.0');
++    expect(storage.peek()).toEqual({ fromVersion: '1.0.0', toVersion: '1.1.0', bootAttempts: 1 });
++  });
++  it('exports no .previous helpers', async () => {
++    const mod = await import('./index.js') as Record<string, unknown>;
++    expect(mod.previousInstallPath).toBeUndefined();
++    expect(mod.PREVIOUS_SUFFIX).toBeUndefined();
++  });
++});
+diff --git a/packages/app-update/src/probation.ts b/packages/app-update/src/probation.ts
+index 6aa3ce5..bd85d98 100644
+--- a/packages/app-update/src/probation.ts
++++ b/packages/app-update/src/probation.ts
+@@ -1,121 +1,91 @@
+-/** Suffix of the one rollback copy kept beside the fixed install path. */
+-export const PREVIOUS_SUFFIX = '.previous';
+-
+-/**
+- * The rollback location for an install: `<installPath>.previous`, beside the fixed install path. Every app
+- * updates in place at ONE fixed path under one identity (macOS and Windows tie privacy grants to the path and
+- * signature), so the copy the update replaces is renamed to this path, never to a versioned or temporary
+- * folder, and nothing is ever executed from it. Rolling back is renaming it back over the install path.
+- */
+-export function previousInstallPath(installPath: string): string {
+-  if (typeof installPath !== 'string' || installPath.trim() === '') {
+-    throw new Error('rollback: installPath must be a non-empty path');
+-  }
+-  const trimmed = installPath.replace(/[\\/]+$/, '');
+-  if (trimmed === '') throw new Error('rollback: installPath must not be a filesystem root');
+-  if (trimmed.endsWith(PREVIOUS_SUFFIX)) throw new Error('rollback: installPath must be the fixed install path, not a .previous copy');
+-  return `${trimmed}${PREVIOUS_SUFFIX}`;
+-}
+-
+-export interface BootProbationRecord {
+-  fromVersion: string;
+-  toVersion: string;
+-  /** Boots of `toVersion` seen without a healthy acknowledgement. */
+-  bootAttempts: number;
+-  /** The fixed install path this update replaced in place (when the host passed it to `begin`). */
+-  installPath?: string;
+-  /** `<installPath>.previous`: the rollback copy, kept beside the fixed path. Never run from. */
+-  previousPath?: string;
+-}
+-
+-/** Host-supplied persistence (file, plugin-store, localStorage). The package never touches disk. */
+-export interface BootProbationStorage {
+-  read(): Promise<BootProbationRecord | null> | BootProbationRecord | null;
+-  write(record: BootProbationRecord): Promise<void> | void;
+-  clear(): Promise<void> | void;
+-}
+-
+-export type BootProbationDecision =
+-  | { kind: 'none' }
+-  /** The installed version is on probation; acknowledge once the app is healthy. */
+-  | { kind: 'probation'; toVersion: string; bootAttempts: number }
+-  /** The new version never acknowledged within the allowed boots; restore `restoreVersion`. */
+-  | {
+-      kind: 'rollback';
+-      toVersion: string;
+-      restoreVersion: string;
+-      bootAttempts: number;
+-      /** Rename `restorePath` back over `installPath`, then relaunch from `installPath`; absent when `begin` got no install path. */
+-      installPath?: string;
+-      restorePath?: string;
+-    }
+-  /** A record existed for a different version (already rolled back or superseded); it was cleared. */
+-  | { kind: 'stale' };
+-
+-export interface BootProbationConfig {
+-  storage: BootProbationStorage;
+-  /** Unacknowledged boots tolerated before rollback is requested. Default 2. */
+-  maxBootAttempts?: number;
+-  /** Called once when a rollback is decided. The host performs the actual restore. */
+-  onRollback?: (info: { fromVersion: string; toVersion: string; installPath?: string; previousPath?: string }) => Promise<void> | void;
+-}
+-
+-export interface BootProbation {
+-  /**
+-   * Record an install that is about to take effect. Call right before relaunch. Pass the fixed `installPath` the
+-   * update replaced in place so a rollback restores `<installPath>.previous` over it (see `previousInstallPath`).
+-   */
+-  begin(fromVersion: string, toVersion: string, options?: { installPath?: string }): Promise<void>;
+-  /** Call once at every app start with the running version. */
+-  evaluateBoot(currentVersion: string): Promise<BootProbationDecision>;
+-  /** Call when the new version has proven healthy. Clears the probation record. */
+-  acknowledgeHealthy(): Promise<void>;
+-}
+-
+-/**
+- * Boot-probation state machine for runtime updates. Pure policy: it counts boots
+- * and decides; the host owns persistence and the actual restore. Opt-in; the
+- * update client behaves identically without it.
+- */
+-export function createBootProbation(config: BootProbationConfig): BootProbation {
+-  const maxBootAttempts = config.maxBootAttempts ?? 2;
+-  if (!Number.isInteger(maxBootAttempts) || maxBootAttempts < 1) {
+-    throw new Error('boot probation: maxBootAttempts must be a positive integer');
+-  }
+-  return {
+-    async begin(fromVersion, toVersion, options) {
+-      const installPath = options?.installPath;
+-      const rollback = installPath === undefined ? {} : { installPath, previousPath: previousInstallPath(installPath) };
+-      await config.storage.write({ fromVersion, toVersion, bootAttempts: 0, ...rollback });
+-    },
+-    async evaluateBoot(currentVersion) {
+-      const record = await config.storage.read();
+-      if (!record) return { kind: 'none' };
+-      if (record.toVersion !== currentVersion) {
+-        await config.storage.clear();
+-        return { kind: 'stale' };
+-      }
+-      const bootAttempts = record.bootAttempts + 1;
+-      if (bootAttempts > maxBootAttempts) {
+-        await config.storage.clear();
+-        await config.onRollback?.({
+-          fromVersion: record.fromVersion,
+-          toVersion: record.toVersion,
+-          ...(record.installPath ? { installPath: record.installPath, previousPath: record.previousPath } : {}),
+-        });
+-        return {
+-          kind: 'rollback',
+-          toVersion: record.toVersion,
+-          restoreVersion: record.fromVersion,
+-          bootAttempts,
+-          ...(record.installPath ? { installPath: record.installPath, restorePath: record.previousPath } : {}),
+-        };
+-      }
+-      await config.storage.write({ ...record, bootAttempts });
+-      return { kind: 'probation', toVersion: record.toVersion, bootAttempts };
+-    },
+-    async acknowledgeHealthy() {
+-      await config.storage.clear();
+-    },
+-  };
+-}
++export interface BootProbationRecord {
++  fromVersion: string;
++  toVersion: string;
++  /** Boots of `toVersion` seen without a healthy acknowledgement. */
++  bootAttempts: number;
++}
++
++/** Host-supplied persistence (file, plugin-store, localStorage). The package never touches disk. */
++export interface BootProbationStorage {
++  read(): Promise<BootProbationRecord | null> | BootProbationRecord | null;
++  write(record: BootProbationRecord): Promise<void> | void;
++  clear(): Promise<void> | void;
++}
++
++export type BootProbationDecision =
++  | { kind: 'none' }
++  /** The installed version is on probation; acknowledge once the app is healthy. */
++  | { kind: 'probation'; toVersion: string; bootAttempts: number }
++  /**
++   * The new version never acknowledged within the allowed boots: the update FAILED probation. No local backup
++   * exists (settled decision D1, no `.previous` copy); `restoreVersion` is the version the user should get back
++   * by installing that release again. Nothing is restored from a local copy.
++   */
++  | {
++      kind: 'rollback';
++      toVersion: string;
++      restoreVersion: string;
++      bootAttempts: number;
++    }
++  /** A record existed for a different version (already rolled back or superseded); it was cleared. */
++  | { kind: 'stale' };
++
++export interface BootProbationConfig {
++  storage: BootProbationStorage;
++  /** Unacknowledged boots tolerated before rollback is requested. Default 2. */
++  maxBootAttempts?: number;
++  /** Called once when a failed probation is decided. The host reports it and points the user at `fromVersion`. */
++  onRollback?: (info: { fromVersion: string; toVersion: string }) => Promise<void> | void;
++}
++
++export interface BootProbation {
++  /** Record an install that is about to take effect. Call right before relaunch. The install replaced the app in place; no backup is kept. */
++  begin(fromVersion: string, toVersion: string): Promise<void>;
++  /** Call once at every app start with the running version. */
++  evaluateBoot(currentVersion: string): Promise<BootProbationDecision>;
++  /** Call when the new version has proven healthy. Clears the probation record. */
++  acknowledgeHealthy(): Promise<void>;
++}
++
++/**
++ * Boot-probation state machine for runtime updates. Pure policy: it counts boots
++ * and decides; the host owns persistence and reports a failed probation. It keeps and restores no backup copy
++ * (decision D1: updates replace in place, no `.previous`). Opt-in; the
++ * update client behaves identically without it.
++ */
++export function createBootProbation(config: BootProbationConfig): BootProbation {
++  const maxBootAttempts = config.maxBootAttempts ?? 2;
++  if (!Number.isInteger(maxBootAttempts) || maxBootAttempts < 1) {
++    throw new Error('boot probation: maxBootAttempts must be a positive integer');
++  }
++  return {
++    async begin(fromVersion, toVersion) {
++      await config.storage.write({ fromVersion, toVersion, bootAttempts: 0 });
++    },
++    async evaluateBoot(currentVersion) {
++      const record = await config.storage.read();
++      if (!record) return { kind: 'none' };
++      if (record.toVersion !== currentVersion) {
++        await config.storage.clear();
++        return { kind: 'stale' };
++      }
++      const bootAttempts = record.bootAttempts + 1;
++      if (bootAttempts > maxBootAttempts) {
++        await config.storage.clear();
++        await config.onRollback?.({ fromVersion: record.fromVersion, toVersion: record.toVersion });
++        return {
++          kind: 'rollback',
++          toVersion: record.toVersion,
++          restoreVersion: record.fromVersion,
++          bootAttempts,
++        };
++      }
++      // Rebuilt from known fields so a record written by 0.3.x (with its path fields) is migrated, not kept.
++      await config.storage.write({ fromVersion: record.fromVersion, toVersion: record.toVersion, bootAttempts });
++      return { kind: 'probation', toVersion: record.toVersion, bootAttempts };
++    },
++    async acknowledgeHealthy() {
++      await config.storage.clear();
++    },
++  };
++}
+diff --git a/packages/app-update/src/runtime-check.test.ts b/packages/app-update/src/runtime-check.test.ts
+new file mode 100644
+index 0000000..c85a2cd
+--- /dev/null
++++ b/packages/app-update/src/runtime-check.test.ts
+@@ -0,0 +1,157 @@
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import {
++  check,
++  createAutoUpdateClient,
++  createRuntimeCheck,
++  RIGHTKIT_APP_UPDATE_CHECK_COMMAND,
++  RIGHTKIT_APP_UPDATE_INSTALL_COMMAND,
++  type RuntimeChannel,
++  type UpdateDownloadEvent,
++} from './index.js';
++
++class FakeChannel<T> implements RuntimeChannel<T> {
++  onmessage: (message: T) => void = () => {};
++}
++
++const metadata = {
++  id: 7,
++  currentVersion: '1.0.0',
++  version: '1.1.0',
++  date: '2026-10-17T00:00:00Z',
++  body: 'notes',
++  rawJson: { version: '1.1.0', tier: 'patch' },
++};
++
++function host(handler: (command: string, args?: Record<string, unknown>) => unknown) {
++  const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
++  const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
++    calls.push({ command, args });
++    return (await handler(command, args)) as T;
++  };
++  return { host: { invoke, Channel: FakeChannel }, calls };
++}
++
++describe('createRuntimeCheck', () => {
++  it('names the native commands', () => {
++    expect(RIGHTKIT_APP_UPDATE_CHECK_COMMAND).toBe('rightkit_app_update_check');
++    expect(RIGHTKIT_APP_UPDATE_INSTALL_COMMAND).toBe('rightkit_app_update_install');
++  });
++
++  it('sends the manifest headers and maps the native metadata', async () => {
++    const { host: h, calls } = host(() => metadata);
++    const update = await createRuntimeCheck(h)({ headers: { Authorization: 'Bearer t', 'X-App': 'a' } });
++    expect(calls).toEqual([
++      {
++        command: 'rightkit_app_update_check',
++        args: { headers: { Authorization: 'Bearer t', 'X-App': 'a' } },
++      },
++    ]);
++    expect(update).toMatchObject({
++      version: '1.1.0',
++      currentVersion: '1.0.0',
++      date: '2026-10-17T00:00:00Z',
++      body: 'notes',
++      rawJson: { tier: 'patch' },
++    });
++  });
++
++  it('returns null when there is no update and sends no headers key value when none are given', async () => {
++    const { host: h, calls } = host(() => null);
++    expect(await createRuntimeCheck(h)()).toBeNull();
++    expect(calls[0].args).toEqual({ headers: undefined });
++  });
++
++  it('refuses non-string header values before invoking', async () => {
++    const { host: h, calls } = host(() => null);
++    await expect(
++      createRuntimeCheck(h)({ headers: { A: 1 as unknown as string } }),
++    ).rejects.toThrow(TypeError);
++    expect(calls).toHaveLength(0);
++  });
++
++  it('turns a native string rejection into an Error', async () => {
++    const { host: h } = host(() => {
++      throw 'update request failed: HTTP 401';
++    });
++    await expect(createRuntimeCheck(h)()).rejects.toThrow('update request failed: HTTP 401');
++  });
++
++  it('installs through the channel with exactly the install headers', async () => {
++    const events: UpdateDownloadEvent[] = [];
++    const { host: h, calls } = host((command, args) => {
++      if (command === 'rightkit_app_update_check') return metadata;
++      const channel = args?.onEvent as FakeChannel<UpdateDownloadEvent>;
++      channel.onmessage({ event: 'Started', data: { contentLength: 10 } });
++      channel.onmessage({ event: 'Progress', data: { chunkLength: 10 } });
++      channel.onmessage({ event: 'Finished' });
++      return undefined;
++    });
++    const update = await createRuntimeCheck(h)({ headers: { A: 'check' } });
++    await update!.downloadAndInstall((e) => events.push(e), { headers: { B: 'install' } });
++
++    const install = calls[1];
++    expect(install.command).toBe('rightkit_app_update_install');
++    expect(install.args).toMatchObject({ id: 7, headers: { B: 'install' } });
++    expect(install.args?.onEvent).toBeInstanceOf(FakeChannel);
++    expect(events.map((e) => e.event)).toEqual(['Started', 'Progress', 'Finished']);
++  });
++
++  it('sends no install headers when none are given and survives a throwing listener', async () => {
++    const { host: h, calls } = host((command, args) => {
++      if (command === 'rightkit_app_update_check') return metadata;
++      (args?.onEvent as FakeChannel<UpdateDownloadEvent>).onmessage({ event: 'Finished' });
++      return undefined;
++    });
++    const update = await createRuntimeCheck(h)();
++    await update!.downloadAndInstall(() => {
++      throw new Error('listener bug');
++    });
++    expect(calls[1].args?.headers).toBeUndefined();
++  });
++
++  it('rejects downloadAndInstall with the native error and honours command overrides', async () => {
++    const { host: base } = host((command) => {
++      if (command === 'custom_check') return metadata;
++      throw 'update signature does not verify';
++    });
++    const update = await createRuntimeCheck({
++      ...base,
++      commands: { check: 'custom_check', install: 'custom_install' },
++    })();
++    await expect(update!.downloadAndInstall()).rejects.toThrow('update signature does not verify');
++  });
++
++  it('drives the auto-update client from the native manifest tier', async () => {
++    const { host: h } = host(() => metadata);
++    const onStatus = vi.fn();
++    const client = createAutoUpdateClient({
++      check: createRuntimeCheck(h),
++      strictInstallHeaders: true,
++      onStatus,
++    });
++    expect(await client.checkOnce()).toMatchObject({
++      kind: 'available',
++      version: '1.1.0',
++      tier: 'patch',
++      eligible: true,
++    });
++  });
++});
++
++describe('check (global Tauri object)', () => {
++  afterEach(() => {
++    delete (globalThis as { __TAURI__?: unknown }).__TAURI__;
++  });
++
++  it('rejects with guidance when the global Tauri object is absent', async () => {
++    await expect(check()).rejects.toThrow('createRuntimeCheck');
++  });
++
++  it('uses window.__TAURI__.core when present', async () => {
++    const { host: h, calls } = host(() => metadata);
++    (globalThis as { __TAURI__?: unknown }).__TAURI__ = { core: h };
++    const update = await check({ headers: { A: 'b' } });
++    expect(update?.version).toBe('1.1.0');
++    expect(calls[0].args).toEqual({ headers: { A: 'b' } });
++  });
++});
+diff --git a/packages/app-update/src/runtime-check.ts b/packages/app-update/src/runtime-check.ts
+new file mode 100644
+index 0000000..ebe3013
+--- /dev/null
++++ b/packages/app-update/src/runtime-check.ts
+@@ -0,0 +1,124 @@
++import type {
++  CheckForUpdate,
++  RuntimeUpdate,
++  UpdateDownloadEvent,
++  UpdateHeaders,
++} from './index.js';
++
++/** Native command that asks the manifest endpoints (native `rightkit_app_update_*` commands). */
++export const RIGHTKIT_APP_UPDATE_CHECK_COMMAND = 'rightkit_app_update_check';
++/** Native command that downloads, verifies the minisign signature, and installs. */
++export const RIGHTKIT_APP_UPDATE_INSTALL_COMMAND = 'rightkit_app_update_install';
++
++export type RuntimeInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
++
++/** The shape of a Tauri `Channel` instance that this package uses. */
++export interface RuntimeChannel<T> {
++  onmessage: (message: T) => void;
++}
++
++/** Tauri's `Channel` class from `@tauri-apps/api/core`. */
++export type RuntimeChannelConstructor = new <T>() => RuntimeChannel<T>;
++
++export interface RuntimeUpdateHost {
++  /** The app's real `invoke` (`@tauri-apps/api/core`). */
++  invoke: RuntimeInvoke;
++  /** The app's real `Channel` class (`@tauri-apps/api/core`). */
++  Channel: RuntimeChannelConstructor;
++  /** Override the native command names; both default to the `rightkit-app-update` ones. */
++  commands?: { check: string; install: string };
++}
++
++interface NativeUpdateMetadata {
++  id: number;
++  currentVersion: string;
++  version: string;
++  date?: string | null;
++  body?: string | null;
++  rawJson: Record<string, unknown>;
++}
++
++function cleanHeaders(headers: UpdateHeaders | undefined): UpdateHeaders | undefined {
++  if (headers === undefined) return undefined;
++  const clean: UpdateHeaders = {};
++  for (const [name, value] of Object.entries(headers)) {
++    if (typeof value !== 'string') throw new TypeError(`update header ${name} must be a string`);
++    clean[name] = value;
++  }
++  return clean;
++}
++
++/** Tauri rejects with the native error string; surface it as an Error. */
++function asError(error: unknown): Error {
++  return error instanceof Error ? error : new Error(String(error));
++}
++
++/**
++ * A `CheckForUpdate` backed by a native updater owner that exposes these commands (the `rightkit-app-update` crate, not yet shipped, #448): it replaces
++ * `check` from `@tauri-apps/plugin-updater` without the plugin. The manifest check carries
++ * `options.headers`; the returned update's `downloadAndInstall` streams the native download
++ * events, and its `options.headers` are the only headers the artifact download gets.
++ */
++export function createRuntimeCheck(host: RuntimeUpdateHost): CheckForUpdate {
++  const checkCommand = host.commands?.check ?? RIGHTKIT_APP_UPDATE_CHECK_COMMAND;
++  const installCommand = host.commands?.install ?? RIGHTKIT_APP_UPDATE_INSTALL_COMMAND;
++  return async (options) => {
++    let metadata: NativeUpdateMetadata | null;
++    try {
++      metadata = await host.invoke<NativeUpdateMetadata | null>(checkCommand, {
++        headers: cleanHeaders(options?.headers),
++      });
++    } catch (error) {
++      throw asError(error);
++    }
++    if (!metadata) return null;
++    const update: RuntimeUpdate = {
++      version: metadata.version,
++      currentVersion: metadata.currentVersion,
++      date: metadata.date ?? undefined,
++      body: metadata.body ?? undefined,
++      rawJson: metadata.rawJson,
++      async downloadAndInstall(onEvent, installOptions) {
++        const channel = new host.Channel<UpdateDownloadEvent>();
++        channel.onmessage = (event) => {
++          try {
++            onEvent?.(event);
++          } catch {
++            // A throwing progress listener must not abort the install.
++          }
++        };
++        try {
++          await host.invoke<void>(installCommand, {
++            id: metadata.id,
++            headers: cleanHeaders(installOptions?.headers),
++            onEvent: channel,
++          });
++        } catch (error) {
++          throw asError(error);
++        }
++      },
++    };
++    return update;
++  };
++}
++
++type GlobalTauri = {
++  __TAURI__?: { core?: { invoke?: RuntimeInvoke; Channel?: RuntimeChannelConstructor } };
++};
++
++/**
++ * `check` for apps that enable the global Tauri object (`app.withGlobalTauri`). It resolves
++ * `window.__TAURI__.core` on each call. Apps that import `@tauri-apps/api` use
++ * `createRuntimeCheck({ invoke, Channel })` instead.
++ */
++export const check: CheckForUpdate = (options) => {
++  const core = (globalThis as GlobalTauri).__TAURI__?.core;
++  if (!core?.invoke || !core.Channel) {
++    return Promise.reject(
++      new Error(
++        '@rightkit/app-update check() needs window.__TAURI__ (app.withGlobalTauri) or createRuntimeCheck({ invoke, Channel })',
++      ),
++    );
++  }
++  return createRuntimeCheck({ invoke: core.invoke, Channel: core.Channel })(options);
++};
+diff --git a/packages/app-update/src/single-instance.ts b/packages/app-update/src/single-instance.ts
+index b657661..b1d95bf 100644
+--- a/packages/app-update/src/single-instance.ts
++++ b/packages/app-update/src/single-instance.ts
+@@ -1,5 +1,5 @@
+ /** Keep in step with package.json; a test enforces this. */
+-export const UPDATES_PACKAGE_VERSION = '0.3.0';
++export const UPDATES_PACKAGE_VERSION = '0.4.0';
+ 
+ const REGISTRY_KEY = Symbol.for('@rightkit/app-update.instances');
+ 
+diff --git a/packages/app-update/src/target.test.ts b/packages/app-update/src/target.test.ts
+new file mode 100644
+index 0000000..dab8702
+--- /dev/null
++++ b/packages/app-update/src/target.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it } from 'vitest';
++import { manifestPlatformKeys, updaterTarget } from './index.js';
++
++describe('updater targets', () => {
++  it('maps os and arch names, macos to darwin', () => {
++    expect(updaterTarget('macos', 'arm64')).toBe('darwin-aarch64');
++    expect(updaterTarget('darwin', 'x64')).toBe('darwin-x86_64');
++    expect(updaterTarget('macos', 'universal')).toBe('darwin-universal');
++    expect(updaterTarget('windows', 'AMD64')).toBe('windows-x86_64');
++    expect(updaterTarget('linux', 'aarch64')).toBe('linux-aarch64');
++    expect(() => updaterTarget('linux', ' ')).toThrow(/arch/);
++  });
++
++  it('falls darwin targets back to universal then darwin', () => {
++    expect(manifestPlatformKeys('darwin-aarch64')).toEqual(['darwin-aarch64', 'darwin-universal', 'darwin']);
++    expect(manifestPlatformKeys('darwin-universal')).toEqual(['darwin-universal', 'darwin']);
++    expect(manifestPlatformKeys('windows-x86_64')).toEqual(['windows-x86_64']);
++  });
++});
+diff --git a/packages/app-update/src/target.ts b/packages/app-update/src/target.ts
+new file mode 100644
+index 0000000..94763e9
+--- /dev/null
++++ b/packages/app-update/src/target.ts
+@@ -0,0 +1,35 @@
++/** Updater target helpers (`<os>-<arch>`), matching the keys of a Tauri static `latest.json` `platforms` map. */
++export type UpdaterOs = 'darwin' | 'macos' | 'windows' | 'linux';
++
++const ARCH_ALIASES: Record<string, string> = {
++  arm64: 'aarch64',
++  aarch64: 'aarch64',
++  x64: 'x86_64',
++  amd64: 'x86_64',
++  x86_64: 'x86_64',
++  universal: 'universal',
++};
++
++/**
++ * Updater target for an OS and architecture. `macos` maps to `darwin`; `arm64` to `aarch64`; `x64` and `amd64`
++ * to `x86_64`. `updaterTarget('macos', 'arm64')` is `darwin-aarch64`.
++ */
++export function updaterTarget(os: UpdaterOs, arch: string): string {
++  const name = os === 'macos' ? 'darwin' : os;
++  const lower = arch.trim().toLowerCase();
++  if (lower === '') throw new Error('updater target: arch must be non-empty');
++  return `${name}-${ARCH_ALIASES[lower] ?? lower}`;
++}
++
++/**
++ * Manifest `platforms` keys to try, best first. `darwin-aarch64` and `darwin-x86_64` fall back to
++ * `darwin-universal`, then `darwin`; `darwin-universal` falls back to `darwin`. Other targets are exact.
++ */
++export function manifestPlatformKeys(target: string): string[] {
++  const keys = [target];
++  if (target.startsWith('darwin-')) {
++    if (target !== 'darwin-universal') keys.push('darwin-universal');
++    keys.push('darwin');
++  }
++  return keys;
++}
+diff --git a/packages/doc-render/CHANGELOG.md b/packages/doc-render/CHANGELOG.md
+index 263a5b9..2c18eb1 100644
+--- a/packages/doc-render/CHANGELOG.md
++++ b/packages/doc-render/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## 0.2.1 (unreleased)
++
++Additive; defaults and existing exports are unchanged.
++
++- Sanitizer profiles for the hosts that kept their own (#395), all opt-in on `SanitizeOptions` and all off by default: `allowSvg` (fixed shape allowlist; no script, style, foreignObject, use, image, animation or anchor; paint attributes may only reference local `url(#id)`), `allowMedia` (`picture`, `source`, `video`, `audio`; no autoplay; `src` follows the image policy, `poster` and `srcset` are dropped), `allowMathMl` (the KaTeX set), and `allowStyleProperties` (keeps `style` but only the listed properties with plain values; no `url(`, `var(`, `expression`, `@`, backslash or comments). New exports `SHIKI_SANITIZE_POLICY`, `KATEX_SANITIZE_POLICY`, `SVG_SANITIZE_POLICY` and the pure `filterStyleDeclarations`.
++- `SanitizeOptions.beforeSanitize(root)` runs once on the parsed, unsanitized tree (an inert `template` fragment) before sanitizing, so a host can stamp source positions on the original elements and still get sanitized output. It cannot widen the policy and is ignored with no DOM (the no-DOM path still escapes everything).
++- `MarkdownComponents` gains `strong`, `emphasis`, `delete`, `break`, `image` (policy-resolved `src`), `thematicBreak`, `list` (`ordered`, `start`), `frontmatter`, `math` (`inline` flag) and `html` (default sanitizes; return a node to show it as inert text) (#631). New `renderInline(source, options)` renders a short fragment with no block wrapper (#631).
++- `styles.css`: every `CodeBlock` colour (background, border, bar text, copy-button hover, copied and failed states, scrollbar) is a `var(--rk-...)` with the previous value as the fallback, so the block follows the app theme (#633). Document colours use the same tokens.
++- Not shipped: `form`, `base`, `meta`, `link`, `canvas` and `<style>` stay forbidden (a form can exfiltrate, `<style>` can restyle and overlay the host UI). A host that needs its own `base` or `meta` adds them after sanitizing. Not built or run locally; CI is the compiler.
++
+ ## 0.2.0 (2026-10-17)
+ 
+ - Sanitizer policy hooks (#395): `safeLinkHref(href, { allowTel, allowRelative })` and `sanitizeHtml`/`sanitizeMarkdownHtml(html, { allowTel, allowRelative, resolveImageSrc })`. Both link additions default off; tag, attribute and CSS allowlists are unchanged, and `javascript:`, `data:`, `srcdoc`, event handlers and styles stay refused. `resolveImageSrc` runs on relative image sources only; its return value is host-trusted.
+diff --git a/packages/doc-render/README.md b/packages/doc-render/README.md
+index f80fef4..3fbaa3c 100644
+--- a/packages/doc-render/README.md
++++ b/packages/doc-render/README.md
+@@ -31,16 +31,16 @@ export function Doc({ markdown }: { markdown: string }) {
+ 
+ `MarkdownRenderer` props: `source`, `className`, `onOpenLink`, `bibliography`, `parseOptions`, `components`, `classNames`, `onText`, `linkPolicy`, `htmlPolicy`.
+ 
+-`components` overrides `link`, `text`, `inlineCode`, `code`, `table`, `heading`, `listItem`, `paragraph`, `blockquote`; an override returning `undefined` keeps the default element, and `link` is never called for a refused href. `onText(value, key)` returns a node to replace a text run or `undefined`.
++`components` overrides `link`, `text`, `inlineCode`, `code`, `table`, `heading`, `listItem`, `paragraph`, `blockquote`, `strong`, `emphasis`, `delete`, `break`, `image`, `thematicBreak`, `list`, `frontmatter`, `math` and `html`; an override returning `undefined` keeps the default element, and `link` is never called for a refused href. `onText(value, key)` returns a node to replace a text run or `undefined`.
+ 
+ `parseToTree(source, options)` options: `smartypants`, `frontmatter`, `citations`, `wikiLinks`, `defLists` (all default on; `false` disables), `softBreaks: "preserve"`, `emailAutolinks: false`, `highlight: true` (`==text==`, plain text only). Link nodes from bare autolinks carry `data.autolink`. The parse cache is capped at 8 MiB (`configureMarkdownParseCache`).
+ 
+-Sanitizer policy: `linkPolicy`/`htmlPolicy` add only `tel:` (`allowTel`), scheme-less relative references (`allowRelative`) and a relative-image `resolveImageSrc` hook, all off by default. The tag, attribute and CSS allowlists do not change. `renderMarkdownToHtml(source, options)` returns an HTML string under the same policies. `CodeBlock` ({ `code`, `language`, `onCopy`, `renderIcon` }) is a language-labelled copy-button block usable as `components.code`.
++Sanitizer policy: `linkPolicy`/`htmlPolicy` add only `tel:` (`allowTel`), scheme-less relative references (`allowRelative`) and a relative-image `resolveImageSrc` hook, all off by default. The tag, attribute and CSS allowlists do not change. `renderMarkdownToHtml(source, options)` returns an HTML string under the same policies. `renderInline(source, options)` renders a short fragment with no block wrapper. Opt-in `SanitizeOptions`: `allowSvg`, `allowMedia`, `allowMathMl`, `allowStyleProperties` (with `SHIKI_SANITIZE_POLICY`, `KATEX_SANITIZE_POLICY`, `SVG_SANITIZE_POLICY`) and `beforeSanitize(root)` for stamping the unsanitized tree. `CodeBlock` ({ `code`, `language`, `onCopy`, `renderIcon` }) is a language-labelled copy-button block usable as `components.code`.
+ 
+ `HtmlRenderer` props: `html`, `className`, `safeMode` (default `true`; `safeMode={false}` renders the markup without sanitizing).
+ 
+ ## Known issues
+ 
+ - `remark-math` parses math, but output is raw text in `<pre>`/`<code>` (`src/renderers.tsx:71-72`). Math is not rendered as KaTeX.
+-- Shiki, KaTeX and Mermaid-SVG sanitizer profiles and a full-document HTML sanitizer with styles (#395) are not provided.
++- A full-document HTML sanitizer that keeps `<style>`, `form`, `base` or `meta` is not provided: those tags stay forbidden. Add a host `base`/`meta` after sanitizing.
+ - Shiki loads its WASM through `shiki/onig.wasm?url`, so the host bundler must resolve `?url` imports.
+diff --git a/packages/doc-render/package.json b/packages/doc-render/package.json
+index 14a8730..c7a96aa 100644
+--- a/packages/doc-render/package.json
++++ b/packages/doc-render/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@rightkit/doc-render",
+-  "version": "0.2.0",
++  "version": "0.2.1",
+   "description": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
+   "license": "MIT OR Apache-2.0",
+   "type": "module",
+diff --git a/packages/doc-render/src/index.ts b/packages/doc-render/src/index.ts
+index 76eab09..edc7f28 100644
+--- a/packages/doc-render/src/index.ts
++++ b/packages/doc-render/src/index.ts
+@@ -1,5 +1,5 @@
+-export { MarkdownRenderer, HtmlRenderer, renderMarkdown, renderHtml } from "./renderers.js";
+-export type { MarkdownRendererProps, HtmlRendererProps, MarkdownComponents, MarkdownClassNames } from "./renderers.js";
++export { MarkdownRenderer, HtmlRenderer, renderMarkdown, renderHtml, renderInline } from "./renderers.js";
++export type { MarkdownRendererProps, HtmlRendererProps, MarkdownComponents, MarkdownClassNames, RenderInlineOptions } from "./renderers.js";
+ export { CodeBlock } from "./CodeBlock.js";
+ export type { CodeBlockProps } from "./CodeBlock.js";
+ export { renderMarkdownToHtml } from "./htmlString.js";
+@@ -19,4 +19,5 @@ export { remarkCitations } from "./remarkCitations.js";
+ export { remarkDefListAbbr } from "./remarkDefListAbbr.js";
+ export { remarkWikiLink } from "./remarkWikiLink.js";
+ export { resolveShikiLanguage, ensureShikiLanguage, getShikiHighlighter, configureShikiWasm } from "./shikiHighlighter.js";
++export { filterStyleDeclarations, SHIKI_SANITIZE_POLICY, KATEX_SANITIZE_POLICY, SVG_SANITIZE_POLICY } from "./security.js";
+ export type { LinkPolicy, SanitizeOptions } from "./security.js";
+diff --git a/packages/doc-render/src/renderers.tsx b/packages/doc-render/src/renderers.tsx
+index bc5ca68..b9a575f 100644
+--- a/packages/doc-render/src/renderers.tsx
++++ b/packages/doc-render/src/renderers.tsx
+@@ -21,6 +21,22 @@ export interface MarkdownComponents {
+   listItem?: (props: { checked?: boolean | null; children: ReactNode }) => ReactNode | undefined;
+   paragraph?: (props: { children: ReactNode }) => ReactNode | undefined;
+   blockquote?: (props: { children: ReactNode }) => ReactNode | undefined;
++  strong?: (props: { children: ReactNode }) => ReactNode | undefined;
++  emphasis?: (props: { children: ReactNode }) => ReactNode | undefined;
++  delete?: (props: { children: ReactNode }) => ReactNode | undefined;
++  /** Hard line break. */
++  break?: () => ReactNode | undefined;
++  /** Called with the policy-resolved `src`; an image the policy refuses never reaches the override. */
++  image?: (props: { src: string; alt: string; title?: string }) => ReactNode | undefined;
++  thematicBreak?: () => ReactNode | undefined;
++  /** List container; `start` is set only for ordered lists that do not start at 1. */
++  list?: (props: { ordered: boolean; start?: number; children: ReactNode }) => ReactNode | undefined;
++  /** Frontmatter block (`yaml`, or `toml` where parsed); the default renders nothing. */
++  frontmatter?: (props: { format: "yaml" | "toml"; value: string }) => ReactNode | undefined;
++  /** Math block or inline math; the default renders the TeX source as code. */
++  math?: (props: { value: string; inline: boolean }) => ReactNode | undefined;
++  /** Raw HTML node. The default sanitizes it; return a node (for example the value as inert text) to take over. */
++  html?: (value: string, key: string) => ReactNode | undefined;
+ }
+ 
+ /** Extra class names for default elements. */
+@@ -88,13 +104,16 @@ function renderNode(node: RootContent, key: string, parent: RenderContext): Reac
+       const id = parent.headingSlugs.get(node as never);
+       return over(parent.components.heading?.({ depth: raw.depth, id, children: renderChildren(children, context) }), () => createElement(`h${raw.depth}`, { key, id, className: cls(parent.classNames.heading) }, renderChildren(children, context)), key);
+     }
+-    case "emphasis": return <em key={key}>{renderChildren(children, context)}</em>;
+-    case "strong": return <strong key={key}>{renderChildren(children, context)}</strong>;
+-    case "delete": return <del key={key}>{renderChildren(children, context)}</del>;
++    case "emphasis": return over(parent.components.emphasis?.({ children: renderChildren(children, context) }), () => <em key={key}>{renderChildren(children, context)}</em>, key);
++    case "strong": return over(parent.components.strong?.({ children: renderChildren(children, context) }), () => <strong key={key}>{renderChildren(children, context)}</strong>, key);
++    case "delete": return over(parent.components.delete?.({ children: renderChildren(children, context) }), () => <del key={key}>{renderChildren(children, context)}</del>, key);
+     case "inlineCode": return over(parent.components.inlineCode?.({ value: raw.value }), () => <code key={key} className={cls(parent.classNames.inlineCode)}>{raw.value}</code>, key);
+     case "code": return over(parent.components.code?.({ lang: raw.lang ?? undefined, value: raw.value }), () => <pre key={key} className={["rk-doc-code", parent.classNames.code].filter(Boolean).join(" ")}><code>{raw.value}</code></pre>, key);
+     case "blockquote": return over(parent.components.blockquote?.({ children: renderChildren(children, context) }), () => <blockquote key={key} className={cls(parent.classNames.blockquote)}>{renderChildren(children, context)}</blockquote>, key);
+-    case "list": return createElement(raw.ordered ? "ol" : "ul", { key, className: cls(parent.classNames.list), start: raw.ordered && raw.start !== 1 ? raw.start : undefined }, renderChildren(children, context));
++    case "list": {
++      const start = raw.ordered && raw.start != null && raw.start !== 1 ? (raw.start as number) : undefined;
++      return over(parent.components.list?.({ ordered: !!raw.ordered, start, children: renderChildren(children, context) }), () => createElement(raw.ordered ? "ol" : "ul", { key, className: cls(parent.classNames.list), start }, renderChildren(children, context)), key);
++    }
+     case "listItem": return over(parent.components.listItem?.({ checked: raw.checked, children: renderChildren(children, context) }), () => <li key={key} className={cls(parent.classNames.listItem)}>{renderChildren(children, context)}</li>, key);
+     case "link": {
+       const href = safeLinkHref(raw.url, parent.linkPolicy);
+@@ -106,11 +125,16 @@ function renderNode(node: RootContent, key: string, parent: RenderContext): Reac
+     }
+     case "image": {
+       const src = resolveImageSource(raw.url, parent.htmlPolicy);
+-      return src ? <img key={key} src={src} alt={raw.alt ?? ""} title={raw.title ?? undefined} loading="lazy" /> : <span key={key}>{raw.alt ?? ""}</span>;
++      if (!src) return <span key={key}>{raw.alt ?? ""}</span>;
++      return over(parent.components.image?.({ src, alt: raw.alt ?? "", title: raw.title ?? undefined }), () => <img key={key} src={src} alt={raw.alt ?? ""} title={raw.title ?? undefined} loading="lazy" />, key);
++    }
++    case "thematicBreak": return over(parent.components.thematicBreak?.(), () => <hr key={key} />, key);
++    case "break": return over(parent.components.break?.(), () => <br key={key} />, key);
++    case "html": {
++      const custom = parent.components.html?.(raw.value, key);
++      if (custom !== undefined) return <Fragment key={key}>{custom}</Fragment>;
++      return <span key={key} dangerouslySetInnerHTML={{ __html: sanitizeHtml(raw.value, parent.htmlPolicy) }} />;
+     }
+-    case "thematicBreak": return <hr key={key} />;
+-    case "break": return <br key={key} />;
+-    case "html": return <span key={key} dangerouslySetInnerHTML={{ __html: sanitizeHtml(raw.value, parent.htmlPolicy) }} />;
+     case "table": {
+       if (parent.components.table) {
+         const custom = parent.components.table({ head: (raw.children[0]?.children ?? []).map((cell: any, i: number) => <Fragment key={i}>{renderChildren(cell.children, context)}</Fragment>), rows: raw.children.slice(1).map((row: any) => row.children.map((cell: any, j: number) => <Fragment key={j}>{renderChildren(cell.children, context)}</Fragment>)), align: raw.align ?? [] });
+@@ -122,9 +146,10 @@ function renderNode(node: RootContent, key: string, parent: RenderContext): Reac
+       const footnote = parent.footnotes.get(raw.identifier);
+       return footnote ? <sup key={key}><a href={`#fn-${raw.identifier}`} id={`fnref-${raw.identifier}`}>{footnote.num}</a></sup> : null;
+     }
+-    case "math": return <pre key={key} className="rk-doc-math">{raw.value}</pre>;
+-    case "inlineMath": return <code key={key} className="rk-doc-math-inline">{raw.value}</code>;
+-    case "definition": case "footnoteDefinition": case "yaml": case "toml": return null;
++    case "math": return over(parent.components.math?.({ value: raw.value, inline: false }), () => <pre key={key} className="rk-doc-math">{raw.value}</pre>, key);
++    case "inlineMath": return over(parent.components.math?.({ value: raw.value, inline: true }), () => <code key={key} className="rk-doc-math-inline">{raw.value}</code>, key);
++    case "yaml": case "toml": return over(parent.components.frontmatter?.({ format: raw.type, value: raw.value }), () => null, key);
++    case "definition": case "footnoteDefinition": return null;
+     case "imageReference": case "linkReference": return <span key={key}>{textContent(children)}</span>;
+     case "citation": {
+       const entry = parent.bibliography.get((node as unknown as { key: string }).key);
+@@ -139,6 +164,26 @@ function Bibliography({ entries }: { entries: CslEntry[] }) {
+   return <section className="rk-doc-bibliography"><h2>References</h2><ol>{entries.map((entry) => <li key={entry.id}>{formatBibliographyEntry(entry)}</li>)}</ol></section>;
+ }
+ 
++/** Options for `renderInline`: the same host policy as `MarkdownRenderer`, minus the footnote and bibliography sections. */
++export type RenderInlineOptions = Omit<MarkdownRendererProps, "source" | "className" | "bibliography" | "parseOptions"> & { bibliography?: Map<string, CslEntry>; parseOptions?: ParseOptions };
++
++/** Render a short fragment (a title, a tool-call summary) as inline content with no block wrapper: the
++ * children of its paragraphs, joined by a space when there are several. Block-only syntax (headings,
++ * lists, fences) renders as its text. Same link, image and raw-HTML policy as `MarkdownRenderer`. */
++export function renderInline(source: string, options: RenderInlineOptions = {}): ReactNode {
++  const { bibliography = new Map<string, CslEntry>(), parseOptions, components, classNames, onText, onOpenLink, linkPolicy, htmlPolicy } = options;
++  const tree = parseToTree(source, parseOptions);
++  const context: RenderContext = { headingSlugs: buildHeadingSlugs(tree), footnotes: collectFootnotes(tree), onOpenLink, bibliography, components: { ...(onText ? { text: onText } : {}), ...components }, classNames: classNames ?? {}, linkPolicy: linkPolicy ?? {}, htmlPolicy: htmlPolicy ?? {}, key: "inline" };
++  const parts: ReactNode[] = [];
++  tree.children.forEach((block, index) => {
++    const raw = block as any;
++    if (parts.length) parts.push(" ");
++    const inline = raw.type === "paragraph" || raw.type === "heading";
++    parts.push(<Fragment key={`inline:${index}`}>{inline ? renderChildren(raw.children, { ...context, key: `inline:${index}` }) : nodeText(block)}</Fragment>);
++  });
++  return <>{parts}</>;
++}
++
+ export function MarkdownRenderer({ source, className, onOpenLink, bibliography = new Map(), parseOptions, components, classNames, onText, linkPolicy, htmlPolicy }: MarkdownRendererProps) {
+   const tree = parseToTree(source, parseOptions);
+   const headingSlugs = buildHeadingSlugs(tree);
+diff --git a/packages/doc-render/src/security.ts b/packages/doc-render/src/security.ts
+index a82e66f..128e82b 100644
+--- a/packages/doc-render/src/security.ts
++++ b/packages/doc-render/src/security.ts
+@@ -82,23 +82,87 @@ function escapeHtml(html: string): string {
+   return html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+ }
+ 
+-/** Host policy for sanitized HTML. Nothing here widens the tag, attribute or CSS allowlists. */
++/** Host policy for sanitized HTML. Nothing here widens the tag, attribute or CSS allowlists unless a flag below is set; every flag defaults to off. */
+ export interface SanitizeOptions extends LinkPolicy {
+   /** Rewrites a relative `<img src>` (e.g. to a local-asset URL). Called only for sources that pass
+    * the image policy as relative; return `undefined` to drop the attribute. The returned URL is
+    * host-trusted and is not re-validated, so a hook must never echo unvetted input into a scheme. */
+   resolveImageSrc?: (src: string) => string | undefined;
++  /** Admit inline SVG from a fixed shape allowlist (no `script`, `style`, `foreignObject`, `use`, `image`, animation
++   * or `a`; no event handlers; paint attributes may only reference local `url(#id)`). */
++  allowSvg?: boolean;
++  /** Admit `picture`, `source`, `video` and `audio` (no autoplay; `src` goes through the image URL policy; `poster` and `srcset` are dropped). */
++  allowMedia?: boolean;
++  /** Admit a MathML allowlist (the KaTeX output set). */
++  allowMathMl?: boolean;
++  /** Keep a `style` attribute but only these CSS properties, and only with plain values (no `url(`, `var(`, `expression`, `@`, backslash or comments). Default none: `style` is removed. */
++  allowStyleProperties?: readonly string[];
++  /** Runs once on the PARSED, UNSANITIZED tree (an inert `template` fragment) before sanitizing, for hosts that stamp source
++   * positions on the original elements. Output is then sanitized as usual; the hook cannot widen the policy. Needs a DOM; ignored without one. */
++  beforeSanitize?: (root: DocumentFragment) => void;
+ }
+ 
++const SVG_TAGS = ["svg", "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect", "text", "tspan", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc", "symbol", "marker", "pattern"];
++const SVG_ATTRS = ["viewBox", "xmlns", "d", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity", "opacity", "transform", "x", "y", "cx", "cy", "r", "rx", "ry", "x1", "y1", "x2", "y2", "points", "offset", "stop-color", "stop-opacity", "gradientUnits", "gradientTransform", "clip-path", "clip-rule", "mask", "preserveAspectRatio", "text-anchor", "dominant-baseline", "font-size", "font-family", "font-weight", "markerWidth", "markerHeight", "refX", "refY", "orient", "markerUnits", "patternUnits", "maskUnits", "clipPathUnits", "role", "focusable"];
++const MEDIA_TAGS = ["picture", "source", "video", "audio"];
++const MEDIA_ATTRS = ["controls", "loop", "muted", "preload", "playsinline", "type", "media", "sizes"];
++const MATHML_TAGS = ["math", "semantics", "mrow", "mi", "mn", "mo", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot", "mover", "munder", "munderover", "mtable", "mtr", "mtd", "mstyle", "mpadded", "mphantom", "menclose", "annotation"];
++const MATHML_ATTRS = ["display", "mathvariant", "encoding", "stretchy", "fence", "separator", "lspace", "rspace", "columnalign", "rowspacing", "columnspacing", "scriptlevel", "displaystyle", "mathsize", "linethickness", "accent", "accentunder", "minsize", "maxsize", "symmetric", "largeop", "movablelimits"];
++const BASE_TAGS = ["a", "abbr", "b", "blockquote", "br", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "section", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul"];
++const BASE_ATTRS = ["alt", "class", "colspan", "height", "href", "id", "rel", "rowspan", "src", "target", "title", "width"];
++
++const SAFE_STYLE_VALUE = /^[A-Za-z0-9\s#%.,()+\-]*$/;
++const UNSAFE_STYLE_VALUE = /url\s*\(|var\s*\(|expression|image-set|@/i;
++
++/** Keep only the allowed CSS declarations of a `style` attribute value, with plain values. Pure; returns "" when nothing survives. */
++export function filterStyleDeclarations(style: string, allowed: readonly string[]): string {
++  const allow = new Set(allowed.map((name) => name.toLowerCase()));
++  const kept: string[] = [];
++  for (const declaration of style.split(";")) {
++    const colon = declaration.indexOf(":");
++    if (colon < 1) continue;
++    const property = declaration.slice(0, colon).trim().toLowerCase();
++    const value = declaration.slice(colon + 1).trim();
++    if (!allow.has(property) || value === "" || !SAFE_STYLE_VALUE.test(value) || UNSAFE_STYLE_VALUE.test(value)) continue;
++    kept.push(`${property}:${value}`);
++  }
++  return kept.join(";");
++}
++
++/** Policy for Shiki output: coloured spans only (`color`, `background-color`, font style and the dual-theme variables). */
++export const SHIKI_SANITIZE_POLICY: Readonly<SanitizeOptions> = Object.freeze({
++  allowStyleProperties: Object.freeze(["color", "background-color", "font-style", "font-weight", "text-decoration", "--shiki-light", "--shiki-dark", "--shiki-light-bg", "--shiki-dark-bg"]) as readonly string[],
++});
++
++/** Policy for KaTeX output: MathML plus the layout properties its HTML spans use. */
++export const KATEX_SANITIZE_POLICY: Readonly<SanitizeOptions> = Object.freeze({
++  allowMathMl: true,
++  allowStyleProperties: Object.freeze(["height", "width", "min-width", "top", "left", "right", "margin-left", "margin-right", "margin-top", "vertical-align", "padding-left", "border-bottom-width", "border-right-width", "border-top-width", "border-left-width", "color", "background-color"]) as readonly string[],
++});
++
++/** Policy for diagram SVG (for example Mermaid output without `foreignObject`). */
++export const SVG_SANITIZE_POLICY: Readonly<SanitizeOptions> = Object.freeze({ allowSvg: true });
++
+ /** Sanitize raw HTML before it reaches a React HTML boundary. Browser DOMPurify is used when a
+  * DOM exists; with no DOM (SSR/node) the markup is escaped to inert text. */
+ export function sanitizeHtml(html: string, options: SanitizeOptions = {}): string {
+   if (typeof document === "undefined" || !DOMPurify.isSupported) return escapeHtml(html);
+-  const fragment = DOMPurify.sanitize(html, {
+-    ALLOWED_TAGS: ["a", "abbr", "b", "blockquote", "br", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "section", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul"],
+-    ALLOWED_ATTR: ["alt", "class", "colspan", "height", "href", "id", "rel", "rowspan", "src", "target", "title", "width"],
+-    FORBID_TAGS: FORBIDDEN_TAGS,
+-    FORBID_ATTR: ["style", "srcdoc"],
++  let source = html;
++  if (options.beforeSanitize) {
++    const template = document.createElement("template");
++    template.innerHTML = html;
++    options.beforeSanitize(template.content);
++    source = template.innerHTML;
++  }
++  const styleProperties = options.allowStyleProperties ?? [];
++  const allowedTags = [...BASE_TAGS, ...(options.allowSvg ? SVG_TAGS : []), ...(options.allowMedia ? MEDIA_TAGS : []), ...(options.allowMathMl ? MATHML_TAGS : [])];
++  const allowedAttributes = [...BASE_ATTRS, ...(options.allowSvg ? SVG_ATTRS : []), ...(options.allowMedia ? MEDIA_ATTRS : []), ...(options.allowMathMl ? MATHML_ATTRS : []), ...(styleProperties.length ? ["style"] : [])];
++  const forbiddenTags = FORBIDDEN_TAGS.filter((tag) => !(tag === "svg" && options.allowSvg) && !(tag === "math" && options.allowMathMl));
++  const fragment = DOMPurify.sanitize(source, {
++    ALLOWED_TAGS: allowedTags,
++    ALLOWED_ATTR: allowedAttributes,
++    FORBID_TAGS: forbiddenTags,
++    FORBID_ATTR: styleProperties.length ? ["srcdoc"] : ["style", "srcdoc"],
+     ALLOW_UNKNOWN_PROTOCOLS: false,
+     RETURN_TRUSTED_TYPE: false,
+     ADD_ATTR: ["target", "rel"],
+@@ -109,6 +173,16 @@ export function sanitizeHtml(html: string, options: SanitizeOptions = {}): strin
+   for (const element of Array.from(fragment.querySelectorAll("*"))) {
+     for (const attribute of Array.from(element.attributes)) {
+       const name = attribute.name.toLowerCase();
++      if (name === "style") {
++        const kept = filterStyleDeclarations(attribute.value, styleProperties);
++        if (kept === "") element.removeAttribute(attribute.name);
++        else if (kept !== attribute.value) element.setAttribute(attribute.name, kept);
++        continue;
++      }
++      if (/url\s*\(/i.test(attribute.value) && !/^url\(#[\w.:-]+\)$/i.test(attribute.value.trim())) {
++        element.removeAttribute(attribute.name);
++        continue;
++      }
+       if (!URI_ATTRIBUTES.has(name)) continue;
+       const safe = applyUriPolicy(name, attribute.value, options);
+       if (safe === undefined) element.removeAttribute(attribute.name);
+diff --git a/packages/doc-render/src/styles.css b/packages/doc-render/src/styles.css
+index 51fbc08..a95624e 100644
+--- a/packages/doc-render/src/styles.css
++++ b/packages/doc-render/src/styles.css
+@@ -1,15 +1,19 @@
+ .rk-doc-markdown, .rk-doc-html { box-sizing:border-box; max-width:78rem; margin:0 auto; padding:2rem 1.25rem; line-height:1.65; overflow-wrap:anywhere; }
+ .rk-doc-markdown h1, .rk-doc-markdown h2, .rk-doc-markdown h3, .rk-doc-markdown h4, .rk-doc-html h1, .rk-doc-html h2, .rk-doc-html h3, .rk-doc-html h4 { margin:1.5em 0 .5em; line-height:1.25; }
+ .rk-doc-markdown p, .rk-doc-html p { margin:0 0 1rem; }
+-.rk-doc-markdown a, .rk-doc-html a { color:#2563a9; text-decoration:underline; }
++.rk-doc-markdown a, .rk-doc-html a { color:var(--rk-accent, #2563a9); text-decoration:underline; }
+ .rk-doc-markdown img, .rk-doc-html img { max-width:100%; height:auto; }
+-.rk-doc-markdown blockquote, .rk-doc-html blockquote { margin:1rem 0; padding:.5rem 1rem; border-left:4px solid #c7c7c7; color:#555; }
+-.rk-doc-markdown pre, .rk-doc-html pre { overflow:auto; padding:.8rem 1rem; border-radius:.35rem; background:#f1f3f5; }
+-.rk-doc-markdown code, .rk-doc-html code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
++.rk-doc-markdown blockquote, .rk-doc-html blockquote { margin:1rem 0; padding:.5rem 1rem; border-left:4px solid var(--rk-line-strong, #c7c7c7); color:var(--rk-ink-2, #555); }
++.rk-doc-markdown pre, .rk-doc-html pre { overflow:auto; padding:.8rem 1rem; border-radius:.35rem; background:var(--rk-sunk, #f1f3f5); color:var(--rk-ink, inherit); }
++.rk-doc-markdown code, .rk-doc-html code { font-family:var(--rk-font-mono, ui-monospace,SFMono-Regular,Menlo,monospace); }
+ .rk-doc-markdown table, .rk-doc-html table { width:100%; border-collapse:collapse; margin:1rem 0; }
+-.rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid #d5d5d5; text-align:left; vertical-align:top; }
+-.rk-doc-markdown mark { background:#fff3a3; color:inherit; padding:0 .15em; border-radius:.15em; }
+-.rk-doc-codeblock { margin:1rem 0; border:1px solid #d5d5d5; border-radius:.35rem; overflow:hidden; }
+-.rk-doc-codeblock-bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem .6rem; background:#e9ecef; font-size:.8rem; }
+-.rk-doc-codeblock-copy { display:inline-flex; align-items:center; gap:.3rem; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+-.rk-doc-codeblock > pre { margin:0; border-radius:0; max-height:var(--rk-doc-code-max-height, 24rem); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
++.rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid var(--rk-line, #d5d5d5); text-align:left; vertical-align:top; }
++.rk-doc-markdown mark { background:var(--rk-warn-soft, #fff3a3); color:inherit; padding:0 .15em; border-radius:.15em; }
++.rk-doc-codeblock { margin:1rem 0; border:1px solid var(--rk-line, #d5d5d5); border-radius:.35rem; overflow:hidden; background:var(--rk-sunk, #f1f3f5); color:var(--rk-ink, inherit); }
++.rk-doc-codeblock-bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem .6rem; background:var(--rk-fill, #e9ecef); color:var(--rk-ink-2, inherit); border-bottom:1px solid var(--rk-line, #d5d5d5); font-size:.8rem; }
++.rk-doc-codeblock-copy { display:inline-flex; align-items:center; gap:.3rem; border:0; border-radius:.25rem; padding:.1rem .35rem; background:transparent; color:inherit; font:inherit; cursor:pointer; }
++.rk-doc-codeblock-copy:hover { background:var(--rk-fill-2, rgba(0, 0, 0, .08)); color:var(--rk-ink, inherit); }
++.rk-doc-codeblock-copy:focus-visible { outline:2px solid var(--rk-focus, var(--rk-accent, #2563a9)); outline-offset:1px; }
++.rk-doc-codeblock-copy[data-state="copied"] { color:var(--rk-ok, #1a7f37); }
++.rk-doc-codeblock-copy[data-state="failed"] { color:var(--rk-bad, #b42318); }
++.rk-doc-codeblock > pre { margin:0; border-radius:0; background:transparent; max-height:var(--rk-doc-code-max-height, 24rem); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; scrollbar-color:var(--rk-line-strong, #c7c7c7) transparent; }
+diff --git a/packages/doc-render/styles.css b/packages/doc-render/styles.css
+index 51fbc08..a95624e 100644
+--- a/packages/doc-render/styles.css
++++ b/packages/doc-render/styles.css
+@@ -1,15 +1,19 @@
+ .rk-doc-markdown, .rk-doc-html { box-sizing:border-box; max-width:78rem; margin:0 auto; padding:2rem 1.25rem; line-height:1.65; overflow-wrap:anywhere; }
+ .rk-doc-markdown h1, .rk-doc-markdown h2, .rk-doc-markdown h3, .rk-doc-markdown h4, .rk-doc-html h1, .rk-doc-html h2, .rk-doc-html h3, .rk-doc-html h4 { margin:1.5em 0 .5em; line-height:1.25; }
+ .rk-doc-markdown p, .rk-doc-html p { margin:0 0 1rem; }
+-.rk-doc-markdown a, .rk-doc-html a { color:#2563a9; text-decoration:underline; }
++.rk-doc-markdown a, .rk-doc-html a { color:var(--rk-accent, #2563a9); text-decoration:underline; }
+ .rk-doc-markdown img, .rk-doc-html img { max-width:100%; height:auto; }
+-.rk-doc-markdown blockquote, .rk-doc-html blockquote { margin:1rem 0; padding:.5rem 1rem; border-left:4px solid #c7c7c7; color:#555; }
+-.rk-doc-markdown pre, .rk-doc-html pre { overflow:auto; padding:.8rem 1rem; border-radius:.35rem; background:#f1f3f5; }
+-.rk-doc-markdown code, .rk-doc-html code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
++.rk-doc-markdown blockquote, .rk-doc-html blockquote { margin:1rem 0; padding:.5rem 1rem; border-left:4px solid var(--rk-line-strong, #c7c7c7); color:var(--rk-ink-2, #555); }
++.rk-doc-markdown pre, .rk-doc-html pre { overflow:auto; padding:.8rem 1rem; border-radius:.35rem; background:var(--rk-sunk, #f1f3f5); color:var(--rk-ink, inherit); }
++.rk-doc-markdown code, .rk-doc-html code { font-family:var(--rk-font-mono, ui-monospace,SFMono-Regular,Menlo,monospace); }
+ .rk-doc-markdown table, .rk-doc-html table { width:100%; border-collapse:collapse; margin:1rem 0; }
+-.rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid #d5d5d5; text-align:left; vertical-align:top; }
+-.rk-doc-markdown mark { background:#fff3a3; color:inherit; padding:0 .15em; border-radius:.15em; }
+-.rk-doc-codeblock { margin:1rem 0; border:1px solid #d5d5d5; border-radius:.35rem; overflow:hidden; }
+-.rk-doc-codeblock-bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem .6rem; background:#e9ecef; font-size:.8rem; }
+-.rk-doc-codeblock-copy { display:inline-flex; align-items:center; gap:.3rem; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+-.rk-doc-codeblock > pre { margin:0; border-radius:0; max-height:var(--rk-doc-code-max-height, 24rem); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
++.rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid var(--rk-line, #d5d5d5); text-align:left; vertical-align:top; }
++.rk-doc-markdown mark { background:var(--rk-warn-soft, #fff3a3); color:inherit; padding:0 .15em; border-radius:.15em; }
++.rk-doc-codeblock { margin:1rem 0; border:1px solid var(--rk-line, #d5d5d5); border-radius:.35rem; overflow:hidden; background:var(--rk-sunk, #f1f3f5); color:var(--rk-ink, inherit); }
++.rk-doc-codeblock-bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem .6rem; background:var(--rk-fill, #e9ecef); color:var(--rk-ink-2, inherit); border-bottom:1px solid var(--rk-line, #d5d5d5); font-size:.8rem; }
++.rk-doc-codeblock-copy { display:inline-flex; align-items:center; gap:.3rem; border:0; border-radius:.25rem; padding:.1rem .35rem; background:transparent; color:inherit; font:inherit; cursor:pointer; }
++.rk-doc-codeblock-copy:hover { background:var(--rk-fill-2, rgba(0, 0, 0, .08)); color:var(--rk-ink, inherit); }
++.rk-doc-codeblock-copy:focus-visible { outline:2px solid var(--rk-focus, var(--rk-accent, #2563a9)); outline-offset:1px; }
++.rk-doc-codeblock-copy[data-state="copied"] { color:var(--rk-ok, #1a7f37); }
++.rk-doc-codeblock-copy[data-state="failed"] { color:var(--rk-bad, #b42318); }
++.rk-doc-codeblock > pre { margin:0; border-radius:0; background:transparent; max-height:var(--rk-doc-code-max-height, 24rem); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; scrollbar-color:var(--rk-line-strong, #c7c7c7) transparent; }
+diff --git a/packages/doc-render/test/policy.test.tsx b/packages/doc-render/test/policy.test.tsx
+index deffd0b..bc8795c 100644
+--- a/packages/doc-render/test/policy.test.tsx
++++ b/packages/doc-render/test/policy.test.tsx
+@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
+ import {
+   CodeBlock, MarkdownRenderer, clearMarkdownParseCache, configureMarkdownParseCache, getMarkdownParseCacheBytes,
+   getMarkdownParseCacheEntryCount, parseToTree, renderMarkdownToHtml, safeLinkHref, sanitizeHtml,
++  KATEX_SANITIZE_POLICY, SHIKI_SANITIZE_POLICY, SVG_SANITIZE_POLICY, filterStyleDeclarations, renderInline,
+ } from "../src/index.js";
+ 
+ describe("link policy additions are opt-in and narrow", () => {
+@@ -172,3 +173,64 @@ describe("attribute policy covers values containing whitespace", () => {
+     expect(str).not.toContain("other.png");
+   });
+ });
++
++describe("more component overrides and renderInline (#631)", () => {
++  it("overrides strong, emphasis, delete, break, image, thematicBreak, list, frontmatter, math and html", () => {
++    const source = "---\na: 1\n---\n\n**b** *i* ~~d~~ line  \nnext ![alt](pic.png)\n\n---\n\n3. x\n4. y\n\n$$\nE=mc\n$$\n\nuse $x$ <b>raw</b>";
++    const html = renderToStaticMarkup(
++      <MarkdownRenderer
++        source={source}
++        htmlPolicy={{ resolveImageSrc: (s) => `asset/${s}` }}
++        components={{
++          strong: ({ children }) => <b className="S">{children}</b>,
++          emphasis: ({ children }) => <i className="E">{children}</i>,
++          delete: ({ children }) => <s className="D">{children}</s>,
++          break: () => <span className="BR" />,
++          image: ({ src, alt }) => <figure data-src={src}>{alt}</figure>,
++          thematicBreak: () => <div className="HR" />,
++          list: ({ ordered, start, children }) => <div className="L" data-ordered={String(ordered)} data-start={start}>{children}</div>,
++          frontmatter: ({ format, value }) => <aside data-format={format}>{value}</aside>,
++          math: ({ value, inline }) => <var data-inline={String(inline)}>{value}</var>,
++          html: (value) => <samp>{value}</samp>,
++        }}
++      />,
++    );
++    for (const needle of ['<b class="S">b</b>', '<i class="E">i</i>', '<s class="D">d</s>', 'class="BR"', 'data-src="asset/pic.png"', 'class="HR"', 'data-ordered="true"', 'data-start="3"', 'data-format="yaml"', 'data-inline="false"', 'data-inline="true"', "<samp>&lt;b&gt;</samp>"]) {
++      expect(html).toContain(needle);
++    }
++    expect(html).not.toContain("<b>raw");
++  });
++  it("never calls the image override for a refused image", () => {
++    const html = renderToStaticMarkup(<MarkdownRenderer source="![x](javascript:alert(1))" components={{ image: () => <i>called</i> }} />);
++    expect(html).not.toContain("called");
++  });
++  it("renderInline renders paragraph content with no block wrapper and the same policy", () => {
++    const html = renderToStaticMarkup(<>{renderInline("**bold** and [x](javascript:alert(1)) `c`")}</>);
++    expect(html).toBe("<strong>bold</strong> and <span>x</span> <code>c</code>");
++    expect(renderToStaticMarkup(<>{renderInline("a\n\nb")}</>)).toBe("a b");
++    expect(renderToStaticMarkup(<>{renderInline("# Title")}</>)).toBe("Title");
++    expect(renderToStaticMarkup(<>{renderInline("see @skill", { onText: (v) => (v.includes("@skill") ? <b>S</b> : undefined) })}</>)).toContain("<b>S</b>");
++  });
++});
++
++describe("sanitizer profiles are opt-in (#395)", () => {
++  it("filters style declarations to the allowed properties with plain values", () => {
++    expect(filterStyleDeclarations("color:#fff;position:fixed;background-color:rgb(1, 2, 3)", ["color", "background-color"])).toBe("color:#fff;background-color:rgb(1, 2, 3)");
++    expect(filterStyleDeclarations("color:url(javascript:1);background-color:var(--x);color:red /* c */", ["color", "background-color"])).toBe("");
++    expect(filterStyleDeclarations("COLOR : Red", ["color"])).toBe("color:Red");
++    expect(filterStyleDeclarations("color:red", [])).toBe("");
++    expect(filterStyleDeclarations("color:\\72ed", ["color"])).toBe("");
++  });
++  it("ships Shiki, KaTeX and SVG profiles that only turn flags on", () => {
++    expect(SHIKI_SANITIZE_POLICY.allowStyleProperties).toContain("color");
++    expect(SHIKI_SANITIZE_POLICY.allowStyleProperties).not.toContain("position");
++    expect(KATEX_SANITIZE_POLICY.allowMathMl).toBe(true);
++    expect(SVG_SANITIZE_POLICY.allowSvg).toBe(true);
++    expect(Object.isFrozen(SVG_SANITIZE_POLICY)).toBe(true);
++  });
++  it("still fails closed with no DOM whatever the profile or hook", () => {
++    const payload = '<svg onload="alert(1)"><script>1</script></svg><video src="x" autoplay></video>';
++    const out = sanitizeHtml(payload, { allowSvg: true, allowMedia: true, allowMathMl: true, allowStyleProperties: ["color"], beforeSanitize: () => { throw new Error("must not run without a DOM"); } });
++    expect(out).not.toMatch(/[<>"']/);
++  });
++});
+diff --git a/packages/license/CHANGELOG.md b/packages/license/CHANGELOG.md
+index f55e99f..08ca826 100644
+--- a/packages/license/CHANGELOG.md
++++ b/packages/license/CHANGELOG.md
+@@ -3,6 +3,13 @@
+ Versions 0.1.5 to 0.1.8 below are reconstructed from git history (`git log -p -- packages/license`).
+ npm publication dates were not checked; the dates are commit dates.
+ 
++## 0.2.1
++
++Additive and behaviour-narrowing only for the retired `plus` tier (#756).
++
++- Add `normalizeTier(value)` and `normalizedTier(lic)`: the retired `plus` tier reads as `pro`. `tier()` still returns the raw server value.
++- `isPro`, `tierAtLeast` and `satisfiesRequirement` now treat a `plus` licence as `pro` (before, `isPro` was false for `plus`). A `{ tier: 'plus' }` requirement is the same as `pro`. No signature or type changed. Not built or run locally; CI is the compiler.
++
+ ## 0.2.0
+ 
+ Additive. Existing exports and `refresh()`'s return type are unchanged. The one behaviour change is
+diff --git a/packages/license/README.md b/packages/license/README.md
+index 8a8a0b5..56d7f24 100644
+--- a/packages/license/README.md
++++ b/packages/license/README.md
+@@ -13,7 +13,7 @@ The license client for Right Suite apps. It exchanges a license key for an activ
+ 
+ | Import | Contents |
+ |---|---|
+-| `@rightkit/license` | `createLicenseClient(config)`, `isLicensed`, `isPro`, `tier`, `hasFeature`, `hasAllFeatures`, `hasAnyFeature`, `tierAtLeast`, `satisfiesRequirement`; types `Entitlements`, `LicenseTier`, `LicenseRequirement`, `LicenseStatus`, `LicenseKind`, `EntitlementStage`, `StoredLicense`, `LicenseStorage`, `LicenseConfig` |
++| `@rightkit/license` | `createLicenseClient(config)`, `isLicensed`, `isPro`, `tier`, `normalizeTier`, `normalizedTier`, `hasFeature`, `hasAllFeatures`, `hasAnyFeature`, `tierAtLeast`, `satisfiesRequirement`; types `Entitlements`, `LicenseTier`, `LicenseRequirement`, `LicenseStatus`, `LicenseKind`, `EntitlementStage`, `StoredLicense`, `LicenseStorage`, `LicenseConfig` |
+ 
+ Added in 0.2.0: `classifyLifecycle`, `lifecycleGrantsAccess`, `lifecycleNeedsOnlineRefresh`; types `Lifecycle`, `ClassifyOptions`, `RefreshOutcome`, `RefreshOutcomeKind`, `RefreshResult`.
+ 
+diff --git a/packages/license/package.json b/packages/license/package.json
+index 8f91070..40809fb 100644
+--- a/packages/license/package.json
++++ b/packages/license/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@rightkit/license",
+-  "version": "0.2.0",
++  "version": "0.2.1",
+   "packageManager": "pnpm@11.24.0",
+   "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
+   "license": "MIT OR Apache-2.0",
+diff --git a/packages/license/src/index.test.ts b/packages/license/src/index.test.ts
+index debba23..2fd46fc 100644
+--- a/packages/license/src/index.test.ts
++++ b/packages/license/src/index.test.ts
+@@ -5,6 +5,8 @@ import {
+   hasFeature,
+   isLicensed,
+   isPro,
++  normalizeTier,
++  normalizedTier,
+   satisfiesRequirement,
+   tier,
+   tierAtLeast,
+@@ -209,3 +211,21 @@ describe('entitlement readers', () => {
+     expect(satisfiesRequirement({ ...lic, status: 'invalid' }, { tier: 'pro' })).toBe(false);
+   });
+ });
++
++describe('retired plus tier', () => {
++  const plus: StoredLicense = { status: 'active', deviceId: 'd', entitlements: { v: 1, tier: 'plus', features: [] } };
++  it('normalises plus to pro and keeps the raw tier readable', () => {
++    expect(normalizeTier('plus')).toBe('pro');
++    expect(normalizeTier('pro')).toBe('pro');
++    expect(normalizeTier('free')).toBe('free');
++    expect(normalizeTier(null)).toBeNull();
++    expect(tier(plus)).toBe('plus');
++    expect(normalizedTier(plus)).toBe('pro');
++  });
++  it('treats a plus licence as pro', () => {
++    expect(isPro(plus)).toBe(true);
++    expect(tierAtLeast(plus, 'pro')).toBe(true);
++    expect(satisfiesRequirement(plus, { tier: 'pro' })).toBe(true);
++    expect(isPro({ ...plus, status: 'invalid' })).toBe(false);
++  });
++});
+diff --git a/packages/license/src/index.ts b/packages/license/src/index.ts
+index 2c24291..03dcb99 100644
+--- a/packages/license/src/index.ts
++++ b/packages/license/src/index.ts
+@@ -364,6 +364,20 @@ export function tier(lic: StoredLicense | null): string | null {
+   return lic?.entitlements?.tier ?? null;
+ }
+ 
++/**
++ * The tier with the retired `plus` name folded into `pro` (`plus` was retired; its holders have Pro access).
++ * Any other value is returned unchanged, and `null` stays `null`. `tier()` keeps returning the raw server value.
++ */
++export function normalizeTier(value: string | null | undefined): string | null {
++  if (value === undefined || value === null) return null;
++  return value === 'plus' ? 'pro' : value;
++}
++
++/** The licence's tier through `normalizeTier`: `plus` reads as `pro`. */
++export function normalizedTier(lic: StoredLicense | null): string | null {
++  return normalizeTier(tier(lic));
++}
++
+ export function hasFeature(lic: StoredLicense | null, feature: string): boolean {
+   return !!lic?.entitlements?.features?.includes(feature);
+ }
+@@ -373,7 +387,7 @@ export function isPro(lic: StoredLicense | null, graceDays = 7, now = Date.now()
+ }
+ 
+ export function tierAtLeast(lic: StoredLicense | null, required: LicenseTier): boolean {
+-  return tierRank(tier(lic)) >= tierRank(required);
++  return tierRank(normalizedTier(lic)) >= tierRank(normalizeTier(required));
+ }
+ 
+ export function hasAllFeatures(lic: StoredLicense | null, features: readonly string[]): boolean {
+@@ -507,12 +521,6 @@ function signedTokenExpiryMs(token: string): number | null {
+ }
+ 
+ function tierRank(value: string | null | undefined): number {
+-  switch (value) {
+-    case 'pro':
+-      return 2;
+-    case 'plus':
+-      return 1;
+-    default:
+-      return 0;
+-  }
++  // `plus` is retired and normalised to `pro` before ranking, so it never ranks below `pro`.
++  return normalizeTier(value) === 'pro' ? 2 : 0;
+ }

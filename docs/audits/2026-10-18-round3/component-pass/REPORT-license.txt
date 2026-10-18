@@ -1,0 +1,15 @@
+rightkit-license 0.2.2 -> 0.2.3 (additive; one behaviour change)
+DONE #747 TokenSource trait (closures work) + CredentialTokenSource (feature credential-token, rightkit-credentials Store; no file-backed source per #771 D4) + EngineEntitlementsConfig::with_token_source (engine.rs)
+DONE #747 legacy v1: verify_legacy_token(.., sunset_unix) and verify_token_accepting_versions(.., &[u8]) -> VersionedVerifyError (new versioned.rs)
+DONE #747 plus->pro: normalize_tier(), Entitlement::normalized_tier(); is_pro()/tier_at_least()/satisfies treat plus as pro (matches normalizeTier in @rightkit/license)
+ALREADY #391 (license half) peek_unverified_claims + UnverifiedClaims in src/revocation.rs; process-tree half belongs to rightkit-child-process
+ALREADY #610 verify_token_any_device / authenticate_token_any_device in src/lib.rs
+ALREADY #501 RevokedIds / verify_token_not_revoked in src/revocation.rs
+ALREADY #164 SubjectEntitlementSource in src/subject.rs (feature subject-entitlement)
+ALREADY #268 (license part) ed25519-dalek 3 already used by the crate
+DEFERRED #272 needs backend registration data (host, key, trial issuance); not held by this crate
+DEFERRED #420 installation identity / clone detection is a new owner spanning rightkit-device; needs a cross-component design decision
+Not this crate: #756 (JS package), #701/#702 (RightKitSwift), #609 (rightkit-device), #545 (publish tracking)
+Public API (all additive): TokenSource, CredentialTokenSource (feature credential-token, new optional dep rightkit-credentials 0.2.1), EngineEntitlementsConfig::with_token_source, VersionedVerifyError (non_exhaustive), verify_legacy_token, verify_token_accepting_versions, LEGACY_TOKEN_VERSION, normalize_tier, Entitlement::normalized_tier.
+Behaviour change (non-breaking signatures): is_pro()/tier ranking now treat "plus" as "pro"; existing tests using plus as below-Pro switched to free. Cargo.lock entry bumped.
+Patch: license.patch. Not compiled.

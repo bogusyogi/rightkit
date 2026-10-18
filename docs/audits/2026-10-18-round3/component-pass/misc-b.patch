@@ -1,0 +1,1895 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..337e380 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7159,7 +7159,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-oauth"
+-version = "0.8.0"
++version = "0.8.1"
+ dependencies = [
+  "axum",
+  "base64 0.23.1",
+@@ -7198,7 +7198,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-onnx"
+-version = "0.2.6"
++version = "0.2.7"
+ dependencies = [
+  "flate2",
+  "half",
+@@ -7225,7 +7225,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-ownership"
+-version = "0.3.1"
++version = "0.3.2"
+ dependencies = [
+  "base64 0.23.1",
+  "fancy-regex 0.19.2",
+@@ -7244,7 +7244,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-pdf"
+-version = "0.3.2"
++version = "0.3.3"
+ dependencies = [
+  "fontdb 0.24.0",
+  "getrandom 0.4.3",
+diff --git a/crates/rightkit-oauth/CHANGELOG.md b/crates/rightkit-oauth/CHANGELOG.md
+index 72188cc..eebaa62 100644
+--- a/crates/rightkit-oauth/CHANGELOG.md
++++ b/crates/rightkit-oauth/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Changelog
+ 
++## 0.8.1 (unreleased)
++
++Orthic-Labs/rightkit#194 (CodeRight follow-ups), #697, #700. Additive: nothing existing changed in signature or behaviour, except that `exchange_code` now also checks the PKCE verifier shape and a non-empty `redirect_uri` without whitespace (always true for requests from `begin_loopback`). New opt-in `async` feature (`rightkit-http/async`); `rightkit-http` is not enabled for async by default. Not built or run locally.
++
++- #194: `OAuthClient::exchange_code_with_verifier(code, &Secret, redirect_uri)` exchanges a pasted code with a caller-held PKCE verifier, so the manual-paste fallback needs no `AuthorizationRequest`; `OAuthClient::refresh_token(&Secret)` refreshes from a bare refresh token (rotated token returned, else the one passed in); `refresh` delegates to it. Mastodon/X presets, the keychain store and durable pending store were already in 0.7.0.
++- #194/#697: with the `async` feature, `OAuthClient::{exchange_code_async, exchange_code_with_verifier_async, refresh_async, refresh_token_async}` and `GatewayExchange::{exchange_async, exchange_tokens_async, exchange_raw_async, refresh_async}` take a `rightkit_http::AsyncClient` (its address policy and proxy apply). They share request building and answer parsing with the blocking calls.
++- #697: `GatewayExchange::new_allowing_insecure_host(endpoint, host)` and `GatewayExchange::allow_insecure_host(host)`: explicit, exact-host opt-in to plain `http://` for an operator-configured non-loopback gateway (default off, `https://` unaffected, no wildcard, scheme, port or path in the host).
++- #700: `CallbackListener::wait_post_json_with(timeout, cancel, allowed_origin, validate)`; `wait_post_json` is `wait_post_json_with(.., |_| Ok(()))`. `validate` runs after the origin, path and `state` checks; `Err(text)` is answered `400` with `text` and the wait continues.
++- Tests: `tests/verifier_exchange.rs`, `tests/async_calls.rs` (feature `async`), `post_json_with_rejects_a_body_before_acknowledging_it`, `plain_http_needs_an_explicit_exact_host`.
++
+ ## 0.8.0 (2026-10-17)
+ 
+ Orthic-Labs/rightkit#586, #587, #588, #589, #600 (CodeRight and MailRight ports). Additive: every existing call behaves as before; `OAuthConfig`, `CallbackOptions` and `LoopbackHost` keep their shapes, and the new settings sit behind builder methods on private fields. Endpoint URLs are now parsed, not prefix-checked: userinfo, backslashes and whitespace are refused, and plain `http` is accepted only for the exact hosts `127.0.0.1`, `[::1]`, `localhost`. Not built or run locally.
+diff --git a/crates/rightkit-oauth/Cargo.toml b/crates/rightkit-oauth/Cargo.toml
+index f6474e8..0e48369 100644
+--- a/crates/rightkit-oauth/Cargo.toml
++++ b/crates/rightkit-oauth/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-oauth"
+-version = "0.8.0"
++version = "0.8.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."
+@@ -24,6 +24,9 @@ google = ["secrets", "dep:ring"]
+ 
+ # Framework-agnostic daemon flow plus encrypted file persistence (no desktop dependencies).
+ server = ["dep:ring", "dep:url", "dep:zeroize", "dep:serde", "dep:libc"]
++# Async twins of the token calls over `rightkit_http::AsyncClient` (OAuthClient::*_async,
++# GatewayExchange::*_async). Off by default so blocking-only consumers pull no reqwest/tokio.
++async = ["rightkit-http/async"]
+ # Axum route example; no HTTP listener is included in the library.
+ server-example = ["server", "dep:axum", "dep:tokio"]
+ 
+@@ -31,6 +34,10 @@ server-example = ["server", "dep:axum", "dep:tokio"]
+ name = "server_axum"
+ required-features = ["server-example"]
+ 
++[[test]]
++name = "async_calls"
++required-features = ["async"]
++
+ [[test]]
+ name = "signin"
+ required-features = ["secrets"]
+@@ -63,6 +70,7 @@ libc = { version = "0.2", optional = true }
+ base64 = "0.23"
+ rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["gzip", "testing"] }
+ tempfile = "3"
++tokio = { version = "1", features = ["rt", "macros"] }
+ 
+ [package.metadata.rightkit]
+ continuous = false
+diff --git a/crates/rightkit-oauth/README.md b/crates/rightkit-oauth/README.md
+index 37674e7..8aa05b0 100644
+--- a/crates/rightkit-oauth/README.md
++++ b/crates/rightkit-oauth/README.md
+@@ -56,6 +56,7 @@ Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http
+ - `callback::CallbackListener::bind(state, CallbackOptions)` then `.wait(timeout, cancel)`: serves `127.0.0.1` and/or `[::1]`, ignores favicon, preflight and wrong-state requests, returns the code once.
+ - `CallbackBind::redirect_host(host)` (with `CallbackListener::bind_with`): how `redirect_uri` spells the host when the provider registration needs it (`"localhost"` for `http://localhost:1455/auth/callback`). It changes only the text; on a loopback listener it must be `localhost`, `127.0.0.1` or `[::1]`.
+ - `CallbackBind::custom_bind_address(ip)`: explicit opt-in to bind another address (WSL, containers). It can expose the port to other machines; the state check, exact path and single use still apply. Multicast is refused; an unspecified address needs `redirect_host`. Only `CallbackListener` offers it: `OAuthClient::begin_loopback` stays on `127.0.0.1`.
++- `.wait_post_json_with(timeout, cancel, allowed_origin, validate)`: `wait_post_json` plus a body check run before the reply; `Err(text)` answers 400 with `text` and the wait continues, so a body missing required fields is never acknowledged.
+ - `.wait_post_json(timeout, cancel, allowed_origin)`: for a provider whose page POSTs the result as CORS-preflighted JSON. Returns the JSON object once. Only a `POST` on the exact path from exactly `allowed_origin` (`https://host[:port]`, never `*`) whose body is a JSON object with the right string `state` ends the flow; a missing or other `Origin` is 403, other methods 405, other paths 404, bad state or body 400, oversized (`MAX_POST_BODY`, 64 KiB), length-less or chunked requests 413/411/400, and the flow continues. A preflight from `allowed_origin` gets `Access-Control-Allow-Origin`, `-Methods`, `-Headers` and, when asked, `Access-Control-Allow-Private-Network`; from any other origin it gets none. Replies never echo the body.
+ - `LoopbackAuthorization::wait_code(timeout, cancel)` (from `OAuthClient::begin_loopback`) returns the bare code and the `AuthorizationRequest` (for `code_verifier()`) without exchanging it. Same rules as `finish_loopback`: exact path, constant-time `state` (`StateMismatch`), `access_denied` is `NeedsReauth`; cancel gives `Cancelled`.
+ - `gateway::GatewayExchange::new(https_url)?.with_field("resource", ..).exchange(&http, code, verifier, cancel)` posts JSON `{code, code_verifier, ..}` and returns a `TokenSet`. `exchange_tokens` returns `GatewayTokens { token_set, extra }` with the gateway's other fields (`expires_at`, `provider`, `user_id`; `Debug` prints only their names); `exchange_raw` returns the whole object (its `Debug` prints the tokens: never log it).
+@@ -64,6 +65,8 @@ Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http
+ ## Token parameters, revocation and the memory store
+ 
+ - `OAuthClient::with_token_param(name, value)` appends a parameter (RFC 8707 `resource`, `scope`) to the authorization-code exchange and refresh bodies; repeat a name to send several values. The client's own fields (`grant_type`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`, `refresh_token`) cannot be overridden: `with_token_param` refuses them. Values are not redacted in `Debug`; never put a credential there. The `server` module ignores them.
++- `OAuthClient::exchange_code_with_verifier(code, &Secret, redirect_uri)` exchanges a pasted code with a caller-held PKCE verifier (no `AuthorizationRequest`); `OAuthClient::refresh_token(&Secret)` refreshes from a bare refresh token. With the opt-in `async` feature (`rightkit-http/async`) `exchange_code_async`, `exchange_code_with_verifier_async`, `refresh_async`, `refresh_token_async` and `GatewayExchange::{exchange_async, exchange_tokens_async, exchange_raw_async, refresh_async}` take a `rightkit_http::AsyncClient`.
++- `GatewayExchange::new_allowing_insecure_host(url, host)` / `.allow_insecure_host(host)`: explicit opt-in to plain `http://` for one exact operator-configured host (LAN or tunnel gateway). Off by default; codes and tokens cross that link in clear text.
+ - Endpoint URLs (authorization, token, device, revocation, gateway) are parsed: HTTPS, or plain HTTP only for the exact hosts `127.0.0.1`, `[::1]`, `localhost`; userinfo (`http://localhost:80@host/`), backslashes and whitespace are refused.
+ - `OAuthClient::with_revocation_url(url)` and `OAuthClient::revoke(&Secret, Option<TokenTypeHint>)` (RFC 7009): posts `token`, `token_type_hint`, `client_id`, the client secret if set, and the configured token parameters. Any 2xx is success; an error body sent with HTTP 200 is still an error; the token is scrubbed from error text. Send requests with a client that does not follow redirects.
+ - `MemoryTokenStore`: an in-process `TokenStore` for a `credentials::Resolver` when the app persists tokens elsewhere or not at all. Nothing is written to disk; `delete` of an absent account succeeds.
+diff --git a/crates/rightkit-oauth/src/callback.rs b/crates/rightkit-oauth/src/callback.rs
+index 2b7ea97..07dadad 100644
+--- a/crates/rightkit-oauth/src/callback.rs
++++ b/crates/rightkit-oauth/src/callback.rs
+@@ -420,6 +420,24 @@ impl CallbackListener {
+         timeout: Duration,
+         cancel: Option<&CancelToken>,
+         allowed_origin: &str,
++    ) -> Result<Value, OAuthError> {
++        self.wait_post_json_with(timeout, cancel, allowed_origin, |_| Ok(()))
++    }
++
++    /// [`Self::wait_post_json`] with a body check that runs before the callback is
++    /// acknowledged. After the origin, path and `state` checks pass, `validate` sees the JSON
++    /// object. `Ok(())` ends the flow as usual (the page gets `200 {"ok":true}`); `Err(text)`
++    /// answers `400 Bad Request` with `text` as the body, discards that request and the wait
++    /// continues, so a body missing required fields is never acknowledged as success and a
++    /// later correct POST still completes. `text` must not repeat anything from the body:
++    /// the body may hold credentials. The closure runs only for a request that already
++    /// carried the right `state`.
++    pub fn wait_post_json_with(
++        self,
++        timeout: Duration,
++        cancel: Option<&CancelToken>,
++        allowed_origin: &str,
++        mut validate: impl FnMut(&Value) -> Result<(), &'static str>,
+     ) -> Result<Value, OAuthError> {
+         check_timeout(timeout)?;
+         check_origin(allowed_origin)?;
+@@ -451,7 +469,8 @@ impl CallbackListener {
+                     HttpPoll::Request(request) => {
+                         busy = true;
+                         let conn = pending.swap_remove(i);
+-                        let outcome = self.handle_post(conn.stream, &request, allowed_origin);
++                        let outcome =
++                            self.handle_post(conn.stream, &request, allowed_origin, &mut validate);
+                         if let Some(outcome) = outcome {
+                             return outcome;
+                         }
+@@ -470,6 +489,7 @@ impl CallbackListener {
+         stream: TcpStream,
+         request: &HttpRequest,
+         allowed_origin: &str,
++        validate: &mut dyn FnMut(&Value) -> Result<(), &'static str>,
+     ) -> Option<Result<Value, OAuthError>> {
+         let (path, _) = request
+             .target
+@@ -550,6 +570,10 @@ impl CallbackListener {
+             );
+             return None;
+         }
++        if let Err(reason) = validate(&value) {
++            respond(stream, "400 Bad Request", reason, &cors);
++            return None;
++        }
+         respond_typed(stream, "200 OK", "application/json", "{\"ok\":true}", &cors);
+         Some(Ok(value))
+     }
+diff --git a/crates/rightkit-oauth/src/gateway.rs b/crates/rightkit-oauth/src/gateway.rs
+index 2fe859e..b0eb413 100644
+--- a/crates/rightkit-oauth/src/gateway.rs
++++ b/crates/rightkit-oauth/src/gateway.rs
+@@ -17,6 +17,12 @@
+ //! refreshes is configured with [`GatewayExchange::with_refresh_endpoint`] and called with
+ //! [`GatewayExchange::refresh`] (`{"refresh_token": ..., <extra fields>}`; HTTP 401 means the
+ //! grant is gone and is [`OAuthError::NeedsReauth`]).
++//!
++//! With the `async` feature every call has an `_async` twin over `rightkit_http::AsyncClient`
++//! ([`GatewayExchange::exchange_tokens_async`], [`GatewayExchange::refresh_async`], ...).
++//! An operator-configured gateway on a LAN or tunnel that only speaks plain `http` is
++//! accepted through [`GatewayExchange::new_allowing_insecure_host`], an explicit opt-in for
++//! one exact host.
+ 
+ use std::fmt;
+ use std::time::{Duration, SystemTime};
+@@ -48,6 +54,8 @@ pub struct GatewayExchange {
+     refresh_url: Option<String>,
+     extra: Vec<(String, String)>,
+     timeout: Duration,
++    /// Exact hosts (lowercase) allowed over plain `http`; empty unless opted in.
++    insecure_hosts: Vec<String>,
+ }
+ 
+ /// A gateway token response: the parsed [`TokenSet`] plus every other field the gateway
+@@ -84,9 +92,47 @@ impl GatewayExchange {
+             refresh_url: None,
+             extra: Vec::new(),
+             timeout: DEFAULT_TIMEOUT,
++            insecure_hosts: Vec::new(),
+         })
+     }
+ 
++    /// [`Self::new`] for a gateway the operator configured on a host that only speaks plain
++    /// `http` (a LAN or tunnel endpoint): `insecure_host` is the one exact host (no scheme,
++    /// port or wildcard; DNS name, IPv4 or `[IPv6]`) over which `http://` is accepted, in
++    /// addition to loopback. Off by default and never inferred from the URL: the caller must
++    /// name the host. `https://` endpoints are unaffected. The authorization code, PKCE
++    /// verifier and returned tokens cross that link in clear text, so use it only for a
++    /// network the operator trusts. Any other host over plain `http` is still
++    /// refused, including a refresh endpoint on a second host until
++    /// [`Self::allow_insecure_host`] names it.
++    pub fn new_allowing_insecure_host(
++        endpoint: impl Into<String>,
++        insecure_host: &str,
++    ) -> Result<Self, OAuthError> {
++        let url = endpoint.into();
++        let host = crate::normalize_insecure_host(insecure_host)?;
++        let hosts = vec![host];
++        crate::check_endpoint_allowing(&url, "gateway endpoint", &hosts)?;
++        Ok(Self {
++            url,
++            refresh_url: None,
++            extra: Vec::new(),
++            timeout: DEFAULT_TIMEOUT,
++            insecure_hosts: hosts,
++        })
++    }
++
++    /// Also accept plain `http` for one more exact host (for example a refresh endpoint on a
++    /// second host), for later [`Self::with_refresh_endpoint`] calls. Same rules and warning
++    /// as [`Self::new_allowing_insecure_host`]; off unless called.
++    pub fn allow_insecure_host(mut self, host: &str) -> Result<Self, OAuthError> {
++        let host = crate::normalize_insecure_host(host)?;
++        if !self.insecure_hosts.contains(&host) {
++            self.insecure_hosts.push(host);
++        }
++        Ok(self)
++    }
++
+     /// The gateway's refresh endpoint, used by [`Self::refresh`]. Same URL rules as
+     /// [`Self::new`].
+     pub fn with_refresh_endpoint(
+@@ -94,7 +140,7 @@ impl GatewayExchange {
+         endpoint: impl Into<String>,
+     ) -> Result<Self, OAuthError> {
+         let url = endpoint.into();
+-        check_endpoint(&url, "gateway refresh endpoint")?;
++        crate::check_endpoint_allowing(&url, "gateway refresh endpoint", &self.insecure_hosts)?;
+         self.refresh_url = Some(url);
+         Ok(self)
+     }
+@@ -150,18 +196,7 @@ impl GatewayExchange {
+         verifier: &str,
+         cancel: Option<&CancelToken>,
+     ) -> Result<Value, OAuthError> {
+-        if code.is_empty() {
+-            return Err(OAuthError::InvalidConfig(
+-                "authorization code is empty".into(),
+-            ));
+-        }
+-        validate_verifier(verifier)?;
+-        let mut body = fields_body(
+-            self.extra.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+-            RESERVED_FIELDS,
+-        )?;
+-        body.insert("code".into(), Value::String(code.into()));
+-        body.insert("code_verifier".into(), Value::String(verifier.into()));
++        let body = self.exchange_body(code, verifier)?;
+         self.post(http, &self.url, body, &[code, verifier], false, cancel)
+     }
+ 
+@@ -178,18 +213,8 @@ impl GatewayExchange {
+         extra_fields: &[(&str, &str)],
+         cancel: Option<&CancelToken>,
+     ) -> Result<GatewayTokens, OAuthError> {
+-        let url = self.refresh_url.as_deref().ok_or_else(|| {
+-            OAuthError::InvalidConfig("gateway refresh endpoint is not configured".into())
+-        })?;
+-        if refresh_token.expose().is_empty() {
+-            return Err(OAuthError::InvalidConfig("refresh token is empty".into()));
+-        }
+-        let mut body = fields_body(extra_fields.iter().copied(), RESERVED_REFRESH_FIELDS)?;
+-        body.insert(
+-            "refresh_token".into(),
+-            Value::String(refresh_token.expose().into()),
+-        );
+-        let value = self.post(http, url, body, &[refresh_token.expose()], true, cancel)?;
++        let (url, body) = self.refresh_body(refresh_token, extra_fields)?;
++        let value = self.post(http, &url, body, &[refresh_token.expose()], true, cancel)?;
+         split_tokens(&value, Some(refresh_token))
+     }
+ 
+@@ -204,6 +229,18 @@ impl GatewayExchange {
+         unauthorized_is_reauth: bool,
+         cancel: Option<&CancelToken>,
+     ) -> Result<Value, OAuthError> {
++        let request = self.prepare(url, body, secrets, cancel)?;
++        let result = http.send(&request);
++        finish(&request, result, unauthorized_is_reauth)
++    }
++
++    fn prepare(
++        &self,
++        url: &str,
++        body: Map<String, Value>,
++        secrets: &[&str],
++        cancel: Option<&CancelToken>,
++    ) -> Result<Request, OAuthError> {
+         let mut request = Request::post(url).header("Accept", "application/json");
+         for secret in secrets {
+             request = request.redact_value(*secret);
+@@ -215,27 +252,126 @@ impl GatewayExchange {
+         if let Some(token) = cancel {
+             request = request.cancel(token.clone());
+         }
+-        let response = http.send(&request).map_err(|e| match e {
+-            HttpError::Status { status: 401, .. } if unauthorized_is_reauth => {
+-                OAuthError::NeedsReauth
+-            }
+-            other => provider_or_http(&request, other),
+-        })?;
+-        let value: Value = response.json()?;
+-        if let Some(error) = value.get("error").and_then(Value::as_str) {
+-            // A gateway may answer 200 with an error body; a dead grant is NeedsReauth.
+-            return Err(scrub_provider(
+-                &request,
+-                error_from(response.status, error, &value),
++        Ok(request)
++    }
++
++    fn exchange_body(&self, code: &str, verifier: &str) -> Result<Map<String, Value>, OAuthError> {
++        if code.is_empty() {
++            return Err(OAuthError::InvalidConfig(
++                "authorization code is empty".into(),
+             ));
+         }
+-        if !value.is_object() {
+-            return Err(bad("token response is not a JSON object"));
++        validate_verifier(verifier)?;
++        let mut body = fields_body(
++            self.extra.iter().map(|(k, v)| (k.as_str(), v.as_str())),
++            RESERVED_FIELDS,
++        )?;
++        body.insert("code".into(), Value::String(code.into()));
++        body.insert("code_verifier".into(), Value::String(verifier.into()));
++        Ok(body)
++    }
++
++    fn refresh_body(
++        &self,
++        refresh_token: &Secret,
++        extra_fields: &[(&str, &str)],
++    ) -> Result<(String, Map<String, Value>), OAuthError> {
++        let url = self.refresh_url.clone().ok_or_else(|| {
++            OAuthError::InvalidConfig("gateway refresh endpoint is not configured".into())
++        })?;
++        if refresh_token.expose().is_empty() {
++            return Err(OAuthError::InvalidConfig("refresh token is empty".into()));
+         }
+-        Ok(value)
++        let mut body = fields_body(extra_fields.iter().copied(), RESERVED_REFRESH_FIELDS)?;
++        body.insert(
++            "refresh_token".into(),
++            Value::String(refresh_token.expose().into()),
++        );
++        Ok((url, body))
+     }
+ }
+ 
++#[cfg(feature = "async")]
++impl GatewayExchange {
++    /// Async twin of [`Self::exchange`] over `rightkit_http::AsyncClient` (feature `async`).
++    pub async fn exchange_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        code: &str,
++        verifier: &str,
++        cancel: Option<&CancelToken>,
++    ) -> Result<TokenSet, OAuthError> {
++        let value = self.exchange_raw_async(http, code, verifier, cancel).await?;
++        parse_gateway_tokens(&value)
++    }
++
++    /// Async twin of [`Self::exchange_tokens`] (feature `async`).
++    pub async fn exchange_tokens_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        code: &str,
++        verifier: &str,
++        cancel: Option<&CancelToken>,
++    ) -> Result<GatewayTokens, OAuthError> {
++        let value = self.exchange_raw_async(http, code, verifier, cancel).await?;
++        split_tokens(&value, None)
++    }
++
++    /// Async twin of [`Self::exchange_raw`] (feature `async`). The value holds the tokens in
++    /// plain text: do not log it.
++    pub async fn exchange_raw_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        code: &str,
++        verifier: &str,
++        cancel: Option<&CancelToken>,
++    ) -> Result<Value, OAuthError> {
++        let body = self.exchange_body(code, verifier)?;
++        let request = self.prepare(&self.url, body, &[code, verifier], cancel)?;
++        let result = http.send(&request).await;
++        finish(&request, result, false)
++    }
++
++    /// Async twin of [`Self::refresh`] (feature `async`).
++    pub async fn refresh_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        refresh_token: &Secret,
++        extra_fields: &[(&str, &str)],
++        cancel: Option<&CancelToken>,
++    ) -> Result<GatewayTokens, OAuthError> {
++        let (url, body) = self.refresh_body(refresh_token, extra_fields)?;
++        let request = self.prepare(&url, body, &[refresh_token.expose()], cancel)?;
++        let result = http.send(&request).await;
++        let value = finish(&request, result, true)?;
++        split_tokens(&value, Some(refresh_token))
++    }
++}
++
++/// Turn a gateway answer (blocking or async) into the response object.
++fn finish(
++    request: &Request,
++    result: Result<rightkit_http::Response, HttpError>,
++    unauthorized_is_reauth: bool,
++) -> Result<Value, OAuthError> {
++    let response = result.map_err(|e| match e {
++        HttpError::Status { status: 401, .. } if unauthorized_is_reauth => OAuthError::NeedsReauth,
++        other => provider_or_http(request, other),
++    })?;
++    let value: Value = response.json()?;
++    if let Some(error) = value.get("error").and_then(Value::as_str) {
++        // A gateway may answer 200 with an error body; a dead grant is NeedsReauth.
++        return Err(scrub_provider(
++            request,
++            error_from(response.status, error, &value),
++        ));
++    }
++    if !value.is_object() {
++        return Err(bad("token response is not a JSON object"));
++    }
++    Ok(value)
++}
++
+ /// Build a JSON body from string fields, refusing reserved and repeated names.
+ fn fields_body<'a>(
+     fields: impl Iterator<Item = (&'a str, &'a str)>,
+@@ -338,6 +474,35 @@ mod tests {
+         assert_eq!(t.scope.as_deref(), Some("x y"));
+     }
+ 
++    #[test]
++    fn plain_http_needs_an_explicit_exact_host() {
++        assert!(GatewayExchange::new("http://gw.lan:8080/auth").is_err());
++        let ok = GatewayExchange::new_allowing_insecure_host("http://GW.lan:8080/auth", "gw.lan")
++            .unwrap();
++        assert_eq!(ok.endpoint(), "http://GW.lan:8080/auth");
++        for other in ["http://gw.lan.evil.example/", "http://other.lan/", "http://gw.lan@evil/"] {
++            assert!(
++                GatewayExchange::new_allowing_insecure_host(other, "gw.lan").is_err(),
++                "{other}"
++            );
++        }
++        for bad in ["", "*", "gw.lan:8080", "http://gw.lan", "gw.lan/x", "*.lan", "gw lan"] {
++            assert!(
++                GatewayExchange::new_allowing_insecure_host("http://gw.lan/", bad).is_err(),
++                "{bad:?}"
++            );
++        }
++        // The refresh endpoint may use the same host, but not another one, until allowed.
++        assert!(ok.clone().with_refresh_endpoint("http://gw.lan/refresh").is_ok());
++        assert!(ok.clone().with_refresh_endpoint("http://b.lan/refresh").is_err());
++        let two = ok.allow_insecure_host("b.lan").unwrap();
++        assert!(two.with_refresh_endpoint("http://b.lan/refresh").is_ok());
++        // https is unaffected.
++        assert!(
++            GatewayExchange::new_allowing_insecure_host("https://gw.example/", "gw.lan").is_ok()
++        );
++    }
++
+     #[test]
+     fn minimal_response_defaults() {
+         let t = parse_gateway_tokens(&json!({"access_token": "a"})).unwrap();
+diff --git a/crates/rightkit-oauth/src/lib.rs b/crates/rightkit-oauth/src/lib.rs
+index 1f21370..916bbfa 100644
+--- a/crates/rightkit-oauth/src/lib.rs
++++ b/crates/rightkit-oauth/src/lib.rs
+@@ -645,41 +645,160 @@ impl OAuthClient {
+         authorization: &AuthorizationRequest,
+         code: &str,
+     ) -> Result<TokenSet, OAuthError> {
++        let request = self.code_request(
++            code,
++            authorization.verifier.as_str(),
++            &authorization.redirect_uri,
++        )?;
++        let result = self.http.send(&request);
++        self.finish_token(&request, result, None)
++    }
++
++    /// Exchange an authorization `code` when the caller made the PKCE `verifier` and the
++    /// `redirect_uri` itself, so no [`AuthorizationRequest`] exists: a manual-paste fallback
++    /// (the fixed callback port is busy, or the user pastes the redirect URL) after the
++    /// caller started the flow. `redirect_uri` must be the exact value sent on the
++    /// authorization request. The verifier is checked against RFC 7636 (43 to 128 unreserved
++    /// characters) before anything is sent. Everything else is as [`Self::exchange_code`],
++    /// including the configured [`Self::with_token_param`] values.
++    pub fn exchange_code_with_verifier(
++        &self,
++        code: &str,
++        verifier: &Secret,
++        redirect_uri: &str,
++    ) -> Result<TokenSet, OAuthError> {
++        let request = self.code_request(code, verifier.expose(), redirect_uri)?;
++        let result = self.http.send(&request);
++        self.finish_token(&request, result, None)
++    }
++
++    /// Refresh an access token. A missing refresh token is a reauthorization requirement.
++    pub fn refresh(&self, current: &TokenSet) -> Result<TokenSet, OAuthError> {
++        let refresh = current
++            .refresh_token
++            .as_ref()
++            .ok_or(OAuthError::NeedsReauth)?;
++        let mut fresh = self.refresh_token(refresh)?;
++        // A refresh response may omit the ID token (OpenID Connect Core 12.2); keep the one
++        // the sign-in produced rather than losing the account identity.
++        if fresh.id_token.is_none() {
++            fresh.id_token = current.id_token.clone();
++        }
++        Ok(fresh)
++    }
++
++    /// Refresh from a bare refresh token, with no stored [`TokenSet`]. The returned set
++    /// carries the rotated refresh token when the provider sends one, else the one passed in.
++    /// Persisting the result (and not double-spending a rotated token across processes) is
++    /// the caller's job; the `server` module's `refresh_token_and_store` does it under a lock.
++    pub fn refresh_token(&self, refresh: &Secret) -> Result<TokenSet, OAuthError> {
++        let request = self.refresh_request(refresh)?;
++        let result = self.http.send(&request);
++        self.finish_token(&request, result, Some(refresh))
++    }
++
++    /// Async twin of [`Self::exchange_code`] over `rightkit_http::AsyncClient` (feature
++    /// `async`), for tokio callers whose HTTP policy (address policy, proxy) lives on that
++    /// client. The blocking client held by `self` is not used.
++    #[cfg(feature = "async")]
++    pub async fn exchange_code_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        authorization: &AuthorizationRequest,
++        code: &str,
++    ) -> Result<TokenSet, OAuthError> {
++        let request = self.code_request(
++            code,
++            authorization.verifier.as_str(),
++            &authorization.redirect_uri,
++        )?;
++        let result = http.send(&request).await;
++        self.finish_token(&request, result, None)
++    }
++
++    /// Async twin of [`Self::exchange_code_with_verifier`] (feature `async`).
++    #[cfg(feature = "async")]
++    pub async fn exchange_code_with_verifier_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        code: &str,
++        verifier: &Secret,
++        redirect_uri: &str,
++    ) -> Result<TokenSet, OAuthError> {
++        let request = self.code_request(code, verifier.expose(), redirect_uri)?;
++        let result = http.send(&request).await;
++        self.finish_token(&request, result, None)
++    }
++
++    /// Async twin of [`Self::refresh`] (feature `async`).
++    #[cfg(feature = "async")]
++    pub async fn refresh_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        current: &TokenSet,
++    ) -> Result<TokenSet, OAuthError> {
++        let refresh = current
++            .refresh_token
++            .as_ref()
++            .ok_or(OAuthError::NeedsReauth)?;
++        let mut fresh = self.refresh_token_async(http, refresh).await?;
++        if fresh.id_token.is_none() {
++            fresh.id_token = current.id_token.clone();
++        }
++        Ok(fresh)
++    }
++
++    /// Async twin of [`Self::refresh_token`] (feature `async`).
++    #[cfg(feature = "async")]
++    pub async fn refresh_token_async(
++        &self,
++        http: &rightkit_http::AsyncClient,
++        refresh: &Secret,
++    ) -> Result<TokenSet, OAuthError> {
++        let request = self.refresh_request(refresh)?;
++        let result = http.send(&request).await;
++        self.finish_token(&request, result, Some(refresh))
++    }
++
++    fn code_request(
++        &self,
++        code: &str,
++        verifier: &str,
++        redirect_uri: &str,
++    ) -> Result<Request, OAuthError> {
+         if code.is_empty() {
+             return Err(OAuthError::InvalidConfig(
+                 "authorization code is empty".into(),
+             ));
+         }
++        if redirect_uri.is_empty() || redirect_uri.bytes().any(|b| b <= 0x20 || b == 0x7f) {
++            return Err(OAuthError::InvalidConfig(
++                "redirect_uri is empty or holds whitespace or control characters".into(),
++            ));
++        }
++        pkce::validate_verifier(verifier)?;
+         let mut pairs = vec![
+             ("grant_type", "authorization_code"),
+             ("code", code),
+-            ("redirect_uri", authorization.redirect_uri.as_str()),
++            ("redirect_uri", redirect_uri),
+             ("client_id", self.config.client_id.as_str()),
+-            ("code_verifier", authorization.verifier.as_str()),
++            ("code_verifier", verifier),
+         ];
+         self.push_token_params(&mut pairs);
+-        self.token_request(&pairs, None)
++        Ok(self.token_http_request(&pairs))
+     }
+ 
+-    /// Refresh an access token. A missing refresh token is a reauthorization requirement.
+-    pub fn refresh(&self, current: &TokenSet) -> Result<TokenSet, OAuthError> {
+-        let refresh = current
+-            .refresh_token
+-            .as_ref()
+-            .ok_or(OAuthError::NeedsReauth)?;
++    fn refresh_request(&self, refresh: &Secret) -> Result<Request, OAuthError> {
++        if refresh.expose().is_empty() {
++            return Err(OAuthError::NeedsReauth);
++        }
+         let mut pairs = vec![
+             ("grant_type", "refresh_token"),
+             ("refresh_token", refresh.expose()),
+             ("client_id", self.config.client_id.as_str()),
+         ];
+         self.push_token_params(&mut pairs);
+-        let mut fresh = self.token_request(&pairs, Some(refresh))?;
+-        // A refresh response may omit the ID token (OpenID Connect Core 12.2); keep the one
+-        // the sign-in produced rather than losing the account identity.
+-        if fresh.id_token.is_none() {
+-            fresh.id_token = current.id_token.clone();
+-        }
+-        Ok(fresh)
++        Ok(self.token_http_request(&pairs))
+     }
+ 
+     /// Append the configured extra token-endpoint parameters (RFC 8707 `resource`, `scope`).
+@@ -733,11 +852,7 @@ impl OAuthClient {
+         Ok(())
+     }
+ 
+-    fn token_request(
+-        &self,
+-        pairs: &[(&str, &str)],
+-        old_refresh: Option<&Secret>,
+-    ) -> Result<TokenSet, OAuthError> {
++    fn token_http_request(&self, pairs: &[(&str, &str)]) -> Request {
+         let mut owned: Vec<(String, String)> = pairs
+             .iter()
+             .map(|(k, v)| ((*k).into(), (*v).into()))
+@@ -750,17 +865,23 @@ impl OAuthClient {
+             .map(|(k, v)| (k.as_str(), v.as_str()))
+             .collect();
+         // GitHub answers form-encoded unless asked for JSON, and reports some errors with 200.
+-        let request = Request::post(&self.config.token_url)
++        Request::post(&self.config.token_url)
+             .header("Accept", "application/json")
+-            .secret_form(&refs, SECRET_FORM_FIELDS);
+-        let response = self
+-            .http
+-            .send(&request)
+-            .map_err(|e| provider_or_http(&request, e))?;
++            .secret_form(&refs, SECRET_FORM_FIELDS)
++    }
++
++    /// Turn a token-endpoint answer (blocking or async) into a [`TokenSet`].
++    fn finish_token(
++        &self,
++        request: &Request,
++        result: Result<rightkit_http::Response, HttpError>,
++        old_refresh: Option<&Secret>,
++    ) -> Result<TokenSet, OAuthError> {
++        let response = result.map_err(|e| provider_or_http(request, e))?;
+         let value: serde_json::Value = response.json()?;
+         if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
+             return Err(scrub_provider(
+-                &request,
++                request,
+                 error_from(response.status, error, &value),
+             ));
+         }
+@@ -810,6 +931,16 @@ fn validate_token_param_name(name: &str) -> Result<(), OAuthError> {
+ /// (`user@`), backslashes, whitespace and control characters are refused, so
+ /// `http://localhost:80@attacker.example/` cannot pass as loopback.
+ pub(crate) fn check_endpoint(url: &str, what: &str) -> Result<(), OAuthError> {
++    check_endpoint_allowing(url, what, &[])
++}
++
++/// [`check_endpoint`] that also accepts plain `http` for the exact hosts in `insecure_hosts`
++/// (lowercase, as [`normalize_insecure_host`] returns them).
++pub(crate) fn check_endpoint_allowing(
++    url: &str,
++    what: &str,
++    insecure_hosts: &[String],
++) -> Result<(), OAuthError> {
+     let invalid = |why: &str| OAuthError::InvalidConfig(format!("{what} {why}"));
+     if url
+         .bytes()
+@@ -878,13 +1009,45 @@ pub(crate) fn check_endpoint(url: &str, what: &str) -> Result<(), OAuthError> {
+         }
+         return Ok(());
+     }
+-    if matches!(host, "127.0.0.1" | "[::1]" | "localhost") {
++    let host_lower = host.to_ascii_lowercase();
++    if matches!(host, "127.0.0.1" | "[::1]" | "localhost")
++        || insecure_hosts.iter().any(|allowed| *allowed == host_lower)
++    {
+         Ok(())
+     } else {
+         Err(invalid("must use HTTPS (or loopback in tests)"))
+     }
+ }
+ 
++/// An exact host for a plain-http opt-in: a DNS name, IPv4 address or bracketed IPv6
++/// address, with no scheme, port, path, userinfo or wildcard. Returned lowercase.
++pub(crate) fn normalize_insecure_host(host: &str) -> Result<String, OAuthError> {
++    let invalid = || {
++        OAuthError::InvalidConfig(
++            "insecure host must be an exact hostname, IPv4 address or [IPv6] address with no scheme, port, path or wildcard"
++                .into(),
++        )
++    };
++    let bracketed = host.starts_with('[') && host.ends_with(']') && host.len() > 2;
++    let ok = if bracketed {
++        host[1..host.len() - 1]
++            .bytes()
++            .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.')
++    } else {
++        !host.is_empty()
++            && host.len() <= 253
++            && !host.starts_with('.')
++            && host
++                .bytes()
++                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
++    };
++    if ok {
++        Ok(host.to_ascii_lowercase())
++    } else {
++        Err(invalid())
++    }
++}
++
+ /// Token-endpoint fields the client sets itself; a configured extra parameter may not repeat
+ /// or override them (a second `code_verifier` or `redirect_uri` would be ambiguous), and
+ /// `token`, `token_type_hint` are the revocation request's own.
+diff --git a/crates/rightkit-oauth/tests/async_calls.rs b/crates/rightkit-oauth/tests/async_calls.rs
+new file mode 100644
+index 0000000..ca489e7
+--- /dev/null
++++ b/crates/rightkit-oauth/tests/async_calls.rs
+@@ -0,0 +1,83 @@
++//! Async twins over `rightkit_http::AsyncClient` (feature `async`), against the in-process
++//! mock server.
++#![cfg(feature = "async")]
++
++use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
++use rightkit_http::{AsyncClient, Client, Secret};
++use rightkit_oauth::gateway::GatewayExchange;
++use rightkit_oauth::{pkce, OAuthClient, OAuthConfig, OAuthError};
++use serde_json::json;
++
++fn verifier() -> String {
++    pkce::Pkce::generate().unwrap().verifier.expose().to_string()
++}
++
++#[tokio::test]
++async fn token_calls_run_on_the_async_client() {
++    let server = MockServer::start(|request, _| {
++        let form = request.form();
++        let grant = form
++            .iter()
++            .find(|(k, _)| k == "grant_type")
++            .map(|(_, v)| v.as_str())
++            .unwrap_or("");
++        match grant {
++            "authorization_code" => MockResponse::json(
++                200,
++                &json!({"access_token": "a1", "refresh_token": "r1", "expires_in": 60}),
++            ),
++            _ => MockResponse::json(400, &json!({"error": "invalid_grant"})),
++        }
++    });
++    let oauth = OAuthClient::new(
++        OAuthConfig::new("cid", server.url("/authorize"), server.url("/token")),
++        Client::new(loopback_config()),
++    )
++    .unwrap();
++    let http = AsyncClient::new(loopback_config()).unwrap();
++    let tokens = oauth
++        .exchange_code_with_verifier_async(
++            &http,
++            "code",
++            &Secret::new(verifier()),
++            "http://localhost:1455/auth/callback",
++        )
++        .await
++        .unwrap();
++    assert_eq!(tokens.access_token(), "a1");
++    let dead = oauth.refresh_async(&http, &tokens).await.unwrap_err();
++    assert!(matches!(dead, OAuthError::NeedsReauth));
++}
++
++#[tokio::test]
++async fn gateway_exchange_and_refresh_run_on_the_async_client() {
++    let server = MockServer::start(|request, _| {
++        if request.path() == "/refresh" {
++            MockResponse::json(
++                200,
++                &json!({"access_token": "a2", "provider": "p", "user_id": "u"}),
++            )
++        } else {
++            MockResponse::json(
++                200,
++                &json!({"access_token": "a1", "refresh_token": "r1", "expires_at": 5}),
++            )
++        }
++    });
++    let gateway = GatewayExchange::new(server.url("/exchange"))
++        .unwrap()
++        .with_refresh_endpoint(server.url("/refresh"))
++        .unwrap();
++    let http = AsyncClient::new(loopback_config()).unwrap();
++    let first = gateway
++        .exchange_tokens_async(&http, "code", &verifier(), None)
++        .await
++        .unwrap();
++    assert_eq!(first.extra["expires_at"], 5);
++    let second = gateway
++        .refresh_async(&http, &Secret::new("r1"), &[("provider", "p")], None)
++        .await
++        .unwrap();
++    assert_eq!(second.extra["user_id"], "u");
++    assert_eq!(second.token_set.refresh_token.unwrap().expose(), "r1");
++}
+diff --git a/crates/rightkit-oauth/tests/callback_post.rs b/crates/rightkit-oauth/tests/callback_post.rs
+index 25319e0..9a9db4c 100644
+--- a/crates/rightkit-oauth/tests/callback_post.rs
++++ b/crates/rightkit-oauth/tests/callback_post.rs
+@@ -372,3 +372,47 @@ fn post_json_validates_inputs_times_out_and_honours_cancel() {
+         .unwrap_err();
+     assert!(matches!(e, OAuthError::Cancelled));
+ }
++
++#[test]
++fn post_json_with_rejects_a_body_before_acknowledging_it() {
++    let state = pkce::generate_state().unwrap();
++    let l = listener(&state);
++    let port = l.port();
++    let waiter = thread::spawn(move || {
++        l.wait_post_json_with(Duration::from_secs(10), None, ORIGIN, |body| {
++            if body.get("apiKey").and_then(Value::as_str).is_some() {
++                Ok(())
++            } else {
++                Err("apiKey is required")
++            }
++        })
++    });
++    // Right state, missing field: answered 400 with the validator's text, wait continues.
++    let missing = post(
++        port,
++        "/callback",
++        Some(ORIGIN),
++        &json!({"state": state}).to_string(),
++    );
++    assert_eq!(status(&missing), "HTTP/1.1 400 Bad Request");
++    assert!(missing.contains("apiKey is required"));
++    assert!(!lower(&missing).contains("\"ok\":true"));
++    // A wrong state never reaches the validator and is also refused.
++    let wrong = post(
++        port,
++        "/callback",
++        Some(ORIGIN),
++        &json!({"state": "other", "apiKey": "k"}).to_string(),
++    );
++    assert_eq!(status(&wrong), "HTTP/1.1 400 Bad Request");
++    // A complete body ends the flow.
++    let good = post(
++        port,
++        "/callback",
++        Some(ORIGIN),
++        &json!({"state": state, "apiKey": "k"}).to_string(),
++    );
++    assert_eq!(status(&good), "HTTP/1.1 200 OK");
++    let value = waiter.join().unwrap().unwrap();
++    assert_eq!(value["apiKey"], "k");
++}
+diff --git a/crates/rightkit-oauth/tests/verifier_exchange.rs b/crates/rightkit-oauth/tests/verifier_exchange.rs
+new file mode 100644
+index 0000000..f80f711
+--- /dev/null
++++ b/crates/rightkit-oauth/tests/verifier_exchange.rs
+@@ -0,0 +1,113 @@
++//! `exchange_code_with_verifier` (a caller-held PKCE verifier and pasted code) and
++//! `refresh_token` (bare refresh token), against an in-process mock authorization server.
++
++use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
++use rightkit_http::{Client, ClientConfig, RetryPolicy, Secret};
++use rightkit_oauth::{pkce, OAuthClient, OAuthConfig, OAuthError};
++use serde_json::json;
++
++fn client() -> Client {
++    Client::new(ClientConfig {
++        retry: RetryPolicy::none(),
++        ..loopback_config()
++    })
++}
++
++fn oauth(server: &MockServer) -> OAuthClient {
++    OAuthClient::new(
++        OAuthConfig::new(
++            "desktop-client",
++            server.url("/authorize"),
++            server.url("/token"),
++        ),
++        client(),
++    )
++    .unwrap()
++    .with_token_param("resource", "https://mcp.example/api")
++    .unwrap()
++}
++
++#[test]
++fn a_caller_held_verifier_and_pasted_code_exchange_without_an_authorization_request() {
++    let verifier = pkce::Pkce::generate().unwrap().verifier.expose().to_string();
++    let sent = verifier.clone();
++    let server = MockServer::start(move |request, _| {
++        let form = request.form();
++        let get = |name: &str| {
++            form.iter()
++                .find(|(k, _)| k == name)
++                .map(|(_, v)| v.clone())
++                .unwrap_or_default()
++        };
++        assert_eq!(get("grant_type"), "authorization_code");
++        assert_eq!(get("code"), "pasted-code");
++        assert_eq!(get("redirect_uri"), "http://localhost:1455/auth/callback");
++        assert_eq!(get("code_verifier"), sent);
++        assert_eq!(get("resource"), "https://mcp.example/api");
++        MockResponse::json(
++            200,
++            &json!({"access_token": "a1", "refresh_token": "r1", "expires_in": 60}),
++        )
++    });
++    let tokens = oauth(&server)
++        .exchange_code_with_verifier(
++            "pasted-code",
++            &Secret::new(verifier),
++            "http://localhost:1455/auth/callback",
++        )
++        .unwrap();
++    assert_eq!(tokens.access_token(), "a1");
++    assert_eq!(tokens.refresh_token.unwrap().expose(), "r1");
++}
++
++#[test]
++fn bad_inputs_are_refused_before_anything_is_sent() {
++    let server = MockServer::start(|_, _| MockResponse::json(200, &json!({"access_token": "x"})));
++    let client = oauth(&server);
++    let good = Secret::new(pkce::Pkce::generate().unwrap().verifier.expose().to_string());
++    let redirect = "http://localhost:1455/auth/callback";
++    for (code, verifier, uri) in [
++        ("", &good, redirect),
++        ("c", &Secret::new("short"), redirect),
++        ("c", &good, ""),
++        ("c", &good, "http://localhost:1455/a b"),
++    ] {
++        let e = client
++            .exchange_code_with_verifier(code, verifier, uri)
++            .unwrap_err();
++        assert!(matches!(e, OAuthError::InvalidConfig(_)), "{e}");
++    }
++    assert_eq!(server.request_count(), 0);
++}
++
++#[test]
++fn refresh_token_works_from_a_bare_token_and_keeps_it_when_not_rotated() {
++    let server = MockServer::start(|request, _| {
++        let form = request.form();
++        assert!(form
++            .iter()
++            .any(|(k, v)| k == "refresh_token" && v == "bare-refresh"));
++        assert!(form.iter().any(|(k, v)| k == "grant_type" && v == "refresh_token"));
++        MockResponse::json(200, &json!({"access_token": "a2", "expires_in": 60}))
++    });
++    let tokens = oauth(&server)
++        .refresh_token(&Secret::new("bare-refresh"))
++        .unwrap();
++    assert_eq!(tokens.access_token(), "a2");
++    assert_eq!(tokens.refresh_token.unwrap().expose(), "bare-refresh");
++}
++
++#[test]
++fn a_dead_bare_refresh_token_needs_reauth_and_an_empty_one_sends_nothing() {
++    let server = MockServer::start(|_, _| MockResponse::json(400, &json!({"error": "invalid_grant"})));
++    let client = oauth(&server);
++    assert!(matches!(
++        client.refresh_token(&Secret::new("gone")).unwrap_err(),
++        OAuthError::NeedsReauth
++    ));
++    assert!(matches!(
++        client.refresh_token(&Secret::new("")).unwrap_err(),
++        OAuthError::NeedsReauth
++    ));
++    assert_eq!(server.request_count(), 1);
++}
+diff --git a/crates/rightkit-onnx/CHANGELOG.md b/crates/rightkit-onnx/CHANGELOG.md
+index 0cc60ba..48e2059 100644
+--- a/crates/rightkit-onnx/CHANGELOG.md
++++ b/crates/rightkit-onnx/CHANGELOG.md
+@@ -3,6 +3,10 @@
+ All notable changes to `rightkit-ort`. Versions follow Cargo semver; while the version is `0.x`, a
+ minor bump may carry breaking changes. Earlier releases are described in `README.md`.
+ 
++## 0.2.7 (unreleased)
++
++- Additive (Orthic-Labs/rightkit#745): `developer_override_candidate` no longer fails silently without the `dev-overrides` feature. When the named variable is set (non-empty) it prints a one-time warning to stderr and still returns `None`. New `developer_override_candidate_checked(env_name) -> Result<Option<RuntimeCandidate>, DeveloperOverrideIgnored>` returns the reason as a value (`Err` only when the variable is set and the feature is off), and `developer_overrides_enabled()` reports the feature at runtime. Not built or run locally.
++
+ ## 0.2.6 (2026-10-17)
+ 
+ - **ort `=2.0.0-rc.14`** (was `=2.0.0-rc.13`; Orthic-Labs/ember#230; `Cargo.toml` and README Version policy). NOT BUILT OR RUN here: migrated from the rc.14 release notes and source diff only. The ONNX Runtime the suite approves is unchanged at 1.24.4: rc.14 targets ONNX Runtime 1.31 and defaults to `api-31`, but the `api-24` feature this crate sets still accepts any runtime from 1.24 up, so no runtime manifest, catalog row or digest changes. Do not enable `ort/default` (API floor 31, runtime 1.31).
+diff --git a/crates/rightkit-onnx/Cargo.toml b/crates/rightkit-onnx/Cargo.toml
+index b9e7bf1..25b34a4 100644
+--- a/crates/rightkit-onnx/Cargo.toml
++++ b/crates/rightkit-onnx/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-onnx"
+-version = "0.2.6"
++version = "0.2.7"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+diff --git a/crates/rightkit-onnx/README.md b/crates/rightkit-onnx/README.md
+index d7d11e4..1a70905 100644
+--- a/crates/rightkit-onnx/README.md
++++ b/crates/rightkit-onnx/README.md
+@@ -38,6 +38,7 @@ add opt-in `<workspace>/tools/bin/<platform runtime filename>` candidates.
+ creation, ort-default telemetry, already-configured tolerance & verbatim loader errors.
+ - Added in 0.2.0: `clear_inherited_runtime_for_release` clears inherited
+ `ORT_DYLIB_PATH` in release builds & does nothing in debug builds.
++- Added in 0.2.7: `developer_override_candidate_checked(env_name)` and `developer_overrides_enabled()` make a disabled override visible (the plain function also warns once on stderr when the variable is set but the feature is off).
+ - Added in 0.2.0: `developer_override_candidate(env_name)` reads a non-empty
+ app-named override as `RuntimeCandidate` with `CandidateSource::Explicit` in debug only.
+ - Added in 0.2.0: `configured_runtime` reports the last successfully bound path,
+diff --git a/crates/rightkit-onnx/src/lib.rs b/crates/rightkit-onnx/src/lib.rs
+index c169ad0..7ead0a9 100644
+--- a/crates/rightkit-onnx/src/lib.rs
++++ b/crates/rightkit-onnx/src/lib.rs
+@@ -84,15 +84,70 @@ fn clear_inherited_runtime_with(remove_path: impl FnOnce()) {
+     }
+ }
+ 
++/// Whether this build honours developer runtime overrides (the `dev-overrides` feature).
++pub const fn developer_overrides_enabled() -> bool {
++    cfg!(feature = "dev-overrides")
++}
++
++/// Why a developer override was requested but not honoured.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DeveloperOverrideIgnored {
++    /// The environment variable the caller named.
++    pub env_name: String,
++}
++
++impl fmt::Display for DeveloperOverrideIgnored {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(
++            f,
++            "{} is set but ignored: this rightkit-onnx build lacks the `dev-overrides` feature",
++            self.env_name
++        )
++    }
++}
++
++impl std::error::Error for DeveloperOverrideIgnored {}
++
++/// Like [`developer_override_candidate`] but never silent: without the `dev-overrides`
++/// feature, a set non-empty variable is reported as `Err(DeveloperOverrideIgnored)` so an app
++/// can tell the user why its override had no effect. Unset or empty values are `Ok(None)`.
++pub fn developer_override_candidate_checked(
++    env_name: &str,
++) -> Result<Option<RuntimeCandidate>, DeveloperOverrideIgnored> {
++    checked_override(
++        cfg!(feature = "dev-overrides"),
++        env_name,
++        nonempty_env_path(env_name),
++    )
++}
++
++fn checked_override(
++    enabled: bool,
++    env_name: &str,
++    value: Option<PathBuf>,
++) -> Result<Option<RuntimeCandidate>, DeveloperOverrideIgnored> {
++    match (enabled, value) {
++        (true, Some(path)) => Ok(Some(RuntimeCandidate::new(path, CandidateSource::Explicit))),
++        (false, Some(_)) => Err(DeveloperOverrideIgnored {
++            env_name: env_name.to_owned(),
++        }),
++        (_, None) => Ok(None),
++    }
++}
++
+ /// Read a caller-named development override as an explicit runtime candidate.
+-/// Unset or empty values return `None`; builds without the `dev-overrides` feature
+-/// always return `None` without reading the variable. Path validation remains in runtime resolution.
++/// Unset or empty values return `None`. Builds without the `dev-overrides` feature return
++/// `None`; when the variable is set they also print a one-time warning to stderr so the
++/// no-op is not silent (use [`developer_override_candidate_checked`] to get the reason as a
++/// value). Path validation remains in runtime resolution.
+ pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> {
+-    if cfg!(feature = "dev-overrides") {
+-        nonempty_env_path(env_name)
+-            .map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
+-    } else {
+-        None
++    match developer_override_candidate_checked(env_name) {
++        Ok(candidate) => candidate,
++        Err(ignored) => {
++            static WARNED: std::sync::Once = std::sync::Once::new();
++            WARNED.call_once(|| eprintln!("rightkit-onnx: {ignored}"));
++            None
++        }
+     }
+ }
+ 
+@@ -802,6 +857,22 @@ mod binding_tests {
+         assert_eq!(inherited, None);
+     }
+ 
++    #[test]
++    fn checked_override_reports_a_disabled_override() {
++        let path = Some(PathBuf::from("/opt/ort/libonnxruntime.so"));
++        assert_eq!(
++            checked_override(false, "APP_ORT", path.clone()),
++            Err(DeveloperOverrideIgnored {
++                env_name: "APP_ORT".into()
++            })
++        );
++        assert_eq!(checked_override(false, "APP_ORT", None), Ok(None));
++        assert!(matches!(
++            checked_override(true, "APP_ORT", path),
++            Ok(Some(_))
++        ));
++    }
++
+     struct Fixture(PathBuf);
+ 
+     impl Fixture {
+diff --git a/crates/rightkit-ownership/CHANGELOG.md b/crates/rightkit-ownership/CHANGELOG.md
+index 7637ac2..7b8a603 100644
+--- a/crates/rightkit-ownership/CHANGELOG.md
++++ b/crates/rightkit-ownership/CHANGELOG.md
+@@ -1,5 +1,9 @@
+ # Changelog
+ 
++## 0.3.2 (unreleased)
++
++- **A verdict-cache hit no longer re-reads every clean blob (Orthic-Labs/rightkit#687).** The inputs probe (`Scanner::inputs`, the first step of every `evaluate_repository`) builds its input key from `content_inventory`, which needs only digests and sizes. It now calls the new `inventory::git_listed_inventory_with(.., CleanBodies::OidOnly)`: clean index-matching files are keyed by their index blob oid (`git:<oid>` digest, `gitblob:<oid>` cache key, exactly as before), sizes still come from `cat-file --batch-check` (so the size limit and blob existence are still enforced), and no `cat-file --batch` body read happens. Dirty and untracked inputs are still read and hashed on the shared pool, racy-entry handling (stat-based dirtiness, 2 s window) and every other key component are unchanged. The protected scan still reads bodies through `git_listed_inventory` (`CleanBodies::Read`). Additive: `git_listed_inventory` keeps its signature; new public `git_listed_inventory_with` and `CleanBodies`. Test: `oid_only_inventory_keys_clean_files_by_oid_without_reading_bodies`. Not built or run here.
++
+ ## 0.3.1 (2026-10-17)
+ 
+ - **Git URL classification fails closed; pinned-git records reach evidence (Astra wave 4).** `deps.rs` now classifies Git URLs with the `url` crate (schemes http, https, ssh, git and their `git+`/`ssh+` forms) and a separate scp parser (`[user@]host:org/repo`); the host is lowercased with default and explicit ports, userinfo and a trailing dot removed, so `https://github.com:443/Orthic-Labs/x` and `ssh://git@github.com:2222/Orthic-Labs/x` are first-party. `file:`, other schemes, local or path-like text, `localhost`, IP literals, numeric or escaped org segments and unparseable text are treated as first-party, so they stay fatal `git-dependency-source` gaps. `Scanned` gains `coverage_notes`, built from `DepsResult.covered` as `{path, status: "pinned-git-dependency", reason, fingerprint, scanned: false}` (the field shape of `deps.covered` in `ownership.mjs`); they appear as `coverageNotes` in the report, in `metadata`, and in the aggregated evidence result, are never counted as coverage gaps, and `verdict.rs` validates them (status must be `pinned-git-dependency`, `scanned` must be `false`). Not built or run here.
+diff --git a/crates/rightkit-ownership/Cargo.toml b/crates/rightkit-ownership/Cargo.toml
+index 10697ac..557dd43 100644
+--- a/crates/rightkit-ownership/Cargo.toml
++++ b/crates/rightkit-ownership/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-ownership"
+-version = "0.3.1"
++version = "0.3.2"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links."
+diff --git a/crates/rightkit-ownership/src/inventory.rs b/crates/rightkit-ownership/src/inventory.rs
+index 3ee1c5d..82323ce 100644
+--- a/crates/rightkit-ownership/src/inventory.rs
++++ b/crates/rightkit-ownership/src/inventory.rs
+@@ -311,12 +311,43 @@ fn is_stage_header(candidate: &[u8]) -> bool {
+         && parts[2].as_bytes()[0].is_ascii_digit()
+ }
+ 
++/// How [`git_listed_inventory_with`] treats the bodies of clean (index-matching) inputs.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum CleanBodies {
++    /// Read every relevant clean blob through `cat-file --batch` (the historical behaviour).
++    Read,
++    /// Identify clean inputs by their index blob oid only: sizes still come from
++    /// `cat-file --batch-check` (so the size limit and blob existence are enforced), but no
++    /// body is fetched and `File::bytes` is `None` for them. Dirty and untracked inputs are
++    /// still read and hashed. For callers that need only digests, not content.
++    OidOnly,
++}
++
+ pub fn git_listed_inventory(
+     app_root: &Path,
+     relevant: &dyn Fn(&str) -> bool,
+     protected_paths: &[String],
+     max_file_bytes: &dyn Fn(&str) -> u64,
+     repository_root: &Path,
++) -> Inventory {
++    git_listed_inventory_with(
++        app_root,
++        relevant,
++        protected_paths,
++        max_file_bytes,
++        repository_root,
++        CleanBodies::Read,
++    )
++}
++
++/// [`git_listed_inventory`] with an explicit clean-body policy.
++pub fn git_listed_inventory_with(
++    app_root: &Path,
++    relevant: &dyn Fn(&str) -> bool,
++    protected_paths: &[String],
++    max_file_bytes: &dyn Fn(&str) -> u64,
++    repository_root: &Path,
++    clean_bodies: CleanBodies,
+ ) -> Inventory {
+     let root = paths::resolve(app_root);
+     let one = |coverage: Cov| Inventory {
+@@ -493,9 +524,19 @@ pub fn git_listed_inventory(
+         GIT_TIMEOUT,
+         MAX_BLOB_BATCH_BYTES,
+     )
+-    .and_then(|sizes| read_blobs(&root, &safe_root, &blob_oids, &sizes, MAX_BLOB_BATCH_BYTES));
+-    let fetched = match fetched {
+-        Ok(map) => map,
++    .and_then(|sizes| {
++        let by_oid: HashMap<String, u64> =
++            blob_oids.iter().cloned().zip(sizes.iter().copied()).collect();
++        let bodies = match clean_bodies {
++            CleanBodies::Read => {
++                read_blobs(&root, &safe_root, &blob_oids, &sizes, MAX_BLOB_BATCH_BYTES)?
++            }
++            CleanBodies::OidOnly => HashMap::new(),
++        };
++        Ok((by_oid, bodies))
++    });
++    let (clean_sizes, fetched) = match fetched {
++        Ok(pair) => pair,
+         Err(error) => {
+             return one(Cov::new(
+                 ".",
+@@ -511,11 +552,11 @@ pub fn git_listed_inventory(
+         if dirty.contains(rel) || entry.over_limit {
+             continue;
+         }
+-        let Some(bytes) = fetched.get(&oid) else {
++        let Some(size) = clean_sizes.get(&oid).copied() else {
+             continue;
+         };
+-        entry.clean_blob_size = Some(bytes.len() as u64);
+-        if bytes.len() as u64 > entry.max_file_bytes {
++        entry.clean_blob_size = Some(size);
++        if size > entry.max_file_bytes {
+             entry.over_limit = true;
+             coverage.push(Cov::new(rel.clone(), "file-over-size-limit"));
+         }
+@@ -597,6 +638,11 @@ pub fn git_listed_inventory(
+         } else if is_relevant {
+             if !is_dirty && oid.as_ref().is_some_and(|o| fetched.contains_key(o)) {
+                 bytes = oid.as_ref().and_then(|o| fetched.get(o)).cloned();
++            } else if !is_dirty
++                && clean_bodies == CleanBodies::OidOnly
++                && entry.clean_blob_size.is_some()
++            {
++                // Identified by oid below; the body is deliberately not read.
+             } else if is_dirty {
+                 let too_big = stat
+                     .as_ref()
+@@ -641,6 +687,15 @@ pub fn git_listed_inventory(
+                     digest = Some(format!("git:{oid}"));
+                     cache_key = Some(format!("gitblob:{oid}"));
+                 }
++            } else if !is_dirty
++                && clean_bodies == CleanBodies::OidOnly
++                && entry.clean_blob_size.is_some()
++                && !entry.over_limit
++            {
++                if let Some(oid) = &oid {
++                    digest = Some(format!("git:{oid}"));
++                    cache_key = Some(format!("gitblob:{oid}"));
++                }
+             }
+         } else if !is_dirty {
+             if let Some(oid) = &oid {
+@@ -706,8 +761,16 @@ pub struct Content {
+ 
+ /// Git-listed content inventory; clean inputs use their blob IDs.
+ pub fn content_inventory(app_root: &Path) -> Content {
+-    let mut inventory =
+-        git_listed_inventory(app_root, &|_| true, &[], &|_| 64 * 1024 * 1024, app_root);
++    // Only digests and sizes are needed: clean inputs are keyed by index blob oid and no
++    // body is read for them (Orthic-Labs/rightkit#687).
++    let mut inventory = git_listed_inventory_with(
++        app_root,
++        &|_| true,
++        &[],
++        &|_| 64 * 1024 * 1024,
++        app_root,
++        CleanBodies::OidOnly,
++    );
+     listed_coverage(&mut inventory);
+     let mut files: Vec<(&str, Option<u64>, &str)> = inventory
+         .files
+diff --git a/crates/rightkit-ownership/src/tests.rs b/crates/rightkit-ownership/src/tests.rs
+index fdc877c..51cf94c 100644
+--- a/crates/rightkit-ownership/src/tests.rs
++++ b/crates/rightkit-ownership/src/tests.rs
+@@ -1027,3 +1027,46 @@ fn inventory_never_keeps_a_file_modified_inside_the_racy_window() {
+     );
+     fs::remove_dir_all(&dir).ok();
+ }
++
++#[test]
++fn oid_only_inventory_keys_clean_files_by_oid_without_reading_bodies() {
++    use crate::inventory::{git_listed_inventory_with, CleanBodies};
++    let dir = inventory_repo("oid-only");
++    fs::write(dir.join("clean.txt"), "clean body\n").unwrap();
++    let git = |args: &[&str]| {
++        let status = std::process::Command::new("git")
++            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
++            .args(args)
++            .current_dir(&dir)
++            .status()
++            .unwrap();
++        assert!(status.success());
++    };
++    git(&["add", "clean.txt"]);
++    fs::write(dir.join("fresh.txt"), "untracked body\n").unwrap();
++
++    let read = git_listed_inventory_with(&dir, &|_| true, &[], &|_| 1 << 20, &dir, CleanBodies::Read);
++    let lazy =
++        git_listed_inventory_with(&dir, &|_| true, &[], &|_| 1 << 20, &dir, CleanBodies::OidOnly);
++    let find = |inv: &crate::inventory::Inventory, rel: &str| {
++        inv.files.iter().find(|f| f.rel == rel).cloned().unwrap()
++    };
++    let (clean_read, clean_lazy) = (find(&read, "clean.txt"), find(&lazy, "clean.txt"));
++    assert!(clean_read.bytes.is_some());
++    assert!(clean_lazy.bytes.is_none(), "no clean body is read");
++    assert_eq!(clean_lazy.digest, clean_read.digest);
++    assert_eq!(clean_lazy.cache_key, clean_read.cache_key);
++    assert_eq!(clean_lazy.size, clean_read.size);
++    // Untracked inputs are still read and hashed.
++    assert!(find(&lazy, "fresh.txt").bytes.is_some());
++    assert_eq!(find(&lazy, "fresh.txt").digest, find(&read, "fresh.txt").digest);
++    assert_eq!(lazy.coverage.len(), read.coverage.len());
++
++    // The size limit is still enforced without the body.
++    let tiny = git_listed_inventory_with(&dir, &|_| true, &[], &|_| 4, &dir, CleanBodies::OidOnly);
++    assert!(tiny
++        .coverage
++        .iter()
++        .any(|c| c.path == "clean.txt" && c.reason == "file-over-size-limit"));
++    fs::remove_dir_all(&dir).ok();
++}
+diff --git a/crates/rightkit-pdf/CHANGELOG.md b/crates/rightkit-pdf/CHANGELOG.md
+index 33caa38..4dd46be 100644
+--- a/crates/rightkit-pdf/CHANGELOG.md
++++ b/crates/rightkit-pdf/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ # Changelog
+ 
++## 0.3.3 (unreleased)
++
++Additive: new opt-in feature `pdfium`; without it the crate is unchanged. Orthic-Labs/rightkit#743 (ScrapeRight port). Not compiled or run when written; CI is the first compiler, and `Cargo.lock` needs the new `pdfium-render` entries and `rightkit-pdf` 0.3.3 (CI patch).
++
++- **`pdfium` feature (off by default): `pdfium::PdfiumEngine`.** `PdfiumEngine::load(&Path)` opens a PDFium dynamic library at an absolute path (relative paths are refused so a planted library cannot win the loader's search); `load_verified(&Path, sha256_hex)` checks the file's SHA-256 first. Then `page_count`, `page_text(bytes, index, password)`, `text_by_pages` and `render_page(bytes, index, dpi, password) -> PdfiumPageImage { width, height, rgba }` (dpi 1..=1200, refused over `MAX_PIXELS` = 60 million before PDFium allocates). Typed `PdfiumError` carries native messages as text, so `pdfium-render` is not part of the public API. One engine per process (PDFium's state is global): a second `load` is `AlreadyLoaded`, not a panic. No PDFium binary is linked or shipped and nothing is downloaded: the host provisions the library from `rightkit-ffmpeg`'s native catalog (`pdfium`, chromium/8021).
++- New optional dependency `pdfium-render` 0.9.3 (`default-features = false`, features `pdfium_latest`, `thread_safe`; no `image`). Unverified: `pdfium_latest` selects the 7881 API set while the catalog pins chromium/8021 (macOS rows `pinned`); the catalog's Windows row is still `planned` (ScrapeRight uses chromium/7920), so a live load on Windows is not proven. `tests/pdfium_live.rs` (ignored; set `RIGHTKIT_PDFIUM_LIBRARY`) is the check to run on each host.
++
+ ## 0.3.2
+ 
+ Additive; no existing item changes. Not compiled or run when written, so the CI run is the verification; `Cargo.lock` needs its `rightkit-pdf` entry moved to 0.3.2 (CI patch). Requested in Orthic-Labs/rightkit#282 (Ember #240).
+diff --git a/crates/rightkit-pdf/Cargo.toml b/crates/rightkit-pdf/Cargo.toml
+index 432252c..c444a61 100644
+--- a/crates/rightkit-pdf/Cargo.toml
++++ b/crates/rightkit-pdf/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-pdf"
+-version = "0.3.2"
++version = "0.3.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+@@ -33,6 +33,9 @@ extract = ["dep:pdf-extract"]
+ # Page rasterization of scanned (image) pages to gray/RGBA buffers or PNG, for OCR. Draws image
+ # XObjects only (no PDFium); JPEG and PNG through `image` with just those two codecs.
+ raster = ["dep:image"]
++# PDFium binding (`src/pdfium.rs`): per-page text and page rendering through a PDFium dynamic library
++# the host loads from an absolute path (and can verify by SHA-256). Links no PDFium; ships none.
++pdfium = ["dep:pdfium-render"]
+ # Redaction: remove text, images, paths and annotations under marked areas, fail closed, full rewrite (`src/redact.rs`).
+ redact = []
+ # AcroForm: list fields, set values, generate appearances, typed refusals (`src/forms.rs`).
+@@ -52,6 +55,9 @@ sha2 = "0.11.1"
+ getrandom = { version = "0.4.3", optional = true }
+ pdf-extract = { version = "0.12", optional = true }
+ image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
++# Runtime-loaded PDFium bindings only (no `image` feature, no static linking). `pdfium_latest` selects the
++# newest API set the crate knows; the catalog pins chromium/8021 builds (see the CHANGELOG, unverified).
++pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_latest", "thread_safe"], optional = true }
+ # The one writer behind a commit (temp sibling, flush, rename, directory sync). `fs` is the smallest
+ # feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
+ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
+diff --git a/crates/rightkit-pdf/README.md b/crates/rightkit-pdf/README.md
+index f7e651f..a43d07f 100644
+--- a/crates/rightkit-pdf/README.md
++++ b/crates/rightkit-pdf/README.md
+@@ -1,10 +1,10 @@
+ # rightkit-pdf
+ 
+-Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composition (replace source text, add text, OCR correction), font subsetting (Source Serif 4 is bundled), staged atomic save, and, behind features, page merge and selection and whole-document or per-page text extraction. It is pure Rust: no Tauri, no PDFium.
++Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composition (replace source text, add text, OCR correction), font subsetting (Source Serif 4 is bundled), staged atomic save, and, behind features, page merge and selection and whole-document or per-page text extraction. It is pure Rust: no Tauri, and no PDFium unless the opt-in `pdfium` feature loads one at runtime.
+ 
+ **Use it** to read, edit, merge, or extract text from PDF files in a Right Suite app, when the output must be written atomically.
+ 
+-**Do not use it** as a general PDF renderer (the one exception is the `raster` feature, which draws the page images of scanned PDFs for OCR and nothing else), to run PDFium-based rendering, or to handle PDFs that need a full layout engine. Extraction (`extract`) uses `pdf-extract`, and its quality depends on the source file.
++**Do not use it** as a general PDF renderer (the one exception is the `raster` feature, which draws the page images of scanned PDFs for OCR and nothing else), to handle PDFs that need a full layout engine. Extraction (`extract`) uses `pdf-extract`, and its quality depends on the source file.
+ 
+ ## Features
+ 
+@@ -15,6 +15,7 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
+ | `merge` | on | none (built on `lopdf`, which is always a dependency) | Page merge and selection (`src/merge.rs`), page delete, reorder, rotate and insert with outline and page labels kept (`src/organize.rs`). |
+ | `extract` | off | `pdf-extract` | Whole-document and per-page text extraction (`src/extract.rs`). |
+ | `raster` | off | `image` (`png`, `jpeg` codecs only) | Render scanned pages to gray/RGBA/PNG for OCR (`src/raster.rs`). Detection (`src/scan.rs`) is always compiled. |
++| `pdfium` | off | `pdfium-render` (runtime-loaded; no PDFium is linked or shipped) | Per-page text and page rendering through a PDFium library the host loads from an absolute path, optionally SHA-256 verified (`src/pdfium.rs`). One engine per process. |
+ | `redact` | off | none | Remove text, images, vector paths and annotations under marked areas, fail closed, whole-file rewrite (`src/redact.rs`). |
+ | `forms` | off | none | AcroForm: list fields, set values, regenerate appearances, `/NeedAppearances` handling, typed refusals (`src/forms.rs`). |
+ | `optimize` | off | none | Size reduction: unused objects, stream compression, image downsampling by measured effective resolution, progress and cancel (`src/optimize.rs`). |
+diff --git a/crates/rightkit-pdf/src/lib.rs b/crates/rightkit-pdf/src/lib.rs
+index 5a33d42..d0a9eed 100644
+--- a/crates/rightkit-pdf/src/lib.rs
++++ b/crates/rightkit-pdf/src/lib.rs
+@@ -18,6 +18,7 @@
+ //! | `organize`| (feature `merge`) delete, reorder, rotate, insert pages; keeps outline and labels |
+ //! | `extract` | (feature `extract`) text extraction, whole-document and per page  |
+ //! | `scan`    | scanned-page detection (no text layer, page-sized image)          |
++//! | `pdfium`  | (feature `pdfium`) runtime-loaded PDFium: per-page text and page render |
+ //! | `raster`  | (feature `raster`) render scanned pages to gray/RGBA/PNG for OCR  |
+ //! | `redact`  | (feature `redact`) remove content under marks, fail closed        |
+ //! | `forms`   | (feature `forms`) AcroForm fields, set values, appearances        |
+@@ -42,6 +43,8 @@ pub mod model;
+ pub mod optimize;
+ #[cfg(feature = "merge")]
+ pub mod organize;
++#[cfg(feature = "pdfium")]
++pub mod pdfium;
+ #[cfg(feature = "raster")]
+ pub mod raster;
+ #[cfg(feature = "redact")]
+diff --git a/crates/rightkit-pdf/src/pdfium.rs b/crates/rightkit-pdf/src/pdfium.rs
+new file mode 100644
+index 0000000..a471262
+--- /dev/null
++++ b/crates/rightkit-pdf/src/pdfium.rs
+@@ -0,0 +1,344 @@
++//! PDFium binding: per-page text and page rendering through a runtime-loaded PDFium library.
++//! Feature `pdfium` (off by default).
++//!
++//! The crate links no PDFium. [`PdfiumEngine::load`] opens a PDFium dynamic library the host
++//! already holds at an absolute path (`pdfium.dll`, `libpdfium.dylib`, `libpdfium.so`), the
++//! build `rightkit-ffmpeg`'s native catalog pins (`pdfium`, currently chromium/8021 from
++//! bblanchon/pdfium-binaries). [`PdfiumEngine::load_verified`] first checks the file's SHA-256.
++//! Provisioning and the catalog's own verification stay with the caller; this module never
++//! downloads anything.
++//!
++//! Unlike the pure-Rust [`crate::extract`] and [`crate::raster`] paths, PDFium draws text,
++//! vector graphics and every image type, and extracts text in PDFium's reading order. Use it
++//! where the pure-Rust paths report limitations.
++//!
++//! **One engine per process.** PDFium keeps process-global state. A second
++//! [`PdfiumEngine::load`] in the same process returns [`PdfiumError::AlreadyLoaded`] instead of
++//! panicking. Keep the engine for the process lifetime and pass it by reference.
++//!
++//! **Trust.** PDFium parses untrusted bytes in-process. It is native code: a defect in it can
++//! crash the host. Run it where a crash is acceptable, and keep the library current.
++
++use std::path::Path;
++use std::sync::atomic::{AtomicBool, Ordering};
++
++use pdfium_render::prelude::{PdfRenderConfig, Pdfium, PdfiumError as NativeError};
++use sha2::{Digest, Sha256};
++
++/// Most pixels one rendered page may have (checked before PDFium allocates anything).
++pub const MAX_PIXELS: u64 = 60_000_000;
++/// Resolution limits for [`PdfiumEngine::render_page`].
++pub const DPI_RANGE: std::ops::RangeInclusive<f32> = 1.0..=1200.0;
++
++static LOADED: AtomicBool = AtomicBool::new(false);
++
++/// Failures of the PDFium binding. Native messages are carried as text so this type does not
++/// expose `pdfium-render`.
++#[derive(Debug, thiserror::Error)]
++pub enum PdfiumError {
++    /// The library path is not absolute, so the loader's search path could pick a planted file.
++    #[error("pdfium library path must be absolute: {0}")]
++    RelativePath(String),
++    /// The library file could not be read for the digest check.
++    #[error("pdfium library unreadable: {0}")]
++    Unreadable(String),
++    /// The library's SHA-256 is not the expected one; nothing was loaded.
++    #[error("pdfium library digest mismatch (expected {expected}, found {found})")]
++    DigestMismatch { expected: String, found: String },
++    /// The expected digest is not 64 lowercase or uppercase hex characters.
++    #[error("expected sha256 must be 64 hex characters")]
++    BadDigest,
++    /// An engine was already loaded in this process.
++    #[error("a PDFium library is already loaded in this process")]
++    AlreadyLoaded,
++    /// The library could not be opened or lacks the expected entry points.
++    #[error("pdfium load failed: {0}")]
++    Load(String),
++    /// PDFium refused the document (corrupt, password needed or wrong).
++    #[error("pdfium could not open the document: {0}")]
++    Open(String),
++    /// A page index past the end of the document.
++    #[error("page index {index} out of range (document has {count} pages)")]
++    PageOutOfRange { index: usize, count: usize },
++    /// A resolution outside [`DPI_RANGE`] or not finite.
++    #[error("dpi must be within 1..=1200")]
++    BadDpi,
++    /// The rendered page would exceed [`MAX_PIXELS`].
++    #[error("page would render to {pixels} pixels, over the {max} limit")]
++    TooLarge { pixels: u64, max: u64 },
++    /// PDFium failed to read a page's text or draw it.
++    #[error("pdfium page operation failed: {0}")]
++    Page(String),
++}
++
++/// One rendered page: 8-bit RGBA, row-major, `width * height * 4` bytes.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct PdfiumPageImage {
++    pub width: u32,
++    pub height: u32,
++    pub rgba: Vec<u8>,
++}
++
++/// A loaded PDFium library.
++pub struct PdfiumEngine {
++    pdfium: Pdfium,
++}
++
++impl std::fmt::Debug for PdfiumEngine {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str("PdfiumEngine")
++    }
++}
++
++impl PdfiumEngine {
++    /// Load the PDFium library at `library`, an absolute path to the dynamic library file.
++    /// The file is not verified here; use [`Self::load_verified`] or verify it against the
++    /// native catalog first.
++    pub fn load(library: &Path) -> Result<Self, PdfiumError> {
++        require_absolute(library)?;
++        if LOADED
++            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
++            .is_err()
++        {
++            return Err(PdfiumError::AlreadyLoaded);
++        }
++        match Pdfium::bind_to_library(library) {
++            Ok(bindings) => Ok(Self {
++                pdfium: Pdfium::new(bindings),
++            }),
++            Err(error) => {
++                // Nothing was initialised; allow another attempt.
++                LOADED.store(false, Ordering::SeqCst);
++                Err(PdfiumError::Load(error.to_string()))
++            }
++        }
++    }
++
++    /// [`Self::load`] after checking the file's SHA-256 against `expected_sha256` (64 hex
++    /// characters, the catalog's file digest). The file is read once for the hash and opened
++    /// again by the loader, so a file replaced in between is not detected: keep the directory
++    /// private to the app.
++    pub fn load_verified(library: &Path, expected_sha256: &str) -> Result<Self, PdfiumError> {
++        require_absolute(library)?;
++        let expected = normalize_digest(expected_sha256)?;
++        let bytes =
++            std::fs::read(library).map_err(|error| PdfiumError::Unreadable(error.to_string()))?;
++        let digest: [u8; 32] = Sha256::digest(&bytes).into();
++        let found = hex(&digest);
++        if found != expected {
++            return Err(PdfiumError::DigestMismatch { expected, found });
++        }
++        drop(bytes);
++        Self::load(library)
++    }
++
++    /// Number of pages. `password` unlocks an encrypted document.
++    pub fn page_count(&self, bytes: &[u8], password: Option<&str>) -> Result<usize, PdfiumError> {
++        let document = self.open(bytes, password)?;
++        Ok(page_total(document.pages().len()))
++    }
++
++    /// Text of one page (0-based index) in PDFium's reading order. A page with no text layer
++    /// (a scan) gives an empty string.
++    pub fn page_text(
++        &self,
++        bytes: &[u8],
++        index: usize,
++        password: Option<&str>,
++    ) -> Result<String, PdfiumError> {
++        let document = self.open(bytes, password)?;
++        let count = page_total(document.pages().len());
++        let page = document
++            .pages()
++            .get(checked_index(index, count)?)
++            .map_err(page_error)?;
++        let text = page.text().map_err(page_error)?;
++        Ok(text.all())
++    }
++
++    /// Text of every page in page order (index 0 is page 1), like
++    /// [`crate::extract::extract_text_by_pages`] but through PDFium.
++    pub fn text_by_pages(
++        &self,
++        bytes: &[u8],
++        password: Option<&str>,
++    ) -> Result<Vec<String>, PdfiumError> {
++        let document = self.open(bytes, password)?;
++        let mut out = Vec::new();
++        for page in document.pages().iter() {
++            out.push(page.text().map_err(page_error)?.all());
++        }
++        Ok(out)
++    }
++
++    /// Render one page (0-based index) at `dpi` (1..=1200) to RGBA on a white background.
++    /// Refuses a page whose output would exceed [`MAX_PIXELS`] before PDFium allocates.
++    pub fn render_page(
++        &self,
++        bytes: &[u8],
++        index: usize,
++        dpi: f32,
++        password: Option<&str>,
++    ) -> Result<PdfiumPageImage, PdfiumError> {
++        check_dpi(dpi)?;
++        let document = self.open(bytes, password)?;
++        let count = page_total(document.pages().len());
++        let page = document
++            .pages()
++            .get(checked_index(index, count)?)
++            .map_err(page_error)?;
++        let scale = dpi / 72.0;
++        let (w, h) = pixel_size(page.width().value, page.height().value, scale)?;
++        let bitmap = page
++            .render_with_config(&PdfRenderConfig::new().scale_page_by_factor(scale))
++            .map_err(page_error)?;
++        let (width, height) = (bitmap.width().max(0) as u32, bitmap.height().max(0) as u32);
++        let rgba = bitmap.as_rgba_bytes();
++        if rgba.len() as u64 != u64::from(width) * u64::from(height) * 4 {
++            return Err(PdfiumError::Page(format!(
++                "unexpected bitmap size {}x{} for {} bytes (expected about {w}x{h})",
++                width,
++                height,
++                rgba.len()
++            )));
++        }
++        Ok(PdfiumPageImage {
++            width,
++            height,
++            rgba,
++        })
++    }
++
++    fn open<'a>(
++        &'a self,
++        bytes: &'a [u8],
++        password: Option<&str>,
++    ) -> Result<pdfium_render::prelude::PdfDocument<'a>, PdfiumError> {
++        self.pdfium
++            .load_pdf_from_byte_slice(bytes, password)
++            .map_err(|error: NativeError| PdfiumError::Open(error.to_string()))
++    }
++}
++
++fn page_error(error: NativeError) -> PdfiumError {
++    PdfiumError::Page(error.to_string())
++}
++
++fn page_total(raw: i32) -> usize {
++    usize::try_from(raw).unwrap_or(0)
++}
++
++fn checked_index(index: usize, count: usize) -> Result<i32, PdfiumError> {
++    if index >= count {
++        return Err(PdfiumError::PageOutOfRange { index, count });
++    }
++    i32::try_from(index).map_err(|_| PdfiumError::PageOutOfRange { index, count })
++}
++
++fn check_dpi(dpi: f32) -> Result<(), PdfiumError> {
++    if dpi.is_finite() && DPI_RANGE.contains(&dpi) {
++        Ok(())
++    } else {
++        Err(PdfiumError::BadDpi)
++    }
++}
++
++/// Output size in pixels for a page of `width_pt` x `height_pt` points at `scale`, refused over
++/// [`MAX_PIXELS`].
++fn pixel_size(width_pt: f32, height_pt: f32, scale: f32) -> Result<(u32, u32), PdfiumError> {
++    let w = (f64::from(width_pt) * f64::from(scale)).ceil().max(1.0);
++    let h = (f64::from(height_pt) * f64::from(scale)).ceil().max(1.0);
++    let pixels = if w.is_finite() && h.is_finite() {
++        (w * h) as u64
++    } else {
++        u64::MAX
++    };
++    if pixels > MAX_PIXELS || w > f64::from(i32::MAX) || h > f64::from(i32::MAX) {
++        return Err(PdfiumError::TooLarge {
++            pixels,
++            max: MAX_PIXELS,
++        });
++    }
++    Ok((w as u32, h as u32))
++}
++
++fn require_absolute(path: &Path) -> Result<(), PdfiumError> {
++    if path.is_absolute() {
++        Ok(())
++    } else {
++        Err(PdfiumError::RelativePath(path.display().to_string()))
++    }
++}
++
++fn normalize_digest(value: &str) -> Result<String, PdfiumError> {
++    if value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()) {
++        Ok(value.to_ascii_lowercase())
++    } else {
++        Err(PdfiumError::BadDigest)
++    }
++}
++
++fn hex(bytes: &[u8]) -> String {
++    use std::fmt::Write;
++    bytes.iter().fold(String::with_capacity(64), |mut out, b| {
++        let _ = write!(out, "{b:02x}");
++        out
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn a_relative_library_path_is_refused_before_anything_loads() {
++        let error = PdfiumEngine::load(Path::new("pdfium.dll")).unwrap_err();
++        assert!(matches!(error, PdfiumError::RelativePath(_)));
++        // The refusal did not consume the one-engine slot.
++        assert!(!LOADED.load(Ordering::SeqCst));
++    }
++
++    #[test]
++    fn the_digest_is_checked_before_the_loader_runs() {
++        let dir = std::env::temp_dir().join(format!("rk-pdfium-digest-{}", std::process::id()));
++        std::fs::create_dir_all(&dir).unwrap();
++        let file = dir.join("not-a-library.bin");
++        std::fs::write(&file, b"not pdfium").unwrap();
++        let wrong = "0".repeat(64);
++        let error = PdfiumEngine::load_verified(&file, &wrong).unwrap_err();
++        assert!(matches!(error, PdfiumError::DigestMismatch { .. }), "{error}");
++        assert!(matches!(
++            PdfiumEngine::load_verified(&file, "xyz").unwrap_err(),
++            PdfiumError::BadDigest
++        ));
++        // A matching digest on a file that is not a library fails in the loader, not before.
++        let digest: [u8; 32] = Sha256::digest(b"not pdfium").into();
++        let right = hex(&digest);
++        let error = PdfiumEngine::load_verified(&file, &right.to_ascii_uppercase()).unwrap_err();
++        assert!(matches!(error, PdfiumError::Load(_)), "{error}");
++        assert!(!LOADED.load(Ordering::SeqCst), "a failed load frees the slot");
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
++    #[test]
++    fn dpi_and_page_index_limits() {
++        for bad in [0.0, 0.5, 1201.0, f32::NAN, f32::INFINITY] {
++            assert!(matches!(check_dpi(bad), Err(PdfiumError::BadDpi)), "{bad}");
++        }
++        assert!(check_dpi(300.0).is_ok());
++        assert_eq!(checked_index(2, 3).unwrap(), 2);
++        assert!(matches!(
++            checked_index(3, 3),
++            Err(PdfiumError::PageOutOfRange { index: 3, count: 3 })
++        ));
++    }
++
++    #[test]
++    fn pixel_size_is_computed_and_capped_before_rendering() {
++        // US Letter at 300 dpi.
++        assert_eq!(pixel_size(612.0, 792.0, 300.0 / 72.0).unwrap(), (2550, 3300));
++        // A 200 inch page at 1200 dpi is refused, not allocated.
++        let error = pixel_size(14_400.0, 14_400.0, 1200.0 / 72.0).unwrap_err();
++        assert!(matches!(error, PdfiumError::TooLarge { .. }));
++    }
++}
+diff --git a/crates/rightkit-pdf/tests/pdfium_live.rs b/crates/rightkit-pdf/tests/pdfium_live.rs
+new file mode 100644
+index 0000000..efe83c3
+--- /dev/null
++++ b/crates/rightkit-pdf/tests/pdfium_live.rs
+@@ -0,0 +1,40 @@
++#![cfg(feature = "pdfium")]
++
++//! Live PDFium check. Ignored: it needs a PDFium dynamic library. Run with
++//! `RIGHTKIT_PDFIUM_LIBRARY=<absolute path to pdfium.dll / libpdfium.dylib / libpdfium.so>`
++//! and `--ignored`. One engine per process, so this file holds a single test.
++
++use std::path::{Path, PathBuf};
++
++use rightkit_pdf::pdfium::{PdfiumEngine, PdfiumError};
++
++#[test]
++#[ignore = "needs a PDFium library; set RIGHTKIT_PDFIUM_LIBRARY"]
++fn text_and_render_through_a_real_pdfium() {
++    let library = PathBuf::from(
++        std::env::var("RIGHTKIT_PDFIUM_LIBRARY").expect("RIGHTKIT_PDFIUM_LIBRARY is not set"),
++    );
++    let engine = PdfiumEngine::load(&library).expect("load pdfium");
++    assert!(matches!(
++        PdfiumEngine::load(&library),
++        Err(PdfiumError::AlreadyLoaded)
++    ));
++    let bytes = std::fs::read(
++        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memo.pdf"),
++    )
++    .unwrap();
++    let pages = engine.text_by_pages(&bytes, None).unwrap();
++    assert_eq!(pages.len(), engine.page_count(&bytes, None).unwrap());
++    assert!(!pages[0].trim().is_empty());
++    assert_eq!(engine.page_text(&bytes, 0, None).unwrap(), pages[0]);
++    let image = engine.render_page(&bytes, 0, 72.0, None).unwrap();
++    assert!(image.width > 0 && image.height > 0);
++    assert_eq!(
++        image.rgba.len(),
++        image.width as usize * image.height as usize * 4
++    );
++    assert!(matches!(
++        engine.page_text(&bytes, pages.len(), None),
++        Err(PdfiumError::PageOutOfRange { .. })
++    ));
++}

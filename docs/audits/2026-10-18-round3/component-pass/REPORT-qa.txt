@@ -1,0 +1,34 @@
+qa (rightkit-qa 0.6.4 -> 0.6.5, @rightkit/qa 0.5.0 -> 0.6.0). Patch: D:\scratch\rk-gaps-work\c2\qa\qa.patch. Nothing was built or run.
+
+DONE #752 isolated native-real mode: Rust `isolation` module (debug_assertions only; native_real_env refuses relative/root/home run roots, refuse_in_native_real, engine_isolation_env, webview store, dialog seam); JS/CLI control client: `ControlClient`, `withControl`, `readControlRecord`, `rightkit-qa-control` bin (service.json discovery, socket/pipe, hello, JSON lines, events, chunked results)
+DONE #761 pixel-diff (`compareToBaseline`, `compareDirToBaselines`, `diffImages`, `encodePng`, `decodePng`) and Tauri invoke mock (`createInvokeMock`, `invokeMockInstallScript`), exported from the root
+PARTIAL #382 `fake_cli` module + `rightkit-fake-cli` binary + tests (scripted fake model CLI / CLI-style editor engine); missing: a framed-stdio sidecar fake engine (PostRight fake_engine.rs shape is not available here to port)
+DONE #383 `@rightkit/qa/preview` (selectDataSource, fault injector, withFaults, fixtures); impossible to ship: not re-exported from root, throws at load in a production build (assertPreviewAllowed), plus build-time `assertNoPreviewInBundle`/`findPreviewInBundle` that fail a release bundle containing RIGHTKIT_QA_PREVIEW_MARKER
+DONE #387 npm: QaPage navigate/emulation/permissions/frameTargets/dialogs/interceptRequests/memory, mouse wheel and press with button+modifiers, keyboard insertText, new pageErrors/assertNoPageErrors/captureEvidence/clickUntil; Rust: legal gate helper (`legal_gate`, `Control::accept_legal_gate`)
+ALREADY #387 (Rust parts) command receives `args` (embedded/mod.rs "command"), `Control::live_log_path`/`log_tail`, `record_page_errors`/`page_errors`/`failure_evidence`, `Control::click_until`, public `scenario::strip_verbatim`
+DEFERRED #387 (publish rightkit-qa / rightkit-qa-driver binaries via npm/PATH): needs the release/publish pipeline and an install root (#430), a cross-component decision, not QA crate code
+DONE #468 dialog seam `@rightkit/qa/dialog` (`qaDialogAnswer`) + Rust `isolation` (child-engine env, per-run webview data dir and store id, mute-media script, dialog_answer_js, DIALOG_SEAM_TS)
+DONE #355 `media::parse_detect_intervals` (ffmpeg blackdetect/freezedetect/silencedetect logs) and `loudness::loudness_series` / `loudness_outside` (momentary and short-term intervals)
+ALREADY #355 (rest) pure PCM/frame detectors `media::silence_intervals`, `clipped_runs`, `black_intervals`, `freeze_intervals`, `Interval` are on main
+DONE #674 `bindQaDevRoot` / `resetQaDevRoot` / `QaDevRoot`, guard accepts a marker-bound persistent root (spawnQaApp, assertQaLaunchSafe, seedFrom); all forbidden-location rules still apply
+DEFERRED #674 (second half) `right-release deps --audit` for cargo: owned by @rightkit/release, not this component
+DONE #427 Rust `crawl` module (CRAWL_JS, Inventory, compare_inventories, ParityReport + Markdown), `ui_crawl` scenario step, and the JS twin (`crawlControls`, `compareInventories`, `parityMarkdown`, read/write); screenshot comparison across platforms uses the new pixeldiff
+DONE #249 item 7: `[engine].data_dir_env = "RIGHTKIT_SUITE_ROOT"` is no longer pushed into a UI launch (`scenario::ui_launch_sets_env`)
+ALREADY #249 items 1-6 (CHANGELOG 0.6.4 block: installed refusal, explicit-binary refusal, engine_seed, ui_focus_ring/ui_contrast/ui_assert_ax, README recipe)
+ALREADY #252 fixed stash path (binary::resolve_stashed) and fixed per-app QA bundle path (control.rs) are on main
+DONE #771-D1 inplace.rs (and the stash in binary.rs, QA bundle in control.rs) keep no backup: old copy waits under transient `<name>.swap-<pid>`, deleted after the swap (renamed back on failure); stale `<name>.previous` deleted; docs and tests updated; CHANGELOG entry
+ALREADY #343 LaunchSpec::focus, [ui] focus, `focus` control method (needs the macOS live acceptance run noted in the issue, not code)
+DEFERRED #678 Windows UI background proof fails on the Dell for every launch: needs the failing run's evidence on that host (which pid, what the foreground sampler saw); no code cause identifiable from the tree
+ALREADY #456 suite hooks (SuiteHooks, StepHandlers, secret_forms, hmac_sha256) are on main (the old patch's version would have duplicated them; not applied)
+ALREADY #469 role/name locator (`ACCESSIBLE_LOCATOR_SCRIPT` in page.rs) and `ffprobe_count_frames` are on main
+ALREADY #764 keyboard insertText/IME composition and `performanceMetrics` (qa-input2 delta applied)
+ALREADY #381 `util::secret_forms`; #378 http headers (http.rs); #398 MockServer options (mock.rs); #185 `util::plain_path_text`; #433 `frametrace`; #442 `tart`; #212 `android`; #235 installed refusal (installed.rs, installed.ts); #358 set_viewport settle; #485 ts-register (spot-checked by symbol, not audited in depth)
+NOT TOUCHED (found by search, not in my list, not verified): #195, #215, #430, #435, #488
+REJECTED: none (the old patch's `.previous`-style behaviour and the G10 `test-mode` cargo feature were not adopted: D1 and the existing control/debug_assertions gating)
+
+New versions: rightkit-qa 0.6.5 (Cargo.toml, Cargo.lock, CHANGELOG "0.6.5 (unreleased)"); @rightkit/qa 0.6.0 (package.json, CHANGELOG "0.6.0 (unreleased)").
+
+Public API changes
+rightkit-qa (all additive): modules `fake_cli` (+ bin `rightkit-fake-cli`), `isolation` (debug_assertions only), `crawl`, `legal_gate`; `media::{DetectFilter, parse_detect_intervals}`; `loudness::{SeriesWindow, LoudnessPoint, loudness_series, loudness_outside}`; `Control::accept_legal_gate`; scenario step `ui_crawl`; behaviour: UI launch skips a data_dir_env named RIGHTKIT_SUITE_ROOT.
+@rightkit/qa (additive except one type change): `bindQaDevRoot`, `resetQaDevRoot`, `QaDevRoot`, `qaWorkspaceEnv`, `DEV_ROOT_MARKER`, `QaLaunchWorkspace`; `ControlClient`, `withControl`, `readControlRecord`, `ControlError`, bin `rightkit-qa-control`; pixeldiff and invoke-mock exports; crawl exports; `assertNoPreviewInBundle`, `findPreviewInBundle`, `PreviewInBundleError`, `PREVIEW_BUNDLE_MARKER`; subpaths `@rightkit/qa/preview`, `@rightkit/qa/dialog`; QaPage/QaMouse/QaKeyboard additions (navigate, clearViewport, setEmulatedMedia, grantPermissions, resetPermissions, frameTargets, handleDialog, onDialog, interceptRequests, collectGarbage, sampleMemory, wheel/press options, insertText, IME, pageErrors, assertNoPageErrors, captureEvidence, clickUntil).
+BREAKING (type only): `QaPage.evaluateOnNewDocument` now resolves a `QaNewDocumentScript` handle instead of `void` (source compatible for callers that ignore the result).

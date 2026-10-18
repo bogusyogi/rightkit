@@ -1,0 +1,1365 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..ea2e720 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7122,7 +7122,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-models"
+-version = "0.4.4"
++version = "0.4.5"
+ dependencies = [
+  "base64 0.23.1",
+  "chrono",
+diff --git a/crates/rightkit-models/CHANGELOG.md b/crates/rightkit-models/CHANGELOG.md
+index eff0410..671189a 100644
+--- a/crates/rightkit-models/CHANGELOG.md
++++ b/crates/rightkit-models/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.4.5 (unreleased)
++
++Not compiled or run when written (edit-only pass); CI is the compiler. Additive only: no existing public item changes, so dependents (rightkit-browser, rightkit-onnx) need no republish.
++
++- **`GpuDetail`: raw VRAM in MiB and the reporting probe (Orthic-Labs/rightkit#709, for CodeRight).** `Gpu` is unchanged. New `GpuDetail { gpu, vram_mib: Option<u64>, source: Option<String> }` (`vram_mib` is the unrounded probe value, so 16376 MiB stays 16376 where `vram_gb` rounds to 0.1 GB; `source` is one of `GpuDetail::SOURCE_NVIDIA_SMI`, `SOURCE_WMIC`, `SOURCE_SYSTEM_PROFILER`, `SOURCE_REGISTRY`, `None` for a synthesized Apple Silicon entry). Returned by `Hardware::detect_detailed()` and `Hardware::probe_with_runner_detailed(runner)` as `(Hardware, Vec<GpuDetail>)`, where `details[i]` describes `hw.gpus[i]`, and by the pure parsers `parse_nvidia_smi_csv_detailed`, `parse_wmic_video_detailed` and `parse_system_profiler_displays_detailed`. `detect`, `probe_with_runner` and the existing parsers behave as before (they are the detailed versions without the extras). A duplicate-name merge fills `vram_mib` and `source` together with the VRAM. Tests: `probe.rs` (`detailed_parsers_keep_raw_mib_and_the_reporting_probe`, the merge test).
++- **`DownloadSource` and `ensure_ready_from_source` (Orthic-Labs/rightkit#727, for MailRight).** A caller-chosen route for a pinned model: a base URL for `SpecSource::Files` models (`<base>/<path>`, also for files whose catalog `url` is `None`, such as the EmbeddingGemma 2 Q4 bundle) or the archive URL for `SpecSource::Archive`. Digest and size pins are unchanged and still enforced, so a mirror can only supply the right bytes. The app bearer and worker grants are never sent to the source; a catalog `requires_auth` model downloads from it without one. `DownloadSource::new` accepts `http(s)://host/...` only, refuses user information, query, fragment and whitespace. `ModelStore::with_download_source` / `download_source`; `ModelStore::ensure` uses it and then skips grants (`ensure_entitled` is unaffected). `suite::ensure_ready_from_source` is the free-function form. `FileSpec::mirrors` for the manifest `Store` already existed (0.4.3 content). No environment variable is read here. Tests: `tests/download_source_status.rs`.
++- **Serializable `ModelStatus` and `effective_dir_at` (Orthic-Labs/rightkit#741 item 1, for ScrapeRight).** `ModelStatus`, `SetStatus`, `EntryState` and `ModelTier` derive `Serialize` and `Deserialize` (`state` and `tier` snake_case). New `suite::effective_dir_at(models_root, spec, siblings, seed_entry_dir) -> Option<EffectiveModelDir { dir, source }>` and `ModelStore::effective_dir`: shared entry, then sibling entries (machine-wide root only), then the seed entry directory; each must be `Ready` at `VerifyMode::Size` against the trusted manifest. Read-only. Tests: `tests/download_source_status.rs`.
++- **Not done here.** #741 item 2 (case-insensitive `find_processes`) is `rightkit-child-process`, not this crate. #542 (LLMLingua spec) needs a hosted route and pinned digests that do not exist (see the report).
++
+ ## 0.4.4 (2026-10-17)
+ 
+ - **New: `suite::archive::install_tar_gz_expecting(archive, dest_root, expected_wrapper, installed_name)`** (Orthic-Labs/rightkit#455). Same atomic install as `install_tar_gz`, but the archive's single top-level directory must be named exactly `expected_wrapper`; another name or a second top-level entry is refused before installation, leaving the previous install untouched and no staging directory behind. `install_tar_gz` is unchanged and shares the implementation. Additive; version not bumped here. Tests: `tests/install_tar_gz_expecting.rs`. Not compiled when written.
+diff --git a/crates/rightkit-models/Cargo.toml b/crates/rightkit-models/Cargo.toml
+index e479a53..15cf78b 100644
+--- a/crates/rightkit-models/Cargo.toml
++++ b/crates/rightkit-models/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-models"
+-version = "0.4.4"
++version = "0.4.5"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+diff --git a/crates/rightkit-models/README.md b/crates/rightkit-models/README.md
+index 79761e5..e203d86 100644
+--- a/crates/rightkit-models/README.md
++++ b/crates/rightkit-models/README.md
+@@ -198,6 +198,13 @@ and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `
+ - **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
+   none was sourced for this bundle.
+ 
++## Download source, serializable status and effective directory (0.4.5)
++
++- `DownloadSource::new(url)` names where to fetch a pinned model from instead of its catalog URL (a mirror), or when the catalog has none (the EmbeddingGemma 2 Q4 bundle). For a per-file model the value is a base URL (`<base>/<file path>`); for an archive model it is the archive URL. The pins stay: every file must match its SHA-256 and size, so a source can only supply the right bytes. The app's bearer and any worker grant are never sent to it. Use `ModelStore::with_download_source(source)` (then `ensure` downloads from it) or `suite::ensure_ready_from_source`. The crate reads no environment variable: the app reads its own setting and passes the value.
++- `ModelStatus`, `SetStatus`, `EntryState` and `ModelTier` implement `Serialize`/`Deserialize` (`state` and `tier` are snake_case strings), so no mirror DTO is needed.
++- `suite::effective_dir_at(models_root, spec, siblings, seed_entry_dir)` / `ModelStore::effective_dir` return the directory a model loads from now and whether it is the `shared`, a `sibling` or the `seed` copy (`EffectiveModelDir`). Read-only: no ref is registered (that stays with `ModelStore::resolve`).
++- `Hardware::detect_detailed()` / `Hardware::probe_with_runner_detailed(runner)` also return `Vec<GpuDetail>` (`gpu`, raw `vram_mib`, `source` naming the probe: `GpuDetail::SOURCE_NVIDIA_SMI`, `SOURCE_WMIC`, `SOURCE_SYSTEM_PROFILER`, `SOURCE_REGISTRY`), parallel to `Hardware::gpus`. `Gpu` itself is unchanged.
++
+ ## EmbeddingGemma 2 E43 archive (route defined, pins required)
+ 
+ E43 (int8 token table, batched ingest graphs; read by `rightkit-embed` 0.6.0) ships as one worker-served `.tar.gz` at `EMBEDDINGGEMMA2_E43_DML_URL`, verified against a whole-archive SHA-256 and size before extraction. The real digest and the per-file pins are not recorded in this repository, so `EMBEDDINGGEMMA2_E43_DML_PINS` is `None` and `embedding_gemma2_e43_dml_spec()` returns `Err(MissingE43Pins)`: nothing downloads an unpinned archive. Once the owner of the built archive supplies the pins, record them in `EMBEDDINGGEMMA2_E43_DML_PINS` (or build the spec with `embedding_gemma2_e43_dml_spec_with(EmbeddingGemma2E43Pins { .. })`). See bogusyogi/rightkit#224.
+diff --git a/crates/rightkit-models/src/hardware.rs b/crates/rightkit-models/src/hardware.rs
+index 86e6a10..18777c6 100644
+--- a/crates/rightkit-models/src/hardware.rs
++++ b/crates/rightkit-models/src/hardware.rs
+@@ -19,6 +19,8 @@
+ use serde::{Deserialize, Serialize};
+ use serde_json::{Map, Value};
+ 
++use crate::probe::GpuDetail;
++
+ #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+ pub struct Gpu {
+     pub name: String,
+@@ -148,17 +150,24 @@ impl Hardware {
+ 
+     /// The real host, ignoring every override.
+     pub fn detect() -> Self {
++        Self::detect_detailed().0
++    }
++
++    /// As [`Hardware::detect`], also returning one [`GpuDetail`] per entry of `hw.gpus` (same
++    /// order): the unrounded VRAM in MiB and which probe reported the card.
++    pub fn detect_detailed() -> (Self, Vec<GpuDetail>) {
++        let details = detect_gpus();
+         let mut hw = Hardware {
+             os: std::env::consts::OS.into(),
+             arch: std::env::consts::ARCH.into(),
+             memory_gb: platform_memory_bytes().map(|b| round1(b / 1_073_741_824.0)),
+-            gpus: detect_gpus(),
++            gpus: details.iter().map(|detail| detail.gpu.clone()).collect(),
+             profile: String::new(),
+             source: "detected".into(),
+             profile_aliases: Vec::new(),
+         };
+         hw.profile = hw.profile_id();
+-        hw
++        (hw, details)
+     }
+ 
+     /// `probe` with an app-supplied override taking precedence. `None` is
+@@ -644,7 +653,7 @@ fn platform_memory_bytes() -> Option<f64> {
+ }
+ 
+ #[cfg(target_os = "macos")]
+-fn detect_gpus() -> Vec<Gpu> {
++fn detect_gpus() -> Vec<GpuDetail> {
+     let mut gpus = Vec::new();
+     if let Ok(out) = std::process::Command::new("system_profiler")
+         .args(["SPDisplaysDataType", "-json"])
+@@ -656,31 +665,40 @@ fn detect_gpus() -> Vec<Gpu> {
+                     .as_str()
+                     .unwrap_or_default()
+                     .to_ascii_lowercase();
+-                gpus.push(Gpu {
+-                    name: g["sppci_model"].as_str().unwrap_or("GPU").to_string(),
+-                    vram_gb: g["spdisplays_vram"]
+-                        .as_str()
+-                        .and_then(|s| s.split_whitespace().next())
+-                        .and_then(|s| s.parse().ok()),
+-                    unified: vendor.contains("apple") || std::env::consts::ARCH == "aarch64",
+-                    backends: vec!["metal".into()],
+-                });
++                let vram_gb: Option<f64> = g["spdisplays_vram"]
++                    .as_str()
++                    .and_then(|s| s.split_whitespace().next())
++                    .and_then(|s| s.parse().ok());
++                gpus.push(GpuDetail::new(
++                    Gpu {
++                        name: g["sppci_model"].as_str().unwrap_or("GPU").to_string(),
++                        vram_gb,
++                        unified: vendor.contains("apple") || std::env::consts::ARCH == "aarch64",
++                        backends: vec!["metal".into()],
++                    },
++                    vram_gb.map(|gb| (gb * 1024.0).round() as u64),
++                    Some(GpuDetail::SOURCE_SYSTEM_PROFILER),
++                ));
+             }
+         }
+     }
+     if gpus.is_empty() && std::env::consts::ARCH == "aarch64" {
+-        gpus.push(Gpu {
+-            name: "Apple Silicon (unified)".into(),
+-            vram_gb: None,
+-            unified: true,
+-            backends: vec!["metal".into()],
+-        });
++        gpus.push(GpuDetail::new(
++            Gpu {
++                name: "Apple Silicon (unified)".into(),
++                vram_gb: None,
++                unified: true,
++                backends: vec!["metal".into()],
++            },
++            None,
++            None,
++        ));
+     }
+     gpus
+ }
+ 
+ #[cfg(target_os = "windows")]
+-fn detect_gpus() -> Vec<Gpu> {
++fn detect_gpus() -> Vec<GpuDetail> {
+     const CLASS: &str =
+         r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+     let query = |value: &str| {
+@@ -700,7 +718,7 @@ fn detect_gpus() -> Vec<Gpu> {
+                 .collect()
+         })
+         .unwrap_or_default();
+-    let mems: Vec<f64> = query("HardwareInformation.qwMemorySize")
++    let mems: Vec<u64> = query("HardwareInformation.qwMemorySize")
+         .map(|o| {
+             String::from_utf8_lossy(&o.stdout)
+                 .lines()
+@@ -714,25 +732,28 @@ fn detect_gpus() -> Vec<Gpu> {
+                             .or_else(|| t.parse().ok())
+                     })
+                 })
+-                .map(|b| b as f64 / 1_073_741_824.0)
+                 .collect()
+         })
+         .unwrap_or_default();
+-    let mut gpus: Vec<Gpu> = names
++    let mut gpus: Vec<GpuDetail> = names
+         .into_iter()
+         .enumerate()
+         .map(|(i, name)| {
+             let nv = name.to_ascii_lowercase().contains("nvidia");
+-            Gpu {
+-                name,
+-                vram_gb: mems.get(i).copied().map(round1),
+-                unified: false,
+-                backends: if nv {
+-                    vec!["cuda".into(), "vulkan".into()]
+-                } else {
+-                    vec!["vulkan".into(), "directml".into()]
++            GpuDetail::new(
++                Gpu {
++                    name,
++                    vram_gb: mems.get(i).map(|b| round1(*b as f64 / 1_073_741_824.0)),
++                    unified: false,
++                    backends: if nv {
++                        vec!["cuda".into(), "vulkan".into()]
++                    } else {
++                        vec!["vulkan".into(), "directml".into()]
++                    },
+                 },
+-            }
++                mems.get(i).map(|b| crate::probe::bytes_to_mib(*b)),
++                Some(GpuDetail::SOURCE_REGISTRY),
++            )
+         })
+         .collect();
+     apply_nvidia_smi(&mut gpus);
+@@ -740,7 +761,7 @@ fn detect_gpus() -> Vec<Gpu> {
+ }
+ 
+ #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
+-fn detect_gpus() -> Vec<Gpu> {
++fn detect_gpus() -> Vec<GpuDetail> {
+     let mut gpus = Vec::new();
+     apply_nvidia_smi(&mut gpus);
+     gpus
+@@ -749,14 +770,14 @@ fn detect_gpus() -> Vec<Gpu> {
+ /// Android has no discrete GPU to probe here (and no `nvidia-smi`); accelerated backends are not
+ /// part of the fit rules yet. Facts from the Android API come through `Hardware::from_android`.
+ #[cfg(target_os = "android")]
+-fn detect_gpus() -> Vec<Gpu> {
++fn detect_gpus() -> Vec<GpuDetail> {
+     Vec::new()
+ }
+ 
+ /// The registry qwMemorySize is capped for >4 GiB on some drivers; nvidia-smi
+ /// is authoritative for NVIDIA cards and is added when no entry covers them.
+ #[cfg(not(any(target_os = "macos", target_os = "android")))]
+-fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
++fn apply_nvidia_smi(gpus: &mut Vec<GpuDetail>) {
+     let mut nvidia_smi = std::process::Command::new("nvidia-smi");
+     nvidia_smi.args([
+         "--query-gpu=name,memory.total",
+@@ -778,14 +799,26 @@ fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
+             continue;
+         };
+         let vram = round1(mib / 1024.0);
+-        match gpus.iter_mut().find(|g| g.name.eq_ignore_ascii_case(&name)) {
+-            Some(g) => g.vram_gb = Some(vram),
+-            None => gpus.push(Gpu {
+-                name,
+-                vram_gb: Some(vram),
+-                unified: false,
+-                backends: vec!["cuda".into(), "vulkan".into()],
+-            }),
++        let vram_mib = mib.round() as u64;
++        match gpus
++            .iter_mut()
++            .find(|g| g.gpu.name.eq_ignore_ascii_case(&name))
++        {
++            Some(g) => {
++                g.gpu.vram_gb = Some(vram);
++                g.vram_mib = Some(vram_mib);
++                g.source = Some(GpuDetail::SOURCE_NVIDIA_SMI.into());
++            }
++            None => gpus.push(GpuDetail::new(
++                Gpu {
++                    name,
++                    vram_gb: Some(vram),
++                    unified: false,
++                    backends: vec!["cuda".into(), "vulkan".into()],
++                },
++                Some(vram_mib),
++                Some(GpuDetail::SOURCE_NVIDIA_SMI),
++            )),
+         }
+     }
+ }
+diff --git a/crates/rightkit-models/src/lib.rs b/crates/rightkit-models/src/lib.rs
+index 18b75bd..805a107 100644
+--- a/crates/rightkit-models/src/lib.rs
++++ b/crates/rightkit-models/src/lib.rs
+@@ -47,7 +47,7 @@ pub use hardware::{
+ pub use ids::{encode_revision_key, ModelId, RevisionKey};
+ pub use install::{CrashPoint, Event, InstallOptions, InstallOutcome};
+ pub use platform::Platform;
+-pub use probe::{detect_inference_runtimes, InferenceRuntime, ProbeFuture, ProbeRunner};
++pub use probe::{detect_inference_runtimes, GpuDetail, InferenceRuntime, ProbeFuture, ProbeRunner};
+ pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec, MAX_MIRROR_URLS};
+ pub use store::{
+     AliasStatus, AliasSync, FileRecord, PausedInstall, ResolvedRevision, RevisionRecord, State,
+diff --git a/crates/rightkit-models/src/probe.rs b/crates/rightkit-models/src/probe.rs
+index fea5726..b016ab4 100644
+--- a/crates/rightkit-models/src/probe.rs
++++ b/crates/rightkit-models/src/probe.rs
+@@ -83,41 +83,94 @@ pub async fn detect_inference_runtimes(runner: &dyn ProbeRunner) -> Vec<Inferenc
+     found
+ }
+ 
++/// A [`Gpu`] plus what [`Gpu`] cannot carry without a breaking change: the raw VRAM in MiB and
++/// which probe reported the entry (Orthic-Labs/rightkit#709). Returned next to a [`Hardware`] by
++/// [`Hardware::probe_with_runner_detailed`] and [`Hardware::detect_detailed`], where `details[i]`
++/// describes `hw.gpus[i]`.
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
++pub struct GpuDetail {
++    /// The same entry as in `Hardware::gpus` (`vram_gb` is rounded to 0.1 GB).
++    pub gpu: Gpu,
++    /// Raw VRAM in MiB as the probe reported it, unrounded: 16376 MiB stays 16376. `None` when the
++    /// probe gave no figure.
++    pub vram_mib: Option<u64>,
++    /// Which probe supplied the entry's memory figure (or the entry itself when it has none): one
++    /// of the `GpuDetail::SOURCE_*` names. `None` for a synthesized entry.
++    pub source: Option<String>,
++}
++
++impl GpuDetail {
++    /// `source` of a card read from `nvidia-smi`.
++    pub const SOURCE_NVIDIA_SMI: &'static str = "nvidia-smi";
++    /// `source` of a card read from `wmic path win32_VideoController`.
++    pub const SOURCE_WMIC: &'static str = "wmic Win32_VideoController";
++    /// `source` of a card read from `system_profiler SPDisplaysDataType`.
++    pub const SOURCE_SYSTEM_PROFILER: &'static str = "system_profiler SPDisplaysDataType";
++    /// `source` of a card read from the Windows display-class registry keys.
++    pub const SOURCE_REGISTRY: &'static str = "registry display class";
++
++    pub(crate) fn new(gpu: Gpu, vram_mib: Option<u64>, source: Option<&str>) -> Self {
++        Self {
++            gpu,
++            vram_mib,
++            source: source.map(str::to_string),
++        }
++    }
++}
++
++/// MiB (rounded to the nearest) from a byte count.
++pub(crate) fn bytes_to_mib(bytes: u64) -> u64 {
++    (bytes + (1 << 19)) >> 20
++}
++
++fn plain(details: Vec<GpuDetail>) -> Vec<Gpu> {
++    details.into_iter().map(|detail| detail.gpu).collect()
++}
++
+ impl Hardware {
+-    /// Probe the host with every child process started through `runner`: `nvidia-smi` for NVIDIA
+-    /// cards, then the platform's own display query (`wmic` on Windows, `system_profiler` on
+-    /// macOS). RAM is read in-process ([`total_memory_bytes`]). The registry read in
+-    /// [`Hardware::detect`] is not repeated here. The result has source `detected`.
+-    pub async fn probe_with_runner(runner: &dyn ProbeRunner) -> Hardware {
+-        let mut gpus = nvidia_smi_gpus(runner).await;
+-        gpus.extend(platform_gpus(runner).await);
++    /// As [`Hardware::probe_with_runner`], also returning one [`GpuDetail`] per entry of
++    /// `hw.gpus` (same order).
++    pub async fn probe_with_runner_detailed(
++        runner: &dyn ProbeRunner,
++    ) -> (Hardware, Vec<GpuDetail>) {
++        let mut details = nvidia_smi_gpus(runner).await;
++        details.extend(platform_gpus(runner).await);
++        let details = dedupe_gpus(details);
+         let mut hw = Hardware {
+             os: std::env::consts::OS.into(),
+             arch: std::env::consts::ARCH.into(),
+             memory_gb: total_memory_bytes().map(|bytes| round1(bytes as f64 / GIB)),
+-            gpus: dedupe_gpus(gpus),
++            gpus: details.iter().map(|detail| detail.gpu.clone()).collect(),
+             profile: String::new(),
+             source: "detected".into(),
+             profile_aliases: Vec::new(),
+         };
+         hw.profile = hw.profile_id();
+-        hw
++        (hw, details)
++    }
++
++    /// Probe the host with every child process started through `runner`: `nvidia-smi` for NVIDIA
++    /// cards, then the platform's own display query (`wmic` on Windows, `system_profiler` on
++    /// macOS). RAM is read in-process ([`total_memory_bytes`]). The registry read in
++    /// [`Hardware::detect`] is not repeated here. The result has source `detected`.
++    pub async fn probe_with_runner(runner: &dyn ProbeRunner) -> Hardware {
++        Self::probe_with_runner_detailed(runner).await.0
+     }
+ }
+ 
+-async fn nvidia_smi_gpus(runner: &dyn ProbeRunner) -> Vec<Gpu> {
++async fn nvidia_smi_gpus(runner: &dyn ProbeRunner) -> Vec<GpuDetail> {
+     let args = [
+         "--query-gpu=name,memory.total",
+         "--format=csv,noheader,nounits",
+     ];
+     match runner.run("nvidia-smi", &args).await {
+-        Some((text, 0)) => parse_nvidia_smi_csv(&text),
++        Some((text, 0)) => parse_nvidia_smi_csv_detailed(&text),
+         _ => Vec::new(),
+     }
+ }
+ 
+ #[cfg(target_os = "windows")]
+-async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<Gpu> {
++async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<GpuDetail> {
+     let args = [
+         "path",
+         "win32_VideoController",
+@@ -126,30 +179,34 @@ async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<Gpu> {
+         "/format:csv",
+     ];
+     match runner.run("wmic", &args).await {
+-        Some((text, 0)) => parse_wmic_video(&text),
++        Some((text, 0)) => parse_wmic_video_detailed(&text),
+         _ => Vec::new(),
+     }
+ }
+ 
+ #[cfg(target_os = "macos")]
+-async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<Gpu> {
++async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<GpuDetail> {
+     let mut gpus = match runner.run("system_profiler", &["SPDisplaysDataType"]).await {
+-        Some((text, 0)) => parse_system_profiler_displays(&text),
++        Some((text, 0)) => parse_system_profiler_displays_detailed(&text),
+         _ => Vec::new(),
+     };
+     if gpus.is_empty() && std::env::consts::ARCH == "aarch64" {
+-        gpus.push(Gpu {
+-            name: "Apple Silicon (unified)".into(),
+-            vram_gb: None,
+-            unified: true,
+-            backends: vec!["metal".into()],
+-        });
++        gpus.push(GpuDetail::new(
++            Gpu {
++                name: "Apple Silicon (unified)".into(),
++                vram_gb: None,
++                unified: true,
++                backends: vec!["metal".into()],
++            },
++            None,
++            None,
++        ));
+     }
+     gpus
+ }
+ 
+ #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+-async fn platform_gpus(_runner: &dyn ProbeRunner) -> Vec<Gpu> {
++async fn platform_gpus(_runner: &dyn ProbeRunner) -> Vec<GpuDetail> {
+     Vec::new()
+ }
+ 
+@@ -157,16 +214,27 @@ async fn platform_gpus(_runner: &dyn ProbeRunner) -> Vec<Gpu> {
+ /// `name, MiB` line per GPU. A line without a name is skipped; an unreadable memory value leaves
+ /// `vram_gb` unset.
+ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<Gpu> {
++    plain(parse_nvidia_smi_csv_detailed(text))
++}
++
++/// As [`parse_nvidia_smi_csv`], keeping the unrounded MiB and the source
++/// ([`GpuDetail::SOURCE_NVIDIA_SMI`]).
++pub fn parse_nvidia_smi_csv_detailed(text: &str) -> Vec<GpuDetail> {
+     text.lines()
+         .filter_map(|line| {
+             let mut parts = line.split(',').map(str::trim);
+             let name = parts.next().filter(|name| !name.is_empty())?;
+-            Some(Gpu {
+-                name: name.to_string(),
+-                vram_gb: parts.next().and_then(parse_memory).map(round1),
+-                unified: false,
+-                backends: vec!["cuda".into(), "vulkan".into()],
+-            })
++            let memory = parts.next();
++            Some(GpuDetail::new(
++                Gpu {
++                    name: name.to_string(),
++                    vram_gb: memory.and_then(parse_memory).map(round1),
++                    unified: false,
++                    backends: vec!["cuda".into(), "vulkan".into()],
++                },
++                memory.and_then(parse_memory_mib),
++                Some(GpuDetail::SOURCE_NVIDIA_SMI),
++            ))
+         })
+         .collect()
+ }
+@@ -175,6 +243,11 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<Gpu> {
+ /// Name` rows, with the header skipped. `AdapterRAM` is a 32-bit WMI field, so a card with 4 GiB
+ /// or more reports at most 4 GiB here.
+ pub fn parse_wmic_video(text: &str) -> Vec<Gpu> {
++    plain(parse_wmic_video_detailed(text))
++}
++
++/// As [`parse_wmic_video`], keeping the MiB and the source ([`GpuDetail::SOURCE_WMIC`]).
++pub fn parse_wmic_video_detailed(text: &str) -> Vec<GpuDetail> {
+     text.lines()
+         .map(str::trim)
+         .filter(|line| !line.is_empty() && !line.starts_with("Node,"))
+@@ -183,17 +256,18 @@ pub fn parse_wmic_video(text: &str) -> Vec<Gpu> {
+             let _node = columns.next()?;
+             let ram_bytes = columns.next().unwrap_or_default();
+             let name = columns.next().filter(|name| !name.is_empty())?;
+-            let vram_gb = ram_bytes
+-                .parse::<u64>()
+-                .ok()
+-                .filter(|bytes| *bytes > 0)
+-                .map(|bytes| round1(bytes as f64 / GIB));
+-            Some(Gpu {
+-                name: name.to_string(),
+-                vram_gb,
+-                unified: false,
+-                backends: backends_for(name),
+-            })
++            let bytes = ram_bytes.parse::<u64>().ok().filter(|bytes| *bytes > 0);
++            let vram_gb = bytes.map(|bytes| round1(bytes as f64 / GIB));
++            Some(GpuDetail::new(
++                Gpu {
++                    name: name.to_string(),
++                    vram_gb,
++                    unified: false,
++                    backends: backends_for(name),
++                },
++                bytes.map(bytes_to_mib),
++                Some(GpuDetail::SOURCE_WMIC),
++            ))
+         })
+         .collect()
+ }
+@@ -202,22 +276,33 @@ pub fn parse_wmic_video(text: &str) -> Vec<Gpu> {
+ /// each GPU and a `VRAM...: 8 GB` line gives its memory. An Apple GPU is reported as unified
+ /// memory.
+ pub fn parse_system_profiler_displays(text: &str) -> Vec<Gpu> {
++    plain(parse_system_profiler_displays_detailed(text))
++}
++
++/// As [`parse_system_profiler_displays`], keeping the MiB and the source
++/// ([`GpuDetail::SOURCE_SYSTEM_PROFILER`]).
++pub fn parse_system_profiler_displays_detailed(text: &str) -> Vec<GpuDetail> {
+     let mut gpus = Vec::new();
+-    let mut current: Option<Gpu> = None;
++    let mut current: Option<GpuDetail> = None;
+     for line in text.lines().map(str::trim) {
+         if let Some(model) = line.strip_prefix("Chipset Model:") {
+             gpus.extend(current.take());
+             let name = model.trim();
+-            current = Some(Gpu {
+-                name: name.to_string(),
+-                vram_gb: None,
+-                unified: name.to_ascii_lowercase().contains("apple"),
+-                backends: vec!["metal".into()],
+-            });
++            current = Some(GpuDetail::new(
++                Gpu {
++                    name: name.to_string(),
++                    vram_gb: None,
++                    unified: name.to_ascii_lowercase().contains("apple"),
++                    backends: vec!["metal".into()],
++                },
++                None,
++                Some(GpuDetail::SOURCE_SYSTEM_PROFILER),
++            ));
+         } else if let Some(rest) = line.strip_prefix("VRAM") {
+             if let (Some(gpu), Some((_, raw))) = (current.as_mut(), rest.split_once(':')) {
+-                if gpu.vram_gb.is_none() {
+-                    gpu.vram_gb = parse_memory(raw).map(round1);
++                if gpu.gpu.vram_gb.is_none() {
++                    gpu.gpu.vram_gb = parse_memory(raw).map(round1);
++                    gpu.vram_mib = parse_memory_mib(raw);
+                 }
+             }
+         }
+@@ -250,6 +335,11 @@ pub fn parse_memory(raw: &str) -> Option<f64> {
+     (gb > 0.0).then_some(gb)
+ }
+ 
++/// [`parse_memory`] in whole MiB (rounded to the nearest), not rounded to 0.1 GB.
++fn parse_memory_mib(raw: &str) -> Option<u64> {
++    parse_memory(raw).map(|gb| (gb * 1024.0).round() as u64)
++}
++
+ fn backends_for(name: &str) -> Vec<String> {
+     if name.to_ascii_lowercase().contains("nvidia") {
+         vec!["cuda".into(), "vulkan".into()]
+@@ -260,18 +350,22 @@ fn backends_for(name: &str) -> Vec<String> {
+ 
+ /// Merge GPUs that report the same name (case-insensitively), keeping the first entry and filling
+ /// its missing VRAM from later ones.
+-fn dedupe_gpus(devices: Vec<Gpu>) -> Vec<Gpu> {
+-    let mut deduped: Vec<Gpu> = Vec::new();
++fn dedupe_gpus(devices: Vec<GpuDetail>) -> Vec<GpuDetail> {
++    let mut deduped: Vec<GpuDetail> = Vec::new();
+     for device in devices {
+-        if device.name.trim().is_empty() {
++        if device.gpu.name.trim().is_empty() {
+             continue;
+         }
+         if let Some(existing) = deduped
+             .iter_mut()
+-            .find(|existing| existing.name.eq_ignore_ascii_case(&device.name))
++            .find(|existing| existing.gpu.name.eq_ignore_ascii_case(&device.gpu.name))
+         {
+-            if existing.vram_gb.is_none() {
+-                existing.vram_gb = device.vram_gb;
++            if existing.gpu.vram_gb.is_none() {
++                existing.gpu.vram_gb = device.gpu.vram_gb;
++                existing.vram_mib = device.vram_mib;
++                if device.gpu.vram_gb.is_some() {
++                    existing.source = device.source;
++                }
+             }
+             continue;
+         }
+@@ -372,22 +466,49 @@ mod tests {
+ 
+     #[test]
+     fn duplicate_gpu_names_merge_and_fill_missing_vram() {
++        let card = |name: &str, vram_gb, mib, source| {
++            GpuDetail::new(
++                Gpu {
++                    name: name.into(),
++                    vram_gb,
++                    unified: false,
++                    backends: vec![],
++                },
++                mib,
++                Some(source),
++            )
++        };
+         let merged = dedupe_gpus(vec![
+-            Gpu {
+-                name: "Card".into(),
+-                vram_gb: None,
+-                unified: false,
+-                backends: vec![],
+-            },
+-            Gpu {
+-                name: "card".into(),
+-                vram_gb: Some(6.0),
+-                unified: false,
+-                backends: vec![],
+-            },
++            card("Card", None, None, GpuDetail::SOURCE_WMIC),
++            card("card", Some(6.0), Some(6144), GpuDetail::SOURCE_NVIDIA_SMI),
+         ]);
+         assert_eq!(merged.len(), 1);
+-        assert_eq!(merged[0].vram_gb, Some(6.0));
++        assert_eq!(merged[0].gpu.vram_gb, Some(6.0));
++        assert_eq!(merged[0].vram_mib, Some(6144));
++        assert_eq!(merged[0].source.as_deref(), Some(GpuDetail::SOURCE_NVIDIA_SMI));
++    }
++
++    #[test]
++    fn detailed_parsers_keep_raw_mib_and_the_reporting_probe() {
++        // 16376 MiB (an RTX 4080) must not read back as 16384; 6144 MiB stays exact.
++        let gpus =
++            parse_nvidia_smi_csv_detailed("NVIDIA GeForce RTX 4080, 16376\nCard B, 6144\n");
++        assert_eq!(gpus[0].vram_mib, Some(16376));
++        assert_eq!(gpus[1].vram_mib, Some(6144));
++        assert_eq!(gpus[0].source.as_deref(), Some(GpuDetail::SOURCE_NVIDIA_SMI));
++        let wmic = parse_wmic_video_detailed("Node,AdapterRAM,Name\nPC,2147483648,Intel UHD\n");
++        assert_eq!(wmic[0].vram_mib, Some(2048));
++        assert_eq!(wmic[0].source.as_deref(), Some(GpuDetail::SOURCE_WMIC));
++        let sp = parse_system_profiler_displays_detailed(
++            "Chipset Model: AMD Radeon RX 6600\nVRAM (Total): 8 GB\n",
++        );
++        assert_eq!(sp[0].vram_mib, Some(8192));
++        assert_eq!(sp[0].source.as_deref(), Some(GpuDetail::SOURCE_SYSTEM_PROFILER));
++        // The plain parser is the same list without the extras.
++        assert_eq!(
++            parse_nvidia_smi_csv("NVIDIA GeForce RTX 4080, 16376"),
++            vec![gpus[0].gpu.clone()]
++        );
+     }
+ 
+     #[test]
+diff --git a/crates/rightkit-models/src/suite/catalog.rs b/crates/rightkit-models/src/suite/catalog.rs
+index 385e078..667e38d 100644
+--- a/crates/rightkit-models/src/suite/catalog.rs
++++ b/crates/rightkit-models/src/suite/catalog.rs
+@@ -52,7 +52,8 @@ pub enum SpecSource {
+ /// The grouping is data on the spec, never a model's position in a list: code that asks for
+ /// "what this install needs" asks for [`ModelTier::Base`], and an optional download is offered
+ /// separately.
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
+ pub enum ModelTier {
+     /// Every install needs it (the base set: [`base_catalog`], and [`catalog`]).
+     Base,
+diff --git a/crates/rightkit-models/src/suite/handle.rs b/crates/rightkit-models/src/suite/handle.rs
+index 0cea1fe..77b390c 100644
+--- a/crates/rightkit-models/src/suite/handle.rs
++++ b/crates/rightkit-models/src/suite/handle.rs
+@@ -13,7 +13,8 @@ use crate::suite::grant::GrantError;
+ use crate::suite::install::{ensure_with_grant, ensure_with_grant_via, GrantConfig};
+ use crate::suite::manifest::VerifyMode;
+ use crate::suite::store::{
+-    ensure_ready_recorded, status_at, status_in, EnsureOptions, EntryState, ModelStatus, Progress,
++    effective_dir_at, ensure_ready_from_source, ensure_ready_recorded, status_at, status_in,
++    DownloadSource, EffectiveModelDir, EnsureOptions, EntryState, ModelStatus, Progress,
+ };
+ use crate::suite::{paths, refs};
+ 
+@@ -121,6 +122,7 @@ pub struct ModelStore {
+     models_root: PathBuf,
+     app_id: String,
+     http: Option<ModelHttp>,
++    download_source: Option<DownloadSource>,
+ }
+ 
+ impl std::fmt::Debug for ModelStore {
+@@ -129,6 +131,7 @@ impl std::fmt::Debug for ModelStore {
+             .field("models_root", &self.models_root)
+             .field("app_id", &self.app_id)
+             .field("custom_http", &self.http.is_some())
++            .field("download_source", &self.download_source)
+             .finish()
+     }
+ }
+@@ -152,6 +155,7 @@ impl ModelStore {
+             models_root: paths::models_root(),
+             app_id: app_id.into(),
+             http: None,
++            download_source: None,
+         }
+     }
+ 
+@@ -161,6 +165,7 @@ impl ModelStore {
+             models_root: root.into(),
+             app_id: app_id.into(),
+             http: None,
++            download_source: None,
+         }
+     }
+ 
+@@ -185,6 +190,20 @@ impl ModelStore {
+         self
+     }
+ 
++    /// Download pinned models from `source` instead of their catalog URL (see [`DownloadSource`]):
++    /// a mirror, or the only route for a spec that has none. [`ModelStore::ensure`] uses it and
++    /// then requests no grant and sends no bearer; digest and size pins still apply. Does not
++    /// affect `ensure_entitled` / `try_ensure_entitled`.
++    pub fn with_download_source(mut self, source: DownloadSource) -> Self {
++        self.download_source = Some(source);
++        self
++    }
++
++    /// The configured [`DownloadSource`], if any.
++    pub fn download_source(&self) -> Option<&DownloadSource> {
++        self.download_source.as_ref()
++    }
++
+     pub fn models_root(&self) -> &Path {
+         &self.models_root
+     }
+@@ -204,6 +223,17 @@ impl ModelStore {
+         status_at(&self.models_root, spec, mode)
+     }
+ 
++    /// The directory `spec` loads from now and whether it is the shared, a sibling or the seed
++    /// copy (see [`crate::suite::store::effective_dir_at`]). Read-only: no ref is registered.
++    pub fn effective_dir(
++        &self,
++        spec: &ModelSpec,
++        siblings: &[PathBuf],
++        seed_entry_dir: Option<&Path>,
++    ) -> Option<EffectiveModelDir> {
++        effective_dir_at(&self.models_root, spec, siblings, seed_entry_dir)
++    }
++
+     pub fn parakeet_status(&self, mode: VerifyMode) -> ModelStatus {
+         self.status(&parakeet_spec(), mode)
+     }
+@@ -347,6 +377,22 @@ impl ModelStore {
+         cancelled: &dyn Fn() -> bool,
+         progress: impl FnMut(Progress),
+     ) -> Result<ModelStatus, String> {
++        if let Some(source) = &self.download_source {
++            let client = self.http.clone().unwrap_or_default();
++            return ensure_ready_from_source(
++                &client,
++                &self.models_root,
++                spec,
++                &EnsureOptions {
++                    seed_dir: None,
++                    authorization: None,
++                    app_id: &self.app_id,
++                },
++                source,
++                cancelled,
++                progress,
++            );
++        }
+         match &self.http {
+             Some(client) => ensure_with_grant_via(
+                 client,
+diff --git a/crates/rightkit-models/src/suite/mod.rs b/crates/rightkit-models/src/suite/mod.rs
+index 3f9e665..5a00d00 100644
+--- a/crates/rightkit-models/src/suite/mod.rs
++++ b/crates/rightkit-models/src/suite/mod.rs
+@@ -67,9 +67,10 @@ pub use refs::{
+ #[allow(deprecated)]
+ pub use store::http_agent;
+ pub use store::{
+-    base_size_hint_bytes, base_status_at, ensure_ready, ensure_ready_cancellable, migrate_legacy,
+-    migrate_legacy_checked, migrate_source_checked, prune_unref_entries, prune_unref_entries_with,
+-    register_ref, resolve_ready_dir, set_status_at, size_hint_bytes, status_at, status_in,
++    base_size_hint_bytes, base_status_at, effective_dir_at, ensure_ready, ensure_ready_cancellable,
++    ensure_ready_from_source, migrate_legacy, migrate_legacy_checked, migrate_source_checked,
++    prune_unref_entries, prune_unref_entries_with, register_ref, resolve_ready_dir, set_status_at,
++    size_hint_bytes, status_at, status_in, DownloadSource, EffectiveModelDir, EffectiveSource,
+     EnsureOptions, EntryState, MigrateOutcome, ModelStatus, Progress, SetStatus,
+ };
+ pub use variant::{parakeet_variant_descriptor, VariantDescriptor};
+diff --git a/crates/rightkit-models/src/suite/store.rs b/crates/rightkit-models/src/suite/store.rs
+index 935a196..2dc51a7 100644
+--- a/crates/rightkit-models/src/suite/store.rs
++++ b/crates/rightkit-models/src/suite/store.rs
+@@ -19,7 +19,8 @@ use crate::suite::refs;
+ 
+ const INSTALL_WAIT: Duration = Duration::from_secs(30 * 60);
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
+ pub enum EntryState {
+     /// No usable copy in the store.
+     Missing,
+@@ -31,7 +32,9 @@ pub enum EntryState {
+     InProgress,
+ }
+ 
+-#[derive(Debug, Clone)]
++/// Readiness of one model. Serializable as-is (`state` and `tier` are snake_case strings), so an
++/// app can hand it to its UI without a mirror DTO.
++#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+ pub struct ModelStatus {
+     pub id: String,
+     pub label: String,
+@@ -142,7 +145,7 @@ impl ModelStatus {
+ }
+ 
+ /// Readiness of a set of models and what finishing it would download.
+-#[derive(Debug, Clone)]
++#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+ pub struct SetStatus {
+     pub models: Vec<ModelStatus>,
+     /// Every base model in the set is `Ready`. Add-ons never count: a missing optional model
+@@ -202,6 +205,63 @@ pub fn resolve_ready_dir(models_root: &Path, spec: &ModelSpec) -> Option<PathBuf
+     (status.state == EntryState::Ready).then_some(status.dir)
+ }
+ 
++/// Where an [`EffectiveModelDir`] was found.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++pub enum EffectiveSource {
++    /// The store's own entry (`<models-root>/<id>`).
++    Shared,
++    /// Another app's entry holding the identical trusted variant.
++    Sibling,
++    /// The app-seeded entry directory passed as the seed.
++    Seed,
++}
++
++/// The directory a model loads from right now, and which copy it is.
++#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
++pub struct EffectiveModelDir {
++    pub dir: PathBuf,
++    pub source: EffectiveSource,
++}
++
++/// The copy of `spec` an engine would load, without registering a ref or touching disk beyond
++/// the size-level readiness check. Order: the store's own entry (`models_root`), then each
++/// `siblings` entry (only when `models_root` is the machine-wide root), then `seed_entry_dir`.
++/// A candidate counts only when it is [`EntryState::Ready`] at [`VerifyMode::Size`], so every one
++/// must carry the trusted manifest; a bare hand-placed seed directory is not accepted. `None`
++/// when no copy is ready. Registering the app's ref stays with `ModelStore::resolve`.
++pub fn effective_dir_at(
++    models_root: &Path,
++    spec: &ModelSpec,
++    siblings: &[PathBuf],
++    seed_entry_dir: Option<&Path>,
++) -> Option<EffectiveModelDir> {
++    let ready = |dir: PathBuf| {
++        let status = status_in(dir, spec, VerifyMode::Size);
++        (status.state == EntryState::Ready).then_some(status.dir)
++    };
++    if let Some(dir) = ready(paths::model_dir_at(models_root, spec.id)) {
++        return Some(EffectiveModelDir {
++            dir,
++            source: EffectiveSource::Shared,
++        });
++    }
++    if models_root == paths::models_root() {
++        if let Some(dir) = siblings.iter().find_map(|d| ready(d.clone())) {
++            return Some(EffectiveModelDir {
++                dir,
++                source: EffectiveSource::Sibling,
++            });
++        }
++    }
++    seed_entry_dir
++        .and_then(|d| ready(d.to_path_buf()))
++        .map(|dir| EffectiveModelDir {
++            dir,
++            source: EffectiveSource::Seed,
++        })
++}
++
+ /// Progress phases surfaced to the UI via `model-store://progress` events.
+ #[derive(Debug, Clone)]
+ pub enum Progress {
+@@ -267,6 +327,89 @@ pub fn ensure_ready_cancellable(
+     )
+ }
+ 
++/// A caller-chosen place to download a pinned model from, in place of the catalog URL (or when
++/// the catalog has none, as for the EmbeddingGemma 2 Q4 bundle). The pins do not move: every
++/// file still has to match the spec's SHA-256 and size, and the archive its whole-archive
++/// SHA-256, so a mirror can only supply the right bytes.
++///
++/// - For a `SpecSource::Files` model the value is a base URL: each needed file is fetched from
++///   `<base>/<file path>`.
++/// - For a `SpecSource::Archive` model the value is the full URL of the `.tar.gz`.
++///
++/// The app's `Authorization` value and any worker grant are never sent to this source (it is not
++/// the host they were issued for), and a model that requires auth in the catalog downloads from
++/// it without one. The crate does not read environment variables: the app reads its own setting
++/// and passes it here. Use [`ensure_ready_from_source`] or `ModelStore::with_download_source`.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DownloadSource {
++    url: String,
++}
++
++impl DownloadSource {
++    /// Check and keep `url`: `http://` or `https://` with a host, no whitespace or control
++    /// characters, no user information (`user:password@`), no query or fragment. A trailing `/`
++    /// is dropped. Address policy (loopback and private ranges) is the HTTP client's job.
++    pub fn new(url: impl AsRef<str>) -> Result<Self, String> {
++        let raw = url.as_ref().trim();
++        let rest = raw
++            .strip_prefix("https://")
++            .or_else(|| raw.strip_prefix("http://"))
++            .ok_or_else(|| {
++                format!("download source {raw:?} must start with https:// or http://")
++            })?;
++        let authority = rest.split('/').next().unwrap_or_default();
++        if authority.is_empty() {
++            return Err(format!("download source {raw:?} has no host"));
++        }
++        if authority.contains('@') {
++            return Err("download source must not contain user information".into());
++        }
++        if raw.chars().any(|c| c.is_whitespace() || c.is_control()) {
++            return Err("download source contains whitespace or a control character".into());
++        }
++        if raw.contains('?') || raw.contains('#') {
++            return Err("download source must not have a query or fragment".into());
++        }
++        Ok(Self {
++            url: raw.trim_end_matches('/').to_string(),
++        })
++    }
++
++    /// The validated URL, without a trailing `/`.
++    pub fn as_str(&self) -> &str {
++        &self.url
++    }
++
++    /// URL of one file of a `Files` model under this base.
++    pub fn file_url(&self, relative_path: &str) -> String {
++        format!("{}/{}", self.url, relative_path)
++    }
++}
++
++/// As [`ensure_ready_cancellable`], downloading from `source` instead of the catalog URL (see
++/// [`DownloadSource`]). Verification, pins, locking and ref registration are unchanged; with a
++/// source, a spec that has no catalog URL is downloadable. `opts.authorization` is ignored.
++pub fn ensure_ready_from_source(
++    agent: &impl AsHttpClient,
++    models_root: &Path,
++    spec: &ModelSpec,
++    opts: &EnsureOptions<'_>,
++    source: &DownloadSource,
++    cancelled: &dyn Fn() -> bool,
++    progress: impl FnMut(Progress),
++) -> Result<ModelStatus, String> {
++    ensure_ready_inner(
++        agent,
++        models_root,
++        spec,
++        opts,
++        Some(source),
++        cancelled,
++        progress,
++        &download::FailureSlot::default(),
++    )
++}
++
+ /// As [`ensure_ready_cancellable`], also leaving the last HTTP-level failure of a download in
+ /// `slot` (typed entitlement errors read it).
+ pub(crate) fn ensure_ready_recorded(
+@@ -275,9 +418,29 @@ pub(crate) fn ensure_ready_recorded(
+     spec: &ModelSpec,
+     opts: &EnsureOptions<'_>,
+     cancelled: &dyn Fn() -> bool,
++    progress: impl FnMut(Progress),
++    slot: &download::FailureSlot,
++) -> Result<ModelStatus, String> {
++    ensure_ready_inner(agent, models_root, spec, opts, None, cancelled, progress, slot)
++}
++
++#[allow(clippy::too_many_arguments)]
++fn ensure_ready_inner(
++    agent: &impl AsHttpClient,
++    models_root: &Path,
++    spec: &ModelSpec,
++    opts: &EnsureOptions<'_>,
++    source: Option<&DownloadSource>,
++    cancelled: &dyn Fn() -> bool,
+     mut progress: impl FnMut(Progress),
+     slot: &download::FailureSlot,
+ ) -> Result<ModelStatus, String> {
++    // Never send the app's bearer to a caller-chosen source.
++    let opts = &EnsureOptions {
++        seed_dir: opts.seed_dir,
++        authorization: opts.authorization.filter(|_| source.is_none()),
++        app_id: opts.app_id,
++    };
+     let client = agent.vetted_client();
+     // Keep the registry guard from initial readiness check through ref
+     // registration so GC cannot delete a ready entry between those steps.
+@@ -316,7 +479,7 @@ pub(crate) fn ensure_ready_recorded(
+         progress(Progress::Done);
+         return Ok(status_at(models_root, spec, VerifyMode::Full));
+     }
+-    if !spec.can_download() {
++    if !spec.can_download() && source.is_none() {
+         return Err(format!(
+             "{} is not installed and no download endpoint exists for this platform",
+             spec.label
+@@ -330,8 +493,11 @@ pub(crate) fn ensure_ready_recorded(
+             size,
+             requires_auth,
+         } => {
+-            let url = url.ok_or("no download endpoint configured for this platform")?;
+-            if *requires_auth && opts.authorization.is_none() {
++            let url = match source {
++                Some(source) => source.as_str(),
++                None => url.ok_or("no download endpoint configured for this platform")?,
++            };
++            if source.is_none() && *requires_auth && opts.authorization.is_none() {
+                 return Err(format!(
+                     "{} download requires an app download token (none configured)",
+                     spec.label
+@@ -356,6 +522,7 @@ pub(crate) fn ensure_ready_recorded(
+                 models_root,
+                 spec,
+                 remote,
++                source,
+                 &status.needed,
+                 opts,
+                 cancelled,
+@@ -454,6 +621,7 @@ fn download_files(
+     models_root: &Path,
+     spec: &ModelSpec,
+     remote: &[RemoteFile],
++    source: Option<&DownloadSource>,
+     needed: &[String],
+     opts: &EnsureOptions<'_>,
+     cancelled: &dyn Fn() -> bool,
+@@ -472,7 +640,11 @@ fn download_files(
+             return Err(format!("invalid catalog path {:?}", file.path));
+         };
+         let dest = entry_dir.join(&rel);
+-        match file.url {
++        let url_owned: Option<String> = match source {
++            Some(source) => Some(source.file_url(file.path)),
++            None => file.url.map(str::to_string),
++        };
++        match url_owned.as_deref() {
+             Some(url) => {
+                 let part = download::part_path_for(&dest);
+                 let name = file.path.to_string();
+diff --git a/crates/rightkit-models/tests/download_source_status.rs b/crates/rightkit-models/tests/download_source_status.rs
+new file mode 100644
+index 0000000..0221eaf
+--- /dev/null
++++ b/crates/rightkit-models/tests/download_source_status.rs
+@@ -0,0 +1,279 @@
++//! `DownloadSource` (a caller-chosen route for a pinned model), the serde `ModelStatus` and the
++//! effective-directory lookup (Orthic-Labs/rightkit#727, #741). Real files and a tiny local HTTP
++//! server; nothing here touches the shared suite root.
++
++use rightkit_models::suite::catalog::{ModelSpec, ModelTier, RemoteFile, SpecFile, SpecSource};
++use rightkit_models::suite::manifest::VerifyMode;
++use rightkit_models::suite::store::{self, EnsureOptions};
++use rightkit_models::suite::{
++    effective_dir_at, DownloadSource, EffectiveSource, EntryState, ModelStatus,
++};
++use sha2::{Digest, Sha256};
++use std::collections::HashMap;
++use std::io::{BufRead, BufReader, Write};
++use std::net::TcpListener;
++use std::sync::{Arc, Mutex};
++
++const WEIGHTS: &[u8] = b"weights-bytes";
++const VOCAB: &[u8] = b"vocab-bytes";
++
++fn sha(bytes: &[u8]) -> String {
++    Sha256::digest(bytes)
++        .iter()
++        .map(|x| format!("{x:02x}"))
++        .collect()
++}
++
++fn leak(s: impl Into<String>) -> &'static str {
++    Box::leak(s.into().into_boxed_str())
++}
++
++fn http() -> rightkit_models::http::ModelHttp {
++    rightkit_models::http::http_client_with_options(rightkit_models::http::ModelHttpOptions {
++        proxy: rightkit_models::http::ProxyMode::None,
++        address_policy: rightkit_http::AddressPolicy::public_web()
++            .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
++        ..Default::default()
++    })
++}
++
++/// Serves `routes` (path to body) over plain HTTP, one request per connection, and records each
++/// request as `(request line, had an Authorization header)`.
++struct Server {
++    base: String,
++    log: Arc<Mutex<Vec<(String, bool)>>>,
++}
++
++fn serve(routes: Vec<(&str, Vec<u8>)>) -> Server {
++    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++    let base = format!("http://{}", listener.local_addr().unwrap());
++    let routes: HashMap<String, Vec<u8>> = routes
++        .into_iter()
++        .map(|(path, body)| (path.to_string(), body))
++        .collect();
++    let log = Arc::new(Mutex::new(Vec::new()));
++    let seen = log.clone();
++    std::thread::spawn(move || {
++        for stream in listener.incoming() {
++            let Ok(mut stream) = stream else { continue };
++            let mut reader = BufReader::new(stream.try_clone().unwrap());
++            let mut request_line = String::new();
++            if reader.read_line(&mut request_line).is_err() {
++                continue;
++            }
++            let mut authorized = false;
++            loop {
++                let mut line = String::new();
++                if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
++                    break;
++                }
++                authorized |= line.to_ascii_lowercase().starts_with("authorization:");
++            }
++            let request_line = request_line.trim().to_string();
++            let path = request_line.split(' ').nth(1).unwrap_or("").to_string();
++            seen.lock().unwrap().push((request_line, authorized));
++            let response = match routes.get(&path) {
++                Some(body) => {
++                    let mut out = format!(
++                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
++                        body.len()
++                    )
++                    .into_bytes();
++                    out.extend_from_slice(body);
++                    out
++                }
++                None => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
++                    .to_vec(),
++            };
++            let _ = stream.write_all(&response);
++        }
++    });
++    Server { base, log }
++}
++
++fn spec_files(files: &[(&'static str, &[u8])]) -> &'static [SpecFile] {
++    let list: Vec<SpecFile> = files
++        .iter()
++        .map(|(path, bytes)| SpecFile {
++            path,
++            sha256: Some(leak(sha(bytes))),
++            size: Some(bytes.len() as u64),
++        })
++        .collect();
++    Box::leak(list.into_boxed_slice())
++}
++
++/// A pinned two-file model with no catalog URL, like the EmbeddingGemma 2 Q4 bundle.
++fn urlless_spec(id: &'static str) -> ModelSpec {
++    let remote: Vec<RemoteFile> = [("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)]
++        .iter()
++        .map(|(path, bytes)| RemoteFile {
++            path,
++            url: None,
++            sha256: Some(leak(sha(bytes))),
++            size: Some(bytes.len() as u64),
++        })
++        .collect();
++    ModelSpec {
++        id,
++        label: "Pinned model",
++        tier: ModelTier::AddOn,
++        entitlement: false,
++        version: "r1",
++        size_hint_bytes: (WEIGHTS.len() + VOCAB.len()) as u64,
++        files: spec_files(&[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)]),
++        source: SpecSource::Files(Box::leak(remote.into_boxed_slice())),
++        legacy_dirs: &[],
++        retired_legacy_paths: &[],
++        retired_store_ids: &[],
++    }
++}
++
++fn opts(app: &'static str) -> EnsureOptions<'static> {
++    EnsureOptions {
++        seed_dir: None,
++        authorization: Some("Bearer app-secret"),
++        app_id: app,
++    }
++}
++
++#[test]
++fn source_validation_accepts_a_base_and_refuses_unsafe_values() {
++    let source = DownloadSource::new("https://mirror.example/models/gemma/").unwrap();
++    assert_eq!(source.as_str(), "https://mirror.example/models/gemma");
++    assert_eq!(
++        source.file_url("sub/vocab.txt"),
++        "https://mirror.example/models/gemma/sub/vocab.txt"
++    );
++    for bad in [
++        "",
++        "ftp://mirror.example/x",
++        "mirror.example/x",
++        "https://",
++        "https:///path",
++        "https://user:pw@mirror.example/x",
++        "https://mirror.example/x?token=1",
++        "https://mirror.example/x#frag",
++        "https://mirror.example/a b",
++    ] {
++        assert!(DownloadSource::new(bad).is_err(), "{bad:?} must be refused");
++    }
++}
++
++#[test]
++fn a_urlless_pinned_model_installs_from_a_source_without_the_app_bearer() {
++    let server = serve(vec![
++        ("/mirror/weights.bin", WEIGHTS.to_vec()),
++        ("/mirror/sub/vocab.txt", VOCAB.to_vec()),
++    ]);
++    let spec = urlless_spec("gemma-like");
++    let root = tempfile::tempdir().unwrap();
++    let models = root.path().join("models");
++
++    // Without a source the catalog has no route.
++    let err = store::ensure_ready(&http(), &models, &spec, &opts("mail"), |_| {}).unwrap_err();
++    assert!(err.contains("no download endpoint"), "{err}");
++
++    let source = DownloadSource::new(format!("{}/mirror", server.base)).unwrap();
++    let status = store::ensure_ready_from_source(
++        &http(),
++        &models,
++        &spec,
++        &opts("mail"),
++        &source,
++        &|| false,
++        |_| {},
++    )
++    .unwrap();
++    assert_eq!(status.state, EntryState::Ready);
++    assert_eq!(std::fs::read(models.join("gemma-like/weights.bin")).unwrap(), WEIGHTS);
++
++    let log = server.log.lock().unwrap();
++    assert_eq!(log.len(), 2, "{log:?}");
++    assert!(log.iter().all(|(_, authorized)| !authorized), "bearer leaked: {log:?}");
++    assert!(log.iter().any(|(line, _)| line.starts_with("GET /mirror/sub/vocab.txt")));
++}
++
++#[test]
++fn a_source_cannot_supply_wrong_bytes_for_a_pinned_file() {
++    let server = serve(vec![
++        ("/mirror/weights.bin", b"tampered-bytes".to_vec()),
++        ("/mirror/sub/vocab.txt", VOCAB.to_vec()),
++    ]);
++    let spec = urlless_spec("gemma-tampered");
++    let root = tempfile::tempdir().unwrap();
++    let models = root.path().join("models");
++    let source = DownloadSource::new(format!("{}/mirror", server.base)).unwrap();
++    let result = store::ensure_ready_from_source(
++        &http(),
++        &models,
++        &spec,
++        &opts("mail"),
++        &source,
++        &|| false,
++        |_| {},
++    );
++    assert!(result.is_err());
++    assert_ne!(
++        store::status_at(&models, &spec, VerifyMode::Full).state,
++        EntryState::Ready
++    );
++}
++
++#[test]
++fn model_status_serializes_as_plain_json_and_round_trips() {
++    let spec = urlless_spec("status-json");
++    let root = tempfile::tempdir().unwrap();
++    let status = store::status_at(root.path(), &spec, VerifyMode::Size);
++    let value = serde_json::to_value(&status).unwrap();
++    assert_eq!(value["state"], "missing");
++    assert_eq!(value["tier"], "add_on");
++    assert_eq!(value["id"], "status-json");
++    assert_eq!(value["files_total"], 2);
++    let back: ModelStatus = serde_json::from_value(value).unwrap();
++    assert_eq!(back.state, EntryState::Missing);
++    assert_eq!(back.dir, status.dir);
++    assert_eq!(back.needed, status.needed);
++}
++
++#[test]
++fn effective_dir_prefers_the_shared_copy_then_a_ready_seed_and_is_none_otherwise() {
++    let server = serve(vec![
++        ("/m/weights.bin", WEIGHTS.to_vec()),
++        ("/m/sub/vocab.txt", VOCAB.to_vec()),
++    ]);
++    let spec = urlless_spec("effective");
++    let root = tempfile::tempdir().unwrap();
++    let models = root.path().join("models");
++    let seed = root.path().join("seed").join("effective");
++
++    assert_eq!(effective_dir_at(&models, &spec, &[], Some(&seed)), None);
++
++    // A seed directory that carries the trusted manifest and verifying files is accepted.
++    std::fs::create_dir_all(seed.join("sub")).unwrap();
++    std::fs::write(seed.join("weights.bin"), WEIGHTS).unwrap();
++    std::fs::write(seed.join("sub/vocab.txt"), VOCAB).unwrap();
++    assert_eq!(effective_dir_at(&models, &spec, &[], Some(&seed)), None, "no manifest yet");
++    rightkit_models::suite::manifest::write_manifest(&seed, &spec.expected_manifest()).unwrap();
++    let found = effective_dir_at(&models, &spec, &[], Some(&seed)).unwrap();
++    assert_eq!(found.source, EffectiveSource::Seed);
++    assert_eq!(found.dir, seed);
++
++    // Once the shared store holds a ready copy it wins over the seed.
++    let source = DownloadSource::new(format!("{}/m", server.base)).unwrap();
++    store::ensure_ready_from_source(
++        &http(),
++        &models,
++        &spec,
++        &opts("mail"),
++        &source,
++        &|| false,
++        |_| {},
++    )
++    .unwrap();
++    let found = effective_dir_at(&models, &spec, &[], Some(&seed)).unwrap();
++    assert_eq!(found.source, EffectiveSource::Shared);
++    assert_eq!(found.dir, models.join("effective"));
++    let json = serde_json::to_value(&found).unwrap();
++    assert_eq!(json["source"], "shared");
++}

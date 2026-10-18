@@ -1,0 +1,20 @@
+rightkit-db 0.4.3 -> 0.4.4 (additive, patch bump; edit-only, not compiled)
+DONE #770 MigrateHooks (closure hooks: with_backup_name, with_before_backup free-disk/refusal gate, with_verify_backup, with_retain_backups) + migrate_with_hooks, DbOptions::open_writer_migrated_with_hooks, open_writer_migrated_or_degrade_with_hooks; set hook replaces the MigrateOptions fn field; additive on purpose (no new MigrateOptions field, no literal breaks); tests/migrate_hooks.rs
+DONE #769 WalCheckpointJob::tick_min/tick_min_at (per-call PASSIVE minimum, bytes), tick_min_frames (frames), tick_passive_then_restart/_at -> WalCheckpointSequence{passive,restart} (RESTART only after an incomplete PASSIVE, size+quiet rule); tests in tests/checkpoint_job.rs
+DONE #726 ReadPool::readers_opened() counter (shared by clones); documented that ReadPool::from_opener can count in its opener and that a DbOptions::init hook counts connections of every kind; tests in tests/read_pool.rs
+ALREADY #451 restore_database / restore_database_locked / recover_interrupted_restore(_locked), RestoreOptions, RestoreReceipt, InterruptedRestore, DbError::RestoreFailed in src/restore.rs (previous store kept, rollback, journal recovery of half-done quarantine, tests/restore.rs)
+ALREADY #389 DbOptions::open_writer_migrated_or_degrade + Degraded/OpenOrDegrade, RecoveryPolicy stamp/sidecar options, Integrity + migration-failure recovery in src/migrate.rs and src/recover.rs (tests/open_or_degrade.rs)
+ALREADY #311 replace_database / replace_database_locked, StoreLock::shared/exclusive in src/backup.rs
+ALREADY #173 ReadPool::get_timeout in src/lib.rs
+ALREADY #199 remove_database_files in src/backup.rs (JobStore close: crate has no JobStore; ReadPool::close_and_wait covers the release)
+ALREADY #494 WalCheckpointJob/WalCheckpointPolicy in src/checkpoint_job.rs, checkpoint_restart in src/lib.rs
+ALREADY #541 QuarantineStamp::Custom numbered retry in src/recover.rs
+ALREADY #563 Zeroizing re-export, write_txn_unchecked, ReadPool::from_opener, MigrateOptions backup_name/verify_backup/backup_retention, stored_version_is_newer, checkpoint_restart, read-only readers run init (src/lib.rs, src/migrate.rs)
+ALREADY #608 write_pending_marker and pending_marker_started_at in src/migrate.rs (PendingMarker kept 3 fields by design)
+New version: 0.4.4 (Cargo.toml, Cargo.lock, CHANGELOG)
+Public API changes (all additive, none breaking):
+ + MigrateHooks (new/with_backup_name/with_before_backup/with_verify_backup/with_retain_backups), migrate_with_hooks, DbOptions::open_writer_migrated_with_hooks, DbOptions::open_writer_migrated_or_degrade_with_hooks, type aliases BackupNameHook, BeforeBackupHook, VerifyBackupHook, RetainBackupsHook
+ + WalCheckpointJob::{tick_min, tick_min_at, tick_min_frames, tick_passive_then_restart, tick_passive_then_restart_at}, WalCheckpointSequence
+ + ReadPool::readers_opened
+Note: 0.4.3 was treated as published (docs/ADOPTION.md lists crates.io 0.4.3), hence the 0.4.4 bump and no change to the fn-pointer MigrateOptions fields.
+Checks wanted from the owner chat: cargo fmt -p rightkit-db, cargo check/test -p rightkit-db (features bundled; also sqlcipher), then clippy.

@@ -1,0 +1,6 @@
+Ember (2026-10-18, self-audit) AUDIT DONE: 2 gaps
+PARTIAL #246 release+ffmpeg: Linux catalog rows missing; Ember config lacks mediaSidecar (app-side)
+PARTIAL #283 mcp: optional client feature (ureq/http/fs non-optional; wasm32 cannot build)
+#259 .previous rollback reversed by #348 -> same decision as Mail #260
+Shipped: #237 #677 #242 #241 #289 #284 #240 #238 #239 #248 #282 #281 #259 #76 #285 #280 #245 #107
+Ember needs re-pins across ~15 crates + 13 npm (app-side port work)

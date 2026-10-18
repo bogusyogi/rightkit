@@ -1,0 +1,610 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..9079a50 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7345,7 +7345,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-sandbox"
+-version = "0.5.0"
++version = "0.5.1"
+ dependencies = [
+  "libc",
+  "portable-pty",
+diff --git a/crates/rightkit-sandbox/CHANGELOG.md b/crates/rightkit-sandbox/CHANGELOG.md
+index fb76a31..9ca46b2 100644
+--- a/crates/rightkit-sandbox/CHANGELOG.md
++++ b/crates/rightkit-sandbox/CHANGELOG.md
+@@ -1,5 +1,23 @@
+ # Changelog
+ 
++## 0.5.1 (unreleased)
++
++Additive only (issues #703, #711); every default is unchanged. Nothing here was compiled or run for this entry.
++
++- **Linux: `SandboxPolicy::system_roots(SystemRoots)`** (#703). `SystemRoots::Default` (the default) keeps the
++  implicit read and execute roots `/usr /bin /sbin /lib /lib64 /etc /proc /dev /sys`. `SystemRoots::Minimal(vec)`
++  grants only the listed absolute roots (validated absolute and NUL-free) and `SystemRoots::None` grants none, so a
++  tier can leave `/proc` (the `environ` of same-user processes), `/etc` and `/sys` out of the Landlock ruleset. A
++  non-empty `Minimal` counts as a listed path for `LandlockMode::SkipWhenNoPaths`. Ignored on macOS and Windows.
++- **macOS Strict profile: three opt-in tightenings** (#711), all off by default so existing profiles are unchanged
++  (a PTY child still needs its tty): `SandboxPolicy::deny_tty(true)` drops the `/dev/tty` and `/dev/ttys*`
++  read, write and ioctl grant and denies terminal devices (also removes the `^/dev/tty` write from `WriteOnly`);
++  `scope_metadata(true)` replaces the global `(allow file-read-metadata)` with literal rules for the root `/`
++  walk (every ancestor of each granted and system root); `minimal_system_reads(true)` drops `/Applications`,
++  `/etc` and `/private/etc` from the always-readable and executable system locations. **Not verified on a Mac.**
++- Not done: #562 tokio `AsyncWrite`/`AsyncRead` wrappers (`ConfinedPipedChild`) still need an optional `tokio`
++  dependency; see the 0.5.0 entry.
++
+ ## 0.5.0 (2026-10-17)
+ 
+ CodeRight port (issues #558, #559, #560, #561, #562, #564, #566). New API and opt-in policy knobs, except the Linux
+diff --git a/crates/rightkit-sandbox/Cargo.toml b/crates/rightkit-sandbox/Cargo.toml
+index 787d996..ad489a1 100644
+--- a/crates/rightkit-sandbox/Cargo.toml
++++ b/crates/rightkit-sandbox/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-sandbox"
+-version = "0.5.0"
++version = "0.5.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
+diff --git a/crates/rightkit-sandbox/README.md b/crates/rightkit-sandbox/README.md
+index 6d5ce35..052787b 100644
+--- a/crates/rightkit-sandbox/README.md
++++ b/crates/rightkit-sandbox/README.md
+@@ -66,6 +66,7 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
+ - Landlock ABI is probed (`landlock_abi_version()`, `is_landlock_available()`). ABI 2 adds `REFER` and ABI 3 adds `TRUNCATE`; both are handled when present and granted only on write roots, so a cross-directory rename or a truncate outside the grants is denied. On an older kernel those operations keep that ABI's behaviour. Read and exec grants on a single file carry file rights only.
+ - `SandboxPolicy::landlock(LandlockMode::SkipWhenNoPaths)` skips Landlock when no path is listed (a network-only tier). It is opt-in; the default always applies it.
+ - seccomp applies when the network is denied. `SeccompMode::Allowlist` (default) is the default-deny allowlist (x86_64 only). `SeccompMode::NetworkOnly` is default-allow and denies `socket`/`socketpair` for every domain except `AF_UNIX` and `io_uring_*` (x86_64 and aarch64). Both start with an architecture check: a foreign architecture is killed, and on x86_64 the x32 range is denied. Both are checked by a BPF interpreter in the unit tests, on any host.
++- `SandboxPolicy::system_roots(SystemRoots::Minimal(roots))` or `SystemRoots::None` removes the implicit `/usr /bin /sbin /lib /lib64 /etc /proc /dev /sys` roots (for example to keep `/proc/<pid>/environ` unreadable); the default keeps them. The program and its libraries must then be reachable through the listed roots or `read_paths`/`exec_paths`.
+ - `deny_read` is not enforced (Landlock only adds allowances): grant narrower roots when `deny_read_enforced()` is `false`.
+ - Nothing in this section was run on Linux.
+ 
+@@ -73,6 +74,8 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
+ 
+ `ConfinementMode::WriteOnly` builds `seatbelt::write_only_profile`: default-allow, `(deny file-write*)`, then writes allowed under `write_paths` (realpath-resolved), `/private/tmp`, `/private/var/folders`, `/private/var/tmp`, `/tmp` and a few `/dev` nodes; with the network denied, outbound is denied and unix sockets stay allowed. `exec_any` emits `(allow process*)` and grants execution only: the image still needs a read grant. `seatbelt::Prepared::from_profile(String)` applies a profile you built, as is. `try_profile_for` and `try_wrap_argv` return the error when a profile cannot be built; `profile_for` and `wrap_argv` keep their signatures and, if a `deny_read` entry cannot be planned, return a profile that denies everything. Nothing in this section was run on a Mac; `exec_any` against real vendor drivers is unverified.
+ 
++The Strict profile grants `/dev/tty*` read, write and ioctl, global `file-read-metadata`, and `/Applications`, `/etc` and `/private/etc` reads by default (unchanged; a PTY child needs its tty). Three opt-in knobs tighten it: `deny_tty(true)` denies terminal devices (and drops the `WriteOnly` tty write), `scope_metadata(true)` limits metadata to the granted and system roots and the path walk to them, and `minimal_system_reads(true)` drops `/Applications`, `/etc` and `/private/etc`. Unverified on a Mac.
++
+ ## Secrets and denial reports
+ 
+ `SandboxPolicy::deny_read(path)` and `deny_read_glob(pattern)` deny reads and writes of a path or absolute glob inside a granted root. `secret_paths_within(root)` lists the protected folders (`~/.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.config`, `.npm`, ...) beneath a root, `plan_deny_read_paths` plans a deny set (lexical and canonical spellings; relative paths, `..` and filesystem roots, including an alias that resolves to one, are refused), and `path_is_protected_secret(path)` answers for one path, resolving `..` and symlinks. `report_denial(output, command, exit_ok, &ConfinementInfo)` returns a `DenialReport`; its `requested_grant` is a request for a person or an admission authority, never an approval: output is untrusted, so a protected secret, a filesystem root or a `..` path never gets one.
+diff --git a/crates/rightkit-sandbox/src/lib.rs b/crates/rightkit-sandbox/src/lib.rs
+index e25dd9c..f249a41 100644
+--- a/crates/rightkit-sandbox/src/lib.rs
++++ b/crates/rightkit-sandbox/src/lib.rs
+@@ -68,6 +68,7 @@ pub use pins::{default_user_dirs, is_interpreter_dir, read_root_is_too_broad, Pi
+ pub use policy::{
+     ConfinementMode, DenyReadEntry, EnvPolicy, LandlockMode, LoopbackPolicy, NetworkPolicy,
+     SandboxCommand, SandboxPolicy, SeccompMode,
++    SystemRoots,
+ };
+ #[cfg(feature = "pty")]
+ pub use pty::{PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInputDecision};
+diff --git a/crates/rightkit-sandbox/src/linux.rs b/crates/rightkit-sandbox/src/linux.rs
+index 6098633..8298274 100644
+--- a/crates/rightkit-sandbox/src/linux.rs
++++ b/crates/rightkit-sandbox/src/linux.rs
+@@ -16,7 +16,7 @@
+ //! `seccomp.rs`). NOTE: compiled/tested only where a Linux host is available (see matrix.md).
+ 
+ use crate::seccomp::{self, SockFilter};
+-use crate::{ConfinementMode, LandlockMode, NetworkPolicy, SandboxPolicy, SeccompMode};
++use crate::{ConfinementMode, LandlockMode, NetworkPolicy, SandboxPolicy, SeccompMode, SystemRoots};
+ use std::ffi::CString;
+ use std::io;
+ use std::os::fd::{AsRawFd, FromRawFd};
+@@ -61,9 +61,6 @@ const ALL_V1: u64 = FS_EXECUTE
+     | FS_MAKE_SYM;
+ const READ: u64 = FS_READ_FILE | FS_READ_DIR;
+ const EXEC: u64 = READ | FS_EXECUTE;
+-const SYSTEM_EXEC: &[&str] = &[
+-    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
+-];
+ 
+ /// The rights the running ABI can express: ABI 2 adds `REFER`, ABI 3 adds `TRUNCATE`.
+ fn supported_rights(abi: u32) -> u64 {
+@@ -182,7 +179,8 @@ fn add_rule(ruleset: i32, path: &Path, access: u64, abi: u32) -> io::Result<()>
+ fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
+     let paths_listed = !policy.read_paths.is_empty()
+         || !policy.write_paths.is_empty()
+-        || !policy.exec_paths.is_empty();
++        || !policy.exec_paths.is_empty()
++        || matches!(&policy.system_roots, SystemRoots::Minimal(roots) if !roots.is_empty());
+     if policy.landlock == LandlockMode::SkipWhenNoPaths && !paths_listed {
+         return Ok(None);
+     }
+@@ -212,8 +210,8 @@ fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
+     // SAFETY: `fd` is a fresh descriptor owned by no other value.
+     let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
+     let raw = ruleset.as_raw_fd();
+-    for p in SYSTEM_EXEC {
+-        add_rule(raw, Path::new(p), EXEC, abi)?;
++    for p in policy.system_roots.roots() {
++        add_rule(raw, &p, EXEC, abi)?;
+     }
+     for p in &policy.read_paths {
+         add_rule(raw, p, READ, abi)?;
+diff --git a/crates/rightkit-sandbox/src/policy.rs b/crates/rightkit-sandbox/src/policy.rs
+index 5e14ca4..8fe0088 100644
+--- a/crates/rightkit-sandbox/src/policy.rs
++++ b/crates/rightkit-sandbox/src/policy.rs
+@@ -72,6 +72,46 @@ pub enum LoopbackPolicy {
+     Exempt,
+ }
+ 
++/// Linux: which system locations the Landlock ruleset always grants read and execute on.
++///
++/// The default grants `/usr /bin /sbin /lib /lib64 /etc /proc /dev /sys`, which lets any
++/// interpreter start but also lets the child read `/proc/<pid>/environ` of every same-user
++/// process and everything under `/etc` and `/sys`. A caller that names its own roots can narrow
++/// that. Linux only: macOS and Windows ignore it (their system reads are fixed; see
++/// [`SandboxPolicy::minimal_system_reads()`] for the macOS counterpart).
++#[derive(Debug, Clone, PartialEq, Eq, Default)]
++pub enum SystemRoots {
++    /// The implicit roots listed above.
++    #[default]
++    Default,
++    /// Only these absolute roots, each read and execute. The program, its interpreter and its
++    /// shared libraries must be reachable through them or through `read_paths`/`exec_paths`.
++    Minimal(Vec<PathBuf>),
++    /// No implicit root at all. Everything the child needs comes from the policy's own paths.
++    None,
++}
++
++/// The roots [`SystemRoots::Default`] grants on Linux.
++#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
++pub(crate) const DEFAULT_LINUX_SYSTEM_ROOTS: &[&str] = &[
++    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
++];
++
++impl SystemRoots {
++    /// The roots to grant read and execute on.
++    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
++    pub(crate) fn roots(&self) -> Vec<PathBuf> {
++        match self {
++            Self::Default => DEFAULT_LINUX_SYSTEM_ROOTS
++                .iter()
++                .map(PathBuf::from)
++                .collect(),
++            Self::Minimal(roots) => roots.clone(),
++            Self::None => Vec::new(),
++        }
++    }
++}
++
+ /// One `deny_read` entry: an exact path (and everything below it) or a glob.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum DenyReadEntry {
+@@ -151,6 +191,17 @@ pub struct SandboxPolicy {
+     pub landlock: LandlockMode,
+     /// Windows loopback exemption for network-enabled containers.
+     pub loopback: LoopbackPolicy,
++    /// Linux: the implicit system roots. Default [`SystemRoots::Default`] (unchanged).
++    pub system_roots: SystemRoots,
++    /// macOS Strict profile: refuse the child any access to terminal devices (`/dev/tty`,
++    /// `/dev/ttys*`, `/dev/pty*`). Default `false` keeps today's grant, which a PTY child needs.
++    pub deny_tty: bool,
++    /// macOS Strict profile: allow `file-read-metadata` only on the granted roots and the path
++    /// walk to them, not on every path. Default `false` keeps today's global metadata read.
++    pub scope_metadata: bool,
++    /// macOS Strict profile: drop `/Applications`, `/etc` and `/private/etc` from the always
++    /// readable system locations. Default `false` keeps them.
++    pub minimal_system_reads: bool,
+ }
+ 
+ impl SandboxPolicy {
+@@ -229,6 +280,34 @@ impl SandboxPolicy {
+         self.loopback = loopback;
+         self
+     }
++    /// Linux: choose the implicit system roots. See [`SystemRoots`]. Never widens: the default
++    /// is the full list, `Minimal` and `None` only remove from it. Ignored off Linux.
++    pub fn system_roots(mut self, roots: SystemRoots) -> Self {
++        self.system_roots = roots;
++        self
++    }
++    /// macOS Strict profile: when `true`, the child cannot open terminal devices at all (read,
++    /// write or ioctl on `/dev/tty`, `/dev/ttys*`, `/dev/pty*`), so it cannot reach other
++    /// terminals. Do not set it for a PTY child, which needs its own tty. Ignored elsewhere.
++    pub fn deny_tty(mut self, deny: bool) -> Self {
++        self.deny_tty = deny;
++        self
++    }
++    /// macOS Strict profile: when `true`, metadata (`stat`) is readable only on the granted and
++    /// system roots and the directories on the way to them, so the child cannot probe whether
++    /// arbitrary paths exist. The working directory must lie under a granted root. Ignored
++    /// elsewhere.
++    pub fn scope_metadata(mut self, scope: bool) -> Self {
++        self.scope_metadata = scope;
++        self
++    }
++    /// macOS Strict profile: when `true`, `/Applications`, `/etc` and `/private/etc` are not
++    /// part of the always-readable system locations; grant any you need (for example
++    /// `/private/etc/ssl`) through `read_paths`. Ignored elsewhere.
++    pub fn minimal_system_reads(mut self, minimal: bool) -> Self {
++        self.minimal_system_reads = minimal;
++        self
++    }
+ 
+     pub(crate) fn validate(&self) -> Result<(), SandboxError> {
+         validate_named_capabilities(&self.named_capabilities)?;
+@@ -248,6 +327,17 @@ impl SandboxPolicy {
+                 )));
+             }
+         }
++        if let SystemRoots::Minimal(roots) = &self.system_roots {
++            for p in roots {
++                let s = p.to_string_lossy();
++                if !p.is_absolute() || s.contains('\0') {
++                    return Err(SandboxError::InvalidPolicy(format!(
++                        "system root must be absolute and NUL-free: {}",
++                        s.escape_debug()
++                    )));
++                }
++            }
++        }
+         Ok(())
+     }
+ }
+@@ -365,6 +455,56 @@ mod knob_tests {
+         assert_eq!(policy.seccomp, SeccompMode::Allowlist);
+         assert_eq!(policy.landlock, LandlockMode::Always);
+         assert_eq!(policy.loopback, LoopbackPolicy::Blocked);
++        assert_eq!(policy.system_roots, SystemRoots::Default);
++        assert!(!policy.deny_tty && !policy.scope_metadata && !policy.minimal_system_reads);
++    }
++
++    #[test]
++    fn default_system_roots_are_the_historic_linux_list() {
++        let roots = SystemRoots::Default.roots();
++        assert_eq!(roots.len(), 9);
++        for r in [
++            "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
++        ] {
++            assert!(roots.contains(&PathBuf::from(r)), "{r}");
++        }
++    }
++
++    #[test]
++    fn minimal_and_none_only_remove_from_the_default() {
++        let minimal = SystemRoots::Minimal(vec!["/usr".into(), "/etc/ssl".into()]).roots();
++        assert_eq!(
++            minimal,
++            vec![PathBuf::from("/usr"), PathBuf::from("/etc/ssl")]
++        );
++        assert!(!minimal.contains(&PathBuf::from("/proc")));
++        assert!(SystemRoots::None.roots().is_empty());
++        assert!(SystemRoots::Default.roots().contains(&PathBuf::from("/proc")));
++    }
++
++    #[test]
++    fn system_roots_builder_and_validation() {
++        let ok = SandboxPolicy::new().system_roots(SystemRoots::Minimal(vec!["/usr".into()]));
++        assert!(ok.validate().is_ok());
++        let relative = SandboxPolicy::new().system_roots(SystemRoots::Minimal(vec!["usr".into()]));
++        assert!(matches!(
++            relative.validate(),
++            Err(SandboxError::InvalidPolicy(_))
++        ));
++        assert!(SandboxPolicy::new()
++            .system_roots(SystemRoots::None)
++            .validate()
++            .is_ok());
++    }
++
++    #[test]
++    fn hardening_builders_set_only_their_flag() {
++        let p = SandboxPolicy::new().deny_tty(true);
++        assert!(p.deny_tty && !p.scope_metadata && !p.minimal_system_reads);
++        let p = SandboxPolicy::new()
++            .scope_metadata(true)
++            .minimal_system_reads(true);
++        assert!(!p.deny_tty && p.scope_metadata && p.minimal_system_reads);
+     }
+ 
+     #[test]
+diff --git a/crates/rightkit-sandbox/src/seatbelt.rs b/crates/rightkit-sandbox/src/seatbelt.rs
+index 8a65ee2..a2215e7 100644
+--- a/crates/rightkit-sandbox/src/seatbelt.rs
++++ b/crates/rightkit-sandbox/src/seatbelt.rs
+@@ -343,6 +343,16 @@ const WRITE_ONLY_DEV: &[&str] = &[
+ /// Pure string construction apart from path resolution. Nothing in it hides a file from reads;
+ /// add [`SandboxPolicy::deny_read()`] rules (see [`profile_for`]) for secrets.
+ pub fn write_only_profile(write_paths: &[PathBuf], network: NetworkPolicy) -> String {
++    write_only_profile_with(write_paths, network, true)
++}
++
++/// [`write_only_profile`] with the terminal-write grant (`/dev/tty*`) switchable. `allow_tty`
++/// `false` drops it, so the child cannot write to any terminal (a PTY child needs `true`).
++fn write_only_profile_with(
++    write_paths: &[PathBuf],
++    network: NetworkPolicy,
++    allow_tty: bool,
++) -> String {
+     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write*)\n");
+     p.push_str("(allow file-write*\n");
+     for fixed in WRITE_ONLY_TEMP {
+@@ -351,7 +361,9 @@ pub fn write_only_profile(write_paths: &[PathBuf], network: NetworkPolicy) -> St
+     for dev in WRITE_ONLY_DEV {
+         p.push_str(&format!("    (literal {})\n", quote(Path::new(dev))));
+     }
+-    p.push_str("    (regex #\"^/dev/tty\")\n");
++    if allow_tty {
++        p.push_str("    (regex #\"^/dev/tty\")\n");
++    }
+     for path in write_paths {
+         p.push_str(&format!(
+             "    (subpath {})\n",
+@@ -429,12 +441,16 @@ fn deny_read_rules(entries: &[DenyReadEntry]) -> std::io::Result<String> {
+ pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
+     let deny = deny_read_rules(&policy.deny_read)?;
+     if policy.mode == ConfinementMode::WriteOnly {
+-        let mut p = write_only_profile(&policy.write_paths, policy.network);
++        let mut p =
++            write_only_profile_with(&policy.write_paths, policy.network, !policy.deny_tty);
+         p.push_str(&deny);
+         return Ok(p);
+     }
+     let mut p = String::from("(version 1)\n(import \"bsd.sb\")\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n");
+     for dir in SYSTEM_EXEC {
++        if policy.minimal_system_reads && OPTIONAL_SYSTEM_READ.contains(dir) {
++            continue;
++        }
+         p.push_str(&format!("(allow process-exec* (subpath \"{dir}\"))\n"));
+     }
+     if policy.exec_any {
+@@ -454,10 +470,23 @@ pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
+         }
+     }
+     for dir in SYSTEM_READ {
++        if policy.minimal_system_reads && OPTIONAL_SYSTEM_READ.contains(dir) {
++            continue;
++        }
+         p.push_str(&format!("(allow file-read* (subpath \"{dir}\"))\n"));
+     }
+     // Root directory entries and metadata are needed for path walking.
+-    p.push_str("(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n");
++    if policy.scope_metadata {
++        p.push_str("(allow file-read* (literal \"/\"))\n");
++        for dir in metadata_walk(policy) {
++            p.push_str(&format!(
++                "(allow file-read-metadata (literal {}))\n",
++                quote(&dir)
++            ));
++        }
++    } else {
++        p.push_str("(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n");
++    }
+     for r in &policy.read_paths {
+         p.push_str(&format!(
+             "(allow file-read* (subpath {}))\n",
+@@ -468,11 +497,63 @@ pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
+         let r = quote(&resolve_for_profile(w));
+         p.push_str(&format!("(allow file-read* file-write* (subpath {r}))\n"));
+     }
+-    p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|tty|ttys[0-9]+|dtracehelper|urandom|random)$\"))\n");
++    if policy.deny_tty {
++        p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|dtracehelper|urandom|random)$\"))\n");
++        // After every allow, so the `/dev` subpath read grant cannot reopen a terminal. Metadata
++        // stays readable (`stat` on a tty is harmless); data, writes and ioctl are denied.
++        p.push_str(TTY_DENY);
++        p.push('\n');
++    } else {
++        p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|tty|ttys[0-9]+|dtracehelper|urandom|random)$\"))\n");
++    }
+     p.push_str(&deny);
+     Ok(p)
+ }
+ 
++/// System locations `minimal_system_reads` drops (`/Applications` from exec as well).
++const OPTIONAL_SYSTEM_READ: &[&str] = &["/Applications", "/etc", "/private/etc"];
++
++/// Terminal devices: the controlling tty, slave ttys and legacy pty pairs.
++const TTY_DENY: &str = "(deny file-read-data file-write* file-ioctl (regex #\"^/dev/(tty|ttys[0-9]+|ttyp[0-9a-f]+|pty[a-z][0-9a-f])$\"))";
++
++/// Directories whose metadata a `scope_metadata` profile allows: every ancestor (and each
++/// symlink spelling) of every read, write and exec root and of the system locations, excluding
++/// `/`, which has its own rule. Sorted and deduplicated.
++fn metadata_walk(policy: &SandboxPolicy) -> Vec<PathBuf> {
++    let mut roots: Vec<PathBuf> = Vec::new();
++    for p in policy
++        .read_paths
++        .iter()
++        .chain(&policy.write_paths)
++        .chain(&policy.exec_paths)
++    {
++        roots.push(p.clone());
++        roots.push(resolve_for_profile(p));
++    }
++    for dir in SYSTEM_READ.iter().chain(SYSTEM_EXEC) {
++        if policy.minimal_system_reads && OPTIONAL_SYSTEM_READ.contains(dir) {
++            continue;
++        }
++        roots.push(PathBuf::from(dir));
++        roots.push(resolve_for_profile(Path::new(dir)));
++    }
++    let mut out: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
++    for root in roots {
++        let mut cursor: Option<&Path> = root.parent();
++        while let Some(dir) = cursor {
++            if dir.parent().is_some() {
++                out.insert(dir.to_path_buf());
++            }
++            cursor = dir.parent();
++        }
++        // The spelled path itself too: lstat of a symlink root (`/tmp`, `/etc`) is metadata.
++        if root.parent().is_some() {
++            out.insert(root);
++        }
++    }
++    out.into_iter().collect()
++}
++
+ /// Build the SBPL profile for `policy`. A `deny_read` entry that cannot be planned makes the
+ /// result a profile that denies everything (the child cannot start), never a profile without the
+ /// deny; use [`try_profile_for`] to get the error instead.
+@@ -670,6 +751,123 @@ mod tests {
+         assert!(!profile.contains("network-outbound"), "{profile}");
+     }
+ 
++    #[test]
++    fn strict_defaults_keep_global_metadata_and_tty_grants() {
++        let profile = profile_for(&SandboxPolicy::new());
++        assert!(
++            profile.contains("(allow file-read-metadata)\n"),
++            "{profile}"
++        );
++        assert!(profile.contains("tty|ttys[0-9]+"), "{profile}");
++        assert!(!profile.contains("(deny file-read-data"), "{profile}");
++        assert!(
++            profile.contains("(subpath \"/Applications\")"),
++            "{profile}"
++        );
++        assert!(profile.contains("(subpath \"/private/etc\")"), "{profile}");
++    }
++
++    #[test]
++    fn deny_tty_drops_the_grant_and_denies_terminals_after_every_allow() {
++        let profile = profile_for(&SandboxPolicy::new().deny_tty(true));
++        assert!(
++            !profile.contains("file-ioctl (regex #\"^/dev/(null|zero|tty"),
++            "{profile}"
++        );
++        assert!(
++            profile.contains("(null|zero|dtracehelper|urandom|random)"),
++            "{profile}"
++        );
++        let deny = profile
++            .find("(deny file-read-data file-write* file-ioctl")
++            .expect("deny");
++        assert!(deny > last_allow(&profile), "{profile}");
++    }
++
++    #[test]
++    fn deny_tty_removes_the_write_only_tty_write() {
++        let open = profile_for(&SandboxPolicy::new().mode(ConfinementMode::WriteOnly));
++        assert!(open.contains("(regex #\"^/dev/tty\")"), "{open}");
++        let closed = profile_for(
++            &SandboxPolicy::new()
++                .mode(ConfinementMode::WriteOnly)
++                .deny_tty(true),
++        );
++        assert!(!closed.contains("^/dev/tty"), "{closed}");
++        assert!(closed.contains("(literal \"/dev/null\")"), "{closed}");
++    }
++
++    #[test]
++    fn scope_metadata_replaces_the_global_metadata_read_with_the_walk() {
++        let workspace = scratch("meta");
++        let profile = profile_for(
++            &SandboxPolicy::new()
++                .allow_write(workspace.clone())
++                .scope_metadata(true),
++        );
++        assert!(
++            !profile.contains("(allow file-read-metadata)\n"),
++            "{profile}"
++        );
++        assert!(
++            profile.contains("(allow file-read* (literal \"/\"))"),
++            "{profile}"
++        );
++        let parent = workspace.parent().unwrap();
++        assert!(
++            profile.contains(&format!(
++                "(allow file-read-metadata (literal {}))",
++                quote(parent)
++            )),
++            "{profile}"
++        );
++        assert!(
++            profile.contains(&format!(
++                "(allow file-read-metadata (literal {}))",
++                quote(&workspace)
++            )),
++            "{profile}"
++        );
++        assert!(
++            !profile.contains("(allow file-read-metadata (literal \"/\"))"),
++            "{profile}"
++        );
++    }
++
++    #[test]
++    fn metadata_walk_covers_symlink_spelling_and_ancestors() {
++        let policy = SandboxPolicy::new().allow_read("/tmp/rk-walk/a/b");
++        let walk = metadata_walk(&policy);
++        for dir in [
++            "/tmp",
++            "/tmp/rk-walk",
++            "/tmp/rk-walk/a",
++            "/tmp/rk-walk/a/b",
++            "/usr",
++            "/private",
++        ] {
++            assert!(walk.contains(&PathBuf::from(dir)), "{dir}: {walk:?}");
++        }
++        assert!(!walk.contains(&PathBuf::from("/")));
++    }
++
++    #[test]
++    fn minimal_system_reads_drops_applications_and_etc_only() {
++        let profile = profile_for(&SandboxPolicy::new().minimal_system_reads(true));
++        for gone in ["\"/Applications\"", "\"/etc\"", "\"/private/etc\""] {
++            assert!(
++                !profile.contains(&format!("(subpath {gone})")),
++                "{gone}\n{profile}"
++            );
++        }
++        for kept in ["\"/usr\"", "\"/System\"", "\"/Library\"", "\"/dev\"", "\"/bin\""] {
++            assert!(
++                profile.contains(&format!("(subpath {kept})")),
++                "{kept}\n{profile}"
++            );
++        }
++    }
++
+     #[test]
+     fn write_only_profile_resolves_symlinked_write_paths() {
+         // `/tmp` is a symlink to `/private/tmp`; Seatbelt matches the resolved path.
+diff --git a/crates/rightkit-sandbox/tests/confine_command.rs b/crates/rightkit-sandbox/tests/confine_command.rs
+index e49ca1b..69b4b12 100644
+--- a/crates/rightkit-sandbox/tests/confine_command.rs
++++ b/crates/rightkit-sandbox/tests/confine_command.rs
+@@ -108,6 +108,32 @@ mod linux {
+         let _ = fs::remove_dir_all(&root);
+     }
+ 
++    #[test]
++    fn minimal_system_roots_drop_proc_while_the_default_keeps_it() {
++        if !is_landlock_available() {
++            println!("skipped: Landlock is unavailable on this host");
++            return;
++        }
++        // `read` is a shell builtin: it fails when the open of /proc/self/status is denied.
++        let script = "read first < /proc/self/status";
++        let usr_roots = || {
++            ["/usr", "/bin", "/lib", "/lib64"]
++                .into_iter()
++                .map(PathBuf::from)
++                .collect::<Vec<_>>()
++        };
++        let base = || SandboxPolicy::new().network(NetworkPolicy::Allow);
++
++        let mut default = sh(script);
++        confine_command(&mut default, &base()).expect("confine");
++        assert!(default.status().unwrap().success(), "default keeps /proc");
++
++        let mut minimal = sh(script);
++        let policy = base().system_roots(SystemRoots::Minimal(usr_roots()));
++        confine_command(&mut minimal, &policy).expect("confine");
++        assert!(!minimal.status().unwrap().success(), "Minimal drops /proc");
++    }
++
+     #[test]
+     fn write_only_mode_is_refused_on_linux() {
+         let mut cmd = Command::new("/bin/true");

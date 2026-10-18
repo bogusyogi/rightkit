@@ -1,0 +1,28 @@
+MailRight (2026-10-18) AUDIT DONE: 26 gaps (36 shipped)
+PARTIAL #495 search: FTS5 index builder/maintainer, html_to_text, bm25
+PARTIAL #496 embed: ANN/KNN store (sqlite-vec vec0)
+PARTIAL #174 legal-ui/pdf-ui/react-shell/settings-ui: Titlebar cursor/outline tokens, color-scheme opt-out
+PARTIAL #614 react-shell: --line-2 hairline helper
+PARTIAL #643 react-shell: AppShell without fused titlebar; renderTwisty link rows
+PARTIAL #113 app-settings: frontend get/put/patch binding
+PARTIAL #260 release: <dest>.previous rollback (conflicts with #348 no-keep; reconcile)
+PARTIAL #345 release: shared dev launcher, one-step dev build w/ sidecar staging
+PARTIAL #613 fs: StableId without json (#732)
+PARTIAL #674 @rightkit/qa: persistent bound dev root
+PARTIAL #675 release: master image -> PNG frame set
+MISSING #318 new owner: shared zstd blob compression
+MISSING #503 new owner: shared build identity
+MISSING #520 logs: text-line redactor hashing account=/label=
+MISSING #642 @rightkit/logs: publish (npm still 0.1.4) installWindowCrashCapture/scrubWindowCrashText
+MISSING #686 theme: presetCss modeAttribute, TokenPreset.label
+MISSING #498 tauri-shell: WM_SETICON, native fatal-startup dialog, WebView2 user-data folder
+MISSING #499 new owner: OS user verification (Hello/Touch ID)
+MISSING #672 tauri-shell: Rust host handlers rightkit.settings/models/secrets.*
+NEW #726 db open-counting/pool-build test hook
+NEW #727 models configurable download source
+NEW #728 device authorize applies RevokedIds
+NEW #729 react-shell Table, Select, Textarea
+NEW #730 settings-ui Pro-gated rows, index progress, model status, multi-file log tail
+NEW #731 app-update activation-auth manifest header builder
+NEW #732 fs StableId without json
+ADDENDUM: NEW #766 daemon export FailLimiter; #767 daemon supervisor adopt/return child, lock-state restarts; #768 daemon call_retrying_over pooled; #769 db WalCheckpointJob min + restart after incomplete PASSIVE; #770 db stateful MigrateOptions backup hooks. Total 31.

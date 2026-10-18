@@ -1,0 +1,20 @@
+DONE #305 on_attempt hook already on main; added the comment's follow-up: ClientConfig::on_outcome(Fn(&AttemptOutcome)) + AttemptOutcome {url, method, attempt, max_attempts, status, error_class, delay} fired after every attempt in Client and AsyncClient | PARTIAL: separate transport-vs-status retry budget (RetryPolicy::transport_backoff) not added; needs a RetryPolicy semantics decision shared with #658 (rightkit-llm)
+DEFERRED #448 (rightkit-http part, item 3) fetch-compatible Tauri command + @rightkit/tauri export is a cross-component design (rightkit-tauri-shell / @rightkit/tauri / app-update owner, CORS/CSP/capability model); items 1-2 are not rightkit-http
+ALREADY #647 SseDecoder::eager/with_eager/finish/has_pending and EofPolicy on SseReader/SseStream in sse.rs and async_client.rs (0.3.5 Unreleased)
+DONE #696 AddressPolicy::allow_host_of(url): host-pinned allow_if(|_| true) from a URL; link-local/metadata/deny_ranges/deny_if still win; no-op on unparsable or non-http(s) URL; unit tests
+DONE #718 HttpError::request_may_have_been_delivered(): false only for Connect phase, InvalidRequest, SystemProxyUnsupported, AddressDenied, HttpsRequired; true otherwise; unit + e2e tests
+PARTIAL #744 done: AddressPolicy::first_party_path_prefix(host, prefix) (whole-segment prefix, multiple prefixes per host, checked on first request and every redirect hop in Client and AsyncClient, traversal/encoded-slash/backslash refused); missing: TLS-fingerprint/impersonation transport. DEFERRED because it needs a new TLS stack (a rustls/BoringSSL ClientHello-shaping or Go tls-client style dependency), a new crate or feature, and a policy decision on shipping impersonation; Adrian/lead input required
+ALREADY #374 netpolicy::validate_public_https_url + UrlPolicyError (0.3.5), re-exported at crate root
+DONE #369 (extra, in this crate) format_http_date(SystemTime) in retry.rs, round-trips with the parser
+PARTIAL #371 (extra) redact_url and redact_urls_in_text now public and re-exported; missing: redaction of OAuth key=value text outside URLs (belongs with rightkit-logs RedactionPolicy)
+(Other open rightkit-http issues #240 #368 #447 #497 #648-#653 #216 #187 #307 #284 are already in main's 0.3.5 Unreleased entry; #205 needs a live Android run; #378/#398/#585/#658 belong to other crates; not touched.)
+
+New version: rightkit-http 0.3.6 (Cargo.toml and Cargo.lock bumped; CHANGELOG 0.3.6 entry).
+Public API changes (all additive; none breaking beyond the struct-literal note):
+- ClientConfig.on_outcome field (non-#[non_exhaustive] struct: literals without ..Default::default() need it, same as on_attempt in 0.3.4) + ClientConfig::on_outcome(hook)
+- AttemptOutcome (new type, crate root)
+- HttpError::request_may_have_been_delivered()
+- AddressPolicy::allow_host_of(&str), AddressPolicy::first_party_path_prefix(host, prefix)
+- retry::format_http_date (crate root)
+- redact_url, redact_urls_in_text (crate root)
+Files: crates/rightkit-http/{src/{client,async_client,error,netpolicy,retry,urlredact,lib}.rs, tests/outcome_and_scope.rs, CHANGELOG.md, Cargo.toml}, Cargo.lock. Not compiled or run.

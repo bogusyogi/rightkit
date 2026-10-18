@@ -1,0 +1,24 @@
+DONE #418 search: bm25 module (tokenize, Bm25Params, Bm25Index), fts5 module (Fts5Table: own/external-content projection with triggers/contentless, ensure, rebuild, optimize, integrity_check, index_row, remove_row, bm25_expr, ranked_sql, search), html_to_text; embed: ResidentIndex new/upsert/remove/contains/keys/memory_bytes/nearest_where (resident int8 index itself ALREADY in rightkit-embed 0.6.0 src/resident.rs)
+DONE #495 (closed as duplicate of #418; html_to_text and FTS5 builder/bm25 above) | ALREADY #495 parent-row (thread) scope bindings: ChildScope/SqlMulti/SqlByShape in rightkit-search 0.4.0 src/sql.rs
+PARTIAL #496 added weighted_reciprocal_rank_fusion + reciprocal_rank_fusion + RRF_K to rightkit-search (the ruling's owner; embed 0.6.0 src/fusion.rs already has the unweighted one and stays), resident int8 index follows writes; missing: sqlite-vec vec0 ANN backend, DEFERRED per the #496 ruling (one ANN owner is the resident index built as #418; MailRight must measure it at 160k rows first; vec0 would also be a new native SQLite extension)
+PARTIAL #580 grep module behind opt-in feature workspace-grep (adds regex, sha2): grep_page, GrepRequest/Budget/Mode/Status/Page/Cursor (SHA-256 root+search binding, line-exact resume), CancelToken, glob filter, path validation; missing: the .gitignore-aware directory walk, which is the separate #417 owner (fsindex); caller supplies the relative file list
+ALREADY #582 rightkit_embed::installed_model_dir in rightkit-embed 0.6.0 src/embedder.rs (re-exported in lib.rs)
+ALREADY #565 rightkit_embed::bundle_files in rightkit-embed 0.6.0 src/embedder.rs (re-exported in lib.rs)
+ALREADY #598 Keyset::range_bound, Keyset::cursor_expr, Compiled::page_clauses in rightkit-search 0.4.0 src/page.rs (published, identical to tree)
+ALREADY #166 ChildScope thread predicates, rightkit-search 0.4.0 src/sql.rs (open issue is only awaiting its publish/close; crate is on crates.io)
+ALREADY #172 Binding::SqlByShape, ChildScope::negated_text_unescaped, rightkit-search 0.4.0 src/sql.rs (same state as #166)
+ALREADY #79 / #288 / #224 / #322 / #545 are release, other-crate or publish-tracking issues, nothing for these two crates to code (embed E40 ingest batch and int8 token table are in 0.6.0 e40.rs)
+
+Versions: rightkit-search 0.4.0 -> 0.4.1 (additive), rightkit-embed 0.6.0 -> 0.6.1 (additive). Cargo.lock updated for both versions and for rightkit-search's new optional deps (regex, sha2 0.10.9, both already in the lock).
+
+Public API changes (none breaking):
+rightkit-search 0.4.1
+- bm25: tokenize, Bm25Params, Bm25Index<K> (also re-exported at the crate root)
+- fusion: reciprocal_rank_fusion, weighted_reciprocal_rank_fusion, RRF_K (re-exported at the root)
+- html: html_to_text (re-exported at the root)
+- fts5 (feature sqlite, default): Fts5Table, Fts5Hit, Fts5Error (non_exhaustive)
+- grep (new opt-in feature workspace-grep): grep_page, CancelToken, GrepRequest, GrepBudget, GrepMode, GrepStatus, GrepResult, GrepPage, GrepCursor, GrepError (all non_exhaustive where open-ended)
+rightkit-embed 0.6.1
+- ResidentIndex: new, upsert, remove, contains, keys, memory_bytes, nearest_where
+
+Notes for the main chat: nothing was compiled or run (rustfmt only, on the new files). Run cargo fmt, then check/clippy/test for rightkit-search with --all-features and rightkit-embed. Patch: D:\scratch\rk-gaps-work\c2\search\search.patch (LF, base ea691005).

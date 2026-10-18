@@ -1,0 +1,385 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..acad53e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6941,7 +6941,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-ffmpeg"
+-version = "0.2.10"
++version = "0.2.11"
+ dependencies = [
+  "rightkit-child-process",
+  "rightkit-fs",
+diff --git a/crates/rightkit-ffmpeg/CHANGELOG.md b/crates/rightkit-ffmpeg/CHANGELOG.md
+index b7fcd5c..34c11d8 100644
+--- a/crates/rightkit-ffmpeg/CHANGELOG.md
++++ b/crates/rightkit-ffmpeg/CHANGELOG.md
+@@ -1,5 +1,22 @@
+ # Changelog
+ 
++## 0.2.11 (unreleased)
++
++- New (issue #719): `FfmpegCommand::h264_compatible_input()` and `h264_compatible_input_with(filters)`
++  add `-vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -pix_fmt yuv420p` (even dimensions, 4:2:0) for H.264
++  encodes; the second form runs a caller filter chain first. `h264_compatible_filter(filters)` returns
++  the chain text. Written without compiling or running anything.
++- New (issue #581): `parse_time_duration(&str) -> Option<Duration>` reads the unsigned FFmpeg time
++  grammar (`HH:MM:SS[.m]`, `MM:SS`, seconds with a fraction, `90s`, `1500ms`, `250000us`) and refuses
++  signs, whitespace, exponents and overflow, so a caller can validate a model-supplied time and fill
++  `ExtractOptions::start`/`duration` (documented there). Written without compiling or running anything.
++- New (issue #739): `UnverifiedRequest::path_lookup(tool)` (a request that only searches `PATH` for the
++  bare `ffmpeg`/`ffprobe` name, development builds only) and `find_tool_on_path(tool)` (the location
++  alone, not catalog-checked). The existing `allow_path_lookup` field behaves as before.
++- Docs (issue #300): `quickprobe` states its coverage: duration, file size, codec (and audio codec)
++  and GIF frame count are probed; slide counts are not a media-container property and stay out.
++  Written without compiling or running anything.
++
+ ## 0.2.10 (2026-10-18)
+ 
+ - New (issue #479): "override first" for the one-call resolver. `ResolveOptions::new().override_first(path)`
+diff --git a/crates/rightkit-ffmpeg/Cargo.toml b/crates/rightkit-ffmpeg/Cargo.toml
+index 6b3d604..603b407 100644
+--- a/crates/rightkit-ffmpeg/Cargo.toml
++++ b/crates/rightkit-ffmpeg/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-ffmpeg"
+-version = "0.2.10"
++version = "0.2.11"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
+diff --git a/crates/rightkit-ffmpeg/src/command.rs b/crates/rightkit-ffmpeg/src/command.rs
+index 900c208..cc894a5 100644
+--- a/crates/rightkit-ffmpeg/src/command.rs
++++ b/crates/rightkit-ffmpeg/src/command.rs
+@@ -84,6 +84,22 @@ impl FfmpegCommand {
+         self.text("-i").path(value)
+     }
+ 
++    /// Normalise the encode input for H.264: pad the picture to even width and height and
++    /// convert to `yuv420p` (`-vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -pix_fmt yuv420p`). Hardware and
++    /// software H.264 encoders refuse odd dimensions and non-4:2:0 input. Call it after the
++    /// input and before the output path. It emits its own `-vf`, so use
++    /// [`FfmpegCommand::h264_compatible_input_with`] when the command already needs a filter chain.
++    pub fn h264_compatible_input(&mut self) -> &mut Self {
++        self.h264_compatible_input_with(None)
++    }
++
++    /// [`FfmpegCommand::h264_compatible_input`] with an optional filter chain that runs first
++    /// (`<filters>,pad=...`), so the pad sees the final picture size. A blank chain is ignored.
++    pub fn h264_compatible_input_with(&mut self, filters: Option<&str>) -> &mut Self {
++        self.text("-vf").text(h264_compatible_filter(filters));
++        self.texts(["-pix_fmt", "yuv420p"])
++    }
++
+     /// Machine-readable progress on stdout (`-progress pipe:1`, one block per 250 ms).
+     pub fn progress_pipe(&mut self) -> &mut Self {
+         self.texts(["-progress", "pipe:1", "-stats_period", "0.25"])
+@@ -237,6 +253,96 @@ pub fn transcode_audio_command(
+     c
+ }
+ 
++/// The filter chain behind [`FfmpegCommand::h264_compatible_input`]: `filters` (when not blank),
++/// then a pad to even width and height (`ceil(iw/2)*2` by `ceil(ih/2)*2`, black bars of at most
++/// one pixel).
++pub fn h264_compatible_filter(filters: Option<&str>) -> String {
++    const PAD: &str = "pad=ceil(iw/2)*2:ceil(ih/2)*2";
++    match filters.map(str::trim).filter(|f| !f.is_empty()) {
++        Some(f) => format!("{f},{PAD}"),
++        None => PAD.to_owned(),
++    }
++}
++
++/// Parse an FFmpeg time duration as the command line reads it, without a sign:
++/// `[HH:]MM:SS[.m...]` (for example `01:02:03.5`, `90:00`), or seconds with an optional fraction and
++/// an optional unit (`90`, `1.5`, `90s`, `1500ms`, `250000us`). Returns `None` for anything else:
++/// an empty string, whitespace anywhere, a leading `-` or `+`, an exponent, minutes or seconds of
++/// 60 or more in the clock form (except leading minutes in `MM:SS`), or a value that overflows.
++/// Precision is one microsecond; finer digits are dropped. Use it to validate a caller-supplied
++/// time before it is passed unchanged as `-ss` or `-t`.
++pub fn parse_time_duration(text: &str) -> Option<Duration> {
++    fn digits(s: &str) -> Option<u64> {
++        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
++            return None;
++        }
++        s.parse().ok()
++    }
++    /// `(whole, millionths)` of an unsigned decimal such as `12` or `12.345`.
++    fn decimal(s: &str) -> Option<(u64, u64)> {
++        let (whole, frac) = match s.split_once('.') {
++            Some((w, f)) => (w, Some(f)),
++            None => (s, None),
++        };
++        let whole = digits(whole)?;
++        let micros = match frac {
++            None => 0,
++            Some(f) => {
++                if f.is_empty() || !f.bytes().all(|b| b.is_ascii_digit()) {
++                    return None;
++                }
++                let mut padded: String = f.chars().take(6).collect();
++                while padded.len() < 6 {
++                    padded.push('0');
++                }
++                padded.parse().ok()?
++            }
++        };
++        Some((whole, micros))
++    }
++    if text.is_empty() || text.bytes().any(|b| b.is_ascii_whitespace()) {
++        return None;
++    }
++    if text.contains(':') {
++        let parts: Vec<&str> = text.split(':').collect();
++        let (hours, minutes, seconds) = match parts.as_slice() {
++            [m, s] => (0, digits(m)?, *s),
++            [h, m, s] => {
++                let minutes = digits(m)?;
++                if minutes >= 60 {
++                    return None;
++                }
++                (digits(h)?, minutes, *s)
++            }
++            _ => return None,
++        };
++        let (whole, micros) = decimal(seconds)?;
++        if whole >= 60 {
++            return None;
++        }
++        let total_secs = hours
++            .checked_mul(3600)?
++            .checked_add(minutes.checked_mul(60)?)?
++            .checked_add(whole)?;
++        return Some(Duration::new(total_secs, (micros * 1000) as u32));
++    }
++    let (number, unit_micros): (&str, u64) = if let Some(n) = text.strip_suffix("ms") {
++        (n, 1_000)
++    } else if let Some(n) = text.strip_suffix("us") {
++        (n, 1)
++    } else if let Some(n) = text.strip_suffix('s') {
++        (n, 1_000_000)
++    } else {
++        (text, 1_000_000)
++    };
++    let (whole, micros) = decimal(number)?;
++    // `micros` is millionths of the unit; convert to microseconds of the result.
++    let total = whole
++        .checked_mul(unit_micros)?
++        .checked_add(micros * unit_micros / 1_000_000)?;
++    Some(Duration::from_micros(total))
++}
++
+ /// What a clip keeps from its input, for [`extract_args`].
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum ExtractMode {
+@@ -250,6 +356,9 @@ pub enum ExtractMode {
+ #[derive(Clone, Debug, Default, PartialEq, Eq)]
+ pub struct ExtractOptions {
+     /// Seek to this input time before decoding (`-ss`, placed before `-i`).
++    ///
++    /// For a time string FFmpeg reads itself (`01:02:03.5`, `1500ms`), validate it with
++    /// [`parse_time_duration`] and put the parsed value here.
+     pub start: Option<Duration>,
+     /// Stop after this output duration (`-t`, placed after `-i`).
+     pub duration: Option<Duration>,
+@@ -395,4 +504,54 @@ mod tests {
+             ["-y", "-i", "a.mkv", "b.mkv"]
+         );
+     }
++
++    #[test]
++    fn h264_compatible_input_pads_to_even_dimensions_and_sets_yuv420p() {
++        let mut cmd = FfmpegCommand::new();
++        cmd.h264_compatible_input();
++        assert_eq!(
++            texts(&cmd),
++            [
++                "-vf",
++                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
++                "-pix_fmt",
++                "yuv420p"
++            ]
++        );
++        let mut chained = FfmpegCommand::new();
++        chained.h264_compatible_input_with(Some(" scale=641:361 "));
++        assert_eq!(
++            texts(&chained)[1],
++            "scale=641:361,pad=ceil(iw/2)*2:ceil(ih/2)*2"
++        );
++        assert_eq!(
++            h264_compatible_filter(Some("  ")),
++            "pad=ceil(iw/2)*2:ceil(ih/2)*2"
++        );
++    }
++
++    #[test]
++    fn parse_time_duration_reads_the_ffmpeg_grammar() {
++        let d = |text| parse_time_duration(text);
++        assert_eq!(d("90"), Some(Duration::from_secs(90)));
++        assert_eq!(d("1.5"), Some(Duration::from_millis(1_500)));
++        assert_eq!(d("90s"), Some(Duration::from_secs(90)));
++        assert_eq!(d("1500ms"), Some(Duration::from_millis(1_500)));
++        assert_eq!(d("1.5ms"), Some(Duration::from_micros(1_500)));
++        assert_eq!(d("250000us"), Some(Duration::from_millis(250)));
++        assert_eq!(d("00:01:02.5"), Some(Duration::from_millis(62_500)));
++        assert_eq!(d("1:02:03"), Some(Duration::from_secs(3_723)));
++        assert_eq!(d("90:30"), Some(Duration::from_secs(5_430)));
++        assert_eq!(d("0.1234567"), Some(Duration::from_micros(123_456)));
++    }
++
++    #[test]
++    fn parse_time_duration_refuses_everything_else() {
++        for bad in [
++            "", " 1", "1 ", "-1", "+1", "1e3", "1.", ".5", "abc", "1:2:3:4", "1:60:00", "00:61",
++            "1:2:3x", "ms", "s", "1.5.2", "99999999999999999999",
++        ] {
++            assert_eq!(parse_time_duration(bad), None, "{bad:?}");
++        }
++    }
+ }
+diff --git a/crates/rightkit-ffmpeg/src/lib.rs b/crates/rightkit-ffmpeg/src/lib.rs
+index b5a1a5b..87d04a0 100644
+--- a/crates/rightkit-ffmpeg/src/lib.rs
++++ b/crates/rightkit-ffmpeg/src/lib.rs
+@@ -39,8 +39,8 @@ pub use bundled::{
+     verify_bundled_ffprobe_in,
+ };
+ pub use command::{
+-    extract_args, transcode_audio_command, AudioTranscode, DevFfmpeg, ExtractMode, ExtractOptions,
+-    FfmpegArg, FfmpegBinary, FfmpegCommand,
++    extract_args, h264_compatible_filter, parse_time_duration, transcode_audio_command,
++    AudioTranscode, DevFfmpeg, ExtractMode, ExtractOptions, FfmpegArg, FfmpegBinary, FfmpegCommand,
+ };
+ pub use content_digest::{
+     content_identity, content_identity_file, ContentFormat, ContentIdentity, SliceDigest,
+@@ -67,8 +67,8 @@ pub use staging::{
+     external_bin_path, stage_external_bin, tauri_target_triple, StagedBinary, VerifiedArtifact,
+ };
+ pub use unverified::{
+-    resolve_ffmpeg_or_unverified, resolve_unverified, AnyFfmpeg, BuildMode, Capabilities,
+-    ConfigLicense, UnverifiedRequest, UnverifiedSource, UnverifiedTool,
++    find_tool_on_path, resolve_ffmpeg_or_unverified, resolve_unverified, AnyFfmpeg, BuildMode,
++    Capabilities, ConfigLicense, UnverifiedRequest, UnverifiedSource, UnverifiedTool,
+ };
+ pub use verify_cache::{digest_computations, verify_cache_clear};
+ 
+diff --git a/crates/rightkit-ffmpeg/src/quickprobe.rs b/crates/rightkit-ffmpeg/src/quickprobe.rs
+index 0ccbcf9..bf78dd6 100644
+--- a/crates/rightkit-ffmpeg/src/quickprobe.rs
++++ b/crates/rightkit-ffmpeg/src/quickprobe.rs
+@@ -3,8 +3,11 @@
+ //! FLAC, MP4/MOV, MP3). Unknown formats yield nulls (and the size). Donor: GenRight
+ //! `genright-gen/src/media.rs`.
+ //!
+-//! A "slide count" is not a property of a media container; the nearest is `frame_count`
+-//! (GIF image frames). Deck formats (PDF, PPTX) are not probed here.
++//! Coverage (issue #300, PostRight RG-3): duration is `duration_s`, file size is `size_bytes`
++//! (always set) and codec is `codec` (plus `audio_codec` for MP4/MOV). A "slide count" is not a
++//! property of a media container; the nearest is `frame_count` (GIF image frames). Deck formats
++//! (PDF, PPTX) are not probed here: a page or slide count belongs to a document probe, not to
++//! this media probe.
+ 
+ #[derive(Debug, Clone, Copy, Default, PartialEq)]
+ pub struct Probe {
+diff --git a/crates/rightkit-ffmpeg/src/unverified.rs b/crates/rightkit-ffmpeg/src/unverified.rs
+index 5768409..7ac8335 100644
+--- a/crates/rightkit-ffmpeg/src/unverified.rs
++++ b/crates/rightkit-ffmpeg/src/unverified.rs
+@@ -99,6 +99,15 @@ impl UnverifiedRequest {
+             allow_path_lookup: false,
+         }
+     }
++
++    /// A request that looks the bare tool name up on `PATH` (`ffmpeg`, or `ffmpeg.exe` on
++    /// Windows) and nothing else. Like every unverified source it is refused in a release build.
++    pub fn path_lookup(tool: Tool) -> Self {
++        Self {
++            allow_path_lookup: true,
++            ..Self::new(tool)
++        }
++    }
+ }
+ 
+ /// A binary that has NOT been checked against the artifact catalog.
+@@ -291,6 +300,21 @@ fn executable_name(tool: Tool) -> String {
+     })
+ }
+ 
++fn find_in_path_list(tool: Tool, paths: &OsString) -> Option<PathBuf> {
++    let name = executable_name(tool);
++    env::split_paths(paths)
++        .map(|dir| dir.join(&name))
++        .find(|candidate| candidate.is_file())
++}
++
++/// The first `ffmpeg`/`ffprobe` file named by tool on the process `PATH`, or `None`. The result
++/// is NOT catalog-checked; it is the lookup behind [`UnverifiedSource::PathLookup`] for callers
++/// that only need the location. It does not consult [`BuildMode`], so a release build must not
++/// run the result; use [`resolve_unverified`] to get that refusal.
++pub fn find_tool_on_path(tool: Tool) -> Option<PathBuf> {
++    env::var_os("PATH").and_then(|paths| find_in_path_list(tool, &paths))
++}
++
+ /// Resolve a non-catalog binary. Refused in [`BuildMode::Release`].
+ pub fn resolve_unverified(
+     request: &UnverifiedRequest,
+@@ -329,18 +353,14 @@ fn resolve_unverified_with(
+         }
+     }
+     if request.allow_path_lookup {
+-        let name = executable_name(request.tool);
+-        if let Some(paths) = get_env("PATH") {
+-            if let Some(path) = env::split_paths(&paths)
+-                .map(|dir| dir.join(&name))
+-                .find(|candidate| candidate.is_file())
+-            {
+-                return Ok(UnverifiedTool {
+-                    tool: request.tool,
+-                    path,
+-                    source: UnverifiedSource::PathLookup,
+-                });
+-            }
++        if let Some(path) =
++            get_env("PATH").and_then(|paths| find_in_path_list(request.tool, &paths))
++        {
++            return Ok(UnverifiedTool {
++                tool: request.tool,
++                path,
++                source: UnverifiedSource::PathLookup,
++            });
+         }
+     }
+     Err(MediaError::UnverifiedNotFound)
+@@ -583,4 +603,30 @@ esac
+         assert!(probe_caps.encoders.is_empty() && probe_caps.filters.is_empty());
+         assert!(probe_caps.has_decoder("h264"));
+     }
++
++    #[test]
++    fn path_lookup_request_finds_the_bare_name_only_in_development() {
++        let dir = tempfile::tempdir().unwrap();
++        let on_path = dir.path().join(executable_name(Tool::Ffmpeg));
++        fs::write(&on_path, b"x").unwrap();
++        let env = env_of(vec![("PATH", dir.path().as_os_str().to_owned())]);
++        let request = UnverifiedRequest::path_lookup(Tool::Ffmpeg);
++        assert!(request.allow_path_lookup);
++        let got = resolve_unverified_with(&request, BuildMode::Development, &env).unwrap();
++        assert_eq!(got.path(), on_path.as_path());
++        assert_eq!(got.source(), &UnverifiedSource::PathLookup);
++        assert!(matches!(
++            resolve_unverified_with(&request, BuildMode::Release, &env),
++            Err(MediaError::UnverifiedRefusedInRelease)
++        ));
++        let probe = UnverifiedRequest::path_lookup(Tool::Ffprobe);
++        assert!(matches!(
++            resolve_unverified_with(&probe, BuildMode::Development, &env),
++            Err(MediaError::UnverifiedNotFound)
++        ));
++        assert_eq!(
++            find_in_path_list(Tool::Ffmpeg, &dir.path().as_os_str().to_owned()),
++            Some(on_path)
++        );
++    }
+ }

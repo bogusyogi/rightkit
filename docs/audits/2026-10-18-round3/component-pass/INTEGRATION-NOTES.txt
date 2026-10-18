@@ -1,0 +1,30 @@
+Component pass integration notes (Rk3 Win)
+- browser 0.3.5: LaunchOptions gains pub fields (breaking for full struct literals) -> integrate as 0.4.0 and bump rightkit-qa + rightkit-agent-tools browser reqs.
+- browser: ManagedRoot::previous()/MANAGED_PREVIOUS_DIR (CfT runtime rollback dir) -> check against #771 D1 at review (D1 covers app installs; decide whether managed runtimes too).
+- job-queue 0.3.3: #734b needs sidecar WireError.details (sidecar pass running). #406 deferred design -> Sage.
+- ffmpeg 0.2.11: #246 Linux rows deferred (no approved artifact); #300 slide count -> document probe owner.
+- All patches: compile risks listed in each REPORT.txt; cargo fmt pass needed.
+- sidecar 0.3.0 (BREAKING: WireError pub field details) -> cascade republish: daemon, job-queue, qa, record, speech-client (reqs bumped in patch). Build with/without --features tokio.
+- daemon 0.2.8: uses rightkit_fs::restrict_owner_only (check exists); sidecar patch also edits daemon Cargo.toml (merge). Check atexit/wake externs on both hosts.
+- DESIGN queue for Sage (deferred): job-queue #406 (epoch/outbox/uncertain/stdio), daemon #379 (device bearer auth), #666 (reload saga), #404 (events/ServiceRecord schema/attach-or-fallback).
+- SPECIALIST queue: daemon #405 Authenticode (WinVerifyTrust) + SCM; fs #399 Windows IFileOperation trash.
+- http 0.3.6: ClientConfig new pub field (same precedent as 0.3.4 on_attempt). ADRIAN QUESTION (end): ship a TLS-fingerprint impersonation transport for ScrapeRight (#744)? #448 item 3 fetch-compatible Tauri command -> design.
+- logs 0.3.3/@rightkit/logs 0.1.5: #520 KeyTokenRedactor uses FNV-1a (guessable) -> at review switch to keyed hash (HMAC-SHA256 via rightkit-crypto or blake3 keyed). Tauri rightkit_logs_* commands deferred to tauri-shell design.
+- child-process 0.5.3 (additive). #555 spawn_tokio deferred (design). #557 pty new crate. #292: spawn_suspended/resume public in rightkit-child-process; RustRight pins legacy rightkit-process 0.4.0 -> tell it to move.
+- npm-app: app-update 0.4.0 BREAKING (D1, .previous removed) -> widen packages/tauri peer range to <0.5 at integration; license 0.2.1; doc-render 0.2.1. ADRIAN QUESTION (end, ViewRight #395): allow form/base/meta/link/canvas/<style> in rendered HTML? (security). Rust rightkit-app-update new crate deferred (#448, #415).
+- credentials 0.2.2 additive: add env-file (+windows-hello on Windows leg) featureSets to ci/gate.config.json; macOS SecStaticCode/keychain FFI + DPAPI + Hello need live runs before publish; TPM/SE deferred.
+- qa 0.6.5 / @rightkit/qa 0.6.0: D1 done in inplace.rs; unchecked #195 #215 #430 #435 #488 -> sweep later; #678 needs Dell evidence run.
+- agents 0.3.0 BREAKING (intended behaviour changes); scope test now allows --mcp-config/--strict-mcp-config pass-through (owner decision: accept). Async Session deferred (#695).
+- models: reworking to 0.4.5 additive. #741 item 2 (case-insensitive find_processes cmdline element) -> child-process follow-up. ADRIAN/PULSE QUESTION: #542 LLMLingua: host the artifacts with sha+size, or drop it from Pulse? -> ask Pulse lead first.
+- tauri-shell 0.4.0 + JS 0.2.0 BREAKING (menu variants, struct fields; accepted: app-facing). Highest compile risk: include!(shell.rs) split, optional tauri; run cargo update -p rightkit-tauri-shell (tauri-plugin-dialog) in workspace + example-app; check default / engine / all-features / no-default+wv2-0_38 on Win+Mac. D2 enforced.
+- release 0.4.0 (unpublished): D1 done across installers; #722 tauri-devid refresh missing; #428 multi-exe NSIS design; #397 dev hot-reload + linux target open. Biggest risk stage-sidecar.mjs + install-app legacy journal recovery.
+- device 0.3.0 BREAKING (AuthorizationDenial non_exhaustive + Revoked; justified, no workspace dependents; apps need wildcard arm).
+- mcp 0.7.1: add lib-only --no-default-features check to gate.
+- react-shell: Tanker wordmark font stays in Pulse (brand-neutral package; not bundled). Decided, no question.
+- llm 0.4.0 BREAKING (LlmError::Status retry_after, IncompleteOutput, ImageRoute.sizes typed). No workspace dependents -> accepted. Exact o200k token counting deferred (tokenizer supply-chain). Check async EventStream Send bounds.
+- license 0.2.3: plus->pro behaviour change (intended, #747). REVIEW vs #771 D4: FileTokenSource reads a licence token from a file -> replace with a credential-store-backed source (or drop FileTokenSource) before handover. #420 installation identity -> design.
+- GATE (Adrian 2026-10-18): STOP before ANY publishing (crates.io, npm, Swift tag). Report ready and wait for his go.
+- license: FileTokenSource removed; CredentialTokenSource (feature credential-token). OPEN: engine default reads license.token file (signed entitlement token, published behaviour) -> D4 scope question; leave for now, raise with Adrian after round 2. #774 tauri-shell build.rs bench guard fixed in c2 tree; hotfix 0.3.3 awaiting Adrian.
+- misc-b: pdf 0.3.3 pdfium feature (cargo update for pdfium-render; Windows pdfium row still planned); onnx 0.2.7; ownership 0.3.2 (#687); oauth 0.8.1 (exchange_code rejects malformed verifier: behaviour change). motion unchanged.
+- time 0.1.1 (tz from OS TZif; Windows needs bundled tzdata -> deferred), fsindex 0.4.2 (walk_repo .gitignore-aware).
+- misc-a: file-watch 0.4.2, docs 0.1.2, sync 0.2.3, send 0.2.1, hooks 0.2.1, agent-tools 0.1.6 (additive). ShellLauncher Windows timeout kills shell only -> fix with job object at review. send receive-side + send-ui deferred (design).

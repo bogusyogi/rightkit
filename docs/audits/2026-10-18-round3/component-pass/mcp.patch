@@ -1,0 +1,903 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..c3a5562 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7104,7 +7104,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-mcp"
+-version = "0.7.0"
++version = "0.7.1"
+ dependencies = [
+  "futures-util",
+  "getrandom 0.4.3",
+diff --git a/crates/rightkit-mcp/CHANGELOG.md b/crates/rightkit-mcp/CHANGELOG.md
+index 511ac67..55d20b5 100644
+--- a/crates/rightkit-mcp/CHANGELOG.md
++++ b/crates/rightkit-mcp/CHANGELOG.md
+@@ -1,5 +1,19 @@
+ # Changelog
+ 
++## 0.7.1 (unreleased)
++
++Additive. The only change a consumer can notice is the `client` feature below, and only for one who already built with `default-features = false`.
++
++- **New: optional client side** (rightkit#283 item 5). The `client` feature is on by default and carries `McpClient`, `ConnectionPool`, `TrustStore`, `config`, `AuthProvider` and `Secret`, and with them the `ureq` (rustls), `rightkit-http` and `rightkit-fs` dependencies. With `default-features = false` the crate is `ServerHost`, `LeasedPool`, `RawJson`, the shared types, events and the `client_features` data types (`CancellationToken`, `ClientExtensions`, `ProcessLauncher` and the rest), and none of those three crates is built. `advanced-http` and `testing` imply `client`. `PendingApproval` moved to the error module so `McpError::NotApproved` exists either way; `rightkit_mcp::PendingApproval` and `rightkit_mcp::trust::PendingApproval` both still resolve. **Consumers that set `default-features = false` and use the client must add `features = ["client"]`**; consumers on default features see no change. wasm32 also needs `getrandom`'s wasm backend chosen by the host application, and the server's loopback listener and stdio loops are not usable there at run time. Not built or run locally.
++
++- **New: `LeasedPool::acquire_async` / `try_acquire_async`** (rightkit#549 follow-up). `acquire_async(key, || async { Ok(Arc<V>) })` has the same single-flight sharing, failure cooldown, epochs and cache lifetime as `acquire`. It needs no particular runtime: a waiter parks its task on a waker instead of blocking a thread, and the leader runs the future on the caller's task. Dropping the returned future (task abort, timeout) releases the key and the waiters get a `McpError::Transport` error. Not built or run locally.
++
++- **New: `LeasedPool::with_max_entries` / `max_entries` and `AcquireError`** (rightkit#549 follow-up). A capped pool counts connected values plus connects in flight. A new key on a full pool evicts the longest-idle value with no lease out; if every value is leased, `create` is not called and `try_acquire` / `try_acquire_async` return `AcquireError::PoolFull(Vec<EntrySnapshot<K>>)` (`AcquireError::Failed(McpError)` for every other failure), while `acquire` / `acquire_async` return `McpError::PoolFull(n)`. The cap is a builder on the pool, not a `LeasedPoolConfig` field, so `LeasedPoolConfig` literals and `Copy` are unchanged; the default stays unbounded. A cancelled or panicking `create` now reports "connect panicked or was cancelled" to its waiters. Not built or run locally.
++
++- **Fixed: `TrustStore::try_load_migrating` with a foreign `records` array** (rightkit#708). A document whose `records` array does not parse as native records (for example CodeRight's camelCase `serverName` / `contentHash` rows) used to fail with `InvalidData` before `migrate` ran. It is now passed to `migrate`; `Some` becomes the store, `None` is still `InvalidData` (carrying the native parse error). A native store still loads without calling the hook, and nothing is written until `save`. Not built or run locally.
++
++- **Already shipped in 0.7.0, no change** (checked for this pass): `CallHandle`, `serve_stdio_concurrent[_on]`, `InitializeOverrides`, `ResourceNotFound` (rightkit#283 item 1, #238), `TransformContext::request` (item 2), `RequestValidation::Strict` (item 3), `notify_progress_number` (item 4), `ServerNotification` delivery (#243), per-version batch policy (#421), trust gate helpers (#550).
++
+ ## 0.7.0 (2026-10-17)
+ 
+ - **New: `ServerHost::with_request_transform`** (rightkit#283 item 2). Like `with_response_transform`, but the closure gets a `TransformContext` whose `request()` is the request frame it answers (one item of a batch), for per-request rewrites such as `_meta` or protocol-version gating. `TransformInfo` keeps its two fields (`method`, `transport`), so existing closures and destructuring still compile. `TransformContext`'s `Debug` omits the request contents. Not built or run locally.
+diff --git a/crates/rightkit-mcp/Cargo.toml b/crates/rightkit-mcp/Cargo.toml
+index 1a0e39b..cdee77a 100644
+--- a/crates/rightkit-mcp/Cargo.toml
++++ b/crates/rightkit-mcp/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-mcp"
+-version = "0.7.0"
++version = "0.7.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
+@@ -54,28 +54,33 @@ release = "HttpServer::shutdown or Drop"
+ getrandom = "0.4"
+ serde = { version = "1", features = ["derive"] }
+ serde_json = { version = "1", features = ["raw_value"] }
+-ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+-rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
++ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
++rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"], optional = true }
++rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false, optional = true }
+ http = { version = "1", optional = true }
+ tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"], optional = true }
+ futures-util = { version = "0.3", optional = true }
+ url = "2"
+ 
+ [features]
+-default = []
++default = ["client"]
++# The MCP client side: `McpClient`, `ConnectionPool`, `TrustStore`, `config`, `AuthProvider`
++# and the HTTP transports (ureq + rustls, rightkit-http, rightkit-fs). On by default. A
++# server-only consumer builds with `default-features = false` and gets `ServerHost`,
++# `LeasedPool`, the shared types and `ClientExtensions` data types without the TLS stack.
++client = ["dep:ureq", "dep:rightkit-http", "dep:rightkit-fs"]
+ # Opt-in HTTP transport (streamable HTTP with extensions, legacy SSE): tokio runtime,
+-# rightkit-http async client, http, futures-util. Stdio-only consumers can build with
+-# `default-features = false`; `ServerSpec::Http` with `ClientExtensions` then fails with
+-# `McpError::Config` and plain blocking HTTP stays available.
+-advanced-http = ["dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/async"]
++# rightkit-http async client, http, futures-util. Without it `ServerSpec::Http` with
++# `ClientExtensions` fails with `McpError::Config` and plain blocking HTTP stays available.
++# Implies `client`.
++advanced-http = ["client", "dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/async"]
+ # Echo JSON-RPC ids with their exact numeric spelling (e.g. 1e+2, >u64 integers).
+ # Off by default: serde_json arbitrary_precision is unified across the whole
+ # dependency graph and changes number round-tripping for every crate.
+ exact-json-ids = ["serde_json/arbitrary_precision"]
+ # Test-only seam: `ClientExtensions::address_policy` overrides the HTTP client's address
+ # policy. Absent from the default build; enabled for this crate's own tests only.
+-testing = []
++testing = ["client"]
+ 
+ [dev-dependencies]
+ tempfile = "3"
+diff --git a/crates/rightkit-mcp/README.md b/crates/rightkit-mcp/README.md
+index a815238..f9e7e0d 100644
+--- a/crates/rightkit-mcp/README.md
++++ b/crates/rightkit-mcp/README.md
+@@ -12,9 +12,10 @@ The public API is re-exported from `src/lib.rs`. The trust store, client, pool,
+ 
+ | Feature | Default | Pulls in | Effect |
+ |---|---|---|---|
++| `client` | on | `ureq` (rustls), `rightkit-http`, `rightkit-fs` | The client side: `McpClient`, `ConnectionPool`, `TrustStore`, `config`, `AuthProvider`. Build with `default-features = false` for a server-only consumer: `ServerHost`, `LeasedPool`, the shared types and the `client_features` data types, with no TLS stack. `advanced-http` and `testing` imply it. |
+ | `exact-json-ids` | off | `serde_json/arbitrary_precision` | Echoes JSON-RPC ids with their exact numeric spelling (for example `1e+2` or integers above `u64`). Changes number round-tripping for the whole dependency graph, so it is off by default. |
+ 
+-`advanced-http` is off by default (0.6.0, `default = []`): it enables streamable HTTP with extensions and legacy SSE through `tokio`, `http`, `futures-util` and `rightkit-http/async`. Name `features = ["advanced-http"]` to use it; without it `ServerSpec::Http` with `ClientExtensions` returns `McpError::Config`. Stdio-only consumers need nothing. Blocking HTTP uses `ureq` with `rustls` (`src/client.rs:777`). `testing` (`Cargo.toml:39`) is a test-only seam for `ClientExtensions::address_policy`, not for consumers.
++`advanced-http` is off by default (0.6.0, `default = []`): it enables streamable HTTP with extensions and legacy SSE through `tokio`, `http`, `futures-util` and `rightkit-http/async`. Name `features = ["advanced-http"]` to use it; without it `ServerSpec::Http` with `ClientExtensions` returns `McpError::Config`. Blocking HTTP uses `ureq` with `rustls` (`src/client.rs:777`). `testing` (`Cargo.toml:39`) is a test-only seam for `ClientExtensions::address_policy`, not for consumers.
+ 
+ ## Platform support
+ 
+@@ -171,6 +172,13 @@ let reply = host.dispatch_checked(&json!({"id":1,"method":"ping"}), &RequestCont
+ - `LeasedPool<K, V>` is a generic leased pool (refcounted `Lease`, per-key epochs, `evict_idle`, `snapshot`, single-flight `acquire`, `LeasedPoolConfig { reconnect_cooldown, cache_lifetime }`). It has no trust gate; `ConnectionPool` remains the gated client pool.
+ - `TrustStore::{gate, gate_stdio, credential_write_allowed, pending_approval, approve_with_fingerprint, deny_with_fingerprint, decide_with_fingerprint, try_load_migrating}` let a host gate before spawn, keep its own fingerprint and migrate another store's file (`ImportedTrust`). Foreign fingerprints never satisfy `decide` (fails closed).
+ 
++## Added in 0.7.1
++
++- `client` feature (on by default; see Features). A consumer that already used `default-features = false` and needs the client must now name `features = ["client"]`.
++- `LeasedPool::acquire_async` / `try_acquire_async`: the same single-flight, cooldown and epoch rules for an async `create`, on any executor; waiters park their task and never block a thread. Dropping the leader's future releases the key.
++- `LeasedPool::with_max_entries(n)`: a capacity cap. A full pool evicts the longest-idle unleased value, otherwise `try_acquire*` returns `AcquireError::PoolFull(snapshot)` (and `acquire*` returns `McpError::PoolFull`) without calling `create`.
++- `TrustStore::try_load_migrating` now sends a document whose `records` array does not parse as native records to the `migrate` hook.
++
+ ## Also (0.2.0)
+ 
+ - Public `ServerHost::dispatch(&Value) -> Option<Value>` & `dispatch_with_context(&Value, &RequestContext) -> Option<Value>` route parsed frames without transport I/O.
+diff --git a/crates/rightkit-mcp/src/error.rs b/crates/rightkit-mcp/src/error.rs
+index 834eb3a..d78655a 100644
+--- a/crates/rightkit-mcp/src/error.rs
++++ b/crates/rightkit-mcp/src/error.rs
+@@ -1,6 +1,17 @@
+ use std::fmt;
+ 
+-use crate::trust::PendingApproval;
++use serde::{Deserialize, Serialize};
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++pub struct PendingApproval {
++    pub workspace: String,
++    pub server: String,
++    pub fingerprint: String,
++    pub command: String,
++    pub args: Vec<String>,
++    /// Environment variable NAMES only; values are never surfaced or persisted.
++    pub env_keys: Vec<String>,
++}
+ 
+ /// Every failure the crate reports.
+ #[derive(Debug, Clone)]
+diff --git a/crates/rightkit-mcp/src/leased_pool.rs b/crates/rightkit-mcp/src/leased_pool.rs
+index 0081a97..81aa490 100644
+--- a/crates/rightkit-mcp/src/leased_pool.rs
++++ b/crates/rightkit-mcp/src/leased_pool.rs
+@@ -1,18 +1,21 @@
+ //! Generic leased pool: any `Arc<V>` keyed by any `K`, with refcounted leases, per-key epochs,
+ //! idle eviction, a diagnostic snapshot, single-flight connect and a failure cooldown.
+ //!
+-//! [`ConnectionPool`](crate::ConnectionPool) stays the trust-gated pool of [`McpClient`]s; this
++//! `ConnectionPool` stays the trust-gated pool of `McpClient`s (the `client` feature); this
+ //! pool carries no trust gate and no MCP knowledge. A host builds its key from whatever
+ //! identifies a connection (scope, kind, endpoint, args/env fingerprint, config hash) and
+-//! passes a `create` closure that connects.
+-//!
+-//! [`McpClient`]: crate::McpClient
++//! passes a `create` closure that connects ([`LeasedPool::acquire`]) or an async one
++//! ([`LeasedPool::acquire_async`], runtime-agnostic: waiters never block a thread).
++//! [`LeasedPool::with_max_entries`] caps how many connections the pool holds.
+ 
+ use std::collections::HashMap;
++use std::future::Future;
+ use std::hash::Hash;
+ use std::ops::Deref;
++use std::pin::Pin;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
++use std::task::{Context, Poll, Waker};
+ use std::time::{Duration, Instant};
+ 
+ use crate::error::{McpError, Result};
+@@ -124,12 +127,17 @@ pub struct EntrySnapshot<K> {
+ struct Flight {
+     outcome: Mutex<Option<Result<()>>>,
+     done: Condvar,
++    wakers: Mutex<Vec<Waker>>,
+ }
+ 
+ impl Flight {
+     fn finish(&self, outcome: Result<()>) {
+         *lock(&self.outcome) = Some(outcome);
+         self.done.notify_all();
++        let wakers = std::mem::take(&mut *lock(&self.wakers));
++        for waker in wakers {
++            waker.wake();
++        }
+     }
+ 
+     fn wait(&self) -> Result<()> {
+@@ -143,6 +151,23 @@ impl Flight {
+     }
+ }
+ 
++/// Resolves when a flight finishes. The waker is registered while the outcome lock is held, so
++/// a `finish` racing with the poll either is seen here or wakes the waker.
++struct WaitFlight(Arc<Flight>);
++
++impl Future for WaitFlight {
++    type Output = Result<()>;
++
++    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
++        let outcome = lock(&self.0.outcome);
++        if let Some(outcome) = outcome.as_ref() {
++            return Poll::Ready(outcome.clone());
++        }
++        lock(&self.0.wakers).push(cx.waker().clone());
++        Poll::Pending
++    }
++}
++
+ struct Ready<V: ?Sized> {
+     value: Arc<V>,
+     epoch: u64,
+@@ -169,11 +194,44 @@ impl<K: Eq + Hash, V: ?Sized> Table<K, V> {
+ }
+ 
+ /// What `acquire` decided to do after looking at one key, with the table lock released.
+-enum Step<V: ?Sized> {
++enum Step<K, V: ?Sized> {
+     Lease(Lease<V>),
+     Wait(Arc<Flight>),
+     Cooldown(McpError, Duration),
+     Lead(Arc<Flight>, u64),
++    Full(Vec<EntrySnapshot<K>>),
++}
++
++/// Why [`LeasedPool::try_acquire`] / [`LeasedPool::try_acquire_async`] returned no lease.
++#[derive(Debug, Clone)]
++pub enum AcquireError<K> {
++    /// Connecting failed, was cooling down, or a shared connect failed.
++    Failed(McpError),
++    /// The pool holds [`LeasedPool::max_entries`] connections, none idle enough to evict, and
++    /// `create` was not called. Carries the pool snapshot at that moment.
++    PoolFull(Vec<EntrySnapshot<K>>),
++}
++
++impl<K> std::fmt::Display for AcquireError<K> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            AcquireError::Failed(error) => write!(f, "{error}"),
++            AcquireError::PoolFull(rows) => {
++                write!(f, "pool full: {} connections, all in use", rows.len())
++            }
++        }
++    }
++}
++
++impl<K: std::fmt::Debug> std::error::Error for AcquireError<K> {}
++
++impl<K> From<AcquireError<K>> for McpError {
++    fn from(error: AcquireError<K>) -> Self {
++        match error {
++            AcquireError::Failed(error) => error,
++            AcquireError::PoolFull(rows) => McpError::PoolFull(rows.len()),
++        }
++    }
+ }
+ 
+ /// A bounded-lifetime cache of shared connections with refcounted leases.
+@@ -182,6 +240,7 @@ enum Step<V: ?Sized> {
+ /// (the first caller runs it, the rest wait and share its value or its error).
+ pub struct LeasedPool<K, V: ?Sized> {
+     cfg: LeasedPoolConfig,
++    max_entries: Option<usize>,
+     table: Mutex<Table<K, V>>,
+ }
+ 
+@@ -202,7 +261,9 @@ impl<K: Eq + Hash, V: ?Sized> Drop for LeaderGuard<'_, K, V> {
+         if self.armed {
+             lock(&self.pool.table).states.remove(self.key);
+             self.flight
+-                .finish(Err(McpError::Transport("connect panicked".into())));
++                .finish(Err(McpError::Transport(
++                    "connect panicked or was cancelled".into(),
++                )));
+         }
+     }
+ }
+@@ -211,6 +272,7 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+     pub fn new(cfg: LeasedPoolConfig) -> Self {
+         Self {
+             cfg,
++            max_entries: None,
+             table: Mutex::new(Table {
+                 states: HashMap::new(),
+                 key_epochs: HashMap::new(),
+@@ -219,6 +281,21 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+         }
+     }
+ 
++    /// Caps the pool at `max` connections (connected values plus connects in flight). When a
++    /// new key needs a connection and the pool is full, the longest-idle value with no lease out
++    /// is evicted to make room; if every value is leased, `acquire` fails without calling
++    /// `create` (see [`try_acquire`](Self::try_acquire) for the snapshot). Without this call the
++    /// pool is unbounded.
++    pub fn with_max_entries(mut self, max: usize) -> Self {
++        self.max_entries = Some(max);
++        self
++    }
++
++    /// The cap set by [`with_max_entries`](Self::with_max_entries), if any.
++    pub fn max_entries(&self) -> Option<usize> {
++        self.max_entries
++    }
++
+     /// A lease on the value for `key`, connecting with `create` when none is cached.
+     ///
+     /// A cached value is reused unless its epoch is stale (see [`bump_epoch`](Self::bump_epoch))
+@@ -226,31 +303,104 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+     /// one caller connects, others wait and share the value or the error. After a failure, calls
+     /// within `reconnect_cooldown` return a `McpError::Transport` cooldown error without calling
+     /// `create`. A value connected across an epoch bump is returned to its caller but not cached.
++    /// A full capped pool returns `McpError::PoolFull`.
+     pub fn acquire(&self, key: K, create: impl FnOnce() -> Result<Arc<V>>) -> Result<Lease<V>> {
++        self.try_acquire(key, create).map_err(McpError::from)
++    }
++
++    /// As [`acquire`](Self::acquire), but a full capped pool is
++    /// [`AcquireError::PoolFull`] carrying the pool snapshot, so a host can show what holds the
++    /// slots instead of spawning one more connection.
++    pub fn try_acquire(
++        &self,
++        key: K,
++        create: impl FnOnce() -> Result<Arc<V>>,
++    ) -> std::result::Result<Lease<V>, AcquireError<K>> {
+         let mut create = Some(create);
+         loop {
+             match self.step(&key) {
+                 Step::Lease(lease) => return Ok(lease),
+-                Step::Cooldown(error, remaining) => {
+-                    return Err(McpError::Transport(format!(
+-                        "reconnect cooling down for {}ms after: {error}",
+-                        remaining.as_millis()
+-                    )))
++                Step::Cooldown(error, remaining) => return Err(cooldown_error(error, remaining)),
++                Step::Full(rows) => return Err(AcquireError::PoolFull(rows)),
++                Step::Wait(flight) => {
++                    flight.wait().map_err(AcquireError::Failed)?;
++                }
++                Step::Lead(flight, epoch) => {
++                    let Some(create) = create.take() else {
++                        return Err(AcquireError::Failed(McpError::Closed));
++                    };
++                    let mut guard = LeaderGuard {
++                        pool: self,
++                        key: &key,
++                        flight: &flight,
++                        armed: true,
++                    };
++                    let created = create();
++                    guard.armed = false;
++                    return self
++                        .finish_lead(&key, &flight, epoch, created)
++                        .map_err(AcquireError::Failed);
+                 }
++            }
++        }
++    }
++
++    /// Async [`acquire`](Self::acquire) for a runtime where connecting is a future. Same
++    /// single-flight sharing, cooldown, epochs and cap, and it works on any executor: a waiter
++    /// parks its task (no thread is blocked, no runtime is required), and the leader runs
++    /// `create()` on the caller's task. Dropping the returned future cancels the connect: the
++    /// key is released and waiters get a `McpError::Transport` error.
++    pub async fn acquire_async<F, Fut>(&self, key: K, create: F) -> Result<Lease<V>>
++    where
++        F: FnOnce() -> Fut,
++        Fut: Future<Output = Result<Arc<V>>>,
++    {
++        self.try_acquire_async(key, create)
++            .await
++            .map_err(McpError::from)
++    }
++
++    /// As [`acquire_async`](Self::acquire_async), with [`AcquireError::PoolFull`] on a full
++    /// capped pool.
++    pub async fn try_acquire_async<F, Fut>(
++        &self,
++        key: K,
++        create: F,
++    ) -> std::result::Result<Lease<V>, AcquireError<K>>
++    where
++        F: FnOnce() -> Fut,
++        Fut: Future<Output = Result<Arc<V>>>,
++    {
++        let mut create = Some(create);
++        loop {
++            match self.step(&key) {
++                Step::Lease(lease) => return Ok(lease),
++                Step::Cooldown(error, remaining) => return Err(cooldown_error(error, remaining)),
++                Step::Full(rows) => return Err(AcquireError::PoolFull(rows)),
+                 Step::Wait(flight) => {
+-                    flight.wait()?;
++                    WaitFlight(flight).await.map_err(AcquireError::Failed)?;
+                 }
+                 Step::Lead(flight, epoch) => {
+                     let Some(create) = create.take() else {
+-                        return Err(McpError::Closed);
++                        return Err(AcquireError::Failed(McpError::Closed));
+                     };
+-                    return self.lead(&key, &flight, epoch, create);
++                    let mut guard = LeaderGuard {
++                        pool: self,
++                        key: &key,
++                        flight: &flight,
++                        armed: true,
++                    };
++                    let created = create().await;
++                    guard.armed = false;
++                    return self
++                        .finish_lead(&key, &flight, epoch, created)
++                        .map_err(AcquireError::Failed);
+                 }
+             }
+         }
+     }
+ 
+-    fn step(&self, key: &K) -> Step<V> {
++    fn step(&self, key: &K) -> Step<K, V> {
+         let mut table = lock(&self.table);
+         let epoch = table.epoch(key);
+         let lifetime = self.cfg.cache_lifetime;
+@@ -278,6 +428,32 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+                 Step::Cooldown(error.clone(), cooldown.saturating_sub(at.elapsed()))
+             }
+             _ => {
++                if let Some(max) = self.max_entries {
++                    let occupied = table
++                        .states
++                        .values()
++                        .filter(|s| matches!(s, State::Ready(_) | State::Connecting(_)))
++                        .count();
++                    if occupied >= max {
++                        let victim = table
++                            .states
++                            .iter()
++                            .filter_map(|(k, s)| match s {
++                                State::Ready(r) if r.usage.count.load(Ordering::SeqCst) == 0 => {
++                                    Some((k.clone(), r.usage.idle()))
++                                }
++                                _ => None,
++                            })
++                            .max_by_key(|(_, idle)| *idle)
++                            .map(|(k, _)| k);
++                        match victim {
++                            Some(victim) => {
++                                table.states.remove(&victim);
++                            }
++                            None => return Step::Full(rows(&table)),
++                        }
++                    }
++                }
+                 let flight = Arc::new(Flight::default());
+                 table
+                     .states
+@@ -287,21 +463,13 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+         }
+     }
+ 
+-    fn lead(
++    fn finish_lead(
+         &self,
+         key: &K,
+         flight: &Arc<Flight>,
+         epoch: u64,
+-        create: impl FnOnce() -> Result<Arc<V>>,
++        created: Result<Arc<V>>,
+     ) -> Result<Lease<V>> {
+-        let mut guard = LeaderGuard {
+-            pool: self,
+-            key,
+-            flight,
+-            armed: true,
+-        };
+-        let created = create();
+-        guard.armed = false;
+         let mut table = lock(&self.table);
+         let result = match created {
+             Ok(value) => {
+@@ -410,40 +578,50 @@ impl<K: Eq + Hash + Clone, V: ?Sized> LeasedPool<K, V> {
+ 
+     /// One row per key (unordered), for diagnostics.
+     pub fn snapshot(&self) -> Vec<EntrySnapshot<K>> {
+-        let table = lock(&self.table);
+-        table
+-            .states
+-            .iter()
+-            .map(|(key, state)| match state {
+-                State::Ready(ready) => EntrySnapshot {
+-                    key: key.clone(),
+-                    state: EntryState::Ready,
+-                    epoch: ready.epoch,
+-                    leases: ready.usage.count.load(Ordering::SeqCst),
+-                    age: ready.created.elapsed(),
+-                    idle: ready.usage.idle(),
+-                },
+-                State::Connecting(_) => EntrySnapshot {
+-                    key: key.clone(),
+-                    state: EntryState::Connecting,
+-                    epoch: table.epoch(key),
+-                    leases: 0,
+-                    age: Duration::ZERO,
+-                    idle: Duration::ZERO,
+-                },
+-                State::Failed { at, .. } => EntrySnapshot {
+-                    key: key.clone(),
+-                    state: EntryState::CoolingDown,
+-                    epoch: table.epoch(key),
+-                    leases: 0,
+-                    age: at.elapsed(),
+-                    idle: Duration::ZERO,
+-                },
+-            })
+-            .collect()
++        rows(&lock(&self.table))
+     }
+ }
+ 
++fn cooldown_error<K>(error: McpError, remaining: Duration) -> AcquireError<K> {
++    AcquireError::Failed(McpError::Transport(format!(
++        "reconnect cooling down for {}ms after: {error}",
++        remaining.as_millis()
++    )))
++}
++
++fn rows<K: Eq + Hash + Clone, V: ?Sized>(table: &Table<K, V>) -> Vec<EntrySnapshot<K>> {
++    table
++        .states
++        .iter()
++        .map(|(key, state)| match state {
++            State::Ready(ready) => EntrySnapshot {
++                key: key.clone(),
++                state: EntryState::Ready,
++                epoch: ready.epoch,
++                leases: ready.usage.count.load(Ordering::SeqCst),
++                age: ready.created.elapsed(),
++                idle: ready.usage.idle(),
++            },
++            State::Connecting(_) => EntrySnapshot {
++                key: key.clone(),
++                state: EntryState::Connecting,
++                epoch: table.epoch(key),
++                leases: 0,
++                age: Duration::ZERO,
++                idle: Duration::ZERO,
++            },
++            State::Failed { at, .. } => EntrySnapshot {
++                key: key.clone(),
++                state: EntryState::CoolingDown,
++                epoch: table.epoch(key),
++                leases: 0,
++                age: at.elapsed(),
++                idle: Duration::ZERO,
++            },
++        })
++        .collect()
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -653,4 +831,143 @@ mod tests {
+         assert!(Arc::ptr_eq(&a.value(), &b.value()));
+         assert!(pool.is_current(&key("k"), &b));
+     }
++
++    #[test]
++    fn max_entries_evicts_the_longest_idle_value_and_refuses_when_all_are_leased() {
++        let pool = pool(0, None).with_max_entries(2);
++        assert_eq!(pool.max_entries(), Some(2));
++        let a = pool.acquire(key("a"), || Ok(Arc::new(1))).unwrap();
++        drop(pool.acquire(key("b"), || Ok(Arc::new(2))).unwrap());
++        std::thread::sleep(Duration::from_millis(10));
++        // Full: "b" is idle and leaves to make room for "c".
++        let c = pool.acquire(key("c"), || Ok(Arc::new(3))).unwrap();
++        let mut keys: Vec<String> = pool.snapshot().into_iter().map(|r| r.key).collect();
++        keys.sort();
++        assert_eq!(keys, ["a", "c"]);
++        // Full and both leased: create is never called.
++        let made = AtomicU32::new(0);
++        match pool.try_acquire(key("d"), || {
++            made.fetch_add(1, Ordering::SeqCst);
++            Ok(Arc::new(4))
++        }) {
++            Err(AcquireError::PoolFull(rows)) => assert_eq!(rows.len(), 2),
++            other => panic!("expected PoolFull, got {other:?}"),
++        }
++        assert_eq!(made.load(Ordering::SeqCst), 0);
++        assert!(matches!(
++            pool.acquire(key("d"), || Ok(Arc::new(4))),
++            Err(McpError::PoolFull(2))
++        ));
++        // A cached key still leases while full.
++        assert_eq!(*pool.acquire(key("a"), || unreachable!()).unwrap(), 1);
++        drop(a);
++        drop(c);
++        assert_eq!(*pool.acquire(key("d"), || Ok(Arc::new(4))).unwrap(), 4);
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
++    async fn async_first_use_shares_one_connect_without_blocking_workers() {
++        let pool = Arc::new(pool(0, None));
++        let made = Arc::new(AtomicU32::new(0));
++        let tasks: Vec<_> = (0..8)
++            .map(|_| {
++                let (pool, made) = (pool.clone(), made.clone());
++                tokio::spawn(async move {
++                    pool.acquire_async(key("k"), || async move {
++                        tokio::time::sleep(Duration::from_millis(100)).await;
++                        Ok(Arc::new(made.fetch_add(1, Ordering::SeqCst)))
++                    })
++                    .await
++                    .unwrap()
++                    .value()
++                })
++            })
++            .collect();
++        let mut values = Vec::new();
++        for task in tasks {
++            values.push(task.await.unwrap());
++        }
++        assert_eq!(made.load(Ordering::SeqCst), 1);
++        assert!(values.iter().all(|v| Arc::ptr_eq(v, &values[0])));
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn async_waiters_share_the_leaders_failure() {
++        let pool = Arc::new(pool(0, None));
++        let attempts = Arc::new(AtomicU32::new(0));
++        let tasks: Vec<_> = (0..4)
++            .map(|_| {
++                let (pool, attempts) = (pool.clone(), attempts.clone());
++                tokio::spawn(async move {
++                    pool.acquire_async(key("k"), || async move {
++                        attempts.fetch_add(1, Ordering::SeqCst);
++                        tokio::time::sleep(Duration::from_millis(100)).await;
++                        Err(McpError::Transport("boom".into()))
++                    })
++                    .await
++                    .map(|_| ())
++                })
++            })
++            .collect();
++        for task in tasks {
++            assert!(task.await.unwrap().is_err());
++        }
++        assert_eq!(attempts.load(Ordering::SeqCst), 1);
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn dropping_the_async_leader_releases_the_key_and_the_waiters() {
++        let pool = Arc::new(pool(0, None));
++        let leader = {
++            let pool = pool.clone();
++            tokio::spawn(async move {
++                pool.acquire_async(key("k"), || async {
++                    tokio::time::sleep(Duration::from_secs(3600)).await;
++                    Ok(Arc::new(1))
++                })
++                .await
++                .map(|_| ())
++            })
++        };
++        tokio::time::sleep(Duration::from_millis(50)).await;
++        let waiter = {
++            let pool = pool.clone();
++            tokio::spawn(async move {
++                pool.acquire_async(key("k"), || async { Ok(Arc::new(2)) })
++                    .await
++                    .map(|_| ())
++            })
++        };
++        tokio::time::sleep(Duration::from_millis(50)).await;
++        leader.abort();
++        assert!(waiter.await.unwrap().is_err());
++        assert!(pool.snapshot().is_empty());
++        let lease = pool
++            .acquire_async(key("k"), || async { Ok(Arc::new(3)) })
++            .await
++            .unwrap();
++        assert_eq!(*lease, 3);
++    }
++
++    #[tokio::test]
++    async fn async_acquire_honours_the_cap() {
++        let pool = pool(0, None).with_max_entries(1);
++        let held = pool
++            .acquire_async(key("a"), || async { Ok(Arc::new(1)) })
++            .await
++            .unwrap();
++        let error = pool
++            .try_acquire_async(key("b"), || async { Ok(Arc::new(2)) })
++            .await
++            .unwrap_err();
++        assert!(matches!(error, AcquireError::PoolFull(rows) if rows.len() == 1));
++        drop(held);
++        assert_eq!(
++            *pool
++                .acquire_async(key("b"), || async { Ok(Arc::new(2)) })
++                .await
++                .unwrap(),
++            2
++        );
++    }
+ }
+diff --git a/crates/rightkit-mcp/src/lib.rs b/crates/rightkit-mcp/src/lib.rs
+index 94134d7..92ed3cb 100644
+--- a/crates/rightkit-mcp/src/lib.rs
++++ b/crates/rightkit-mcp/src/lib.rs
+@@ -1,5 +1,10 @@
+ //! Shared MCP client and server host for Right Suite apps. See API.md.
+ //!
++//! The `client` feature (on by default) carries `McpClient`, `ConnectionPool`, `TrustStore`,
++//! `config` and `AuthProvider`. With `default-features = false` only the server host,
++//! `LeasedPool`, the shared types and the `client_features` data types remain, and the crate
++//! does not depend on ureq, rightkit-http or rightkit-fs.
++//!
+ //! `ClientOptions::connect_timeout` configures spawn/connect & initialize independently of requests.
+ //! `McpClient::connect_with_extensions_cancellable` aborts cold handshakes with `McpError::Cancelled`.
+ //! `McpError::StdioPrefixTooLarge` reports skipped startup output exceeding 64 KiB.
+@@ -7,35 +12,45 @@
+ //! `EndpointOriginPolicy::allow_any_origin_insecure` explicitly opts into unrestricted HTTP(S) origins.
+ //! `ElicitationContext::request_id` exposes original wire id; `cancellation` observes originating call cancellation.
+ 
+-#[cfg(feature = "advanced-http")]
++#[cfg(all(feature = "client", feature = "advanced-http"))]
+ mod advanced_http;
+-#[cfg(not(feature = "advanced-http"))]
++#[cfg(all(feature = "client", not(feature = "advanced-http")))]
+ #[path = "advanced_http_off.rs"]
+ mod advanced_http;
++#[cfg(feature = "client")]
+ pub mod auth;
++#[cfg(feature = "client")]
+ pub mod client;
+ pub mod client_features;
++#[cfg(feature = "client")]
+ pub mod config;
+ mod error;
+ pub mod events;
+ pub mod leased_pool;
++#[cfg(feature = "client")]
+ pub mod pool;
+ mod raw;
+ mod sanitize;
+ pub mod server;
++#[cfg(feature = "client")]
+ pub mod trust;
+ mod types;
+ 
++#[cfg(feature = "client")]
+ pub use auth::{AuthProvider, Secret};
++#[cfg(feature = "client")]
+ pub use client::{ClientOptions, McpClient, ServerSpec};
+ pub use client_features::{
+     CallOptions, CancellationToken, ClientExtensions, DefaultProcessLauncher, ElicitationContext,
+     ElicitationHandler, EndpointOriginPolicy, LaunchRequest, LaunchedProcess, NotificationHandler,
+     ProcessChild, ProcessLauncher, ResponseLimits, ServerNotification,
+ };
+-pub use error::{McpError, Result};
++pub use error::{McpError, PendingApproval, Result};
+ pub use events::{EventSink, LifecycleKind, McpEvent};
+-pub use leased_pool::{EntrySnapshot, EntryState, Lease, LeasedPool, LeasedPoolConfig};
++pub use leased_pool::{
++    AcquireError, EntrySnapshot, EntryState, Lease, LeasedPool, LeasedPoolConfig,
++};
++#[cfg(feature = "client")]
+ pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
+ pub use raw::{to_wire_string, RawJson};
+ pub use sanitize::{parse_qualified_name, sanitize_tool_name};
+@@ -46,7 +61,6 @@ pub use server::{
+     ResponseInfo, ServerHost, ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
+     TransformContext, TransformInfo,
+ };
+-pub use trust::{
+-    fingerprint, ImportedTrust, PendingApproval, ServerSource, TrustDecision, TrustStore,
+-};
++#[cfg(feature = "client")]
++pub use trust::{fingerprint, ImportedTrust, ServerSource, TrustDecision, TrustStore};
+ pub use types::*;
+diff --git a/crates/rightkit-mcp/src/trust.rs b/crates/rightkit-mcp/src/trust.rs
+index d8d0fd7..1866aa8 100644
+--- a/crates/rightkit-mcp/src/trust.rs
++++ b/crates/rightkit-mcp/src/trust.rs
+@@ -21,16 +21,7 @@ pub enum TrustDecision {
+     Pending,
+ }
+ 
+-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+-pub struct PendingApproval {
+-    pub workspace: String,
+-    pub server: String,
+-    pub fingerprint: String,
+-    pub command: String,
+-    pub args: Vec<String>,
+-    /// Environment variable NAMES only; values are never surfaced or persisted.
+-    pub env_keys: Vec<String>,
+-}
++pub use crate::error::PendingApproval;
+ 
+ /// Format version bound into every fingerprint. Version 2 binds environment VALUES
+ /// as well as names; fingerprints from version 1 never match again, so existing
+@@ -138,11 +129,13 @@ impl TrustStore {
+ 
+     /// As [`TrustStore::try_load`], for a file that may hold another store's records.
+     ///
+-    /// A file with a `records` array loads as a `TrustStore` (`migrate` is not called; a record
+-    /// that does not parse is `InvalidData`). Any other JSON document is passed whole to
+-    /// `migrate`: `Some(records)` becomes
+-    /// the store (timestamped now), `None` means the format is not recognised and the result is
+-    /// `InvalidData`, so the caller never saves an empty store over decisions it could not read.
++    /// A document whose `records` array parses as native records loads as a `TrustStore`
++    /// (`migrate` is not called). Any other JSON document, including one that has a `records`
++    /// array of a different shape (for example camelCase `serverName` / `contentHash` rows), is
++    /// passed whole to `migrate`: `Some(records)` becomes the store (timestamped now). `None`
++    /// means the format is not recognised and the result is `InvalidData` (carrying the native
++    /// parse error when the document had a `records` array), so the caller never saves an empty
++    /// store over decisions it could not read.
+     /// A missing file is an empty store, an unreadable one an `io::Error`, as in `try_load`.
+     /// Nothing is written; call [`TrustStore::save`] to persist the migrated store.
+     pub fn try_load_migrating(
+@@ -159,17 +152,22 @@ impl TrustStore {
+         let invalid =
+             |error: serde_json::Error| std::io::Error::new(std::io::ErrorKind::InvalidData, error);
+         let document: serde_json::Value = serde_json::from_str(&text).map_err(invalid)?;
++        let mut native_error = None;
+         if document
+             .get("records")
+             .is_some_and(serde_json::Value::is_array)
+         {
+-            return serde_json::from_value(document).map_err(invalid);
++            match serde_json::from_value::<Self>(document.clone()) {
++                Ok(store) => return Ok(store),
++                Err(error) => native_error = Some(error),
++            }
+         }
+-        let imported = migrate(&document).ok_or_else(|| {
+-            std::io::Error::new(
++        let imported = migrate(&document).ok_or_else(|| match native_error {
++            Some(error) => invalid(error),
++            None => std::io::Error::new(
+                 std::io::ErrorKind::InvalidData,
+                 "trust store format not recognised",
+-            )
++            ),
+         })?;
+         let mut store = Self::default();
+         for record in imported {
+diff --git a/crates/rightkit-mcp/tests/trust_gate.rs b/crates/rightkit-mcp/tests/trust_gate.rs
+index f38e128..29161e4 100644
+--- a/crates/rightkit-mcp/tests/trust_gate.rs
++++ b/crates/rightkit-mcp/tests/trust_gate.rs
+@@ -244,7 +244,45 @@ fn native_file_skips_the_hook_and_a_bad_native_record_is_an_error() {
+     );
+ 
+     std::fs::write(&path, r#"{"records":[{"workspace":1}]}"#).unwrap();
+-    let error = TrustStore::try_load_migrating(&path, |_| panic!("native: no hook")).unwrap_err();
++    let error = TrustStore::try_load_migrating(&path, |_| None).unwrap_err();
++    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
++}
++
++#[test]
++fn foreign_file_with_a_records_array_reaches_the_hook() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = dir.path().join("mcp_trust_approvals.json");
++    let text = json!({"records": [
++        {"workspace": "/p", "serverName": "s", "contentHash": "h1", "approved": true, "decidedAt": "2026-01-01"},
++        {"workspace": "/p", "serverName": "t", "contentHash": "h2", "approved": false, "decidedAt": "2026-01-02"}
++    ]})
++    .to_string();
++    std::fs::write(&path, &text).unwrap();
++    let store = TrustStore::try_load_migrating(&path, |doc| {
++        let rows = doc.get("records")?.as_array()?;
++        rows.iter()
++            .map(|r| {
++                Some(ImportedTrust {
++                    workspace: r.get("workspace")?.as_str()?.into(),
++                    server: r.get("serverName")?.as_str()?.into(),
++                    fingerprint: r.get("contentHash")?.as_str()?.into(),
++                    approved: r.get("approved")?.as_bool()?,
++                })
++            })
++            .collect()
++    })
++    .unwrap();
++    assert_eq!(
++        store.decide_with_fingerprint("/p", "s", "h1"),
++        TrustDecision::Approved
++    );
++    assert_eq!(
++        store.decide_with_fingerprint("/p", "t", "h2"),
++        TrustDecision::Denied
++    );
++    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
++
++    let error = TrustStore::try_load_migrating(&path, |_| None).unwrap_err();
+     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+ }
+ 

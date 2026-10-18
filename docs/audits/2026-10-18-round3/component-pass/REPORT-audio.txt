@@ -1,0 +1,9 @@
+DONE #449 ported G3 onto current playback: OutputGain, PlaybackSource, PlaybackOptions, OutputPlayback via OutputSession::start (owner/feeder thread, seek/speed/stop/resume/flush/cursor/gain), test-mode feature with FakeOutputSink and TestAudioOutput probes, ring_tests, tests/playback_output.rs, resource metadata; (patch applied cleanly except mod.rs/Cargo.toml hunks, merged by hand). The crates.io publish itself is for the main chat.
+DONE #454 mic_align and room_fill were ALREADY on main (0.3.1); added the missing audio_sync::align_pcm / PcmAlignment / SAMPLE_RATE from G4 with tests; errors use AudioError::Invalid ("no mic alignment: ...") so no new variant (G4's NoAlignment rejected as breaking)
+DONE #740 wav::read_wav_mono_f32_prefix and wav::read_wav_16k_mono_prefix (first N seconds only, capacity bounded to the prefix), tests
+ALREADY #248 playback::OutputSession et al. on main (src/playback/*); publish only
+ALREADY #326 wav.rs decode_mono_f32 single open with capacity hint
+ALREADY #413 (audio part) playback::play_once in src/playback/oneshot.rs (overlay half belongs to rightkit-overlay)
+Not audio-owned, no action: #714, #581, #628, #117, #457, #171, #506 (other crates/tracking)
+Version: rightkit-audio 0.3.1 -> 0.3.2 (Cargo.toml, Cargo.lock, CHANGELOG 0.3.2 unreleased). Additive, non-breaking.
+Public API additions (all non-breaking): playback::{OutputGain, PlaybackSource, PlaybackOptions, OutputPlayback, OutputSession::start}; feature test-mode with playback::{FakeOutputSink, TestAudioOutput}, OutputControl::test_audio_output (test-mode only); audio_sync::{align_pcm, PcmAlignment, SAMPLE_RATE} and crate-root re-exports; wav::{read_wav_mono_f32_prefix, read_wav_16k_mono_prefix}. Behaviour note: playback callback now records one underrun per render call rather than per scratch block. Nothing compiled or run.

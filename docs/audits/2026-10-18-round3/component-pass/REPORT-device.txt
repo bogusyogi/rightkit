@@ -1,0 +1,16 @@
+rightkit-device 0.3.0 (was 0.2.0). Patch: D:\scratch\rk-gaps-work\c2\device\device.patch (LF)
+
+DONE #610 AuthorizationService::with_hashed_device_id() and with_device_alternates(ids): authorize verifies once against raw id, then its device_id_hash, then listed ids, via rightkit_license::verify_token_any_device semantics (verify_token_not_revoked takes the candidate list). The license-side verify_token_any_device already exists in rightkit-license 0.2.2 (ALREADY there); dependency floor raised to 0.2.2. Tests added.
+DONE #728 AuthorizationService::with_revoked_ids(RevokedIds) / set_revoked_ids: authorize now uses verify_token_not_revoked; revoked id -> AuthorizationDenial::Revoked { id }, checked before expiry. Empty default list = old behaviour. RevokedIds re-exported. Tests added.
+DONE #748 feature "credentials": CredentialStore<T> (strings() and with_codec()) implementing SecureStore<T> over rightkit_credentials::Store; native create-only set_if_absent via add_if_absent; secrets only in the OS store, never files (#771 D4). Not unit-tested (needs an OS store or a MemoryBackend; compile check with --features credentials is the gate).
+ALREADY #609 device_id_hash(raw) in crates/rightkit-device/src/lib.rs (0.2.0, FIPS-vector tests).
+DEFERRED/other: #408, #409, #420 (mesh/pairing/install identity owners), #306, #379, #133 (daemon), #702, #701, #699 (Apple Swift), #210 #209 (android/credentials live runs) matched the search only by the word "device"; none is a rightkit-device gap. Nothing rejected under #771.
+
+Version: 0.3.0. Cargo.lock updated (device 0.3.0, dep rightkit-credentials).
+
+Public API changes:
+- BREAKING: AuthorizationDenial is now #[non_exhaustive] and gains Revoked { id: String } and Refused(String). Why: revoked must be distinguishable from invalid, and no additive encoding exists (VerifyError is exhaustive and has no revoked case). No crate in this workspace depends on rightkit-device; apps with exhaustive matches add a wildcard arm.
+- Added: AuthorizationService::{with_revoked_ids, set_revoked_ids, with_hashed_device_id, with_device_alternates}; pub use RevokedIds; feature "credentials" with CredentialStore<T>::{strings, with_codec} + SecureStore impl.
+- Private fields added to AuthorizationService (non-breaking).
+
+Compile checks for the main chat: default and --features credentials builds; `other => ... other.to_string()` arm on non-exhaustive RevocationError; fn-pointer closures in CredentialStore::strings coerce to fn(&T)->Result<String,String>; cargo fmt; lock ordering of rightkit-credentials in Cargo.lock.

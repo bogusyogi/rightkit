@@ -1,0 +1,3619 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..b6aa2fa 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6645,11 +6645,12 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-agent-tools"
+-version = "0.1.5"
++version = "0.1.6"
+ dependencies = [
+  "rightkit-automation",
+  "rightkit-browser",
+  "rightkit-daemon",
++ "rightkit-mcp",
+  "rightkit-speech-client",
+  "serde",
+  "serde_json",
+@@ -6907,7 +6908,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-docs"
+-version = "0.1.1"
++version = "0.1.2"
+ dependencies = [
+  "calamine",
+  "lopdf 0.45.0",
+@@ -6952,7 +6953,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-file-watch"
+-version = "0.4.1"
++version = "0.4.2"
+ dependencies = [
+  "notify",
+  "rightkit-child-process",
+@@ -6999,8 +7000,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-hooks"
+-version = "0.2.0"
++version = "0.2.1"
+ dependencies = [
++ "regex",
+  "serde",
+  "serde_json",
+ ]
+@@ -7363,7 +7365,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-send"
+-version = "0.2.0"
++version = "0.2.1"
+ dependencies = [
+  "libc",
+  "rcgen",
+@@ -7409,7 +7411,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-sync"
+-version = "0.2.2"
++version = "0.2.3"
+ dependencies = [
+  "rightkit-child-process",
+  "rightkit-fs",
+diff --git a/crates/rightkit-agent-tools/CHANGELOG.md b/crates/rightkit-agent-tools/CHANGELOG.md
+index 0833c81..cb35bcd 100644
+--- a/crates/rightkit-agent-tools/CHANGELOG.md
++++ b/crates/rightkit-agent-tools/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## 0.1.6 (unreleased)
++
++Additive (rightkit#421). Already present from 0.1.5: `CallContextExt::peer_executable()` (rightkit#175) and `validate_args_strict` (rightkit#515).
++
++- `BoundedToolbox` (`bounded` module): `Toolbox` calls on worker threads with a time limit and an in-flight cap. `call` and `call_polled` (also ends on an external cancel signal) return a retryable `ERR_TIMEOUT` once the limit passes and cancel the call's `CancelToken`; a worker is counted in flight until its tool really returns, so a tool that ignores cancellation is visible through `stuck_workers()` and, at `max_in_flight` (default 4), new calls get a retryable `ERR_BUSY`. A panicking tool is `ERR_PANICKED` and frees its slot. A host that prefers to restart on a stuck tool checks `stuck_workers()`. New constants `ERR_TIMEOUT`, `ERR_BUSY`, `ERR_PANICKED`, `DEFAULT_MAX_IN_FLIGHT`.
++- Feature `mcp` (off by default; pulls `rightkit-mcp` 0.7): `ToolboxProvider::new(Arc<Toolbox>, Caller)` implements `rightkit_mcp::ToolProvider` for one caller. `tools/list` is `Toolbox::list_for`, `readOnlyHint` is true for `Effect::Observe`, and every `tools/call` passes the toolbox gate; unknown tool is `ToolNotFound`, any other `ToolError` is a tool-level failure carrying `{code, message, retryable}`, and a non-object result is wrapped as `{"result": ...}`. `.bounded(timeout, max_in_flight)` runs calls through `BoundedToolbox`, and a client's `notifications/cancelled` ends the wait (`call_with_handle`).
++- Resource declaration for the worker threads in `Cargo.toml` metadata.
++
+ ## 0.1.5 (2026-10-17)
+ 
+ - Added: `validate_args_strict(schema, args)`: `validate_args` plus unknown-argument rejection (a schema without `additionalProperties` is strict; `true` or a schema object opens it). `validate_args` is unchanged. Closes the Pulse `Args::parse` gap (rightkit#515).
+diff --git a/crates/rightkit-agent-tools/Cargo.toml b/crates/rightkit-agent-tools/Cargo.toml
+index e7db58f..dea4605 100644
+--- a/crates/rightkit-agent-tools/Cargo.toml
++++ b/crates/rightkit-agent-tools/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-agent-tools"
+-version = "0.1.5"
++version = "0.1.6"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
+@@ -18,12 +18,15 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
+ speech = ["dep:rightkit-speech-client"]
+ # Agent demo mode (`demo.*` tools, `right-ctl demo`). Non-default: release builds omit it entirely.
+ demo = []
++# The `mcp` module: serve a `Toolbox` as a `rightkit-mcp` `ToolProvider`.
++mcp = ["dep:rightkit-mcp"]
+ 
+ [dependencies]
+ rightkit-daemon = { version = "0.2.4", path = "../rightkit-daemon" }
+ rightkit-automation = { version = "0.4.0", path = "../rightkit-automation", optional = true }
+ rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
+ rightkit-speech-client = { version = "0.3.0", path = "../rightkit-speech-client", optional = true }
++rightkit-mcp = { version = "0.7.0", path = "../rightkit-mcp", optional = true }
+ serde = { version = "1.0.229", features = ["derive"] }
+ serde_json = "1.0.154"
+ tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
+@@ -51,3 +54,10 @@ file = "src/backends/speech.rs"
+ holds = ["thread"]
+ scale = "one cancellation-bridge thread per transcribe tool call, polling a flag every 50 ms while the call runs; none exist while idle"
+ release = "the tool call returns (the thread is joined before Transcribe::call returns)"
++
++[[package.metadata.rightkit.resources]]
++api = "BoundedToolbox::call"
++file = "src/bounded.rs"
++holds = ["thread"]
++scale = "one worker thread per call in flight, at most max_in_flight (default 4) at once; none exist while idle"
++release = "the tool returns; a call that timed out keeps its worker until the tool returns, counted by stuck_workers() and capping new calls"
+diff --git a/crates/rightkit-agent-tools/README.md b/crates/rightkit-agent-tools/README.md
+index 1dd9269..1ef6a2d 100644
+--- a/crates/rightkit-agent-tools/README.md
++++ b/crates/rightkit-agent-tools/README.md
+@@ -29,6 +29,9 @@ Do not use it to take foreground input or to click the screen with computer-use
+ | `automation` | yes | `rightkit-automation` | `desktop.*` tools |
+ | `browser` | yes | `rightkit-browser`, `tokio` (`rt-multi-thread`, `time`) | `browser.*` tools |
+ | `speech` | yes | `rightkit-speech-client` | `speech.*` tools |
++| `mcp` | no | `rightkit-mcp` | `ToolboxProvider`: a `Toolbox` served to one caller as an MCP `ToolProvider`, optionally on bounded workers (`.bounded(timeout, max_in_flight)`) |
++
++`BoundedToolbox` (no feature) wraps a `Toolbox` so a call that outlives its time limit returns a retryable `tool_timeout` while its worker is counted (`stuck_workers()`), and calls beyond `max_in_flight` get `tool_busy`.
+ 
+ ## Usage
+ 
+diff --git a/crates/rightkit-agent-tools/src/bounded.rs b/crates/rightkit-agent-tools/src/bounded.rs
+new file mode 100644
+index 0000000..0f11479
+--- /dev/null
++++ b/crates/rightkit-agent-tools/src/bounded.rs
+@@ -0,0 +1,358 @@
++//! A bounded worker call over a [`Toolbox`]: a time limit, a cap on calls in flight, and a
++//! count of workers that outlived their limit.
++//!
++//! A tool is arbitrary code (an app command, a browser step, a desktop action) and Rust cannot
++//! stop a thread. [`BoundedToolbox`] runs each call on a worker thread and waits at most the
++//! timeout. On timeout it cancels the call's [`CancelToken`] and returns a retryable
++//! [`ERR_TIMEOUT`] at once; a tool that polls the token stops, and one that does not keeps its
++//! worker. A worker is counted as in flight until it really returns, so a stuck tool cannot be
++//! hidden by the timeout: new calls beyond `max_in_flight` get a retryable [`ERR_BUSY`], and
++//! [`BoundedToolbox::stuck_workers`] reports the leak so a host that prefers to restart (a
++//! gateway process, for example) can exit when it is non-zero.
++
++use crate::spec::*;
++use crate::toolbox::Toolbox;
++use serde_json::Value;
++use std::panic::{catch_unwind, AssertUnwindSafe};
++use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
++use std::sync::{mpsc, Arc};
++use std::time::{Duration, Instant};
++
++/// The call ran past its time limit and was cancelled.
++pub const ERR_TIMEOUT: &str = "tool_timeout";
++/// Too many calls (or stuck workers) are in flight; try again later.
++pub const ERR_BUSY: &str = "tool_busy";
++/// The tool panicked; nothing else about the call is known.
++pub const ERR_PANICKED: &str = "tool_panicked";
++
++/// Default cap on calls in flight, stuck workers included.
++pub const DEFAULT_MAX_IN_FLIGHT: usize = 4;
++
++/// How often a wait looks at the external cancel signal.
++const POLL: Duration = Duration::from_millis(25);
++
++#[derive(Default)]
++struct Counts {
++    in_flight: AtomicUsize,
++    stuck: AtomicUsize,
++}
++
++const RUNNING: u8 = 0;
++const ABANDONED: u8 = 1;
++const FINISHED: u8 = 2;
++
++/// Decrements in-flight on drop (also when the tool panicked).
++struct Slot(Arc<Counts>, Arc<AtomicU8>);
++
++impl Drop for Slot {
++    fn drop(&mut self) {
++        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
++        // A worker that was already given up on is no longer stuck once it returns.
++        if self.1.swap(FINISHED, Ordering::SeqCst) == ABANDONED {
++            self.0.stuck.fetch_sub(1, Ordering::SeqCst);
++        }
++    }
++}
++
++/// Runs [`Toolbox`] calls on bounded worker threads.
++pub struct BoundedToolbox {
++    toolbox: Arc<Toolbox>,
++    timeout: Duration,
++    max_in_flight: usize,
++    counts: Arc<Counts>,
++}
++
++impl BoundedToolbox {
++    /// Calls that take longer than `timeout` fail with [`ERR_TIMEOUT`].
++    pub fn new(toolbox: Arc<Toolbox>, timeout: Duration) -> Self {
++        Self {
++            toolbox,
++            timeout,
++            max_in_flight: DEFAULT_MAX_IN_FLIGHT,
++            counts: Arc::new(Counts::default()),
++        }
++    }
++
++    /// Cap on calls in flight, stuck workers included (minimum 1).
++    pub fn with_max_in_flight(mut self, max: usize) -> Self {
++        self.max_in_flight = max.max(1);
++        self
++    }
++
++    pub fn toolbox(&self) -> &Arc<Toolbox> {
++        &self.toolbox
++    }
++
++    pub fn timeout(&self) -> Duration {
++        self.timeout
++    }
++
++    /// Calls currently running on a worker, stuck ones included.
++    pub fn in_flight(&self) -> usize {
++        self.counts.in_flight.load(Ordering::SeqCst)
++    }
++
++    /// Workers whose call timed out or was cancelled but has not returned yet. Non-zero means a
++    /// tool is ignoring its [`CancelToken`].
++    pub fn stuck_workers(&self) -> usize {
++        self.counts.stuck.load(Ordering::SeqCst)
++    }
++
++    /// [`Toolbox::call`] on a worker thread, within the time limit.
++    pub fn call(&self, caller: &Caller, name: &str, args: Value) -> Result<Value, ToolError> {
++        self.call_polled(caller, name, args, &|| false)
++    }
++
++    /// Like [`BoundedToolbox::call`], and also gives up with [`ERR_CANCELLED`] as soon as
++    /// `cancelled` returns true (the caller's own cancel signal, polled every 25 ms while
++    /// waiting). The call's [`CancelToken`] is cancelled in that case too.
++    pub fn call_polled(
++        &self,
++        caller: &Caller,
++        name: &str,
++        args: Value,
++        cancelled: &dyn Fn() -> bool,
++    ) -> Result<Value, ToolError> {
++        if cancelled() {
++            return Err(ToolError::new(ERR_CANCELLED, "cancelled before start"));
++        }
++        let reserved = self
++            .counts
++            .in_flight
++            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
++                (n < self.max_in_flight).then_some(n + 1)
++            });
++        if reserved.is_err() {
++            return Err(ToolError::retryable(
++                ERR_BUSY,
++                format!(
++                    "{} calls are already in flight ({} stuck)",
++                    self.max_in_flight,
++                    self.stuck_workers()
++                ),
++            ));
++        }
++        let abandoned = Arc::new(AtomicU8::new(RUNNING));
++        let slot = Slot(self.counts.clone(), abandoned.clone());
++        let cancel = CancelToken::new();
++        let (tx, rx) = mpsc::channel();
++        let worker = {
++            let toolbox = self.toolbox.clone();
++            let caller = caller.clone();
++            let name = name.to_owned();
++            let cancel = cancel.clone();
++            std::thread::Builder::new()
++                .name(format!("tool-{name}"))
++                .spawn(move || {
++                    let _slot = slot;
++                    let result = catch_unwind(AssertUnwindSafe(|| {
++                        toolbox.call_cancellable(&caller, &name, args, &cancel)
++                    }))
++                    .unwrap_or_else(|_| {
++                        Err(ToolError::new(ERR_PANICKED, format!("tool `{name}` panicked")))
++                    });
++                    let _ = tx.send(result);
++                })
++        };
++        if let Err(e) = worker {
++            // The closure (and with it the slot) was dropped by the failed spawn.
++            return Err(ToolError::retryable(
++                ERR_BUSY,
++                format!("a worker thread could not start: {e}"),
++            ));
++        }
++        let deadline = Instant::now() + self.timeout;
++        loop {
++            let left = deadline.saturating_duration_since(Instant::now());
++            match rx.recv_timeout(left.min(POLL)) {
++                Ok(result) => return result,
++                Err(mpsc::RecvTimeoutError::Disconnected) => {
++                    return Err(ToolError::new(ERR_PANICKED, "the worker ended without a result"));
++                }
++                Err(mpsc::RecvTimeoutError::Timeout) => {}
++            }
++            if cancelled() {
++                if let Ok(result) = rx.try_recv() {
++                    return result;
++                }
++                return Err(self.give_up(&cancel, &abandoned, ERR_CANCELLED, "cancelled".into()));
++            }
++            if Instant::now() >= deadline {
++                if let Ok(result) = rx.try_recv() {
++                    return result;
++                }
++                return Err(self.give_up(
++                    &cancel,
++                    &abandoned,
++                    ERR_TIMEOUT,
++                    format!("`{name}` did not finish within {:?}", self.timeout),
++                ));
++            }
++        }
++    }
++
++    /// Cancel the call and stop waiting. The worker keeps its slot until it returns.
++    fn give_up(
++        &self,
++        cancel: &CancelToken,
++        abandoned: &Arc<AtomicU8>,
++        code: &str,
++        message: String,
++    ) -> ToolError {
++        cancel.cancel();
++        // Only a worker still running is stuck; one that just finished has freed its slot.
++        if abandoned
++            .compare_exchange(RUNNING, ABANDONED, Ordering::SeqCst, Ordering::SeqCst)
++            .is_ok()
++        {
++            self.counts.stuck.fetch_add(1, Ordering::SeqCst);
++        }
++        ToolError::retryable(code, message)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++    use std::sync::atomic::AtomicBool;
++
++    /// `fast.echo` returns its args, `slow.spin` ignores cancel until released, `slow.polite`
++    /// stops when cancelled, `bad.panic` panics.
++    struct Probe {
++        spec: ToolSpec,
++        release: Arc<AtomicBool>,
++    }
++
++    impl Probe {
++        fn new(name: &str, release: &Arc<AtomicBool>) -> Arc<dyn Tool> {
++            Arc::new(Probe {
++                spec: ToolSpec::new(
++                    name,
++                    "probe",
++                    Effect::Observe,
++                    json!({"type": "object"}),
++                ),
++                release: release.clone(),
++            })
++        }
++    }
++
++    impl Tool for Probe {
++        fn spec(&self) -> &ToolSpec {
++            &self.spec
++        }
++
++        fn call(&self, ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
++            match self.spec.name.as_str() {
++                "fast.echo" => Ok(args),
++                "bad.panic" => panic!("boom"),
++                "slow.polite" => {
++                    while !ctx.cancel.is_cancelled() {
++                        std::thread::sleep(Duration::from_millis(5));
++                    }
++                    Err(ToolError::new(ERR_CANCELLED, "stopped"))
++                }
++                _ => {
++                    while !self.release.load(Ordering::SeqCst) {
++                        std::thread::sleep(Duration::from_millis(5));
++                    }
++                    Ok(json!({"done": true}))
++                }
++            }
++        }
++    }
++
++    fn bounded(timeout_ms: u64) -> (BoundedToolbox, Arc<AtomicBool>) {
++        let release = Arc::new(AtomicBool::new(false));
++        let mut tb = Toolbox::new();
++        for name in ["fast.echo", "slow.spin", "slow.polite", "bad.panic"] {
++            tb.register(Probe::new(name, &release)).unwrap();
++        }
++        tb.allow("t", ["*"]);
++        (
++            BoundedToolbox::new(Arc::new(tb), Duration::from_millis(timeout_ms)),
++            release,
++        )
++    }
++
++    fn wait_until(mut condition: impl FnMut() -> bool) {
++        let end = Instant::now() + Duration::from_secs(10);
++        while !condition() {
++            assert!(Instant::now() < end, "condition not reached");
++            std::thread::sleep(Duration::from_millis(5));
++        }
++    }
++
++    #[test]
++    fn a_fast_call_returns_its_result_and_frees_its_slot() {
++        let (b, _) = bounded(2_000);
++        let out = b.call(&Caller::new("t"), "fast.echo", json!({"a": 1})).unwrap();
++        assert_eq!(out, json!({"a": 1}));
++        wait_until(|| b.in_flight() == 0);
++        assert_eq!(b.stuck_workers(), 0);
++    }
++
++    #[test]
++    fn a_call_past_its_limit_times_out_and_is_counted_stuck_until_it_returns() {
++        let (b, release) = bounded(60);
++        let error = b.call(&Caller::new("t"), "slow.spin", json!({})).unwrap_err();
++        assert_eq!(error.code, ERR_TIMEOUT);
++        assert!(error.retryable);
++        assert_eq!(b.stuck_workers(), 1);
++        assert_eq!(b.in_flight(), 1);
++        release.store(true, Ordering::SeqCst);
++        wait_until(|| b.stuck_workers() == 0 && b.in_flight() == 0);
++    }
++
++    #[test]
++    fn a_polite_tool_stops_on_timeout() {
++        let (b, _) = bounded(60);
++        let error = b.call(&Caller::new("t"), "slow.polite", json!({})).unwrap_err();
++        assert_eq!(error.code, ERR_TIMEOUT);
++        wait_until(|| b.in_flight() == 0 && b.stuck_workers() == 0);
++    }
++
++    #[test]
++    fn stuck_workers_exhaust_the_cap_and_new_calls_get_busy() {
++        let (b, release) = bounded(40);
++        let b = b.with_max_in_flight(1);
++        let first = b.call(&Caller::new("t"), "slow.spin", json!({})).unwrap_err();
++        assert_eq!(first.code, ERR_TIMEOUT);
++        let second = b.call(&Caller::new("t"), "fast.echo", json!({})).unwrap_err();
++        assert_eq!(second.code, ERR_BUSY);
++        release.store(true, Ordering::SeqCst);
++        wait_until(|| b.in_flight() == 0);
++        assert!(b.call(&Caller::new("t"), "fast.echo", json!({})).is_ok());
++    }
++
++    #[test]
++    fn a_panicking_tool_is_a_typed_error_and_frees_its_slot() {
++        let (b, _) = bounded(2_000);
++        let error = b.call(&Caller::new("t"), "bad.panic", json!({})).unwrap_err();
++        assert_eq!(error.code, ERR_PANICKED);
++        wait_until(|| b.in_flight() == 0);
++    }
++
++    #[test]
++    fn an_external_cancel_signal_ends_the_wait() {
++        let (b, _) = bounded(5_000);
++        let flag = AtomicBool::new(false);
++        let started = Instant::now();
++        let error = std::thread::scope(|scope| {
++            scope.spawn(|| {
++                std::thread::sleep(Duration::from_millis(60));
++                flag.store(true, Ordering::SeqCst);
++            });
++            b.call_polled(&Caller::new("t"), "slow.polite", json!({}), &|| {
++                flag.load(Ordering::SeqCst)
++            })
++            .unwrap_err()
++        });
++        assert_eq!(error.code, ERR_CANCELLED);
++        assert!(started.elapsed() < Duration::from_secs(4));
++        wait_until(|| b.in_flight() == 0);
++        let cancelled_first = b.call_polled(&Caller::new("t"), "fast.echo", json!({}), &|| true);
++        assert_eq!(cancelled_first.unwrap_err().code, ERR_CANCELLED);
++    }
++}
+diff --git a/crates/rightkit-agent-tools/src/lib.rs b/crates/rightkit-agent-tools/src/lib.rs
+index 633a00b..0db5837 100644
+--- a/crates/rightkit-agent-tools/src/lib.rs
++++ b/crates/rightkit-agent-tools/src/lib.rs
+@@ -9,14 +9,21 @@
+ //!   commands), `desktop.*` over `rightkit-automation`, `browser.*` over
+ //!   `rightkit-browser`, `speech.*` over the shared speech service
+ //!   (`rightkit-speech-client`, the first client).
++//! * [`BoundedToolbox`]: the toolbox's calls on worker threads with a time limit and an
++//!   in-flight cap, for hosts that must not hang on a stuck tool.
++//! * `mcp` (feature `mcp`): [`ToolboxProvider`] serves a toolbox to one caller as a
++//!   `rightkit-mcp` `ToolProvider`.
+ //! * `right-ctl <app> <command>`: the CLI over the same toolbox.
+ //!
+ //! HeardRight's rules are built in and not configurable: no dictation, text
+ //! delivery, pasteboard or history tool can be registered or called ([`exposure`]).
+ 
+ pub mod backends;
++pub mod bounded;
+ pub mod exposure;
+ mod journal;
++#[cfg(feature = "mcp")]
++pub mod mcp;
+ mod peer;
+ mod spec;
+ mod toolbox;
+@@ -24,7 +31,10 @@ mod toolbox;
+ pub use backends::control::{
+     control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
+ };
++pub use bounded::{BoundedToolbox, DEFAULT_MAX_IN_FLIGHT, ERR_BUSY, ERR_PANICKED, ERR_TIMEOUT};
+ pub use journal::JsonlJournal;
++#[cfg(feature = "mcp")]
++pub use mcp::ToolboxProvider;
+ pub use peer::CallContextExt;
+ pub use spec::*;
+ pub use toolbox::{
+diff --git a/crates/rightkit-agent-tools/src/mcp.rs b/crates/rightkit-agent-tools/src/mcp.rs
+new file mode 100644
+index 0000000..251409d
+--- /dev/null
++++ b/crates/rightkit-agent-tools/src/mcp.rs
+@@ -0,0 +1,211 @@
++//! A [`Toolbox`] served as a `rightkit-mcp` [`ToolProvider`] (feature `mcp`).
++//!
++//! The adapter is one caller's view of the toolbox: `tools/list` shows exactly what
++//! [`Toolbox::list_for`] shows that caller, and every `tools/call` goes through the toolbox's
++//! one gate (hard exposure rules, allowlist, argument schema, admission hook, journal), so MCP
++//! adds no way around it. Optionally calls run on bounded workers ([`BoundedToolbox`]) with a
++//! time limit and an in-flight cap, and a client's `notifications/cancelled` ends the wait.
++//!
++//! Mapping:
++//!
++//! - [`ToolSpec`] to `ToolDescriptor`: name, description and `input_schema` as is;
++//!   `readOnlyHint` is true for [`Effect::Observe`] and false for every other effect.
++//! - A successful call to `ToolResult::json` (an object is `structuredContent`; any other JSON
++//!   value is wrapped as `{"result": value}`, because `structuredContent` must be an object).
++//! - [`ERR_UNKNOWN_TOOL`] to `McpError::ToolNotFound` (JSON-RPC invalid params); every other
++//!   [`ToolError`] to a tool-level failure (`isError: true`) whose text and structured content
++//!   are the error's `{code, message, retryable}`.
++
++use crate::bounded::BoundedToolbox;
++use crate::spec::*;
++use crate::toolbox::Toolbox;
++use rightkit_mcp::{CallHandle, McpError, ToolDescriptor, ToolProvider, ToolResult};
++use serde_json::{json, Value};
++use std::sync::Arc;
++use std::time::Duration;
++
++/// One caller's MCP tool surface over a [`Toolbox`].
++pub struct ToolboxProvider {
++    toolbox: Arc<Toolbox>,
++    caller: Caller,
++    bounded: Option<BoundedToolbox>,
++}
++
++impl ToolboxProvider {
++    /// Serve `toolbox` to `caller` (the allowlist key). Calls run on the request thread.
++    pub fn new(toolbox: Arc<Toolbox>, caller: Caller) -> Self {
++        Self {
++            toolbox,
++            caller,
++            bounded: None,
++        }
++    }
++
++    /// Run each call on a bounded worker: fail with [`crate::ERR_TIMEOUT`] after `timeout`,
++    /// at most `max_in_flight` workers at once (stuck ones included).
++    pub fn bounded(mut self, timeout: Duration, max_in_flight: usize) -> Self {
++        self.bounded = Some(
++            BoundedToolbox::new(self.toolbox.clone(), timeout).with_max_in_flight(max_in_flight),
++        );
++        self
++    }
++
++    /// The bounded runner, when [`ToolboxProvider::bounded`] was used (for
++    /// [`BoundedToolbox::stuck_workers`]).
++    pub fn bounded_toolbox(&self) -> Option<&BoundedToolbox> {
++        self.bounded.as_ref()
++    }
++
++    fn run(&self, name: &str, args: Value, cancelled: &dyn Fn() -> bool) -> Result<ToolResult, McpError> {
++        let outcome = match &self.bounded {
++            Some(bounded) => bounded.call_polled(&self.caller, name, args, cancelled),
++            None if cancelled() => Err(ToolError::new(ERR_CANCELLED, "cancelled before start")),
++            None => self.toolbox.call(&self.caller, name, args),
++        };
++        match outcome {
++            Ok(value) => Ok(success(value)),
++            Err(error) if error.code == ERR_UNKNOWN_TOOL => {
++                Err(McpError::ToolNotFound(name.to_owned()))
++            }
++            Err(error) => Ok(failure(&error)),
++        }
++    }
++}
++
++/// The MCP descriptor for one tool spec.
++pub fn descriptor(spec: &ToolSpec) -> ToolDescriptor {
++    ToolDescriptor::new(&spec.name, &spec.description, spec.input_schema.clone())
++        .read_only(spec.effect == Effect::Observe)
++}
++
++fn success(value: Value) -> ToolResult {
++    match value {
++        Value::Object(_) => ToolResult::json(value),
++        other => ToolResult::json(json!({ "result": other })),
++    }
++}
++
++fn failure(error: &ToolError) -> ToolResult {
++    let mut result = ToolResult::error(error.to_value().to_string());
++    result.structured = Some(error.to_value());
++    result
++}
++
++impl ToolProvider for ToolboxProvider {
++    fn list(&self) -> Vec<ToolDescriptor> {
++        self.toolbox
++            .list_for(&self.caller.app)
++            .iter()
++            .map(descriptor)
++            .collect()
++    }
++
++    fn call(&self, name: &str, args: Value) -> Result<ToolResult, McpError> {
++        self.run(name, args, &|| false)
++    }
++
++    fn call_with_handle(
++        &self,
++        name: &str,
++        args: Value,
++        call: &CallHandle,
++    ) -> Result<ToolResult, McpError> {
++        self.run(name, args, &|| call.is_cancelled())
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    struct Echo(ToolSpec);
++
++    impl Tool for Echo {
++        fn spec(&self) -> &ToolSpec {
++            &self.0
++        }
++
++        fn call(&self, _ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
++            match args.get("mode").and_then(Value::as_str) {
++                Some("fail") => Err(ToolError::retryable("nope", "it failed")),
++                Some("list") => Ok(json!([1, 2])),
++                _ => Ok(args),
++            }
++        }
++    }
++
++    fn provider(bounded: bool) -> ToolboxProvider {
++        let mut tb = Toolbox::new();
++        tb.register(Arc::new(Echo(ToolSpec::new(
++            "t.observe",
++            "reads",
++            Effect::Observe,
++            json!({"type": "object", "properties": {"mode": {"type": "string"}}}),
++        ))))
++        .unwrap();
++        tb.register(Arc::new(Echo(ToolSpec::new(
++            "t.act",
++            "acts",
++            Effect::Act,
++            json!({"type": "object"}),
++        ))))
++        .unwrap();
++        tb.register(Arc::new(Echo(ToolSpec::new(
++            "other.hidden",
++            "not allowed",
++            Effect::Observe,
++            json!({"type": "object"}),
++        ))))
++        .unwrap();
++        tb.allow("mcp", ["t.*"]);
++        let provider = ToolboxProvider::new(Arc::new(tb), Caller::new("mcp"));
++        if bounded {
++            provider.bounded(Duration::from_secs(5), 2)
++        } else {
++            provider
++        }
++    }
++
++    #[test]
++    fn list_shows_only_what_the_caller_may_call_with_read_only_hints() {
++        let listed = provider(false).list();
++        let names: Vec<&str> = listed.iter().map(|d| d.name.as_str()).collect();
++        assert_eq!(names, vec!["t.act", "t.observe"]);
++        let hint = |n: &str| listed.iter().find(|d| d.name == n).unwrap().annotations.read_only;
++        assert_eq!(hint("t.observe"), Some(true));
++        assert_eq!(hint("t.act"), Some(false));
++    }
++
++    #[test]
++    fn calls_map_results_and_errors_with_and_without_the_bounded_runner() {
++        for bounded in [false, true] {
++            let p = provider(bounded);
++            let ok = p.call("t.observe", json!({"x": 1})).unwrap();
++            assert!(!ok.is_error);
++            assert_eq!(ok.structured, Some(json!({"x": 1})));
++            let wrapped = p.call("t.observe", json!({"mode": "list"})).unwrap();
++            assert_eq!(wrapped.structured, Some(json!({"result": [1, 2]})));
++            let failed = p.call("t.observe", json!({"mode": "fail"})).unwrap();
++            assert!(failed.is_error);
++            assert_eq!(failed.structured.unwrap()["code"], "nope");
++            // Not on this caller's allowlist: a tool-level failure, with the gate's code.
++            let denied = p.call("other.hidden", json!({})).unwrap();
++            assert!(denied.is_error);
++            assert_eq!(denied.structured.unwrap()["code"], ERR_NOT_ALLOWED);
++            // Bad arguments are caught by the toolbox's schema check.
++            let invalid = p.call("t.observe", json!({"mode": 3})).unwrap();
++            assert_eq!(invalid.structured.unwrap()["code"], ERR_INVALID_ARGS);
++            assert!(matches!(
++                p.call("no.such", json!({})),
++                Err(McpError::ToolNotFound(name)) if name == "no.such"
++            ));
++        }
++    }
++
++    #[test]
++    fn bounded_provider_exposes_the_runner() {
++        assert!(provider(false).bounded_toolbox().is_none());
++        let p = provider(true);
++        assert_eq!(p.bounded_toolbox().unwrap().stuck_workers(), 0);
++    }
++}
+diff --git a/crates/rightkit-docs/CHANGELOG.md b/crates/rightkit-docs/CHANGELOG.md
+index 350a4f7..c749d58 100644
+--- a/crates/rightkit-docs/CHANGELOG.md
++++ b/crates/rightkit-docs/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.1.2 (unreleased)
++
++### Added (rightkit#528, additive)
++
++- `check_zip_limits(bytes, &Limits) -> Result<PackageCheck>`: the zip-entry limits check as a public function for any zip (input size, entry count, unsafe or duplicate names, zip-level encryption, per-entry, total and ratio caps from declared sizes, nothing decompressed). `PackageCheck { entries, declared_bytes }`.
++- `check_package(bytes, &Limits)`: the full OOXML preflight `read` and `write` run first, callable on its own.
++- `refuse_external_links(bytes, &Limits)`: `check_package` plus refusal of external links (`TargetMode="External"` relationships, workbook `externalLinks/` parts) with the new `DocsError::ExternalLink { part, target }` (wire code `external_link`; `DocsError` is `#[non_exhaustive]`). Opt-in: `read` and `write` still never follow external links and still list them as omitted.
++- Embedded OLE objects, ActiveX controls and VBA projects were already refused by name, relationship type and content type in 0.1.1.
++
+ ## 0.1.1 (2026-10-17)
+ 
+ ### Changed (rightkit#528, active content)
+diff --git a/crates/rightkit-docs/Cargo.toml b/crates/rightkit-docs/Cargo.toml
+index a49422d..6d174cf 100644
+--- a/crates/rightkit-docs/Cargo.toml
++++ b/crates/rightkit-docs/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-docs"
+-version = "0.1.1"
++version = "0.1.2"
+ edition = "2021"
+ rust-version = "1.98.0"
+ license = "MIT OR Apache-2.0"
+diff --git a/crates/rightkit-docs/README.md b/crates/rightkit-docs/README.md
+index 886a72f..f362eb9 100644
+--- a/crates/rightkit-docs/README.md
++++ b/crates/rightkit-docs/README.md
+@@ -21,6 +21,8 @@ write(path, &[Op::ReplaceText { find: "Q3".into(), replace: "Q4".into() }],
+       &WriteOptions { expect_sha256: Some(doc.sha256), ..Default::default() })?;
+ ```
+ 
++Preflight on its own, for hosts that unpack or vet a package themselves: `check_zip_limits(bytes, &Limits)` (any zip: entry count, names, encryption, per-entry, total and ratio caps, nothing decompressed), `check_package(bytes, &Limits)` (the full OOXML preflight `read` runs, including active-content refusal) and `refuse_external_links(bytes, &Limits)` (`check_package` plus `DocsError::ExternalLink` for any `TargetMode="External"` relationship or `externalLinks/` part; `read` and `write` themselves only list external links as omitted).
++
+ `read(source, &ReadOptions) -> DocumentRead` and `write(target, &[Op], &WriteOptions) -> WriteReceipt`. Every type is serde (camelCase, `kind`/`type` discriminators) and every error is a `DocsError` with a stable snake_case `code()` and a `{ code, message }` serialisation, like `rightkit-pdf`'s `PdfEditError`.
+ 
+ ### Reading
+diff --git a/crates/rightkit-docs/src/error.rs b/crates/rightkit-docs/src/error.rs
+index ba15517..104a6f7 100644
+--- a/crates/rightkit-docs/src/error.rs
++++ b/crates/rightkit-docs/src/error.rs
+@@ -37,6 +37,11 @@ pub enum DocsError {
+     /// the package is refused: they are never extracted, parsed or followed.
+     #[error("active content refused in {part}: {what}")]
+     ActiveContent { part: String, what: &'static str },
++    /// An external link (a relationship marked `TargetMode="External"`, or a workbook
++    /// `externalLinks/` part). Only [`crate::refuse_external_links`] returns it: `read` and
++    /// `write` still list external relationships as omitted and never follow them.
++    #[error("external link refused in {part}: {target}")]
++    ExternalLink { part: String, target: String },
+     /// The target differs from the file the edit was based on.
+     #[error("the target changed since it was read")]
+     SourceChanged,
+@@ -88,6 +93,7 @@ impl DocsError {
+             DocsError::Malformed(_) => "malformed",
+             DocsError::ForbiddenXml { .. } => "forbidden_xml",
+             DocsError::ActiveContent { .. } => "active_content",
++            DocsError::ExternalLink { .. } => "external_link",
+             DocsError::SourceChanged => "source_changed",
+             DocsError::TargetExists => "target_exists",
+             DocsError::TargetMissing => "target_missing",
+diff --git a/crates/rightkit-docs/src/lib.rs b/crates/rightkit-docs/src/lib.rs
+index 937b4a6..0101d60 100644
+--- a/crates/rightkit-docs/src/lib.rs
++++ b/crates/rightkit-docs/src/lib.rs
+@@ -86,6 +86,55 @@ fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
+     Ok(buf)
+ }
+ 
++/// What a passing package check measured.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct PackageCheck {
++    /// Zip entries, directories included.
++    pub entries: usize,
++    /// Declared decompressed bytes of every entry.
++    pub declared_bytes: u64,
++}
++
++/// Public zip-entry limits check for any zip, with no OOXML knowledge: input size, entry count,
++/// unsafe or duplicate entry names, zip-level encryption, per-entry and total declared
++/// decompressed size, and the compression ratio, all against `limits` and all before a single
++/// entry is decompressed. For callers that unpack a zip themselves (remote packages, bundles).
++pub fn check_zip_limits(bytes: &[u8], limits: &Limits) -> Result<PackageCheck> {
++    let (entries, declared) = package::preflight(bytes, limits, false)?;
++    Ok(PackageCheck {
++        entries: entries.len(),
++        declared_bytes: u64::try_from(declared).unwrap_or(u64::MAX),
++    })
++}
++
++/// Full OOXML package preflight, the same one `read` and `write` run first: everything in
++/// [`check_zip_limits`], plus real bounded decompression of the XML parts, DOCTYPE and entity
++/// refusal, and refusal of embedded OLE objects, ActiveX controls and VBA projects.
++pub fn check_package(bytes: &[u8], limits: &Limits) -> Result<PackageCheck> {
++    let pkg = package::Package::open(bytes, limits)?;
++    Ok(package_check(&pkg))
++}
++
++fn package_check(pkg: &package::Package<'_>) -> PackageCheck {
++    PackageCheck {
++        entries: pkg.entries.len(),
++        declared_bytes: u64::try_from(pkg.declared_total).unwrap_or(u64::MAX),
++    }
++}
++
++/// [`check_package`] plus a refusal of external links: any relationship marked
++/// `TargetMode="External"` (hyperlinks, linked images, external workbooks, attached templates)
++/// and any workbook `externalLinks/` part fails with [`DocsError::ExternalLink`]. For hosts that
++/// must not open a document that points off the machine. `read` and `write` do not call this;
++/// they never follow external links and list them as omitted.
++pub fn refuse_external_links(bytes: &[u8], limits: &Limits) -> Result<PackageCheck> {
++    let pkg = package::Package::open(bytes, limits)?;
++    if let Some((part, target)) = pkg.first_external_link()? {
++        return Err(DocsError::ExternalLink { part, target });
++    }
++    Ok(package_check(&pkg))
++}
++
+ /// Cut `s` to at most `max` characters on a character boundary.
+ fn cap(mut s: String, max: usize) -> (String, bool) {
+     match s.char_indices().nth(max) {
+@@ -444,6 +493,70 @@ mod tests {
+     use super::*;
+     use std::cell::RefCell;
+ 
++    fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
++        use std::io::Write as _;
++        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
++        let o = zip::write::SimpleFileOptions::default();
++        for (n, c) in files {
++            w.start_file(*n, o).unwrap();
++            w.write_all(c).unwrap();
++        }
++        w.finish().unwrap().into_inner()
++    }
++
++    #[test]
++    fn zip_limits_check_is_public_and_reports_entries() {
++        let z = zip_bytes(&[("a.txt", b"hello"), ("b/c.txt", b"world!")]);
++        let ok = check_zip_limits(&z, &Limits::default()).unwrap();
++        assert_eq!(ok.entries, 2);
++        assert_eq!(ok.declared_bytes, 11);
++        let few = Limits {
++            max_entries: 1,
++            ..Limits::default()
++        };
++        assert_eq!(check_zip_limits(&z, &few).unwrap_err().code(), "archive_limit");
++        let small = Limits {
++            max_input_bytes: 10,
++            ..Limits::default()
++        };
++        assert_eq!(check_zip_limits(&z, &small).unwrap_err().code(), "too_large");
++        let evil = zip_bytes(&[("../x", b"1")]);
++        assert_eq!(
++            check_zip_limits(&evil, &Limits::default()).unwrap_err().code(),
++            "malformed"
++        );
++        // The generic check has no OOXML opinion: an `embeddings/` entry is only a name here.
++        let emb = zip_bytes(&[("word/embeddings/a.bin", b"1")]);
++        assert!(check_zip_limits(&emb, &Limits::default()).is_ok());
++        assert_eq!(
++            check_package(&emb, &Limits::default()).unwrap_err().code(),
++            "active_content"
++        );
++    }
++
++    #[test]
++    fn external_links_are_refused_only_on_request() {
++        let rels: &[u8] = br#"<Relationships xmlns="x"><Relationship Id="rId1" Type="x/hyperlink" Target="https://example.com" TargetMode="External"/></Relationships>"#;
++        let z = zip_bytes(&[("word/_rels/document.xml.rels", rels)]);
++        assert!(check_package(&z, &Limits::default()).is_ok());
++        let e = refuse_external_links(&z, &Limits::default()).unwrap_err();
++        assert_eq!(e.code(), "external_link");
++        assert!(e.to_string().contains("https://example.com"));
++        let clean: &[u8] = br#"<Relationships xmlns="x"><Relationship Id="rId1" Type="x/styles" Target="styles.xml"/></Relationships>"#;
++        let z = zip_bytes(&[("word/_rels/document.xml.rels", clean)]);
++        assert_eq!(
++            refuse_external_links(&z, &Limits::default()).unwrap().entries,
++            1
++        );
++        let wb = zip_bytes(&[("xl/externalLinks/externalLink1.xml", b"<externalLink/>")]);
++        assert_eq!(
++            refuse_external_links(&wb, &Limits::default())
++                .unwrap_err()
++                .code(),
++            "external_link"
++        );
++    }
++
+     type Hook = Box<dyn Fn()>;
+     thread_local! {
+         static BEFORE_PUBLISH: RefCell<Option<Hook>> = const { RefCell::new(None) };
+diff --git a/crates/rightkit-docs/src/package.rs b/crates/rightkit-docs/src/package.rs
+index 67ff6e2..727d8f6 100644
+--- a/crates/rightkit-docs/src/package.rs
++++ b/crates/rightkit-docs/src/package.rs
+@@ -24,6 +24,8 @@ pub(crate) struct Entry {
+ pub(crate) struct Package<'a> {
+     bytes: &'a [u8],
+     pub entries: Vec<Entry>,
++    /// Declared decompressed total of every entry, from the preflight.
++    pub declared_total: u128,
+     limits: Limits,
+ }
+ 
+@@ -142,6 +144,37 @@ fn declared_active_content(name: &str, data: &[u8]) -> Option<&'static str> {
+     }
+ }
+ 
++/// The target of the first relationship in a `.rels` part marked `TargetMode="External"`
++/// (hyperlinks, linked images, external workbooks, attached templates, remote frames).
++fn external_relationship(name: &str, data: &[u8]) -> Option<String> {
++    use quick_xml::events::Event;
++    if !name.to_ascii_lowercase().ends_with(".rels") {
++        return None;
++    }
++    let mut reader = quick_xml::Reader::from_reader(data);
++    loop {
++        match reader.read_event() {
++            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
++                let external = crate::xmlutil::attr(&e, "TargetMode")
++                    .is_some_and(|m| m.trim().eq_ignore_ascii_case("external"));
++                if external {
++                    return Some(crate::xmlutil::attr(&e, "Target").unwrap_or_default());
++                }
++            }
++            Ok(Event::Eof) | Err(_) => return None,
++            _ => {}
++        }
++    }
++}
++
++/// Workbook external-link parts (`xl/externalLinks/...`) hold links to other workbooks even when
++/// the relationship that reaches them is internal.
++fn external_link_part(name: &str) -> bool {
++    name.to_ascii_lowercase()
++        .split('/')
++        .any(|seg| seg == "externallinks")
++}
++
+ fn unsafe_name(name: &str) -> bool {
+     name.is_empty()
+         || name.contains('\0')
+@@ -151,81 +184,97 @@ fn unsafe_name(name: &str) -> bool {
+         || (name.len() >= 2 && name.as_bytes()[1] == b':')
+ }
+ 
+-impl<'a> Package<'a> {
+-    /// Open and preflight. Enforces entry count, per-part and total decompressed size, the
+-    /// compression ratio, name safety, duplicate names, zip-level encryption, and refuses embedded
+-    /// OLE objects and ActiveX parts and any XML part carrying a DOCTYPE or entity declaration. XML parts are decompressed once here, under
+-    /// the caps and bounded by a read limit that does not trust the declared size.
+-    pub fn open(bytes: &'a [u8], limits: &Limits) -> Result<Self> {
+-        if bytes.len() as u64 > limits.max_input_bytes {
+-            return Err(DocsError::TooLarge {
+-                limit: limits.max_input_bytes,
+-                actual: bytes.len() as u64,
+-            });
++/// Zip-level preflight shared by [`Package::open`] and the public zip check: input size, entry
++/// count, name safety, duplicate names, zip-level encryption, per-part, total and ratio caps, all
++/// from the declared sizes. `ooxml` additionally refuses active-content part names. Returns the
++/// entries and the declared decompressed total.
++pub(crate) fn preflight(
++    bytes: &[u8],
++    limits: &Limits,
++    ooxml: bool,
++) -> Result<(Vec<Entry>, u128)> {
++    if bytes.len() as u64 > limits.max_input_bytes {
++        return Err(DocsError::TooLarge {
++            limit: limits.max_input_bytes,
++            actual: bytes.len() as u64,
++        });
++    }
++    let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(map_zip)?;
++    if zip.len() > limits.max_entries {
++        return Err(DocsError::ArchiveLimit(format!(
++            "{} entries, limit {}",
++            zip.len(),
++            limits.max_entries
++        )));
++    }
++    let mut entries = Vec::with_capacity(zip.len());
++    let mut seen = HashSet::new();
++    let mut declared_total: u128 = 0;
++    for i in 0..zip.len() {
++        let f = zip.by_index_raw(i).map_err(map_zip)?;
++        let name = f.name().map_err(map_zip)?.into_owned();
++        if f.encrypted() {
++            return Err(DocsError::Encrypted);
+         }
+-        let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(map_zip)?;
+-        if zip.len() > limits.max_entries {
+-            return Err(DocsError::ArchiveLimit(format!(
+-                "{} entries, limit {}",
+-                zip.len(),
+-                limits.max_entries
+-            )));
++        if unsafe_name(&name) {
++            return Err(DocsError::Malformed(format!("unsafe entry name {name:?}")));
+         }
+-        let mut entries = Vec::with_capacity(zip.len());
+-        let mut seen = HashSet::new();
+-        let mut declared_total: u128 = 0;
+-        for i in 0..zip.len() {
+-            let f = zip.by_index_raw(i).map_err(map_zip)?;
+-            let name = f.name().map_err(map_zip)?.into_owned();
+-            if f.encrypted() {
+-                return Err(DocsError::Encrypted);
+-            }
+-            if unsafe_name(&name) {
+-                return Err(DocsError::Malformed(format!("unsafe entry name {name:?}")));
+-            }
++        if ooxml {
+             if let Some(what) = active_content(&name) {
+                 return Err(DocsError::ActiveContent { part: name, what });
+             }
+-            if !seen.insert(name.to_ascii_lowercase()) {
+-                return Err(DocsError::Malformed(format!(
+-                    "duplicate entry name {name:?} (part names are case-insensitive)"
+-                )));
+-            }
+-            let (size, csize) = (f.size(), f.compressed_size());
+-            if size > limits.max_part_bytes {
+-                return Err(DocsError::ArchiveLimit(format!(
+-                    "part {name} declares {size} bytes, limit {}",
+-                    limits.max_part_bytes
+-                )));
+-            }
+-            if size > (1 << 20) && size > csize.max(1).saturating_mul(limits.max_ratio) {
+-                return Err(DocsError::ArchiveLimit(format!(
+-                    "part {name} expands {size} from {csize} bytes, over {}:1",
+-                    limits.max_ratio
+-                )));
+-            }
+-            declared_total += size as u128;
+-            entries.push(Entry {
+-                name,
+-                is_dir: f.is_dir(),
+-            });
+         }
+-        if declared_total > limits.max_total_bytes as u128 {
++        if !seen.insert(name.to_ascii_lowercase()) {
++            return Err(DocsError::Malformed(format!(
++                "duplicate entry name {name:?} (part names are case-insensitive)"
++            )));
++        }
++        let (size, csize) = (f.size(), f.compressed_size());
++        if size > limits.max_part_bytes {
+             return Err(DocsError::ArchiveLimit(format!(
+-                "package declares {declared_total} bytes, limit {}",
+-                limits.max_total_bytes
++                "part {name} declares {size} bytes, limit {}",
++                limits.max_part_bytes
+             )));
+         }
+-        let compressed = bytes.len().max(1) as u128;
+-        if declared_total > (4 << 20) && declared_total > compressed * limits.max_ratio as u128 {
++        if size > (1 << 20) && size > csize.max(1).saturating_mul(limits.max_ratio) {
+             return Err(DocsError::ArchiveLimit(format!(
+-                "package expands {declared_total} bytes from {compressed}, over {}:1",
++                "part {name} expands {size} from {csize} bytes, over {}:1",
+                 limits.max_ratio
+             )));
+         }
++        declared_total += size as u128;
++        entries.push(Entry {
++            name,
++            is_dir: f.is_dir(),
++        });
++    }
++    if declared_total > limits.max_total_bytes as u128 {
++        return Err(DocsError::ArchiveLimit(format!(
++            "package declares {declared_total} bytes, limit {}",
++            limits.max_total_bytes
++        )));
++    }
++    let compressed = bytes.len().max(1) as u128;
++    if declared_total > (4 << 20) && declared_total > compressed * limits.max_ratio as u128 {
++        return Err(DocsError::ArchiveLimit(format!(
++            "package expands {declared_total} bytes from {compressed}, over {}:1",
++            limits.max_ratio
++        )));
++    }
++    Ok((entries, declared_total))
++}
++
++impl<'a> Package<'a> {
++    /// Open and preflight. Enforces entry count, per-part and total decompressed size, the
++    /// compression ratio, name safety, duplicate names, zip-level encryption, and refuses embedded
++    /// OLE objects and ActiveX parts and any XML part carrying a DOCTYPE or entity declaration. XML parts are decompressed once here, under
++    /// the caps and bounded by a read limit that does not trust the declared size.
++    pub fn open(bytes: &'a [u8], limits: &Limits) -> Result<Self> {
++        let (entries, declared_total) = preflight(bytes, limits, true)?;
+         let pkg = Package {
+             bytes,
+             entries,
++            declared_total,
+             limits: limits.clone(),
+         };
+         // Real decompression of every XML part: bounded by the cap, not by the declared size.
+@@ -255,6 +304,23 @@ impl<'a> Package<'a> {
+         Ok(pkg)
+     }
+ 
++    /// First external link in the package, as `(part, target)`: a relationship marked
++    /// `TargetMode="External"` in any `.rels` part, or an `externalLinks/` part (target empty).
++    pub fn first_external_link(&self) -> Result<Option<(String, String)>> {
++        for entry in self.entries.iter().filter(|e| !e.is_dir) {
++            if external_link_part(&entry.name) {
++                return Ok(Some((entry.name.clone(), String::new())));
++            }
++            if entry.name.to_ascii_lowercase().ends_with(".rels") {
++                let data = self.read_bounded(&entry.name)?;
++                if let Some(target) = external_relationship(&entry.name, &data) {
++                    return Ok(Some((entry.name.clone(), target)));
++                }
++            }
++        }
++        Ok(None)
++    }
++
+     pub fn has(&self, name: &str) -> bool {
+         self.entries.iter().any(|e| e.name == name)
+     }
+@@ -345,7 +411,32 @@ pub(crate) fn build(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+ 
+ #[cfg(test)]
+ mod active_content_tests {
+-    use super::{active_content, declared_active_content};
++    use super::{
++        active_content, declared_active_content, external_link_part, external_relationship,
++    };
++
++    #[test]
++    fn external_relationships_are_found_by_target_mode() {
++        let rels = br#"<Relationships><Relationship Id="rId1" Type="x/hyperlink" Target="https://example.com/a" TargetMode="External"/></Relationships>"#;
++        assert_eq!(
++            external_relationship("word/_rels/document.xml.rels", rels).as_deref(),
++            Some("https://example.com/a")
++        );
++        let lower = br#"<Relationships><Relationship Type="x/image" Target="file:///c:/a.png" TargetMode="external"/></Relationships>"#;
++        assert!(external_relationship("word/_rels/document.xml.rels", lower).is_some());
++        let internal = br#"<Relationships><Relationship Type="x/image" Target="media/a.png" TargetMode="Internal"/><Relationship Type="x/styles" Target="styles.xml"/></Relationships>"#;
++        assert_eq!(
++            external_relationship("word/_rels/document.xml.rels", internal),
++            None
++        );
++        assert_eq!(external_relationship("word/document.xml", rels), None);
++    }
++
++    #[test]
++    fn external_link_parts_are_named() {
++        assert!(external_link_part("xl/externalLinks/externalLink1.xml"));
++        assert!(!external_link_part("xl/worksheets/sheet1.xml"));
++    }
+ 
+     #[test]
+     fn renamed_embedded_object_is_refused_by_relationship_type() {
+diff --git a/crates/rightkit-file-watch/CHANGELOG.md b/crates/rightkit-file-watch/CHANGELOG.md
+index c3a616a..96496ee 100644
+--- a/crates/rightkit-file-watch/CHANGELOG.md
++++ b/crates/rightkit-file-watch/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.4.2 (unreleased)
++
++### Added (rightkit#544, additive)
++
++- `ChangeCoalescer::drain_detailed() -> DetailedBatch { batch, raw_kinds, overflows, source_clock }`: the net `ChangeBatch` plus the distinct raw backend `EventKind`s absorbed per path (including paths the net result dropped), the number of overflow/rescan/error signals absorbed since the last drain, and the source clock. `drain` is unchanged and returns `drain_detailed().batch`.
++- `ChangeCoalescer::push_record(&WatchEventRecord)`: like `push_watch_event`, but keeps the record's `raw_kind`.
++- `ChangeCoalescer::source_clock()` (monotonic count of absorbed events, never reset by a drain) and `overflow_count()`. `push` now counts a `Flag::Rescan` event, and `push_watch_event` counts `Overflow` and `Error` gaps (still returning them as errors without clearing pending changes).
++- rightkit#547 (owner-keyed `WatchSessionManager`) already shipped in 0.4.1.
++
+ ## 0.4.1 (2026-10-17)
+ 
+ ### Added (session manager, rightkit#547)
+diff --git a/crates/rightkit-file-watch/Cargo.toml b/crates/rightkit-file-watch/Cargo.toml
+index cfc73e2..722f2da 100644
+--- a/crates/rightkit-file-watch/Cargo.toml
++++ b/crates/rightkit-file-watch/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-file-watch"
+-version = "0.4.1"
++version = "0.4.2"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing."
+diff --git a/crates/rightkit-file-watch/src/coalesce.rs b/crates/rightkit-file-watch/src/coalesce.rs
+index 3b008a2..9452362 100644
+--- a/crates/rightkit-file-watch/src/coalesce.rs
++++ b/crates/rightkit-file-watch/src/coalesce.rs
+@@ -45,12 +45,46 @@ enum First {
+ 
+ struct Touch {
+     first: First,
++    /// Distinct backend event kinds seen for this path, in first-seen order.
++    kinds: Vec<EventKind>,
++}
++
++impl Touch {
++    fn note(&mut self, kind: Option<EventKind>) {
++        if let Some(kind) = kind {
++            if !self.kinds.contains(&kind) {
++                self.kinds.push(kind);
++            }
++        }
++    }
++}
++
++/// A [`ChangeBatch`] plus the provenance a journaling consumer needs.
++///
++/// Returned by [`ChangeCoalescer::drain_detailed`]. The plain [`ChangeCoalescer::drain`] is
++/// unchanged and reports only the net batch.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct DetailedBatch {
++    /// The net result, identical to what [`ChangeCoalescer::drain`] would have returned.
++    pub batch: ChangeBatch,
++    /// Distinct raw backend event kinds absorbed for every touched path (including paths the net
++    /// result dropped, such as an atomic-save temp file), in first-seen order per path. Only
++    /// events fed with a raw kind ([`ChangeCoalescer::push`], [`ChangeCoalescer::push_record`]
++    /// with `raw_kind: Some(..)`) contribute; [`ChangeCoalescer::push_watch_event`] carries none.
++    pub raw_kinds: BTreeMap<PathBuf, Vec<EventKind>>,
++    /// Overflow, rescan-request and error signals absorbed since the previous drain. Non-zero
++    /// means `batch` may be incomplete and the consumer must reconcile.
++    pub overflows: u32,
++    /// The source clock when this batch was drained; see [`ChangeCoalescer::source_clock`].
++    pub source_clock: u64,
+ }
+ 
+ #[derive(Default)]
+ pub struct ChangeCoalescer {
+     touched: BTreeMap<PathBuf, Touch>,
+     renames: Vec<(PathBuf, PathBuf)>,
++    overflows: u32,
++    clock: u64,
+ }
+ 
+ impl ChangeCoalescer {
+@@ -58,9 +92,48 @@ impl ChangeCoalescer {
+     /// error: the caller must reconcile its snapshot before trusting this batch.
+     /// No pending changes are cleared when an error is returned.
+     pub fn push_watch_event(&mut self, event: &crate::WatchEvent) -> Result<(), crate::WatchError> {
++        self.absorb_typed(event, None)
++    }
++
++    /// Like [`ChangeCoalescer::push_watch_event`], but also records the record's backend
++    /// provenance (`raw_kind`) for [`ChangeCoalescer::drain_detailed`]. Gap handling is
++    /// identical: a gap returns an error and clears nothing.
++    pub fn push_record(
++        &mut self,
++        record: &crate::WatchEventRecord,
++    ) -> Result<(), crate::WatchError> {
++        self.absorb_typed(&record.event, record.raw_kind)
++    }
++
++    /// Monotonic count of events absorbed by this coalescer since construction (every call to
++    /// [`ChangeCoalescer::push`], [`ChangeCoalescer::push_watch_event`] and
++    /// [`ChangeCoalescer::push_record`] advances it by one, ignored events included). It is not
++    /// reset by a drain, so a journaling consumer can order batches and detect that nothing was
++    /// absorbed between two drains.
++    pub fn source_clock(&self) -> u64 {
++        self.clock
++    }
++
++    /// Overflow, rescan and error signals absorbed since the last drain.
++    pub fn overflow_count(&self) -> u32 {
++        self.overflows
++    }
++
++    fn absorb_typed(
++        &mut self,
++        event: &crate::WatchEvent,
++        raw_kind: Option<EventKind>,
++    ) -> Result<(), crate::WatchError> {
+         use crate::WatchEvent;
++        self.clock = self.clock.saturating_add(1);
+         let mut touch = |path: &PathBuf, first| {
+-            self.touched.entry(path.clone()).or_insert(Touch { first });
++            self.touched
++                .entry(path.clone())
++                .or_insert(Touch {
++                    first,
++                    kinds: Vec::new(),
++                })
++                .note(raw_kind);
+         };
+         match event {
+             WatchEvent::Create(path) => touch(path, First::Created),
+@@ -70,8 +143,14 @@ impl ChangeCoalescer {
+                 touch(to, First::Other);
+                 self.push_rename(from.clone(), to.clone());
+             }
+-            WatchEvent::Error(error) => return Err(error.clone()),
+-            WatchEvent::Overflow => return Err(crate::WatchError::Overflow),
++            WatchEvent::Error(error) => {
++                self.overflows = self.overflows.saturating_add(1);
++                return Err(error.clone());
++            }
++            WatchEvent::Overflow => {
++                self.overflows = self.overflows.saturating_add(1);
++                return Err(crate::WatchError::Overflow);
++            }
+         }
+         Ok(())
+     }
+@@ -86,6 +165,10 @@ impl ChangeCoalescer {
+ 
+     /// Absorb one raw event. Access and "other" events are ignored.
+     pub fn push(&mut self, event: &Event) {
++        self.clock = self.clock.saturating_add(1);
++        if event.need_rescan() {
++            self.overflows = self.overflows.saturating_add(1);
++        }
+         let created = matches!(event.kind, EventKind::Create(_));
+         let relevant = matches!(
+             event.kind,
+@@ -95,13 +178,17 @@ impl ChangeCoalescer {
+             return;
+         }
+         for path in &event.paths {
+-            self.touched.entry(path.clone()).or_insert(Touch {
+-                first: if created {
+-                    First::Created
+-                } else {
+-                    First::Other
+-                },
+-            });
++            self.touched
++                .entry(path.clone())
++                .or_insert(Touch {
++                    first: if created {
++                        First::Created
++                    } else {
++                        First::Other
++                    },
++                    kinds: Vec::new(),
++                })
++                .note(Some(event.kind));
+         }
+         if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind {
+             if let [from, to] = event.paths.as_slice() {
+@@ -125,7 +212,20 @@ impl ChangeCoalescer {
+ 
+     /// Resolve everything absorbed so far against the filesystem and reset.
+     pub fn drain(&mut self) -> ChangeBatch {
++        self.drain_detailed().batch
++    }
++
++    /// Like [`ChangeCoalescer::drain`], but also reports the raw backend event kinds per path,
++    /// the number of overflow/rescan signals absorbed, and the source clock, for consumers that
++    /// journal changes. Resets pending changes and the overflow count; the clock keeps counting.
++    pub fn drain_detailed(&mut self) -> DetailedBatch {
+         let touched = std::mem::take(&mut self.touched);
++        let overflows = std::mem::take(&mut self.overflows);
++        let raw_kinds: BTreeMap<PathBuf, Vec<EventKind>> = touched
++            .iter()
++            .filter(|(_, touch)| !touch.kinds.is_empty())
++            .map(|(path, touch)| (path.clone(), touch.kinds.clone()))
++            .collect();
+         let renames = std::mem::take(&mut self.renames);
+         let mut batch = ChangeBatch::default();
+         let ephemeral = |path: &Path, touched: &BTreeMap<PathBuf, Touch>| {
+@@ -146,7 +246,12 @@ impl ChangeCoalescer {
+         }
+         batch.renamed.sort_by(|a, b| a.from.cmp(&b.from));
+         batch.renamed.dedup();
+-        batch
++        DetailedBatch {
++            batch,
++            raw_kinds,
++            overflows,
++            source_clock: self.clock,
++        }
+     }
+ }
+ 
+@@ -189,6 +294,71 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn detailed_drain_reports_raw_kinds_overflows_and_clock() {
++        use notify::event::{CreateKind, RemoveKind};
++        let dir = tempfile::tempdir().unwrap();
++        let root = dir.path().canonicalize().unwrap();
++        let kept = root.join("kept");
++        std::fs::write(&kept, "x").unwrap();
++        let temp = root.join("temp");
++        let mut coalescer = ChangeCoalescer::new();
++        coalescer.push(&Event::new(EventKind::Create(CreateKind::File)).add_path(kept.clone()));
++        coalescer.push(&Event::new(EventKind::Create(CreateKind::File)).add_path(temp.clone()));
++        coalescer.push(&Event::new(EventKind::Remove(RemoveKind::File)).add_path(temp.clone()));
++        coalescer.push(&Event::new(EventKind::Create(CreateKind::File)).add_path(kept.clone()));
++        coalescer.push(&Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan));
++        assert_eq!(coalescer.source_clock(), 5);
++        assert_eq!(coalescer.overflow_count(), 1);
++        let detailed = coalescer.drain_detailed();
++        assert_eq!(detailed.batch.changed, vec![kept.clone()]);
++        assert_eq!(detailed.overflows, 1);
++        assert_eq!(detailed.source_clock, 5);
++        assert_eq!(
++            detailed.raw_kinds[&kept],
++            vec![EventKind::Create(CreateKind::File)]
++        );
++        assert_eq!(
++            detailed.raw_kinds[&temp],
++            vec![
++                EventKind::Create(CreateKind::File),
++                EventKind::Remove(RemoveKind::File)
++            ]
++        );
++        assert_eq!(coalescer.overflow_count(), 0);
++        let next = coalescer.drain_detailed();
++        assert!(next.batch.is_empty() && next.raw_kinds.is_empty());
++        assert_eq!(next.source_clock, 5, "the clock is not reset by a drain");
++    }
++
++    #[test]
++    fn push_record_keeps_provenance_and_counts_typed_gaps() {
++        use crate::WatchEventRecord;
++        let mut coalescer = ChangeCoalescer::new();
++        let kind = EventKind::Modify(ModifyKind::Any);
++        coalescer
++            .push_record(&WatchEventRecord {
++                event: WatchEvent::Modify("p".into()),
++                raw_kind: Some(kind),
++            })
++            .unwrap();
++        assert_eq!(
++            coalescer.push_record(&WatchEventRecord {
++                event: WatchEvent::Overflow,
++                raw_kind: None,
++            }),
++            Err(WatchError::Overflow)
++        );
++        coalescer
++            .push_watch_event(&WatchEvent::Modify("q".into()))
++            .unwrap();
++        let detailed = coalescer.drain_detailed();
++        assert_eq!(detailed.overflows, 1);
++        assert_eq!(detailed.source_clock, 3);
++        assert_eq!(detailed.raw_kinds[Path::new("p")], vec![kind]);
++        assert!(!detailed.raw_kinds.contains_key(Path::new("q")));
++    }
++
+     #[test]
+     fn typed_adapter_returns_gaps_without_losing_pending_changes() {
+         let mut coalescer = ChangeCoalescer::new();
+diff --git a/crates/rightkit-file-watch/src/lib.rs b/crates/rightkit-file-watch/src/lib.rs
+index 85312c3..80a68f4 100644
+--- a/crates/rightkit-file-watch/src/lib.rs
++++ b/crates/rightkit-file-watch/src/lib.rs
+@@ -17,7 +17,7 @@ pub mod subscribe;
+ pub mod sync;
+ pub mod typed;
+ 
+-pub use coalesce::{ChangeBatch, ChangeCoalescer, Rename};
++pub use coalesce::{ChangeBatch, ChangeCoalescer, DetailedBatch, Rename};
+ pub use native::{Granularity, TypedOptions, WatchBackend, WatchCursor};
+ /// Backend types use exactly this crate's `notify` dependency.
+ pub use notify;
+diff --git a/crates/rightkit-hooks/CHANGELOG.md b/crates/rightkit-hooks/CHANGELOG.md
+index 6ba56ab..d90e1c0 100644
+--- a/crates/rightkit-hooks/CHANGELOG.md
++++ b/crates/rightkit-hooks/CHANGELOG.md
+@@ -1,5 +1,18 @@
+ # Changelog
+ 
++## 0.2.1 (unreleased)
++
++Additive.
++
++### Added (rightkit#421, deadline stdin read)
++
++- `StdinDeadline { first_byte, quiet }` (default 2 s and 400 ms, Membrane's reader), `read_payload_deadline(reader, &StdinDeadline)`, `PayloadReadError`, `HookEvent::from_reader_deadline`, `run_with_deadline` and `run_deadline`. A host that opens a hook's stdin and never writes or closes it now yields the fallback reply and exit 0 instead of a hung hook; a payload ends at EOF or after the quiet window. The read runs on one helper thread that stays blocked if the reader never returns (the process exits next). `from_reader` and `run_with` are unchanged. The `rightkit-mcp` per-version batch policy and the `rightkit-agent-tools` parts of #421 are in their own crates.
++
++### Added (rightkit#551, host-side runner, feature `host`)
++
++- New cargo feature `host` (off by default; pulls `regex`) and module `host`: `HookSpec { command, matcher, timeout }` with a whole-name regex matcher, `parse_hook_specs_json(json, &EventKind)` (Claude Code settings shape), `parse_hook_output(stdout, stderr, exit_code, &EventKind) -> ParsedHook` (permission allow/ask/deny, `updatedInput`, `additionalContext`, `systemMessage`, `decision: block`, `continue: false`, exit code 2), `fails_closed(&EventKind)` (`PreToolUse`), `HookChain::run(&HookEvent, &[HookSpec], &dyn ProcessLaunch) -> ChainReport { verdict, updated_input, additional_context, system_message, stop, results }`, and the `ProcessLaunch` seam with `ShellLauncher` (`sh -c` / `cmd /C`, no console window, capped output, timeout kill). Chain rules: serial, deny-wins (deny, block, ask, allow, pass), stop after the first deny or block, `updatedInput` passed to the next hook, fail closed on pre-effect events and open elsewhere. Reuses `EventKind` and `HookEvent`. A destructive-command guard and the registry stay with the product.
++- #533 (notice-only `compose_reply`) and #543 (Membrane wire types) shipped in 0.2.0. #534: receipts stay in Pulse (ruling on the issue); `ReceiptStore::membrane` from 0.2.0 is the shared layout.
++
+ ## 0.2.0 (2026-10-17)
+ 
+ - `compose_reply` keeps a notice-only reply: a `systemMessage` with no decision and no context prints `{"systemMessage": ...}` instead of nothing.
+diff --git a/crates/rightkit-hooks/Cargo.toml b/crates/rightkit-hooks/Cargo.toml
+index 013c885..49187e0 100644
+--- a/crates/rightkit-hooks/Cargo.toml
++++ b/crates/rightkit-hooks/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-hooks"
+-version = "0.2.0"
++version = "0.2.1"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts."
+@@ -11,10 +11,16 @@ keywords = ["hooks", "claude", "codex", "agents"]
+ categories = ["development-tools"]
+ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+ 
++[features]
++default = []
++# The host side: run configured command hooks and combine their answers (`host` module).
++host = ["dep:regex"]
++
+ [dependencies]
+ serde = { workspace = true }
+ serde_json = { workspace = true }
++regex = { version = "1", optional = true }
+ 
+ [package.metadata.rightkit]
+ continuous = false
+-continuous_reason = "thread-spawn: one short-lived thread per module per dispatch (dispatch.rs run_module), bounded by the per-module and total deadline and reporting through a result channel; a timed-out module's thread ends when the module returns. No pool, timer, listener, watcher or resident state; the process exits after one hook event"
++continuous_reason = "thread-spawn: one short-lived thread per module per dispatch (dispatch.rs run_module), bounded by the per-module and total deadline and reporting through a result channel; a timed-out module's thread ends when the module returns; read_payload_deadline runs one stdin reader thread, bounded by the first-byte and quiet deadlines. Feature host (off by default) adds ShellLauncher, which spawns one hook process plus three short-lived pipe threads per hook and polls try_wait every 5 ms until the hook exits or its timeout kills it. No pool, listener, watcher or resident state; the process exits after one hook event"
+diff --git a/crates/rightkit-hooks/README.md b/crates/rightkit-hooks/README.md
+index 5d6c336..4dc6a91 100644
+--- a/crates/rightkit-hooks/README.md
++++ b/crates/rightkit-hooks/README.md
+@@ -17,6 +17,8 @@ Typed Claude Code and Codex hook payloads, a deadline-bound dispatcher that exit
+ | `Reply` | `additional_context(kind, text)` (SessionStart, UserPromptSubmit, PostToolUse only), `block_stop(reason)`, `deny_tool(wire, reason)`, `ask_tool(wire, reason)`, `with_system_message(text)`. |
+ | `HookModule`, `FnModule`, `dispatch`, `DispatchOptions` | Modules run in order. Defaults: 3 s per module, 8 s total, 60 000-byte context cap. Errors, panics and timeouts become typed results. A timed-out module is not killed: its thread keeps running and can still write receipts after the hook has replied. |
+ | `run`, `run_with` | The whole hook process. Returns 0 on every failure, printing the configured fallback (default nothing). |
++| `run_deadline`, `run_with_deadline`, `StdinDeadline`, `HookEvent::from_reader_deadline`, `read_payload_deadline` | The same hook process, but the payload read gives up if no byte arrives within `first_byte` (2 s) and ends after `quiet` (400 ms) without more data, so a host that never writes or closes stdin cannot hang the hook. |
++| `host` module (feature `host`) | The host side: `HookSpec`, `parse_hook_specs_json`, `HookChain::run`, `parse_hook_output`, `fails_closed`, `ProcessLaunch` and `ShellLauncher`. Serial chain, deny-wins, `updatedInput` passed along, fail closed on `PreToolUse`, fail open elsewhere, exit code 2 blocks. |
+ | `ReceiptStore`, `tag_context`, `marker`, `scan_transcript_tail` | `emitted` receipts with a marker line on the context; `observe` flips them to `observed` when the marker appears in the host transcript tail. |
+ | `ObserveModule` | The transcript-scan hook: on the chat's own `Stop`, runs `observe`. |
+ | `ReceiptStore::membrane(root)` | The receipt store Membrane shares: marker `[membrane:<id>]`, `receipts/<session>/<id>.json` with Membrane's `harness`/`state` spellings alongside `wire`/`level`. |
+diff --git a/crates/rightkit-hooks/src/dispatch.rs b/crates/rightkit-hooks/src/dispatch.rs
+index 37b0457..78611a2 100644
+--- a/crates/rightkit-hooks/src/dispatch.rs
++++ b/crates/rightkit-hooks/src/dispatch.rs
+@@ -12,7 +12,7 @@
+ //! The only non-zero exit is a module's explicit [`Decision::DenyTool`] on Codex, which is exit 2
+ //! with the reason on stderr (Legion's shipped shape).
+ 
+-use crate::event::{EventKind, HookEvent, ParseError, Wire};
++use crate::event::{EventKind, HookEvent, ParseError, StdinDeadline, Wire};
+ use crate::output::Reply;
+ use serde_json::Value;
+ use std::io::{Read, Write};
+@@ -325,7 +325,23 @@ pub fn run_with(
+     output: impl Write,
+     errors: impl Write,
+ ) -> i32 {
+-    let reply = match HookEvent::from_reader(wire, input) {
++    finish(
++        HookEvent::from_reader(wire, input),
++        modules,
++        options,
++        output,
++        errors,
++    )
++}
++
++fn finish(
++    event: Result<HookEvent, ParseError>,
++    modules: &[Arc<dyn HookModule>],
++    options: &DispatchOptions,
++    output: impl Write,
++    errors: impl Write,
++) -> i32 {
++    let reply = match event {
+         Err(error) => fallback_for(&error, options),
+         Ok(event) => catch_unwind(AssertUnwindSafe(|| dispatch(event, modules, options).reply))
+             .unwrap_or_else(|_| options.fallback.clone()),
+@@ -333,6 +349,27 @@ pub fn run_with(
+     reply.write_to(output, errors)
+ }
+ 
++/// [`run_with`] with a deadline on reading the payload ([`HookEvent::from_reader_deadline`]):
++/// a host that opens stdin and never writes or closes it gets the fallback reply and exit 0
++/// instead of a hung hook. `input` must be `'static` because the read runs on a helper thread.
++pub fn run_with_deadline(
++    wire: Wire,
++    modules: &[Arc<dyn HookModule>],
++    options: &DispatchOptions,
++    deadline: &StdinDeadline,
++    input: impl Read + Send + 'static,
++    output: impl Write,
++    errors: impl Write,
++) -> i32 {
++    finish(
++        HookEvent::from_reader_deadline(wire, input, deadline),
++        modules,
++        options,
++        output,
++        errors,
++    )
++}
++
+ fn fallback_for(_error: &ParseError, options: &DispatchOptions) -> Reply {
+     options.fallback.clone()
+ }
+@@ -348,3 +385,23 @@ pub fn run(wire: Wire, modules: &[Arc<dyn HookModule>], options: &DispatchOption
+         std::io::stderr().lock(),
+     )
+ }
++
++/// [`run_with_deadline`] on the process's own stdin, stdout and stderr (stdin is read through the
++/// unlocked handle: a lock is not `Send`, and the read runs on a helper thread). Use
++/// [`StdinDeadline::default`] for Membrane's 2 s first byte and 400 ms quiet window.
++pub fn run_deadline(
++    wire: Wire,
++    modules: &[Arc<dyn HookModule>],
++    options: &DispatchOptions,
++    deadline: &StdinDeadline,
++) -> i32 {
++    run_with_deadline(
++        wire,
++        modules,
++        options,
++        deadline,
++        std::io::stdin(),
++        std::io::stdout().lock(),
++        std::io::stderr().lock(),
++    )
++}
+diff --git a/crates/rightkit-hooks/src/event.rs b/crates/rightkit-hooks/src/event.rs
+index 45669a8..0ee7054 100644
+--- a/crates/rightkit-hooks/src/event.rs
++++ b/crates/rightkit-hooks/src/event.rs
+@@ -10,10 +10,119 @@ use serde_json::Value;
+ use std::fmt;
+ use std::io::Read;
+ use std::path::Path;
++use std::sync::mpsc;
++use std::time::Duration;
+ 
+ /// Largest hook payload read from stdin (Pulse's `STDIN_CAP`).
+ pub const STDIN_CAP: u64 = 4 * 1024 * 1024;
+ 
++/// How long a hook waits for its payload on stdin before giving up.
++///
++/// A host may launch a hook and never write to (or close) its stdin. A plain `read_to_end`
++/// then blocks forever; this bounds it. Membrane's reader: 2 s for the first byte, then the
++/// payload is complete after 400 ms of quiet (or at EOF).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct StdinDeadline {
++    /// Longest wait for the first byte.
++    pub first_byte: Duration,
++    /// Once data has arrived, how long without more data ends the read.
++    pub quiet: Duration,
++}
++
++impl Default for StdinDeadline {
++    fn default() -> Self {
++        Self {
++            first_byte: Duration::from_millis(2_000),
++            quiet: Duration::from_millis(400),
++        }
++    }
++}
++
++/// Why [`read_payload_deadline`] returned no payload.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum PayloadReadError {
++    /// No byte arrived within [`StdinDeadline::first_byte`].
++    NoInput,
++    /// More than [`STDIN_CAP`] bytes.
++    TooLarge,
++    /// Reading failed.
++    Io(String),
++}
++
++impl fmt::Display for PayloadReadError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            Self::NoInput => f.write_str("no hook payload arrived before the deadline"),
++            Self::TooLarge => write!(f, "hook payload exceeds {STDIN_CAP} bytes"),
++            Self::Io(e) => write!(f, "hook payload could not be read: {e}"),
++        }
++    }
++}
++
++impl std::error::Error for PayloadReadError {}
++
++/// Read a payload from `reader` under `deadline`: the first byte within `first_byte`, then the
++/// payload ends at EOF or after `quiet` without more data, whichever comes first. At most
++/// [`STDIN_CAP`] bytes.
++///
++/// The read runs on one helper thread. If the reader never returns (a stdin nobody writes to),
++/// that thread stays blocked until the process exits, which is what a hook process does next;
++/// do not use this for a reader you need back.
++pub fn read_payload_deadline(
++    reader: impl Read + Send + 'static,
++    deadline: &StdinDeadline,
++) -> Result<Vec<u8>, PayloadReadError> {
++    let (tx, rx) = mpsc::channel::<std::io::Result<Vec<u8>>>();
++    std::thread::Builder::new()
++        .name("hook-stdin".into())
++        .spawn(move || {
++            let mut reader = reader;
++            let mut buffer = [0u8; 8192];
++            loop {
++                match reader.read(&mut buffer) {
++                    Ok(0) => {
++                        let _ = tx.send(Ok(Vec::new()));
++                        break;
++                    }
++                    Ok(n) => {
++                        if tx.send(Ok(buffer[..n].to_vec())).is_err() {
++                            break;
++                        }
++                    }
++                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
++                    Err(e) => {
++                        let _ = tx.send(Err(e));
++                        break;
++                    }
++                }
++            }
++        })
++        .map_err(|e| PayloadReadError::Io(e.to_string()))?;
++    let mut raw = Vec::new();
++    let mut wait = deadline.first_byte;
++    loop {
++        match rx.recv_timeout(wait) {
++            Ok(Ok(chunk)) if chunk.is_empty() => return Ok(raw),
++            Ok(Ok(chunk)) => {
++                raw.extend_from_slice(&chunk);
++                if raw.len() as u64 > STDIN_CAP {
++                    return Err(PayloadReadError::TooLarge);
++                }
++                wait = deadline.quiet;
++            }
++            Ok(Err(e)) => return Err(PayloadReadError::Io(e.to_string())),
++            Err(mpsc::RecvTimeoutError::Timeout) => {
++                return if raw.is_empty() {
++                    Err(PayloadReadError::NoInput)
++                } else {
++                    Ok(raw)
++                };
++            }
++            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(raw),
++        }
++    }
++}
++
+ /// Which harness sent the hook. The harness is chosen by the registration (Pulse's
+ /// `claude-hook` / `codex-hook`), not sniffed from the payload.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+@@ -239,6 +348,21 @@ impl HookEvent {
+         Self::from_slice(wire, &raw)
+     }
+ 
++    /// [`HookEvent::from_reader`] with a deadline on the read ([`read_payload_deadline`]): a
++    /// stdin that never delivers a byte is [`ParseError::Io`], and a payload cut short by
++    /// the quiet window is [`ParseError::Malformed`] (or parses, if the JSON is complete).
++    pub fn from_reader_deadline(
++        wire: Wire,
++        reader: impl Read + Send + 'static,
++        deadline: &StdinDeadline,
++    ) -> Result<Self, ParseError> {
++        let raw = read_payload_deadline(reader, deadline).map_err(|e| match e {
++            PayloadReadError::TooLarge => ParseError::TooLarge,
++            other => ParseError::Io(other.to_string()),
++        })?;
++        Self::from_slice(wire, &raw)
++    }
++
+     /// Whether this hook belongs to the chat's own turn rather than a subagent's, Pulse's rule:
+     /// every event but `PostToolUse` is the chat's own; for `PostToolUse` Claude's subagent hooks
+     /// carry `agent_id`, and Codex reports the parent's session id with a different transcript
+@@ -258,3 +382,78 @@ impl HookEvent {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod deadline_tests {
++    use super::*;
++    use std::io::Cursor;
++    use std::sync::mpsc::{channel, Receiver};
++
++    /// A reader fed from a channel: it blocks until a chunk arrives, EOF when the sender drops.
++    struct Fed(Receiver<Vec<u8>>);
++
++    impl Read for Fed {
++        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++            match self.0.recv() {
++                Ok(chunk) => {
++                    buf[..chunk.len()].copy_from_slice(&chunk);
++                    Ok(chunk.len())
++                }
++                Err(_) => Ok(0),
++            }
++        }
++    }
++
++    fn short() -> StdinDeadline {
++        StdinDeadline {
++            first_byte: Duration::from_millis(150),
++            quiet: Duration::from_millis(100),
++        }
++    }
++
++    #[test]
++    fn a_complete_stdin_reads_to_eof() {
++        let bytes = br#"{"hook_event_name":"Stop"}"#.to_vec();
++        let event =
++            HookEvent::from_reader_deadline(Wire::Claude, Cursor::new(bytes), &short()).unwrap();
++        assert_eq!(event.kind, EventKind::Stop);
++    }
++
++    #[test]
++    fn a_silent_stdin_gives_up_at_the_first_byte_deadline() {
++        let (tx, rx) = channel::<Vec<u8>>();
++        let started = std::time::Instant::now();
++        let error = read_payload_deadline(Fed(rx), &short()).unwrap_err();
++        assert_eq!(error, PayloadReadError::NoInput);
++        assert!(started.elapsed() < Duration::from_secs(5));
++        drop(tx);
++        let (tx, rx) = channel::<Vec<u8>>();
++        let error = HookEvent::from_reader_deadline(Wire::Codex, Fed(rx), &short()).unwrap_err();
++        assert!(matches!(error, ParseError::Io(_)));
++        drop(tx);
++    }
++
++    #[test]
++    fn data_without_eof_ends_after_the_quiet_window() {
++        let (tx, rx) = channel::<Vec<u8>>();
++        tx.send(br#"{"hook_event_name":"SessionStart"}"#.to_vec())
++            .unwrap();
++        // The sender stays open: no EOF ever arrives.
++        let event = HookEvent::from_reader_deadline(Wire::Claude, Fed(rx), &short()).unwrap();
++        assert_eq!(event.kind, EventKind::SessionStart);
++        drop(tx);
++    }
++
++    #[test]
++    fn a_payload_cut_short_by_the_quiet_window_is_malformed_and_oversize_is_refused() {
++        let (tx, rx) = channel::<Vec<u8>>();
++        tx.send(br#"{"hook_event_na"#.to_vec()).unwrap();
++        let error = HookEvent::from_reader_deadline(Wire::Claude, Fed(rx), &short()).unwrap_err();
++        assert!(matches!(error, ParseError::Malformed(_)));
++        drop(tx);
++        let big = vec![b' '; STDIN_CAP as usize + 1];
++        let error = HookEvent::from_reader_deadline(Wire::Claude, Cursor::new(big), &short())
++            .unwrap_err();
++        assert_eq!(error, ParseError::TooLarge);
++    }
++}
+diff --git a/crates/rightkit-hooks/src/host.rs b/crates/rightkit-hooks/src/host.rs
+new file mode 100644
+index 0000000..cb1562e
+--- /dev/null
++++ b/crates/rightkit-hooks/src/host.rs
+@@ -0,0 +1,900 @@
++//! The host side of lifecycle hooks (feature `host`): run user-configured command hooks for an
++//! event and combine their answers, with Claude Code semantics.
++//!
++//! The rest of this crate is the *hook* side (a process the host launches). This module is the
++//! *host*: it owns the process launch seam ([`ProcessLaunch`]), the hook configuration
++//! ([`HookSpec`], [`parse_hook_specs_json`]), the output grammar ([`parse_hook_output`]) and the
++//! chain ([`HookChain::run`]). It holds no product policy: a destructive-command guard, a
++//! registry or a management UI stay with the product.
++//!
++//! Chain rules:
++//!
++//! - Hooks run serially in declared order. A tool matcher is a regex that must match the whole
++//!   tool name (`Bash`, `Edit|Write`, `Notebook.*`); an empty matcher or `*` matches every tool,
++//!   and a matcher is not consulted for events that carry no tool name.
++//! - Every hook gets the event's JSON on stdin. A hook's `updatedInput` replaces `tool_input` in
++//!   what the *next* hook sees and is reported in [`ChainReport::updated_input`].
++//! - Verdicts combine by strength, first reason wins within a strength: deny, then block, then
++//!   ask, then allow, then no opinion. The chain stops after the first deny or block, so later
++//!   hooks do not run once the answer cannot change.
++//! - A hook that times out, cannot start, or exits with a code other than 0 or 2 **fails closed**
++//!   for a pre-effect event ([`fails_closed`]: `PreToolUse`, which becomes a deny) and **fails
++//!   open** everywhere else (recorded in its [`HookResult`], no effect on the verdict).
++//! - Exit code 2 is a blocking error whose reason is stderr: a deny on `PreToolUse`, a block on
++//!   `UserPromptSubmit`, `Stop`, `SubagentStop`, `PostToolUse` and `PostToolUseFailure`, and a
++//!   recorded non-blocking error on every other event.
++//!
++//! Known limit of [`ShellLauncher`]: a timeout kills the shell it started, not the processes that
++//! shell started in turn.
++
++use crate::event::{EventKind, HookEvent};
++use regex::Regex;
++use serde_json::Value;
++use std::io::{self, Read, Write};
++use std::process::{Command, Stdio};
++use std::sync::mpsc;
++use std::thread;
++use std::time::{Duration, Instant};
++
++/// Per-hook timeout when the configuration gives none (Claude Code's 60 s).
++pub const DEFAULT_HOOK_TIMEOUT: Duration = Duration::from_secs(60);
++/// Most bytes of stdout and of stderr kept from one hook; the rest is read and dropped.
++pub const OUTPUT_CAP: usize = 1 << 20;
++
++/// One configured command hook.
++#[derive(Clone, Debug, PartialEq)]
++pub struct HookSpec {
++    /// The shell command line to run.
++    pub command: String,
++    /// Tool-name regex (whole-name match). `None`, empty and `*` match every tool.
++    pub matcher: Option<String>,
++    /// Kill the hook after this long.
++    pub timeout: Duration,
++}
++
++impl HookSpec {
++    pub fn new(command: impl Into<String>) -> Self {
++        Self {
++            command: command.into(),
++            matcher: None,
++            timeout: DEFAULT_HOOK_TIMEOUT,
++        }
++    }
++
++    pub fn with_matcher(mut self, matcher: impl Into<String>) -> Self {
++        self.matcher = Some(matcher.into());
++        self
++    }
++
++    pub fn with_timeout(mut self, timeout: Duration) -> Self {
++        self.timeout = timeout;
++        self
++    }
++
++    /// Whether this hook applies to `tool_name`. An event without a tool name is always
++    /// matched. `Err` names an invalid matcher regex.
++    pub fn matches(&self, tool_name: Option<&str>) -> Result<bool, String> {
++        let Some(regex) = compile_matcher(self.matcher.as_deref())? else {
++            return Ok(true);
++        };
++        Ok(match tool_name {
++            Some(name) => regex.is_match(name),
++            None => true,
++        })
++    }
++}
++
++/// `None` for "match everything".
++fn compile_matcher(matcher: Option<&str>) -> Result<Option<Regex>, String> {
++    let pattern = matcher.map(str::trim).unwrap_or_default();
++    if pattern.is_empty() || pattern == "*" {
++        return Ok(None);
++    }
++    Regex::new(&format!("^(?:{pattern})$"))
++        .map(Some)
++        .map_err(|e| format!("invalid hook matcher {pattern:?}: {e}"))
++}
++
++/// The hooks configured for `event`, read from Claude Code's settings shape:
++/// `{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
++/// "command": "...", "timeout": 5}]}]}}`. The `hooks` map alone (without the wrapper) is also
++/// accepted. `timeout` is in seconds. Hooks whose `type` is not `command` are skipped; a
++/// command hook without a command, or a matcher that is not a valid regex, is an error.
++pub fn parse_hook_specs_json(json: &str, event: &EventKind) -> Result<Vec<HookSpec>, String> {
++    let root: Value = serde_json::from_str(json).map_err(|e| format!("hooks JSON: {e}"))?;
++    let hooks = root.get("hooks").unwrap_or(&root);
++    let Some(groups) = hooks.get(event.as_str()) else {
++        return Ok(Vec::new());
++    };
++    let groups = groups
++        .as_array()
++        .ok_or_else(|| format!("hooks for {event} must be an array"))?;
++    let mut specs = Vec::new();
++    for group in groups {
++        let matcher = group
++            .get("matcher")
++            .and_then(Value::as_str)
++            .map(str::to_owned);
++        compile_matcher(matcher.as_deref())?;
++        let Some(list) = group.get("hooks").and_then(Value::as_array) else {
++            continue;
++        };
++        for hook in list {
++            let kind = hook.get("type").and_then(Value::as_str).unwrap_or("command");
++            if kind != "command" {
++                continue;
++            }
++            let command = hook
++                .get("command")
++                .and_then(Value::as_str)
++                .map(str::trim)
++                .filter(|c| !c.is_empty())
++                .ok_or_else(|| format!("a command hook for {event} has no command"))?;
++            let timeout = hook
++                .get("timeout")
++                .and_then(Value::as_f64)
++                .filter(|s| s.is_finite() && *s > 0.0)
++                .map(Duration::from_secs_f64)
++                .unwrap_or(DEFAULT_HOOK_TIMEOUT);
++            specs.push(HookSpec {
++                command: command.to_owned(),
++                matcher: matcher.clone(),
++                timeout,
++            });
++        }
++    }
++    Ok(specs)
++}
++
++/// Events whose hooks fail closed: a hook that cannot answer must not let the effect happen.
++/// Only `PreToolUse` is pre-effect.
++pub fn fails_closed(event: &EventKind) -> bool {
++    matches!(event, EventKind::PreToolUse)
++}
++
++/// A `PreToolUse` permission answer.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Permission {
++    Allow,
++    Ask,
++    Deny,
++}
++
++/// What one hook said, normalized.
++#[derive(Clone, Debug, Default, PartialEq)]
++pub struct ParsedHook {
++    /// `PreToolUse` permission (`permissionDecision`, legacy `decision` approve/block, or exit 2).
++    pub permission: Option<Permission>,
++    /// The reason that goes with `permission`.
++    pub permission_reason: Option<String>,
++    /// `decision: "block"` (or exit 2) on an event other than `PreToolUse`, with its reason.
++    pub block: Option<String>,
++    /// `hookSpecificOutput.updatedInput`: a rewritten tool input (`PreToolUse` only).
++    pub updated_input: Option<Value>,
++    /// Context for the model (`additionalContext`, or plain stdout on `SessionStart` and
++    /// `UserPromptSubmit`).
++    pub additional_context: Option<String>,
++    /// `systemMessage`, shown to the person.
++    pub system_message: Option<String>,
++    /// `continue: false`, with its `stopReason`.
++    pub stop: Option<String>,
++    /// A non-blocking failure: a bad exit code, a timeout, a launch failure.
++    pub error: Option<String>,
++}
++
++fn non_blank(text: &str) -> Option<String> {
++    let text = text.trim();
++    (!text.is_empty()).then(|| text.to_owned())
++}
++
++fn str_field(object: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
++    object
++        .get(name)
++        .and_then(Value::as_str)
++        .and_then(non_blank)
++}
++
++/// Read one hook's result: its stdout, stderr and exit code, for `event`.
++pub fn parse_hook_output(
++    stdout: &str,
++    stderr: &str,
++    exit_code: i32,
++    event: &EventKind,
++) -> ParsedHook {
++    let mut out = ParsedHook::default();
++    let pre = matches!(event, EventKind::PreToolUse);
++    if exit_code == 2 {
++        let reason = non_blank(stderr)
++            .or_else(|| non_blank(stdout))
++            .unwrap_or_else(|| "blocked by a hook (exit code 2)".to_owned());
++        match event {
++            EventKind::PreToolUse => {
++                out.permission = Some(Permission::Deny);
++                out.permission_reason = Some(reason);
++            }
++            EventKind::UserPromptSubmit
++            | EventKind::Stop
++            | EventKind::SubagentStop
++            | EventKind::PostToolUse
++            | EventKind::PostToolUseFailure => out.block = Some(reason),
++            _ => out.error = Some(format!("exit code 2: {reason}")),
++        }
++        return out;
++    }
++    if exit_code != 0 {
++        let detail = stderr.lines().next().unwrap_or_default().trim();
++        out.error = Some(if detail.is_empty() {
++            format!("hook exited with code {exit_code}")
++        } else {
++            format!("hook exited with code {exit_code}: {detail}")
++        });
++        return out;
++    }
++    let text = stdout.trim();
++    if text.is_empty() {
++        return out;
++    }
++    let parsed = if text.starts_with('{') {
++        serde_json::from_str::<Value>(text).ok()
++    } else {
++        None
++    };
++    let Some(Value::Object(object)) = parsed else {
++        if matches!(event, EventKind::SessionStart | EventKind::UserPromptSubmit) {
++            out.additional_context = Some(text.to_owned());
++        }
++        return out;
++    };
++    if object.get("continue").and_then(Value::as_bool) == Some(false) {
++        out.stop =
++            Some(str_field(&object, "stopReason").unwrap_or_else(|| "stopped by a hook".into()));
++    }
++    out.system_message = str_field(&object, "systemMessage");
++    let legacy_reason = str_field(&object, "reason");
++    match object.get("decision").and_then(Value::as_str) {
++        Some("block") if pre => {
++            out.permission = Some(Permission::Deny);
++            out.permission_reason = Some(
++                legacy_reason
++                    .clone()
++                    .unwrap_or_else(|| "blocked by a hook".into()),
++            );
++        }
++        Some("block") => {
++            out.block =
++                Some(legacy_reason.unwrap_or_else(|| "blocked by a hook".into()));
++        }
++        Some("approve") if pre => out.permission = Some(Permission::Allow),
++        _ => {}
++    }
++    if let Some(Value::Object(specific)) = object.get("hookSpecificOutput") {
++        if pre {
++            let decision = match specific.get("permissionDecision").and_then(Value::as_str) {
++                Some("allow") => Some(Permission::Allow),
++                Some("ask") => Some(Permission::Ask),
++                Some("deny") => Some(Permission::Deny),
++                _ => None,
++            };
++            if let Some(decision) = decision {
++                out.permission = Some(decision);
++                out.permission_reason = str_field(specific, "permissionDecisionReason")
++                    .or(out.permission_reason.take());
++            }
++            if let Some(input @ Value::Object(_)) = specific.get("updatedInput") {
++                out.updated_input = Some(input.clone());
++            }
++        }
++        if let Some(context) = str_field(specific, "additionalContext") {
++            out.additional_context = Some(context);
++        }
++    }
++    out
++}
++
++/// What launching one hook process produced.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum LaunchOutcome {
++    /// The process ended. `code` is `None` when it was ended by a signal.
++    Exited {
++        code: Option<i32>,
++        stdout: String,
++        stderr: String,
++    },
++    /// It ran past its timeout and was killed.
++    TimedOut,
++    /// It could not be started.
++    SpawnFailed(String),
++}
++
++/// One process to run.
++#[derive(Clone, Debug)]
++#[non_exhaustive]
++pub struct LaunchRequest<'a> {
++    /// The shell command line.
++    pub command: &'a str,
++    /// Written to the process's stdin, which is then closed.
++    pub stdin: &'a [u8],
++    /// The working directory (the event's `cwd`), when known.
++    pub cwd: Option<&'a str>,
++    pub timeout: Duration,
++}
++
++/// The process seam: tests and the daemon inject their own spawning.
++pub trait ProcessLaunch: Send + Sync {
++    fn launch(&self, request: &LaunchRequest<'_>) -> LaunchOutcome;
++}
++
++/// Runs the command line through the platform shell (`sh -c`, `cmd /C`) with piped stdio, no
++/// console window on Windows, and capped output ([`OUTPUT_CAP`]).
++#[derive(Clone, Copy, Debug, Default)]
++pub struct ShellLauncher;
++
++fn shell_command(command: &str) -> Command {
++    #[cfg(windows)]
++    {
++        use std::os::windows::process::CommandExt;
++        let mut cmd = Command::new("cmd");
++        // `cmd /C` strips one pair of outer quotes, so quote the whole line to keep a leading
++        // quoted program path intact. `raw_arg` stops std from re-escaping the quotes.
++        cmd.arg("/C").raw_arg(format!("\"{command}\""));
++        cmd.creation_flags(0x0800_0000);
++        cmd
++    }
++    #[cfg(not(windows))]
++    {
++        let mut cmd = Command::new("sh");
++        cmd.arg("-c").arg(command);
++        cmd
++    }
++}
++
++fn read_capped(stream: Option<impl Read>) -> String {
++    let Some(mut stream) = stream else {
++        return String::new();
++    };
++    let mut kept = Vec::new();
++    let _ = (&mut stream).take(OUTPUT_CAP as u64).read_to_end(&mut kept);
++    // Keep draining so a chatty hook is not blocked on a full pipe.
++    let _ = io::copy(&mut stream, &mut io::sink());
++    String::from_utf8_lossy(&kept).into_owned()
++}
++
++impl ProcessLaunch for ShellLauncher {
++    fn launch(&self, request: &LaunchRequest<'_>) -> LaunchOutcome {
++        let mut command = shell_command(request.command);
++        command
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped());
++        if let Some(cwd) = request.cwd {
++            command.current_dir(cwd);
++        }
++        let mut child = match command.spawn() {
++            Ok(child) => child,
++            Err(e) => return LaunchOutcome::SpawnFailed(e.to_string()),
++        };
++        let stdin = child.stdin.take();
++        let payload = request.stdin.to_vec();
++        // Detached: it ends when the process reads its input or exits.
++        thread::spawn(move || {
++            if let Some(mut stdin) = stdin {
++                let _ = stdin.write_all(&payload);
++            }
++        });
++        let (out_tx, out_rx) = mpsc::channel();
++        let stdout = child.stdout.take();
++        thread::spawn(move || {
++            let _ = out_tx.send(read_capped(stdout));
++        });
++        let (err_tx, err_rx) = mpsc::channel();
++        let stderr = child.stderr.take();
++        thread::spawn(move || {
++            let _ = err_tx.send(read_capped(stderr));
++        });
++        let deadline = Instant::now() + request.timeout;
++        let status = loop {
++            match child.try_wait() {
++                Ok(Some(status)) => break status,
++                Ok(None) if Instant::now() >= deadline => {
++                    let _ = child.kill();
++                    let _ = child.wait();
++                    return LaunchOutcome::TimedOut;
++                }
++                Ok(None) => thread::sleep(Duration::from_millis(5)),
++                Err(e) => {
++                    let _ = child.kill();
++                    return LaunchOutcome::SpawnFailed(format!("waiting for the hook failed: {e}"));
++                }
++            }
++        };
++        // A grandchild can keep the pipes open after the hook exits; do not wait for it.
++        let grace = Duration::from_millis(250);
++        LaunchOutcome::Exited {
++            code: status.code(),
++            stdout: out_rx.recv_timeout(grace).unwrap_or_default(),
++            stderr: err_rx.recv_timeout(grace).unwrap_or_default(),
++        }
++    }
++}
++
++/// What the chain decided about the effect.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum Verdict {
++    /// No hook had an opinion.
++    Pass,
++    /// A hook allowed it (and none objected).
++    Allow,
++    /// Ask the person.
++    Ask(String),
++    /// Refuse a tool call.
++    Deny(String),
++    /// Block the event (`Stop`, `UserPromptSubmit`, `PostToolUse`, ...), feeding the reason back.
++    Block(String),
++}
++
++impl Verdict {
++    fn rank(&self) -> u8 {
++        match self {
++            Verdict::Pass => 0,
++            Verdict::Allow => 1,
++            Verdict::Ask(_) => 2,
++            Verdict::Block(_) => 3,
++            Verdict::Deny(_) => 4,
++        }
++    }
++
++    fn is_final(&self) -> bool {
++        matches!(self, Verdict::Deny(_) | Verdict::Block(_))
++    }
++}
++
++/// What one hook did in a chain.
++#[derive(Clone, Debug, PartialEq)]
++pub struct HookResult {
++    pub command: String,
++    /// `None` when it timed out, could not start, or was ended by a signal.
++    pub exit_code: Option<i32>,
++    pub timed_out: bool,
++    pub parsed: ParsedHook,
++    pub elapsed: Duration,
++}
++
++/// The combined answer of a chain.
++#[derive(Clone, Debug, PartialEq)]
++pub struct ChainReport {
++    pub verdict: Verdict,
++    /// The last rewritten tool input, unless the chain denied.
++    pub updated_input: Option<Value>,
++    /// Every hook's context, joined with a blank line.
++    pub additional_context: Option<String>,
++    /// Every hook's `systemMessage`, joined with a blank line.
++    pub system_message: Option<String>,
++    /// The first `continue: false` stop reason.
++    pub stop: Option<String>,
++    /// One entry per hook that ran, in order. Hooks whose matcher did not apply are absent.
++    pub results: Vec<HookResult>,
++}
++
++impl Default for ChainReport {
++    fn default() -> Self {
++        Self {
++            verdict: Verdict::Pass,
++            updated_input: None,
++            additional_context: None,
++            system_message: None,
++            stop: None,
++            results: Vec::new(),
++        }
++    }
++}
++
++/// Runs configured hooks for one event.
++pub struct HookChain;
++
++impl HookChain {
++    /// Run `specs` for `event` through `launcher` and combine the answers (see the module
++    /// documentation for the rules).
++    pub fn run(
++        event: &HookEvent,
++        specs: &[HookSpec],
++        launcher: &dyn ProcessLaunch,
++    ) -> ChainReport {
++        let closed = fails_closed(&event.kind);
++        let mut report = ChainReport::default();
++        let mut input = event.tool_input.clone();
++        let mut contexts: Vec<String> = Vec::new();
++        let mut messages: Vec<String> = Vec::new();
++        for spec in specs {
++            match spec.matches(event.tool_name.as_deref()) {
++                Ok(false) => continue,
++                Ok(true) => {}
++                Err(error) => {
++                    report.results.push(HookResult {
++                        command: spec.command.clone(),
++                        exit_code: None,
++                        timed_out: false,
++                        parsed: ParsedHook {
++                            error: Some(error.clone()),
++                            ..ParsedHook::default()
++                        },
++                        elapsed: Duration::ZERO,
++                    });
++                    if closed {
++                        raise(&mut report.verdict, Verdict::Deny(error));
++                        break;
++                    }
++                    continue;
++                }
++            }
++            let payload = hook_stdin(event, input.as_ref());
++            let started = Instant::now();
++            let outcome = launcher.launch(&LaunchRequest {
++                command: &spec.command,
++                stdin: &payload,
++                cwd: event.cwd.as_deref(),
++                timeout: spec.timeout,
++            });
++            let (parsed, exit_code, timed_out) = match outcome {
++                LaunchOutcome::Exited { code, stdout, stderr } => match code {
++                    Some(code) => (
++                        parse_hook_output(&stdout, &stderr, code, &event.kind),
++                        Some(code),
++                        false,
++                    ),
++                    None => (
++                        failure("the hook was ended by a signal".into()),
++                        None,
++                        false,
++                    ),
++                },
++                LaunchOutcome::TimedOut => (
++                    failure(format!("the hook timed out after {:?}", spec.timeout)),
++                    None,
++                    true,
++                ),
++                LaunchOutcome::SpawnFailed(error) => {
++                    (failure(format!("the hook could not start: {error}")), None, false)
++                }
++            };
++            let elapsed = started.elapsed();
++            if let Some(stop) = &parsed.stop {
++                report.stop.get_or_insert_with(|| stop.clone());
++            }
++            if let Some(update) = &parsed.updated_input {
++                input = Some(update.clone());
++                report.updated_input = Some(update.clone());
++            }
++            if let Some(context) = &parsed.additional_context {
++                contexts.push(context.clone());
++            }
++            if let Some(message) = &parsed.system_message {
++                messages.push(message.clone());
++            }
++            let candidate = match (&parsed.permission, &parsed.block, &parsed.error) {
++                (Some(Permission::Deny), _, _) => Verdict::Deny(
++                    parsed
++                        .permission_reason
++                        .clone()
++                        .unwrap_or_else(|| "denied by a hook".into()),
++                ),
++                (_, Some(reason), _) => Verdict::Block(reason.clone()),
++                (Some(Permission::Ask), _, _) => Verdict::Ask(
++                    parsed
++                        .permission_reason
++                        .clone()
++                        .unwrap_or_else(|| "a hook asks for confirmation".into()),
++                ),
++                (Some(Permission::Allow), _, _) => Verdict::Allow,
++                (None, None, Some(error)) if closed => {
++                    Verdict::Deny(format!("a pre-effect hook failed: {error}"))
++                }
++                _ => Verdict::Pass,
++            };
++            report.results.push(HookResult {
++                command: spec.command.clone(),
++                exit_code,
++                timed_out,
++                parsed,
++                elapsed,
++            });
++            raise(&mut report.verdict, candidate);
++            if report.verdict.is_final() {
++                break;
++            }
++        }
++        if matches!(report.verdict, Verdict::Deny(_)) {
++            report.updated_input = None;
++        }
++        report.additional_context = join(contexts);
++        report.system_message = join(messages);
++        report
++    }
++}
++
++fn failure(error: String) -> ParsedHook {
++    ParsedHook {
++        error: Some(error),
++        ..ParsedHook::default()
++    }
++}
++
++fn raise(current: &mut Verdict, candidate: Verdict) {
++    if candidate.rank() > current.rank() {
++        *current = candidate;
++    }
++}
++
++fn join(parts: Vec<String>) -> Option<String> {
++    (!parts.is_empty()).then(|| parts.join("\n\n"))
++}
++
++/// The JSON a hook reads on stdin: the original payload, with `tool_input` replaced by the
++/// current (possibly rewritten) input.
++fn hook_stdin(event: &HookEvent, input: Option<&Value>) -> Vec<u8> {
++    let mut payload = event.raw.clone();
++    if let (Some(input), Some(object)) = (input, payload.as_object_mut()) {
++        object.insert("tool_input".into(), input.clone());
++    }
++    serde_json::to_vec(&payload).unwrap_or_default()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::event::Wire;
++    use serde_json::json;
++    use std::sync::Mutex;
++
++    fn event(kind: &str, tool: Option<&str>) -> HookEvent {
++        let mut payload = json!({"hook_event_name": kind, "session_id": "s", "cwd": "."});
++        if let Some(tool) = tool {
++            payload["tool_name"] = json!(tool);
++            payload["tool_input"] = json!({"command": "ls"});
++        }
++        HookEvent::from_value(Wire::Claude, payload).unwrap()
++    }
++
++    fn exited(code: i32, stdout: &str, stderr: &str) -> LaunchOutcome {
++        LaunchOutcome::Exited {
++            code: Some(code),
++            stdout: stdout.into(),
++            stderr: stderr.into(),
++        }
++    }
++
++    /// Answers launches from a script and records every request's stdin and command.
++    struct Script {
++        outcomes: Mutex<Vec<LaunchOutcome>>,
++        seen: Mutex<Vec<(String, Value)>>,
++    }
++
++    impl Script {
++        fn new(outcomes: Vec<LaunchOutcome>) -> Self {
++            Self {
++                outcomes: Mutex::new(outcomes.into_iter().rev().collect()),
++                seen: Mutex::new(Vec::new()),
++            }
++        }
++    }
++
++    impl ProcessLaunch for Script {
++        fn launch(&self, request: &LaunchRequest<'_>) -> LaunchOutcome {
++            self.seen.lock().unwrap().push((
++                request.command.to_owned(),
++                serde_json::from_slice(request.stdin).unwrap(),
++            ));
++            self.outcomes
++                .lock()
++                .unwrap()
++                .pop()
++                .unwrap_or(LaunchOutcome::SpawnFailed("script exhausted".into()))
++        }
++    }
++
++    #[test]
++    fn matcher_is_a_whole_name_regex() {
++        let spec = HookSpec::new("x").with_matcher("Edit|Write");
++        assert_eq!(spec.matches(Some("Edit")), Ok(true));
++        assert_eq!(spec.matches(Some("Write")), Ok(true));
++        assert_eq!(spec.matches(Some("MultiEdit")), Ok(false));
++        assert_eq!(HookSpec::new("x").matches(Some("Bash")), Ok(true));
++        assert_eq!(HookSpec::new("x").with_matcher("*").matches(Some("Bash")), Ok(true));
++        assert_eq!(
++            HookSpec::new("x").with_matcher("Notebook.*").matches(Some("NotebookEdit")),
++            Ok(true)
++        );
++        assert_eq!(spec.matches(None), Ok(true));
++        assert!(HookSpec::new("x").with_matcher("(").matches(Some("a")).is_err());
++    }
++
++    #[test]
++    fn specs_parse_from_the_settings_shape() {
++        let json = r#"{"hooks":{"PreToolUse":[
++            {"matcher":"Bash","hooks":[{"type":"command","command":"guard.sh","timeout":5},
++                                       {"type":"prompt","prompt":"x"}]},
++            {"hooks":[{"command":"all.sh"}]}],
++          "Stop":[{"hooks":[{"command":"stop.sh"}]}]}}"#;
++        let specs = parse_hook_specs_json(json, &EventKind::PreToolUse).unwrap();
++        assert_eq!(specs.len(), 2);
++        assert_eq!(specs[0].command, "guard.sh");
++        assert_eq!(specs[0].matcher.as_deref(), Some("Bash"));
++        assert_eq!(specs[0].timeout, Duration::from_secs(5));
++        assert_eq!(specs[1].matcher, None);
++        assert_eq!(specs[1].timeout, DEFAULT_HOOK_TIMEOUT);
++        assert!(parse_hook_specs_json(json, &EventKind::Notification).unwrap().is_empty());
++        let bare = r#"{"Stop":[{"hooks":[{"command":"s"}]}]}"#;
++        assert_eq!(parse_hook_specs_json(bare, &EventKind::Stop).unwrap().len(), 1);
++        assert!(parse_hook_specs_json("{", &EventKind::Stop).is_err());
++        let bad = r#"{"hooks":{"Stop":[{"matcher":"(","hooks":[{"command":"s"}]}]}}"#;
++        assert!(parse_hook_specs_json(bad, &EventKind::Stop).is_err());
++        let empty = r#"{"hooks":{"Stop":[{"hooks":[{"command":" "}]}]}}"#;
++        assert!(parse_hook_specs_json(empty, &EventKind::Stop).is_err());
++    }
++
++    #[test]
++    fn output_grammar_for_pre_tool_use() {
++        let pre = EventKind::PreToolUse;
++        let deny = parse_hook_output(
++            r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no"}}"#,
++            "",
++            0,
++            &pre,
++        );
++        assert_eq!(deny.permission, Some(Permission::Deny));
++        assert_eq!(deny.permission_reason.as_deref(), Some("no"));
++        let rewrite = parse_hook_output(
++            r#"{"hookSpecificOutput":{"permissionDecision":"allow","updatedInput":{"command":"ls -l"},"additionalContext":"c"},"systemMessage":"m"}"#,
++            "",
++            0,
++            &pre,
++        );
++        assert_eq!(rewrite.permission, Some(Permission::Allow));
++        assert_eq!(rewrite.updated_input, Some(json!({"command": "ls -l"})));
++        assert_eq!(rewrite.additional_context.as_deref(), Some("c"));
++        assert_eq!(rewrite.system_message.as_deref(), Some("m"));
++        let legacy = parse_hook_output(r#"{"decision":"block","reason":"r"}"#, "", 0, &pre);
++        assert_eq!(legacy.permission, Some(Permission::Deny));
++        let two = parse_hook_output("", "stderr reason\n", 2, &pre);
++        assert_eq!(two.permission, Some(Permission::Deny));
++        assert_eq!(two.permission_reason.as_deref(), Some("stderr reason"));
++        let other = parse_hook_output("", "boom\nmore", 1, &pre);
++        assert_eq!(other.error.as_deref(), Some("hook exited with code 1: boom"));
++        assert_eq!(other.permission, None);
++    }
++
++    #[test]
++    fn output_grammar_for_other_events() {
++        let stop = parse_hook_output(r#"{"decision":"block","reason":"keep going"}"#, "", 0, &EventKind::Stop);
++        assert_eq!(stop.block.as_deref(), Some("keep going"));
++        let two = parse_hook_output("", "fix it", 2, &EventKind::Stop);
++        assert_eq!(two.block.as_deref(), Some("fix it"));
++        let note = parse_hook_output("", "fyi", 2, &EventKind::Notification);
++        assert!(note.block.is_none() && note.error.is_some());
++        let plain = parse_hook_output("hello\n", "", 0, &EventKind::UserPromptSubmit);
++        assert_eq!(plain.additional_context.as_deref(), Some("hello"));
++        let silent = parse_hook_output("hello", "", 0, &EventKind::Stop);
++        assert_eq!(silent, ParsedHook::default());
++        let halt = parse_hook_output(r#"{"continue":false,"stopReason":"enough"}"#, "", 0, &EventKind::Stop);
++        assert_eq!(halt.stop.as_deref(), Some("enough"));
++        // A permission answer on a non-PreToolUse event is not honored.
++        let ignored = parse_hook_output(
++            r#"{"hookSpecificOutput":{"permissionDecision":"deny"}}"#,
++            "",
++            0,
++            &EventKind::PostToolUse,
++        );
++        assert_eq!(ignored.permission, None);
++    }
++
++    #[test]
++    fn deny_wins_and_stops_the_chain() {
++        let launcher = Script::new(vec![
++            exited(0, r#"{"hookSpecificOutput":{"permissionDecision":"allow"}}"#, ""),
++            exited(0, r#"{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"sure?"}}"#, ""),
++            exited(2, "", "nope"),
++            exited(0, "", ""),
++        ]);
++        let specs: Vec<HookSpec> = (0..4).map(|i| HookSpec::new(format!("h{i}"))).collect();
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &specs, &launcher);
++        assert_eq!(report.verdict, Verdict::Deny("nope".into()));
++        assert_eq!(report.results.len(), 3, "the fourth hook never ran");
++    }
++
++    #[test]
++    fn ask_beats_allow_and_updated_input_reaches_the_next_hook() {
++        let launcher = Script::new(vec![
++            exited(0, r#"{"hookSpecificOutput":{"permissionDecision":"allow","updatedInput":{"command":"ls -l"}}}"#, ""),
++            exited(0, r#"{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"sure?"}}"#, ""),
++        ]);
++        let specs = vec![HookSpec::new("a"), HookSpec::new("b")];
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &specs, &launcher);
++        assert_eq!(report.verdict, Verdict::Ask("sure?".into()));
++        assert_eq!(report.updated_input, Some(json!({"command": "ls -l"})));
++        let seen = launcher.seen.lock().unwrap();
++        assert_eq!(seen[0].1["tool_input"], json!({"command": "ls"}));
++        assert_eq!(seen[1].1["tool_input"], json!({"command": "ls -l"}));
++    }
++
++    #[test]
++    fn pre_effect_failures_fail_closed_and_others_fail_open() {
++        let specs = vec![HookSpec::new("slow")];
++        let timed_out = Script::new(vec![LaunchOutcome::TimedOut]);
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &specs, &timed_out);
++        assert!(matches!(report.verdict, Verdict::Deny(_)));
++        assert!(report.results[0].timed_out);
++
++        let broken = Script::new(vec![LaunchOutcome::SpawnFailed("no such file".into())]);
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &specs, &broken);
++        assert!(matches!(report.verdict, Verdict::Deny(_)));
++
++        let open = Script::new(vec![LaunchOutcome::TimedOut]);
++        let report = HookChain::run(&event("PostToolUse", Some("Bash")), &specs, &open);
++        assert_eq!(report.verdict, Verdict::Pass);
++        assert!(report.results[0].parsed.error.is_some());
++
++        assert!(fails_closed(&EventKind::PreToolUse));
++        assert!(!fails_closed(&EventKind::Stop));
++        assert!(!fails_closed(&EventKind::SessionStart));
++    }
++
++    #[test]
++    fn matchers_skip_hooks_and_invalid_matchers_fail_closed() {
++        let launcher = Script::new(vec![exited(0, "", "")]);
++        let specs = vec![
++            HookSpec::new("skipped").with_matcher("Write"),
++            HookSpec::new("ran").with_matcher("Bash"),
++        ];
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &specs, &launcher);
++        assert_eq!(report.results.len(), 1);
++        assert_eq!(report.results[0].command, "ran");
++
++        let launcher = Script::new(vec![]);
++        let bad = vec![HookSpec::new("x").with_matcher("(")];
++        let report = HookChain::run(&event("PreToolUse", Some("Bash")), &bad, &launcher);
++        assert!(matches!(report.verdict, Verdict::Deny(_)));
++        assert!(launcher.seen.lock().unwrap().is_empty());
++        let report = HookChain::run(&event("PostToolUse", Some("Bash")), &bad, &launcher);
++        assert_eq!(report.verdict, Verdict::Pass);
++    }
++
++    #[test]
++    fn contexts_and_messages_are_joined_and_stop_blocks() {
++        let launcher = Script::new(vec![
++            exited(0, "one", ""),
++            exited(0, r#"{"hookSpecificOutput":{"additionalContext":"two"},"systemMessage":"m"}"#, ""),
++        ]);
++        let specs = vec![HookSpec::new("a"), HookSpec::new("b")];
++        let report = HookChain::run(&event("UserPromptSubmit", None), &specs, &launcher);
++        assert_eq!(report.additional_context.as_deref(), Some("one\n\ntwo"));
++        assert_eq!(report.system_message.as_deref(), Some("m"));
++        assert_eq!(report.verdict, Verdict::Pass);
++
++        let launcher = Script::new(vec![exited(2, "", "tests fail")]);
++        let report = HookChain::run(&event("Stop", None), &[HookSpec::new("a")], &launcher);
++        assert_eq!(report.verdict, Verdict::Block("tests fail".into()));
++    }
++
++    #[test]
++    fn shell_launcher_runs_a_command_with_stdin_closed_and_reports_the_exit_code() {
++        let ok = ShellLauncher.launch(&LaunchRequest {
++            command: "echo hello",
++            stdin: b"{}",
++            cwd: None,
++            timeout: Duration::from_secs(20),
++        });
++        match ok {
++            LaunchOutcome::Exited { code, stdout, .. } => {
++                assert_eq!(code, Some(0));
++                assert_eq!(stdout.trim(), "hello");
++            }
++            other => panic!("unexpected {other:?}"),
++        }
++        let failed = ShellLauncher.launch(&LaunchRequest {
++            command: "exit 3",
++            stdin: b"{}",
++            cwd: None,
++            timeout: Duration::from_secs(20),
++        });
++        assert!(matches!(failed, LaunchOutcome::Exited { code: Some(3), .. }));
++    }
++}
+diff --git a/crates/rightkit-hooks/src/lib.rs b/crates/rightkit-hooks/src/lib.rs
+index 9e87adb..f426247 100644
+--- a/crates/rightkit-hooks/src/lib.rs
++++ b/crates/rightkit-hooks/src/lib.rs
+@@ -4,21 +4,28 @@
+ //! - [`output`]: exact per-event output shapes ([`Reply`]);
+ //! - [`dispatch`]: modules under per-module and total deadlines, exit 0 on any failure;
+ //! - [`receipt`]: `emitted` and `observed` delivery receipts and the transcript-scan module;
+-//! - [`membrane`]: Membrane's hook wire types (module status, dispatch result, host response).
++//! - [`membrane`]: Membrane's hook wire types (module status, dispatch result, host response);
++//! - `host` (feature `host`): the host side, which runs configured command hooks and combines
++//!   their answers.
+ //!
+ //! The crate holds no policy: a module decides, this crate only parses, bounds and prints.
+ 
+ pub mod dispatch;
+ pub mod event;
++#[cfg(feature = "host")]
++pub mod host;
+ pub mod membrane;
+ pub mod output;
+ pub mod receipt;
+ 
+ pub use dispatch::{
+-    compose_reply, dispatch, run, run_with, Decision, DispatchOptions, DispatchResult, FnModule,
++    compose_reply, dispatch, run, run_deadline, run_with, run_with_deadline, Decision, DispatchOptions, DispatchResult, FnModule,
+     HookModule, ModuleContext, ModuleOutput, ModuleResult, Status,
+ };
+-pub use event::{EventKind, HookEvent, ParseError, Wire, STDIN_CAP};
++pub use event::{
++    read_payload_deadline, EventKind, HookEvent, ParseError, PayloadReadError, StdinDeadline, Wire,
++    STDIN_CAP,
++};
+ pub use output::{OutputError, Reply};
+ pub use receipt::{
+     marker, new_receipt_id, scan_transcript_tail, tag_context, DeliveryLevel, ObserveModule,
+diff --git a/crates/rightkit-send/CHANGELOG.md b/crates/rightkit-send/CHANGELOG.md
+index 30aefc6..f7bf86a 100644
+--- a/crates/rightkit-send/CHANGELOG.md
++++ b/crates/rightkit-send/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 0.2.1 (unreleased)
++
++Additive (rightkit#407; #537 `Entry::open_reader` already shipped in 0.2.0).
++
++- Transport abstraction on the send side: `send::Transport` (`peer_label`, `prepare_upload`, `upload`, `cancel`), `TransportReply { status, body }`, `TcpTransport` (the existing pinned-TLS carrier) and `send::deliver_with(&dyn Transport, ...)`, which holds the whole send policy (prepare-upload request, partial accept, per-file upload, progress, cancel, status-to-error mapping) with no TCP or TLS rule. `deliver` is unchanged in signature and behaviour; it checks HTTPS and the pin, then calls `deliver_with` over `TcpTransport`. A mesh host implements `Transport` and gets the same policy. Unit tests with a non-TCP mock carrier.
++- Generic trust subject: `TrustStore` is now public. Its key was always an opaque string of 1 to 128 characters compared lowercase, so a non-TLS device id works as a subject; the type docs say so, and a host without a `Service` can open the store directly.
++- `_pulse-send._tcp` is already the Bonjour service type (feature `bonjour`).
++- Not in this release: the receive side over a non-TCP carrier, the `@rightkit/send-ui` package and the Tauri command adapter (see the issue).
++
+ ## 0.2.0 (2026-10-17)
+ 
+ - Added: `Entry::open_reader() -> io::Result<Box<dyn Read + Send>>`, a public reader over a prepared entry (file or message text), for a host that streams entries over its own transport (rightkit#537). `Entry.source` stays private.
+diff --git a/crates/rightkit-send/Cargo.toml b/crates/rightkit-send/Cargo.toml
+index a6f6bd1..c19791f 100644
+--- a/crates/rightkit-send/Cargo.toml
++++ b/crates/rightkit-send/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-send"
+-version = "0.2.0"
++version = "0.2.1"
+ edition = "2024"
+ rust-version = "1.90"
+ description = "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy."
+diff --git a/crates/rightkit-send/README.md b/crates/rightkit-send/README.md
+index c65c73a..992299d 100644
+--- a/crates/rightkit-send/README.md
++++ b/crates/rightkit-send/README.md
+@@ -20,6 +20,11 @@ Status: `0.1.0`, published on crates.io. Rust API only: no C ABI is exported and
+   it again first and fails with `Error::TrustStore` while it stays unreadable. Known limit: until
+   the list has been read, every device is treated as Ask, so a device the owner denied gets a
+   request card again. It is never allowed by this.
++- `send::Transport` and `send::deliver_with`: the send policy (prepare-upload, partial accept, per-file
++  upload, progress, cancel, status mapping) over any carrier. `TcpTransport` is the pinned-TLS carrier
++  `Service` uses; a host with its own carrier (a device mesh) implements `Transport` and authenticates
++  the peer itself. `trust::TrustStore` is public and keyed by an opaque subject, so a non-TLS device id
++  works as the trust key. Receiving over a non-TCP carrier is not provided yet.
+ - Errors: `Error`, typed. Hosts map variants (or the serialized `code`) to their own words.
+ - `Policy`: the unproven-sender limits, the 64 GiB single-file refusal, the message cap and
+   the answer wait. `Policy::default()` is Pulse's current behaviour.
+diff --git a/crates/rightkit-send/src/lib.rs b/crates/rightkit-send/src/lib.rs
+index ae9cca5..519761f 100644
+--- a/crates/rightkit-send/src/lib.rs
++++ b/crates/rightkit-send/src/lib.rs
+@@ -25,9 +25,11 @@ mod workers;
+ pub use error::Error;
+ pub use net::Identity;
+ pub use policy::Policy;
+-pub use send::{Entry, Peer, SendItem};
++pub use send::{
++    Entry, Peer, SendItem, TcpTransport, Transport, TransportReply, deliver_with,
++};
+ use trust::normalize;
+-pub use trust::{TrustEntry, TrustState};
++pub use trust::{TrustEntry, TrustState, TrustStore};
+ use workers::{Stopper, Worker};
+ 
+ use proto::DeviceInfo;
+diff --git a/crates/rightkit-send/src/send.rs b/crates/rightkit-send/src/send.rs
+index ad9cfb2..2ff161b 100644
+--- a/crates/rightkit-send/src/send.rs
++++ b/crates/rightkit-send/src/send.rs
+@@ -228,6 +228,152 @@ fn query(session: &str, file: &str, token: &str) -> String {
+     )
+ }
+ 
++/// One answer from the peer, whatever carried it: an HTTP-style status and body. The statuses
++/// are the LocalSend v2 ones (200 or 204 accepted, 403 declined, 401 PIN, 409 busy, 413 too
++/// large, 429 rate limited, 422 damaged).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct TransportReply {
++    pub status: u16,
++    pub body: Vec<u8>,
++}
++
++/// The carrier of one send, so the same send policy (the `prepare-upload` request, per-file
++/// accept, partial accept, progress, cancel and the status-to-error mapping) runs over a
++/// non-TCP carrier such as a device mesh. [`deliver_with`] is the policy; the transport only
++/// moves bytes and reports a status.
++///
++/// Implementations authenticate the peer themselves. [`TcpTransport`] pins a TLS identity;
++/// another carrier must establish who the peer is before it returns any reply.
++pub trait Transport {
++    /// The peer's name in errors (an alias).
++    fn peer_label(&self) -> &str;
++
++    /// Deliver the `prepare-upload` JSON `body` and wait for the answer. This may take as long
++    /// as the other person needs to say yes. A transport that can be broken from another thread
++    /// does so by its own means; [`deliver_with`] checks its `cancel` flag when this returns.
++    fn prepare_upload(&self, body: &[u8]) -> Result<TransportReply, Error>;
++
++    /// Upload one file of an accepted session. `write_body` must be called once and writes
++    /// exactly `size` bytes; it returns an error if the send was cancelled or the source failed.
++    /// `file_name` is for the error a failed upload becomes ([`Error::FileStopped`]).
++    fn upload(
++        &self,
++        session: &str,
++        file: &str,
++        token: &str,
++        file_name: &str,
++        size: u64,
++        write_body: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
++    ) -> Result<TransportReply, Error>;
++
++    /// Tell the peer the session is over. Best effort.
++    fn cancel(&self, session: &str);
++}
++
++/// The LocalSend carrier: one fresh TLS connection per request, pinned to
++/// [`Peer::fingerprint`]. `register` is told each connection's socket so another thread can
++/// break a wait by shutting it down.
++pub struct TcpTransport<'a> {
++    peer: &'a Peer,
++    register: &'a dyn Fn(Option<TcpStream>),
++}
++
++impl<'a> TcpTransport<'a> {
++    pub fn new(peer: &'a Peer, register: &'a dyn Fn(Option<TcpStream>)) -> Self {
++        Self { peer, register }
++    }
++}
++
++impl Transport for TcpTransport<'_> {
++    fn peer_label(&self) -> &str {
++        &self.peer.alias
++    }
++
++    fn prepare_upload(&self, body: &[u8]) -> Result<TransportReply, Error> {
++        let prepare = format!("{}/prepare-upload", proto::API);
++        let reply = exchange(
++            self.peer,
++            &prepare,
++            Some(body),
++            Duration::from_secs(190),
++            self.register,
++            &mut || {},
++        )?;
++        Ok(TransportReply {
++            status: reply.status,
++            body: reply.body,
++        })
++    }
++
++    fn upload(
++        &self,
++        session: &str,
++        file: &str,
++        token: &str,
++        file_name: &str,
++        size: u64,
++        write_body: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
++    ) -> Result<TransportReply, Error> {
++        let peer = self.peer;
++        let target = query(session, file, token);
++        let mut wire = net::connect(
++            peer.ip,
++            peer.port,
++            peer.https,
++            &peer.fingerprint,
++            Duration::from_secs(120),
++        )
++        .map_err(|e| {
++            peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable {
++                peer,
++                detail,
++            })
++        })?;
++        (self.register)(wire.tcp().try_clone().ok());
++        let host = format!("{}:{}", peer.ip, peer.port);
++        let result = net::call(
++            &mut wire,
++            "POST",
++            &host,
++            &target,
++            Some("application/octet-stream"),
++            size,
++            &mut |w: &mut Wire| write_body(w),
++        );
++        wire.finish();
++        (self.register)(None);
++        let reply = result.map_err(|e| {
++            peer_io(&peer.alias, &e, |_, detail| Error::FileStopped {
++                file: file_name.to_string(),
++                detail,
++            })
++        })?;
++        Ok(TransportReply {
++            status: reply.status,
++            body: reply.body,
++        })
++    }
++
++    fn cancel(&self, session: &str) {
++        let peer = self.peer;
++        let target = format!(
++            "{}/cancel?sessionId={}",
++            proto::API,
++            proto::url_encode(session)
++        );
++        let _ = net::request_json(
++            peer.ip,
++            peer.port,
++            peer.https,
++            &peer.fingerprint,
++            "POST",
++            &target,
++            None,
++            Duration::from_secs(5),
++        );
++    }
++}
++
+ /// Ask the peer to accept `entries`, and send them once it does. Blocks.
+ /// `register` is told each connection's socket so another thread can break a
+ /// wait by shutting it down; `on` hears progress after every chunk.
+@@ -251,6 +397,28 @@ pub fn deliver(
+             peer: peer.alias.clone(),
+         });
+     }
++    deliver_with(
++        &TcpTransport::new(peer, register),
++        me,
++        entries,
++        clipboard,
++        cancel,
++        on,
++    )
++}
++
++/// [`deliver`] over any [`Transport`]: the send policy without the carrier. The caller (or the
++/// transport) has already checked that the peer is who it claims to be; this function adds no
++/// TCP or TLS rule.
++pub fn deliver_with(
++    transport: &dyn Transport,
++    me: &DeviceInfo,
++    entries: &[Entry],
++    clipboard: bool,
++    cancel: &AtomicBool,
++    on: &mut dyn FnMut(Progress),
++) -> Result<Outcome, Error> {
++    let label = transport.peer_label().to_string();
+     let mut progress = Progress {
+         phase: Phase::Waiting,
+         done: 0,
+@@ -287,17 +455,9 @@ pub fn deliver(
+             detail: e.to_string(),
+         }
+     })?;
+-    let prepare = format!("{}/prepare-upload", proto::API);
+     // The other person may take a while to say yes. A message counts as sent
+     // only once they have accepted it (or allow this device), like a file.
+-    let reply = exchange(
+-        peer,
+-        &prepare,
+-        Some(&body),
+-        Duration::from_secs(190),
+-        register,
+-        &mut || {},
+-    );
++    let reply = transport.prepare_upload(&body);
+     if cancel.load(Ordering::Relaxed) {
+         return Ok(Outcome::Cancelled);
+     }
+@@ -305,34 +465,18 @@ pub fn deliver(
+     let session = match reply.status {
+         200 => serde_json::from_slice::<PrepareUploadResponse>(&reply.body).map_err(|_| {
+             Error::PeerReply {
+-                peer: peer.alias.clone(),
++                peer: label.clone(),
+             }
+         })?,
+         204 => return Ok(Outcome::Done),
+         403 => return Ok(Outcome::Declined),
+-        401 => {
+-            return Err(Error::PeerNeedsPin {
+-                peer: peer.alias.clone(),
+-            });
+-        }
+-        409 => {
+-            return Err(Error::PeerBusy {
+-                peer: peer.alias.clone(),
+-            });
+-        }
+-        413 => {
+-            return Err(Error::PeerTooLarge {
+-                peer: peer.alias.clone(),
+-            });
+-        }
+-        429 => {
+-            return Err(Error::PeerRateLimited {
+-                peer: peer.alias.clone(),
+-            });
+-        }
++        401 => return Err(Error::PeerNeedsPin { peer: label }),
++        409 => return Err(Error::PeerBusy { peer: label }),
++        413 => return Err(Error::PeerTooLarge { peer: label }),
++        429 => return Err(Error::PeerRateLimited { peer: label }),
+         other => {
+             return Err(Error::PeerAnswer {
+-                peer: peer.alias.clone(),
++                peer: label,
+                 status: other,
+             });
+         }
+@@ -355,13 +499,39 @@ pub fn deliver(
+             continue;
+         };
+         if cancel.load(Ordering::Relaxed) {
+-            send_cancel(peer, &session.session_id);
++            transport.cancel(&session.session_id);
+             return Ok(Outcome::Cancelled);
+         }
+         progress.current = Some(entry.name.clone());
+         on(progress.clone());
+-        let target = query(&session.session_id, &entry.id, token);
+-        let result = upload_one(peer, &target, entry, cancel, register, &mut progress, on);
++        let result = {
++            let mut write_body = |w: &mut dyn Write| -> io::Result<()> {
++                write_entry(entry, w, cancel, &mut progress, &mut *on)
++            };
++            transport.upload(
++                &session.session_id,
++                &entry.id,
++                token,
++                &entry.name,
++                entry.size,
++                &mut write_body,
++            )
++        };
++        let result = result.and_then(|reply| match reply.status {
++            200 | 204 => Ok(()),
++            403 => Err(Error::FileRefused {
++                peer: label.clone(),
++                file: entry.name.clone(),
++            }),
++            422 => Err(Error::FileDamaged {
++                peer: label.clone(),
++                file: entry.name.clone(),
++            }),
++            other => Err(Error::PeerAnswer {
++                peer: label.clone(),
++                status: other,
++            }),
++        });
+         match result {
+             Ok(()) => {
+                 progress.files_done += 1;
+@@ -369,7 +539,7 @@ pub fn deliver(
+             }
+             Err(error) => {
+                 if cancel.load(Ordering::Relaxed) {
+-                    send_cancel(peer, &session.session_id);
++                    transport.cancel(&session.session_id);
+                     return Ok(Outcome::Cancelled);
+                 }
+                 return Err(error);
+@@ -379,111 +549,36 @@ pub fn deliver(
+     Ok(Outcome::Done)
+ }
+ 
+-fn upload_one(
+-    peer: &Peer,
+-    target: &str,
++/// Stream one entry's bytes (exactly `entry.size`) into `w`, checking `cancel` before every
++/// chunk and reporting progress after it.
++fn write_entry(
+     entry: &Entry,
++    w: &mut dyn Write,
+     cancel: &AtomicBool,
+-    register: &dyn Fn(Option<TcpStream>),
+     progress: &mut Progress,
+     on: &mut dyn FnMut(Progress),
+-) -> Result<(), Error> {
+-    let mut wire = net::connect(
+-        peer.ip,
+-        peer.port,
+-        peer.https,
+-        &peer.fingerprint,
+-        Duration::from_secs(120),
+-    )
+-    .map_err(|e| {
+-        peer_io(&peer.alias, &e, |peer, detail| Error::PeerUnreachable {
+-            peer,
+-            detail,
+-        })
+-    })?;
+-    register(wire.tcp().try_clone().ok());
+-    let host = format!("{}:{}", peer.ip, peer.port);
+-    let result = net::call(
+-        &mut wire,
+-        "POST",
+-        &host,
+-        target,
+-        Some("application/octet-stream"),
+-        entry.size,
+-        &mut |w: &mut Wire| match &entry.source {
+-            Source::Text(text) => {
+-                w.write_all(text.as_bytes())?;
+-                progress.done += text.len() as u64;
+-                on(progress.clone());
+-                Ok(())
+-            }
+-            Source::File(path) => {
+-                let mut file = File::open(path)?;
+-                let mut buffer = vec![0u8; 64 * 1024];
+-                let mut remaining = entry.size;
+-                while remaining > 0 {
+-                    if cancel.load(Ordering::Relaxed) {
+-                        return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+-                    }
+-                    let want = remaining.min(buffer.len() as u64) as usize;
+-                    let n = file.read(&mut buffer[..want])?;
+-                    if n == 0 {
+-                        return Err(io::Error::new(
+-                            io::ErrorKind::UnexpectedEof,
+-                            "the file got shorter",
+-                        ));
+-                    }
+-                    w.write_all(&buffer[..n])?;
+-                    remaining -= n as u64;
+-                    progress.done += n as u64;
+-                    on(progress.clone());
+-                }
+-                Ok(())
+-            }
+-        },
+-    );
+-    wire.finish();
+-    register(None);
+-    let reply = result.map_err(|e| {
+-        peer_io(&peer.alias, &e, |_, detail| Error::FileStopped {
+-            file: entry.name.clone(),
+-            detail,
+-        })
+-    })?;
+-    match reply.status {
+-        200 | 204 => Ok(()),
+-        403 => Err(Error::FileRefused {
+-            peer: peer.alias.clone(),
+-            file: entry.name.clone(),
+-        }),
+-        422 => Err(Error::FileDamaged {
+-            peer: peer.alias.clone(),
+-            file: entry.name.clone(),
+-        }),
+-        other => Err(Error::PeerAnswer {
+-            peer: peer.alias.clone(),
+-            status: other,
+-        }),
++) -> io::Result<()> {
++    let mut reader = entry.open_reader()?;
++    let mut buffer = vec![0u8; 64 * 1024];
++    let mut remaining = entry.size;
++    while remaining > 0 {
++        if cancel.load(Ordering::Relaxed) {
++            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
++        }
++        let want = remaining.min(buffer.len() as u64) as usize;
++        let n = reader.read(&mut buffer[..want])?;
++        if n == 0 {
++            return Err(io::Error::new(
++                io::ErrorKind::UnexpectedEof,
++                "the file got shorter",
++            ));
++        }
++        w.write_all(&buffer[..n])?;
++        remaining -= n as u64;
++        progress.done += n as u64;
++        on(progress.clone());
+     }
+-}
+-
+-/// Tell the peer the session is over. Best effort.
+-fn send_cancel(peer: &Peer, session: &str) {
+-    let target = format!(
+-        "{}/cancel?sessionId={}",
+-        proto::API,
+-        proto::url_encode(session)
+-    );
+-    let _ = net::request_json(
+-        peer.ip,
+-        peer.port,
+-        peer.https,
+-        &peer.fingerprint,
+-        "POST",
+-        &target,
+-        None,
+-        Duration::from_secs(5),
+-    );
++    Ok(())
+ }
+ 
+ #[cfg(test)]
+@@ -504,6 +599,153 @@ mod tests {
+         }
+     }
+ 
++    use std::sync::Mutex;
++
++    /// A carrier that is not TCP: records what the policy asks of it.
++    struct Mock {
++        label: String,
++        prepare: TransportReply,
++        upload_status: u16,
++        uploaded: Mutex<Vec<(String, String, String, Vec<u8>)>>,
++        cancelled: Mutex<Vec<String>>,
++    }
++
++    impl Mock {
++        fn new(prepare: TransportReply, upload_status: u16) -> Self {
++            Mock {
++                label: "Mesh".into(),
++                prepare,
++                upload_status,
++                uploaded: Mutex::new(Vec::new()),
++                cancelled: Mutex::new(Vec::new()),
++            }
++        }
++    }
++
++    impl Transport for Mock {
++        fn peer_label(&self) -> &str {
++            &self.label
++        }
++        fn prepare_upload(&self, _body: &[u8]) -> Result<TransportReply, Error> {
++            Ok(self.prepare.clone())
++        }
++        fn upload(
++            &self,
++            session: &str,
++            file: &str,
++            token: &str,
++            _file_name: &str,
++            size: u64,
++            write_body: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
++        ) -> Result<TransportReply, Error> {
++            let mut body = Vec::new();
++            write_body(&mut body).map_err(|e| Error::FileStopped {
++                file: file.to_string(),
++                detail: e.to_string(),
++            })?;
++            assert_eq!(body.len() as u64, size);
++            self.uploaded.lock().unwrap().push((
++                session.to_string(),
++                file.to_string(),
++                token.to_string(),
++                body,
++            ));
++            Ok(TransportReply {
++                status: self.upload_status,
++                body: Vec::new(),
++            })
++        }
++        fn cancel(&self, session: &str) {
++            self.cancelled.lock().unwrap().push(session.to_string());
++        }
++    }
++
++    fn accepted(entries: &[Entry], skip: &[&str]) -> TransportReply {
++        let files: BTreeMap<String, String> = entries
++            .iter()
++            .filter(|e| !skip.contains(&e.id.as_str()))
++            .map(|e| (e.id.clone(), format!("tok-{}", e.id)))
++            .collect();
++        TransportReply {
++            status: 200,
++            body: serde_json::to_vec(&PrepareUploadResponse {
++                session_id: "s1".into(),
++                files,
++            })
++            .unwrap(),
++        }
++    }
++
++    #[test]
++    fn deliver_with_runs_the_send_policy_over_any_transport() {
++        let entries = expand(&[SendItem::Text("one".into()), SendItem::Text("two".into())]).unwrap();
++        let mock = Mock::new(accepted(&entries, &["f1"]), 200);
++        let cancel = AtomicBool::new(false);
++        let mut seen = Vec::new();
++        let outcome = deliver_with(&mock, &me(), &entries, false, &cancel, &mut |p| seen.push(p));
++        assert_eq!(outcome, Ok(Outcome::Done));
++        let uploaded = mock.uploaded.lock().unwrap();
++        // A partial accept sends only the accepted file, with its token.
++        assert_eq!(uploaded.len(), 1);
++        assert_eq!(
++            uploaded[0],
++            ("s1".into(), "f0".into(), "tok-f0".into(), b"one".to_vec())
++        );
++        let last = seen.last().unwrap();
++        assert_eq!((last.files_done, last.files_total), (1, 1));
++        assert_eq!(last.done, 3);
++    }
++
++    #[test]
++    fn deliver_with_maps_statuses_with_the_transports_peer_label() {
++        let entries = expand(&[SendItem::Text("x".into())]).unwrap();
++        let cancel = AtomicBool::new(false);
++        let run = |status: u16| {
++            let mock = Mock::new(
++                TransportReply {
++                    status,
++                    body: Vec::new(),
++                },
++                200,
++            );
++            deliver_with(&mock, &me(), &entries, false, &cancel, &mut |_| {})
++        };
++        assert_eq!(run(204), Ok(Outcome::Done));
++        assert_eq!(run(403), Ok(Outcome::Declined));
++        assert_eq!(run(409), Err(Error::PeerBusy { peer: "Mesh".into() }));
++        assert_eq!(
++            run(418),
++            Err(Error::PeerAnswer {
++                peer: "Mesh".into(),
++                status: 418
++            })
++        );
++        let mock = Mock::new(accepted(&entries, &[]), 422);
++        assert_eq!(
++            deliver_with(&mock, &me(), &entries, false, &cancel, &mut |_| {}),
++            Err(Error::FileDamaged {
++                peer: "Mesh".into(),
++                file: entries[0].name.clone()
++            })
++        );
++    }
++
++    #[test]
++    fn deliver_with_cancel_tells_the_transport_and_sends_nothing_more() {
++        let entries = expand(&[SendItem::Text("x".into())]).unwrap();
++        let mock = Mock::new(accepted(&entries, &[]), 200);
++        let cancel = AtomicBool::new(false);
++        // Cancel when the sending phase is announced, before the first upload starts.
++        let outcome = deliver_with(&mock, &me(), &entries, false, &cancel, &mut |p| {
++            if p.phase == Phase::Sending {
++                cancel.store(true, Ordering::Relaxed);
++            }
++        });
++        assert_eq!(outcome, Ok(Outcome::Cancelled));
++        assert!(mock.uploaded.lock().unwrap().is_empty());
++        assert_eq!(*mock.cancelled.lock().unwrap(), vec!["s1".to_string()]);
++    }
++
+     #[test]
+     fn nothing_is_sent_over_plain_http() {
+         let peer = Peer {
+diff --git a/crates/rightkit-send/src/trust.rs b/crates/rightkit-send/src/trust.rs
+index e793c8d..57001b9 100644
+--- a/crates/rightkit-send/src/trust.rs
++++ b/crates/rightkit-send/src/trust.rs
+@@ -159,7 +159,16 @@ fn valid_fingerprint(fingerprint: &str) -> bool {
+     !fingerprint.is_empty() && fingerprint.len() <= 128
+ }
+ 
+-pub(crate) struct TrustStore {
++/// The trust records, keyed by an opaque **subject**: the TLS certificate fingerprint on the
++/// LocalSend path, or any other stable device id (for example a mesh device id such as
++/// `dev_ab12...`) when the host carries transfers over a [`crate::send::Transport`] of its own.
++/// A subject is 1 to 128 characters and is compared lowercase ([`normalize`]); nothing in the
++/// store assumes it is a hash. `Service` owns one for the LocalSend path; a host that does not run
++/// a `Service` can open one directly with [`TrustStore::load`] and use the same Allow/Ask/Deny,
++/// default-state, label and proof rules. Pass `proof = Some(PROOF_CERTIFICATE)` to
++/// [`TrustStore::observe`] only when the carrier cryptographically authenticated the subject.
++/// The parameter names in this API say `fingerprint`; read them as `subject`.
++pub struct TrustStore {
+     path: PathBuf,
+     default_state: TrustState,
+     devices: Vec<TrustEntry>,
+diff --git a/crates/rightkit-sync/API.md b/crates/rightkit-sync/API.md
+index 690e591..65df638 100644
+--- a/crates/rightkit-sync/API.md
++++ b/crates/rightkit-sync/API.md
+@@ -149,6 +149,7 @@ absent from the write are cleared (this is how tombstones erase content).
+ Error kinds -> `SyncError`: `unavailable|not_authenticated|permission_denied|quota_exceeded` ->
+ `Unavailable`; `network` (15 s) / `busy` (30 s) / `retry_after` -> `RetryAfter` (server hint wins);
+ `token_expired` -> `TokenExpired`; `zone_missing` -> `ZoneMissing`; `scope_changed` -> `Cancelled`;
++`persistence` -> `Persistence` (durable local state could not be written or read back; a helper that predates it reports `transient`);
+ anything else -> `Transient`.
+ 
+ Cursor/H13 rule: `failed_records` non-empty (a record the feed listed but the helper could not
+diff --git a/crates/rightkit-sync/CHANGELOG.md b/crates/rightkit-sync/CHANGELOG.md
+index aa7b07f..e156e35 100644
+--- a/crates/rightkit-sync/CHANGELOG.md
++++ b/crates/rightkit-sync/CHANGELOG.md
+@@ -1,5 +1,9 @@
+ # Changelog
+ 
++## 0.2.3 (unreleased)
++
++- **`persistence` wire error kind** (bogusyogi/rightkit#751). `WireError::from_sync_error` now maps `SyncError::Persistence` to kind `persistence` and `WireError::into_sync_error` maps it back, so a persistence failure no longer degrades to `Transient` across the wire. `kind` is a string, so no type changed; an older peer that does not know the kind still treats it as transient. Documented in `API.md` section 4; unit tests in `src/wire.rs`.
++
+ ## 0.2.2 (2026-10-17)
+ 
+ - Depend on rightkit-child-process 0.5.0 (and rightkit-sandbox 0.5.0 where used); no behaviour change.
+diff --git a/crates/rightkit-sync/Cargo.toml b/crates/rightkit-sync/Cargo.toml
+index ff39e24..eb3b244 100644
+--- a/crates/rightkit-sync/Cargo.toml
++++ b/crates/rightkit-sync/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-sync"
+-version = "0.2.2"
++version = "0.2.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff."
+diff --git a/crates/rightkit-sync/src/wire.rs b/crates/rightkit-sync/src/wire.rs
+index 4daef97..441c43e 100644
+--- a/crates/rightkit-sync/src/wire.rs
++++ b/crates/rightkit-sync/src/wire.rs
+@@ -145,7 +145,8 @@ impl WireRecord {
+     }
+ }
+ 
+-/// Error kinds a helper reports. Anything unknown is treated as transient.
++/// Error kinds a helper reports. Anything unknown is treated as transient. `persistence` carries
++/// `SyncError::Persistence` (durable local state could not be written or read back) across the wire.
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct WireError {
+     pub kind: String,
+@@ -174,6 +175,7 @@ impl WireError {
+             "zone_missing" => SyncError::ZoneMissing,
+             "scope_changed" => SyncError::Cancelled,
+             "conflict" => SyncError::Conflict,
++            "persistence" => SyncError::Persistence(self.message),
+             "retry_after" | "network" | "busy" => SyncError::RetryAfter {
+                 secs: hint.unwrap_or(if self.kind == "network" { 15.0 } else { 30.0 }),
+                 detail: self.message,
+@@ -198,6 +200,7 @@ impl WireError {
+             SyncError::ZoneMissing => Self::new("zone_missing", "zone missing", None),
+             SyncError::Cancelled => Self::new("scope_changed", "account scope changed", None),
+             SyncError::Conflict => Self::new("conflict", "server record changed", None),
++            SyncError::Persistence(m) => Self::new("persistence", m.clone(), None),
+             other => Self::new("transient", other.to_string(), None),
+         }
+     }
+@@ -241,3 +244,27 @@ pub fn err_line(id: u64, error: &WireError) -> String {
+     );
+     Value::Object(m).to_string()
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn persistence_crosses_the_wire_as_its_own_kind() {
++        let wire = WireError::from_sync_error(&SyncError::Persistence("disk full".into()));
++        assert_eq!(wire.kind, "persistence");
++        assert_eq!(wire.message, "disk full");
++        let json = serde_json::to_string(&wire).unwrap();
++        let back: WireError = serde_json::from_str(&json).unwrap();
++        assert_eq!(
++            back.into_sync_error(),
++            SyncError::Persistence("disk full".into())
++        );
++    }
++
++    #[test]
++    fn unknown_kind_is_still_transient() {
++        let wire = WireError::new("brand_new_kind", "x", None);
++        assert_eq!(wire.into_sync_error(), SyncError::Transient("x".into()));
++    }
++}

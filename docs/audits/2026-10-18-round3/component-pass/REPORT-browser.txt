@@ -1,0 +1,24 @@
+rightkit-browser  version 0.3.4 -> 0.3.5  (patch: D:\scratch\rk-gaps-work\c2\browser.patch; edit-only, NOT compiled or tested)
+DONE #736 (1) ManagedRoot re-exported at crate root (always, not feature-gated); install::ensure_default_chrome_for_testing(progress) and ensure_chrome_for_testing_with_progress(root, pin, progress) added (feature install)
+DONE #736 (2) BrowserPage::set_user_agent(ua, accept_language, platform) via Emulation.setUserAgentOverride and BrowserPage::set_extra_headers(&[(name,value)]) via Network.setExtraHTTPHeaders (validated: token names, no CR/LF/NUL, Host/Content-Length/Transfer-Encoding/Connection refused); LaunchOptions::user_agent()/extra_header() applied to every session page before first navigation (new_page and new_page_with); new src/page_identity.rs with tests
+DONE #736 (3) src/cookies.rs ported from patches\browser-motion-463-cookies.patch (CookieRecord, to_netscape, parse_netscape, yt-dlp keyword mapping) with an empty-value parse bug fixed + test; BrowserPage::cookies/set_cookies/export_cookies_netscape(domains)/import_cookies_netscape added in page.rs
+DONE #736 (4) browser_executable(kind) and find_chrome now try %ProgramFiles%, %ProgramFiles(x86)% (env-read) and per-user %LOCALAPPDATA% for Chrome/Chromium/Edge/Brave (pure helper windows_browser_candidates + test); Linux Brave/Chromium extra paths, macOS ~/Applications
+DONE #736 (5) src/visible.rs: launch_visible_and_wait(VisibleLaunch, timeout), VisibleBrowser{launch,wait,terminate,pid,executable,profile_dir}, VisibleOutcome{Exited{code},TimedOut}; no DevTools port; owned process tree via rightkit-child-process; http(s)/about:blank URL only; debugging/profile flags refused; real browser profile refused; unit tests for args/validation
+DONE #463 (cookie half only) cookies + Netscape import/export as above; transparent screenshots (screenshot_with, set_transparent_background) ALREADY on main in page.rs; motion half is rightkit-motion, not this crate (not touched)
+ALREADY #575 #576 #577 #578 #579 #641 observe frame_id/ax, bounded history, accessibility_tree_with/frames/target_id, new_page_with/PageSetup, scroll_by, design_mode: all in main's 0.3.4 changelog and src (page.rs, session.rs, design_mode.rs)
+ALREADY #286 #287 real-session mode (real_session.rs, attach_user_browser); needs-live-run, nothing to code
+ALREADY #222 --disable-component-update is in BASE_CHROME_ARGS (session.rs)
+ALREADY #221 sandbox-access 34 s vs 152 s is recorded in CHANGELOG (0.3.4 section)
+ALREADY #267 pinned Chrome for Testing table + digests + install module present (this pass adds the public ManagedRoot/ensure_default entry point)
+OUT-OF-SCOPE #281 (@rightkit/legal), #545 (publish tracking), #417, #383, #379, #279, #506, #650, #652, #700, #386: other components or tracking issues
+REJECTED: none (nothing conflicts with #771 D1-D5). Note: ManagedRoot::previous()/MANAGED_PREVIOUS_DIR and the doc text about a rollback copy still exist in main although D1 says no .previous copy is kept; that belongs to #348, left untouched here.
+
+Public API changes (all additive):
+ + ManagedRoot (now exported); install::{ensure_default_chrome_for_testing, ensure_chrome_for_testing_with_progress}
+ + BrowserPage::{set_user_agent, set_extra_headers, cookies, set_cookies, export_cookies_netscape, import_cookies_netscape}
+ + LaunchOptions::{user_agent(), extra_header()} and pub fields user_agent: Option<String>, extra_headers: Vec<(String,String)>  [BREAKING only for code that builds LaunchOptions by a full struct literal without ..Default; all in-repo uses (qa, session, fixture) use ..Default. Bumped 0.3.5 not 0.4.0 because 0.4.0 would force dep-req edits in rightkit-qa and rightkit-agent-tools (they require ^0.3.0); lead may choose 0.4.0 and bump those two.]
+ + CookieRecord, to_netscape, parse_netscape, NETSCAPE_HEADER, cookie_keyword_for_executable, cookies_from_browser_spec, BrowserKind::cookies_from_browser_keyword
+ + launch_visible_and_wait, VisibleLaunch, VisibleBrowser, VisibleOutcome
+ ~ behaviour: browser_executable/find_chrome search more locations on Windows (superset of before)
+Files: new src/{cookies,page_identity,visible}.rs; edited config.rs, install.rs, lib.rs, page.rs, real_session.rs, session.rs, README.md, CHANGELOG.md, Cargo.toml, Cargo.lock (browser entry only).
+Unverified compile risks for the main chat: chromiumoxide Headers::new(Value) / SetUserAgentOverrideParams::new / Storage GetCookiesParams::default / CookieParam fields; rightkit_child_process::ReapOutcome re-export path and OwnedChild::try_wait/terminate_tree_bounded signatures; Send-ness of VisibleBrowser::wait future.

@@ -1,0 +1,1240 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..000b4b7 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6751,7 +6751,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-browser"
+-version = "0.3.4"
++version = "0.3.5"
+ dependencies = [
+  "async-tungstenite",
+  "chromiumoxide",
+diff --git a/crates/rightkit-browser/CHANGELOG.md b/crates/rightkit-browser/CHANGELOG.md
+index fbdab65..f9142d8 100644
+--- a/crates/rightkit-browser/CHANGELOG.md
++++ b/crates/rightkit-browser/CHANGELOG.md
+@@ -1,5 +1,17 @@
+ # Changelog
+ 
++## 0.3.5
++
++ScrapeRight port gaps (rightkit#736), plus the cookie transfer lifted from ScrapeRight (rightkit#463). Additive. One construction-only break: `LaunchOptions` gained two public fields (`user_agent`, `extra_headers`), so code that builds it by a full struct literal without `..Default::default()` must add them; builder-style construction is unaffected. Not compiled or run yet.
++
++- `ManagedRoot` is public (rightkit#736): the managed Chrome for Testing folder (`resolve`, `at`, `path`, `current`, `previous`, `staging`, `executable`). Before, it sat in a private module, so `install::ensure_chrome_for_testing` could not be called from an app.
++- `install::ensure_default_chrome_for_testing(progress)` (feature `install`): installs the pinned build at `ManagedRoot::resolve()`, the one call an installer or updater step needs. `install::ensure_chrome_for_testing_with_progress(root, pin, progress)` reports `(DownloadKind, bytes received, bytes expected)`; `ensure_chrome_for_testing` is unchanged.
++- `BrowserPage::set_user_agent(ua, accept_language, platform)` (CDP `Emulation.setUserAgentOverride`) and `BrowserPage::set_extra_headers(&[(name, value)])` (CDP `Network.setExtraHTTPHeaders`): every request of the page carries them, no interceptor needed. Header names must be tokens, values hold no line break or NUL, and `Host`, `Content-Length`, `Transfer-Encoding` and `Connection` are refused; a repeated name keeps its last value. `LaunchOptions::user_agent(..)` and `LaunchOptions::extra_header(name, value)` apply the same to every page the session opens, before its first navigation (`new_page`, `new_page_with`); validated at launch. Pages a site opens itself are not covered.
++- Cookies: `CookieRecord`, `to_netscape` / `parse_netscape` (`#HttpOnly_` prefix, session expiry 0, fields with a tab or line break skipped, empty values kept), `BrowserPage::cookies`, `set_cookies`, `export_cookies_netscape(domains)` and `import_cookies_netscape`. These do not pass through the admission hook (no new `ActionKind`, so the public enum is unchanged); the caller decides which cookies may leave the session.
++- yt-dlp mapping: `cookie_keyword_for_executable(path)`, `BrowserKind::cookies_from_browser_keyword()` and `cookies_from_browser_spec(keyword, profile_dir)`.
++- Browser lookup: on Windows `browser_executable(kind)` and `find_chrome` also try the per-user `%LOCALAPPDATA%` install (Chrome, Chromium, Edge, Brave) after `%ProgramFiles%` and `%ProgramFiles(x86)%`, which are now read from the environment (fixed `C:\Program Files` paths when unset). `browser_executable(BrowserKind::Brave)` therefore finds a per-user Brave; on Linux it also checks `brave-browser-stable`, `brave` and the snap paths, on macOS `~/Applications`.
++- `launch_visible_and_wait(VisibleLaunch, timeout)`, `VisibleBrowser` (`launch`, `wait`, `terminate`, `pid`) and `VisibleOutcome { Exited { code }, TimedOut }`: a plain visible browser on a dedicated profile directory with no DevTools connection, waited on until the user closes it, for sign-in flows. The URL must be http(s) or `about:blank`; the flags that open a debugging endpoint or redirect the profile are refused; a real browser profile is refused. The process tree is owned and ends on timeout, `terminate` or drop.
++
+ ## 0.3.4 (2026-10-17)
+ 
+ - Doc fix (rightkit#267): the `PINNED_CHROME_FOR_TESTING` comment no longer says every digest is `Sha256Pin::Todo`; the 155.0.8059.39 table carries recorded digests for mac-arm64, mac-x64, linux64 and win64 (plus the win64 headless shell). `Sha256Pin::Todo` still refuses a download.
+diff --git a/crates/rightkit-browser/Cargo.toml b/crates/rightkit-browser/Cargo.toml
+index 1228b5a..f198a10 100644
+--- a/crates/rightkit-browser/Cargo.toml
++++ b/crates/rightkit-browser/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-browser"
+-version = "0.3.4"
++version = "0.3.5"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
+diff --git a/crates/rightkit-browser/README.md b/crates/rightkit-browser/README.md
+index 36825d3..cb43424 100644
+--- a/crates/rightkit-browser/README.md
++++ b/crates/rightkit-browser/README.md
+@@ -11,7 +11,8 @@ Catalog capability: `browser-automation`.
+ - `NetworkPolicy`: blocks loopback, link-local, private, reserved and `file:` targets, including redirects, subresources and proxied connections. Denials are typed (`BrowserError::Blocked`).
+ - `AdmissionHook`: gates each effect before it runs. `BrowserEvent` reports start, stop, crash and denied events.
+ - `BrowserPage::observe`: returns element refs that are checked for staleness before use.
+-- Chrome for Testing resolution (`chrome_for_testing_path`) and the explicit system-browser modes.
++- Chrome for Testing resolution (`chrome_for_testing_path`), the public `ManagedRoot`, and the explicit system-browser modes (`find_chrome`, `browser_executable(kind)`, per-user installs included).
++- `BrowserPage::set_user_agent` / `set_extra_headers` (also `LaunchOptions::user_agent` / `extra_header`), Netscape cookie import and export (`import_cookies_netscape`, `export_cookies_netscape`) and `launch_visible_and_wait` (a plain visible browser the user closes, for sign-in).
+ 
+ ## When to use it
+ 
+@@ -22,7 +23,7 @@ Do not use it to drive Safari or Firefox, or desktop apps (see `rightkit-automat
+ 
+ ## Cargo features
+ 
+-`install` (off by default): `install::ensure_chrome_for_testing`; pulls `rightkit-models`, `rightkit-fs` and `zip`. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
++`install` (off by default): `install::ensure_chrome_for_testing` and `install::ensure_default_chrome_for_testing(progress)`; pulls `rightkit-models`, `rightkit-fs` and `zip`. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
+ 
+ ## Usage
+ 
+diff --git a/crates/rightkit-browser/src/config.rs b/crates/rightkit-browser/src/config.rs
+index c79df4c..b4b84ab 100644
+--- a/crates/rightkit-browser/src/config.rs
++++ b/crates/rightkit-browser/src/config.rs
+@@ -61,6 +61,12 @@ pub struct LaunchOptions {
+     pub network: NetworkPolicy,
+     /// Receives start/stop/crash/denied lifecycle events (session id, reason, time).
+     pub on_event: Option<EventSink>,
++    /// User agent set on every page the session opens, before its first navigation. `None` keeps
++    /// the browser's own. See [`Self::user_agent`].
++    pub user_agent: Option<String>,
++    /// Request headers set on every page the session opens, before its first navigation.
++    /// See [`Self::extra_header`].
++    pub extra_headers: Vec<(String, String)>,
+     /// Windows: the caller's job object (see [`Self::windows_job`]). Chromium and every
+     /// helper it starts are bound to it; a clone of these options keeps the duplicate open.
+     #[cfg(windows)]
+@@ -96,6 +102,8 @@ impl Default for LaunchOptions {
+             admission: None,
+             network: NetworkPolicy::default(),
+             on_event: None,
++            user_agent: None,
++            extra_headers: Vec::new(),
+             #[cfg(windows)]
+             windows_job: None,
+         }
+@@ -141,6 +149,19 @@ impl LaunchOptions {
+         self.on_event = Some(std::sync::Arc::new(f));
+         self
+     }
++    /// User agent for every page the session opens (applied before the first navigation, as
++    /// [`crate::BrowserPage::set_user_agent`] does). Validated at launch. Pages a site opens
++    /// itself (`window.open`) are not covered; set them with the page method.
++    pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
++        self.user_agent = Some(user_agent.into());
++        self
++    }
++    /// Add a request header sent by every page the session opens (applied before the first
++    /// navigation, as [`crate::BrowserPage::set_extra_headers`] does). Validated at launch.
++    pub fn extra_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
++        self.extra_headers.push((name.into(), value.into()));
++        self
++    }
+     /// Windows: bind Chromium to the caller's job object (an in-process host's own job).
+     /// Chromium joins it before running its first instruction, beneath RightKit's own
+     /// kill-on-close jobs, none of which allow breakaway: terminating or closing the
+@@ -264,7 +285,6 @@ pub struct ManagedRoot {
+     root: PathBuf,
+ }
+ 
+-#[cfg_attr(not(feature = "install"), allow(dead_code))]
+ impl ManagedRoot {
+     /// The suite-wide root (`<app data>/Orthic Labs/shared/chrome-for-testing`), or
+     /// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when set.
+@@ -624,7 +644,8 @@ fn resolve_executable_with(
+     }
+ }
+ 
+-/// System Chrome, Chromium, then Edge. `CHROME` env overrides. Launch uses this only with
++/// System Chrome, Chromium, then Edge (Windows: machine-wide and per-user `%LOCALAPPDATA%` installs;
++/// use [`crate::browser_executable`] for one kind such as Brave). `CHROME` env overrides. Launch uses this only with
+ /// [`LaunchOptions::system_chrome`] or [`LaunchOptions::system_chrome_only`];
+ /// prefer [`chrome_for_testing_path`] for isolated automation.
+ pub fn find_chrome() -> Option<PathBuf> {
+@@ -634,14 +655,23 @@ pub fn find_chrome() -> Option<PathBuf> {
+             return Some(p);
+         }
+     }
+-    let candidates: &[&str] = if cfg!(target_os = "windows") {
+-        &[
+-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
++    if cfg!(target_os = "windows") {
++        // Machine-wide installs, then the per-user %LOCALAPPDATA% install of each kind.
++        let env = |k: &str| {
++            std::env::var_os(k)
++                .filter(|v| !v.is_empty())
++                .map(PathBuf::from)
++        };
++        return [
++            crate::real_session::BrowserKind::Chrome,
++            crate::real_session::BrowserKind::Chromium,
++            crate::real_session::BrowserKind::Edge,
+         ]
+-    } else if cfg!(target_os = "macos") {
++        .into_iter()
++        .flat_map(|kind| crate::real_session::windows_browser_candidates(kind, &env))
++        .find(|p| p.exists());
++    }
++    let candidates: &[&str] = if cfg!(target_os = "macos") {
+         &[
+             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+             "/Applications/Chromium.app/Contents/MacOS/Chromium",
+diff --git a/crates/rightkit-browser/src/cookies.rs b/crates/rightkit-browser/src/cookies.rs
+new file mode 100644
+index 0000000..fc6a350
+--- /dev/null
++++ b/crates/rightkit-browser/src/cookies.rs
+@@ -0,0 +1,222 @@
++//! Netscape `cookies.txt` import and export, and the yt-dlp `--cookies-from-browser` mapping.
++//! Lifted from ScrapeRight (`commands_auth_helpers.rs`, `inapp_sign_in.rs`, `browser.rs`,
++//! `source_auth.rs`).
++
++use crate::real_session::BrowserKind;
++use serde::{Deserialize, Serialize};
++use std::path::Path;
++
++/// First line of a Netscape cookie file.
++pub const NETSCAPE_HEADER: &str = "# Netscape HTTP Cookie File";
++
++/// One cookie in the shape a Netscape file holds.
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct CookieRecord {
++    /// Host, without the leading dot (`example.com`).
++    pub domain: String,
++    /// Sent to subdomains too (written as a leading dot and `TRUE`).
++    pub include_subdomains: bool,
++    pub path: String,
++    pub secure: bool,
++    pub http_only: bool,
++    /// Unix seconds; 0 is a session cookie (yt-dlp reads 0 as a session cookie).
++    pub expires: i64,
++    pub name: String,
++    pub value: String,
++}
++
++impl CookieRecord {
++    /// A field that holds a tab or line break would corrupt a Netscape file.
++    fn is_writable(&self) -> bool {
++        !self.name.is_empty()
++            && [&self.domain, &self.path, &self.name, &self.value]
++                .iter()
++                .all(|s| !s.contains(['\t', '\n', '\r']))
++    }
++
++    /// Whether the cookie's domain is `allowed` or one of its subdomains.
++    pub fn matches_domain(&self, allowed: &str) -> bool {
++        let allowed = allowed.trim_start_matches('.').to_ascii_lowercase();
++        let domain = self.domain.trim_start_matches('.').to_ascii_lowercase();
++        domain == allowed || domain.ends_with(&format!(".{allowed}"))
++    }
++}
++
++/// Write `cookies` as a Netscape file. A cookie with a tab or line break in a field is skipped, not
++/// written. HttpOnly cookies carry the `#HttpOnly_` domain prefix curl and yt-dlp use.
++pub fn to_netscape(cookies: &[CookieRecord]) -> String {
++    let mut out = String::from(NETSCAPE_HEADER);
++    out.push('\n');
++    for c in cookies.iter().filter(|c| c.is_writable()) {
++        let domain = c.domain.trim_start_matches('.');
++        let prefix = if c.http_only { "#HttpOnly_" } else { "" };
++        let dot = if c.include_subdomains { "." } else { "" };
++        out.push_str(&format!(
++            "{prefix}{dot}{domain}\t{}\t{}\t{}\t{}\t{}\t{}\n",
++            if c.include_subdomains { "TRUE" } else { "FALSE" },
++            c.path,
++            if c.secure { "TRUE" } else { "FALSE" },
++            c.expires.max(0),
++            c.name,
++            c.value,
++        ));
++    }
++    out
++}
++
++/// Read a Netscape file. Comment lines (other than `#HttpOnly_`), blank lines and lines with fewer
++/// than seven tab-separated fields are skipped.
++pub fn parse_netscape(text: &str) -> Vec<CookieRecord> {
++    let mut out = Vec::new();
++    // Not trimmed: a cookie with an empty value ends in a tab that must survive.
++    for line in text.lines() {
++        if line.trim().is_empty() {
++            continue;
++        }
++        let (line, http_only) = match line.strip_prefix("#HttpOnly_") {
++            Some(rest) => (rest, true),
++            None if line.starts_with('#') => continue,
++            None => (line, false),
++        };
++        let f: Vec<&str> = line.split('\t').collect();
++        if f.len() < 7 || f[5].trim().is_empty() {
++            continue;
++        }
++        out.push(CookieRecord {
++            domain: f[0].trim_start_matches('.').to_string(),
++            include_subdomains: f[1].eq_ignore_ascii_case("TRUE") || f[0].starts_with('.'),
++            path: if f[2].is_empty() { "/".into() } else { f[2].to_string() },
++            secure: f[3].eq_ignore_ascii_case("TRUE"),
++            http_only,
++            expires: f[4].trim().parse::<i64>().unwrap_or(0).max(0),
++            name: f[5].trim().to_string(),
++            value: f[6].to_string(),
++        });
++    }
++    out
++}
++
++/// yt-dlp `--cookies-from-browser` keyword for the browser executable at `exe`. It selects the
++/// cookie-decryption scheme (Keychain service name on macOS; DPAPI on Windows, shared by every
++/// Chromium browser). Defaults to `chrome`.
++pub fn cookie_keyword_for_executable(exe: &Path) -> &'static str {
++    let name = exe
++        .file_name()
++        .and_then(|n| n.to_str())
++        .unwrap_or("")
++        .to_ascii_lowercase();
++    if name.contains("msedge") || name.contains("microsoft edge") {
++        "edge"
++    } else if name.contains("brave") {
++        "brave"
++    } else if name.contains("chromium") {
++        "chromium"
++    } else if name.contains("vivaldi") {
++        "vivaldi"
++    } else if name.contains("opera") {
++        "opera"
++    } else if name.contains("firefox") {
++        "firefox"
++    } else if name.contains("safari") {
++        "safari"
++    } else {
++        "chrome"
++    }
++}
++
++impl BrowserKind {
++    /// yt-dlp `--cookies-from-browser` keyword, `None` for [`BrowserKind::Unknown`].
++    pub fn cookies_from_browser_keyword(self) -> Option<&'static str> {
++        match self {
++            Self::Chrome => Some("chrome"),
++            Self::Edge => Some("edge"),
++            Self::Chromium => Some("chromium"),
++            Self::Brave => Some("brave"),
++            Self::Safari => Some("safari"),
++            Self::Firefox => Some("firefox"),
++            Self::Unknown => None,
++        }
++    }
++}
++
++/// The `--cookies-from-browser` argument: `keyword`, or `keyword:<profile dir>` for a dedicated
++/// profile (yt-dlp then reads that profile's cookie store).
++pub fn cookies_from_browser_spec(keyword: &str, profile_dir: Option<&Path>) -> String {
++    match profile_dir {
++        Some(dir) => format!("{keyword}:{}", dir.display()),
++        None => keyword.to_string(),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn rec(name: &str, http_only: bool, sub: bool) -> CookieRecord {
++        CookieRecord {
++            domain: "example.com".into(),
++            include_subdomains: sub,
++            path: "/".into(),
++            secure: true,
++            http_only,
++            expires: 1_893_456_000,
++            name: name.into(),
++            value: "v".into(),
++        }
++    }
++
++    #[test]
++    fn round_trips_through_a_netscape_file() {
++        let cookies = vec![rec("a", false, true), rec("b", true, false)];
++        let text = to_netscape(&cookies);
++        assert!(text.starts_with("# Netscape HTTP Cookie File\n"));
++        assert!(text.contains(".example.com\tTRUE\t/\tTRUE\t1893456000\ta\tv\n"));
++        assert!(text.contains("#HttpOnly_example.com\tFALSE\t/\tTRUE\t1893456000\tb\tv\n"));
++        assert_eq!(parse_netscape(&text), cookies);
++    }
++
++    #[test]
++    fn unwritable_cookies_are_skipped_and_session_expiry_is_zero() {
++        let mut bad = rec("x", false, true);
++        bad.value = "a\tb".into();
++        let mut session = rec("s", false, true);
++        session.expires = -5;
++        let text = to_netscape(&[bad, session]);
++        assert_eq!(text.lines().count(), 2);
++        assert!(text.contains("\t0\ts\tv"));
++    }
++
++    #[test]
++    fn parse_skips_comments_short_lines_and_blank_names() {
++        let text = "# Netscape HTTP Cookie File\n# note\n\nshort\tline\n.a.com\tTRUE\t/\tFALSE\t0\t\tv\n.a.com\tTRUE\t/\tFALSE\t0\tn\tv\n";
++        let got = parse_netscape(text);
++        assert_eq!(got.len(), 1);
++        assert_eq!((got[0].domain.as_str(), got[0].name.as_str(), got[0].expires), ("a.com", "n", 0));
++    }
++
++    #[test]
++    fn an_empty_value_survives_a_round_trip() {
++        let mut c = rec("e", false, true);
++        c.value = String::new();
++        assert_eq!(parse_netscape(&to_netscape(std::slice::from_ref(&c))), vec![c]);
++    }
++
++    #[test]
++    fn domain_matching_covers_subdomains_only() {
++        let c = rec("a", false, true);
++        assert!(c.matches_domain("example.com") && c.matches_domain(".EXAMPLE.com"));
++        assert!(!c.matches_domain("ample.com") && !c.matches_domain("sub.example.com"));
++    }
++
++    #[test]
++    fn keyword_mapping_follows_the_executable_name() {
++        assert_eq!(cookie_keyword_for_executable(Path::new("C:/x/msedge.exe")), "edge");
++        assert_eq!(cookie_keyword_for_executable(Path::new("/a/Brave Browser")), "brave");
++        assert_eq!(cookie_keyword_for_executable(Path::new("/a/chromium")), "chromium");
++        assert_eq!(cookie_keyword_for_executable(Path::new("/a/unknown")), "chrome");
++        assert_eq!(BrowserKind::Edge.cookies_from_browser_keyword(), Some("edge"));
++        assert_eq!(BrowserKind::Unknown.cookies_from_browser_keyword(), None);
++        assert_eq!(cookies_from_browser_spec("chrome", Some(Path::new("/p"))), format!("chrome:{}", Path::new("/p").display()));
++        assert_eq!(cookies_from_browser_spec("edge", None), "edge");
++    }
++}
+diff --git a/crates/rightkit-browser/src/install.rs b/crates/rightkit-browser/src/install.rs
+index fb42c1c..9c1bffb 100644
+--- a/crates/rightkit-browser/src/install.rs
++++ b/crates/rightkit-browser/src/install.rs
+@@ -21,6 +21,9 @@
+ //! * Idempotent: when `current/install.json` already records the pinned version, platform and
+ //!   digests and the executable exists, nothing is downloaded.
+ //!
++//! An installer or updater step calls [`ensure_default_chrome_for_testing`]; a caller that places
++//! the root itself builds a [`crate::ManagedRoot`] and calls [`ensure_chrome_for_testing`].
++//!
+ //! [`chrome_for_testing_path`]: crate::chrome_for_testing_path
+ 
+ use crate::config::{executable_in, platform_key, ManagedRoot};
+@@ -318,18 +321,47 @@ fn marker_for(pin: &PinnedChrome, plan: &Plan<'_>) -> Marker {
+ pub fn ensure_chrome_for_testing(
+     root: &ManagedRoot,
+     pin: &PinnedChrome,
++) -> Result<ChromeInstall, InstallError> {
++    ensure_chrome_for_testing_with_progress(root, pin, &mut |_, _, _| {})
++}
++
++/// As [`ensure_chrome_for_testing`], reporting download progress as
++/// `(which archive, bytes received, bytes expected)`. Nothing is reported when the pinned version
++/// is already installed. The callback runs on the calling thread.
++pub fn ensure_chrome_for_testing_with_progress(
++    root: &ManagedRoot,
++    pin: &PinnedChrome,
++    progress: &mut dyn FnMut(DownloadKind, u64, u64),
+ ) -> Result<ChromeInstall, InstallError> {
+     let http = http_client();
++    let progress = std::cell::RefCell::new(progress);
+     ensure_with(root, pin, platform_key(), &|d, sha, dest| {
+-        fetch(&http, d, sha, dest)
++        fetch(&http, d, sha, dest, &mut |done, total| {
++            (*progress.borrow_mut())(d.kind, done, total)
++        })
+     })
+ }
+ 
++/// The one call an installer or updater step makes: put [`PINNED_CHROME_FOR_TESTING`] at the
++/// suite-wide managed root ([`ManagedRoot::resolve`], honouring
++/// `RIGHTKIT_CHROME_FOR_TESTING_ROOT`), where every app's launch finds it. Blocking; see
++/// [`ensure_chrome_for_testing_with_progress`] for `progress`.
++pub fn ensure_default_chrome_for_testing(
++    progress: &mut dyn FnMut(DownloadKind, u64, u64),
++) -> Result<ChromeInstall, InstallError> {
++    ensure_chrome_for_testing_with_progress(
++        &ManagedRoot::resolve(),
++        &PINNED_CHROME_FOR_TESTING,
++        progress,
++    )
++}
++
+ fn fetch(
+     http: &ModelHttp,
+     d: &PinnedDownload,
+     sha256: &str,
+     dest: &Path,
++    progress: &mut dyn FnMut(u64, u64),
+ ) -> Result<(), InstallError> {
+     let part = part_path_for(dest);
+     download_resumable(
+@@ -342,7 +374,7 @@ fn fetch(
+             authorization: None,
+             cancelled: &|| false,
+         },
+-        |_, _| {},
++        |done, total| progress(done, total),
+     )
+     .map(|_| ())
+     .map_err(|e| InstallError::Download {
+diff --git a/crates/rightkit-browser/src/lib.rs b/crates/rightkit-browser/src/lib.rs
+index 5fec359..5ec26de 100644
+--- a/crates/rightkit-browser/src/lib.rs
++++ b/crates/rightkit-browser/src/lib.rs
+@@ -20,11 +20,20 @@
+ //! * Real-session mode (consent-gated): [`default_browser`], [`UserConsentReceipt`],
+ //!   [`ProfileSpec::ImportedFrom`] and [`BrowserSession::attach_user_browser`] reuse the user's
+ //!   own sign-ins in a private copy, confined to the consented domains. See [`ImportSpec`].
++//! * [`ManagedRoot`] names the managed Chrome for Testing folder; with feature `install`,
++//!   `install::ensure_default_chrome_for_testing` puts the pinned build there.
++//! * [`BrowserPage::set_user_agent`] / [`BrowserPage::set_extra_headers`] (and the matching
++//!   [`LaunchOptions::user_agent`] / [`LaunchOptions::extra_header`]) shape every request of a page.
++//! * Cookies: [`BrowserPage::export_cookies_netscape`] / [`BrowserPage::import_cookies_netscape`],
++//!   [`parse_netscape`] / [`to_netscape`], and the yt-dlp `--cookies-from-browser` mapping.
++//! * [`launch_visible_and_wait`] opens a plain visible browser with no DevTools connection and waits
++//!   for the user to close it (the sign-in step).
+ //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
+ //! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
+ //!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
+ mod cdp_ext;
+ mod config;
++mod cookies;
+ pub mod design_mode;
+ mod error;
+ mod fixture;
+@@ -34,6 +43,7 @@ mod fixture_server;
+ pub mod install;
+ mod keys;
+ mod page;
++mod page_identity;
+ #[cfg(windows)]
+ mod pipe_transport;
+ mod policy;
+@@ -42,6 +52,7 @@ mod proxy;
+ mod real_session;
+ mod sandbox_access;
+ mod session;
++mod visible;
+ 
+ pub use cdp_ext::{
+     AxNode, AxSummary, ContinueOverrides, DownloadBehavior, ExceptionFrame, InterceptDecision,
+@@ -50,9 +61,13 @@ pub use cdp_ext::{
+ };
+ pub use config::{
+     chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
+-    ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
++    ManagedRoot, ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
+     CHROME_FOR_TESTING_ROOT_ENV,
+ };
++pub use cookies::{
++    cookie_keyword_for_executable, cookies_from_browser_spec, parse_netscape, to_netscape,
++    CookieRecord, NETSCAPE_HEADER,
++};
+ pub use error::{BrowserError, Result};
+ pub use fixture::{
+     FixtureAttestation, FixtureCancellation, FixtureCleanupEvidence, FixtureConfinementBackend,
+@@ -79,3 +94,4 @@ pub use real_session::{
+     UserConsentReceipt, CONSENT_SCHEMA,
+ };
+ pub use session::{BrowserSession, PageSetup};
++pub use visible::{launch_visible_and_wait, VisibleBrowser, VisibleLaunch, VisibleOutcome};
+diff --git a/crates/rightkit-browser/src/page.rs b/crates/rightkit-browser/src/page.rs
+index 853ba5e..844881f 100644
+--- a/crates/rightkit-browser/src/page.rs
++++ b/crates/rightkit-browser/src/page.rs
+@@ -3,6 +3,7 @@ use crate::cdp_ext::{
+     AxNode, AxSummary, DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest,
+     PageException, PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
+ };
++use crate::cookies::CookieRecord;
+ use crate::design_mode::{self, DesignModeBridge, DesignModeSession, NativeGestureLatch};
+ use crate::error::{cdp, BrowserError, Result};
+ use crate::keys::{self, KeyDef};
+@@ -554,6 +555,120 @@ impl BrowserPage {
+         &self.inner
+     }
+ 
++    /// Override the user agent of every request this page makes (CDP
++    /// `Emulation.setUserAgentOverride`), and `navigator.userAgent` with it. `accept_language`
++    /// and `platform` override the `Accept-Language` header and `navigator.platform` when given.
++    /// The network policy and the admission hook still apply to every request.
++    pub async fn set_user_agent(
++        &self,
++        user_agent: &str,
++        accept_language: Option<&str>,
++        platform: Option<&str>,
++    ) -> Result<()> {
++        use chromiumoxide::cdp::browser_protocol::emulation::SetUserAgentOverrideParams;
++        crate::page_identity::validate_user_agent(user_agent)?;
++        let mut params = SetUserAgentOverrideParams::new(user_agent);
++        params.accept_language = accept_language.map(str::to_string);
++        params.platform = platform.map(str::to_string);
++        self.inner.execute(params).await.map_err(cdp)?;
++        Ok(())
++    }
++
++    /// Send `headers` with every request this page makes (CDP `Network.setExtraHTTPHeaders`),
++    /// replacing any set before; an empty list clears them. Names must be valid header tokens,
++    /// values may hold no line break, and the framing headers (`Host`, `Content-Length`,
++    /// `Transfer-Encoding`, `Connection`) are refused with [`BrowserError::Invalid`]. A repeated
++    /// name keeps its last value. The headers also ride on cross-origin and redirected requests
++    /// of this page, so pass nothing secret that the page's sites should not see.
++    pub async fn set_extra_headers(&self, headers: &[(String, String)]) -> Result<()> {
++        use chromiumoxide::cdp::browser_protocol::network::{
++            Headers, SetExtraHttpHeadersParams,
++        };
++        let object = crate::page_identity::headers_object(headers)?;
++        self.inner
++            .execute(SetExtraHttpHeadersParams::new(Headers::new(object)))
++            .await
++            .map_err(cdp)?;
++        Ok(())
++    }
++
++    /// Every cookie in the browser context (CDP `Storage.getCookies`), as Netscape-shaped records.
++    /// Reading cookies is not an input effect and does not pass through the admission hook; the
++    /// caller decides which cookies may leave the session (see [`Self::export_cookies_netscape`]).
++    pub async fn cookies(&self) -> Result<Vec<CookieRecord>> {
++        use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
++        let reply = self
++            .inner
++            .execute(GetCookiesParams::default())
++            .await
++            .map_err(cdp)?;
++        Ok(reply
++            .result
++            .cookies
++            .into_iter()
++            .map(|c| CookieRecord {
++                include_subdomains: c.domain.starts_with('.'),
++                domain: c.domain.trim_start_matches('.').to_string(),
++                path: c.path,
++                secure: c.secure,
++                http_only: c.http_only,
++                expires: if c.session || c.expires < 0.0 {
++                    0
++                } else {
++                    c.expires as i64
++                },
++                name: c.name,
++                value: c.value,
++            })
++            .collect())
++    }
++
++    /// Set cookies in the browser context (CDP `Network.setCookies`); returns how many were sent.
++    pub async fn set_cookies(&self, cookies: &[CookieRecord]) -> Result<usize> {
++        use chromiumoxide::cdp::browser_protocol::network::{
++            CookieParam, SetCookiesParams, TimeSinceEpoch,
++        };
++        let params: Vec<CookieParam> = cookies
++            .iter()
++            .map(|c| {
++                let mut p = CookieParam::new(c.name.clone(), c.value.clone());
++                let dot = if c.include_subdomains { "." } else { "" };
++                p.domain = Some(format!("{dot}{}", c.domain.trim_start_matches('.')));
++                p.path = Some(c.path.clone());
++                p.secure = Some(c.secure);
++                p.http_only = Some(c.http_only);
++                if c.expires > 0 {
++                    p.expires = Some(TimeSinceEpoch::new(c.expires as f64));
++                }
++                p
++            })
++            .collect();
++        let count = params.len();
++        if count > 0 {
++            self.inner
++                .execute(SetCookiesParams::new(params))
++                .await
++                .map_err(cdp)?;
++        }
++        Ok(count)
++    }
++
++    /// The context's cookies as Netscape `cookies.txt` text, optionally limited to `domains`
++    /// (each covers its subdomains). A cookie with a tab or line break in a field is skipped.
++    pub async fn export_cookies_netscape(&self, domains: Option<&[&str]>) -> Result<String> {
++        let mut all = self.cookies().await?;
++        if let Some(domains) = domains {
++            all.retain(|c| domains.iter().any(|d| c.matches_domain(d)));
++        }
++        Ok(crate::cookies::to_netscape(&all))
++    }
++
++    /// Load Netscape `cookies.txt` text into the context; returns the number of cookies set.
++    /// Lines that are not seven tab-separated fields are skipped (see [`crate::parse_netscape`]).
++    pub async fn import_cookies_netscape(&self, text: &str) -> Result<usize> {
++        self.set_cookies(&crate::cookies::parse_netscape(text)).await
++    }
++
+     pub(crate) fn abort_pumps(&self) {
+         if let Ok(mut p) = self.pumps.lock() {
+             for h in p.drain(..) {
+diff --git a/crates/rightkit-browser/src/page_identity.rs b/crates/rightkit-browser/src/page_identity.rs
+new file mode 100644
+index 0000000..71b4001
+--- /dev/null
++++ b/crates/rightkit-browser/src/page_identity.rs
+@@ -0,0 +1,102 @@
++//! User-agent and extra request headers for a page: validation and the CDP parameters.
++//!
++//! Applied through `Emulation.setUserAgentOverride` and `Network.setExtraHTTPHeaders`, so every
++//! request of the page (navigations and subresources) carries them without a request interceptor.
++//! The network policy and the admission hook still see every request.
++
++use crate::error::{BrowserError, Result};
++use serde_json::{Map, Value};
++
++/// Headers the browser itself owns; setting them would break framing or the session's own checks.
++const RESERVED_HEADERS: &[&str] = &["host", "content-length", "transfer-encoding", "connection"];
++
++/// A user agent must be a single printable line.
++pub(crate) fn validate_user_agent(user_agent: &str) -> Result<()> {
++    if user_agent.trim().is_empty() || user_agent.chars().any(char::is_control) {
++        return Err(BrowserError::Invalid(
++            "user agent must be non-empty and hold no control characters".into(),
++        ));
++    }
++    Ok(())
++}
++
++fn is_token(name: &str) -> bool {
++    !name.is_empty()
++        && name.bytes().all(|b| {
++            b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)
++        })
++}
++
++/// Validate `headers` and fold them into the JSON object CDP takes. Names are RFC 9110 tokens,
++/// values hold no line break or NUL, reserved framing headers are refused; a repeated name (any
++/// case) keeps its last value.
++pub(crate) fn headers_object(headers: &[(String, String)]) -> Result<Value> {
++    let mut seen: Vec<(String, String)> = Vec::new();
++    for (name, value) in headers {
++        if !is_token(name) {
++            return Err(BrowserError::Invalid(format!(
++                "'{name}' is not a valid header name"
++            )));
++        }
++        if RESERVED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
++            return Err(BrowserError::Invalid(format!(
++                "header '{name}' is managed by the browser"
++            )));
++        }
++        if value.contains(['\r', '\n', '\0']) {
++            return Err(BrowserError::Invalid(format!(
++                "the value of header '{name}' holds a line break or NUL"
++            )));
++        }
++        match seen
++            .iter_mut()
++            .find(|(n, _)| n.eq_ignore_ascii_case(name))
++        {
++            Some(slot) => *slot = (name.clone(), value.clone()),
++            None => seen.push((name.clone(), value.clone())),
++        }
++    }
++    let mut map = Map::new();
++    for (name, value) in seen {
++        map.insert(name, Value::String(value));
++    }
++    Ok(Value::Object(map))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn h(n: &str, v: &str) -> (String, String) {
++        (n.into(), v.into())
++    }
++
++    #[test]
++    fn headers_fold_into_an_object_and_the_last_duplicate_wins() {
++        let v = headers_object(&[h("Accept-Language", "en"), h("X-Id", "1"), h("accept-language", "de")])
++            .unwrap();
++        assert_eq!(v["accept-language"], "de");
++        assert_eq!(v["X-Id"], "1");
++        assert_eq!(v.as_object().unwrap().len(), 2);
++    }
++
++    #[test]
++    fn an_empty_list_clears_the_headers() {
++        assert_eq!(headers_object(&[]).unwrap(), serde_json::json!({}));
++    }
++
++    #[test]
++    fn bad_names_values_and_reserved_headers_are_refused() {
++        for bad in [h("", "x"), h("a b", "x"), h("a:b", "x"), h("X", "a\r\nInjected: 1"), h("X", "a\0"), h("Host", "evil"), h("content-length", "0")] {
++            assert!(headers_object(&[bad.clone()]).is_err(), "{bad:?}");
++        }
++    }
++
++    #[test]
++    fn user_agent_must_be_one_printable_line() {
++        assert!(validate_user_agent("Mozilla/5.0 (X11) Chrome/155").is_ok());
++        assert!(validate_user_agent("").is_err());
++        assert!(validate_user_agent("   ").is_err());
++        assert!(validate_user_agent("a\nb").is_err());
++    }
++}
+diff --git a/crates/rightkit-browser/src/real_session.rs b/crates/rightkit-browser/src/real_session.rs
+index b1e0c41..d3cee08 100644
+--- a/crates/rightkit-browser/src/real_session.rs
++++ b/crates/rightkit-browser/src/real_session.rs
+@@ -668,24 +668,52 @@ pub fn user_data_dir(kind: BrowserKind) -> Option<PathBuf> {
+     path.is_dir().then_some(path)
+ }
+ 
+-/// The installed browser executable for a Chromium-family kind.
+-pub fn browser_executable(kind: BrowserKind) -> Option<PathBuf> {
+-    let candidates: &[&str] = if cfg!(windows) {
+-        match kind {
+-            BrowserKind::Chrome => &[
+-                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+-                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+-            ],
+-            BrowserKind::Edge => &[
+-                "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+-                "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+-            ],
+-            BrowserKind::Brave => {
+-                &["C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"]
+-            }
+-            _ => &[],
++/// Install locations of a Chromium-family browser on Windows, best first: machine-wide installs
++/// under `%ProgramFiles%` and `%ProgramFiles(x86)%` (fixed `C:\Program Files` paths when those
++/// variables are unset), then the per-user install under `%LOCALAPPDATA%` (Chrome, Brave and
++/// Chromium install there without administrator rights). Pure: `env` supplies the variables.
++pub(crate) fn windows_browser_candidates(
++    kind: BrowserKind,
++    env: &dyn Fn(&str) -> Option<PathBuf>,
++) -> Vec<PathBuf> {
++    let rel: &[&str] = match kind {
++        BrowserKind::Chrome => &["Google", "Chrome", "Application", "chrome.exe"],
++        BrowserKind::Edge => &["Microsoft", "Edge", "Application", "msedge.exe"],
++        BrowserKind::Chromium => &["Chromium", "Application", "chrome.exe"],
++        BrowserKind::Brave => &["BraveSoftware", "Brave-Browser", "Application", "brave.exe"],
++        _ => return Vec::new(),
++    };
++    let mut roots: Vec<PathBuf> = Vec::new();
++    for (var, fallback) in [
++        ("ProgramFiles", r"C:\Program Files"),
++        ("ProgramFiles(x86)", r"C:\Program Files (x86)"),
++    ] {
++        roots.push(env(var).unwrap_or_else(|| PathBuf::from(fallback)));
++    }
++    if let Some(local) = env("LOCALAPPDATA") {
++        roots.push(local);
++    }
++    let mut out: Vec<PathBuf> = Vec::new();
++    for root in roots {
++        let mut p = root;
++        p.extend(rel);
++        if !out.contains(&p) {
++            out.push(p);
+         }
+-    } else if cfg!(target_os = "macos") {
++    }
++    out
++}
++
++/// The installed browser executable for a Chromium-family kind: machine-wide installs first, then
++/// (Windows) the per-user `%LOCALAPPDATA%` install. `None` when that kind is not installed.
++pub fn browser_executable(kind: BrowserKind) -> Option<PathBuf> {
++    if cfg!(windows) {
++        let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
++        return windows_browser_candidates(kind, &env)
++            .into_iter()
++            .find(|p| p.exists());
++    }
++    let candidates: &[&str] = if cfg!(target_os = "macos") {
+         match kind {
+             BrowserKind::Chrome => {
+                 &["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+@@ -701,12 +729,32 @@ pub fn browser_executable(kind: BrowserKind) -> Option<PathBuf> {
+         match kind {
+             BrowserKind::Chrome => &["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"],
+             BrowserKind::Edge => &["/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable"],
+-            BrowserKind::Chromium => &["/usr/bin/chromium", "/usr/bin/chromium-browser"],
+-            BrowserKind::Brave => &["/usr/bin/brave-browser"],
++            BrowserKind::Chromium => &[
++                "/usr/bin/chromium",
++                "/usr/bin/chromium-browser",
++                "/snap/bin/chromium",
++            ],
++            BrowserKind::Brave => &[
++                "/usr/bin/brave-browser",
++                "/usr/bin/brave-browser-stable",
++                "/usr/bin/brave",
++                "/snap/bin/brave",
++            ],
+             _ => &[],
+         }
+     };
+-    candidates.iter().map(PathBuf::from).find(|p| p.exists())
++    let mut found = candidates.iter().map(PathBuf::from).find(|p| p.exists());
++    if found.is_none() && cfg!(target_os = "macos") {
++        // A per-user install in ~/Applications.
++        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
++            found = candidates
++                .iter()
++                .filter_map(|c| c.strip_prefix("/Applications/"))
++                .map(|rest| home.join("Applications").join(rest))
++                .find(|p| p.exists());
++        }
++    }
++    found
+ }
+ 
+ /// One profile of a Chromium-family browser.
+@@ -949,6 +997,24 @@ pub(crate) fn attach_profile_name(consent: &UserConsentReceipt) -> String {
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn windows_candidates_list_machine_wide_then_per_user_installs() {
++        let env = |k: &str| match k {
++            "ProgramFiles" => Some(PathBuf::from("PF")),
++            "LOCALAPPDATA" => Some(PathBuf::from("LA")),
++            _ => None,
++        };
++        let norm = |p: &PathBuf| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>();
++        let brave = windows_browser_candidates(BrowserKind::Brave, &env);
++        assert_eq!(brave.len(), 3);
++        assert_eq!(norm(&brave[0]), ["PF", "BraveSoftware", "Brave-Browser", "Application", "brave.exe"]);
++        assert!(brave[1].to_string_lossy().contains("Program Files (x86)"));
++        assert_eq!(norm(&brave[2]), ["LA", "BraveSoftware", "Brave-Browser", "Application", "brave.exe"]);
++        let chrome = windows_browser_candidates(BrowserKind::Chrome, &|_| None);
++        assert_eq!(chrome.len(), 2, "no LOCALAPPDATA, no per-user candidate");
++        assert!(windows_browser_candidates(BrowserKind::Safari, &env).is_empty());
++    }
++
+     use super::*;
+ 
+     fn receipt(domains: Option<Vec<&str>>) -> UserConsentReceipt {
+diff --git a/crates/rightkit-browser/src/session.rs b/crates/rightkit-browser/src/session.rs
+index 984c556..a9ffb6c 100644
+--- a/crates/rightkit-browser/src/session.rs
++++ b/crates/rightkit-browser/src/session.rs
+@@ -374,6 +374,9 @@ pub struct BrowserSession {
+     fixture_profile_path: Option<PathBuf>,
+     download_dir: PathBuf,
+     upload_root: Option<PathBuf>,
++    /// Set on every page this session opens (see `LaunchOptions::user_agent` / `extra_header`).
++    user_agent: Option<String>,
++    extra_headers: Vec<(String, String)>,
+     headless: bool,
+     guard: Arc<Guard>,
+     pid: Option<u32>,
+@@ -591,6 +594,10 @@ impl BrowserSession {
+         fixture_proxy_policy: Option<FixtureProxyPolicy>,
+     ) -> Result<Self> {
+         validate_extra_args(&opts.extra_args)?;
++        if let Some(ua) = opts.user_agent.as_deref() {
++            crate::page_identity::validate_user_agent(ua)?;
++        }
++        crate::page_identity::headers_object(&opts.extra_headers)?;
+         let exe = resolve_executable(&opts)?;
+         // A sandbox that cannot read its own browser crashes the network service at startup;
+         // refuse that launch with the directory and the fix instead of a browser that hangs.
+@@ -911,6 +918,8 @@ impl BrowserSession {
+             fixture_profile_path,
+             download_dir,
+             upload_root: opts.upload_root,
++            user_agent: opts.user_agent,
++            extra_headers: opts.extra_headers,
+             headless: opts.headless,
+             guard,
+             pid,
+@@ -1076,6 +1085,12 @@ impl BrowserSession {
+             )
+             .await?,
+         );
++        if let Some(ua) = self.user_agent.as_deref() {
++            page.set_user_agent(ua, None, None).await?;
++        }
++        if !self.extra_headers.is_empty() {
++            page.set_extra_headers(&self.extra_headers).await?;
++        }
+         self.pages.lock().unwrap().push(page.clone());
+         *self.current.lock().unwrap() = Some(id);
+         Ok(page)
+diff --git a/crates/rightkit-browser/src/visible.rs b/crates/rightkit-browser/src/visible.rs
+new file mode 100644
+index 0000000..6ba2e01
+--- /dev/null
++++ b/crates/rightkit-browser/src/visible.rs
+@@ -0,0 +1,285 @@
++//! A plain, visible browser the user drives by hand, with no DevTools connection: launch it on a
++//! dedicated profile directory and wait for the user to close it. This is the sign-in step: the
++//! user logs in to a site in a real window, closes it, and the app then reads the profile (for
++//! example with a yt-dlp `--cookies-from-browser` spec from [`crate::cookies_from_browser_spec`]).
++//!
++//! Nothing here opens a debugging port or a pipe, so the page cannot be driven or observed by this
++//! crate, and no network policy or admission hook applies: use [`crate::BrowserSession`] for
++//! automation. The process is owned (a kill-on-close job object on Windows, a process group on
++//! Unix): dropping a [`VisibleBrowser`] ends the browser's whole tree.
++
++use crate::config::{find_chrome, reject_real_browser_profile, validate_extra_args};
++use crate::error::{BrowserError, Result};
++use crate::real_session::{browser_executable, BrowserKind};
++use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome};
++use std::ffi::OsString;
++use std::path::PathBuf;
++use std::process::Stdio;
++use std::time::{Duration, Instant};
++
++/// How often [`VisibleBrowser::wait`] looks at the process.
++const POLL: Duration = Duration::from_millis(250);
++/// Bound on ending a browser tree after a timeout or a [`VisibleBrowser::terminate`].
++const TERMINATE_WITHIN: Duration = Duration::from_secs(5);
++
++/// What to launch for [`VisibleBrowser::launch`] and [`launch_visible_and_wait`].
++#[derive(Clone, Debug)]
++pub struct VisibleLaunch {
++    /// Explicit browser executable. When `None`, the installed browser of `kind` is used.
++    pub executable: Option<PathBuf>,
++    /// Which installed browser to use when `executable` is `None` (default Chrome; Chromium
++    /// family only). For Chrome, [`crate::find_chrome`] is the fallback.
++    pub kind: BrowserKind,
++    /// A dedicated, absolute user-data directory, created when missing. The browser keeps its
++    /// cookies and storage there. It must not be a real browser profile, and no other browser may
++    /// be using it: Chromium hands a second launch on the same directory to the running instance
++    /// and exits at once.
++    pub profile_dir: PathBuf,
++    /// First page to open: `http(s)://` or `about:blank`. `None` opens the browser's start page.
++    pub url: Option<String>,
++    /// Extra Chrome flags (the flags that open a debugging endpoint or redirect the profile are
++    /// refused, as for a session).
++    pub extra_args: Vec<String>,
++}
++
++impl VisibleLaunch {
++    /// A visible Chrome on `profile_dir`.
++    pub fn new(profile_dir: impl Into<PathBuf>) -> Self {
++        Self {
++            executable: None,
++            kind: BrowserKind::Chrome,
++            profile_dir: profile_dir.into(),
++            url: None,
++            extra_args: Vec::new(),
++        }
++    }
++    pub fn kind(mut self, kind: BrowserKind) -> Self {
++        self.kind = kind;
++        self
++    }
++    pub fn executable(mut self, path: impl Into<PathBuf>) -> Self {
++        self.executable = Some(path.into());
++        self
++    }
++    pub fn url(mut self, url: impl Into<String>) -> Self {
++        self.url = Some(url.into());
++        self
++    }
++    pub fn arg(mut self, arg: impl Into<String>) -> Self {
++        self.extra_args.push(arg.into());
++        self
++    }
++}
++
++/// How a visible browser ended.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum VisibleOutcome {
++    /// The browser exited (the user closed it). `code` is its exit code when it reported one.
++    Exited { code: Option<i32> },
++    /// `wait` reached its timeout; the browser's process tree was terminated.
++    TimedOut,
++}
++
++/// The command-line flags for `launch`, after validation. Pure.
++pub(crate) fn visible_args(launch: &VisibleLaunch) -> Result<Vec<OsString>> {
++    validate_extra_args(&launch.extra_args)?;
++    let mut args: Vec<OsString> = vec![
++        {
++            let mut a = OsString::from("--user-data-dir=");
++            a.push(&launch.profile_dir);
++            a
++        },
++        "--no-first-run".into(),
++        "--no-default-browser-check".into(),
++    ];
++    for extra in &launch.extra_args {
++        args.push(if extra.starts_with('-') {
++            extra.into()
++        } else {
++            format!("--{extra}").into()
++        });
++    }
++    if let Some(url) = launch.url.as_deref() {
++        let ok = url == "about:blank"
++            || url::Url::parse(url)
++                .map(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some())
++                .unwrap_or(false);
++        if !ok {
++            return Err(BrowserError::Invalid(format!(
++                "'{url}' is not an http(s) URL or about:blank"
++            )));
++        }
++        args.push(url.into());
++    }
++    Ok(args)
++}
++
++fn resolve(launch: &VisibleLaunch) -> Result<PathBuf> {
++    if let Some(path) = &launch.executable {
++        return if path.is_file() {
++            Ok(path.clone())
++        } else {
++            Err(BrowserError::Launch(format!(
++                "browser executable does not exist: {}",
++                path.display()
++            )))
++        };
++    }
++    if !matches!(
++        launch.kind,
++        BrowserKind::Chrome | BrowserKind::Edge | BrowserKind::Chromium | BrowserKind::Brave
++    ) {
++        return Err(BrowserError::Unsupported(format!(
++            "{} is not a Chromium-family browser",
++            launch.kind.name()
++        )));
++    }
++    browser_executable(launch.kind)
++        .or_else(|| (launch.kind == BrowserKind::Chrome).then(find_chrome).flatten())
++        .ok_or(BrowserError::ChromeNotFound)
++}
++
++/// A visible browser process with no DevTools connection.
++pub struct VisibleBrowser {
++    child: OwnedChild,
++    executable: PathBuf,
++    profile_dir: PathBuf,
++}
++
++impl VisibleBrowser {
++    /// Start the browser window and return at once. Dropping the value ends the browser.
++    pub fn launch(launch: &VisibleLaunch) -> Result<Self> {
++        if !launch.profile_dir.is_absolute() {
++            return Err(BrowserError::Profile(format!(
++                "profile directory must be absolute: {}",
++                launch.profile_dir.display()
++            )));
++        }
++        let args = visible_args(launch)?;
++        let executable = resolve(launch)?;
++        reject_real_browser_profile(&launch.profile_dir)?;
++        let mut cmd = OwnedCommand::new(&executable);
++        cmd.windows_visible();
++        cmd.command_mut()
++            .args(&args)
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .stderr(Stdio::null());
++        let child = cmd
++            .spawn()
++            .map_err(|e| BrowserError::Launch(format!("{}: {e}", executable.display())))?;
++        Ok(Self {
++            child,
++            executable,
++            profile_dir: launch.profile_dir.clone(),
++        })
++    }
++
++    /// The browser's process id.
++    pub fn pid(&self) -> u32 {
++        self.child.id()
++    }
++    /// The executable that was launched.
++    pub fn executable(&self) -> &std::path::Path {
++        &self.executable
++    }
++    /// The profile directory the browser writes to.
++    pub fn profile_dir(&self) -> &std::path::Path {
++        &self.profile_dir
++    }
++
++    /// Wait until the browser exits (the user closes it), or until `timeout` when given. On a
++    /// timeout the browser's whole process tree is terminated and
++    /// [`VisibleOutcome::TimedOut`] is returned. Dropping the future leaves the browser running
++    /// until this value is dropped.
++    pub async fn wait(&mut self, timeout: Option<Duration>) -> Result<VisibleOutcome> {
++        let started = Instant::now();
++        loop {
++            if let Some(status) = self.child.try_wait()? {
++                // The window process has exited; helpers still holding the profile (renderer,
++                // GPU, crashpad) are ended with it so the profile can be read right away.
++                let _ = self.child.terminate_tree_bounded(TERMINATE_WITHIN);
++                return Ok(VisibleOutcome::Exited {
++                    code: status.code(),
++                });
++            }
++            if timeout.is_some_and(|limit| started.elapsed() >= limit) {
++                self.terminate_tree()?;
++                return Ok(VisibleOutcome::TimedOut);
++            }
++            tokio::time::sleep(POLL).await;
++        }
++    }
++
++    /// End the browser now (its whole process tree), bounded.
++    pub fn terminate(&mut self) -> Result<()> {
++        self.terminate_tree()
++    }
++
++    fn terminate_tree(&mut self) -> Result<()> {
++        match self.child.terminate_tree_bounded(TERMINATE_WITHIN)? {
++            ReapOutcome::Exited(_) => Ok(()),
++            ReapOutcome::TimedOut => Err(BrowserError::Timeout(
++                "the browser process tree did not exit after termination".into(),
++            )),
++        }
++    }
++}
++
++/// Launch a visible browser and wait for the user to close it (or `timeout`). See the module
++/// docs; the sign-in flow is `launch_visible_and_wait(VisibleLaunch::new(dir).url(login_url), None)`
++/// followed by reading the cookies from `dir`.
++pub async fn launch_visible_and_wait(
++    launch: VisibleLaunch,
++    timeout: Option<Duration>,
++) -> Result<VisibleOutcome> {
++    let mut browser = VisibleBrowser::launch(&launch)?;
++    browser.wait(timeout).await
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn launch() -> VisibleLaunch {
++        VisibleLaunch::new(if cfg!(windows) { r"C:\rk\profile" } else { "/rk/profile" })
++    }
++
++    #[test]
++    fn args_point_at_the_profile_and_open_no_debugging_endpoint() {
++        let args = visible_args(&launch().url("https://example.com/login")).unwrap();
++        let text: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
++        assert!(text[0].starts_with("--user-data-dir=") && text[0].contains("profile"));
++        assert!(text.contains(&"--no-first-run".to_string()));
++        assert_eq!(text.last().unwrap(), "https://example.com/login");
++        assert!(!text.iter().any(|a| a.contains("remote-debugging")));
++    }
++
++    #[test]
++    fn extra_flags_gain_dashes_and_managed_flags_are_refused() {
++        let args = visible_args(&launch().arg("lang=de")).unwrap();
++        assert!(args.iter().any(|a| a == "--lang=de"));
++        assert!(visible_args(&launch().arg("--remote-debugging-port=9222")).is_err());
++        assert!(visible_args(&launch().arg("user-data-dir=/x")).is_err());
++    }
++
++    #[test]
++    fn only_http_urls_and_about_blank_open() {
++        assert!(visible_args(&launch().url("about:blank")).is_ok());
++        for bad in ["file:///etc/passwd", "javascript:alert(1)", "--evil", "chrome://settings", "nonsense"] {
++            assert!(visible_args(&launch().url(bad)).is_err(), "{bad}");
++        }
++    }
++
++    #[test]
++    fn a_relative_profile_and_a_missing_executable_are_refused() {
++        assert!(matches!(
++            VisibleBrowser::launch(&VisibleLaunch::new("relative/dir")),
++            Err(BrowserError::Profile(_))
++        ));
++        let missing = launch().executable(PathBuf::from("/definitely/not/here/chrome"));
++        assert!(matches!(resolve(&missing), Err(BrowserError::Launch(_))));
++        let safari = launch().kind(BrowserKind::Safari);
++        assert!(matches!(resolve(&safari), Err(BrowserError::Unsupported(_))));
++    }
++}

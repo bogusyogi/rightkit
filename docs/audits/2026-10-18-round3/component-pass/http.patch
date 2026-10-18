@@ -1,0 +1,883 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..ce9146a 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7014,7 +7014,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-http"
+-version = "0.3.5"
++version = "0.3.6"
+ dependencies = [
+  "bytes",
+  "futures-util",
+diff --git a/crates/rightkit-http/CHANGELOG.md b/crates/rightkit-http/CHANGELOG.md
+index 7537ef1..0eb2c38 100644
+--- a/crates/rightkit-http/CHANGELOG.md
++++ b/crates/rightkit-http/CHANGELOG.md
+@@ -1,5 +1,17 @@
+ # Changelog
+ 
++## 0.3.6 (Unreleased; round-2 gaps, additive, written without a build: not compiled or run)
++
++- **`ClientConfig::on_outcome` and `AttemptOutcome` (rightkit#305 follow-up, CodeRight; also what #658 needs).** An observer that runs after every physical attempt in `Client` and `AsyncClient`, the counterpart of `on_attempt`. `AttemptOutcome { url (redacted), method, attempt, max_attempts, status: Option<u16>, error_class: Option<ErrorClass>, delay: Option<Duration> }`: `status` is set when the attempt got a response, `error_class` when it failed, `delay` is the wait before the next attempt and `None` for the final one. It cannot change the result. An attempt `on_attempt` refused sent nothing and reports no outcome. New field on the non-`#[non_exhaustive]` `ClientConfig` (literals need `..Default::default()`, as for `on_attempt`). Not done: a separate transport-error versus status-error retry budget (`RetryPolicy::transport_backoff`); the observer lets the caller keep its own ladder meanwhile.
++- **`HttpError::request_may_have_been_delivered()` (rightkit#718, GenRight).** `false` only when the error proves nothing was sent: a `Phase::Connect` transport failure or timeout, `InvalidRequest`, `SystemProxyUnsupported`, `AddressDenied`, `HttpsRequired`. `true` for every other kind (later phases, any status, malformed or oversized response, cancellation). It judges one error; a final `InvalidRequest` from the attempt hook refusing a later attempt can follow an earlier attempt that did reach the server (use `on_outcome` for that).
++- **`AddressPolicy::allow_host_of(url)` (rightkit#696, CodeRight).** Pins one host taken from a URL (scheme, userinfo, port, path ignored; IPv6 brackets and trailing dot normalised) and lets it reach any address it resolves to, for a configured LAN, tunnel or self-hosted endpoint. Wraps `allow_if`, so link-local and metadata destinations, `deny_ranges` and `deny_if` still refuse. An unparsable or non-`http(s)` URL changes nothing.
++- **`AddressPolicy::first_party_path_prefix(host, prefix)` (rightkit#744, ScrapeRight).** Limits a host to request paths under a prefix (whole segments; repeat for several prefixes; `/` admits all), checked on the first request and every redirect hop in both clients. A path with a `.`/`..` segment, a backslash, or an encoded `/`, `\` or dot segment is refused (`HttpError::AddressDenied`, nothing sent). It narrows a host and does not admit one.
++- **`format_http_date(SystemTime)` (rightkit#369).** IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`), the inverse of the `parse_retry_after` date form, for mocks.
++- **`redact_url` and `redact_urls_in_text` are public (rightkit#371, part).** The URL-in-text redaction the crate already applied to its own errors (userinfo, query and fragment removed) is now exported. Redacting OAuth-style `key=value` text outside URLs is not done here.
++- Tests: `tests/outcome_and_scope.rs`, unit tests in `error.rs`, `netpolicy.rs` (`host_pin_and_path_tests`) and `retry.rs`.
++- **Deferred, not implemented:** a TLS-fingerprint / impersonation transport (#744 item 1) and the `fetch`-compatible Tauri bridge for `rightkit-http` (#448 item 3); see the issues.
++- Already present at 0.3.5 and unchanged: `ClientConfig::on_attempt` (#305), `SseDecoder::eager`, `finish`, `has_pending` (#647), `validate_public_https_url` (#374).
++
+ ## 0.3.5 (2026-10-17)
+ 
+ - **Public https URL policy (rightkit#374).** `netpolicy::validate_public_https_url(&str) -> Result<(), UrlPolicyError>` (also re-exported from the crate root). It accepts only `https` (any case), no userinfo, a non-empty host that is a public IP literal or a multi-label name, and refuses `localhost`, `*.localhost`, `*.local`, `*.internal`, single-label names, and legacy IPv4 spellings. It reads the string only and does not resolve; the request-time SSRF guard still vets resolved addresses. `UrlPolicyError` is `#[non_exhaustive]`. Tests in `netpolicy::public_url_tests`. Not compiled or run.
+diff --git a/crates/rightkit-http/Cargo.toml b/crates/rightkit-http/Cargo.toml
+index 969fae2..8dd1649 100644
+--- a/crates/rightkit-http/Cargo.toml
++++ b/crates/rightkit-http/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-http"
+-version = "0.3.5"
++version = "0.3.6"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping."
+diff --git a/crates/rightkit-http/src/async_client.rs b/crates/rightkit-http/src/async_client.rs
+index 6c4c33a..ead5aef 100644
+--- a/crates/rightkit-http/src/async_client.rs
++++ b/crates/rightkit-http/src/async_client.rs
+@@ -425,17 +425,44 @@ impl AsyncClient {
+                         && (req.method.is_idempotent() || req.retry_unsafe_statuses);
+                     let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
+                     if !retryable || attempt >= max || policy.defers(ra) {
++                        self.config.emit_outcome(
++                            req,
++                            values,
++                            attempt,
++                            max,
++                            Some(raw.status),
++                            None,
++                            None,
++                        );
+                         return Ok(Raw {
+                             attempts: attempt,
+                             ..raw
+                         });
+                     }
+                     if deadline_passes(deadline, policy.delay(attempt, ra)) {
++                        self.config.emit_outcome(
++                            req,
++                            values,
++                            attempt,
++                            max,
++                            Some(raw.status),
++                            None,
++                            None,
++                        );
+                         return Ok(Raw {
+                             attempts: attempt,
+                             ..raw
+                         });
+                     }
++                    self.config.emit_outcome(
++                        req,
++                        values,
++                        attempt,
++                        max,
++                        Some(raw.status),
++                        None,
++                        Some(policy.delay(attempt, ra)),
++                    );
+                     // Drain so the connection is released, but never past any budget the
+                     // caller set: the attempt's deadline, the whole-request deadline less
+                     // the sleep that follows, and the body-phase timeout.
+@@ -465,11 +492,24 @@ impl AsyncClient {
+                         _ => false,
+                     };
+                     if !retryable || attempt >= max {
++                        self.config
++                            .emit_outcome(req, values, attempt, max, None, Some(err.class()), None);
+                         return Err(err);
+                     }
+                     if deadline_passes(deadline, policy.delay(attempt, None)) {
++                        self.config
++                            .emit_outcome(req, values, attempt, max, None, Some(err.class()), None);
+                         return Err(err);
+                     }
++                    self.config.emit_outcome(
++                        req,
++                        values,
++                        attempt,
++                        max,
++                        None,
++                        Some(err.class()),
++                        Some(policy.delay(attempt, None)),
++                    );
+                     (err.to_string(), None)
+                 }
+             };
+@@ -628,6 +668,7 @@ impl AsyncClient {
+             redirect_hop,
+         )?;
+         policy.admit(url.scheme(), &raw_host)?;
++        policy.check_path(&host, url.path())?;
+         let via_proxy = if let Some(r) = &self.routes {
+             // Per request: the bypass list and the scheme's own endpoint decide.
+             r.routes
+diff --git a/crates/rightkit-http/src/client.rs b/crates/rightkit-http/src/client.rs
+index 51b1897..124f940 100644
+--- a/crates/rightkit-http/src/client.rs
++++ b/crates/rightkit-http/src/client.rs
+@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
+ use serde::Serialize;
+ 
+ use crate::cancel::{is_cancelled_io, is_set, sleep_cancellable, CancelToken, CheckedReader};
+-use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
++use crate::error::{ErrorClass, HttpError, Phase, MAX_ERROR_BODY_BYTES};
+ use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy, VettingResolver, ViaProxy};
+ use crate::redirect;
+ use crate::retry::{parse_retry_after, RetryPolicy};
+@@ -72,6 +72,27 @@ pub struct AttemptEvent {
+ /// Gate run before every attempt. `Err(reason)` ends the call without sending that attempt.
+ type AttemptHook = Arc<dyn Fn(&AttemptEvent) -> Result<(), String> + Send + Sync>;
+ 
++/// What one physical attempt produced, passed to [`ClientConfig::on_outcome`] after the attempt
++/// finished (whether or not another follows). `url` is redacted like [`AttemptEvent::url`].
++#[derive(Debug, Clone)]
++pub struct AttemptOutcome {
++    pub url: String,
++    pub method: Method,
++    /// Attempt that just ran (1 = the first try).
++    pub attempt: u32,
++    /// Most attempts the policy allows for this call.
++    pub max_attempts: u32,
++    /// The response status when the attempt got a response; `None` when it failed with an error.
++    pub status: Option<u16>,
++    /// The error's class when the attempt failed with an error; `None` when it got a response.
++    pub error_class: Option<ErrorClass>,
++    /// The wait before the next attempt; `None` when this was the final attempt of the call.
++    pub delay: Option<Duration>,
++}
++
++/// Observer run after every attempt with its outcome.
++type OutcomeHook = Arc<dyn Fn(&AttemptOutcome) + Send + Sync>;
++
+ /// How requests reach the network.
+ ///
+ /// **Threat model.** A direct connection is the strongest case: this crate resolves the
+@@ -712,6 +733,11 @@ pub struct ClientConfig {
+     /// never retried; nothing is sent for that attempt. It runs on the calling thread (async:
+     /// on the polling task), so it should not block. `None` by default.
+     pub on_attempt: Option<AttemptHook>,
++    /// Observer that runs after every attempt (the counterpart of `on_attempt`), with the
++    /// status or error class and the wait before the next attempt (`None` for the last one).
++    /// For per-attempt receipts and retry notices. It cannot change the outcome. A refused
++    /// attempt (`on_attempt` returned `Err`) sent nothing and reports no outcome. `None` by default.
++    pub on_outcome: Option<OutcomeHook>,
+     /// Secret strings scrubbed from every error message and retry event. Add
+     /// values with [`ClientConfig::redact_values`].
+     pub redact_values: Vec<String>,
+@@ -752,6 +778,7 @@ impl Default for ClientConfig {
+             retry: RetryPolicy::default(),
+             on_retry: None,
+             on_attempt: None,
++            on_outcome: None,
+             redact_values: Vec::new(),
+             address_policy: AddressPolicy::default(),
+             proxy: ProxyMode::None,
+@@ -795,6 +822,37 @@ impl ClientConfig {
+         self
+     }
+ 
++    /// Set the per-attempt outcome observer; see [`ClientConfig::on_outcome`].
++    pub fn on_outcome(mut self, hook: impl Fn(&AttemptOutcome) + Send + Sync + 'static) -> Self {
++        self.on_outcome = Some(Arc::new(hook));
++        self
++    }
++
++    /// Report one finished attempt to [`ClientConfig::on_outcome`], if set.
++    #[allow(clippy::too_many_arguments)]
++    pub(crate) fn emit_outcome(
++        &self,
++        req: &Request,
++        values: &[String],
++        attempt: u32,
++        max_attempts: u32,
++        status: Option<u16>,
++        error_class: Option<ErrorClass>,
++        delay: Option<Duration>,
++    ) {
++        if let Some(hook) = &self.on_outcome {
++            hook(&AttemptOutcome {
++                url: redact_str(&redact_url(&req.url), values),
++                method: req.method,
++                attempt,
++                max_attempts,
++                status,
++                error_class,
++                delay,
++            });
++        }
++    }
++
+     /// Replace the outbound address policy.
+     pub fn address_policy(mut self, policy: AddressPolicy) -> Self {
+         self.address_policy = policy;
+@@ -1725,6 +1783,15 @@ impl Client {
+                     let retry_after =
+                         header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
+                     if !retryable || attempt >= max || policy.defers(retry_after) {
++                        self.config.emit_outcome(
++                            req,
++                            values,
++                            attempt,
++                            max,
++                            Some(raw.status),
++                            None,
++                            None,
++                        );
+                         return Ok(Raw {
+                             attempts: attempt,
+                             ..raw
+@@ -1732,11 +1799,29 @@ impl Client {
+                     }
+                     let delay = policy.delay(attempt, retry_after);
+                     if deadline_passes(deadline, delay) {
++                        self.config.emit_outcome(
++                            req,
++                            values,
++                            attempt,
++                            max,
++                            Some(raw.status),
++                            None,
++                            None,
++                        );
+                         return Ok(Raw {
+                             attempts: attempt,
+                             ..raw
+                         });
+                     }
++                    self.config.emit_outcome(
++                        req,
++                        values,
++                        attempt,
++                        max,
++                        Some(raw.status),
++                        None,
++                        Some(delay),
++                    );
+                     // Drain so the connection is released.
+                     let mut body = raw.body;
+                     let mut reader = body.as_reader();
+@@ -1759,12 +1844,25 @@ impl Client {
+                         _ => false,
+                     };
+                     if !retryable || attempt >= max {
++                        self.config
++                            .emit_outcome(req, values, attempt, max, None, Some(err.class()), None);
+                         return Err(err);
+                     }
+                     let delay = policy.delay(attempt, None);
+                     if deadline_passes(deadline, delay) {
++                        self.config
++                            .emit_outcome(req, values, attempt, max, None, Some(err.class()), None);
+                         return Err(err);
+                     }
++                    self.config.emit_outcome(
++                        req,
++                        values,
++                        attempt,
++                        max,
++                        None,
++                        Some(err.class()),
++                        Some(delay),
++                    );
+                     (err.to_string(), delay)
+                 }
+             };
+@@ -1947,6 +2045,10 @@ impl Client {
+             request.uri().host().unwrap_or(""),
+             redirect_hop,
+         )?;
++        self.config.address_policy.check_path(
++            request.uri().host().unwrap_or(""),
++            request.uri().path(),
++        )?;
+         let (via_proxy, hop_proxy) = self.vet_proxied_destination(request.uri())?;
+         let _scope = ViaProxy::enter(via_proxy);
+         let mut configured = self.agent.configure_request(request);
+@@ -2353,6 +2455,7 @@ mod tests {
+         assert_eq!(cfg.max_response_bytes, base.max_response_bytes);
+         assert!(cfg.on_retry.is_none());
+         assert!(cfg.on_attempt.is_none());
++        assert!(cfg.on_outcome.is_none());
+         assert!(cfg.redact_values.is_empty());
+         assert_eq!(cfg.proxy_bypass_first_party, base.proxy_bypass_first_party);
+         assert_eq!(cfg.https_only, base.https_only);
+diff --git a/crates/rightkit-http/src/error.rs b/crates/rightkit-http/src/error.rs
+index c55ca6b..2497933 100644
+--- a/crates/rightkit-http/src/error.rs
++++ b/crates/rightkit-http/src/error.rs
+@@ -171,6 +171,37 @@ impl HttpError {
+         }
+     }
+ 
++    /// True when the request may have reached the server, so a non-idempotent call (a paid
++    /// submit, a POST that creates something) must not be repeated blindly. It is the
++    /// conservative answer: `false` only when the error proves nothing was sent.
++    ///
++    /// - `false`: a failure in [`Phase::Connect`] (name lookup, TCP, proxy tunnel, TLS), a
++    ///   request that could not be built, an address-policy or `https_only` refusal, and an
++    ///   unsupported system proxy.
++    /// - `true`: a transport failure or timeout after the connection existed (headers, body,
++    ///   redirect), any HTTP status (the server answered), a malformed or oversized response,
++    ///   and a cancellation (the call may have been cancelled mid-send).
++    ///
++    /// It judges this one error. A retried call's final error can be `InvalidRequest` from the
++    /// attempt hook refusing a later attempt while an earlier attempt did reach the server;
++    /// track that with [`crate::ClientConfig::on_outcome`] if it matters.
++    pub fn request_may_have_been_delivered(&self) -> bool {
++        match self {
++            HttpError::Transport { phase, .. } | HttpError::Timeout { phase, .. } => {
++                *phase != Phase::Connect
++            }
++            HttpError::InvalidRequest(_)
++            | HttpError::SystemProxyUnsupported { .. }
++            | HttpError::AddressDenied { .. }
++            | HttpError::HttpsRequired { .. } => false,
++            HttpError::Status { .. }
++            | HttpError::BodyTooLarge { .. }
++            | HttpError::Json(_)
++            | HttpError::Stream(_)
++            | HttpError::Cancelled => true,
++        }
++    }
++
+     pub fn status(&self) -> Option<u16> {
+         match self {
+             HttpError::Status { status, .. } => Some(*status),
+@@ -384,6 +415,39 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn delivery_is_ruled_out_only_by_connect_phase_and_pre_send_refusals() {
++        assert!(!HttpError::transport("t", Phase::Connect).request_may_have_been_delivered());
++        assert!(!HttpError::timeout("t", Phase::Connect).request_may_have_been_delivered());
++        for phase in [Phase::Headers, Phase::Body, Phase::Redirect] {
++            assert!(HttpError::transport("t", phase).request_may_have_been_delivered());
++            assert!(HttpError::timeout("t", phase).request_may_have_been_delivered());
++        }
++        assert!(status(503, None).request_may_have_been_delivered());
++        assert!(HttpError::Cancelled.request_may_have_been_delivered());
++        assert!(HttpError::Json("x".into()).request_may_have_been_delivered());
++        assert!(HttpError::Stream("x".into()).request_may_have_been_delivered());
++        assert!(HttpError::BodyTooLarge { limit: 1 }.request_may_have_been_delivered());
++        assert!(!HttpError::InvalidRequest("x".into()).request_may_have_been_delivered());
++        assert!(!HttpError::SystemProxyUnsupported {
++            element: "pac".into()
++        }
++        .request_may_have_been_delivered());
++        assert!(!HttpError::AddressDenied {
++            host: "h".into(),
++            addr: None,
++            class: None,
++            reason: "r".into()
++        }
++        .request_may_have_been_delivered());
++        assert!(!HttpError::HttpsRequired {
++            host: "h".into(),
++            scheme: "http".into(),
++            redirect: false
++        }
++        .request_may_have_been_delivered());
++    }
++
+     #[test]
+     fn phase_names() {
+         assert_eq!(Phase::Connect.as_str(), "connect");
+diff --git a/crates/rightkit-http/src/lib.rs b/crates/rightkit-http/src/lib.rs
+index 89ee254..ac53cdf 100644
+--- a/crates/rightkit-http/src/lib.rs
++++ b/crates/rightkit-http/src/lib.rs
+@@ -32,6 +32,7 @@ mod trust;
+ #[cfg(feature = "untrusted")]
+ pub mod untrusted;
+ mod urlredact;
++pub use urlredact::{redact_url, redact_urls_in_text};
+ 
+ #[cfg(feature = "testing")]
+ pub mod testing;
+@@ -39,7 +40,7 @@ pub mod testing;
+ pub use cancel::{is_cancelled_io, CancelToken};
+ pub use client::{
+     form_encode, percent_decode, percent_decode_component, percent_encode,
+-    percent_encode_component, AttemptEvent, Client, ClientConfig, Method, ProxyDiagnostic,
++    percent_encode_component, AttemptEvent, AttemptOutcome, Client, ClientConfig, Method, ProxyDiagnostic,
+     ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent, StreamResponse,
+     TrustRoots,
+ };
+@@ -51,8 +52,8 @@ pub use netpolicy::{
+ };
+ pub use quota::{defer_in, remaining_in, QuotaSchedule, QuotaStore};
+ pub use retry::{
+-    parse_rate_limit_reset, parse_rate_limit_reset_at, parse_retry_after, parse_retry_after_at,
+-    RetryPolicy,
++    format_http_date, parse_rate_limit_reset, parse_rate_limit_reset_at, parse_retry_after,
++    parse_retry_after_at, RetryPolicy,
+ };
+ pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
+ pub use sse::{EofPolicy, SseDecoder, SseEvent, SseReader};
+diff --git a/crates/rightkit-http/src/netpolicy.rs b/crates/rightkit-http/src/netpolicy.rs
+index 7523ad3..83d0ff4 100644
+--- a/crates/rightkit-http/src/netpolicy.rs
++++ b/crates/rightkit-http/src/netpolicy.rs
+@@ -319,6 +319,42 @@ fn is_metadata_host(host: &str) -> bool {
+ }
+ 
+ /// Lowercase, strip IPv6 brackets and one trailing dot.
++fn normalize_path_prefix(prefix: &str) -> String {
++    let trimmed = prefix.trim_end_matches('/');
++    if trimmed.is_empty() {
++        String::new()
++    } else if trimmed.starts_with('/') {
++        trimmed.to_string()
++    } else {
++        format!("/{trimmed}")
++    }
++}
++
++/// True when `path` (query and fragment ignored) is inside one of `prefixes`, on whole
++/// segments, and holds no segment a server could resolve differently from this check.
++fn path_in_scope(path: &str, prefixes: &[String]) -> bool {
++    let path = path.split(['?', '#']).next().unwrap_or("");
++    let path = if path.is_empty() { "/" } else { path };
++    if path.contains('\\') {
++        return false;
++    }
++    for seg in path.split('/') {
++        let lower = seg.to_ascii_lowercase();
++        if lower.contains("%2f") || lower.contains("%5c") {
++            return false;
++        }
++        let decoded = lower.replace("%2e", ".");
++        if decoded == "." || decoded == ".." {
++            return false;
++        }
++    }
++    prefixes.iter().any(|p| {
++        p.is_empty()
++            || path == p.as_str()
++            || (path.starts_with(p.as_str()) && path[p.len()..].starts_with('/'))
++    })
++}
++
+ pub(crate) fn normalize_host(host: &str) -> String {
+     let h = host.trim_matches(['[', ']']).to_ascii_lowercase();
+     h.strip_suffix('.').map(str::to_string).unwrap_or(h)
+@@ -480,6 +516,9 @@ pub struct AddressPolicy {
+     allow_legacy_ipv4: bool,
+     /// Refuse a host whose answer mixes loopback with non-loopback addresses.
+     refuse_mixed: bool,
++    /// Per-host path prefixes (host normalized, prefix normalized to a leading `/` and no
++    /// trailing `/`). A host with no entry is not path-limited.
++    path_scopes: Vec<(String, Vec<String>)>,
+     resolver: Option<ResolverHook>,
+ }
+ 
+@@ -540,6 +579,7 @@ impl fmt::Debug for AddressPolicy {
+             .field("allow_insecure_redirects", &self.allow_downgrade)
+             .field("allow_legacy_ipv4", &self.allow_legacy_ipv4)
+             .field("refuse_mixed_loopback", &self.refuse_mixed)
++            .field("path_scopes", &self.path_scopes)
+             .field("custom_resolver", &self.resolver.is_some())
+             .finish()
+     }
+@@ -557,6 +597,7 @@ impl AddressPolicy {
+             allow_downgrade: false,
+             allow_legacy_ipv4: false,
+             refuse_mixed: false,
++            path_scopes: Vec::new(),
+             resolver: None,
+         }
+     }
+@@ -633,6 +674,78 @@ impl AddressPolicy {
+         self
+     }
+ 
++    /// Limit `host` (exact match, like [`AddressPolicy::first_party`]) to request paths under
++    /// `prefix`, on the first request and on every redirect hop, so a first-party host that also
++    /// serves unrelated content (a shared CDN or API gateway) is reachable only where the app
++    /// belongs. Call it again for the same host to allow several prefixes (any one matches). A
++    /// host with no prefix keeps all its paths.
++    ///
++    /// Matching is on whole path segments: `/v1` admits `/v1` and `/v1/models` but not `/v10`;
++    /// a trailing `/` on the prefix is ignored and `/` admits everything. The query and fragment
++    /// are not part of the path. A path with a `.` or `..` segment, a `\`, or an encoded `/`,
++    /// `\` or dot segment (`%2f`, `%5c`, `%2e%2e`) is refused outright, because servers disagree
++    /// about how they resolve it, and a prefix is compared to the path as written (an encoded
++    /// spelling of the prefix does not match). The refusal is [`crate::HttpError::AddressDenied`]
++    /// with no address. It narrows a host only; it does not admit one, so list the host in
++    /// `first_party` (or let public-web policy reach it) as well.
++    pub fn first_party_path_prefix(
++        mut self,
++        host: impl Into<String>,
++        prefix: impl Into<String>,
++    ) -> Self {
++        let host = normalize_host(&host.into());
++        let prefix = normalize_path_prefix(&prefix.into());
++        match self.path_scopes.iter_mut().find(|(h, _)| *h == host) {
++            Some((_, prefixes)) => {
++                if !prefixes.contains(&prefix) {
++                    prefixes.push(prefix);
++                }
++            }
++            None => self.path_scopes.push((host, vec![prefix])),
++        }
++        self
++    }
++
++    /// Refuse a request whose `path` is outside the prefixes set for `host` with
++    /// [`AddressPolicy::first_party_path_prefix`]. `path` is the URL path without query.
++    pub(crate) fn check_path(&self, host: &str, path: &str) -> Result<(), AddressDenial> {
++        if self.path_scopes.is_empty() {
++            return Ok(());
++        }
++        let host = normalize_host(host);
++        let Some((_, prefixes)) = self.path_scopes.iter().find(|(h, _)| *h == host) else {
++            return Ok(());
++        };
++        if path_in_scope(path, prefixes) {
++            Ok(())
++        } else {
++            Err(denial(
++                &host,
++                None,
++                None,
++                "path is outside the first-party path scope",
++            ))
++        }
++    }
++
++    /// Let the one host of `url` reach any address it resolves to, including private, CGNAT,
++    /// ULA and loopback addresses, for a configured LAN, tunnel or self-hosted endpoint chosen
++    /// by the operator. Every other host stays under the policy's other rules. The host is
++    /// pinned exactly (scheme, userinfo, port and path are ignored; IPv6 brackets and a
++    /// trailing dot are normalised). An unparsable or non-`http(s)` URL changes nothing.
++    /// Link-local and metadata destinations, `deny_ranges` and `deny_if` still refuse, like
++    /// [`AddressPolicy::allow_if`], which this wraps.
++    pub fn allow_host_of(self, url: &str) -> Self {
++        match crate::redirect::origin(url) {
++            Some((scheme, host, _))
++                if matches!(scheme.as_str(), "http" | "https") && !host.is_empty() =>
++            {
++                self.allow_if(vec![host], |_| true)
++            }
++            _ => self,
++        }
++    }
++
+     /// Deny these ranges in addition to the class rules. An IPv6 address that embeds an
+     /// IPv4 address is also tested by its embedded IPv4 address.
+     pub fn deny_ranges(mut self, ranges: Vec<IpNet>) -> Self {
+@@ -1751,3 +1864,96 @@ mod public_url_tests {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod host_pin_and_path_tests {
++    use super::*;
++
++    fn answers(addrs: Vec<IpAddr>) -> AddressPolicy {
++        AddressPolicy::public_web().with_resolver(move |_| addrs.clone())
++    }
++
++    #[test]
++    fn allow_host_of_admits_any_address_for_that_host_only() {
++        let cgnat: IpAddr = "100.64.1.2".parse().unwrap();
++        let policy = answers(vec![cgnat]).allow_host_of("https://user:pw@Daemon.LAN:7443/api?x=1");
++        assert!(policy.resolve_vetted("daemon.lan", 7443).is_ok());
++        assert!(policy.resolve_vetted("other.lan", 7443).is_err());
++    }
++
++    #[test]
++    fn allow_host_of_takes_ip_literals_and_brackets() {
++        let policy = AddressPolicy::public_web().allow_host_of("http://[fd00::5]:8080/");
++        assert!(policy.resolve_vetted("fd00::5", 8080).is_ok());
++        let policy = AddressPolicy::public_web().allow_host_of("http://10.1.2.3:8080/");
++        assert!(policy.resolve_vetted("10.1.2.3", 8080).is_ok());
++        assert!(policy.resolve_vetted("10.1.2.4", 8080).is_err());
++    }
++
++    #[test]
++    fn allow_host_of_never_overrides_link_local_or_denials_and_ignores_bad_urls() {
++        let meta: IpAddr = "169.254.169.254".parse().unwrap();
++        let policy = answers(vec![meta]).allow_host_of("https://daemon.lan/");
++        assert!(policy.resolve_vetted("daemon.lan", 443).is_err());
++        let denied = answers(vec!["10.0.0.9".parse().unwrap()])
++            .allow_host_of("https://daemon.lan/")
++            .deny_ranges(vec!["10.0.0.0/8".parse().unwrap()]);
++        assert!(denied.resolve_vetted("daemon.lan", 443).is_err());
++        let private: IpAddr = "10.0.0.9".parse().unwrap();
++        for bad in ["", "not a url", "ftp://daemon.lan/", "daemon.lan"] {
++            let policy = answers(vec![private]).allow_host_of(bad);
++            assert!(policy.resolve_vetted("daemon.lan", 443).is_err(), "{bad}");
++        }
++    }
++
++    #[test]
++    fn path_prefix_matches_whole_segments() {
++        let p = AddressPolicy::first_party(vec!["api.example.com".into()])
++            .first_party_path_prefix("API.example.com", "/v1/");
++        for ok in ["/v1", "/v1/", "/v1/models", "/v1/a/b?x=/v2"] {
++            assert!(p.check_path("api.example.com", ok).is_ok(), "{ok}");
++        }
++        for bad in ["/", "/v10", "/v2/models", "/other/v1", "/V1"] {
++            let d = p.check_path("api.example.com", bad).unwrap_err();
++            assert!(d.reason.contains("path scope"), "{bad}: {d}");
++        }
++    }
++
++    #[test]
++    fn path_prefix_only_limits_the_named_host_and_several_prefixes_union() {
++        let p = AddressPolicy::first_party(vec!["a.example.com".into(), "b.example.com".into()])
++            .first_party_path_prefix("a.example.com", "/x")
++            .first_party_path_prefix("a.example.com", "/y");
++        assert!(p.check_path("a.example.com", "/x/1").is_ok());
++        assert!(p.check_path("a.example.com", "/y").is_ok());
++        assert!(p.check_path("a.example.com", "/z").is_err());
++        assert!(p.check_path("b.example.com", "/anything").is_ok());
++        let root = AddressPolicy::first_party(vec!["a.example.com".into()])
++            .first_party_path_prefix("a.example.com", "/");
++        assert!(root.check_path("a.example.com", "/anything/at/all").is_ok());
++    }
++
++    #[test]
++    fn path_prefix_refuses_traversal_and_ambiguous_encodings() {
++        let p = AddressPolicy::first_party(vec!["a.example.com".into()])
++            .first_party_path_prefix("a.example.com", "/v1");
++        for bad in [
++            "/v1/../admin",
++            "/v1/./x",
++            "/v1/%2e%2e/admin",
++            "/v1/%2E%2e/admin",
++            "/v1/..%2fadmin",
++            "/v1/a%5cb",
++            "/v1/a\b",
++        ] {
++            assert!(p.check_path("a.example.com", bad).is_err(), "{bad}");
++        }
++        assert!(p.check_path("a.example.com", "/v1/file..name").is_ok());
++    }
++
++    #[test]
++    fn no_path_scope_means_no_check() {
++        let p = AddressPolicy::first_party(vec!["a.example.com".into()]);
++        assert!(p.check_path("a.example.com", "/v1/../x").is_ok());
++    }
++}
+diff --git a/crates/rightkit-http/src/retry.rs b/crates/rightkit-http/src/retry.rs
+index efff802..eb49fde 100644
+--- a/crates/rightkit-http/src/retry.rs
++++ b/crates/rightkit-http/src/retry.rs
+@@ -223,6 +223,46 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+     era * 146_097 + doe - 719_468
+ }
+ 
++fn civil_from_days(z: i64) -> (i64, i64, i64) {
++    let z = z + 719_468;
++    let era = z.div_euclid(146_097);
++    let doe = z - era * 146_097;
++    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
++    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
++    let mp = (5 * doy + 2) / 153;
++    let d = doy - (153 * mp + 2) / 5 + 1;
++    let m = if mp < 10 { mp + 3 } else { mp - 9 };
++    let y = yoe + era * 400 + i64::from(m <= 2);
++    (y, m, d)
++}
++
++/// Format `time` as an HTTP-date in the preferred IMF-fixdate form (RFC 9110), always GMT, for
++/// example `Sun, 06 Nov 1994 08:49:37 GMT`: what a server sends in `Retry-After` or `Date`, and
++/// what a mock should send to exercise [`parse_retry_after`]. Whole seconds; a time before
++/// 1970 is formatted as the epoch.
++pub fn format_http_date(time: SystemTime) -> String {
++    const DAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
++    const MONTHS: [&str; 12] = [
++        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
++    ];
++    let secs = time
++        .duration_since(UNIX_EPOCH)
++        .map(|d| d.as_secs())
++        .unwrap_or(0) as i64;
++    let days = secs.div_euclid(86_400);
++    let rem = secs.rem_euclid(86_400);
++    let (y, m, d) = civil_from_days(days);
++    // 1970-01-01 was a Thursday; index 0 of DAYS is Monday.
++    let weekday = DAYS[((days + 3).rem_euclid(7)) as usize];
++    format!(
++        "{weekday}, {d:02} {} {y:04} {:02}:{:02}:{:02} GMT",
++        MONTHS[(m - 1) as usize],
++        rem / 3600,
++        (rem % 3600) / 60,
++        rem % 60
++    )
++}
++
+ /// HTTP-date in the three RFC 9110 forms (IMF-fixdate, obsolete RFC 850, asctime), always GMT.
+ pub(crate) fn parse_http_date(v: &str) -> Option<SystemTime> {
+     let t: Vec<&str> = v.split_whitespace().collect();
+@@ -276,6 +316,20 @@ pub(crate) fn parse_http_date(v: &str) -> Option<SystemTime> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn format_http_date_matches_rfc_9110_and_round_trips() {
++        let t = UNIX_EPOCH + Duration::from_secs(784_111_777);
++        assert_eq!(format_http_date(t), "Sun, 06 Nov 1994 08:49:37 GMT");
++        assert_eq!(format_http_date(UNIX_EPOCH), "Thu, 01 Jan 1970 00:00:00 GMT");
++        for secs in [0u64, 951_782_400, 1_709_164_800, 1_781_000_000, 4_102_444_799] {
++            let t = UNIX_EPOCH + Duration::from_secs(secs);
++            assert_eq!(parse_http_date(&format_http_date(t)), Some(t), "{secs}");
++        }
++        // 2024-02-29 (leap day) was a Thursday.
++        let leap = UNIX_EPOCH + Duration::from_secs(1_709_164_800);
++        assert_eq!(format_http_date(leap), "Thu, 29 Feb 2024 00:00:00 GMT");
++    }
++
+     #[test]
+     fn huge_retry_after_saturates_instead_of_panicking() {
+         for v in [
+diff --git a/crates/rightkit-http/src/urlredact.rs b/crates/rightkit-http/src/urlredact.rs
+index a4386ed..cc47336 100644
+--- a/crates/rightkit-http/src/urlredact.rs
++++ b/crates/rightkit-http/src/urlredact.rs
+@@ -7,8 +7,10 @@
+ 
+ const QUERY_MARK: &str = "?[redacted]";
+ 
+-/// Render one URL string without userinfo, query or fragment.
+-pub(crate) fn redact_url(url: &str) -> String {
++/// Render one URL string without userinfo, query or fragment: `scheme://host[:port]/path`, with
++/// a query replaced by `?[redacted]`. Text that is not a URL is returned unchanged (minus any
++/// `?query` or `#fragment` suffix).
++pub fn redact_url(url: &str) -> String {
+     let (before_fragment, _) = url.split_once('#').unwrap_or((url, ""));
+     let (head, has_query) = match before_fragment.split_once('?') {
+         Some((head, _)) => (head, true),
+@@ -33,8 +35,9 @@ pub(crate) fn redact_url(url: &str) -> String {
+     out
+ }
+ 
+-/// Replace every `scheme://...` URL found in free text with its redacted form.
+-pub(crate) fn redact_urls_in_text(text: &str) -> String {
++/// Replace every `scheme://...` URL found in free text with its redacted form (see
++/// [`redact_url`]), for error text and log lines that may quote a URL with a key in its query.
++pub fn redact_urls_in_text(text: &str) -> String {
+     if !text.contains("://") {
+         return text.to_string();
+     }
+diff --git a/crates/rightkit-http/tests/outcome_and_scope.rs b/crates/rightkit-http/tests/outcome_and_scope.rs
+new file mode 100644
+index 0000000..92c095d
+--- /dev/null
++++ b/crates/rightkit-http/tests/outcome_and_scope.rs
+@@ -0,0 +1,94 @@
++//! The per-attempt outcome observer, the delivery predicate on errors, and the first-party
++//! path-prefix scope, end to end against the mock server.
++
++use std::sync::{Arc, Mutex};
++use std::time::Duration;
++
++use rightkit_http::testing::{loopback_config, loopback_policy, MockResponse, MockServer};
++use rightkit_http::*;
++
++fn config(max: u32) -> ClientConfig {
++    ClientConfig {
++        retry: RetryPolicy {
++            max_attempts: max,
++            initial_backoff: Duration::from_millis(5),
++            max_backoff: Duration::from_millis(10),
++            jitter: 0.0,
++            ..RetryPolicy::default()
++        },
++        ..loopback_config()
++    }
++}
++
++#[test]
++fn outcome_hook_reports_every_attempt_with_status_and_delay() {
++    let server = MockServer::start(|_, _| MockResponse::text(503, "busy"));
++    let seen = Arc::new(Mutex::new(Vec::new()));
++    let s = seen.clone();
++    let client = Client::new(config(3).on_outcome(move |o: &AttemptOutcome| {
++        s.lock()
++            .unwrap()
++            .push((o.attempt, o.max_attempts, o.status, o.delay.is_some()));
++    }));
++    let _ = client.send(&Request::get(server.url("/x")));
++    assert_eq!(
++        *seen.lock().unwrap(),
++        vec![
++            (1, 3, Some(503), true),
++            (2, 3, Some(503), true),
++            (3, 3, Some(503), false)
++        ]
++    );
++}
++
++#[test]
++fn outcome_hook_reports_a_success_as_the_final_attempt() {
++    let server = MockServer::start(|_, _| MockResponse::text(200, "ok"));
++    let seen = Arc::new(Mutex::new(Vec::new()));
++    let s = seen.clone();
++    let client = Client::new(config(3).on_outcome(move |o: &AttemptOutcome| {
++        s.lock().unwrap().push((o.attempt, o.status, o.delay));
++    }));
++    client.send(&Request::get(server.url("/x"))).unwrap();
++    assert_eq!(*seen.lock().unwrap(), vec![(1, Some(200), None)]);
++}
++
++#[test]
++fn outcome_hook_reports_an_error_class_and_the_error_may_have_been_delivered() {
++    // Nothing listens on port 1: a connect-phase failure, so nothing reached a server.
++    let seen = Arc::new(Mutex::new(Vec::new()));
++    let s = seen.clone();
++    let client = Client::new(config(1).on_outcome(move |o: &AttemptOutcome| {
++        s.lock().unwrap().push((o.status, o.error_class));
++    }));
++    let err = client
++        .send(&Request::post("http://127.0.0.1:1/x"))
++        .unwrap_err();
++    assert!(!err.request_may_have_been_delivered(), "{err:?}");
++    assert_eq!(
++        *seen.lock().unwrap(),
++        vec![(None, Some(ErrorClass::Transport))]
++    );
++}
++
++#[test]
++fn a_status_error_may_have_been_delivered() {
++    let server = MockServer::start(|_, _| MockResponse::text(500, "boom"));
++    let client = Client::new(config(1));
++    let resp = client.send(&Request::post(server.url("/x")));
++    if let Err(err) = resp {
++        assert!(err.request_may_have_been_delivered(), "{err:?}");
++    }
++}
++
++#[test]
++fn path_prefix_scope_refuses_paths_outside_it_before_sending() {
++    let server = MockServer::start(|_, _| MockResponse::text(200, "ok"));
++    let policy = loopback_policy().first_party_path_prefix("127.0.0.1", "/v1");
++    let client = Client::new(config(1).address_policy(policy));
++    client.send(&Request::get(server.url("/v1/models"))).unwrap();
++    let err = client.send(&Request::get(server.url("/admin"))).unwrap_err();
++    assert!(matches!(err, HttpError::AddressDenied { .. }), "{err:?}");
++    assert!(!err.request_may_have_been_delivered());
++    assert_eq!(server.request_count(), 1);
++}

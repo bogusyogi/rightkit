@@ -1,0 +1,231 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..50d0a45 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7217,7 +7217,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-overlay"
+-version = "0.1.2"
++version = "0.1.3"
+ dependencies = [
+  "serde",
+  "windows-sys 0.61.2",
+diff --git a/crates/rightkit-overlay/CHANGELOG.md b/crates/rightkit-overlay/CHANGELOG.md
+index 07e1d4b..03f7542 100644
+--- a/crates/rightkit-overlay/CHANGELOG.md
++++ b/crates/rightkit-overlay/CHANGELOG.md
+@@ -1,5 +1,13 @@
+ # Changelog
+ 
++## 0.1.3 (unreleased)
++
++Additive. Code-only: nothing in this section was compiled or run when written.
++
++- `capture` module (#413): `WDA_NONE`, `WDA_EXCLUDEFROMCAPTURE`, `NS_WINDOW_SHARING_NONE`, `NS_WINDOW_SHARING_READ_ONLY`, `windows_affinity` and `macos_sharing_type` map "exclude from capture" to the OS values. Pure and tested on every OS.
++- `windows::exclude_from_capture(hwnd, exclude)` (#413): `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`. The non-Windows stub returns `false`. The macOS `NSWindow.sharingType` call itself is not in Rust: it needs an Objective-C binding this crate does not depend on; the Swift overlay sets it using `capture::macos_sharing_type`.
++- `windows::covering_window(hwnd, own_pids)` (#525): the Windows z-order walk behind `covering_window`. It reads up to `MAX_COVERING_WALK` windows above, with class name, visibility, owning pid, `DWMWA_CLOAKED` and bounds. The non-Windows stub returns `None`. Enables the `Win32_Graphics_Dwm` windows-sys feature.
++
+ ## 0.1.2 (2026-10-17)
+ 
+ Additive. Code-only: nothing in this section was compiled or run when written.
+diff --git a/crates/rightkit-overlay/Cargo.toml b/crates/rightkit-overlay/Cargo.toml
+index 39eed96..5747e16 100644
+--- a/crates/rightkit-overlay/Cargo.toml
++++ b/crates/rightkit-overlay/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-overlay"
+-version = "0.1.2"
++version = "0.1.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Shared overlay state, hit testing, and placement policy for Right Suite apps"
+@@ -15,6 +15,7 @@ serde = { version = "1.0.229", features = ["derive"] }
+ [target.'cfg(windows)'.dependencies]
+ windows-sys = { version = "0.61.2", features = [
+     "Win32_Foundation",
++    "Win32_Graphics_Dwm",
+     "Win32_Graphics_Gdi",
+     "Win32_UI_HiDpi",
+     "Win32_UI_WindowsAndMessaging",
+diff --git a/crates/rightkit-overlay/src/lib.rs b/crates/rightkit-overlay/src/lib.rs
+index 8a998e1..39c93da 100644
+--- a/crates/rightkit-overlay/src/lib.rs
++++ b/crates/rightkit-overlay/src/lib.rs
+@@ -357,6 +357,39 @@ pub fn covering_window(
+     })
+ }
+ 
++/// Capture-exclusion values (#413): whether screenshots, recordings and screen shares can see a
++/// window. Plain numbers so the mapping is the same, and tested, on every OS.
++pub mod capture {
++    /// Windows `SetWindowDisplayAffinity`: no exclusion.
++    pub const WDA_NONE: u32 = 0x0000_0000;
++    /// Windows `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004 and later): the window is left out of
++    /// captures and shows as nothing in them.
++    pub const WDA_EXCLUDEFROMCAPTURE: u32 = 0x0000_0011;
++    /// macOS `NSWindow.SharingType.none` (`NSWindowSharingNone`): other processes cannot read
++    /// the window contents.
++    pub const NS_WINDOW_SHARING_NONE: u32 = 0;
++    /// macOS `NSWindow.SharingType.readOnly` (`NSWindowSharingReadOnly`), the default.
++    pub const NS_WINDOW_SHARING_READ_ONLY: u32 = 1;
++
++    /// The Windows display affinity for a window that is, or is not, excluded from capture.
++    pub fn windows_affinity(exclude: bool) -> u32 {
++        if exclude {
++            WDA_EXCLUDEFROMCAPTURE
++        } else {
++            WDA_NONE
++        }
++    }
++
++    /// The macOS `NSWindow.sharingType` raw value for a window that is, or is not, excluded.
++    pub fn macos_sharing_type(exclude: bool) -> u32 {
++        if exclude {
++            NS_WINDOW_SHARING_NONE
++        } else {
++            NS_WINDOW_SHARING_READ_ONLY
++        }
++    }
++}
++
+ /// One monitor, for placing an overlay on it: its full bounds, its work area (bounds without
+ /// the taskbar) and its DPI. Coordinates are physical screen pixels.
+ #[derive(Clone, Copy, Debug, PartialEq)]
+@@ -389,11 +422,12 @@ pub mod windows {
+         GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
+         MONITOR_DEFAULTTONEAREST,
+     };
++    use windows_sys::Win32::Graphics::Dwm::DwmGetWindowAttribute;
+     use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+     use windows_sys::Win32::UI::WindowsAndMessaging::{
+         CallWindowProcW, DefWindowProcW, EnumWindows, GetDesktopWindow, GetForegroundWindow,
+-        GetShellWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+-        IsWindowVisible, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE,
++        GetClassNameW, GetShellWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
++        GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetWindowDisplayAffinity, GW_HWNDPREV, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE,
+         HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
+         SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC,
+         WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+@@ -705,6 +739,81 @@ pub mod windows {
+         }
+     }
+ 
++    /// Exclude `hwnd` from screenshots, recordings and screen shares, or include it again
++    /// (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, #413). Needs Windows 10
++    /// version 2004 or later; returns `false` when the call fails (older Windows, a window of
++    /// another process, a bad handle).
++    pub fn exclude_from_capture(hwnd: isize, exclude: bool) -> bool {
++        if hwnd == 0 {
++            return false;
++        }
++        // SAFETY: SetWindowDisplayAffinity takes the handle and a flag value by value; a bad
++        // handle makes it fail.
++        unsafe { SetWindowDisplayAffinity(hwnd as HWND, crate::capture::windows_affinity(exclude)) != 0 }
++    }
++
++    /// Which window covers `hwnd` (#525): `Some("not_topmost")` when it lost `WS_EX_TOPMOST`,
++    /// otherwise the class name of the nearest window above it that is visible, not of this
++    /// process or `own_pids`, not cloaked and overlaps it; `None` when nothing covers it. Reads
++    /// at most [`MAX_COVERING_WALK`](crate::MAX_COVERING_WALK) windows above.
++    pub fn covering_window(hwnd: isize, own_pids: &[u32]) -> Option<String> {
++        if hwnd == 0 {
++            return Some("not_topmost".to_string());
++        }
++        const DWMWA_CLOAKED: u32 = 14;
++        unsafe {
++            let target = hwnd as HWND;
++            let topmost = GetWindowLongPtrW(target, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0;
++            let mut rect = RECT {
++                left: 0,
++                top: 0,
++                right: 0,
++                bottom: 0,
++            };
++            if GetWindowRect(target, &mut rect) == 0 {
++                return crate::covering_window(topmost, WorkArea {
++                    left: 0.0,
++                    top: 0.0,
++                    right: 0.0,
++                    bottom: 0.0,
++                }, &[]);
++            }
++            let overlay = area(rect);
++            let current_pid = std::process::id();
++            let mut above = Vec::new();
++            let mut walker = GetWindow(target, GW_HWNDPREV);
++            while !walker.is_null() && above.len() < crate::MAX_COVERING_WALK {
++                let mut pid = 0u32;
++                GetWindowThreadProcessId(walker, &mut pid);
++                let mut cloaked = 0u32;
++                let hr = DwmGetWindowAttribute(
++                    walker,
++                    DWMWA_CLOAKED,
++                    &mut cloaked as *mut u32 as *mut core::ffi::c_void,
++                    std::mem::size_of::<u32>() as u32,
++                );
++                let mut name = [0u16; 256];
++                let len = GetClassNameW(walker, name.as_mut_ptr(), name.len() as i32);
++                let mut wrect = RECT {
++                    left: 0,
++                    top: 0,
++                    right: 0,
++                    bottom: 0,
++                };
++                let have_rect = GetWindowRect(walker, &mut wrect) != 0;
++                above.push(crate::CoveringCandidate {
++                    class_name: String::from_utf16_lossy(&name[..len.max(0) as usize]),
++                    visible: IsWindowVisible(walker) != 0 && have_rect,
++                    own_process: crate::is_own_pid(pid, current_pid, own_pids),
++                    cloaked: hr >= 0 && cloaked != 0,
++                    rect: area(wrect),
++                });
++                walker = GetWindow(walker, GW_HWNDPREV);
++            }
++            crate::covering_window(topmost, overlay, &above)
++        }
++    }
++
+     fn area(rect: RECT) -> WorkArea {
+         WorkArea {
+             left: f64::from(rect.left),
+@@ -866,6 +975,12 @@ pub mod windows {
+     pub fn foreground_is_borderless_fullscreen(_own_pids: &[u32]) -> bool {
+         false
+     }
++    pub fn exclude_from_capture(_hwnd: isize, _exclude: bool) -> bool {
++        false
++    }
++    pub fn covering_window(_hwnd: isize, _own_pids: &[u32]) -> Option<String> {
++        None
++    }
+ }
+ 
+ impl WorkArea {
+@@ -1223,3 +1338,25 @@ mod frame_and_cover_tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod capture_tests {
++    use super::capture::*;
++
++    #[test]
++    fn windows_affinity_maps_the_flag() {
++        assert_eq!(windows_affinity(true), 0x11);
++        assert_eq!(windows_affinity(false), 0);
++    }
++
++    #[test]
++    fn macos_sharing_type_maps_the_flag() {
++        assert_eq!(macos_sharing_type(true), 0);
++        assert_eq!(macos_sharing_type(false), 1);
++    }
++
++    #[test]
++    fn handle_zero_is_refused() {
++        assert!(!crate::windows::exclude_from_capture(0, true));
++    }
++}

@@ -1,0 +1,173 @@
+SHIPPED #165 rightkit-mcp@0.7.0 (ClientExtensions::allow_loopback, default false, loopback-literal hosts only; advanced_http.rs:302)
+PARTIAL #194 rightkit-oauth@0.8.0 missing: OAuthClient::exchange_code_with_verifier / AuthorizationRequest::from_parts (verifier field private, only begin_loopback builds it); async twins exchange_code_async/refresh_async; bare-refresh-token refresh on OAuthClient (only ServerAuthFlow::refresh_token exists, server feature). PostRight items (Keychain/File stores, Mastodon/X presets, rotation) ARE shipped.
+PARTIAL #239 rightkit-logs@0.3.2 missing: RotatingTextWriter::open_append_file() (size rotation + open append); rotate_numbered(path, keep) size-triggered shift. with_rotate_on_open, rotate_now, RotatedNaming::StemNumbered shipped.
+PARTIAL #305 rightkit-http@0.3.5 missing: after-attempt outcome hook (ClientConfig::on_outcome / AttemptOutcome{status,error_class,delay}); separate transport-error backoff (RetryPolicy::transport_backoff). Only before-attempt on_attempt exists.
+MISSING #365 RightKitSwift@0.8.0 needs: AccountSessionClient (Apple sign-in, renew, sign-out, delete account, linkStoreKit, requestWindowsLinkCode), typed AccountSessionError, AccountSessionKeychainStore; also async HTTP client, LLM client, update-check owner (no Sources/ product for any)
+SHIPPED #367 rightkit-time@0.1.0 (no literal format_rfc3339_utc, but DateTime::from_unix(secs,0).unwrap().format_rfc3339() yields ...Z; parse_rfc3339, civil date math present; tz database not provided, PostRight-only)
+PARTIAL #386 rightkit-tauri-shell@0.3.2 missing (CodeRight-asked): WindowSpec visible/initially-hidden (also parent, resizable); open() returning WebviewWindow instead of String; open/builder generic over tauri Runtime (all take AppHandle<Wry>). 0.3.2 itself is published. Other ViewRight items (menu check/nested, WebView2 context menu, print, preview scheme) not CodeRight needs, not audited.
+PARTIAL #390 @rightkit/logs@0.1.4 missing: installRendererErrorCapture(client,{surface}) (window error/unhandledrejection, idempotent); no persisted ring buffer/dedup. Rust half shipped in rightkit-logs@0.3.2 (set_recording, cap_batch); Tauri command module is app-layer by design (README:124).
+PARTIAL #392 @rightkit/react-shell@0.7.0 missing: ErrorBoundary fallback(error, reset, info) (fallback gets 2 args; resetKey exists); ShortcutHelp accepting plain {label,chord}[] (registry required); button-trigger anchored menu hook with trigger ArrowDown/Up, aria-expanded/haspopup, focus restore (ContextMenu has anchor/placement/initialHighlight but no trigger-side API); DialogAction.title tooltip. FuseCurves/AppearanceMenu are ViewRight.
+MISSING #405 rightkit-daemon@0.2.7 needs: install module (ServiceSpec, ServiceManager for systemd --user/launchd/Windows task or service with injectable command runner; ScheduledTask/LaunchAgent; verify_authenticode). No launchctl/schtasks/systemctl code in any published crate besides qa.
+MISSING #415 (no published rightkit-update crate) needs: Rust updater policy: resolve_channel/validate_channels, nightly_candidates from GitHub Releases, version compare, discovery warn-once gate, boot probation state machine over storage trait. Only TS @rightkit/app-update 0.3.0 has channels/version/check-gate/probation (no nightly discovery); no Swift updater.
+MISSING #419 rightkit-agents@0.2.0 needs: on-disk Claude/Codex session-log parsing + discover_open; ExternalSessions (list/history/tail/deliver, feature external). Agents has only live stream-json/app-server; rightkit-transcript@0.3.0 is word/caption transcripts, unrelated.
+MISSING #425 RightKitSwift needs: RightKitTheme target (light/dark token set, Color(light:dark:)), RightKitSettings (typed @AppStorage keys); RightKitHub/RightKitEngine not in 0.8.0 tag
+PARTIAL #426 @rightkit/react-shell@0.7.0 missing: PromptDialog controlled mode (value/onChange; only initialValue + onSubmit(value)); trimmed-empty disables confirm. Select/Checkbox/Slider/Notice/ProgressBar tone/usePersistedState/ShortcutRecorder exist.
+MISSING #448 rightkit-app-update (no Rust crate) needs: Rust boot-probation owner (sentinel via rightkit-fs, BootStage SM, --boot-rollback-helper entry, payload backup/restore Win/.app copy mac); @rightkit/app-update/react BootProbationReporter / reportBootStage(invoke) (react entry exports only UpdateOverlay, UpdateConsentCard). TS check({headers}) + rawJson exist; tauri-plugin-http replacement not in @rightkit/tauri 0.2.2.
+MISSING #478 rightkit-fs needs: pid+heartbeat/TTL lease claim with stale-holder takeover and acquire-or-observe (0.4.3 has FileLock/probe_owner OS locks only)
+PARTIAL #546 rightkit-logs@0.3.2 missing: otel feature (otlp_layer, MinimizingExporter-style allowlist, validate_otlp_endpoint) — refused by TRIAGE-2 ruling (no-telemetry); stderr_layer shipped (stderr_fmt.rs:19)
+SHIPPED #547 rightkit-file-watch@0.4.1 (WatchSessionManager: watch/unwatch/poll/release_owner, debounce; session.rs)
+MISSING #548 rightkit-overlay needs: publish (crate not on crates.io; only local checkout) plus stack::{StackLayout, place(...)} bubble placement
+PARTIAL #549 rightkit-mcp@0.7.0 missing: LeasedPool::acquire_async (tokio-safe single-flight); LeasedPoolConfig::max_entries + PoolFull(snapshot) error. Epochs, evict_idle, snapshot, cooldown, cache_lifetime shipped (leased_pool.rs).
+SHIPPED #550 rightkit-mcp@0.7.0 (approve_with_fingerprint, try_load_migrating hook, gate_stdio, credential_write_allowed; trust.rs)
+MISSING #551 rightkit-hooks needs: host feature: HookSpec, parse_hook_specs_json, HookChain::run with ProcessLaunch, parse_hook_output, fails_closed. 0.2.0 has only hook-side dispatch/Reply/membrane types.
+MISSING #552 RightKitFS (Swift 0.8.0) needs: RightKitContainedRoot(base: URL).resolve(_:allowRoot:) throwing pathEscape, plus (comment) RightKitContainedRoot.atomicWrite(_:to:); only RightKitAppRoot (path rejects empty, forces Orthic Labs/<app> layout; atomicWrite on AppRoot only) exists
+MISSING #553 RightKitAppleCredentials (Swift 0.8.0) needs: SyncedEnvelopeStore (revisioned envelope, pull/publish/publishTombstone/appliedRevision/markApplied) and CredentialSyncOutcome .erased/.unreadable; no SyncedCredentialReconciler or CredentialSyncOutcome exists in 0.8.0 at all
+SHIPPED #554 rightkit-child-process@0.5.1 (command_std in no_window.rs, tokio_support::command, README clippy.toml disallowed-methods snippet)
+PARTIAL #555 rightkit-child-process@0.5.1 missing: OwnedCommand::spawn_tokio / OwnedTokioChild / tokio_support::own (tokio streams with Job Object + group containment, staged kill on drop); tokio_support::lead_session (setsid) is shipped
+PARTIAL #556 rightkit-child-process@0.5.1 missing: public process_group_exists(pgid) and wait_group_gone(pgid, timeout) (group_exists is still private fn in tokio_support.rs); terminate_session and signal_session (NonZeroU32 sid, skips own group) are shipped
+MISSING #557 rightkit-pty (or child-process pty) needs: async managed PTY child (tokio AsyncRead/AsyncWrite, bounded acknowledged writes, canonical-EOF shutdown, resize with pixel size, wait/cancel on whole session, containment, sandbox hooks, ConPTY/Linux openpty paths); rightkit-sandbox@0.5.0 PtySession remains synchronous (portable-pty), no such crate published
+SHIPPED #558 rightkit-sandbox@0.5.0 (confine_command, is_landlock_available, landlock_abi_version, Landlock ABI2 REFER/ABI3 TRUNCATE, arch prologue in seccomp, SeccompMode::NetworkOnly, LandlockMode::SkipWhenNoPaths)
+SHIPPED #559 rightkit-sandbox@0.5.0 (ConfinementMode::WriteOnly, seatbelt::write_only_profile, SandboxPolicy::exec_any emitting (allow process*), seatbelt::Prepared::from_profile)
+SHIPPED #560 rightkit-sandbox@0.5.0 (SandboxPolicy::deny_read/deny_read_glob, plan_deny_read_paths, secret_roots, secret_paths_within, path_is_protected_secret; Linux not enforced by design, deny_read_enforced reports it)
+SHIPPED #561 rightkit-sandbox@0.5.0 (DenialReport{category, denied_path, protected_secret, requested_grant: Grant{network,read_paths,write_paths}, message}, report_denial, looks_like_blocked_network)
+PARTIAL #562 rightkit-sandbox@0.5.0 missing: tokio AsyncWrite stdin and AsyncRead stdout/stderr (overlapped named pipes ACL'd to container SID), async wait/terminate_tree (ConfinedPipedChild under feature tokio); shipped spawn_piped/spawn_piped_in_profile give blocking std stdin only, and resolve_program is shipped
+SHIPPED #564 rightkit-sandbox@0.5.0 (AppContainerProfile::for_workspace/for_policy/with_network/with_grant/with_loopback, refcounted grant leases with stale write-ACE revocation, shared LeaseSet and LoopbackLease via FirewallAPI.dll runtime resolve, GIT_CEILING_DIRECTORIES export, spawn_in_profile); lease types are crate-private, reached only through the profile API
+SHIPPED #566 rightkit-sandbox@0.5.0 (Sandbox::pin_read_roots -> PinHandle, PinHandle::release_all, read_root_is_too_broad, is_interpreter_dir, default_user_dirs)
+PARTIAL #567 rightkit-agents@0.2.0 missing: --mcp-config <json|path> and --strict-mcp-config options (no MCP flags anywhere in claude.rs/ClaudeExtras), and a Claude account-env helper (CLAUDE_CODE_OAUTH_TOKEN vs ANTHROPIC_API_KEY); shipped: ClaudeExtras{tools(Some(empty) -> --tools ""), no_chrome, fork_session, resume_session_at, max_turns, fallback_model} via build_args_with, id charset validation, bypassPermissions refusal, session_id/resume exclusivity, SessionConfig::scrub_byok_env + BYOK_ENV_VARS. Note: --allowedTools mcp__coderight is available through the existing allowed_tools
+SHIPPED #568 rightkit-agents@0.2.0 (ToolResultContent, ResultDetail(ResultSummary: failure_message/usage/interrupted/model_usage), SessionInit with capabilities+mcp_servers, every tool_use block emitted, TextBlockDelta/ContentBlockStart ids, RateLimit, parse_result_summary)
+SHIPPED #569 rightkit-agents@0.2.0 (StreamParser::with_policy(UnknownPolicy::FailClosed) -> ParseError::unknown_required with telemetry-subtype / required-word / required-payload-key classifier; unknown top-level type refused)
+SHIPPED #570 rightkit-agents@0.2.0 (initialize_frame, set_model_frame, set_permission_mode_frame refusing bypass, next_request_id, parse_control_response, AgentEvent::ControlResponse, parse_initialize_response -> ClaudeAccountIdentity/models, parse_interrupt_receipt gated on interrupt_receipt_v1)
+SHIPPED #571 rightkit-agents@0.2.0 (CanUseTool with tool_use_id/agent_id/blocked_path via parse_can_use_tool, PermissionDecision::from_answer, answer_can_use_tool fail-closed with DEFAULT_PERMISSION_TIMEOUT 300 s, idempotent enable_permission_prompt); caveats: AgentEvent::ApprovalRequested itself still carries only id/tool/input, and answer_can_use_tool takes Option<Receiver<PermissionAnswer>> rather than a responder callback
+SHIPPED #572 rightkit-agents@0.2.0 (rate_limit::RateLimitState NoData/ProbeFailed{message,last_known}/Unsupported/Known, observe/probe_failed/mark_unsupported/snapshot, RateLimitSnapshot alias of RateLimitInfo)
+PARTIAL #573 rightkit-agents@0.2.0 missing: Codex scoped MCP config (CodexOptions has only model/approval_policy/sandbox/resume/free-form thread_params; no MCP config API); shipped: usage-limit -> AgentEvent::RateLimit{status rejected, resets_at} plus terminal failed Result (an AgentEvent, not Incoming::UsageLimit), codex::launch_env(CODEX_HOME) with BYOK scrub left to SessionConfig::scrub_byok_env, parse_line_with/CodexClient::with_policy FailClosed
+SHIPPED #574 rightkit-agents@0.2.0 (discovery::find_binary/find_binaries with PATHEXT and extensionless shim last, launchable check, run_bounded via rightkit-child-process, probe/detect cached/list_models, claude_auth_status, vendor_clis_disabled)
+SHIPPED #575 rightkit-browser@0.3.4 (ObservedNode.frame_id/stable_id/sensitive, Observation.ax: Vec<AxSummary>, selector-keyed stable ids across epochs, added/removed diff)
+SHIPPED #576 rightkit-browser@0.3.4 (BrowserPage::history bounds wait_for_navigation with HISTORY_NAVIGATION_WAIT = 10 s, then Ok)
+SHIPPED #577 rightkit-browser@0.3.4 (accessibility_tree_with(depth), frames() -> Vec<String>, target_id() -> &str)
+SHIPPED #578 rightkit-browser@0.3.4 (BrowserSession::new_page_with(url, PageSetup{interceptor, download}) settles about:blank then installs before first navigation)
+SHIPPED #579 rightkit-browser@0.3.4
+MISSING #580 rightkit-search@0.4.0 needs: workspace regex content search (GrepRequest/grep_page: gitignore-aware walk, modes, context, budgets, status, SHA-256-bound resumable cursor); crate has only query language, filename index, scan_page, TextMatcher
+PARTIAL #581 rightkit-ffmpeg@0.2.9 missing: ExtractOptions::start/duration are Duration only, no start_text/duration_text and no public parse_time_duration (ffmpeg grammar HH:MM:SS[.m], 1500ms, 90s); also no release-allowed unverified-PATH resolver returning verified:bool (resolve_ffmpeg_or_unverified / resolve_unverified refuse in BuildMode::Release). extract_args itself (order, Copy/AudioOnly, extra) is shipped
+PARTIAL #582 rightkit-embed@0.6.0 missing: documented sidecar layout (<app>/<subdir> one level above the exe); installed_model_dir(exe, subdir) is shipped but yields only <resources>/<subdir> (Windows <exe dir>/<subdir>, other <exe dir>/resources/<subdir>)
+MISSING #583 rightkit-llm needs: rightkit_llm::auth subscription auth (SubscriptionAuth, ResolveRequest, CredentialStore with refresh, DeviceCodeFlow, per-request header injection); 0.3.0 has only CredentialSource/SecretStoreCredentials/StaticCredentials
+SHIPPED #584 rightkit-llm@0.3.0
+MISSING #585 rightkit-llm needs: record/replay corpus (Recorder, ReplayTransport, Redactor, schema version, freshness limit) at the rightkit-http seam; rightkit-http only has testing::RecordedRequest
+SHIPPED #586 rightkit-oauth@0.8.0
+SHIPPED #587 rightkit-oauth@0.8.0
+SHIPPED #588 rightkit-oauth@0.8.0
+SHIPPED #589 rightkit-oauth@0.8.0
+SHIPPED #591 rightkit-child-process@0.5.1
+MISSING #592 rightkit-child-process needs: AdoptedIdentity::terminate_tree(TerminationOptions) -> TreeTermination (identity-pinned group SIGTERM, grace, SIGKILL / Windows tree kill, confirm whole tree gone, refuse own pid); only OwnedChild::terminate_tree*, sweep, sweep_descendants exist
+SHIPPED #593 rightkit-child-process@0.5.1
+MISSING #594 RightKitLiveActivity@0.8.0 needs: keyed multi-activity host (start/update/end(key:), endAll(except:), per-key fence); LiveActivityHost holds one activity
+MISSING #595 RightKitSpeech@0.8.0 needs: LiveDictationSession Event.stopped and/or Event.final(_, endsSession:), accumulated finalized text; Event has only status/partial/final/failed
+MISSING #597 RightKitSpeech@0.8.0 needs: AVAudioSession interruption/route-change/media-services-reset handling and Event.interrupted(reason); no observer in LiveDictationSession
+MISSING #599 RightKitSpeech@0.8.0 needs: LiveDictationSession(onDeviceOnly: Bool = true) opt-in network fallback (optional product choice; fail-closed accepted, comment defers it post-port)
+MISSING #601 RightKitCredentials@0.8.0 needs: SecretsStore.keys(prefix:) and SecretsBackend list(namespace:)
+MISSING #602 RightKitCredentials@0.8.0 needs: SecretsStore.set(_:_:tag:) / tag(_:) via kSecAttrGeneric
+MISSING #603 RightKitLicense@0.8.0 needs: public LicenseActivationClient.platform() (still static func platform() internal, LicenseClient.swift:683)
+MISSING #604 RightKitLicense@0.8.0 needs: ContinuityBridgeClient with injectable ContinuityBridgeTransport; no ContinuityBridge type exists anywhere in RightKitSwift 0.8.0 Sources
+MISSING #605 RightKitAppleCredentials@0.8.0 needs: AppleCredentialStore account validator/arbitraryAccounts policy (validAccount is private), raw-data read/write/delete without trim/re-encode, accounts(service:) enumeration
+MISSING #606 RightKitFS@0.8.0 needs: RightKitAppRoot.readData, exists, remove (absent = success), optional list; only path/dataDir/atomicWrite/copyVerified/appendRecord exist
+MISSING #607 RightKitSwift needs: RightKitAppRoot.migrate(from:to:) verified one-shot legacy-file migration (RightKitFS 0.8.0 has only copyVerified; no migrate API anywhere in Sources)
+SHIPPED #608 rightkit-db@0.4.3 (write_pending_marker is pub and atomic; start time is read by pending_marker_started_at(db), not a PendingMarker field, which covers the report's started_at need)
+SHIPPED #609 rightkit-device@0.2.0
+PARTIAL #610 rightkit-device@0.2.0 / rightkit-license@0.2.2 missing: multi-device AuthorizationService (with_device_alternates / authorize_any_device); AuthorizationService still binds one device id. verify_token_any_device and authenticate_token_any_device ARE shipped in license 0.2.2
+SHIPPED #611 rightkit-credentials@0.2.1 (apple_helper::resolve_bundled, canonical + bundle containment; docs say it checks placement only, no codesign, which the issue's proposal did not require)
+SHIPPED #616 @rightkit/i18n@0.2.0 (locales, normalizeLocale, persistence with rollback, saving/saveError, function messages with t(..., {args}))
+SHIPPED #617 @rightkit/react-shell@0.7.0 (darkRemovesAttribute on createThemeStore, applyStoredThemeSync and themeBootScript)
+SHIPPED #618 @rightkit/theme@0.3.0 (tailwindPrefix generator option, tailwindThemeCss, presetCss data-palette blocks, aliasCss; note theme is only a transitive dep in CodeRight's node_modules, not a direct dependency)
+SHIPPED #619 @rightkit/onboarding@0.6.0 (onContinue veto, onComplete result + ctx.setResult, per-step skippable/Skip, continueLabel, labels prop, LicenseStepCopy, empty title; the comment's settings port is the SettingsBackend interface that Onboarding already accepts directly, so createShellBackends is not required)
+MISSING #620 @rightkit/settings-ui needs: SettingsModal (modal host, dirty/onSave/onDiscard/onReload, discard confirm, header/footer slots, #settings=<tab> deep link); 0.6.0 SettingsPanel has only navFooter and findShortcut
+SHIPPED #621 @rightkit/react-shell@0.7.0 (ModalShell escape and dismissible: boolean | () => boolean)
+SHIPPED #622 @rightkit/react-shell@0.7.0 (placement "top-end", dedupe "newest", maxVisible; ShellProvider toastPlacement/toastOptions)
+SHIPPED #623 @rightkit/platform-ui@0.3.0 (useFocusTrap scope "document", skipUnrendered)
+PARTIAL #624 @rightkit/react-shell@0.7.0 / platform-ui@0.3.0 missing: rankCommands support for sub and aliases with exact-alias/alias-prefix/sub-prefix tiers and label tiebreak (Rankable has only label/keywords/hint, ties keep input order). Controlled CommandPalette (query, activeIndex, onRun, groupOrder, renderRow, scopeLabel, paging keys, type chip, sublabel) is shipped; a custom rank prop exists as a workaround
+PARTIAL #625 @rightkit/app-update@0.3.0 missing: labels prop (copy is hard-coded English in UpdateOverlay/updateOverlayText) and --rk-* token styling (no stylesheet; plain "update-overlay" class). UpdateOverlay (takes a deriveUpdateOverlay model, not raw status) and UpdateConsentCard are shipped
+SHIPPED #626 rightkit-fs@0.4.3 (AtomicWriter::commit_as(new_target, ReplaceMode), NoReplace for exclusive)
+MISSING #627 RightKitSwift needs: RightKitOAuth (PKCE verifier/challenge/state, ASWebAuthenticationSession wrapper, authorizationCode(from:expectedState:), TokenClient); no OAuth/PKCE code in 0.8.0
+MISSING #628 RightKitSwift needs: RightKitTTS SynthesisPipeline and PlaybackController; RightKitSpeech is dictation/ASR only
+SHIPPED #629 rightkit-child-process@0.5.1 (login_shell::path and env_values with timeout; $SHELL absolute-file check, fallback /bin/zsh, /bin/sh; no-op off Unix)
+SHIPPED #630 rightkit-child-process@0.5.1 (suspend_current_process shipped, Unix SIGTSTP, Unsupported elsewhere; AdoptedSignal enum was deliberately left unchanged, and Stop/Continue are exposed as AdoptedIdentity::suspend/resume, so the Ctrl-Z need is met)
+PARTIAL #631 @rightkit/doc-render@0.2.0 missing: from the comment, component overrides for strong, emphasis, delete, break, image, thematicBreak, list container (ordered/start), frontmatter, math, html(value); and renderInline(markdown, options). The issue's own list (link, text/onText, inlineCode, code, table, heading, listItem, paragraph, blockquote, classNames) is shipped
+SHIPPED #632 @rightkit/doc-render@0.2.0 (ParseOptions smartypants/frontmatter/citations/wikiLinks/defLists, softBreaks "preserve", emailAutolinks, data.autolink on link nodes)
+PARTIAL #633 @rightkit/doc-render@0.2.0 missing: --rk-* theming of CodeBlock (styles.css uses hard-coded light colours; only --rk-doc-code-max-height is a variable). CodeBlock component with label, copy, renderIcon, onCopy is shipped
+MISSING #634 rightkit-sidecar needs: read_json_line_async / write_json_line_flush_async (0.2.1 is sync only; async hits are none)
+SHIPPED #635 rightkit-models@0.4.4 (Hardware::probe_with_runner, ProbeRunner, pub parse_nvidia_smi_csv/parse_wmic_video/parse_system_profiler_displays/parse_memory, pub total_memory_bytes)
+SHIPPED #636 rightkit-models@0.4.4
+SHIPPED #637 rightkit-models@0.4.4
+SHIPPED #638 rightkit-tauri-shell@0.3.2
+SHIPPED #639 rightkit-tauri-shell@0.3.2
+MISSING #640 rightkit-tauri-shell needs: consent module (ConsentChoice, ConsentSurface, consent_surface, native confirm dialog Deny/Allow once/Always allow, GrantStore trait); no consent code exists in 0.3.2 (src/deep_link.rs:5 says the consent decision table stays app-specific)
+SHIPPED #641 rightkit-browser@0.3.4
+PARTIAL #647 rightkit-http@0.3.5 missing: async path cannot select eager mode. SseDecoder::eager()/finish()/has_pending() exist and SseReader::with_decoder (sync) takes them, but AsyncStreamResponse::sse()/sse_with_limits() build a default-mode SseStream (async_client.rs:817-826; SseStream::new is private, only eof_policy is settable), so CodeRight's async provider and daemon streams cannot get per-line delivery. Deliver/Fail EOF policies exist on SseStream.
+SHIPPED #648 rightkit-http@0.3.5
+SHIPPED #649 rightkit-http@0.3.5
+SHIPPED #650 rightkit-http@0.3.5
+SHIPPED #651 rightkit-http@0.3.5
+SHIPPED #652 rightkit-http@0.3.5
+SHIPPED #653 rightkit-http@0.3.5
+SHIPPED #654 rightkit-child-process@0.5.1
+PARTIAL #655 @rightkit/react-shell@0.7.0 missing: held-modifier prefix actions (only the "mod+digit"/"arrow" pseudo-keys exist, no hold-then-press); suspend() returns void, not a nested idempotent resume function; no cancelPending(); no hasPendingSequence(). Shipped: unassigned state, code fallback for Alt/AltGr, exact|prefix conflicts, sequenceTimeout, suspend/resume/isSuspended.
+MISSING #656 rightkit-llm needs: async providers (AsyncProvider, AsyncOpenAiCompatProvider, AsyncAnthropicProvider, async complete/stream with drop-to-cancel), pre-built wire-history input or lossless Message round trip, pre-send prepared-request hook, CacheControlPlan; 0.3.0 has no async code at all
+MISSING #657 rightkit-llm needs: StreamPolicy {idle, semantic_progress, require_finish} and LlmError::IncompleteOutput carrying partial text/reasoning/tool calls/usage; neither exists (the decoder half is in #647)
+MISSING #658 rightkit-llm needs: per-physical-attempt observer (Submitted/Rejected/SubmissionUnknown, retry notices) with separate connect and status retry budgets; only the per-call observer and rightkit-http ClientConfig::on_attempt exist
+SHIPPED #659 rightkit-llm@0.3.0
+SHIPPED #660 rightkit-llm@0.3.0
+PARTIAL #661 rightkit-llm@0.3.0 missing: async FailoverChain (chain is blocking, thread per attempt). Shipped: FailoverOn::custom classifier over LlmError, FailoverEvent {from,to,reason,breaker_skipped}. Whether the classifier can see overload text in a 4xx body or capacity-gate errors is unconfirmed (it receives LlmError only).
+MISSING #662 rightkit-llm needs: capability catalogue (tier, reasoning depth, supported_efforts, tool_schema_class, vision, compaction trigger/reserve/max summary tokens, provider-native alias rule, signed refresh with verifier trait and last-known-good rollback with degraded flag); nothing of this exists in catalogue.rs or pricing.rs
+PARTIAL #663 rightkit-llm@0.3.0 missing: async generate; ImageRequest count 1..=4 returning Vec<GeneratedImage> (n fixed at 1); output_format png/jpeg/webp; typed ImageSize {width,height} (sizes/formats are Strings); route provider and base_url fields and ImageRouteCatalogue::provider_for_base_url; from_toml loader (only from_json). Shipped: blocking ImageGenerationClient, bounded body, MissingCredential error, base64/URL result, route catalogue with from_json.
+PARTIAL #664 rightkit-llm@0.3.0 missing: drain_completed_lenient (never fails, index order, empty id/name allowed), a first-wins mode for process_delta when id/name repeats (currently errors), and is_empty(). Shipped: process_delta, drain_ready (ordered early drain), strict drain_completed.
+MISSING #665 rightkit-llm needs: OpenAI Responses API provider (/responses and /codex/responses); 0.3.0 has no Responses transport (only chat completions, Anthropic Messages, CLI providers)
+MISSING #666 rightkit-daemon needs: crash-safe reload saga (ReloadCoordinator/ReloadHooks/ReloadStore/publish_socket_ready/staged activation fence); rightkit-daemon@0.2.7 has only the host-takeover handoff (ERROR_HOST_HANDOFF, handoff_grace), no reload marker or saga
+MISSING #667 RightKitSwift needs: RightKitNetPolicy with opt-in loopback/private allow-set, RightKitPolicyRedirectGuard(allowing:) and makeSession; no NetPolicy type exists anywhere in RightKitSwift 0.8.0
+SHIPPED #668 @rightkit/platform-ui@0.3.0 (DismissOptions.isInside, usable alone or with container; also covers scroll-inside)
+SHIPPED #669 @rightkit/platform-ui@0.3.0 (DismissOptions.onFocusOut, reason "focus", focusout or Tab settle, never preventDefault)
+SHIPPED #683 rightkit-child-process@0.5.1 (suspend_current_process() exported, Unix SIGTSTP, Unsupported elsewhere; AdoptedIdentity::suspend()/resume() give Stop/Continue; the AdoptedSignal enum itself is unchanged, deliberately)
+MISSING #684 rightkit-child-process needs: public tokio_support::process_group_exists(pgid); group_exists is private (WindowsJob::wait_empty exists but no Unix probe)
+MISSING #685 rightkit-child-process needs: WindowsJob::contain_current_process breakaway-OK variant; contain_current_process() sets only kill-on-close (OwnedCommand::windows_allow_breakaway applies to owned children, not the current-process job)
+MISSING #686 @rightkit/theme@0.3.0 needs: presetCss modeAttribute / [data-theme="light"] compound selectors and TokenPreset.label (PresetCssOptions has only attribute; TokenPreset has id/mode/tokens/accents)
+MISSING #694 rightkit-child-process needs: AdoptedIdentity::children() (direct children) and process_usage_of(pid); only descendants() and current-process process_usage() exist
+MISSING #695 rightkit-agents needs: Session::spawn_with(config, launcher) or accept an already-spawned/confined child, plus async twin; 0.2.0 Session::spawn owns spawn, CommandOverride replaces program/argv only
+MISSING #696 rightkit-http needs: AddressPolicy::allow_host_of(url); only allow_if/allow_if_any_host/allow_private_resolution/allow_loopback/local_first exist in 0.3.5
+MISSING #697 rightkit-oauth needs: GatewayExchange::exchange_tokens_async/refresh_async on AsyncClient and allow_insecure_host(host); 0.8.0 gateway.rs is sync-only and check_endpoint allows http only for loopback
+MISSING #698 rightkit-credentials needs: resolve_bundled_login_item (nested Contents/Library/LoginItems/<name>.app/Contents/MacOS/<name>) and dev_fallback; resolve_bundled only matches a plain file in MacOS/Helpers/Library/LoginItems
+PARTIAL #699 RightKitAppleCredentials@0.8.0 missing: opt-in broad synced read (read(...broadSynced:)); source states reads never widen to kSecAttrSynchronizableAny. Present: probeStatus(service:account:scope:) with caller service/account and AppleCredentialError.missingEntitlement; status() still uses defaultService
+MISSING #700 rightkit-oauth needs: CallbackListener::wait_post_json_with(validate) to reject a body before the 200 ack; only wait_post_json exists in 0.8.0
+MISSING #701 RightKitLicense needs: ContinuityBridgeClient, ContinuityBridgeIssue/Exchange, ContinuityBridgeFailure and public iOS platform helper; nothing bridge-related in RightKitSwift 0.8.0 RightKitLicense
+PARTIAL #702 RightKitLicense@0.8.0 missing: seed closure (device id is always UUID()), accessibility parameter and no-rewrite option (requireDeviceID reapplies accessibility on read), onCorrupt on requireDeviceID (it throws corruptDeviceID; re-seed exists only in the deprecated non-throwing deviceID(account:))
+MISSING #703 rightkit-sandbox needs: way to drop or minimise implicit Linux SYSTEM_EXEC roots (/etc /proc /dev /sys /sbin); no system_roots/implicit option in 0.5.0 policy
+MISSING #704 rightkit-agents needs: find_binaries skipping empty/relative PATH entries, and a probe/run_bounded variant taking an already-launched child or Command customiser
+PARTIAL #705 rightkit-agents@0.2.0 missing: wider default BYOK list (still four names); ClaudeExtras --strict-mcp-config/--mcp-config fields; CLAUDE_CODE_OAUTH_TOKEN vs API-key account env. Caller-supplied scrub is possible via SessionExtras.env_remove
+MISSING #706 rightkit-agents needs: CodeRight control-channel contracts (coderight-<kind>-n ids and no trailing newline, typed errors from parse_control_response, account initialize shape, pending messages in interrupt receipt, non-null FailClosed check, async answer_can_use_tool with 300 s deny); 0.2.0 still has rk- ids, Option return, accountInfo, queuedUserMessages count, contains_key, blocking recv_timeout
+MISSING #707 rightkit-agents needs: RateLimitState Unsupported/probe rule alignment and serde; 0.2.0 mark_unsupported never overwrites Known, probe_failed overwrites Unsupported, no Serialize/Deserialize
+MISSING #708 rightkit-mcp needs: TrustStore::try_load_migrating calling migrate when a records document fails native parse (or a force-hook flag); 0.7.0 returns InvalidData from serde_json::from_value (decide_with_fingerprint exists)
+MISSING #709 rightkit-models needs: Gpu::vram_mib and Gpu::source; Gpu in 0.4.4 has only name, vram_gb, unified, backends
+NEW #711 rightkit-sandbox needs: Strict Seatbelt profile without tty/ttys writes+ioctl and without global metadata read (or opt-ins)
+NEW #735 RightKitSwift needs: RightKitHelperProtocol product (line-delimited JSON helper loop)
+OK @rightkit/app-update@0.3.0 (used, nothing missing)
+OK @rightkit/doc-render@0.2.0 (used, nothing missing)
+OK @rightkit/i18n@0.2.0 (used, nothing missing)
+OK @rightkit/legal@0.6.0 (used, nothing missing)
+OK @rightkit/legal-ui@0.4.0 (used, nothing missing)
+OK @rightkit/license@0.2.0 (used, nothing missing)
+OK @rightkit/logs@0.1.4 (used, nothing missing)
+OK @rightkit/onboarding@0.6.0 (used, nothing missing)
+OK @rightkit/platform-ui@0.3.0 (used, nothing missing)
+OK @rightkit/react-shell@0.7.0 (used, nothing missing)
+OK @rightkit/release@0.3.0 (used, nothing missing)
+OK @rightkit/tauri@0.2.2 (used, nothing missing)
+OK @rightkit/tauri-shell@0.1.1 (used, nothing missing)
+OK RightKitSwift/RightKitAppleCredentials@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitCloudSync@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitCredentials@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitDiagnostics@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitFS@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitLicense@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitPurchases@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitSpeech@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitStore@0.8.0 (used, nothing missing)
+OK RightKitSwift/RightKitUI@0.8.0 (used, nothing missing)
+OK RightKitSwift (11 products used, nothing missing; HelperProtocol use reverted to local code, gap NEW #735)
+Rust API-existence check against the published crates is still running; any BROKEN symbol will be sent as an addendum.
+AUDIT DONE: CodeRight 86 gaps

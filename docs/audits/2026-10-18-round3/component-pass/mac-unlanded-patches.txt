@@ -1,0 +1,51 @@
+# rk-gaps patches never landed on main (audited 2026-10-18 against ea691005's parent). For the component pass; do not hand-merge.
+# Format: status | patch | issue | component | evidence
+
+## UNLANDED-APPLIES (applies, but held for the component pass: collisions, security or owner concerns)
+APPLIES | 410/410.patch | #410 | credentials | orig/new -p1: all crate/swift files apply (oauth Cargo.toml only conflict); verify_p256, owner_key_id, OwnerKey.swift absent; collides with cred-file and win/credentials-458 (credentials 0.3.0 vs main 0.2.1)
+APPLIES | cred-file/cred-file.patch | #458 | credentials | 6/6 files apply; secret_from_env_file, MAX_SECRET_FILE_BYTES absent; collides with 410
+APPLIES | win/credentials-458-approval-applehelper.patch | #458 | credentials | 6 of 7 files apply; TeamPolicy, HelperTrust, secret_file absent; collides with 410 and cred-file
+APPLIES | 383/383-qa.patch | #383 | qa (npm) | packages/qa dev-only mock variant; 3 files apply (meta hunk conflicts); RIGHTKIT_QA_PREVIEW_MARKER absent
+APPLIES | 387-qapage/387-qapage.delta.patch | n/a | qa (npm) | 9/9 files apply; QaInterceptTransport/InterceptHandler absent; QUEUE.md: apply after npm-qa patch
+APPLIES | 387-qapage/387-qapage.patch | n/a | qa (npm) | QaPage CDP additions: 7 files apply (targets.ts, keyboard.ts, mouse.ts, page.ts...); MouseMoveOptions absent; no matching issue number
+APPLIES | win/npm-qa-settings-license.patch | n/a | qa (npm),settings-ui,license | 13 of 17 files apply (invoke-mock.ts, pixeldiff.ts, settings-ui core.ts/pickers.tsx, license index.ts); only meta hunks conflict; InvokeMock/normalizeTier absent
+APPLIES | 383/383.patch | #383 | react-shell | selectDataSource/DataSourceKind/useEngine absent; 2 code files apply (CHANGELOG/package.json hunks conflict). TRIAGE.md flags WRONG-OWNER: mock data source would ship in release
+APPLIES | win/mac-runtime-manifest.mjs | n/a | release | non-patch replacement source (+ .test.mjs): packages/release/mac-runtime-manifest.mjs does not exist on main; runtimeManifest symbol absent (also inside release-dell-delta)
+APPLIES | 424/424.patch | #424 | RightKitSwift | 20/20 files apply; RightKitTapChain, RightKitEventTapMask, isSettable absent
+APPLIES | 441/441.patch | #441 | RightKitSwift | 4/4 files apply; isSettable/boundsForRange absent
+APPLIES | win/swift-scrape-gaps.patch | n/a | RightKitSwift | 33/33 files apply; CredentialSyncOutcome, SyncedCredentialReconciler, HelperProtocolError absent; overlaps 424/410
+APPLIES | 386b/386b-code-only.patch | #386 | tauri-shell | WebView2 modules: 10/10 files apply cleanly; set_devtools_keys, INSPECTOR_FRONTEND_SETUP_JS absent (QUEUE.md: apply after 386a; Windows compile)
+APPLIES | 386b/386b.patch | #386 | tauri-shell | 13/14 files apply; only a meta hunk conflicts
+
+## UNLANDED-CONFLICTS
+CONFLICTS | win/app-update-rust-448.patch | #448 | app-update | 13 of 16 apply; packages/app-update/src/single-instance.ts conflicts; NativeUpdateBridge/WindowsInstallMode absent
+CONFLICTS | 448/448.patch | #448, #447 | app-update,http | no rightkit-app-update crate on main; SignatureError/WindowsInstallMode/NativeUpdateBridge absent; 29 of 34 files apply, packages/app-update/src/index.ts (now 0.3.0) and 3 meta files conflict
+CONFLICTS | G3/G3.patch | #449 | audio | OutputGain/PlaybackSource/OutputPlayback absent (main has only OutputSession, audio CHANGELOG.md:12-13); 9 new playback files apply, playback/mod.rs and Cargo.toml diverge
+CONFLICTS | win/browser-motion-463-cookies.patch | #463 | browser,motion | alpha screenshot landed (browser CHANGELOG.md:15); set_cookies/export_cookies_netscape/CookieRecord absent; motion crate has uncommitted frame.rs/encoder.rs in WT (in flight); browser lib.rs, page.rs conflict
+CONFLICTS | 388/388.patch | #388 | fs | test_mode module absent (COMPILED_MARKER, TestMode, Variables); 3 files apply, fs/src/lib.rs conflicts
+CONFLICTS | 388/388.rev2.patch | #388 | fs | same as 388 (rev2); fs/src/lib.rs conflicts
+CONFLICTS | G8-G9/G8-G9.patch | #464, #467 | fs | #464 BLAKE3 NOT on main: no blake3 feature/dep in fs Cargo.toml, no Blake3Hasher/blake3_file/progress in digest.rs or verified.rs. #467 landed differently: src/zip.rs exists (StoredZipWriter:127, fs CHANGELOG.md:19), wired UNGATED as "pub mod zip;" lib.rs:86 plus pub use :152, no "zip" feature; patch adds a zip feature, read_zip, write_zip(path,...). Cargo.toml, digest.rs, verified.rs and 3 new tests apply; lib.rs, zip.rs, README conflict
+CONFLICTS | fs-userdirs/fs-userdirs.delta.patch | n/a | fs | delta stacked on the fs patch; app_dirs user_dirs (desktop/documents/downloads) absent; fs lib.rs conflicts, 2 of 3 files apply
+CONFLICTS | win/fs-464-467-478-migrate-455fs.patch | #464, #467, #478 | fs | BLAKE3 (#464) and lease (#478) absent from main; #467 zip superseded by StoredZipWriter (lib.rs:86); 7 files apply, lib.rs and zip.rs conflict
+CONFLICTS | 391/391.patch | #391 | license,child-process | license half superseded (license CHANGELOG.md:9 peek_unverified_claims); process_tree_usage/ProcessTreeUsage absent (child-process now has #480 process_table, uncommitted); license/src/lib.rs diverges
+CONFLICTS | 391/391.rev2.patch | #391 | license,child-process | same as 391; 6 files apply, license/src/lib.rs conflicts
+CONFLICTS | 391/rev2/rev1-nolock.patch | #391 | license,child-process | rev1 without lockfile; same conflict
+CONFLICTS | win/391-fixed.patch | #391 | license,child-process | same conflict as 391 (license/src/lib.rs); tree_usage absent
+CONFLICTS | win/pdf-inputs-local.patch | n/a | pdf | test-only; written against RIGHTKIT_PDF_*; main tests use RK_PDF_CORPUS_DIR/RK_PDF_EDITED_DIR (corpus_coverage.rs:6,283), so 3 test files conflict
+CONFLICTS | 382/382.patch | #382 | qa | no fake_cli on main (SCRIPT_ENV, HANG_DEFAULT_SECS, ExpectStdin absent); 3 files apply, qa/src/lib.rs conflicts
+CONFLICTS | 387/387.patch | #387 | qa | orig/new -p1 patch: control.rs, control_ext.rs apply; embedded/mod.rs and lib.rs diverge; live_log_path, PAGE_ERROR_RECORDER_JS absent; breaking (embedded args)
+CONFLICTS | 387/387.rev2.patch | #387 | qa | same as 387.patch (rev2)
+CONFLICTS | G10-G11/G10-G11.patch | #468, #469 | qa | #469 locator and ffprobe_with/count_frames landed (qa page.rs:24, media.rs, page/locator.js reverse-applies); #468 run isolation NOT (RunIsolation, isolation.rs, dialog.ts absent); media.rs, page.rs, vitest.config.ts diverge, 11 files apply
+CONFLICTS | win/qa-456-468-469-nativereal.patch | #456, #468, #469 | qa | #456 SuiteHooks and #469 locator landed; #468 isolation, managed AVD (MANAGED_ROOT_VAR, managed_emulator_serial) and ffprobe_counted absent; media.rs, scenario.rs, suite.rs, util.rs diverge
+CONFLICTS | qa-input2/qa-input2.delta.patch | n/a | qa (npm) | delta stacked on 387-qapage: emulation.test.ts, keyboard.ts, page.ts diverge; ImeCompositionOptions/QaKeyboard absent
+CONFLICTS | win/release-dell-delta.patch | n/a | release | 24 new/changed files apply (forbidden-crates.mjs, mac-helper-stage.mjs, recipe-build.mjs, stop-app-processes.mjs...); package-recipe-targets.mjs, stage-sidecar.mjs conflict; release dir has uncommitted edits in WT (in flight)
+CONFLICTS | win/release-wip-v2.patch | n/a | release | 8 files apply, same 4 conflicts as release-dell-delta; older than release-dell-delta
+CONFLICTS | 394/394.patch | #394 | settings-ui,app-update,legal-ui | settings-ui unstyled frame, legal-ui policyDocuments, persisted check cache absent (main: settings-ui 0.6.0 staged only, app-update 0.3.0 createCheckGate); legal-ui/src/index.ts diverges
+CONFLICTS | 394/394.rev2.patch | #394 | settings-ui,app-update,legal-ui | 12 files apply; only legal-ui/src/index.ts conflicts
+CONFLICTS | 386-menu/386-menu.delta.patch | #386 | tauri-shell | delta stacked on 386 (base/ paths): MenuPlan/MenuOverride absent; menu.rs, lib.rs diverge; applies only after 386
+CONFLICTS | 386/386.patch | #386 | tauri-shell | 21 files, 20 apply, tauri-shell/src/menu.rs conflicts; rk_shell_set_menu_state, set_devtools_keys, MenuPlan absent; main tauri-shell is 0.3.2
+CONFLICTS | 386a/386a.patch | #386 | tauri-shell | menu/open-paths half of 386: 17 files apply, src/menu.rs conflicts; rk_shell_open_paths_ready, MAX_SUBMENU_DEPTH absent
+CONFLICTS | G15-G18/G15-G18.patch | #481, #486 | tauri-shell | Rust half landed (engine.rs, lib.rs, tray_options.rs, engine_policy.rs reverse-apply; 48/50 symbols) but tray.rs and Cargo.toml diverge; JS half (packages/tauri-shell EngineLifecycle, TaggedEngineEvent; 3 files) still applies and is absent
+CONFLICTS | associations/associations.delta.patch | #670 | tauri-shell | delta stacked on 386-menu; AssociationSpec/HandlerStatus absent; tauri-shell lib.rs and tests/shell.test.mjs diverge
+CONFLICTS | win/386ab-fixed2.patch | #386 | tauri-shell | 27 files, 25 apply; menu.rs conflicts; rk_shell_set_menu_state, set_devtools_keys absent
+CONFLICTS | win/tauri-shell-481-scrape.patch | #481 | tauri-shell | engine allowlist/timeouts/restart (#481): rk_shell_set_surface, is_method_allowed, stream_coalesce absent; engine.rs, lib.rs diverge (G15 engine landed with another API)

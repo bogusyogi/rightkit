@@ -1,0 +1,4 @@
+ALREADY #459 TimedWord.source_ms and measured line breaking (LineMetrics, wrap_lines, build_cues_with_metrics) exist in 0.4.0 (src/words.rs, src/segment.rs)
+DONE #742 sub-ms timing, additive: PreciseWord (f64 seconds), precise_words_from_seconds, precise_words_from_timed, parse_timing_json_precise, to_timing_json_precise, Cue::precise_span/start_secs/end_secs; Cue/ParsedCue stay integer ms (SRT/VTT cannot carry finer); tests + CHANGELOG added
+Version: 0.4.0 (unchanged; still the unpublished breaking bump, additions folded in)
+Public API changes (all additive, none breaking beyond the already-pending 0.4.0 TimedWord field): PreciseWord, precise_words_from_seconds, precise_words_from_timed, parse_timing_json_precise, to_timing_json_precise, Cue::start_secs, Cue::end_secs, Cue::precise_span

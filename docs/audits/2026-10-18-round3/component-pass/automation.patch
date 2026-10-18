@@ -1,0 +1,1629 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..910f0e7 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6742,7 +6742,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-automation"
+-version = "0.4.4"
++version = "0.4.5"
+ dependencies = [
+  "rightkit-daemon",
+  "tempfile",
+diff --git a/crates/rightkit-automation/CHANGELOG.md b/crates/rightkit-automation/CHANGELOG.md
+index 5ae2e33..b936a40 100644
+--- a/crates/rightkit-automation/CHANGELOG.md
++++ b/crates/rightkit-automation/CHANGELOG.md
+@@ -1,5 +1,19 @@
+ # Changelog
+ 
++## 0.4.5 (unreleased)
++
++Additive; no existing signature changes. Code-only: nothing here was compiled or run when written, so the Windows and macOS CI runs are the verification. Requested in rightkit#360 (HeardRight), #412 and #689 (Pulse) and #434 (SwiftRight).
++
++- **Fixed (Windows): `win::input::RawInput::key_down`, `key_up` and `key_press` fill the hardware scan code (#689).** `wScan` is now `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)`, so a receiving window that maps keys by scan code (WezTerm) sees the key. It was 0, and `SendInput` does not derive it. New `win::scan_for_vk(vk)` returns the value; `RawInput::with_scan(0)` restores the old behaviour, `with_scan(n)` forces a code. `vk::DUMMY` and any key without a scan code stay 0. The extended (`E0`) bit is unchanged.
++- **New (Windows): `win::uia::El` checked reads (#360).** `try_pid() -> Result<Option<u32>, UiaError>`, `try_native_hwnd() -> Result<Option<isize>, UiaError>`, `try_control_type() -> Result<i32, UiaError>`, plus `control_type()`, `control_type_name()`, `framework_id()` (UIA `FrameworkId`, so XAML/WinUI fields can be told from Win32) and `supports_text_edit()` (`TextEditPattern` probe; `Some(false)` is a positive answer, `None` means UIA could not say). `UiaError::{ElementNotAvailable, ElementNotEnabled, Failed(hresult)}` keeps "the element is gone" (`UIA_E_ELEMENTNOTAVAILABLE`) apart from "UIA failed". The existing `Option` readers are unchanged.
++- **Fixed (Windows): the UIA error mapping used wrong `HRESULT` values.** `UIA_E_NOTSUPPORTED` is `0x80040204` and `UIA_E_ELEMENTNOTAVAILABLE` is `0x80040201`; the old table swapped them, so an unavailable element surfaced as `Error::Unsupported` instead of `Error::NotFound`.
++- **New (Windows): `win::region` (#412).** `capture_region(Rect) -> RegionImage` copies a rectangle of the virtual desktop (every app, as the user sees it) with `BitBlt` and `CAPTUREBLT`, clipped to the desktop; `capture_region_png(Rect, path)` writes a PNG; `virtual_screen()` gives the bounds. No redaction and no policy: the caller owns what may be captured.
++- **New (macOS): `macos::capture_region_png(Rect, path) -> Result<(u32, u32)>` (#412).** The same for macOS, in global display points with a top-left origin, through `CGWindowListCreateImage`; needs Screen Recording permission. Returns the pixel size written.
++- **New (Windows): `win::clipboard` (#412).** `ClipboardListener::start(callback)` registers a hidden message-only window with `AddClipboardFormatListener` on its own thread and calls back with a `ClipboardChange { sequence, formats }` for every change; dropping or `stop()` removes it and joins the thread. `list_formats()` and `read_raw(&ReadLimits) -> RawClipboard` return every format (or `ReadLimits::only`) as raw bytes with a per-format and a total byte limit (`FormatData::{Bytes, TooLarge, Handle, Unreadable}`). GDI-handle formats are reported as `Handle`; `cf::*` and `standard_format_name` name the standard ids. No policy: the caller decides what may be read or kept.
++- **New (Windows): `win::dropfiles` (#412).** `drop_files(hwnd, &[&Path], x, y)` posts `WM_DROPFILES` with a `DROPFILES` block to a window that set `WS_EX_ACCEPTFILES` (`accepts_files(hwnd)`), as if dropped from Explorer, with no cursor, focus or `SendInput`. A window that takes drops through OLE is refused with `Error::Unsupported`. A higher-integrity target ignores the message unless it allowed it (UIPI).
++- **New (Windows): `win::ime` (#434, IME part).** `compose(hwnd, text)`, `commit(hwnd)`, `cancel(hwnd)` drive the input context of a window of the calling process with IMM32, and `candidate_rect(hwnd) -> Option<Rect>` finds the visible IME candidate window of any process by window class. Win32 has no setter for the cursor inside a composition string, so `compose` takes no cursor argument. Cargo features `Win32_UI_Input_Ime` and `Win32_System_LibraryLoader` are now enabled for the `windows` crate (no new dependency).
++- **Already present, no change:** media and system keys (`send_media_key`, #290), `sensitive` checksum detectors and the Pulse word lists (#412 first part, #529), `win::set_window_frame` and macOS `ax::El::set_point` / `set_size` / `set_frame` for moving and resizing another app's window (#412, #188), the caller event marker (`marker`, #188), `capture_safety` (#177), `win::dialog::task_dialog_click` and `win::msaa::default_action` (#434), and the AX attribute path that ignores the interaction switches (`ax::El::attribute`, #244).
++
+ ## 0.4.4 (2026-10-17)
+ 
+ Breaking only for code that reached into `win::uia::El`'s public field; otherwise additive. Code-only: nothing in this section was compiled or run when written (the Windows items need a Windows build and run), so the Windows CI run is the verification. Requested in rightkit#360 (HeardRight full UIA cutover).
+diff --git a/crates/rightkit-automation/Cargo.toml b/crates/rightkit-automation/Cargo.toml
+index 245ed3e..72825dd 100644
+--- a/crates/rightkit-automation/Cargo.toml
++++ b/crates/rightkit-automation/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-automation"
+-version = "0.4.4"
++version = "0.4.5"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
+@@ -41,6 +41,7 @@ windows = { version = "0.62", features = [
+   "Win32_Storage_FileSystem",
+   "Win32_Storage_Xps",
+   "Win32_System_JobObjects",
++  "Win32_System_LibraryLoader",
+   "Win32_System_Com",
+   "Win32_System_DataExchange",
+   "Win32_System_Memory",
+@@ -49,6 +50,7 @@ windows = { version = "0.62", features = [
+   "Win32_System_Variant",
+   "Win32_UI_Accessibility",
+   "Win32_UI_HiDpi",
++  "Win32_UI_Input_Ime",
+   "Win32_UI_Input_KeyboardAndMouse",
+   "Win32_UI_WindowsAndMessaging",
+ ] }
+diff --git a/crates/rightkit-automation/README.md b/crates/rightkit-automation/README.md
+index 45e5532..fb2f30b 100644
+--- a/crates/rightkit-automation/README.md
++++ b/crates/rightkit-automation/README.md
+@@ -18,6 +18,7 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
+ | macOS system-wide AX element, hit test at a point, per-call AX timeout | `macos::ax` (`system_wide`, `element_at_position`, `AxOptions`) |
+ | Windows raw `SendInput` batch (any VK incl. `0xE8`, scan codes, extended bit, Unicode, mouse, `dwExtraInfo` tag), modifier snapshot and restore | `win::input` (`send_input_batch`, `RawInput`, `ModifierSnapshot`) |
+ | Media and system keys (play-pause, next, previous, volume up/down, mute), system-wide, macOS and Windows | `src/media_keys.rs` (`send_media_key`, `MediaKey`) |
++| Windows screen-region capture (`BitBlt`), clipboard change listener with raw per-format bytes, `WM_DROPFILES` file drop, IME composition and candidate rect; macOS screen-region PNG | `win::region`, `win::clipboard`, `win::dropfiles`, `win::ime`, `macos::capture_region_png` |
+ | Engine: ids, freshness guard, ladder, receipts | `src/engine.rs` |
+ | Per-app control lease, epoch fencing, acknowledged input sequence (the engine's typed layer) | `src/lease.rs` |
+ | Admission pre-action hook (typed, engine layer) | `src/admission.rs` |
+@@ -119,6 +120,6 @@ Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGE
+ - Activation: `SetForegroundWindow`, with `AttachThreadInput` to the foreground thread as the fallback. Capture: `PrintWindow` with `PW_RENDERFULLCONTENT` (2) into a compatible bitmap. Clipboard: Win32 `DataExchange`, unicode text read and write, with snapshot and restore.
+ - Launch: `CreateProcessW` suspended with `SW_SHOWNOACTIVATE`, assigned to a kill-on-close job with an optional `ActiveProcessLimit`, then resumed. A window is adopted only if its pid is the started pid, or a new process with the same app id inside the job. If no window appears within 5 s, the call returns an error and the launched tree is torn down.
+ - Limits: `status()` reports UIPI. A non-elevated process cannot drive an elevated app unless UIAccess signing is used. The code does not check session or desktop state before `SendInput`.
+-- Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Security, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
++- Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Security, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_LibraryLoader, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_Ime, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
+ - Run on a Windows host: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`. The test header says it has not been run on Windows.
+ - Raw input (`win::input`): `send_input_batch(&[RawInput])` is one `SendInput` call from typed key, Unicode and mouse items, with an optional `dwExtraInfo` tag (`SendOptions`). `ModifierSnapshot` records held modifiers so a caller that releases them can restore them. No policy, focus or receipt checks: it is for hosts that own their own policy. Unit tests build the `INPUT` array without injecting.
+diff --git a/crates/rightkit-automation/src/macos/capture.rs b/crates/rightkit-automation/src/macos/capture.rs
+index 57bf96d..c9220f7 100644
+--- a/crates/rightkit-automation/src/macos/capture.rs
++++ b/crates/rightkit-automation/src/macos/capture.rs
+@@ -24,6 +24,13 @@ fn via_cg(window_id: u64, path: &Path) -> Option<(usize, usize)> {
+             size: CGSize { w: 0.0, h: 0.0 },
+         };
+         let img = Cf::new(f(null, 8, window_id as u32, 1 | 8))?;
++        write_png(&img, path)
++    }
++}
++
++/// Write a `CGImage` as a PNG at `path`; the pixel size on success.
++fn write_png(img: &Cf, path: &Path) -> Option<(usize, usize)> {
++    unsafe {
+         let (w, h) = (CGImageGetWidth(img.0), CGImageGetHeight(img.0));
+         if w == 0 || h == 0 {
+             return None;
+@@ -47,6 +54,48 @@ fn via_cg(window_id: u64, path: &Path) -> Option<(usize, usize)> {
+     }
+ }
+ 
++fn region_via_cg(region: Rect, path: &Path) -> Option<(usize, usize)> {
++    unsafe {
++        let sym = dlsym(RTLD_DEFAULT, c"CGWindowListCreateImage".as_ptr());
++        if sym.is_null() {
++            return None;
++        }
++        let f: CreateImage = std::mem::transmute(sym);
++        let rect = CGRect {
++            origin: CGPoint {
++                x: region.x,
++                y: region.y,
++            },
++            size: CGSize {
++                w: region.w,
++                h: region.h,
++            },
++        };
++        // kCGWindowListOptionOnScreenOnly (1), kCGNullWindowID (0): everything on screen in
++        // `rect`, composited as the user sees it; BoundsIgnoreFraming|BestResolution.
++        let img = Cf::new(f(rect, 1, 0, 1 | 8))?;
++        write_png(&img, path)
++    }
++}
++
++/// Capture a rectangle of the screen as a PNG at `path`. `region` is in global display points
++/// with a top-left origin (the space `ax::El::frame` and window bounds use). Needs Screen
++/// Recording permission. The file is whatever is on screen in the rectangle, from every app and
++/// without redaction: the caller owns the policy for what may be captured. Returns the pixel
++/// size written (Retina captures are larger than `region`).
++pub fn capture_region_png(region: Rect, path: &Path) -> Result<(u32, u32)> {
++    if !(region.w > 0.0 && region.h > 0.0) || !region.x.is_finite() || !region.y.is_finite() {
++        return Err(Error::Invalid("empty or non-finite capture region".into()));
++    }
++    if unsafe { CGPreflightScreenCaptureAccess() } == 0 {
++        return Err(Error::PermissionDenied("Screen Recording"));
++    }
++    match region_via_cg(region, path) {
++        Some((w, h)) if path.exists() => Ok((w as u32, h as u32)),
++        _ => Err(Error::Unsupported("screen region capture failed")),
++    }
++}
++
+ pub fn capture(window_id: u64, path: &Path) -> Result<()> {
+     if unsafe { CGPreflightScreenCaptureAccess() } == 0 {
+         return Err(Error::PermissionDenied("Screen Recording"));
+@@ -68,3 +117,20 @@ pub fn capture(window_id: u64, path: &Path) -> Result<()> {
+         ))
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn empty_or_non_finite_region_is_refused_before_any_capture() {
++        let p = Path::new("/nonexistent/out.png");
++        for r in [
++            Rect { x: 0.0, y: 0.0, w: 0.0, h: 10.0 },
++            Rect { x: 0.0, y: 0.0, w: 10.0, h: -1.0 },
++            Rect { x: f64::NAN, y: 0.0, w: 10.0, h: 10.0 },
++        ] {
++            assert!(matches!(capture_region_png(r, p), Err(Error::Invalid(_))));
++        }
++    }
++}
+diff --git a/crates/rightkit-automation/src/macos/mod.rs b/crates/rightkit-automation/src/macos/mod.rs
+index 15ab21d..abed814 100644
+--- a/crates/rightkit-automation/src/macos/mod.rs
++++ b/crates/rightkit-automation/src/macos/mod.rs
+@@ -9,6 +9,7 @@ pub(crate) mod capture_safety;
+ mod events;
+ mod ffi;
+ 
++pub use capture::capture_region_png;
+ pub use ffi::Cf;
+ 
+ use crate::model::*;
+diff --git a/crates/rightkit-automation/src/win/clipboard.rs b/crates/rightkit-automation/src/win/clipboard.rs
+new file mode 100644
+index 0000000..f6c0ded
+--- /dev/null
++++ b/crates/rightkit-automation/src/win/clipboard.rs
+@@ -0,0 +1,501 @@
++//! Clipboard change listener and raw per-format reads.
++//!
++//! [`ClipboardListener`] runs a hidden message-only window on its own thread and registers it
++//! with `AddClipboardFormatListener`, so the caller is told the moment the clipboard changes
++//! instead of polling the sequence number (`WinPlatform::clip_change`). [`read_raw`] returns the
++//! bytes of every (or selected) clipboard format, not just Unicode text, with explicit size
++//! limits so a huge image or file list cannot exhaust memory.
++//!
++//! Neither function applies a policy: clipboard content can hold secrets, so the caller decides
++//! what may be read, kept or logged. Reading never changes the clipboard.
++//!
++//! Limits to know:
++//! * Formats that hold a GDI handle (`CF_BITMAP`, `CF_PALETTE`, `CF_METAFILEPICT`,
++//!   `CF_ENHMETAFILE`) are reported as [`FormatData::Handle`] with no bytes. Read the
++//!   `CF_DIB` / `CF_DIBV5` rendering of an image instead; Windows synthesises it.
++//! * A format advertised by delayed rendering is rendered by its owner when read. An unresponsive
++//!   owner can block [`read_raw`]; do not call it on a thread that must not stall.
++//! * Byte lengths are the size of the global memory block, which can exceed the logical payload
++//!   by a few bytes; text formats are NUL terminated.
++
++use crate::model::*;
++use std::sync::mpsc;
++use std::thread::JoinHandle;
++use windows::core::PCWSTR;
++use windows::Win32::Foundation::{HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
++use windows::Win32::System::DataExchange::*;
++use windows::Win32::System::LibraryLoader::GetModuleHandleW;
++use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
++use windows::Win32::UI::WindowsAndMessaging::*;
++
++/// One clipboard format: its id and a name (a standard `CF_*` name, the registered name, or
++/// `CF_<id>` when neither is known).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ClipboardFormat {
++    pub id: u32,
++    pub name: String,
++}
++
++/// What reading one format produced.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum FormatData {
++    /// The bytes of the format's global memory block.
++    Bytes(Vec<u8>),
++    /// The block is larger than the per-format limit; `size` is its size in bytes. Nothing read.
++    TooLarge { size: usize },
++    /// A GDI-handle format that has no byte payload (see the module docs).
++    Handle,
++    /// The format was advertised but its data could not be fetched or locked.
++    Unreadable,
++}
++
++/// One format and what reading it produced.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ClipboardData {
++    pub format: ClipboardFormat,
++    pub data: FormatData,
++}
++
++/// A raw read of the clipboard: the sequence number it was read at and every format asked for.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct RawClipboard {
++    /// `GetClipboardSequenceNumber` at read time. If it differs from the number seen by the
++    /// listener, the clipboard changed again before the read finished.
++    pub sequence: u32,
++    pub items: Vec<ClipboardData>,
++}
++
++impl RawClipboard {
++    /// The bytes of format `id`, if it was read.
++    pub fn bytes(&self, id: u32) -> Option<&[u8]> {
++        self.items.iter().find_map(|i| match &i.data {
++            FormatData::Bytes(b) if i.format.id == id => Some(b.as_slice()),
++            _ => None,
++        })
++    }
++}
++
++/// Limits for [`read_raw`].
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ReadLimits {
++    /// Largest single format to read, in bytes. Larger ones come back as
++    /// [`FormatData::TooLarge`].
++    pub max_format_bytes: usize,
++    /// Total bytes to read across all formats; once reached, later formats come back as
++    /// [`FormatData::TooLarge`].
++    pub max_total_bytes: usize,
++    /// Read only these format ids (in clipboard order). `None` reads every format.
++    pub only: Option<Vec<u32>>,
++}
++
++impl Default for ReadLimits {
++    /// 16 MiB per format, 64 MiB in total, every format.
++    fn default() -> Self {
++        ReadLimits {
++            max_format_bytes: 16 * 1024 * 1024,
++            max_total_bytes: 64 * 1024 * 1024,
++            only: None,
++        }
++    }
++}
++
++/// Standard format ids.
++pub mod cf {
++    pub const TEXT: u32 = 1;
++    pub const BITMAP: u32 = 2;
++    pub const METAFILEPICT: u32 = 3;
++    pub const SYLK: u32 = 4;
++    pub const DIF: u32 = 5;
++    pub const TIFF: u32 = 6;
++    pub const OEMTEXT: u32 = 7;
++    pub const DIB: u32 = 8;
++    pub const PALETTE: u32 = 9;
++    pub const PENDATA: u32 = 10;
++    pub const RIFF: u32 = 11;
++    pub const WAVE: u32 = 12;
++    pub const UNICODETEXT: u32 = 13;
++    pub const ENHMETAFILE: u32 = 14;
++    pub const HDROP: u32 = 15;
++    pub const LOCALE: u32 = 16;
++    pub const DIBV5: u32 = 17;
++}
++
++/// The name of a predefined clipboard format id, or `None` for a registered or private id.
++pub fn standard_format_name(id: u32) -> Option<&'static str> {
++    Some(match id {
++        cf::TEXT => "CF_TEXT",
++        cf::BITMAP => "CF_BITMAP",
++        cf::METAFILEPICT => "CF_METAFILEPICT",
++        cf::SYLK => "CF_SYLK",
++        cf::DIF => "CF_DIF",
++        cf::TIFF => "CF_TIFF",
++        cf::OEMTEXT => "CF_OEMTEXT",
++        cf::DIB => "CF_DIB",
++        cf::PALETTE => "CF_PALETTE",
++        cf::PENDATA => "CF_PENDATA",
++        cf::RIFF => "CF_RIFF",
++        cf::WAVE => "CF_WAVE",
++        cf::UNICODETEXT => "CF_UNICODETEXT",
++        cf::ENHMETAFILE => "CF_ENHMETAFILE",
++        cf::HDROP => "CF_HDROP",
++        cf::LOCALE => "CF_LOCALE",
++        cf::DIBV5 => "CF_DIBV5",
++        0x0080 => "CF_OWNERDISPLAY",
++        0x0081 => "CF_DSPTEXT",
++        0x0082 => "CF_DSPBITMAP",
++        0x0083 => "CF_DSPMETAFILEPICT",
++        0x008E => "CF_DSPENHMETAFILE",
++        _ => return None,
++    })
++}
++
++/// Whether the format's clipboard handle is a GDI object, not global memory.
++pub fn is_handle_format(id: u32) -> bool {
++    matches!(
++        id,
++        cf::BITMAP | cf::METAFILEPICT | cf::PALETTE | cf::ENHMETAFILE | 0x0082 | 0x0083 | 0x008E
++    )
++}
++
++fn format_name(id: u32) -> String {
++    if let Some(n) = standard_format_name(id) {
++        return n.to_string();
++    }
++    let mut buf = [0u16; 256];
++    let n = unsafe { GetClipboardFormatNameW(id, &mut buf) };
++    if n > 0 {
++        return String::from_utf16_lossy(&buf[..n as usize]);
++    }
++    format!("CF_{id}")
++}
++
++struct Open;
++
++impl Open {
++    fn new() -> Result<Open> {
++        // The clipboard can be held briefly by another process: retry a few times.
++        for _ in 0..20 {
++            if unsafe { OpenClipboard(None) }.is_ok() {
++                return Ok(Open);
++            }
++            std::thread::sleep(std::time::Duration::from_millis(10));
++        }
++        Err(Error::Platform(0, "OpenClipboard (clipboard busy)"))
++    }
++}
++
++impl Drop for Open {
++    fn drop(&mut self) {
++        let _ = unsafe { CloseClipboard() };
++    }
++}
++
++fn enumerate_open() -> Vec<ClipboardFormat> {
++    let mut out = vec![];
++    let mut f = 0u32;
++    loop {
++        f = unsafe { EnumClipboardFormats(f) };
++        if f == 0 {
++            break;
++        }
++        out.push(ClipboardFormat {
++            id: f,
++            name: format_name(f),
++        });
++    }
++    out
++}
++
++/// The formats currently on the clipboard, in clipboard order (the owner's priority order).
++pub fn list_formats() -> Result<Vec<ClipboardFormat>> {
++    let _open = Open::new()?;
++    Ok(enumerate_open())
++}
++
++/// Decide what to do with a block of `size` bytes given the limits and the bytes already read.
++/// Pure, so the limit rules are unit tested.
++pub(crate) fn admit(size: usize, read_so_far: usize, limits: &ReadLimits) -> bool {
++    size <= limits.max_format_bytes && read_so_far.saturating_add(size) <= limits.max_total_bytes
++}
++
++fn read_one(id: u32, read_so_far: usize, limits: &ReadLimits) -> FormatData {
++    if is_handle_format(id) {
++        return FormatData::Handle;
++    }
++    unsafe {
++        let Ok(h) = GetClipboardData(id) else {
++            return FormatData::Unreadable;
++        };
++        let g = HGLOBAL(h.0);
++        let size = GlobalSize(g);
++        if !admit(size, read_so_far, limits) {
++            return FormatData::TooLarge { size };
++        }
++        let p = GlobalLock(g) as *const u8;
++        if p.is_null() {
++            return FormatData::Unreadable;
++        }
++        let bytes = std::slice::from_raw_parts(p, size).to_vec();
++        let _ = GlobalUnlock(g);
++        FormatData::Bytes(bytes)
++    }
++}
++
++/// Read the clipboard's formats as raw bytes (see the module docs for limits). An empty
++/// clipboard gives an empty `items`. Fails only when the clipboard cannot be opened.
++pub fn read_raw(limits: &ReadLimits) -> Result<RawClipboard> {
++    let _open = Open::new()?;
++    let sequence = unsafe { GetClipboardSequenceNumber() };
++    let mut items = vec![];
++    let mut read = 0usize;
++    for format in enumerate_open() {
++        if let Some(only) = &limits.only {
++            if !only.contains(&format.id) {
++                continue;
++            }
++        }
++        let data = read_one(format.id, read, limits);
++        if let FormatData::Bytes(b) = &data {
++            read += b.len();
++        }
++        items.push(ClipboardData { format, data });
++    }
++    Ok(RawClipboard { sequence, items })
++}
++
++/// One clipboard change reported by [`ClipboardListener`].
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ClipboardChange {
++    /// `GetClipboardSequenceNumber` when the change was seen.
++    pub sequence: u32,
++    /// The formats on the clipboard, best effort: empty when the clipboard was busy. Use
++    /// [`read_raw`] to get the bytes.
++    pub formats: Vec<ClipboardFormat>,
++}
++
++type Callback = Box<dyn FnMut(ClipboardChange) + Send>;
++
++thread_local! {
++    static CALLBACK: std::cell::RefCell<Option<Callback>> = const { std::cell::RefCell::new(None) };
++}
++
++const CLASS_NAME: &str = "RightKitClipboardListener";
++
++fn wide(s: &str) -> Vec<u16> {
++    s.encode_utf16().chain(std::iter::once(0)).collect()
++}
++
++unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
++    match msg {
++        WM_CLIPBOARDUPDATE => {
++            let sequence = unsafe { GetClipboardSequenceNumber() };
++            let formats = list_formats().unwrap_or_default();
++            // Take the callback out while it runs so a re-entrant message cannot alias it.
++            if let Some(mut cb) = CALLBACK.with(|c| c.borrow_mut().take()) {
++                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++                    cb(ClipboardChange { sequence, formats })
++                }));
++                CALLBACK.with(|c| *c.borrow_mut() = Some(cb));
++            }
++            LRESULT(0)
++        }
++        WM_DESTROY => {
++            let _ = unsafe { RemoveClipboardFormatListener(hwnd) };
++            unsafe { PostQuitMessage(0) };
++            LRESULT(0)
++        }
++        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
++    }
++}
++
++/// A running clipboard change listener. Dropping it (or calling [`Self::stop`]) removes the
++/// listener and joins the thread. The callback runs on the listener's own thread, one change at a
++/// time; keep it short, and do the slow work (reading, hashing, storing) elsewhere.
++pub struct ClipboardListener {
++    hwnd: isize,
++    thread: Option<JoinHandle<()>>,
++}
++
++impl ClipboardListener {
++    /// Start listening. `on_change` is called once per `WM_CLIPBOARDUPDATE`, which Windows sends
++    /// for every clipboard change including ones this process makes itself. A panic in the
++    /// callback is caught and ignored. Errors with `Error::Platform` when the window or the
++    /// listener registration fails.
++    pub fn start<F>(on_change: F) -> Result<ClipboardListener>
++    where
++        F: FnMut(ClipboardChange) + Send + 'static,
++    {
++        let (tx, rx) = mpsc::channel::<std::result::Result<isize, Error>>();
++        let thread = std::thread::Builder::new()
++            .name("rightkit-clipboard-listener".into())
++            .spawn(move || run(Box::new(on_change), tx))
++            .map_err(|_| Error::Platform(0, "spawn clipboard listener thread"))?;
++        match rx.recv() {
++            Ok(Ok(hwnd)) => Ok(ClipboardListener {
++                hwnd,
++                thread: Some(thread),
++            }),
++            Ok(Err(e)) => {
++                let _ = thread.join();
++                Err(e)
++            }
++            Err(_) => {
++                let _ = thread.join();
++                Err(Error::Platform(0, "clipboard listener thread exited"))
++            }
++        }
++    }
++
++    /// Stop listening and wait for the thread to end.
++    pub fn stop(mut self) {
++        self.shutdown();
++    }
++
++    fn shutdown(&mut self) {
++        if let Some(t) = self.thread.take() {
++            // WM_CLOSE -> DefWindowProc -> DestroyWindow -> WM_DESTROY (listener removed, quit).
++            let _ = unsafe {
++                PostMessageW(
++                    Some(HWND(self.hwnd as *mut _)),
++                    WM_CLOSE,
++                    WPARAM(0),
++                    LPARAM(0),
++                )
++            };
++            let _ = t.join();
++        }
++    }
++}
++
++impl Drop for ClipboardListener {
++    fn drop(&mut self) {
++        self.shutdown();
++    }
++}
++
++fn run(cb: Callback, ready: mpsc::Sender<std::result::Result<isize, Error>>) {
++    unsafe {
++        let hmodule = GetModuleHandleW(PCWSTR::null()).ok();
++        let hinstance = hmodule.map(|m| HINSTANCE(m.0)).unwrap_or_default();
++        let class = wide(CLASS_NAME);
++        let wc = WNDCLASSW {
++            lpfnWndProc: Some(wndproc),
++            hInstance: hinstance,
++            lpszClassName: PCWSTR(class.as_ptr()),
++            ..Default::default()
++        };
++        // Fails with ERROR_CLASS_ALREADY_EXISTS on a second listener; the class is then usable.
++        RegisterClassW(&wc);
++        let hwnd = match CreateWindowExW(
++            WINDOW_EX_STYLE::default(),
++            PCWSTR(class.as_ptr()),
++            PCWSTR::null(),
++            WINDOW_STYLE::default(),
++            0,
++            0,
++            0,
++            0,
++            Some(HWND_MESSAGE),
++            None,
++            Some(hinstance),
++            None,
++        ) {
++            Ok(h) => h,
++            Err(e) => {
++                let _ = ready.send(Err(Error::Platform(
++                    i64::from(e.code().0),
++                    "CreateWindowEx (clipboard listener)",
++                )));
++                return;
++            }
++        };
++        CALLBACK.with(|c| *c.borrow_mut() = Some(cb));
++        if let Err(e) = AddClipboardFormatListener(hwnd) {
++            let _ = DestroyWindow(hwnd);
++            let _ = ready.send(Err(Error::Platform(
++                i64::from(e.code().0),
++                "AddClipboardFormatListener",
++            )));
++            return;
++        }
++        let _ = ready.send(Ok(hwnd.0 as isize));
++        let mut msg = MSG::default();
++        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
++            let _ = TranslateMessage(&msg);
++            DispatchMessageW(&msg);
++        }
++        CALLBACK.with(|c| *c.borrow_mut() = None);
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn standard_names_cover_the_predefined_formats() {
++        assert_eq!(standard_format_name(cf::UNICODETEXT), Some("CF_UNICODETEXT"));
++        assert_eq!(standard_format_name(cf::HDROP), Some("CF_HDROP"));
++        assert_eq!(standard_format_name(cf::DIBV5), Some("CF_DIBV5"));
++        assert_eq!(standard_format_name(0xC0FE), None);
++        assert_eq!(standard_format_name(0), None);
++    }
++
++    #[test]
++    fn handle_formats_are_not_read_as_bytes() {
++        for id in [cf::BITMAP, cf::PALETTE, cf::METAFILEPICT, cf::ENHMETAFILE] {
++            assert!(is_handle_format(id), "{id}");
++        }
++        for id in [cf::TEXT, cf::UNICODETEXT, cf::DIB, cf::HDROP, 0xC123] {
++            assert!(!is_handle_format(id), "{id}");
++        }
++    }
++
++    #[test]
++    fn limits_apply_per_format_and_in_total() {
++        let l = ReadLimits {
++            max_format_bytes: 100,
++            max_total_bytes: 150,
++            only: None,
++        };
++        assert!(admit(100, 0, &l));
++        assert!(!admit(101, 0, &l));
++        assert!(admit(50, 100, &l));
++        assert!(!admit(51, 100, &l));
++        assert!(admit(0, 150, &l));
++    }
++
++    #[test]
++    fn default_limits_are_bounded() {
++        let l = ReadLimits::default();
++        assert_eq!(l.max_format_bytes, 16 * 1024 * 1024);
++        assert_eq!(l.max_total_bytes, 64 * 1024 * 1024);
++        assert!(l.only.is_none());
++    }
++
++    #[test]
++    fn raw_clipboard_bytes_finds_only_read_formats() {
++        let raw = RawClipboard {
++            sequence: 7,
++            items: vec![
++                ClipboardData {
++                    format: ClipboardFormat {
++                        id: cf::UNICODETEXT,
++                        name: "CF_UNICODETEXT".into(),
++                    },
++                    data: FormatData::Bytes(vec![104, 0, 0, 0]),
++                },
++                ClipboardData {
++                    format: ClipboardFormat {
++                        id: cf::DIB,
++                        name: "CF_DIB".into(),
++                    },
++                    data: FormatData::TooLarge { size: 99 },
++                },
++            ],
++        };
++        assert_eq!(raw.bytes(cf::UNICODETEXT), Some(&[104u8, 0, 0, 0][..]));
++        assert_eq!(raw.bytes(cf::DIB), None);
++        assert_eq!(raw.bytes(cf::HDROP), None);
++    }
++}
+diff --git a/crates/rightkit-automation/src/win/dropfiles.rs b/crates/rightkit-automation/src/win/dropfiles.rs
+new file mode 100644
+index 0000000..eabc721
+--- /dev/null
++++ b/crates/rightkit-automation/src/win/dropfiles.rs
+@@ -0,0 +1,201 @@
++//! Window-targeted file drop: hand a list of files to a window that accepts `WM_DROPFILES`, as
++//! if the user had dropped them from Explorer (tier 3: a posted message, no cursor, focus or
++//! `SendInput`).
++//!
++//! Only windows that opted in with `DragAcceptFiles` (extended style `WS_EX_ACCEPTFILES`) take
++//! this path; [`accepts_files`] tells. Windows that take drops through OLE (`IDropTarget`:
++//! browsers, Electron, WPF, most modern UI) do not receive `WM_DROPFILES` and are refused with
++//! `Error::Unsupported`. A target running at a higher integrity level ignores the message unless
++//! it allowed it with `ChangeWindowMessageFilterEx` (UIPI), and the post then reports success
++//! while nothing happens.
++//!
++//! Memory: the `DROPFILES` block is allocated here and ownership passes to the target, which
++//! frees it with `DragFinish`. It is freed here when the post fails.
++
++use crate::model::*;
++use windows::Win32::Foundation::{GlobalFree, HGLOBAL, HWND, LPARAM, WPARAM};
++use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
++use windows::Win32::UI::WindowsAndMessaging::{
++    GetWindowLongW, IsWindow, PostMessageW, GWL_EXSTYLE, WM_DROPFILES, WS_EX_ACCEPTFILES,
++};
++
++/// Most files one drop may carry; a larger list is refused.
++pub const MAX_DROP_FILES: usize = 4096;
++
++/// Size of the `DROPFILES` header (`pFiles`, `pt.x`, `pt.y`, `fNC`, `fWide`).
++const HEADER: usize = 20;
++
++fn handle(hwnd: u64) -> HWND {
++    HWND(hwnd as isize as *mut _)
++}
++
++/// Whether the window `hwnd` exists and accepts `WM_DROPFILES` (`WS_EX_ACCEPTFILES`).
++pub fn accepts_files(hwnd: u64) -> bool {
++    if hwnd == 0 {
++        return false;
++    }
++    let h = handle(hwnd);
++    unsafe {
++        IsWindow(Some(h)).as_bool()
++            && (GetWindowLongW(h, GWL_EXSTYLE) as u32 & WS_EX_ACCEPTFILES.0) != 0
++    }
++}
++
++/// Build the `DROPFILES` block for `paths`: header, then each path as a NUL-terminated UTF-16
++/// string, then a final NUL. `(x, y)` is the drop point in the target's client coordinates, or
++/// screen coordinates when `non_client` is true (`fNC`).
++pub(crate) fn build_dropfiles(paths: &[String], x: i32, y: i32, non_client: bool) -> Vec<u8> {
++    let body: usize = paths.iter().map(|p| p.len() * 2 + 2).sum();
++    let mut out = Vec::with_capacity(HEADER + body + 2);
++    out.extend_from_slice(&(HEADER as u32).to_le_bytes());
++    out.extend_from_slice(&x.to_le_bytes());
++    out.extend_from_slice(&y.to_le_bytes());
++    out.extend_from_slice(&i32::from(non_client).to_le_bytes());
++    out.extend_from_slice(&1i32.to_le_bytes()); // fWide: UTF-16 paths
++    for p in paths {
++        for u in p.encode_utf16() {
++            out.extend_from_slice(&u.to_le_bytes());
++        }
++        out.extend_from_slice(&0u16.to_le_bytes());
++    }
++    out.extend_from_slice(&0u16.to_le_bytes());
++    out
++}
++
++/// Validate the paths a drop may carry: at least one, at most [`MAX_DROP_FILES`], absolute, valid
++/// Unicode, no embedded NUL. Returns them as strings in order.
++pub(crate) fn check_paths(paths: &[&std::path::Path]) -> Result<Vec<String>> {
++    if paths.is_empty() {
++        return Err(Error::Invalid("no files to drop".into()));
++    }
++    if paths.len() > MAX_DROP_FILES {
++        return Err(Error::Invalid(format!(
++            "more than {MAX_DROP_FILES} files in one drop"
++        )));
++    }
++    let mut out = Vec::with_capacity(paths.len());
++    for p in paths {
++        if !p.is_absolute() {
++            return Err(Error::Invalid(format!(
++                "drop path must be absolute: {}",
++                p.display()
++            )));
++        }
++        let s = p
++            .to_str()
++            .ok_or_else(|| Error::Invalid("drop path is not valid Unicode".into()))?;
++        if s.contains('\0') {
++            return Err(Error::Invalid("drop path contains NUL".into()));
++        }
++        out.push(s.to_string());
++    }
++    Ok(out)
++}
++
++/// Post `WM_DROPFILES` for `paths` to the window `hwnd`, dropped at `(x, y)` in its client
++/// coordinates. Every path must be absolute; the files are not checked for existence. Errors with
++/// `Error::NotFound` for a dead window, `Error::Unsupported` when the window does not accept
++/// `WM_DROPFILES` (see [`accepts_files`]), `Error::Invalid` for a bad list. Returns once the
++/// message is queued; the target handles it on its own thread.
++pub fn drop_files(hwnd: u64, paths: &[&std::path::Path], x: i32, y: i32) -> Result<()> {
++    let list = check_paths(paths)?;
++    if hwnd == 0 || !unsafe { IsWindow(Some(handle(hwnd))) }.as_bool() {
++        return Err(Error::NotFound(format!("drop target window {hwnd}")));
++    }
++    if !accepts_files(hwnd) {
++        return Err(Error::Unsupported(
++            "window does not accept WM_DROPFILES (no WS_EX_ACCEPTFILES)",
++        ));
++    }
++    let bytes = build_dropfiles(&list, x, y, false);
++    unsafe {
++        let g: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE, bytes.len())
++            .map_err(|e| Error::Platform(i64::from(e.code().0), "GlobalAlloc"))?;
++        let p = GlobalLock(g) as *mut u8;
++        if p.is_null() {
++            let _ = GlobalFree(Some(g));
++            return Err(Error::Platform(0, "GlobalLock"));
++        }
++        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
++        let _ = GlobalUnlock(g);
++        if let Err(e) = PostMessageW(
++            Some(handle(hwnd)),
++            WM_DROPFILES,
++            WPARAM(g.0 as usize),
++            LPARAM(0),
++        ) {
++            let _ = GlobalFree(Some(g));
++            return Err(Error::Platform(
++                i64::from(e.code().0),
++                "PostMessage(WM_DROPFILES)",
++            ));
++        }
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::path::Path;
++
++    fn u32_at(b: &[u8], i: usize) -> u32 {
++        u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
++    }
++
++    fn units(b: &[u8]) -> Vec<u16> {
++        b[20..]
++            .chunks_exact(2)
++            .map(|c| u16::from_le_bytes([c[0], c[1]]))
++            .collect()
++    }
++
++    #[test]
++    fn header_and_double_nul_list_match_the_dropfiles_layout() {
++        let b = build_dropfiles(&["C:\\a.txt".into(), "C:\\b".into()], 5, -7, false);
++        assert_eq!(u32_at(&b, 0), 20);
++        assert_eq!(u32_at(&b, 4) as i32, 5);
++        assert_eq!(u32_at(&b, 8) as i32, -7);
++        assert_eq!(u32_at(&b, 12), 0); // fNC
++        assert_eq!(u32_at(&b, 16), 1); // fWide
++        let expect: Vec<u16> = "C:\\a.txt\0C:\\b\0\0".encode_utf16().collect();
++        assert_eq!(units(&b), expect);
++    }
++
++    #[test]
++    fn non_client_flag_is_written() {
++        let b = build_dropfiles(&["C:\\a".into()], 0, 0, true);
++        assert_eq!(u32_at(&b, 12), 1);
++    }
++
++    #[test]
++    fn non_bmp_paths_are_encoded_as_surrogate_pairs() {
++        let b = build_dropfiles(&["C:\\\u{1F600}".into()], 0, 0, false);
++        let u = units(&b);
++        assert!(u.contains(&0xD83D) && u.contains(&0xDE00));
++    }
++
++    #[test]
++    fn path_list_rules() {
++        assert!(matches!(check_paths(&[]), Err(Error::Invalid(_))));
++        assert!(matches!(
++            check_paths(&[Path::new("relative.txt")]),
++            Err(Error::Invalid(_))
++        ));
++        assert!(matches!(
++            check_paths(&[Path::new("C:\\ok.txt"), Path::new("C:\\a\0b")]),
++            Err(Error::Invalid(_))
++        ));
++        let ok = check_paths(&[Path::new("C:\\one"), Path::new("C:\\two")]).unwrap();
++        assert_eq!(ok, vec!["C:\\one".to_string(), "C:\\two".to_string()]);
++    }
++
++    #[test]
++    fn dead_window_is_refused_without_allocating() {
++        assert!(matches!(
++            drop_files(0, &[Path::new("C:\\a")], 0, 0),
++            Err(Error::NotFound(_))
++        ));
++        assert!(!accepts_files(0));
++    }
++}
+diff --git a/crates/rightkit-automation/src/win/ime.rs b/crates/rightkit-automation/src/win/ime.rs
+new file mode 100644
+index 0000000..ab36a45
+--- /dev/null
++++ b/crates/rightkit-automation/src/win/ime.rs
+@@ -0,0 +1,174 @@
++//! IME composition and candidate-window probes (window-targeted, no global `SendInput`).
++//!
++//! * [`compose`], [`commit`] and [`cancel`] drive the input method context of a window with the
++//!   IMM32 API (`ImmSetCompositionStringW`, `ImmNotifyIME`). The Windows input-method API only
++//!   serves windows of the **calling process**: a window of another process has no input context
++//!   this process can reach, and these functions then return `Error::Unsupported`. They are for
++//!   tests and drivers that run inside (or host) the app under test. Applications that use only
++//!   the newer Text Services Framework without the IMM compatibility layer may ignore them.
++//! * [`candidate_rect`] finds the on-screen rectangle of the IME candidate list window by
++//!   scanning top-level windows, which works across processes.
++//!
++//! Win32 offers no setter for the caret position inside a composition string, so `compose` takes
++//! no cursor argument: the IME places the cursor at the end of the text it was given.
++
++use super::sys;
++use crate::model::*;
++use windows::Win32::Foundation::HWND;
++use windows::Win32::System::Threading::GetCurrentProcessId;
++use windows::Win32::UI::Input::Ime::*;
++use windows::Win32::UI::WindowsAndMessaging::{
++    GetClassNameW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
++};
++
++fn handle(hwnd: u64) -> HWND {
++    HWND(hwnd as isize as *mut _)
++}
++
++/// Releases an input context obtained from `ImmGetContext` when dropped.
++struct Context {
++    hwnd: HWND,
++    himc: HIMC,
++}
++
++impl Context {
++    fn of(hwnd: u64) -> Result<Context> {
++        if hwnd == 0 || !unsafe { IsWindow(Some(handle(hwnd))) }.as_bool() {
++            return Err(Error::NotFound(format!("IME window {hwnd}")));
++        }
++        let h = handle(hwnd);
++        let mut pid = 0u32;
++        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
++        if pid != unsafe { GetCurrentProcessId() } {
++            return Err(Error::Unsupported(
++                "IME input context is only reachable for windows of the calling process",
++            ));
++        }
++        let himc = unsafe { ImmGetContext(h) };
++        if himc.is_invalid() {
++            return Err(Error::Unsupported("window has no IME input context"));
++        }
++        Ok(Context { hwnd: h, himc })
++    }
++}
++
++impl Drop for Context {
++    fn drop(&mut self) {
++        let _ = unsafe { ImmReleaseContext(self.hwnd, self.himc) };
++    }
++}
++
++/// Set the composition (pre-edit) string of the window `hwnd` to `text`, as the user would see
++/// while typing with an IME. The IME must be open on the window. Returns
++/// `Error::Platform` when the IME refuses the string, `Error::Unsupported` for a window of
++/// another process, `Error::Invalid` for an empty `text` (use [`cancel`] to clear).
++pub fn compose(hwnd: u64, text: &str) -> Result<()> {
++    if text.is_empty() {
++        return Err(Error::Invalid("empty composition string".into()));
++    }
++    let ctx = Context::of(hwnd)?;
++    let units: Vec<u16> = text.encode_utf16().collect();
++    let bytes = (units.len() * 2) as u32;
++    let ok = unsafe {
++        ImmSetCompositionStringW(
++            ctx.himc,
++            SCS_SETSTR,
++            Some(units.as_ptr() as *const core::ffi::c_void),
++            bytes,
++            None,
++            0,
++        )
++    };
++    if ok.as_bool() {
++        Ok(())
++    } else {
++        Err(Error::Platform(0, "ImmSetCompositionStringW"))
++    }
++}
++
++/// Commit the current composition of `hwnd` (`CPS_COMPLETE`): the composition string is inserted
++/// into the text field as final text.
++pub fn commit(hwnd: u64) -> Result<()> {
++    notify(hwnd, CPS_COMPLETE)
++}
++
++/// Cancel the current composition of `hwnd` (`CPS_CANCEL`): the composition string is discarded.
++pub fn cancel(hwnd: u64) -> Result<()> {
++    notify(hwnd, CPS_CANCEL)
++}
++
++fn notify(hwnd: u64, index: NOTIFY_IME_INDEX) -> Result<()> {
++    let ctx = Context::of(hwnd)?;
++    let ok = unsafe { ImmNotifyIME(ctx.himc, NI_COMPOSITIONSTR, index, 0) };
++    if ok.as_bool() {
++        Ok(())
++    } else {
++        Err(Error::Platform(0, "ImmNotifyIME"))
++    }
++}
++
++/// Whether a window class name is an IME candidate list window. Heuristic: the class contains
++/// `CandidateWindow` or `CandidateUI` (the Microsoft IME hosts use
++/// `Microsoft.IME.UIManager.CandidateWindow.Host`; legacy IMEs use `...CandidateUI...` names).
++pub(crate) fn is_candidate_class(class: &str) -> bool {
++    let lower = class.to_ascii_lowercase();
++    lower.contains("candidatewindow") || lower.contains("candidateui")
++}
++
++/// The screen rectangle (physical pixels) of the visible IME candidate list window, or `None`
++/// when no candidate window is showing or its class is not recognised. `hwnd` is the window being
++/// typed into; a dead window gives `None`. Scans top-level windows of every process, so it
++/// works for any app. Heuristic by window class (see `is_candidate_class`): an input method with
++/// an unrecognised candidate window class is not found.
++pub fn candidate_rect(hwnd: u64) -> Option<Rect> {
++    if hwnd == 0 || !unsafe { IsWindow(Some(handle(hwnd))) }.as_bool() {
++        return None;
++    }
++    for h in sys::all_top_level() {
++        if !unsafe { IsWindowVisible(h) }.as_bool() {
++            continue;
++        }
++        let mut buf = [0u16; 256];
++        let n = unsafe { GetClassNameW(h, &mut buf) };
++        if n <= 0 {
++            continue;
++        }
++        let class = String::from_utf16_lossy(&buf[..n as usize]);
++        if is_candidate_class(&class) {
++            if let Some(r) = sys::window_rect(h) {
++                return Some(r);
++            }
++        }
++    }
++    None
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn candidate_class_names_are_recognised() {
++        assert!(is_candidate_class(
++            "Microsoft.IME.UIManager.CandidateWindow.Host"
++        ));
++        assert!(is_candidate_class("CandidateUI"));
++        assert!(is_candidate_class("MSCTFIME CandidateUI Window"));
++        assert!(!is_candidate_class("IME"));
++        assert!(!is_candidate_class("Chrome_WidgetWin_1"));
++        assert!(!is_candidate_class(""));
++    }
++
++    #[test]
++    fn dead_windows_are_refused_without_touching_imm() {
++        assert!(matches!(compose(0, "x"), Err(Error::NotFound(_))));
++        assert!(matches!(commit(0), Err(Error::NotFound(_))));
++        assert!(matches!(cancel(0), Err(Error::NotFound(_))));
++        assert_eq!(candidate_rect(0), None);
++    }
++
++    #[test]
++    fn empty_composition_is_invalid() {
++        assert!(matches!(compose(0, ""), Err(Error::Invalid(_))));
++    }
++}
+diff --git a/crates/rightkit-automation/src/win/input.rs b/crates/rightkit-automation/src/win/input.rs
+index def4dc4..fe0de5b 100644
+--- a/crates/rightkit-automation/src/win/input.rs
++++ b/crates/rightkit-automation/src/win/input.rs
+@@ -56,12 +56,23 @@ pub fn is_extended_vk(vk: u16) -> bool {
+     )
+ }
+ 
++/// The hardware scan code the current keyboard layout assigns to virtual key `vk`
++/// (`MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)`, low byte), or 0 when the key has none. The `E0`
++/// prefix is not part of the value; it travels as the extended flag ([`is_extended_vk`]).
++pub fn scan_for_vk(vk: u16) -> u16 {
++    (unsafe { MapVirtualKeyW(u32::from(vk), MAPVK_VK_TO_VSC) } & 0xFF) as u16
++}
++
+ /// One keyboard event.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct RawKey {
+     /// Virtual-key code. With `by_scan` it is carried but the system ignores it.
+     pub vk: u16,
+-    /// Hardware scan code (`wScan`). 0 lets the system derive it from `vk`.
++    /// Hardware scan code (`wScan`). [`RawInput::key_down`] and friends fill it from `vk` with
++    /// `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)`, because `SendInput` does not derive it: a window
++    /// that reads the scan code from `lParam` (terminals that map keys by scan code) would
++    /// otherwise see 0. A virtual key with no scan code (the unassigned [`vk::DUMMY`]) stays 0.
++    /// Override with [`RawInput::with_scan`].
+     pub scan: u16,
+     pub up: bool,
+     /// `KEYEVENTF_EXTENDEDKEY`.
+@@ -123,7 +134,7 @@ impl RawInput {
+     fn key(vk: u16, up: bool) -> RawInput {
+         RawInput::Key(RawKey {
+             vk,
+-            scan: 0,
++            scan: scan_for_vk(vk),
+             up,
+             extended: is_extended_vk(vk),
+             by_scan: false,
+@@ -131,6 +142,7 @@ impl RawInput {
+     }
+     /// Key down for any virtual key (including [`vk::DUMMY`]). The extended bit is set
+     /// automatically for the keys in [`is_extended_vk`]; override with [`Self::with_extended`].
++    /// The scan code is filled from `vk` ([`scan_for_vk`]); override with [`Self::with_scan`].
+     pub fn key_down(vk: u16) -> RawInput {
+         RawInput::key(vk, false)
+     }
+@@ -178,6 +190,16 @@ impl RawInput {
+         }
+     }
+ 
++    /// Force the hardware scan code (`wScan`) of a keyboard item; other items are unchanged.
++    /// `with_scan(0)` restores the old behaviour of leaving it to the system (which does not
++    /// derive it). Does not set `by_scan`: the event is still identified by its virtual key.
++    pub fn with_scan(self, scan: u16) -> RawInput {
++        match self {
++            RawInput::Key(k) => RawInput::Key(RawKey { scan, ..k }),
++            other => other,
++        }
++    }
++
+     fn to_input(self, extra_info: usize) -> INPUT {
+         match self {
+             RawInput::Key(k) => {
+@@ -413,6 +435,10 @@ mod tests {
+         (k.wVk.0, k.wScan, k.dwFlags.0, k.dwExtraInfo)
+     }
+ 
++    fn sc(vk: u16) -> u16 {
++        scan_for_vk(vk)
++    }
++
+     const UP: u32 = KEYEVENTF_KEYUP.0;
+     const EXT: u32 = KEYEVENTF_EXTENDEDKEY.0;
+ 
+@@ -433,21 +459,51 @@ mod tests {
+         assert_eq!(
+             got,
+             vec![
+-                (0xE8, 0, 0, TAG),
+-                (0xE8, 0, UP, TAG),
+-                (0xA5, 0, UP | EXT, TAG), // right Alt: extended
+-                (0xA2, 0, 0, TAG),        // left Ctrl: not extended
+-                (0x56, 0, 0, TAG),
+-                (0x56, 0, UP, TAG),
+-                (0xA2, 0, UP, TAG),
+-                (0xA5, 0, EXT, TAG),
+-                (0xE8, 0, 0, TAG),
+-                (0xE8, 0, UP, TAG),
++                (0xE8, sc(0xE8), 0, TAG),
++                (0xE8, sc(0xE8), UP, TAG),
++                (0xA5, sc(0xA5), UP | EXT, TAG), // right Alt: extended
++                (0xA2, sc(0xA2), 0, TAG), // left Ctrl: not extended
++                (0x56, sc(0x56), 0, TAG),
++                (0x56, sc(0x56), UP, TAG),
++                (0xA2, sc(0xA2), UP, TAG),
++                (0xA5, sc(0xA5), EXT, TAG),
++                (0xE8, sc(0xE8), 0, TAG),
++                (0xE8, sc(0xE8), UP, TAG),
+             ]
+         );
+         assert_eq!(inputs.len(), batch.len());
+     }
+ 
++    #[test]
++    fn virtual_key_events_carry_the_hardware_scan_code() {
++        // Standard US-layout scan codes are layout independent for these keys, and SendInput
++        // does not derive wScan itself (rightkit#689).
++        assert_eq!(scan_for_vk(0x56), 0x2F); // V
++        assert_eq!(scan_for_vk(vk::LCONTROL), 0x1D);
++        assert_eq!(scan_for_vk(vk::LSHIFT), 0x2A);
++        assert_eq!(scan_for_vk(0x0D), 0x1C); // Enter
++        let i = build_inputs(&RawInput::key_press(0x56), &SendOptions::default());
++        assert_eq!(key_summary(&i[0]).1, 0x2F);
++        assert_eq!(key_summary(&i[1]).1, 0x2F);
++        // Not by_scan: the vk still identifies the key.
++        assert_eq!(key_summary(&i[0]).2 & KEYEVENTF_SCANCODE.0, 0);
++    }
++
++    #[test]
++    fn with_scan_overrides_and_zero_restores_system_default() {
++        let i = build_inputs(
++            &[
++                RawInput::key_down(0x56).with_scan(0),
++                RawInput::key_down(0x56).with_scan(0x99),
++                RawInput::unicode_down(65).with_scan(5),
++            ],
++            &SendOptions::default(),
++        );
++        assert_eq!(key_summary(&i[0]).1, 0);
++        assert_eq!(key_summary(&i[1]).1, 0x99);
++        assert_eq!(key_summary(&i[2]).1, 65); // non-key items are unchanged
++    }
++
+     #[test]
+     fn untagged_batch_has_zero_extra_info() {
+         let inputs = build_inputs(&RawInput::key_press(0x41), &SendOptions::default());
+@@ -492,10 +548,10 @@ mod tests {
+         }
+         let numpad_enter = RawInput::key_down(0x0D).with_extended(true);
+         let i = build_inputs(&[numpad_enter], &SendOptions::default());
+-        assert_eq!(key_summary(&i[0]), (0x0D, 0, EXT, 0));
++        assert_eq!(key_summary(&i[0]), (0x0D, sc(0x0D), EXT, 0));
+         let plain_right_alt = RawInput::key_down(vk::RMENU).with_extended(false);
+         let i = build_inputs(&[plain_right_alt], &SendOptions::default());
+-        assert_eq!(key_summary(&i[0]), (0xA5, 0, 0, 0));
++        assert_eq!(key_summary(&i[0]), (0xA5, sc(0xA5), 0, 0));
+         // with_extended leaves non-keyboard items alone.
+         assert_eq!(
+             RawInput::unicode_down(65).with_extended(true),
+@@ -506,7 +562,7 @@ mod tests {
+     #[test]
+     fn dummy_vk_is_sent_as_given_not_remapped() {
+         let i = build_inputs(&[RawInput::key_down(vk::DUMMY)], &SendOptions::default());
+-        assert_eq!(key_summary(&i[0]), (0xE8, 0, 0, 0));
++        assert_eq!(key_summary(&i[0]), (0xE8, sc(0xE8), 0, 0));
+     }
+ 
+     #[test]
+@@ -632,7 +688,7 @@ mod tests {
+         let down = build_inputs(&s.restore_inputs(), &SendOptions::tagged(TAG));
+         assert_eq!(
+             down.iter().map(key_summary).collect::<Vec<_>>(),
+-            vec![(0xA0, 0, 0, TAG), (0xA5, 0, EXT, TAG)]
++            vec![(0xA0, 0, 0, TAG), (0xA5, sc(0xA5), EXT, TAG)]
+         );
+         let up = build_inputs(&s.release_inputs(), &SendOptions::default());
+         assert_eq!(
+diff --git a/crates/rightkit-automation/src/win/mod.rs b/crates/rightkit-automation/src/win/mod.rs
+index a79ce47..4f92fee 100644
+--- a/crates/rightkit-automation/src/win/mod.rs
++++ b/crates/rightkit-automation/src/win/mod.rs
+@@ -4,9 +4,13 @@
+ 
+ pub mod bounded;
+ pub(crate) mod capture_safety;
++pub mod clipboard;
+ pub mod dialog;
++pub mod dropfiles;
++pub mod ime;
+ pub mod input;
+ pub mod msaa;
++pub mod region;
+ mod sys;
+ pub mod uia;
+ 
+@@ -21,8 +25,8 @@ pub use bounded::{
+     with_deadline_security,
+ };
+ pub use input::{
+-    is_extended_vk, send_input_batch, send_input_batch_with, vk, ModifierSnapshot, RawInput,
+-    RawKey, RawMouse, RawMouseButton, SendOptions,
++    is_extended_vk, scan_for_vk, send_input_batch, send_input_batch_with, vk, ModifierSnapshot,
++    RawInput, RawKey, RawMouse, RawMouseButton, SendOptions,
+ };
+ 
+ /// Move and resize the top-level window `window_id` (the `window_id` of a [`WindowInfo`], an
+diff --git a/crates/rightkit-automation/src/win/region.rs b/crates/rightkit-automation/src/win/region.rs
+new file mode 100644
+index 0000000..27e09cc
+--- /dev/null
++++ b/crates/rightkit-automation/src/win/region.rs
+@@ -0,0 +1,211 @@
++//! Screen-region capture: copy a rectangle of the desktop (every app composited, as the user
++//! sees it) with `BitBlt` from the screen device context.
++//!
++//! This is the counterpart of the per-window `PrintWindow` capture the engine uses. It captures
++//! whatever is on screen in the rectangle, from every application, with no redaction and no
++//! policy check: the caller owns the decision about what may be captured (use
++//! [`crate::capture_safety`] and [`crate::redact`] first when the region can hold secrets).
++//!
++//! Coordinates are physical pixels on the virtual desktop (negative values are monitors left of
++//! or above the primary). They are only physical pixels when the process is per-monitor-v2 DPI
++//! aware, which [`super::WinPlatform::new`] sets; with [`super::WinPlatform::new_minimal`] the
++//! caller must have done it, or the rectangle is in scaled coordinates.
++
++use crate::model::*;
++use windows::Win32::Graphics::Gdi::*;
++use windows::Win32::UI::WindowsAndMessaging::{
++    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
++};
++
++/// A captured screen region.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct RegionImage {
++    /// Left edge on the virtual desktop of the pixels actually captured (the requested region
++    /// clipped to the desktop).
++    pub x: i32,
++    /// Top edge, as `x`.
++    pub y: i32,
++    pub width: u32,
++    pub height: u32,
++    /// `width * height * 4` bytes, row-major, top row first, RGBA with alpha forced to 255.
++    pub rgba: Vec<u8>,
++}
++
++/// The virtual desktop: the bounding rectangle of every monitor, in physical pixels.
++pub fn virtual_screen() -> Rect {
++    unsafe {
++        Rect {
++            x: f64::from(GetSystemMetrics(SM_XVIRTUALSCREEN)),
++            y: f64::from(GetSystemMetrics(SM_YVIRTUALSCREEN)),
++            w: f64::from(GetSystemMetrics(SM_CXVIRTUALSCREEN)),
++            h: f64::from(GetSystemMetrics(SM_CYVIRTUALSCREEN)),
++        }
++    }
++}
++
++/// Intersect `region` with `bounds` and return `(x, y, width, height)` in whole pixels, or
++/// `None` when the rectangles do not overlap or `region` is empty or not finite.
++pub(crate) fn clip_region(region: Rect, bounds: Rect) -> Option<(i32, i32, u32, u32)> {
++    let finite = [region.x, region.y, region.w, region.h]
++        .iter()
++        .all(|v| v.is_finite());
++    if !finite || region.w < 1.0 || region.h < 1.0 {
++        return None;
++    }
++    let left = region.x.round().max(bounds.x.round());
++    let top = region.y.round().max(bounds.y.round());
++    let right = (region.x + region.w)
++        .round()
++        .min((bounds.x + bounds.w).round());
++    let bottom = (region.y + region.h)
++        .round()
++        .min((bounds.y + bounds.h).round());
++    if right <= left || bottom <= top {
++        return None;
++    }
++    Some((
++        left as i32,
++        top as i32,
++        (right - left) as u32,
++        (bottom - top) as u32,
++    ))
++}
++
++/// Swap BGRA (GDI order) to RGBA in place and force alpha to 255.
++pub(crate) fn bgra_to_rgba(px: &mut [u8]) {
++    for p in px.chunks_exact_mut(4) {
++        p.swap(0, 2);
++        p[3] = 255;
++    }
++}
++
++/// Capture `region` (physical pixels, virtual-desktop coordinates). The part of the region
++/// outside the desktop is dropped; see [`RegionImage::x`] for what was captured. Errors with
++/// `Error::Invalid` for an empty region or one entirely off the desktop, and `Error::Platform`
++/// when GDI refuses (for example on a locked or secure desktop).
++pub fn capture_region(region: Rect) -> Result<RegionImage> {
++    if !region.x.is_finite() || !region.y.is_finite() || region.w < 1.0 || region.h < 1.0 {
++        return Err(Error::Invalid("empty or non-finite capture region".into()));
++    }
++    let (x, y, w, h) = clip_region(region, virtual_screen())
++        .ok_or_else(|| Error::Invalid("capture region is outside the desktop".into()))?;
++    let (wi, hi) = (w as i32, h as i32);
++    unsafe {
++        let screen = GetDC(None);
++        if screen.is_invalid() {
++            return Err(Error::Platform(0, "GetDC"));
++        }
++        let mem = CreateCompatibleDC(Some(screen));
++        let bmp = CreateCompatibleBitmap(screen, wi, hi);
++        let old = SelectObject(mem, bmp.into());
++        // CAPTUREBLT includes layered (transparent, topmost) windows in the copy.
++        let blt = BitBlt(mem, 0, 0, wi, hi, Some(screen), x, y, SRCCOPY | CAPTUREBLT);
++        let mut bmi: BITMAPINFO = std::mem::zeroed();
++        bmi.bmiHeader = BITMAPINFOHEADER {
++            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
++            biWidth: wi,
++            biHeight: -hi,
++            biPlanes: 1,
++            biBitCount: 32,
++            biCompression: BI_RGB.0,
++            ..Default::default()
++        };
++        let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
++        let rows = GetDIBits(
++            mem,
++            bmp,
++            0,
++            h,
++            Some(px.as_mut_ptr() as *mut _),
++            &mut bmi,
++            DIB_RGB_COLORS,
++        );
++        SelectObject(mem, old);
++        let _ = DeleteObject(bmp.into());
++        let _ = DeleteDC(mem);
++        ReleaseDC(None, screen);
++        if let Err(e) = blt {
++            return Err(Error::Platform(i64::from(e.code().0), "BitBlt"));
++        }
++        if rows == 0 {
++            return Err(Error::Platform(0, "GetDIBits"));
++        }
++        bgra_to_rgba(&mut px);
++        Ok(RegionImage {
++            x,
++            y,
++            width: w,
++            height: h,
++            rgba: px,
++        })
++    }
++}
++
++/// [`capture_region`] written as a PNG at `path`. Returns what was captured (pixels included).
++pub fn capture_region_png(region: Rect, path: &std::path::Path) -> Result<RegionImage> {
++    let img = capture_region(region)?;
++    let png = crate::png::encode_rgba(img.width, img.height, &img.rgba)
++        .ok_or(Error::Unsupported("png encode"))?;
++    std::fs::write(path, png).map_err(|_| Error::Platform(0, "write png"))?;
++    Ok(img)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn r(x: f64, y: f64, w: f64, h: f64) -> Rect {
++        Rect { x, y, w, h }
++    }
++
++    #[test]
++    fn region_inside_the_desktop_is_unchanged() {
++        let desk = r(0.0, 0.0, 1920.0, 1080.0);
++        assert_eq!(
++            clip_region(r(10.0, 20.0, 300.0, 200.0), desk),
++            Some((10, 20, 300, 200))
++        );
++    }
++
++    #[test]
++    fn region_is_clipped_to_the_desktop_including_negative_origin() {
++        let desk = r(-1920.0, 0.0, 3840.0, 1080.0);
++        assert_eq!(
++            clip_region(r(-2000.0, -50.0, 200.0, 100.0), desk),
++            Some((-1920, 0, 120, 50))
++        );
++        assert_eq!(
++            clip_region(r(1900.0, 1000.0, 500.0, 500.0), desk),
++            Some((1900, 1000, 20, 80))
++        );
++    }
++
++    #[test]
++    fn off_desktop_empty_or_non_finite_regions_clip_to_none() {
++        let desk = r(0.0, 0.0, 100.0, 100.0);
++        assert_eq!(clip_region(r(200.0, 0.0, 10.0, 10.0), desk), None);
++        assert_eq!(clip_region(r(0.0, 0.0, 0.0, 10.0), desk), None);
++        assert_eq!(clip_region(r(0.0, 0.0, 10.0, 0.5), desk), None);
++        assert_eq!(clip_region(r(f64::NAN, 0.0, 10.0, 10.0), desk), None);
++        assert_eq!(clip_region(r(0.0, 0.0, f64::INFINITY, 10.0), desk), None);
++    }
++
++    #[test]
++    fn bgra_becomes_opaque_rgba() {
++        let mut px = [1u8, 2, 3, 0, 10, 20, 30, 7];
++        bgra_to_rgba(&mut px);
++        assert_eq!(px, [3, 2, 1, 255, 30, 20, 10, 255]);
++    }
++
++    #[test]
++    fn empty_region_is_refused_without_touching_gdi() {
++        assert!(matches!(
++            capture_region(r(0.0, 0.0, 0.0, 0.0)),
++            Err(Error::Invalid(_))
++        ));
++        assert!(matches!(
++            capture_region(r(f64::NAN, 0.0, 10.0, 10.0)),
++            Err(Error::Invalid(_))
++        ));
++    }
++}
+diff --git a/crates/rightkit-automation/src/win/uia.rs b/crates/rightkit-automation/src/win/uia.rs
+index 8d1bbf9..8dc5c12 100644
+--- a/crates/rightkit-automation/src/win/uia.rs
++++ b/crates/rightkit-automation/src/win/uia.rs
+@@ -21,7 +21,9 @@ use windows::Win32::System::Ole::{
+     SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetLBound, SafeArrayGetUBound,
+     SafeArrayUnaccessData,
+ };
+-use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
++use windows::Win32::System::Variant::{
++    VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BOOL, VT_I4,
++};
+ use windows::Win32::UI::Accessibility::*;
+ use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOT};
+ 
+@@ -77,13 +79,52 @@ pub struct El(pub(crate) IUIAutomationElement);
+ unsafe impl Send for El {}
+ unsafe impl Sync for El {}
+ 
++/// Why a checked UIA property read failed (see [`El::try_pid`]): the element is gone, or UIA
++/// returned some other error.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum UiaError {
++    /// `UIA_E_ELEMENTNOTAVAILABLE`: the element no longer exists (its window or control closed).
++    ElementNotAvailable,
++    /// `UIA_E_ELEMENTNOTENABLED`: the element exists but is disabled.
++    ElementNotEnabled,
++    /// Any other failure; carries the raw `HRESULT`.
++    Failed(i32),
++}
++
++impl UiaError {
++    /// Map a raw `HRESULT` to the variant it names.
++    pub fn from_hresult(code: i32) -> UiaError {
++        match code as u32 {
++            0x8004_0201 => UiaError::ElementNotAvailable,
++            0x8004_0200 => UiaError::ElementNotEnabled,
++            _ => UiaError::Failed(code),
++        }
++    }
++}
++
++impl std::fmt::Display for UiaError {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            UiaError::ElementNotAvailable => f.write_str("UIA element not available"),
++            UiaError::ElementNotEnabled => f.write_str("UIA element not enabled"),
++            UiaError::Failed(c) => write!(f, "UIA call failed (HRESULT {:#010x})", *c as u32),
++        }
++    }
++}
++
++impl std::error::Error for UiaError {}
++
++fn uia_err(e: windows::core::Error) -> UiaError {
++    UiaError::from_hresult(e.code().0)
++}
++
+ fn win_err(e: windows::core::Error, op: &'static str) -> Error {
+     let code = e.code().0;
+     match code as u32 {
+         // UIA_E_NOTSUPPORTED, UIA_E_INVALIDOPERATION, E_NOTIMPL
+-        0x8004_0201 | 0x8013_1509 | 0x8000_4001 => Error::Unsupported(op),
+-        // UIA_E_ELEMENTNOTAVAILABLE, UIA_E_ELEMENTNOTENABLED
+-        0x8004_0200 | 0x8004_0206 => Error::NotFound(format!("element unavailable during {op}")),
++        0x8004_0204 | 0x8013_1509 | 0x8000_4001 => Error::Unsupported(op),
++        // UIA_E_ELEMENTNOTENABLED, UIA_E_ELEMENTNOTAVAILABLE
++        0x8004_0200 | 0x8004_0201 => Error::NotFound(format!("element unavailable during {op}")),
+         // E_ACCESSDENIED: UIPI, the target is elevated and we are not
+         0x8007_0005 => Error::PermissionDenied("target is elevated (UIPI)"),
+         _ => Error::Platform(i64::from(code), op),
+@@ -246,6 +287,65 @@ impl El {
+     }
+ }
+ 
++/// Checked property reads that keep "the element is gone" apart from "UIA failed", plus the
++/// control type, framework id and `TextEditPattern` probes. All are additive; the existing
++/// `Option` readers are unchanged. Synchronous: wrap in [`super::bounded::with_deadline`] when the
++/// target may hang.
++impl El {
++    /// The owning process id, or the reason it could not be read. `Ok(None)` means UIA answered
++    /// with a pid of 0 (no owning process); `Err(UiaError::ElementNotAvailable)` means the element
++    /// is gone.
++    pub fn try_pid(&self) -> std::result::Result<Option<u32>, UiaError> {
++        let p = unsafe { self.0.CurrentProcessId() }.map_err(uia_err)?;
++        Ok(u32::try_from(p).ok().filter(|p| *p != 0))
++    }
++
++    /// The element's own native window handle: `Ok(None)` when the element has none (a lightweight
++    /// control), `Err` when UIA could not answer (for example [`UiaError::ElementNotAvailable`]).
++    pub fn try_native_hwnd(&self) -> std::result::Result<Option<isize>, UiaError> {
++        let h = unsafe { self.0.CurrentNativeWindowHandle() }.map_err(uia_err)?;
++        Ok((!h.0.is_null()).then_some(h.0 as isize))
++    }
++
++    /// The UIA control type id (`UIA_*ControlTypeId`, 50000 and up), or the reason it could not be
++    /// read. Cheaper than [`read_node`], which reads every property.
++    pub fn try_control_type(&self) -> std::result::Result<i32, UiaError> {
++        unsafe { self.0.CurrentControlType() }
++            .map(|c| c.0)
++            .map_err(uia_err)
++    }
++
++    /// [`Self::try_control_type`] as an `Option`.
++    pub fn control_type(&self) -> Option<i32> {
++        self.try_control_type().ok()
++    }
++
++    /// The control type name without the `UIA_` prefix (`"Edit"`, `"Document"`, `"Hyperlink"`), or
++    /// `None` when the type cannot be read. Unknown ids give `"Unknown"`.
++    pub fn control_type_name(&self) -> Option<&'static str> {
++        self.control_type().map(control_name)
++    }
++
++    /// The UIA `FrameworkId` (`"Win32"`, `"WPF"`, `"XAML"`, `"Chrome"`, ...). `None` when the
++    /// provider reports none or it cannot be read.
++    pub fn framework_id(&self) -> Option<String> {
++        s(unsafe { self.0.CurrentFrameworkId() })
++    }
++
++    /// Whether the element supports `TextEditPattern` (what Chromium contenteditable composers
++    /// expose). `Some(false)` is a positive answer; `None` when UIA cannot answer.
++    pub fn supports_text_edit(&self) -> Option<bool> {
++        let v = unsafe {
++            self.0
++                .GetCurrentPropertyValue(UIA_IsTextEditPatternAvailablePropertyId)
++        }
++        .ok()?;
++        // SAFETY: `vt` selects the active union member; a boolean property is VT_BOOL.
++        let inner = unsafe { &*v.Anonymous.Anonymous };
++        (inner.vt == VT_BOOL).then(|| unsafe { inner.Anonymous.boolVal }.0 != 0)
++    }
++}
++
+ /// Bounded, safety-first reads and guarded writes on an element. Every method here is
+ /// synchronous; wrap the call in [`super::bounded::with_deadline`] (or the `_within` helpers)
+ /// when the target may hang.

@@ -1,0 +1,3206 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..63e2ca5 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6792,7 +6792,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-child-process"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "libc",
+  "tokio",
+diff --git a/crates/rightkit-child-process/CHANGELOG.md b/crates/rightkit-child-process/CHANGELOG.md
+index 8c27f1d..c56acb5 100644
+--- a/crates/rightkit-child-process/CHANGELOG.md
++++ b/crates/rightkit-child-process/CHANGELOG.md
+@@ -1,5 +1,30 @@
+ # Changelog
+ 
++## 0.5.3
++
++Issues #733, #737, #455, #680, #402, #403, #391 (child-process half), #592, #684, #694, #685. Additive only: no existing public item changed shape, so dependents keep `rightkit-child-process = "0.5"`. Written without compiling or running Cargo here; CI builds and runs the tests.
++
++### New
++
++- **`AdoptedProcess::is_running` is zombie-aware, and `AdoptedProcess::try_reap`** (#733, GenRight). On Unix a process that exited but was not yet reaped (including an exited child of this process that nobody waited for) used to read as running, because `kill(pid, 0)` succeeds on a zombie; wait loops over a dead child spun to their timeout. `is_running` now reads the process state (Linux and Android: `/proc/<pid>/stat`; macOS: `proc_pidinfo` `pbi_status`) and returns `false` for a zombie. `try_reap() -> io::Result<Option<ExitStatus>>` collects the status of an exited **own child** with `waitpid(WNOHANG)` (`Ok(None)` when it is running, not our child, or already reaped; Windows has nothing to reap). Other Unix hosts cannot tell a zombie and keep the old answer. Do not `try_reap` a process an `OwnedChild` or `std::process::Child` still owns.
++- **`OwnedCommand::output(timeout, max_bytes)`, `output_with_stdin(input, timeout, max_bytes)`, `status(timeout)`, `status_with_timeout(timeout)`** (#455 HeardRight, #737 ScrapeRight). The blocking equivalents of `std::process::Command::output` and `status` with a deadline: the whole tree is terminated at the deadline, `output` captures stdout and stderr up to `max_bytes` each (the rest drained and discarded, `CapturedOutput::truncated` says so) and returns a `RunOutput { status, timed_out, stdout, stderr }`; `status` returns `WaitOutcome::Exited` or `WaitOutcome::Terminated`. The command's own window and containment settings are kept.
++- **`run_with_stdin(program, args, input, &RunOptions)`** (#680 HeardRight): `run` with bytes written to the child's stdin, which is then closed. `RunOptions` is unchanged (still `Copy`). The bytes are written on a short-lived thread (`rightkit-run-stdin`), so a child that never reads stdin cannot hold the call past its deadline, and a child that exits before reading everything is not an error.
++- **`StderrTail` can split on carriage returns** (#737, yt-dlp progress). New `LineSplit { Newline, NewlineOrCarriageReturn }` (`#[non_exhaustive]`, default `Newline`, so existing behaviour is unchanged) and `StderrTail::{plain_split, capture_split, try_capture_split}`. With `NewlineOrCarriageReturn` every `\r`-separated segment of a redrawn progress line is a line; `\r\n` is one break, empty segments are skipped, and the redaction, oversized-line marker and byte budget apply to each segment.
++- **`ProcessQuery::exe_prefix(dir)` and `ProcessQuery::arg_containing_ignore_case(needle)`** (#737). `exe_prefix` matches any process whose executable is at or below a directory (by whole path components; case-insensitive on Windows; the Unix directory is also tried canonicalized) and may be combined with `exe`. `arg_containing_ignore_case` is `arg_containing` with Unicode lower-casing of needle and argument. Both take part in the "at least one criterion" rule and refuse empty values.
++- **`AdoptedIdentity::request_quit()` and `AdoptedProcess::request_quit()`** (#402, Pulse): ask an application to quit through its own quit path, identity-checked like `signal`. Windows: `WM_CLOSE` posted to every top-level window of the process, after the process is proven to be the remembered one with the same handle (a process without a top-level window fails with `Unsupported`). macOS: a `kAEQuitApplication` Apple event addressed to the pid (`AECreateAppleEvent` / `AESendMessage` from CoreServices, `kAENoReply | kAENeverInteract`; `PermissionDenied` when Automation access is refused, `Gone` for `procNotFound`). Other Unix: `SIGTERM`. Delivery is reported, not the quit. `AdoptedSignal` is unchanged. New Windows feature `Win32_UI_WindowsAndMessaging`.
++- **`process_usage_of(pid)`, `process_usage_ext()`, `process_usage_ext_of(pid)`, `ProcessUsageExt { usage, thread_count }`** (#403 Pulse; #694 CodeRight's per-pid resident and commit sample). The same figures as `process_usage` for any pid (resident is `resident_bytes`, commit is `footprint_bytes`: Windows `PrivateUsage`): Linux from `/proc/<pid>` (`stat` ticks for CPU, `statm`, `io` bytes, `num_threads`), macOS from `proc_pid_rusage` (CPU converted from Mach ticks) and `proc_pidinfo` `pti_threadnum`, Windows from `GetProcessMemoryInfo`, `GetProcessTimes`, `GetProcessIoCounters` (`None` when the process cannot be opened that wide) and the process entry of `NtQuerySystemInformation` (thread count and context switches). A pid that names no process, or one that exited, is `NotFound`. `ProcessUsage` itself is unchanged; the thread count lives on `ProcessUsageExt`. On Linux the current process now also reports `disk_read_bytes` and `disk_write_bytes` from `/proc/self/io` when readable.
++- **`soak_sample(pid, &SoakOptions, &mut impl Write) -> io::Result<SoakReport>`** (#403): samples a pid at an interval and writes one NDJSON object per line (`t_ms`, `unix_ms`, `pid`, `resident_bytes`, `footprint_bytes`, `cpu_seconds`, `cpu_percent`, `thread_count`, `wakeups_total`, `disk_ops_total`, `disk_read_bytes`, `disk_write_bytes`; `null` for a figure the host cannot report), flushed per line. `SoakOptions { interval, duration, max_samples, stop }` bounds it; it also ends when the process exits (`SoakEnd::ProcessExited`). It blocks the calling thread and starts none.
++- **`process_tree_usage()`, `process_tree_usage_of(pid)`, `sum_process_tree(rows, root)`, `ProcessTreeUsage`** (#391, ViewRight `pdf_bench`): resident bytes of a process and every descendant (`root_rss_bytes`, `tree_rss_bytes`, `process_count`, `unreadable_count`), built on the 0.5.2 `process_table()` snapshot (one pass, no shell-out, nothing kept). The pure `sum_process_tree` walks any `ProcessEntry` table and is safe against parent loops and duplicate rows. The licence half of #391 belongs to `rightkit-license`.
++- **`AdoptedIdentity::terminate_tree(TerminationOptions) -> AdoptedTermination { confirmed_gone, sweep }`** (#592, CodeRight daemon takeover). Stops a process tree this program did not spawn: refuses this process, records the descendants while the root is proven, on Unix signals the root's process group (when it leads one) with `SIGTERM`, the grace, then `SIGKILL` while the identity still matches, then sweeps whatever recorded processes remain through the identity-checked `sweep`; Windows sweeps leaves first. `confirmed_gone` is true only when the root and every recorded descendant read as gone (and the group is empty). A pid that now names a different process is refused and reported.
++- **`AdoptedIdentity::children()` and `AdoptedIdentity::current()`** (#694): the direct children of a process with the same start-time guard as `descendants`; executable names are on each identity's `exe()`.
++- **`process_group_exists(pgid)`, `wait_process_group_gone(pgid, timeout)` (Unix), `tokio_support::process_group_exists` and `tokio_support::wait_group_gone` (feature `tokio`), `WindowsJob::active_process_count()` and `WindowsJob::is_empty()`** (#684, #556 addendum): public liveness probes to confirm a tree is gone after `terminate_tree`. Group ids 0 and 1 are never probed (libc maps `killpg(1, ..)` to `kill(-1, ..)`). `EPERM` counts as existing.
++- **`WindowsJobBuilder::breakaway_ok(bool)`, `WindowsJob::contain_current_process_allowing_breakaway()`, `WindowsJob::contain_current_process_with(builder)`** (#685): a kill-on-close job with `JOB_OBJECT_LIMIT_BREAKAWAY_OK`, so one deliberately detached child can be spawned with `CREATE_BREAKAWAY_FROM_JOB` while every other descendant stays contained.
++
++### Already delivered (recorded here, not changed)
++
++- #540 (stall watchdog over a heartbeat file): `HeartbeatWatch` / `HeartbeatConfig` / `HeartbeatEvent` in `stall.rs`.
++- #402 `run`, `open_url`, `launch_app` (`run.rs`, `launch.rs`); #292 `OwnedCommand::spawn_suspended` / `OwnedChild::resume` / `is_suspended` (0.4.3); #682 `in_job_detached_flags(hidden, ..)` uses `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` in the in-job detached fallback (`process_windows.rs`, `spawn_windows.rs`).
++
+ ## 0.5.2
+ 
+ Issue bogusyogi/rightkit#480. The `process_table` tests pass on macOS arm64; Windows is verified on the Dell before publication.
+diff --git a/crates/rightkit-child-process/Cargo.toml b/crates/rightkit-child-process/Cargo.toml
+index 21f1ad5..cbf961e 100644
+--- a/crates/rightkit-child-process/Cargo.toml
++++ b/crates/rightkit-child-process/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-child-process"
+-version = "0.5.2"
++version = "0.5.3"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps."
+@@ -13,7 +13,7 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
+ 
+ [package.metadata.rightkit]
+ continuous = false
+-continuous_reason = "thread-spawn: per-call pipe drain threads (capture.rs OutputCapture) and the macOS kqueue exit watcher (exit_watch.rs), each ending with its child or stream, plus the opt-in macOS parent-death watchdog process (process_unix.rs arm_parent_death_watch, one per tied child, exits with its child or its owner); power-assertion holder thread (power.rs, Windows only, one per live PowerAssertion, joined on drop); detached-child: spawning and owning children is this crate's purpose, every child is owned by an OwnedChild/job object and torn down with a bounded staged kill; task-spawn/runtime-builder: none, the optional tokio feature only awaits tokio::time::sleep inside terminate_tree; no listener, resident cache or model (reviewed 2026-10-16); event-loop: the macOS kqueue in src/exit_watch.rs is one descriptor per watched child, registered with a single EVFILT_PROC NOTE_EXIT event and read only with a bounded wait or a zero-timeout receipt, closed when the watch drops; no loop of its own; resident-static: OWNED in src/registry.rs is a Mutex<Vec<Entry>> of Weak references, one entry per live OwnedChild, removed by forget on drop and pruned of dead entries on every register and count, so its size is the number of children this process currently owns (reviewed 2026-10-17)"
++continuous_reason = "thread-spawn: per-call pipe drain threads (capture.rs OutputCapture) and the macOS kqueue exit watcher (exit_watch.rs), each ending with its child or stream, plus the opt-in macOS parent-death watchdog process (process_unix.rs arm_parent_death_watch, one per tied child, exits with its child or its owner); power-assertion holder thread (power.rs, Windows only, one per live PowerAssertion, joined on drop); a short-lived stdin writer thread per run with input bytes (run.rs, ends when the bytes are written or the pipe closes, never joined) and the stall and heartbeat watch threads (stall.rs, joined on drop); soak_sample and process_tree_usage start no thread (reviewed 2026-10-18); detached-child: spawning and owning children is this crate's purpose, every child is owned by an OwnedChild/job object and torn down with a bounded staged kill; task-spawn/runtime-builder: none, the optional tokio feature only awaits tokio::time::sleep inside terminate_tree; no listener, resident cache or model (reviewed 2026-10-16); event-loop: the macOS kqueue in src/exit_watch.rs is one descriptor per watched child, registered with a single EVFILT_PROC NOTE_EXIT event and read only with a bounded wait or a zero-timeout receipt, closed when the watch drops; no loop of its own; resident-static: OWNED in src/registry.rs is a Mutex<Vec<Entry>> of Weak references, one entry per live OwnedChild, removed by forget on drop and pruned of dead entries on every register and count, so its size is the number of children this process currently owns (reviewed 2026-10-17)"
+ 
+ [features]
+ # Async helpers for callers that build tokio commands: `NoWindow` for `tokio::process::Command`
+@@ -27,7 +27,7 @@ tokio = { version = "1", optional = true, default-features = false, features = [
+ libc = "0.2"
+ 
+ [target.'cfg(windows)'.dependencies]
+-windows = { version = "0.62", features = ["Wdk_System_SystemInformation", "Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
++windows = { version = "0.62", features = ["Wdk_System_SystemInformation", "Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_WindowsAndMessaging"] }
+ 
+ [dev-dependencies]
+ trybuild = "=1.0.116"
+diff --git a/crates/rightkit-child-process/README.md b/crates/rightkit-child-process/README.md
+index 5c87c40..e2e6676 100644
+--- a/crates/rightkit-child-process/README.md
++++ b/crates/rightkit-child-process/README.md
+@@ -209,6 +209,36 @@ in which that could happen. The rule that replaces it:
+   different program between the scan and the signal keeps its identity and is not re-checked. Tests:
+   `tests/sweep_matching.rs`.
+ 
++## Also (0.5.3)
++
++All additive; nothing existing changed shape.
++
++- **Zombie-aware `AdoptedProcess::is_running`** (Unix): a process that exited and was not reaped reads as not running.
++  `AdoptedProcess::try_reap()` collects the status of an exited own child with `waitpid(WNOHANG)` (`Ok(None)` when it is
++  running, not our child, or already reaped). Do not reap a process an `OwnedChild` or `std` `Child` still owns.
++- **`OwnedCommand::output(timeout, max_bytes)`, `output_with_stdin(bytes, timeout, max_bytes)`, `status(timeout)` and
++  `status_with_timeout(timeout)`** are `Command::output` / `status` with a deadline (the tree is terminated at it) and
++  bounded capture. `run_with_stdin(program, args, bytes, &RunOptions)` feeds stdin to `run`.
++- **`StderrTail::plain_split` / `capture_split` / `try_capture_split` with `LineSplit::NewlineOrCarriageReturn`** make
++  each `\r`-redrawn progress update (yt-dlp, ffmpeg) its own line.
++- **`ProcessQuery::exe_prefix(dir)`** (executable at or below a directory, by components) and
++  **`ProcessQuery::arg_containing_ignore_case(needle)`**.
++- **`AdoptedIdentity::request_quit()` / `AdoptedProcess::request_quit()`** ask an application to quit: `WM_CLOSE` to its
++  top-level windows (Windows), a `kAEQuitApplication` Apple event (macOS, may need Automation permission), `SIGTERM`
++  elsewhere.
++- **`process_usage_of(pid)`** reports another process's resident memory, commit (`footprint_bytes`), CPU time and disk
++  bytes; **`process_usage_ext_of(pid)`** adds the **thread count** (`ProcessUsageExt`); **`soak_sample(pid,
++  &SoakOptions, &mut writer)`** writes those samples as NDJSON at an interval until a bound, a stop flag, or the
++  process exits.
++- **`process_tree_usage()` / `process_tree_usage_of(pid)` / `sum_process_tree`** sum the working sets of a process and all
++  its descendants from one `process_table()` snapshot.
++- **`AdoptedIdentity::terminate_tree(options)`** stops a tree this program did not spawn (group TERM, grace, KILL, then an
++  identity-checked sweep) and reports `confirmed_gone`; **`AdoptedIdentity::children()`** lists direct children;
++  **`process_group_exists`**, **`wait_process_group_gone`**, `tokio_support::{process_group_exists, wait_group_gone}` and
++  `WindowsJob::{active_process_count, is_empty}` confirm a tree is gone.
++- **`WindowsJob::contain_current_process_allowing_breakaway()`** and `WindowsJobBuilder::breakaway_ok(true)` keep
++  `JOB_OBJECT_LIMIT_BREAKAWAY_OK` so one deliberately detached child can break away.
++
+ ## Also (0.5.2)
+ 
+ - `process_table() -> io::Result<Vec<ProcessEntry>>` snapshots every process the OS lets this process see, so callers
+diff --git a/crates/rightkit-child-process/src/foreign.rs b/crates/rightkit-child-process/src/foreign.rs
+index 907796e..fc80f8c 100644
+--- a/crates/rightkit-child-process/src/foreign.rs
++++ b/crates/rightkit-child-process/src/foreign.rs
+@@ -29,6 +29,8 @@
+ //! re-parented away. Take the list ([`AdoptedIdentity::descendants`]) while the root is
+ //! alive, and sweep it ([`sweep`]) later; the identities keep the sweep safe.
+ 
++#[cfg(target_os = "macos")]
++mod quit_macos;
+ mod scan;
+ 
+ pub use scan::{
+@@ -36,6 +38,7 @@ pub use scan::{
+     ProcessQuery,
+ };
+ 
++use crate::TerminationOptions;
+ use std::{
+     io,
+     num::NonZeroU32,
+@@ -83,12 +86,13 @@ pub enum AdoptedSignal {
+     Force,
+ }
+ 
+-/// What `sys::signal` delivers: the public [`AdoptedSignal`] plus suspend and resume, which
+-/// are separate methods so the public enum stays exhaustive and unchanged.
++/// What `sys::signal` delivers: the public [`AdoptedSignal`] plus the quit request, suspend and
++/// resume, which are separate methods so the public enum stays exhaustive and unchanged.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ enum Delivery {
+     Graceful,
+     Force,
++    Quit,
+     Stop,
+     Continue,
+ }
+@@ -113,6 +117,16 @@ pub enum SignalResult {
+     IdentityMismatch,
+ }
+ 
++/// The result of [`AdoptedIdentity::terminate_tree`].
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct AdoptedTermination {
++    /// True when the root and every recorded descendant read as gone afterwards (and, on Unix,
++    /// the root's process group has no members left).
++    pub confirmed_gone: bool,
++    /// What happened to the root and the descendants recorded before it was stopped, as pids.
++    pub sweep: SweepReport,
++}
++
+ /// The result of [`sweep`], as pids.
+ #[derive(Clone, Debug, Default, Eq, PartialEq)]
+ pub struct SweepReport {
+@@ -223,6 +237,26 @@ impl AdoptedIdentity {
+         sys::signal(self, signal.into())
+     }
+ 
++    /// Asks an application to quit through its own quit path, as its menu or the Dock would,
++    /// only if the pid still names the remembered process. Never signals this process
++    /// (`InvalidInput`).
++    ///
++    /// * Windows: `WM_CLOSE` posted to every top-level window of the process (the process is
++    ///   proven to be the remembered one with the same handle first). A process with no
++    ///   top-level window cannot be asked this way: the call fails with `Unsupported`.
++    /// * macOS: a `kAEQuitApplication` Apple event addressed to the pid. Delivery is reported,
++    ///   not the quit; an application may prompt or refuse. macOS can require the Automation
++    ///   permission (`PermissionDenied`).
++    /// * Other Unix: `SIGTERM`, the same as [`AdoptedSignal::Graceful`] (there is no
++    ///   application-level quit request).
++    ///
++    /// The request is advisory: `Delivered` means it was sent, so follow it with
++    /// [`verify`](Self::verify) and a forced signal after a grace period (what [`sweep`] does
++    /// for `Graceful`).
++    pub fn request_quit(&self) -> io::Result<SignalResult> {
++        self.deliver(Delivery::Quit)
++    }
++
+     /// Suspends the process (`SIGSTOP`) only if the pid still names the remembered process.
+     /// Unix only; Windows returns `Unsupported`. Never signals this process (`InvalidInput`).
+     pub fn suspend(&self) -> io::Result<SignalResult> {
+@@ -245,6 +279,170 @@ impl AdoptedIdentity {
+         sys::signal(self, delivery)
+     }
+ 
++    /// The identity of the current process.
++    pub fn current() -> io::Result<Self> {
++        let pid = NonZeroU32::new(std::process::id())
++            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
++        Self::capture(pid)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
++    }
++
++    /// The direct children of this process, each with its own identity (same start-time guard
++    /// as [`descendants`](Self::descendants): a child is accepted only if it did not start
++    /// before its parent and its parent link was confirmed by a second read). Empty when this
++    /// process is gone or the pid now names a different one. Executable names are on each
++    /// identity's [`exe`](Self::exe).
++    pub fn children(&self) -> io::Result<Vec<AdoptedIdentity>> {
++        if self.verify()? != IdentityCheck::Same {
++            return Ok(Vec::new());
++        }
++        let mut found = Vec::new();
++        for (child, claimed_parent) in sys::process_pairs()? {
++            if claimed_parent != self.pid() || child == self.pid() {
++                continue;
++            }
++            let (Some(pid), Ok(Some(seen))) = (NonZeroU32::new(child), sys::read(child)) else {
++                continue;
++            };
++            if seen.parent.is_some_and(|actual| actual != self.pid()) || seen.start < self.start {
++                continue;
++            }
++            found.push(AdoptedIdentity {
++                pid,
++                start: seen.start,
++                exe: seen.exe,
++            });
++        }
++        if self.verify()? != IdentityCheck::Same {
++            return Ok(Vec::new());
++        }
++        Ok(found)
++    }
++
++    /// Stops this process and everything under it, for a process this program did not spawn
++    /// (a daemon found through a pid file): descendants are recorded while the root is proven,
++    /// then stopped with a graceful-to-forceful escalation, and the result says whether the
++    /// whole tree is confirmed gone. Refuses this process (`InvalidInput`).
++    ///
++    /// Unix: when the root leads its own process group, the group gets `SIGTERM` (only while the
++    /// identity still matches), `options.grace` to leave, then `SIGKILL`; whatever recorded
++    /// processes are still present afterwards (descendants that left the group, or a root that
++    /// does not lead one) go through the identity-checked [`sweep`] with the same grace.
++    /// Windows has no graceful stage for another process: the recorded processes are stopped
++    /// leaves first through [`sweep`]. `options.windows_exit_code` is not used (the sweep ends
++    /// processes with exit code 1).
++    ///
++    /// [`AdoptedTermination::confirmed_gone`] is true only when the root and every recorded
++    /// descendant read as gone afterwards (and, on Unix, the group has no members left). A
++    /// descendant that started after the scan is not reached by the sweep, only by the group
++    /// signal. A zombie not yet reaped by its parent still reads as present until it is reaped.
++    /// A pid that now names a different process is refused and reported, never signalled.
++    pub fn terminate_tree(&self, options: TerminationOptions) -> io::Result<AdoptedTermination> {
++        if self.pid() == std::process::id() {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "refusing to terminate this process",
++            ));
++        }
++        match self.verify()? {
++            IdentityCheck::Gone => {
++                return Ok(AdoptedTermination {
++                    confirmed_gone: true,
++                    sweep: SweepReport {
++                        gone: vec![self.pid()],
++                        ..SweepReport::default()
++                    },
++                })
++            }
++            IdentityCheck::Replaced => {
++                return Ok(AdoptedTermination {
++                    confirmed_gone: false,
++                    sweep: SweepReport {
++                        refused: vec![self.pid()],
++                        ..SweepReport::default()
++                    },
++                })
++            }
++            IdentityCheck::Same => {}
++        }
++        let mut targets = self.descendants()?;
++        targets.reverse(); // leaves first
++        targets.push(self.clone());
++        #[cfg(unix)]
++        let leads_group = self.leads_group();
++        #[cfg(unix)]
++        if leads_group {
++            self.stop_group(options.grace);
++        }
++        let mut remaining = Vec::new();
++        let mut already_gone = Vec::new();
++        for target in &targets {
++            if target.verify()? == IdentityCheck::Same {
++                remaining.push(target.clone());
++            } else {
++                already_gone.push(target.pid());
++            }
++        }
++        let mut report = if remaining.is_empty() {
++            SweepReport::default()
++        } else {
++            sweep(&remaining, options.grace)?
++        };
++        report.terminated.extend(already_gone);
++        let mut confirmed_gone = true;
++        for target in &targets {
++            if target.verify()? == IdentityCheck::Same {
++                confirmed_gone = false;
++            }
++        }
++        #[cfg(unix)]
++        if leads_group {
++            let group = NonZeroU32::new(self.pid()).expect("a captured pid is non-zero");
++            if !wait_process_group_gone(group, GROUP_CONFIRM_WAIT) {
++                confirmed_gone = false;
++            }
++        }
++        Ok(AdoptedTermination {
++            confirmed_gone,
++            sweep: report,
++        })
++    }
++
++    /// Whether this process leads its own process group (its group id is its pid).
++    #[cfg(unix)]
++    fn leads_group(&self) -> bool {
++        let Ok(pid) = libc::pid_t::try_from(self.pid()) else {
++            return false;
++        };
++        // SAFETY: getpgid takes a pid and returns -1 when it names no process.
++        unsafe { libc::getpgid(pid) } == pid
++    }
++
++    /// `SIGTERM` to the group, `grace`, then `SIGKILL` if members remain. Each signal is sent
++    /// only while the identity still matches.
++    #[cfg(unix)]
++    fn stop_group(&self, grace: Duration) {
++        let Some(group) = NonZeroU32::new(self.pid()) else {
++            return;
++        };
++        self.signal_group(libc::SIGTERM);
++        if !wait_process_group_gone(group, grace) {
++            self.signal_group(libc::SIGKILL);
++        }
++    }
++
++    #[cfg(unix)]
++    fn signal_group(&self, number: libc::c_int) {
++        let Ok(group) = libc::pid_t::try_from(self.pid()) else {
++            return;
++        };
++        if !matches!(self.verify(), Ok(IdentityCheck::Same)) {
++            return;
++        }
++        // SAFETY: killpg takes two integers; the leader was just proven to be the remembered
++        // process, which pins the group id.
++        unsafe { libc::killpg(group, number) };
++    }
++
+     /// The descendants of this process, parents before children, each with its own identity.
+     /// Empty when this process is gone or the pid now names a different one. A child is
+     /// accepted only if it did not start before its parent, so a stale parent link to a
+@@ -292,6 +490,46 @@ impl AdoptedIdentity {
+ }
+ 
+ const SWEEP_POLL: Duration = Duration::from_millis(20);
++/// How long `terminate_tree` waits for a process group to empty after the forced stage.
++#[cfg(unix)]
++const GROUP_CONFIRM_WAIT: Duration = Duration::from_millis(500);
++
++/// Whether process group `pgid` has any member left, probing with signal 0. A group whose
++/// members this process may not signal counts as existing (`EPERM`). Unix only; for a process
++/// tree that was started with `process_group(0)` or `setsid`, to confirm it is gone after
++/// `terminate_tree`. An exited member that its parent has not reaped yet still counts.
++#[cfg(unix)]
++pub fn process_group_exists(pgid: NonZeroU32) -> bool {
++    let Ok(group) = libc::pid_t::try_from(pgid.get()) else {
++        return false;
++    };
++    // Group ids 0 and 1 are never probed: libc maps `killpg(1, ..)` to `kill(-1, ..)`, which
++    // addresses every process.
++    if group <= 1 {
++        return false;
++    }
++    // SAFETY: killpg with signal 0 only tests for existence of a real group id (above 1).
++    if unsafe { libc::killpg(group, 0) } == 0 {
++        return true;
++    }
++    io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
++}
++
++/// Waits until [`process_group_exists`] is false for `pgid`, up to `timeout`; true when the
++/// group is gone. Blocks the calling thread, polling every 20 ms.
++#[cfg(unix)]
++pub fn wait_process_group_gone(pgid: NonZeroU32, timeout: Duration) -> bool {
++    let deadline = Instant::now().checked_add(timeout);
++    loop {
++        if !process_group_exists(pgid) {
++            return true;
++        }
++        if deadline.is_none_or(|limit| Instant::now() >= limit) {
++            return false;
++        }
++        thread::sleep(SWEEP_POLL);
++    }
++}
+ const FORCE_WAIT: Duration = Duration::from_millis(500);
+ 
+ /// Stops every process in `targets` that is still the process it was remembered as: a graceful
+@@ -357,7 +595,9 @@ pub fn suspend_current_process() -> io::Result<()> {
+ #[cfg(unix)]
+ fn unix_signal_number(delivery: Delivery) -> libc::c_int {
+     match delivery {
+-        Delivery::Graceful => libc::SIGTERM,
++        // There is no application-level quit request outside macOS (which sends an Apple event
++        // instead, see `sys::signal`) and Windows: the polite signal is the nearest.
++        Delivery::Graceful | Delivery::Quit => libc::SIGTERM,
+         Delivery::Force => libc::SIGKILL,
+         Delivery::Stop => libc::SIGSTOP,
+         Delivery::Continue => libc::SIGCONT,
+@@ -587,6 +827,14 @@ mod sys {
+             IdentityCheck::Same => {}
+         }
+         let pid = i32::try_from(identity.pid()).map_err(io::Error::other)?;
++        #[cfg(target_os = "macos")]
++        if signal == super::Delivery::Quit {
++            return match super::quit_macos::send_quit(pid) {
++                Ok(()) => Ok(SignalResult::Delivered),
++                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SignalResult::Gone),
++                Err(error) => Err(error),
++            };
++        }
+         let number = super::unix_signal_number(signal);
+         // SAFETY: kill takes two integers; the pid was proven to be the remembered process
+         // just above (see the module documentation for the residual gap).
+@@ -667,9 +915,11 @@ mod sys {
+         use crate::process_windows::os_error;
+         use std::{io, path::PathBuf};
+         use windows::{
+-            core::PWSTR,
++            core::{BOOL, PWSTR},
+             Win32::{
+-                Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE},
++                Foundation::{
++                    CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HWND, LPARAM, WPARAM,
++                },
+                 System::{
+                     Diagnostics::ToolHelp::{
+                         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+@@ -681,6 +931,9 @@ mod sys {
+                         PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+                     },
+                 },
++                UI::WindowsAndMessaging::{
++                    EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE,
++                },
+             },
+         };
+ 
+@@ -752,10 +1005,68 @@ mod sys {
+             }
+         }
+ 
++        /// What [`each_window`] is looking for and has done.
++        struct WindowSearch {
++            pid: u32,
++            posted: u32,
++        }
++
++        /// `EnumWindows` callback: posts `WM_CLOSE` to a top-level window owned by the pid.
++        unsafe extern "system" fn each_window(window: HWND, lparam: LPARAM) -> BOOL {
++            // SAFETY: `lparam` is the address of the `WindowSearch` that `post_close` keeps alive
++            // for the whole enumeration, and the callback runs on that thread.
++            let search = unsafe { &mut *(lparam.0 as *mut WindowSearch) };
++            let mut owner = 0u32;
++            // SAFETY: `window` came from the enumeration; `owner` is a valid out pointer.
++            unsafe { GetWindowThreadProcessId(window, Some(&mut owner)) };
++            // SAFETY: posting a message takes plain values.
++            if owner == search.pid
++                && unsafe { PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok()
++            {
++                search.posted += 1;
++            }
++            BOOL(1)
++        }
++
++        /// Posts `WM_CLOSE` to every top-level window of `pid`.
++        fn post_close(pid: u32) -> io::Result<SignalResult> {
++            let mut search = WindowSearch { pid, posted: 0 };
++            // SAFETY: the callback only dereferences the pointer passed here, during this call.
++            unsafe {
++                EnumWindows(
++                    Some(each_window),
++                    LPARAM(&mut search as *mut WindowSearch as isize),
++                )
++            }
++            .map_err(os_error)?;
++            if search.posted == 0 {
++                return Err(io::Error::new(
++                    io::ErrorKind::Unsupported,
++                    "the process has no top-level window to ask to quit",
++                ));
++            }
++            Ok(SignalResult::Delivered)
++        }
++
+         pub(in super::super) fn signal(
+             identity: &AdoptedIdentity,
+             signal: super::super::Delivery,
+         ) -> io::Result<SignalResult> {
++            if signal == super::super::Delivery::Quit {
++                let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE;
++                let Some(process) = open(identity.pid(), access)? else {
++                    return Ok(SignalResult::Gone);
++                };
++                // The open handle keeps the pid from being reused while the windows are
++                // enumerated; the proof and the posts therefore concern one process.
++                let Some(seen) = observe(&process)? else {
++                    return Ok(SignalResult::Gone);
++                };
++                if !identity.matches(&seen) {
++                    return Ok(SignalResult::IdentityMismatch);
++                }
++                return post_close(identity.pid());
++            }
+             if matches!(
+                 signal,
+                 super::super::Delivery::Stop | super::super::Delivery::Continue
+@@ -883,3 +1194,114 @@ mod suspend_resume_tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod quit_tests {
++    use super::Delivery;
++
++    #[cfg(unix)]
++    #[test]
++    fn quit_maps_to_sigterm_in_the_signal_table() {
++        assert_eq!(super::unix_signal_number(Delivery::Quit), libc::SIGTERM);
++    }
++
++    /// Hosts without an application-level quit request send `SIGTERM`: the child ends by that
++    /// signal. (macOS sends an Apple event, which a plain `sleep` cannot receive.)
++    #[cfg(all(unix, not(target_os = "macos")))]
++    #[test]
++    fn quit_terminates_a_plain_process_on_other_unix_hosts() {
++        use super::{AdoptedIdentity, SignalResult};
++        use std::os::unix::process::ExitStatusExt;
++        use std::process::{Command, Stdio};
++        let mut child = Command::new("sleep")
++            .arg("30")
++            .stdin(Stdio::null())
++            .spawn()
++            .expect("spawn sleep");
++        let pid = std::num::NonZeroU32::new(child.id()).unwrap();
++        let identity = AdoptedIdentity::capture(pid)
++            .expect("capture")
++            .expect("identity");
++        assert_eq!(identity.request_quit().unwrap(), SignalResult::Delivered);
++        let status = child.wait().expect("wait");
++        assert_eq!(status.signal(), Some(libc::SIGTERM));
++    }
++
++    #[test]
++    fn this_process_is_never_asked_to_quit_or_terminated() {
++        let me = super::AdoptedIdentity::current().expect("current identity");
++        assert_eq!(
++            me.request_quit().unwrap_err().kind(),
++            std::io::ErrorKind::InvalidInput
++        );
++        assert_eq!(
++            me.terminate_tree(super::TerminationOptions::default())
++                .unwrap_err()
++                .kind(),
++            std::io::ErrorKind::InvalidInput
++        );
++    }
++}
++
++#[cfg(all(test, unix))]
++mod tree_tests {
++    use super::{process_group_exists, wait_process_group_gone, AdoptedIdentity};
++    use crate::TerminationOptions;
++    use std::{
++        os::unix::process::CommandExt,
++        process::{Command, Stdio},
++        thread,
++        time::Duration,
++    };
++
++    #[test]
++    fn children_lists_direct_children_only() {
++        let mut parent = Command::new("sh")
++            .args(["-c", "sleep 30 & wait"])
++            .stdin(Stdio::null())
++            .spawn()
++            .expect("spawn sh");
++        thread::sleep(Duration::from_millis(300));
++        let identity = AdoptedIdentity::capture(std::num::NonZeroU32::new(parent.id()).unwrap())
++            .unwrap()
++            .unwrap();
++        let children = identity.children().unwrap();
++        assert!(!children.is_empty(), "the sleep child was not found");
++        assert!(children.iter().all(|child| child.pid() != parent.id()));
++        let mine = AdoptedIdentity::current().unwrap().children().unwrap();
++        assert!(mine.iter().any(|child| child.pid() == parent.id()));
++        parent.kill().unwrap();
++        let _ = parent.wait();
++    }
++
++    #[test]
++    fn terminate_tree_stops_a_group_leader_and_confirms_the_group_is_gone() {
++        let mut child = Command::new("sh")
++            .args(["-c", "sleep 30 & sleep 30 & wait"])
++            .stdin(Stdio::null())
++            .process_group(0)
++            .spawn()
++            .expect("spawn sh");
++        let pid = std::num::NonZeroU32::new(child.id()).unwrap();
++        let identity = AdoptedIdentity::capture(pid).unwrap().unwrap();
++        thread::sleep(Duration::from_millis(300));
++        assert!(process_group_exists(pid));
++        // The leader is our child: reap it so it does not linger as a zombie.
++        let reaper = thread::spawn(move || child.wait());
++        let report = identity
++            .terminate_tree(TerminationOptions::default().with_grace(Duration::from_secs(2)))
++            .unwrap();
++        assert!(report.confirmed_gone, "{report:?}");
++        assert!(wait_process_group_gone(pid, Duration::from_secs(2)));
++        reaper.join().unwrap().unwrap();
++    }
++
++    #[test]
++    fn a_group_that_never_existed_is_gone() {
++        assert!(!process_group_exists(std::num::NonZeroU32::new(1).unwrap()));
++        assert!(wait_process_group_gone(
++            std::num::NonZeroU32::new(u32::MAX - 1).unwrap(),
++            Duration::from_millis(50)
++        ));
++    }
++}
+diff --git a/crates/rightkit-child-process/src/foreign/quit_macos.rs b/crates/rightkit-child-process/src/foreign/quit_macos.rs
+new file mode 100644
+index 0000000..fe9e537
+--- /dev/null
++++ b/crates/rightkit-child-process/src/foreign/quit_macos.rs
+@@ -0,0 +1,168 @@
++//! Asks a macOS application to quit the way the Dock's "Quit" does: a `kAEQuitApplication`
++//! Apple event addressed to the process by pid. The application runs its own quit path (save
++//! prompts, termination handlers), which `SIGTERM` skips for most GUI applications.
++//!
++//! The event is sent with `kAENoReply | kAENeverInteract`: delivery is reported, whether the
++//! application then quits is not (it may ask the user, or refuse). macOS can require the
++//! caller to hold the Automation permission for the target (`errAEEventNotPermitted`, mapped to
++//! `PermissionDenied`).
++
++use std::{ffi::c_void, io, ptr};
++
++/// `AEDesc` / `AppleEvent`: a four-character type code and an opaque data handle.
++#[repr(C)]
++struct AeDesc {
++    descriptor_type: u32,
++    data_handle: *mut c_void,
++}
++
++/// `typeNull`.
++const TYPE_NULL: u32 = u32::from_be_bytes(*b"null");
++/// `typeKernelProcessID`: the target is a Unix pid (`pid_t`).
++const TYPE_KERNEL_PROCESS_ID: u32 = u32::from_be_bytes(*b"kpid");
++/// `kCoreEventClass`.
++const CORE_EVENT_CLASS: u32 = u32::from_be_bytes(*b"aevt");
++/// `kAEQuitApplication`.
++const QUIT_APPLICATION: u32 = u32::from_be_bytes(*b"quit");
++/// `kAutoGenerateReturnID`.
++const AUTO_GENERATE_RETURN_ID: i16 = -1;
++/// `kAnyTransactionID`.
++const ANY_TRANSACTION_ID: i32 = 0;
++/// `kAENoReply | kAENeverInteract`.
++const SEND_MODE: i32 = 0x01 | 0x10;
++/// `kAEDefaultTimeout`.
++const DEFAULT_TIMEOUT: isize = -1;
++
++/// `procNotFound`: no process with that pid.
++const PROC_NOT_FOUND: i32 = -600;
++/// `errAEEventNotPermitted`: the user denied Automation access (or has not been asked yet).
++const EVENT_NOT_PERMITTED: i32 = -1743;
++
++#[link(name = "CoreServices", kind = "framework")]
++extern "C" {
++    fn AECreateDesc(
++        type_code: u32,
++        data_ptr: *const c_void,
++        data_size: isize,
++        result: *mut AeDesc,
++    ) -> i32;
++    fn AECreateAppleEvent(
++        event_class: u32,
++        event_id: u32,
++        target: *const AeDesc,
++        return_id: i16,
++        transaction_id: i32,
++        result: *mut AeDesc,
++    ) -> i32;
++    fn AESendMessage(
++        event: *const AeDesc,
++        reply: *mut AeDesc,
++        send_mode: i32,
++        timeout_in_ticks: isize,
++    ) -> i32;
++    fn AEDisposeDesc(desc: *mut AeDesc) -> i32;
++}
++
++/// An `AEDesc` released on drop.
++struct Owned(AeDesc);
++
++impl Owned {
++    fn null() -> Self {
++        Self(AeDesc {
++            descriptor_type: TYPE_NULL,
++            data_handle: ptr::null_mut(),
++        })
++    }
++}
++
++impl Drop for Owned {
++    fn drop(&mut self) {
++        // SAFETY: the descriptor was initialised by this module (null or created by the AE
++        // functions); disposing a null descriptor is a no-op.
++        unsafe { AEDisposeDesc(&mut self.0) };
++    }
++}
++
++/// `OSErr` results can arrive sign-extended or not depending on the declaration the SDK uses;
++/// every code this module handles fits in 16 bits, so normalise through `i16`.
++fn status(code: i32) -> i32 {
++    i32::from(code as i16)
++}
++
++fn failure(what: &str, code: i32) -> io::Error {
++    let kind = match code {
++        PROC_NOT_FOUND => io::ErrorKind::NotFound,
++        EVENT_NOT_PERMITTED => io::ErrorKind::PermissionDenied,
++        _ => io::ErrorKind::Other,
++    };
++    io::Error::new(kind, format!("{what} failed with OSStatus {code}"))
++}
++
++/// Sends `kAEQuitApplication` to the process `pid`. `NotFound` when no such process exists,
++/// `PermissionDenied` when Automation access is refused.
++pub(super) fn send_quit(pid: i32) -> io::Result<()> {
++    let mut target = Owned::null();
++    // SAFETY: `pid` outlives the call, which copies the 4 bytes; `target.0` is a valid out
++    // pointer.
++    let code = status(unsafe {
++        AECreateDesc(
++            TYPE_KERNEL_PROCESS_ID,
++            (&pid as *const i32).cast(),
++            std::mem::size_of::<i32>() as isize,
++            &mut target.0,
++        )
++    });
++    if code != 0 {
++        return Err(failure("AECreateDesc", code));
++    }
++    let mut event = Owned::null();
++    // SAFETY: `target` holds the descriptor created above; `event.0` is a valid out pointer.
++    let code = status(unsafe {
++        AECreateAppleEvent(
++            CORE_EVENT_CLASS,
++            QUIT_APPLICATION,
++            &target.0,
++            AUTO_GENERATE_RETURN_ID,
++            ANY_TRANSACTION_ID,
++            &mut event.0,
++        )
++    });
++    if code != 0 {
++        return Err(failure("AECreateAppleEvent", code));
++    }
++    let mut reply = Owned::null();
++    // SAFETY: `event` is a complete Apple event, `reply` a valid null descriptor to fill.
++    let code = status(unsafe {
++        AESendMessage(&event.0, &mut reply.0, SEND_MODE, DEFAULT_TIMEOUT)
++    });
++    if code != 0 {
++        return Err(failure("AESendMessage", code));
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn four_character_codes_are_big_endian_ascii() {
++        assert_eq!(CORE_EVENT_CLASS, 0x6165_7674);
++        assert_eq!(QUIT_APPLICATION, 0x7175_6974);
++        assert_eq!(TYPE_KERNEL_PROCESS_ID, 0x6B70_6964);
++    }
++
++    #[test]
++    fn known_status_codes_map_to_error_kinds() {
++        assert_eq!(
++            failure("x", PROC_NOT_FOUND).kind(),
++            io::ErrorKind::NotFound
++        );
++        assert_eq!(
++            failure("x", EVENT_NOT_PERMITTED).kind(),
++            io::ErrorKind::PermissionDenied
++        );
++        assert_eq!(failure("x", -1).kind(), io::ErrorKind::Other);
++        assert_eq!(status(0xFFFF_F9F1u32 as i32), -1551);
++    }
++}
+diff --git a/crates/rightkit-child-process/src/foreign/scan.rs b/crates/rightkit-child-process/src/foreign/scan.rs
+index 96d8e91..c0b9ca8 100644
+--- a/crates/rightkit-child-process/src/foreign/scan.rs
++++ b/crates/rightkit-child-process/src/foreign/scan.rs
+@@ -1,7 +1,8 @@
+ //! Finding, and optionally stopping, processes by executable path and command line.
+ //!
+-//! [`ProcessQuery`] describes which processes are wanted: the exact executable path, exact
+-//! argument tokens, substrings of single arguments, or any combination (all criteria must hold).
++//! [`ProcessQuery`] describes which processes are wanted: the exact executable path, a directory
++//! the executable lives under, exact argument tokens, substrings of single arguments (case-sensitive
++//! or not), or any combination (all criteria must hold).
+ //! [`find_processes`] lists the matches without touching them; [`sweep_matching`] lists and then
+ //! stops them through [`sweep`](super::sweep), so every signal is gated by the pid-plus-start-time
+ //! identity of [`AdoptedIdentity`].
+@@ -51,8 +52,11 @@ use super::{sweep, sys, AdoptedIdentity, SweepReport};
+ #[derive(Clone, Debug, Default, Eq, PartialEq)]
+ pub struct ProcessQuery {
+     exe: Option<PathBuf>,
++    exe_prefix: Option<PathBuf>,
+     args_exact: Vec<OsString>,
+     args_containing: Vec<String>,
++    /// Lower-cased needles for the case-insensitive criterion.
++    args_containing_folded: Vec<String>,
+ }
+ 
+ impl ProcessQuery {
+@@ -66,6 +70,15 @@ impl ProcessQuery {
+         self
+     }
+ 
++    /// The process runs an executable at or below this directory. Compared by path components,
++    /// so `/opt/app` matches `/opt/app/bin/tool` but not `/opt/app2/tool`; case-insensitive on
++    /// Windows. On Unix the directory is matched both as given and canonicalized. May be
++    /// combined with [`exe`](Self::exe) (both must hold).
++    pub fn exe_prefix(mut self, directory: impl Into<PathBuf>) -> Self {
++        self.exe_prefix = Some(directory.into());
++        self
++    }
++
+     /// Some element of the command line (the program name included) equals `token` exactly.
+     /// May be given more than once: each token must be present.
+     pub fn arg(mut self, token: impl Into<OsString>) -> Self {
+@@ -80,9 +93,20 @@ impl ProcessQuery {
+         self
+     }
+ 
++    /// Like [`arg_containing`](Self::arg_containing), ignoring case (Unicode lower-casing of
++    /// both the needle and the argument). Windows command lines and URLs often differ only in
++    /// case. May be given more than once; each needle must be found, in any element.
++    pub fn arg_containing_ignore_case(mut self, needle: impl Into<String>) -> Self {
++        self.args_containing_folded.push(needle.into().to_lowercase());
++        self
++    }
++
+     fn validate(&self) -> io::Result<()> {
+         let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidInput, message);
+-        if self.exe.is_none() && self.args_exact.is_empty() && self.args_containing.is_empty() {
++        if self.exe.is_none()
++            && self.exe_prefix.is_none()
++            && !self.needs_args()
++        {
+             return Err(invalid("a process query needs at least one criterion"));
+         }
+         if self
+@@ -92,17 +116,33 @@ impl ProcessQuery {
+         {
+             return Err(invalid("the executable path of a process query is empty"));
+         }
++        if self
++            .exe_prefix
++            .as_ref()
++            .is_some_and(|path| path.as_os_str().is_empty())
++        {
++            return Err(invalid(
++                "the executable directory of a process query is empty",
++            ));
++        }
+         if self.args_exact.iter().any(|token| token.is_empty()) {
+             return Err(invalid("an argument token of a process query is empty"));
+         }
+-        if self.args_containing.iter().any(String::is_empty) {
++        if self
++            .args_containing
++            .iter()
++            .chain(&self.args_containing_folded)
++            .any(String::is_empty)
++        {
+             return Err(invalid("an argument substring of a process query is empty"));
+         }
+         Ok(())
+     }
+ 
+     fn needs_args(&self) -> bool {
+-        !self.args_exact.is_empty() || !self.args_containing.is_empty()
++        !self.args_exact.is_empty()
++            || !self.args_containing.is_empty()
++            || !self.args_containing_folded.is_empty()
+     }
+ }
+ 
+@@ -187,7 +227,10 @@ pub struct MatchSweepReport {
+ /// (they exited, or belong to another user, or deny access) are skipped, never an error.
+ pub fn find_processes(query: &ProcessQuery) -> io::Result<Vec<MatchedProcess>> {
+     query.validate()?;
+-    let wanted_exe = query.exe.as_deref().map(exe_candidates);
++    let wanted_exe = WantedExe {
++        exact: query.exe.as_deref().map(exe_candidates),
++        under: query.exe_prefix.as_deref().map(exe_candidates),
++    };
+     let me = os::Me::current()?;
+     let pairs = sys::process_pairs()?;
+     let this = std::process::id();
+@@ -197,7 +240,7 @@ pub fn find_processes(query: &ProcessQuery) -> io::Result<Vec<MatchedProcess>> {
+         if pid == 0 || pid == this || excluded.contains(&pid) {
+             continue;
+         }
+-        if let Ok(Some(matched)) = inspect(query, wanted_exe.as_deref(), &me, pid) {
++        if let Ok(Some(matched)) = inspect(query, &wanted_exe, &me, pid) {
+             found.push(matched);
+         }
+     }
+@@ -244,9 +287,32 @@ fn ancestors(pairs: &[(u32, u32)], this: u32) -> HashSet<u32> {
+     found
+ }
+ 
++/// The executable criteria of a query, with the Unix path candidates already resolved.
++struct WantedExe {
++    exact: Option<Vec<PathBuf>>,
++    under: Option<Vec<PathBuf>>,
++}
++
++impl WantedExe {
++    fn is_set(&self) -> bool {
++        self.exact.is_some() || self.under.is_some()
++    }
++
++    /// Whether the executable the OS reported satisfies every executable criterion.
++    fn accepts(&self, seen: &Path) -> bool {
++        self.exact
++            .as_deref()
++            .is_none_or(|wanted| exe_matches(seen, wanted))
++            && self
++                .under
++                .as_deref()
++                .is_none_or(|dirs| dirs.iter().any(|dir| path_under(seen, dir)))
++    }
++}
++
+ fn inspect(
+     query: &ProcessQuery,
+-    wanted_exe: Option<&[PathBuf]>,
++    wanted_exe: &WantedExe,
+     me: &os::Me,
+     pid: u32,
+ ) -> io::Result<Option<MatchedProcess>> {
+@@ -257,14 +323,13 @@ fn inspect(
+         return Ok(None);
+     };
+     // Cheap rejection first: the executable is already in hand.
+-    if let Some(wanted) = wanted_exe {
+-        if !first
++    if wanted_exe.is_set()
++        && !first
+             .exe
+             .as_deref()
+-            .is_some_and(|seen| exe_matches(seen, wanted))
+-        {
+-            return Ok(None);
+-        }
++            .is_some_and(|seen| wanted_exe.accepts(seen))
++    {
++        return Ok(None);
+     }
+     if !me.owns(pid)? {
+         return Ok(None);
+@@ -288,14 +353,13 @@ fn inspect(
+     if last.start != first.start {
+         return Ok(None);
+     }
+-    if let Some(wanted) = wanted_exe {
+-        if !last
++    if wanted_exe.is_set()
++        && !last
+             .exe
+             .as_deref()
+-            .is_some_and(|seen| exe_matches(seen, wanted))
+-        {
+-            return Ok(None);
+-        }
++            .is_some_and(|seen| wanted_exe.accepts(seen))
++    {
++        return Ok(None);
+     }
+     Ok(Some(MatchedProcess {
+         identity: AdoptedIdentity {
+@@ -316,6 +380,10 @@ fn args_match(query: &ProcessQuery, args: &[OsString]) -> bool {
+             args.iter()
+                 .any(|arg| arg.to_string_lossy().contains(needle.as_str()))
+         })
++        && query.args_containing_folded.iter().all(|needle| {
++            args.iter()
++                .any(|arg| arg.to_string_lossy().to_lowercase().contains(needle.as_str()))
++        })
+ }
+ 
+ /// The wanted path as given, and on Unix also resolved (the OS reports resolved paths).
+@@ -339,13 +407,15 @@ fn exe_matches(seen: &Path, wanted: &[PathBuf]) -> bool {
+     wanted.iter().any(|path| same_path(seen, path))
+ }
+ 
++#[cfg(windows)]
++fn normal_path(path: &Path) -> String {
++    let text = path.to_string_lossy().to_lowercase().replace('/', "\\");
++    text.strip_prefix("\\\\?\\").unwrap_or(&text).to_owned()
++}
++
+ #[cfg(windows)]
+ fn same_path(a: &Path, b: &Path) -> bool {
+-    fn normal(path: &Path) -> String {
+-        let text = path.to_string_lossy().to_lowercase().replace('/', "\\");
+-        text.strip_prefix("\\\\?\\").unwrap_or(&text).to_owned()
+-    }
+-    normal(a) == normal(b)
++    normal_path(a) == normal_path(b)
+ }
+ 
+ #[cfg(not(windows))]
+@@ -353,6 +423,18 @@ fn same_path(a: &Path, b: &Path) -> bool {
+     a == b
+ }
+ 
++/// Whether `seen` is `directory` or lies below it, by whole path components (Windows: ignoring
++/// case, the `\\?\` prefix and the slash direction).
++#[cfg(windows)]
++fn path_under(seen: &Path, directory: &Path) -> bool {
++    Path::new(&normal_path(seen)).starts_with(normal_path(directory))
++}
++
++#[cfg(not(windows))]
++fn path_under(seen: &Path, directory: &Path) -> bool {
++    seen.starts_with(directory)
++}
++
+ /// Splits a Windows command line the way the C runtime does (backslash runs before a quote,
+ /// doubled quotes inside quotes, the program name without escapes).
+ #[cfg(any(windows, test))]
+@@ -862,6 +944,80 @@ mod tests {
+         assert!(!args_match(&both.arg("--missing"), &args));
+     }
+ 
++    #[test]
++    fn a_case_insensitive_substring_ignores_case_and_the_exact_one_does_not() {
++        let args = strings(&["Tool.EXE", "--Url=HTTPS://Example.com/Watch"]);
++        assert!(args_match(
++            &ProcessQuery::new().arg_containing_ignore_case("example.COM/watch"),
++            &args
++        ));
++        assert!(!args_match(
++            &ProcessQuery::new().arg_containing("example.com/watch"),
++            &args
++        ));
++        assert!(!args_match(
++            &ProcessQuery::new().arg_containing_ignore_case("example.org"),
++            &args
++        ));
++        // Both kinds must hold together.
++        assert!(!args_match(
++            &ProcessQuery::new()
++                .arg_containing_ignore_case("tool.exe")
++                .arg_containing("missing"),
++            &args
++        ));
++    }
++
++    #[test]
++    fn the_new_criteria_count_as_criteria_and_empty_values_are_refused() {
++        assert!(ProcessQuery::new().exe_prefix("/opt/app").validate().is_ok());
++        assert!(ProcessQuery::new()
++            .arg_containing_ignore_case("x")
++            .validate()
++            .is_ok());
++        assert!(ProcessQuery::new().exe_prefix("").validate().is_err());
++        assert!(ProcessQuery::new()
++            .arg_containing_ignore_case("")
++            .validate()
++            .is_err());
++        assert!(ProcessQuery::new()
++            .arg_containing_ignore_case("x")
++            .needs_args());
++        assert!(!ProcessQuery::new().exe_prefix("/opt").needs_args());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn an_executable_directory_matches_by_whole_components() {
++        let wanted = WantedExe {
++            exact: None,
++            under: Some(vec![PathBuf::from("/opt/app")]),
++        };
++        assert!(wanted.accepts(Path::new("/opt/app/bin/tool")));
++        assert!(wanted.accepts(Path::new("/opt/app")));
++        assert!(!wanted.accepts(Path::new("/opt/app2/tool")));
++        assert!(!wanted.accepts(Path::new("/opt/ap")));
++        let both = WantedExe {
++            exact: Some(vec![PathBuf::from("/opt/app/bin/tool")]),
++            under: Some(vec![PathBuf::from("/opt/app")]),
++        };
++        assert!(both.accepts(Path::new("/opt/app/bin/tool")));
++        assert!(!both.accepts(Path::new("/opt/app/bin/other")));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn a_windows_executable_directory_ignores_case_and_slashes() {
++        assert!(path_under(
++            Path::new(r"C:\Program Files\App\bin\tool.exe"),
++            Path::new("c:/program files/app")
++        ));
++        assert!(!path_under(
++            Path::new(r"C:\Program Files\App2\tool.exe"),
++            Path::new(r"C:\Program Files\App")
++        ));
++    }
++
+     #[test]
+     fn a_substring_is_found_inside_one_argument_not_across_two() {
+         let args = strings(&["tool", "ab", "cd"]);
+diff --git a/crates/rightkit-child-process/src/lib.rs b/crates/rightkit-child-process/src/lib.rs
+index 0de07f3..02ba1e2 100644
+--- a/crates/rightkit-child-process/src/lib.rs
++++ b/crates/rightkit-child-process/src/lib.rs
+@@ -30,6 +30,7 @@ mod run;
+ mod spawn_windows;
+ mod stall;
+ mod stderr_tail;
++mod tree_usage;
+ #[cfg(feature = "tokio")]
+ pub mod tokio_support;
+ #[cfg(unix)]
+@@ -41,11 +42,13 @@ pub mod windows_job;
+ pub use capture::{read_bounded, CapturedOutput, OutputCapture};
+ pub use foreign::{
+     find_processes, suspend_current_process, sweep, sweep_descendants, sweep_matching,
+-    AdoptedIdentity, AdoptedSignal, IdentityCheck, MatchSweepOptions, MatchSweepReport,
+-    MatchedProcess, ProcessQuery, SignalResult, StartToken, SweepReport,
++    AdoptedIdentity, AdoptedSignal, AdoptedTermination, IdentityCheck, MatchSweepOptions,
++    MatchSweepReport, MatchedProcess, ProcessQuery, SignalResult, StartToken, SweepReport,
+ };
+ #[cfg(unix)]
+-pub use foreign::{resume_session, signal_session, suspend_session};
++pub use foreign::{
++    process_group_exists, resume_session, signal_session, suspend_session, wait_process_group_gone,
++};
+ pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
+ pub use launch::{launch_app, open_url};
+ #[cfg(any(unix, windows))]
+@@ -64,18 +67,21 @@ pub use restart::{
+     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
+     RestartTracker,
+ };
+-pub use run::{run, RunOptions, RunOutput};
++pub use run::{run, run_with_stdin, RunOptions, RunOutput};
+ #[cfg(windows)]
+ pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
+ pub use stall::{
+     Ack, Cooldown, HeartbeatConfig, HeartbeatEvent, HeartbeatWatch, StallConfig, StallEvent,
+     StallWatchdog,
+ };
+-pub use stderr_tail::StderrTail;
++pub use stderr_tail::{LineSplit, StderrTail};
++pub use tree_usage::{process_tree_usage, process_tree_usage_of, sum_process_tree, ProcessTreeUsage};
+ #[cfg(unix)]
+ pub use unix_child::UnixChild;
+ pub use usage::{
+-    observe_idle, process_usage, BudgetLabels, IdleObservation, ProcessUsage, UsageRates,
++    observe_idle, process_usage, process_usage_ext, process_usage_ext_of, process_usage_of,
++    soak_sample, BudgetLabels, IdleObservation, ProcessUsage, ProcessUsageExt, SoakEnd,
++    SoakOptions, SoakReport, UsageRates,
+ };
+ #[cfg(windows)]
+ pub use windows_job::{ExitReason, WindowsJob, WindowsJobBuilder, DEFAULT_ACTIVE_PROCESS_LIMIT};
+diff --git a/crates/rightkit-child-process/src/owned.rs b/crates/rightkit-child-process/src/owned.rs
+index 4b75569..e53caef 100644
+--- a/crates/rightkit-child-process/src/owned.rs
++++ b/crates/rightkit-child-process/src/owned.rs
+@@ -381,6 +381,49 @@ impl OwnedCommand {
+         self.hold_suspended = true;
+         self.spawn_inner(false, false, None)
+     }
++    /// The blocking equivalent of `std::process::Command::output`, with a deadline and a bound
++    /// on what is kept: spawns the command with stdin null and stdout and stderr piped, waits
++    /// up to `timeout`, and at the deadline terminates the whole tree. `max_bytes` caps each of
++    /// stdout and stderr (the rest is drained and discarded; see
++    /// [`CapturedOutput::truncated`](crate::CapturedOutput::truncated)). A non-zero exit is a
++    /// normal `Ok`; [`RunOutput::timed_out`](crate::RunOutput::timed_out) says whether the deadline ended the run. Stdio
++    /// set earlier on [`command_mut`](Self::command_mut) is replaced, and the command's own
++    /// window setting ([`windows_hide`](Self::windows_hide), the default) is kept.
++    pub fn output(self, timeout: Duration, max_bytes: usize) -> io::Result<crate::RunOutput> {
++        let options = crate::RunOptions::new(timeout)
++            .stdout_cap(max_bytes)
++            .stderr_cap(max_bytes);
++        crate::run::run_owned(self, &options, None)
++    }
++    /// [`output`](Self::output) with `input` written to the child's stdin, which is then
++    /// closed. The bytes are written on a short-lived thread, so a child that never reads its
++    /// stdin cannot hold the call past `timeout`; a child that exits before reading all of them
++    /// is not an error.
++    pub fn output_with_stdin(
++        self,
++        input: impl Into<Vec<u8>>,
++        timeout: Duration,
++        max_bytes: usize,
++    ) -> io::Result<crate::RunOutput> {
++        let options = crate::RunOptions::new(timeout)
++            .stdout_cap(max_bytes)
++            .stderr_cap(max_bytes);
++        crate::run::run_owned(self, &options, Some(input.into()))
++    }
++    /// The blocking equivalent of `std::process::Command::status`, with a deadline: spawns the
++    /// command (stdio exactly as configured; a fresh command inherits the parent's), waits up
++    /// to `timeout`, and at the deadline terminates the whole tree.
++    /// [`WaitOutcome::Exited`] means the command finished by itself;
++    /// [`WaitOutcome::Terminated`] means the deadline passed and the tree was stopped (the
++    /// status is the leader's after termination).
++    pub fn status(self, timeout: Duration) -> io::Result<WaitOutcome> {
++        let mut child = self.spawn()?;
++        child.wait_then_kill(timeout)
++    }
++    /// Same as [`status`](Self::status), under the name the ScrapeRight port asks for.
++    pub fn status_with_timeout(self, timeout: Duration) -> io::Result<WaitOutcome> {
++        self.status(timeout)
++    }
+     /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid.
+     /// Stdio follows Command: dropping piped stdin can still deliver EOF.
+     ///
+@@ -1270,9 +1313,41 @@ impl AdoptedProcess {
+     pub fn id(&self) -> u32 {
+         self.pid.get()
+     }
++    /// Whether the process is still running. Unix: a zombie (a process that exited and was not
++    /// yet reaped by its parent, which includes an exited child of this very process that
++    /// nobody has waited for) counts as **not** running, because it can never run again.
++    /// `kill(pid, 0)` alone reports such a process as alive, so wait loops over a dead child
++    /// would spin until their timeout. Zombie detection reads `/proc/<pid>/stat` (Linux,
++    /// Android) or `proc_pidinfo` (macOS); other Unix hosts cannot tell and report a zombie as
++    /// running. Windows has no zombies: a process counts as running until it exits. This call
++    /// never reaps; use [`try_reap`](Self::try_reap) to collect an exited own child.
+     pub fn is_running(&self) -> io::Result<bool> {
+         process_is_running(self.pid)
+     }
++    /// Asks the process to quit through its own quit path (Windows `WM_CLOSE` to its windows,
++    /// macOS `kAEQuitApplication`, `SIGTERM` elsewhere); see
++    /// [`AdoptedIdentity::request_quit`](crate::AdoptedIdentity::request_quit). The identity is
++    /// captured when this is called, so call it only while the pid is known to name the
++    /// intended process (otherwise keep an `AdoptedIdentity` from earlier). `Gone` when no
++    /// process has the pid.
++    pub fn request_quit(&self) -> io::Result<crate::SignalResult> {
++        match self.identity()? {
++            Some(identity) => identity.request_quit(),
++            None => Ok(crate::SignalResult::Gone),
++        }
++    }
++    /// Collects the exit status of an exited **child of this process** with `waitpid(WNOHANG)`,
++    /// so it stops being a zombie. `Ok(Some(status))` when the child exited and was reaped by
++    /// this call; `Ok(None)` when the process is still running, is not a child of this process,
++    /// or was already reaped. Windows has nothing to reap and always returns `Ok(None)`.
++    ///
++    /// Only call it for a child this program spawned outside of [`OwnedCommand`] (a std
++    /// `Command` whose `Child` was dropped, a library's child): reaping a process that an
++    /// [`OwnedChild`] or a `std::process::Child` still owns takes its status away from that
++    /// owner, whose later `wait` then fails with `ECHILD`.
++    pub fn try_reap(&self) -> io::Result<Option<ExitStatus>> {
++        try_reap_pid(self.pid)
++    }
+     /// The identity (start time and executable) of the process behind this pid now, for
+     /// identity-checked signalling through [`AdoptedIdentity`](crate::AdoptedIdentity).
+     /// `Ok(None)` when no process has the pid. Capture it only when the pid is known to name
+@@ -1331,18 +1406,102 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
+     loop {
+         // SAFETY: signal 0 performs only existence and permission checks; nothing is sent.
+         if unsafe { libc::kill(pid, 0) } == 0 {
+-            return Ok(true);
++            // The pid exists; an exited, unreaped process (a zombie) still answers signal 0.
++            return Ok(!is_zombie(pid));
+         }
+         let error = io::Error::last_os_error();
+         match error.raw_os_error() {
+             Some(libc::EINTR) => continue,
+-            Some(libc::EPERM) => return Ok(true),
++            // Another user's process: exists, and a zombie cannot be told from here.
++            Some(libc::EPERM) => return Ok(!is_zombie(pid)),
+             Some(libc::ESRCH) => return Ok(false),
+             _ => return Err(error),
+         }
+     }
+ }
+ 
++/// The state letter of a `/proc/<pid>/stat` line: the first character after the last `)`
++/// (the command name in field 2 may hold spaces and parentheses).
++#[cfg(any(target_os = "linux", target_os = "android", test))]
++fn proc_stat_state(stat: &str) -> Option<char> {
++    stat[stat.rfind(')')? + 1..].trim_start().chars().next()
++}
++
++/// True when the process exited and has not been reaped. Anything that cannot be read leaves
++/// the answer "not a zombie" (still running), except a vanished process on Linux.
++#[cfg(any(target_os = "linux", target_os = "android"))]
++fn is_zombie(pid: i32) -> bool {
++    match std::fs::read(format!("/proc/{pid}/stat")) {
++        Ok(bytes) => matches!(
++            proc_stat_state(&String::from_utf8_lossy(&bytes)),
++            Some('Z' | 'X' | 'x')
++        ),
++        // Gone between the signal and this read: it is not running either.
++        Err(error) => error.kind() == io::ErrorKind::NotFound,
++    }
++}
++
++#[cfg(target_os = "macos")]
++fn is_zombie(pid: i32) -> bool {
++    /// `SZOMB` from `<sys/proc.h>`.
++    const SZOMB: u32 = 5;
++    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
++    let size = std::mem::size_of::<libc::proc_bsdinfo>();
++    // SAFETY: libproc writes at most `size` bytes into the zeroed buffer.
++    let written = unsafe {
++        libc::proc_pidinfo(
++            pid,
++            libc::PROC_PIDTBSDINFO,
++            0,
++            info.as_mut_ptr().cast(),
++            size as i32,
++        )
++    };
++    if written != size as i32 {
++        // ESRCH here means the process vanished; any other failure leaves it "running".
++        return io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
++    }
++    // SAFETY: the size check above proves libproc filled the structure.
++    unsafe { info.assume_init() }.pbi_status == SZOMB
++}
++
++#[cfg(all(
++    unix,
++    not(any(target_os = "linux", target_os = "android", target_os = "macos"))
++))]
++fn is_zombie(_pid: i32) -> bool {
++    false
++}
++
++#[cfg(unix)]
++fn try_reap_pid(pid: NonZeroU32) -> io::Result<Option<ExitStatus>> {
++    use std::os::unix::process::ExitStatusExt;
++    let pid = i32::try_from(pid.get()).map_err(io::Error::other)?;
++    loop {
++        let mut status: libc::c_int = 0;
++        // SAFETY: waitpid writes one c_int through the pointer; WNOHANG never blocks.
++        let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
++        if reaped == pid {
++            return Ok(Some(ExitStatus::from_raw(status)));
++        }
++        if reaped == 0 {
++            return Ok(None); // a child that is still running
++        }
++        let error = io::Error::last_os_error();
++        match error.raw_os_error() {
++            Some(libc::EINTR) => continue,
++            // Not our child, or already reaped.
++            Some(libc::ECHILD) => return Ok(None),
++            _ => return Err(error),
++        }
++    }
++}
++
++#[cfg(windows)]
++fn try_reap_pid(_pid: NonZeroU32) -> io::Result<Option<ExitStatus>> {
++    Ok(None)
++}
++
+ #[cfg(test)]
+ mod tests {
+     #[test]
+@@ -1769,4 +1928,105 @@ mod tests {
+             thread::sleep(Duration::from_millis(20));
+         }
+     }
++
++    #[test]
++    fn proc_stat_state_reads_the_letter_after_the_last_parenthesis() {
++        assert_eq!(super::proc_stat_state("12 (sleep) S 1 12"), Some('S'));
++        assert_eq!(super::proc_stat_state("12 (a) b) (c) Z 1 12"), Some('Z'));
++        assert_eq!(super::proc_stat_state("no parenthesis"), None);
++    }
++
++    /// An exited child nobody has waited for is a zombie: `kill(pid, 0)` still succeeds, but it is
++    /// not running, and `try_reap` collects its status exactly once.
++    #[cfg(unix)]
++    #[test]
++    fn an_exited_unreaped_own_child_is_not_running_and_can_be_reaped() {
++        use std::process::{Command, Stdio};
++        let child = Command::new("sh")
++            .args(["-c", "exit 7"])
++            .stdin(Stdio::null())
++            .spawn()
++            .expect("spawn sh");
++        let pid = std::num::NonZeroU32::new(child.id()).unwrap();
++        let process = super::AdoptedProcess::new(pid);
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
++        // Never waited for: it becomes a zombie, which must read as not running.
++        while process.is_running().unwrap() {
++            assert!(
++                std::time::Instant::now() < deadline,
++                "a zombie read as running"
++            );
++            std::thread::sleep(std::time::Duration::from_millis(10));
++        }
++        let status = process.try_reap().unwrap().expect("exited child is reaped");
++        assert_eq!(status.code(), Some(7));
++        // Reaped: the pid names nothing and a second reap finds nothing.
++        assert!(!process.is_running().unwrap());
++        assert_eq!(process.try_reap().unwrap(), None);
++        // The status went to try_reap; std's Child is only dropped.
++        drop(child);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_running_child_is_running_and_is_not_reaped() {
++        use std::process::{Command, Stdio};
++        let mut child = Command::new("sleep")
++            .arg("30")
++            .stdin(Stdio::null())
++            .spawn()
++            .expect("spawn sleep");
++        let process = super::AdoptedProcess::new(std::num::NonZeroU32::new(child.id()).unwrap());
++        assert!(process.is_running().unwrap());
++        assert_eq!(process.try_reap().unwrap(), None);
++        child.kill().unwrap();
++        let _ = child.wait();
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_pid_that_is_not_our_child_reaps_to_none() {
++        // pid 1 exists and is never this process's child.
++        let init = super::AdoptedProcess::new(std::num::NonZeroU32::new(1).unwrap());
++        assert_eq!(init.try_reap().unwrap(), None);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn output_and_status_apply_the_deadline() {
++        use std::time::Duration;
++        let mut quick = super::OwnedCommand::new("sh");
++        quick.command_mut().args(["-c", "printf out; printf err >&2; exit 2"]);
++        let output = quick.output(Duration::from_secs(10), 1024).unwrap();
++        assert!(!output.timed_out);
++        assert_eq!(output.status.code(), Some(2));
++        assert_eq!(output.stdout.bytes, b"out".to_vec());
++        assert_eq!(output.stderr.bytes, b"err".to_vec());
++
++        let mut capped = super::OwnedCommand::new("sh");
++        capped.command_mut().args(["-c", "head -c 5000 /dev/zero"]);
++        let output = capped.output(Duration::from_secs(10), 16).unwrap();
++        assert_eq!(output.stdout.bytes.len(), 16);
++        assert!(output.stdout.truncated);
++
++        let fed = super::OwnedCommand::new("cat");
++        let output = fed
++            .output_with_stdin(b"json".to_vec(), Duration::from_secs(10), 64)
++            .unwrap();
++        assert_eq!(output.stdout.bytes, b"json".to_vec());
++
++        let mut done = super::OwnedCommand::new("sh");
++        done.command_mut().args(["-c", "exit 0"]);
++        match done.status(Duration::from_secs(10)).unwrap() {
++            super::WaitOutcome::Exited(status) => assert!(status.success()),
++            other => panic!("expected a normal exit, got {other:?}"),
++        }
++
++        let mut slow = super::OwnedCommand::new("sh");
++        slow.command_mut().args(["-c", "sleep 30"]);
++        assert!(matches!(
++            slow.status_with_timeout(Duration::from_millis(200)).unwrap(),
++            super::WaitOutcome::Terminated(_)
++        ));
++    }
+ }
+diff --git a/crates/rightkit-child-process/src/run.rs b/crates/rightkit-child-process/src/run.rs
+index 88f3abb..5cf94f6 100644
+--- a/crates/rightkit-child-process/src/run.rs
++++ b/crates/rightkit-child-process/src/run.rs
+@@ -4,14 +4,16 @@
+ //!
+ //! The child is owned: it runs in its own process group (or session on Unix) inside a Job
+ //! Object on Windows, and when the deadline passes its whole tree is terminated, not only the
+-//! leader. Stdin is null. Output beyond each cap is drained and discarded, so a chatty child
+-//! never blocks on a full pipe, and [`CapturedOutput::truncated`] says when that happened.
++//! leader. Stdin is null unless [`run_with_stdin`] supplies bytes. Output beyond each cap is
++//! drained and discarded, so a chatty child never blocks on a full pipe, and
++//! [`CapturedOutput::truncated`] says when that happened.
+ 
+ use crate::{CapturedOutput, NativeOutputCapture, OwnedCommand};
+ use std::{
+     ffi::OsStr,
+-    io,
++    io::{self, Write},
+     process::{ExitStatus, Stdio},
++    thread,
+     time::Duration,
+ };
+ 
+@@ -80,18 +82,70 @@ where
+     S: AsRef<OsStr>,
+ {
+     let mut command = OwnedCommand::new(program);
+-    command
+-        .command_mut()
+-        .args(args)
+-        .stdin(Stdio::null())
+-        .stdout(Stdio::piped())
+-        .stderr(Stdio::piped());
++    command.command_mut().args(args);
+     if options.no_window {
+         command.windows_hide();
+     } else {
+         command.windows_visible();
+     }
++    run_owned(command, options, None)
++}
++
++/// [`run`] with `input` written to the program's stdin, which is then closed (HeardRight pipes
++/// JSON to a helper this way). The bytes are written on a short-lived thread, so a program that
++/// never reads its stdin cannot hold the call past the deadline; a program that exits or is
++/// terminated before reading everything is not an error.
++pub fn run_with_stdin<I, S>(
++    program: impl AsRef<OsStr>,
++    args: I,
++    input: impl Into<Vec<u8>>,
++    options: &RunOptions,
++) -> io::Result<RunOutput>
++where
++    I: IntoIterator<Item = S>,
++    S: AsRef<OsStr>,
++{
++    let mut command = OwnedCommand::new(program);
++    command.command_mut().args(args);
++    if options.no_window {
++        command.windows_hide();
++    } else {
++        command.windows_visible();
++    }
++    run_owned(command, options, Some(input.into()))
++}
++
++/// Runs an already configured command to completion under `options`. Stdin, stdout and stderr
++/// are set here (stdin is null unless `stdin` is given); the window setting is the command's
++/// own, `options.no_window` is not applied.
++pub(crate) fn run_owned(
++    mut command: OwnedCommand,
++    options: &RunOptions,
++    stdin: Option<Vec<u8>>,
++) -> io::Result<RunOutput> {
++    command
++        .command_mut()
++        .stdin(if stdin.is_some() {
++            Stdio::piped()
++        } else {
++            Stdio::null()
++        })
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped());
+     let mut child = command.spawn()?;
++    if let Some(input) = stdin {
++        if let Some(mut pipe) = child.take_stdin() {
++            // Detached on purpose: the thread ends when the program reads the bytes, exits, or is
++            // terminated (the pipe breaks). Joining could wait on a grandchild that kept the
++            // pipe open, so the deadline below never depends on it.
++            thread::Builder::new()
++                .name("rightkit-run-stdin".into())
++                .spawn(move || {
++                    let _ = pipe.write_all(&input);
++                    let _ = pipe.flush();
++                })?;
++        }
++    }
+     let mut stdout = child
+         .take_stdout()
+         .map(|pipe| NativeOutputCapture::stdout(pipe, options.stdout_cap))
+@@ -137,6 +191,48 @@ mod tests {
+         let options = options.stdout_cap(4).stderr_cap(8).no_window(false);
+         assert_eq!((options.stdout_cap, options.stderr_cap), (4, 8));
+         assert!(!options.no_window);
++        // Copy: the options value stays usable after a call.
++        let copy = options;
++        assert_eq!(copy, options);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn stdin_bytes_reach_the_program_and_the_stream_is_then_closed() {
++        let options = RunOptions::new(Duration::from_secs(10));
++        let output = run_with_stdin(
++            "cat",
++            std::iter::empty::<&str>(),
++            b"hello".to_vec(),
++            &options,
++        )
++        .unwrap();
++        assert!(!output.timed_out);
++        assert_eq!(output.stdout.bytes, b"hello".to_vec());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_program_that_never_reads_stdin_still_meets_the_deadline() {
++        // More than a pipe buffer, so the writer thread blocks; the deadline must still hold.
++        let options = RunOptions::new(Duration::from_millis(300));
++        let output = run_with_stdin(
++            "sh",
++            ["-c", "sleep 30"],
++            vec![b'x'; 4 * 1024 * 1024],
++            &options,
++        )
++        .unwrap();
++        assert!(output.timed_out);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_program_that_exits_without_reading_stdin_is_not_an_error() {
++        let options = RunOptions::new(Duration::from_secs(10));
++        let output =
++            run_with_stdin("sh", ["-c", "exit 0"], vec![b'x'; 1024 * 1024], &options).unwrap();
++        assert!(output.status.success());
+     }
+ 
+     #[cfg(unix)]
+diff --git a/crates/rightkit-child-process/src/stderr_tail.rs b/crates/rightkit-child-process/src/stderr_tail.rs
+index 5a5f71b..5074000 100644
+--- a/crates/rightkit-child-process/src/stderr_tail.rs
++++ b/crates/rightkit-child-process/src/stderr_tail.rs
+@@ -8,6 +8,19 @@ use std::io::{self, BufRead, BufReader, Read};
+ use std::sync::{Arc, Condvar, Mutex};
+ use std::thread::{self, JoinHandle};
+ 
++/// Which bytes end a line in the stream [`StderrTail`] drains.
++#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
++#[non_exhaustive]
++pub enum LineSplit {
++    /// A line ends at `\n` (a `\r\n` pair too: the `\r` is trimmed). The default.
++    #[default]
++    Newline,
++    /// A line ends at `\n` or at a lone `\r`, so the progress output of tools that redraw one
++    /// line with carriage returns (yt-dlp, ffmpeg, curl) arrives as one line per update. A
++    /// `\r\n` pair is one break, and an empty segment is not a line.
++    NewlineOrCarriageReturn,
++}
++
+ /// The retained lines and their cost: each line counts its bytes plus one for the newline
+ /// that joins it to the next.
+ type Retained = (VecDeque<String>, usize);
+@@ -74,13 +87,7 @@ impl StderrTail {
+         map: impl Fn(&str) -> Option<String> + Send + 'static,
+         on_line: impl Fn(&str) + Send + 'static,
+     ) -> io::Result<Self> {
+-        Self::try_capture_with(
+-            |name, body| thread::Builder::new().name(name).spawn(body),
+-            stderr,
+-            max_bytes,
+-            map,
+-            on_line,
+-        )
++        Self::try_capture_split(stderr, max_bytes, LineSplit::Newline, map, on_line)
+     }
+ 
+     /// `try_capture` with the thread spawner injected, so a test can make the spawn fail.
+@@ -88,9 +95,11 @@ impl StderrTail {
+         spawn: impl FnOnce(String, Box<dyn FnOnce() + Send + 'static>) -> io::Result<JoinHandle<()>>,
+         stderr: R,
+         max_bytes: usize,
++        split: LineSplit,
+         map: impl Fn(&str) -> Option<String> + Send + 'static,
+         on_line: impl Fn(&str) + Send + 'static,
+     ) -> io::Result<Self> {
++        let split_cr = split == LineSplit::NewlineOrCarriageReturn;
+         let lines: Arc<Mutex<Retained>> = Arc::default();
+         let shared = Arc::clone(&lines);
+         let done: Arc<Done> = Arc::new((Mutex::new(false), Condvar::new()));
+@@ -102,28 +111,33 @@ impl StderrTail {
+                 let line_cap = max_bytes.max(1).saturating_mul(4);
+                 let mut reader = BufReader::new(stderr);
+                 let mut raw = Vec::new();
++                // True right after a lone `\r` break: a `\n` that follows belongs to it.
++                let mut skip_lf = false;
+                 loop {
+                     raw.clear();
+                     // One byte more than the cap tells a line of exactly the cap from a longer
+                     // one. A pathological unterminated line must not grow without bound.
+-                    match reader
+-                        .by_ref()
+-                        .take(line_cap as u64 + 1)
+-                        .read_until(b'\n', &mut raw)
+-                    {
++                    match read_line(&mut reader, &mut raw, line_cap + 1, split_cr, &mut skip_lf) {
+                         Ok(0) | Err(_) => return,
+                         Ok(_) => {}
+                     }
+-                    let oversized = raw.last() != Some(&b'\n') && raw.len() > line_cap;
++                    let terminated = raw
++                        .last()
++                        .is_some_and(|&byte| byte == b'\n' || (split_cr && byte == b'\r'));
++                    let oversized = !terminated && raw.len() > line_cap;
+                     let (kept, ended) = if oversized {
+-                        let ended = discard_rest_of_line(&mut reader);
++                        let ended = discard_rest_of_line(&mut reader, split_cr, &mut skip_lf);
+                         (
+                             Some(format!("[stderr line over {line_cap} bytes dropped]")),
+                             ended,
+                         )
+                     } else {
+                         let text = String::from_utf8_lossy(&raw);
+-                        (map(text.trim_end_matches(['\r', '\n'])), false)
++                        let text = text.trim_end_matches(['\r', '\n']);
++                        if split_cr && text.is_empty() {
++                            continue; // a redraw break with nothing before it
++                        }
++                        (map(text), false)
+                     };
+                     if let Some(kept) = kept {
+                         on_line(&kept);
+@@ -148,6 +162,51 @@ impl StderrTail {
+         Self::capture(stderr, max_bytes, |l| Some(l.to_string()), |_| {})
+     }
+ 
++    /// [`plain`](Self::plain) with a choice of line break; pass
++    /// [`LineSplit::NewlineOrCarriageReturn`] for progress output that redraws with `\r`.
++    pub fn plain_split<R: Read + Send + 'static>(
++        stderr: R,
++        max_bytes: usize,
++        split: LineSplit,
++    ) -> Self {
++        Self::capture_split(stderr, max_bytes, split, |l| Some(l.to_string()), |_| {})
++    }
++
++    /// [`capture`](Self::capture) with a choice of line break (see [`LineSplit`]). Every other
++    /// rule (redaction, the oversized-line marker, the byte budget) is unchanged and applies to
++    /// each `\r`-separated segment as to a line.
++    pub fn capture_split<R: Read + Send + 'static>(
++        stderr: R,
++        max_bytes: usize,
++        split: LineSplit,
++        map: impl Fn(&str) -> Option<String> + Send + 'static,
++        on_line: impl Fn(&str) + Send + 'static,
++    ) -> Self {
++        Self::try_capture_split(stderr, max_bytes, split, map, on_line).unwrap_or_else(|_| Self {
++            lines: Arc::default(),
++            handle: None,
++            done: Arc::new((Mutex::new(true), Condvar::new())),
++        })
++    }
++
++    /// [`try_capture`](Self::try_capture) with a choice of line break (see [`LineSplit`]).
++    pub fn try_capture_split<R: Read + Send + 'static>(
++        stderr: R,
++        max_bytes: usize,
++        split: LineSplit,
++        map: impl Fn(&str) -> Option<String> + Send + 'static,
++        on_line: impl Fn(&str) + Send + 'static,
++    ) -> io::Result<Self> {
++        Self::try_capture_with(
++            |name, body| thread::Builder::new().name(name).spawn(body),
++            stderr,
++            max_bytes,
++            split,
++            map,
++            on_line,
++        )
++    }
++
+     /// The retained lines, oldest first, joined by newlines.
+     pub fn snapshot(&self) -> String {
+         let g = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+@@ -190,14 +249,64 @@ impl StderrTail {
+     }
+ }
+ 
+-/// Reads and drops bytes up to and including the next newline. True when the stream ended
++/// Index of the first line break in `bytes`.
++fn find_break(bytes: &[u8], split_cr: bool) -> Option<usize> {
++    bytes
++        .iter()
++        .position(|&byte| byte == b'\n' || (split_cr && byte == b'\r'))
++}
++
++/// Reads one line into `raw`, terminator included, taking at most `limit` bytes. Returns the
++/// length of `raw` (0 at the end of the stream). With `split_cr`, a `\n` right after a lone
++/// `\r` break is dropped (it is the second half of `\r\n`) without waiting to see whether one
++/// follows: `skip_lf` carries that across calls.
++fn read_line(
++    reader: &mut impl BufRead,
++    raw: &mut Vec<u8>,
++    limit: usize,
++    split_cr: bool,
++    skip_lf: &mut bool,
++) -> io::Result<usize> {
++    loop {
++        let buffer = match reader.fill_buf() {
++            Ok(buffer) => buffer,
++            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
++            Err(error) => return Err(error),
++        };
++        if buffer.is_empty() {
++            return Ok(raw.len());
++        }
++        if std::mem::take(skip_lf) && buffer[0] == b'\n' {
++            reader.consume(1);
++            continue;
++        }
++        let window = &buffer[..buffer.len().min(limit - raw.len())];
++        let found = find_break(window, split_cr);
++        let used = found.map_or(window.len(), |index| index + 1);
++        raw.extend_from_slice(&window[..used]);
++        if found.is_some_and(|index| window[index] == b'\r') {
++            *skip_lf = true;
++        }
++        reader.consume(used);
++        if found.is_some() || raw.len() >= limit {
++            return Ok(raw.len());
++        }
++    }
++}
++
++/// Reads and drops bytes up to and including the next line break. True when the stream ended
+ /// first.
+-fn discard_rest_of_line(reader: &mut impl BufRead) -> bool {
++fn discard_rest_of_line(reader: &mut impl BufRead, split_cr: bool, skip_lf: &mut bool) -> bool {
+     loop {
+         let (used, found) = match reader.fill_buf() {
+             Ok([]) => return true,
+-            Ok(buffer) => match buffer.iter().position(|&byte| byte == b'\n') {
+-                Some(index) => (index + 1, true),
++            Ok(buffer) => match find_break(buffer, split_cr) {
++                Some(index) => {
++                    if buffer[index] == b'\r' {
++                        *skip_lf = true;
++                    }
++                    (index + 1, true)
++                }
+                 None => (buffer.len(), false),
+             },
+             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+@@ -311,6 +420,7 @@ mod tests {
+             |_, _| Err(io::Error::new(io::ErrorKind::WouldBlock, "no threads")),
+             Cursor::new(b"lost\n".to_vec()),
+             64,
++            LineSplit::Newline,
+             |l| Some(l.to_string()),
+             |_| {},
+         );
+@@ -428,4 +538,71 @@ mod tests {
+         assert_eq!(snapshot, "");
+         assert_eq!(seen, vec!["one".to_string(), "two".to_string()]);
+     }
++
++    fn split_lines(input: &[u8], split: LineSplit) -> String {
++        let mut tail = StderrTail::plain_split(Cursor::new(input.to_vec()), 4096, split);
++        tail.finish()
++    }
++
++    #[test]
++    fn carriage_return_progress_arrives_as_one_line_per_update() {
++        let progress = b"[download]  10%\r[download]  55%\r[download] 100%\nDone\n";
++        assert_eq!(
++            split_lines(progress, LineSplit::NewlineOrCarriageReturn),
++            "[download]  10%\n[download]  55%\n[download] 100%\nDone"
++        );
++        // The default keeps the whole redraw as one line, as before.
++        assert_eq!(
++            split_lines(progress, LineSplit::Newline),
++            "[download]  10%\r[download]  55%\r[download] 100%\nDone"
++        );
++    }
++
++    #[test]
++    fn a_crlf_pair_is_one_break_and_empty_segments_are_not_lines() {
++        assert_eq!(
++            split_lines(
++                b"a\r\nb\r\n\r\nc\r\r\rd",
++                LineSplit::NewlineOrCarriageReturn
++            ),
++            "a\nb\nc\nd"
++        );
++    }
++
++    #[test]
++    fn a_crlf_pair_split_across_reads_is_still_one_break() {
++        struct Chunks(Vec<Vec<u8>>);
++        impl Read for Chunks {
++            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
++                if self.0.is_empty() {
++                    return Ok(0);
++                }
++                let chunk = self.0.remove(0);
++                buf[..chunk.len()].copy_from_slice(&chunk);
++                Ok(chunk.len())
++            }
++        }
++        let mut tail = StderrTail::plain_split(
++            Chunks(vec![
++                b"one\r".to_vec(),
++                b"\ntwo\r".to_vec(),
++                b"\nthree".to_vec(),
++            ]),
++            4096,
++            LineSplit::NewlineOrCarriageReturn,
++        );
++        assert_eq!(tail.finish(), "one\ntwo\nthree");
++    }
++
++    #[test]
++    fn an_oversized_segment_is_dropped_at_the_next_carriage_return() {
++        // max_bytes 8: the line cap is 32. The long segment ends at `\r`, the next one survives.
++        let mut input = vec![b'x'; 200];
++        input.extend_from_slice(b"\rnext\n");
++        let mut tail =
++            StderrTail::plain_split(Cursor::new(input), 8, LineSplit::NewlineOrCarriageReturn);
++        let snapshot = tail.finish();
++        assert!(snapshot.ends_with("next"), "{snapshot:?}");
++        assert!(!snapshot.contains('x'), "{snapshot:?}");
++    }
+ }
+diff --git a/crates/rightkit-child-process/src/tokio_support.rs b/crates/rightkit-child-process/src/tokio_support.rs
+index 7005400..0d2e399 100644
+--- a/crates/rightkit-child-process/src/tokio_support.rs
++++ b/crates/rightkit-child-process/src/tokio_support.rs
+@@ -201,6 +201,32 @@ fn signal(pid: u32, group: bool, signal: libc::c_int) -> io::Result<()> {
+     }
+ }
+ 
++/// Whether process group `pgid` has any member left (signal 0; `EPERM` counts as existing). The
++/// public form of the probe [`terminate_tree`] and [`terminate_process_group`] use, so a caller
++/// can confirm a tree is gone without raw `killpg`. Unix only; on Windows ask the job
++/// (`WindowsJob::is_empty`). An exited member its parent has
++/// not reaped yet still counts.
++#[cfg(unix)]
++pub fn process_group_exists(pgid: NonZeroU32) -> bool {
++    crate::process_group_exists(pgid)
++}
++
++/// Waits, asleep on the runtime, until [`process_group_exists`] is false for `pgid`, up to
++/// `timeout`; true when the group is gone.
++#[cfg(unix)]
++pub async fn wait_group_gone(pgid: NonZeroU32, timeout: Duration) -> bool {
++    let deadline = Instant::now() + timeout;
++    loop {
++        if !process_group_exists(pgid) {
++            return true;
++        }
++        if Instant::now() >= deadline {
++            return false;
++        }
++        tokio::time::sleep(POLL).await;
++    }
++}
++
+ #[cfg(unix)]
+ fn group_exists(pgid: u32) -> bool {
+     // SAFETY: signal 0 only tests for existence.
+diff --git a/crates/rightkit-child-process/src/tree_usage.rs b/crates/rightkit-child-process/src/tree_usage.rs
+new file mode 100644
+index 0000000..0d47a8d
+--- /dev/null
++++ b/crates/rightkit-child-process/src/tree_usage.rs
+@@ -0,0 +1,197 @@
++//! Resident memory of a process and everything it started: the figure a benchmark or a budget
++//! needs when the work happens in helpers and children (a PDF renderer, a sidecar, a browser's
++//! process family), which [`process_usage`](crate::process_usage) (one process) does not cover.
++//!
++//! It walks the parent links of [`process_table`](crate::process_table) from the root and sums
++//! the working sets. Nothing is kept between calls and no thread is started.
++//!
++//! Limits: the table is a racy snapshot (a process can exit, or a pid be reused, while it is
++//! read); a descendant whose working set cannot be read is counted in
++//! [`unreadable_count`](ProcessTreeUsage::unreadable_count) and adds nothing; a process whose
++//! parent exited is re-parented away and is no longer part of the tree; memory shared between
++//! processes is counted once per process, as the OS reports it.
++
++use crate::process_table::{process_table, ProcessEntry};
++use std::collections::{HashMap, HashSet};
++use std::io;
++
++/// Resident memory of a process tree. See the module documentation for what it means.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++#[non_exhaustive]
++pub struct ProcessTreeUsage {
++    /// The process the walk started from.
++    pub root_pid: u32,
++    /// Working set of the root alone, in bytes (0 when it could not be read).
++    pub root_rss_bytes: u64,
++    /// Working set of the root and every descendant, in bytes.
++    pub tree_rss_bytes: u64,
++    /// Processes in the tree, the root included.
++    pub process_count: usize,
++    /// Processes in the tree whose working set could not be read (they add 0 to the sums).
++    pub unreadable_count: usize,
++}
++
++/// Resident memory of the current process and all its descendants, from one process-table
++/// snapshot. Errors as [`process_table`] does (`Unsupported` on other hosts).
++pub fn process_tree_usage() -> io::Result<ProcessTreeUsage> {
++    process_tree_usage_of(std::process::id())
++}
++
++/// Like [`process_tree_usage`] for the tree rooted at `pid`. `ErrorKind::NotFound` when no such
++/// process is in the snapshot.
++pub fn process_tree_usage_of(pid: u32) -> io::Result<ProcessTreeUsage> {
++    let rows = process_table()?;
++    sum_process_tree(&rows, pid).ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
++}
++
++/// The sum for the tree rooted at `root` over `rows`, for callers that already hold a table.
++/// `None` when `root` is not in `rows`. Safe against a table that loops (a recycled parent pid)
++/// or lists a pid twice (the first row wins).
++pub fn sum_process_tree(rows: &[ProcessEntry], root: u32) -> Option<ProcessTreeUsage> {
++    let mut by_pid: HashMap<u32, &ProcessEntry> = HashMap::with_capacity(rows.len());
++    for row in rows {
++        by_pid.entry(row.pid).or_insert(row);
++    }
++    let root_row = by_pid.get(&root)?;
++    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
++    for (&pid, row) in &by_pid {
++        if pid != row.parent_pid {
++            children.entry(row.parent_pid).or_default().push(pid);
++        }
++    }
++    let mut seen: HashSet<u32> = HashSet::from([root]);
++    let mut queue = vec![root];
++    let mut usage = ProcessTreeUsage {
++        root_pid: root,
++        root_rss_bytes: root_row.working_set_bytes.unwrap_or(0),
++        tree_rss_bytes: 0,
++        process_count: 0,
++        unreadable_count: 0,
++    };
++    while let Some(pid) = queue.pop() {
++        let row = by_pid[&pid];
++        usage.process_count += 1;
++        match row.working_set_bytes {
++            Some(bytes) => usage.tree_rss_bytes = usage.tree_rss_bytes.saturating_add(bytes),
++            None => usage.unreadable_count += 1,
++        }
++        for &child in children.get(&pid).into_iter().flatten() {
++            if seen.insert(child) {
++                queue.push(child);
++            }
++        }
++    }
++    Some(usage)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn row(pid: u32, parent_pid: u32, rss: Option<u64>) -> ProcessEntry {
++        ProcessEntry {
++            pid,
++            parent_pid,
++            command_line: None,
++            working_set_bytes: rss,
++        }
++    }
++
++    #[test]
++    fn the_tree_sums_the_root_and_every_descendant_and_nothing_else() {
++        let rows = [
++            row(1, 0, Some(1000)),
++            row(10, 1, Some(100)),
++            row(11, 10, Some(10)),
++            row(12, 10, Some(20)),
++            row(20, 1, Some(500)), // a sibling of 10, outside its tree
++        ];
++        let usage = sum_process_tree(&rows, 10).unwrap();
++        assert_eq!(usage.root_pid, 10);
++        assert_eq!(usage.root_rss_bytes, 100);
++        assert_eq!(usage.tree_rss_bytes, 130);
++        assert_eq!(usage.process_count, 3);
++        assert_eq!(usage.unreadable_count, 0);
++        let whole = sum_process_tree(&rows, 1).unwrap();
++        assert_eq!(whole.tree_rss_bytes, 1630);
++        assert_eq!(whole.process_count, 5);
++    }
++
++    #[test]
++    fn a_missing_root_is_none_and_a_leaf_is_its_own_tree() {
++        let rows = [row(1, 0, Some(5)), row(2, 1, Some(7))];
++        assert!(sum_process_tree(&rows, 99).is_none());
++        let leaf = sum_process_tree(&rows, 2).unwrap();
++        assert_eq!((leaf.tree_rss_bytes, leaf.process_count), (7, 1));
++    }
++
++    #[test]
++    fn unreadable_working_sets_are_counted_not_guessed() {
++        let rows = [row(1, 0, None), row(2, 1, Some(7)), row(3, 1, None)];
++        let usage = sum_process_tree(&rows, 1).unwrap();
++        assert_eq!(usage.root_rss_bytes, 0);
++        assert_eq!(usage.tree_rss_bytes, 7);
++        assert_eq!(usage.process_count, 3);
++        assert_eq!(usage.unreadable_count, 2);
++    }
++
++    #[test]
++    fn loops_self_parents_and_duplicate_rows_do_not_hang_or_double_count() {
++        // 5 and 6 name each other as parents; 7 is its own parent; pid 2 is listed twice.
++        let rows = [
++            row(1, 0, Some(1)),
++            row(2, 1, Some(2)),
++            row(2, 1, Some(1000)),
++            row(5, 6, Some(5)),
++            row(6, 5, Some(6)),
++            row(7, 7, Some(7)),
++        ];
++        let usage = sum_process_tree(&rows, 1).unwrap();
++        assert_eq!((usage.tree_rss_bytes, usage.process_count), (3, 2));
++        let looped = sum_process_tree(&rows, 5).unwrap();
++        assert_eq!((looped.tree_rss_bytes, looped.process_count), (11, 2));
++        let own = sum_process_tree(&rows, 7).unwrap();
++        assert_eq!((own.tree_rss_bytes, own.process_count), (7, 1));
++    }
++
++    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "android", windows))]
++    #[test]
++    fn the_live_tree_includes_a_running_child() {
++        use std::process::{Command, Stdio};
++        let mut command = if cfg!(windows) {
++            let mut command = Command::new("ping");
++            command.args(["-n", "30", "127.0.0.1"]);
++            command
++        } else {
++            let mut command = Command::new("sleep");
++            command.arg("30");
++            command
++        };
++        let mut child = command
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .spawn()
++            .expect("spawn a child");
++        let alone = process_tree_usage_of(child.id()).unwrap();
++        assert_eq!(alone.process_count, 1);
++        let mine = process_tree_usage().unwrap();
++        assert_eq!(mine.root_pid, std::process::id());
++        assert!(mine.process_count >= 2, "{mine:?}");
++        assert!(mine.tree_rss_bytes >= mine.root_rss_bytes);
++        child.kill().unwrap();
++        let _ = child.wait();
++    }
++
++    #[test]
++    fn a_pid_naming_no_process_is_not_found() {
++        if let Err(error) = process_tree_usage_of(u32::MAX - 1) {
++            assert!(matches!(
++                error.kind(),
++                io::ErrorKind::NotFound | io::ErrorKind::Unsupported
++            ));
++        } else {
++            panic!("a pid that names no process produced a tree");
++        }
++    }
++}
+diff --git a/crates/rightkit-child-process/src/usage.rs b/crates/rightkit-child-process/src/usage.rs
+index 3a8cd9b..3db0fa8 100644
+--- a/crates/rightkit-child-process/src/usage.rs
++++ b/crates/rightkit-child-process/src/usage.rs
+@@ -1,8 +1,11 @@
+-//! Resource usage of the current process: the one shared source for the figures a runtime budget
+-//! names (docs/RUNTIME-BUDGETS.md): resident memory, CPU time, wake-ups and disk operations.
++//! Resource usage of the current process, or of another process by pid ([`process_usage_of`]): the
++//! one shared source for the figures a runtime budget names (docs/RUNTIME-BUDGETS.md): resident
++//! memory, CPU time, wake-ups, disk operations and thread count.
+ //!
+ //! Computed on call from the operating system; no thread, no polling, no state. A host or a crate's
+ //! own `status()` calls [`process_usage`]; two snapshots give rates through [`ProcessUsage::rates_since`].
++//! [`soak_sample`] repeats the sampling of one pid at an interval and writes one JSON object per
++//! line (NDJSON), the shape soak and footprint probes record.
+ //!
+ //! | Figure | macOS | Windows | Linux, Android |
+ //! |---|---|---|---|
+@@ -10,14 +13,28 @@
+ //! | `footprint_bytes` | `ri_phys_footprint` | `PrivateUsage` | same as resident |
+ //! | `cpu_seconds` | `getrusage(RUSAGE_SELF)` user + system | `GetProcessTimes` user + kernel | `getrusage` |
+ //! | `wakeups_total` | `ri_interrupt_wkups` (thread wake-ups from timer and other interrupts; `ri_pkg_idle_wkups` stays 0 whenever the machine is busy, so it cannot be used) | sum of `ContextSwitchCount` over the live threads of this process (`NtQuerySystemInformation(SystemProcessInformation)`); a thread is switched in once per wake. A thread that exits takes its count with it, so the sum can dip when threads end; 64-bit only | not available |
++//! | `thread_count` (`ProcessUsageExt`) | `proc_pidinfo(PROC_PIDTASKINFO)` `pti_threadnum` | `NumberOfThreads` of the process entry (the `NtQuerySystemInformation` walk below; 64-bit only) | `num_threads` in `/proc/<pid>/stat` |
+ //! | `disk_ops_total` | not available: `ru_inblock`/`ru_oublock` stay 0 on macOS and no per-process operation count exists; bytes are reported instead | `GetProcessIoCounters` read + write operation counts (all I/O, including pipes and sockets) | `ru_inblock + ru_oublock` |
+ //!
++//! For another process (`process_usage_of`) the same figures are read from the same sources where
++//! the host allows it: the caller needs the right to query that process (Windows: the same user or
++//! an elevated caller for `PROCESS_QUERY_LIMITED_INFORMATION`; macOS: `proc_pid_rusage` works for
++//! the caller's own processes; Linux: `/proc/<pid>` is world-readable except `io`, which is for
++//! the same user). Differences from the current-process figures: Linux CPU time comes from
++//! `/proc/<pid>/stat` ticks (10 ms resolution) rather than `getrusage`; Linux has no
++//! `disk_ops_total` for another process (`/proc/<pid>/io` has bytes, and syscall counts that are
++//! not block operations); Windows `disk_*` figures need `PROCESS_QUERY_INFORMATION` and are
++//! `None` when the process cannot be opened that wide. A pid that names no process (or one that
++//! has exited) is `ErrorKind::NotFound`.
++//!
+ //! Other Unix targets compile, and `process_usage` returns `ErrorKind::Unsupported` there.
+ //!
+ //! A figure the host cannot report is `None`; it is never reported as zero.
+ 
+-use std::io;
+-use std::time::Duration;
++use std::io::{self, Write};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::Arc;
++use std::time::{Duration, Instant, SystemTime};
+ 
+ /// One snapshot of the current process's resource usage.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+@@ -38,6 +55,16 @@ pub struct ProcessUsage {
+     pub disk_write_bytes: Option<u64>,
+ }
+ 
++/// A [`ProcessUsage`] plus figures added after it was published, so the struct itself stays
++/// unchanged. Returned by [`process_usage_ext`] and [`process_usage_ext_of`].
++#[derive(Clone, Copy, Debug, Default, PartialEq)]
++pub struct ProcessUsageExt {
++    /// The figures [`process_usage`] reports.
++    pub usage: ProcessUsage,
++    /// Number of threads in the process now, when the host reports it.
++    pub thread_count: Option<u32>,
++}
++
+ /// Rates between two snapshots. Each rate is `None` when either snapshot lacks the counter.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+ pub struct UsageRates {
+@@ -75,9 +102,216 @@ impl ProcessUsage {
+ 
+ /// Resource usage of the current process, computed now.
+ pub fn process_usage() -> io::Result<ProcessUsage> {
++    imp::sample().map(|ext| ext.usage)
++}
++
++/// [`process_usage`] plus the thread count of the current process.
++pub fn process_usage_ext() -> io::Result<ProcessUsageExt> {
+     imp::sample()
+ }
+ 
++/// Resource usage of the process `pid`, computed now, with the same figures as
++/// [`process_usage`] (see the module documentation for what differs for another process). The
++/// current process's own pid gives exactly [`process_usage`]. `ErrorKind::NotFound` when no
++/// such process exists (or it has exited); `PermissionDenied` when the caller may not query it.
++pub fn process_usage_of(pid: u32) -> io::Result<ProcessUsage> {
++    process_usage_ext_of(pid).map(|ext| ext.usage)
++}
++
++/// [`process_usage_of`] plus the thread count of the process (`ProcessUsageExt::thread_count`).
++pub fn process_usage_ext_of(pid: u32) -> io::Result<ProcessUsageExt> {
++    if pid == std::process::id() {
++        return process_usage_ext();
++    }
++    imp::sample_of(pid)
++}
++
++/// Why [`soak_sample`] stopped.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum SoakEnd {
++    /// `SoakOptions::duration` elapsed.
++    Duration,
++    /// `SoakOptions::max_samples` samples were written.
++    MaxSamples,
++    /// The stop flag was set.
++    Stopped,
++    /// The sampled process exited.
++    ProcessExited,
++}
++
++/// How [`soak_sample`] runs.
++#[derive(Clone, Debug)]
++pub struct SoakOptions {
++    /// Time between samples. Must be non-zero.
++    pub interval: Duration,
++    /// Stop after this long (measured from the first sample). `None`: no time limit.
++    pub duration: Option<Duration>,
++    /// Stop after this many samples. `None`: no limit.
++    pub max_samples: Option<u64>,
++    /// Stop when this flag becomes true (checked at least every 250 ms). `None`: no flag.
++    pub stop: Option<Arc<AtomicBool>>,
++}
++
++impl SoakOptions {
++    /// Sample every `interval` until the process exits (add a bound with the methods below).
++    pub fn new(interval: Duration) -> Self {
++        Self {
++            interval,
++            duration: None,
++            max_samples: None,
++            stop: None,
++        }
++    }
++
++    pub fn duration(mut self, duration: Duration) -> Self {
++        self.duration = Some(duration);
++        self
++    }
++
++    pub fn max_samples(mut self, samples: u64) -> Self {
++        self.max_samples = Some(samples);
++        self
++    }
++
++    pub fn stop_flag(mut self, flag: Arc<AtomicBool>) -> Self {
++        self.stop = Some(flag);
++        self
++    }
++}
++
++/// What [`soak_sample`] did.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct SoakReport {
++    /// Lines written.
++    pub samples: u64,
++    /// Why sampling stopped.
++    pub ended: SoakEnd,
++}
++
++/// One NDJSON line for a sample: `t_ms` (since the soak began), `unix_ms`, `pid`, the usage
++/// figures (`null` where the host reports none) and `cpu_percent` (percent of one core since the
++/// previous sample; `null` for the first). Numbers only, so nothing needs escaping.
++fn ndjson_line(
++    pid: u32,
++    t_ms: u128,
++    unix_ms: u128,
++    sample: &ProcessUsageExt,
++    cpu_percent: Option<f64>,
++) -> String {
++    let usage = &sample.usage;
++    fn number<T: std::fmt::Display>(value: Option<T>) -> String {
++        value.map_or_else(|| "null".to_string(), |value| value.to_string())
++    }
++    let float = |value: f64| value.is_finite().then_some(value);
++    format!(
++        "{{\"t_ms\":{t_ms},\"unix_ms\":{unix_ms},\"pid\":{pid},\"resident_bytes\":{},\"footprint_bytes\":{},\"cpu_seconds\":{},\"cpu_percent\":{},\"thread_count\":{},\"wakeups_total\":{},\"disk_ops_total\":{},\"disk_read_bytes\":{},\"disk_write_bytes\":{}}}",
++        usage.resident_bytes,
++        usage.footprint_bytes,
++        number(float(usage.cpu_seconds)),
++        number(cpu_percent.and_then(float)),
++        number(sample.thread_count),
++        number(usage.wakeups_total),
++        number(usage.disk_ops_total),
++        number(usage.disk_read_bytes),
++        number(usage.disk_write_bytes),
++    )
++}
++
++/// Samples `pid` every `options.interval` and writes one NDJSON line per sample to `out`
++/// (flushed after each line), until a bound in `options` is reached, the stop flag is set, or
++/// the process exits. Blocks the calling thread and starts none; run it on a thread of the
++/// caller's own when it must not block. The first sample is taken at once. An error on the
++/// first sample (`NotFound`, `PermissionDenied`) is returned; a later `NotFound` ends the soak
++/// normally as [`SoakEnd::ProcessExited`]. A zero interval is `InvalidInput`.
++pub fn soak_sample<W: Write>(
++    pid: u32,
++    options: &SoakOptions,
++    out: &mut W,
++) -> io::Result<SoakReport> {
++    if options.interval.is_zero() {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "the soak interval must not be zero",
++        ));
++    }
++    let began = Instant::now();
++    let mut samples = 0u64;
++    let mut previous: Option<(Instant, f64)> = None;
++    loop {
++        let sample = match process_usage_ext_of(pid) {
++            Ok(usage) => usage,
++            Err(error) if error.kind() == io::ErrorKind::NotFound && samples > 0 => {
++                return Ok(SoakReport {
++                    samples,
++                    ended: SoakEnd::ProcessExited,
++                });
++            }
++            Err(error) => return Err(error),
++        };
++        let taken = Instant::now();
++        let cpu_seconds = sample.usage.cpu_seconds;
++        let cpu_percent = previous.and_then(|(at, cpu)| {
++            let secs = taken.duration_since(at).as_secs_f64();
++            (secs > 0.0).then(|| (cpu_seconds - cpu).max(0.0) / secs * 100.0)
++        });
++        previous = Some((taken, cpu_seconds));
++        let unix_ms = SystemTime::now()
++            .duration_since(SystemTime::UNIX_EPOCH)
++            .map_or(0, |since| since.as_millis());
++        let line = ndjson_line(
++            pid,
++            taken.duration_since(began).as_millis(),
++            unix_ms,
++            &sample,
++            cpu_percent,
++        );
++        writeln!(out, "{line}")?;
++        out.flush()?;
++        samples += 1;
++        if options.max_samples.is_some_and(|max| samples >= max) {
++            return Ok(SoakReport {
++                samples,
++                ended: SoakEnd::MaxSamples,
++            });
++        }
++        // Sleep to the next tick; with a stop flag, in slices so a stop is seen promptly.
++        let next = taken + options.interval;
++        loop {
++            if options
++                .stop
++                .as_ref()
++                .is_some_and(|flag| flag.load(Ordering::SeqCst))
++            {
++                return Ok(SoakReport {
++                    samples,
++                    ended: SoakEnd::Stopped,
++                });
++            }
++            let now = Instant::now();
++            if options
++                .duration
++                .is_some_and(|limit| now.duration_since(began) >= limit)
++            {
++                return Ok(SoakReport {
++                    samples,
++                    ended: SoakEnd::Duration,
++                });
++            }
++            if now >= next {
++                break;
++            }
++            let mut nap = next - now;
++            if options.stop.is_some() {
++                nap = nap.min(Duration::from_millis(250));
++            }
++            if let Some(limit) = options.duration {
++                nap = nap.min(limit.saturating_sub(now.duration_since(began)));
++            }
++            std::thread::sleep(nap);
++        }
++    }
++}
++
+ /// What a process did over a quiet window: the idle figures a runtime budget names.
+ #[derive(Clone, Copy, Debug)]
+ pub struct IdleObservation {
+@@ -229,22 +463,82 @@ impl IdleObservation {
+ 
+ #[cfg(target_os = "macos")]
+ mod imp {
+-    use super::ProcessUsage;
++    use super::{ProcessUsage, ProcessUsageExt};
+     use std::io;
+ 
+     extern "C" {
+         fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u8) -> i32;
+     }
+ 
++    /// Thread count from `proc_pidinfo(PROC_PIDTASKINFO)`; `None` when it cannot be read.
++    fn thread_count(pid: i32) -> Option<u32> {
++        // SAFETY: an all-zero `proc_taskinfo` is a valid value (plain integers).
++        let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
++        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
++        // SAFETY: `info` is a writable buffer of exactly `size` bytes.
++        let written = unsafe {
++            libc::proc_pidinfo(
++                pid,
++                libc::PROC_PIDTASKINFO,
++                0,
++                (&mut info as *mut libc::proc_taskinfo).cast(),
++                size,
++            )
++        };
++        (written == size)
++            .then(|| u32::try_from(info.pti_threadnum).ok())
++            .flatten()
++    }
++
++    /// Mach absolute-time ticks to seconds (`ri_user_time`/`ri_system_time` use that unit).
++    fn mach_seconds(ticks: u64) -> f64 {
++        let mut base = libc::mach_timebase_info_data_t { numer: 0, denom: 0 };
++        // SAFETY: `base` is a valid out pointer.
++        if unsafe { libc::mach_timebase_info(&mut base) } != 0 || base.denom == 0 {
++            return 0.0;
++        }
++        ticks as f64 * f64::from(base.numer) / f64::from(base.denom) / 1e9
++    }
++
++    /// Another process, by pid (`proc_pid_rusage` and `proc_pidinfo` need the right to query it).
++    pub fn sample_of(pid: u32) -> io::Result<ProcessUsageExt> {
++        let pid = i32::try_from(pid).map_err(|_| io::Error::from(io::ErrorKind::NotFound))?;
++        let mut words = [0u64; 64];
++        // RUSAGE_INFO_V2 = 2.
++        let rc = unsafe { proc_pid_rusage(pid, 2, words.as_mut_ptr().cast()) };
++        if rc != 0 {
++            let error = io::Error::last_os_error();
++            return Err(if error.raw_os_error() == Some(libc::ESRCH) {
++                io::Error::from(io::ErrorKind::NotFound)
++            } else {
++                error
++            });
++        }
++        Ok(ProcessUsageExt {
++            thread_count: thread_count(pid),
++            usage: ProcessUsage {
++            resident_bytes: words[W_RESIDENT],
++            footprint_bytes: words[W_FOOTPRINT],
++            cpu_seconds: mach_seconds(words[W_USER_TIME].saturating_add(words[W_SYSTEM_TIME])),
++            wakeups_total: Some(words[W_INTERRUPT_WKUPS]),
++            disk_ops_total: None,
++            disk_read_bytes: Some(words[W_DISK_READ]),
++            disk_write_bytes: Some(words[W_DISK_WRITE]),
++        },
++        })
++    }
++
+     /// RUSAGE_INFO_V2 words after the 16-byte uuid (offsets from the SDK's libproc.h
+     /// `struct rusage_info_v2`).
++    const W_USER_TIME: usize = 2;
++    const W_SYSTEM_TIME: usize = 3;
+     const W_INTERRUPT_WKUPS: usize = 2 + 3;
+     const W_RESIDENT: usize = 2 + 6;
+     const W_FOOTPRINT: usize = 2 + 7;
+     const W_DISK_READ: usize = 2 + 16;
+     const W_DISK_WRITE: usize = 2 + 17;
+ 
+-    pub fn sample() -> io::Result<ProcessUsage> {
++    pub fn sample() -> io::Result<ProcessUsageExt> {
+         let mut words = [0u64; 64];
+         // RUSAGE_INFO_V2 = 2.
+         let rc = unsafe { proc_pid_rusage(libc::getpid(), 2, words.as_mut_ptr().cast()) };
+@@ -256,7 +550,9 @@ mod imp {
+             return Err(io::Error::last_os_error());
+         }
+         let secs = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
+-        Ok(ProcessUsage {
++        Ok(ProcessUsageExt {
++            thread_count: thread_count(unsafe { libc::getpid() }),
++            usage: ProcessUsage {
+             resident_bytes: words[W_RESIDENT],
+             footprint_bytes: words[W_FOOTPRINT],
+             cpu_seconds: secs(ru.ru_utime) + secs(ru.ru_stime),
+@@ -264,6 +560,7 @@ mod imp {
+             disk_ops_total: None,
+             disk_read_bytes: Some(words[W_DISK_READ]),
+             disk_write_bytes: Some(words[W_DISK_WRITE]),
++        },
+         })
+     }
+ }
+@@ -274,25 +571,126 @@ mod imp {
+     not(any(target_os = "linux", target_os = "android"))
+ ))]
+ mod imp {
+-    use super::ProcessUsage;
++    use super::ProcessUsageExt;
+     use std::io;
+ 
+     /// Chosen when the crate is compiled for a Unix this module has no sampler for: an
+     /// explicit, typed error rather than a procfs read that may not exist.
+-    pub fn sample() -> io::Result<ProcessUsage> {
++    pub fn sample() -> io::Result<ProcessUsageExt> {
+         Err(io::Error::new(
+             io::ErrorKind::Unsupported,
+             "process usage sampling is implemented for macOS, Linux, Android and Windows only",
+         ))
+     }
++
++    pub fn sample_of(_pid: u32) -> io::Result<ProcessUsageExt> {
++        sample()
++    }
++}
++
++#[cfg(any(target_os = "linux", target_os = "android", test))]
++mod procfs {
++    /// The fields of `/proc/<pid>/stat` the usage figures need.
++    #[derive(Debug, Eq, PartialEq)]
++    pub(super) struct StatFields {
++        /// Process state letter (`Z` is a zombie).
++        pub state: char,
++        /// User and system CPU time in clock ticks.
++        pub cpu_ticks: u64,
++        pub num_threads: u32,
++    }
++
++    /// Parses a `stat` line. The command name (field 2) may hold spaces and parentheses, so the
++    /// fields are counted after the last `)`: state is field 3, utime 14, stime 15, num_threads 20.
++    pub(super) fn parse_stat(stat: &str) -> Option<StatFields> {
++        let rest = &stat[stat.rfind(')')? + 1..];
++        let mut fields = rest.split_whitespace();
++        let state = fields.next()?.chars().next()?;
++        let utime: u64 = fields.nth(10)?.parse().ok()?;
++        let stime: u64 = fields.next()?.parse().ok()?;
++        let num_threads: u32 = fields.nth(4)?.parse().ok()?;
++        Some(StatFields {
++            state,
++            cpu_ticks: utime.checked_add(stime)?,
++            num_threads,
++        })
++    }
++
++    /// `read_bytes` and `write_bytes` of `/proc/<pid>/io`.
++    pub(super) fn parse_io(io: &str) -> Option<(u64, u64)> {
++        let find = |key: &str| {
++            io.lines()
++                .find_map(|line| line.strip_prefix(key)?.trim().parse::<u64>().ok())
++        };
++        Some((find("read_bytes:")?, find("write_bytes:")?))
++    }
+ }
+ 
+ #[cfg(any(target_os = "linux", target_os = "android"))]
+ mod imp {
+-    use super::ProcessUsage;
++    use super::{procfs, ProcessUsage};
+     use std::io;
+ 
+-    pub fn sample() -> io::Result<ProcessUsage> {
++    fn clock_ticks_per_second() -> f64 {
++        // SAFETY: sysconf takes a plain name and has no memory effects.
++        let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
++        if ticks > 0 {
++            ticks as f64
++        } else {
++            100.0
++        }
++    }
++
++    fn page_size() -> io::Result<u64> {
++        u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1))
++            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "page size out of range"))
++    }
++
++    fn resident_bytes(dir: &str) -> io::Result<u64> {
++        let statm = std::fs::read_to_string(format!("/proc/{dir}/statm"))?;
++        let pages: u64 = statm
++            .split_whitespace()
++            .nth(1)
++            .and_then(|v| v.parse().ok())
++            .ok_or_else(|| {
++                io::Error::new(io::ErrorKind::InvalidData, "unreadable /proc statm")
++            })?;
++        pages
++            .checked_mul(page_size()?)
++            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "memory size overflows u64"))
++    }
++
++    /// Another process, by pid, from `/proc/<pid>`.
++    pub fn sample_of(pid: u32) -> io::Result<ProcessUsageExt> {
++        let dir = pid.to_string();
++        let stat = std::fs::read_to_string(format!("/proc/{dir}/stat"))?;
++        let fields = procfs::parse_stat(&stat).ok_or_else(|| {
++            io::Error::new(io::ErrorKind::InvalidData, "unreadable /proc stat")
++        })?;
++        if matches!(fields.state, 'Z' | 'X' | 'x') {
++            // Exited and waiting to be reaped: it has nothing left to measure.
++            return Err(io::Error::from(io::ErrorKind::NotFound));
++        }
++        let resident = resident_bytes(&dir)?;
++        let bytes = std::fs::read_to_string(format!("/proc/{dir}/io"))
++            .ok()
++            .and_then(|io| procfs::parse_io(&io));
++        Ok(ProcessUsageExt {
++            thread_count: Some(fields.num_threads),
++            usage: ProcessUsage {
++            resident_bytes: resident,
++            footprint_bytes: resident,
++            cpu_seconds: fields.cpu_ticks as f64 / clock_ticks_per_second(),
++            wakeups_total: None,
++            // `/proc/<pid>/io` has no block-operation count (see the module documentation).
++            disk_ops_total: None,
++            disk_read_bytes: bytes.map(|(read, _)| read),
++            disk_write_bytes: bytes.map(|(_, written)| written),
++        },
++        })
++    }
++
++    pub fn sample() -> io::Result<ProcessUsageExt> {
+         let statm = std::fs::read_to_string("/proc/self/statm")?;
+         let pages: u64 = statm
+             .split_whitespace()
+@@ -301,8 +699,7 @@ mod imp {
+             .ok_or_else(|| {
+                 io::Error::new(io::ErrorKind::InvalidData, "unreadable /proc/self/statm")
+             })?;
+-        let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1))
+-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "page size out of range"))?;
++        let page = page_size()?;
+         let overflow = || io::Error::new(io::ErrorKind::InvalidData, "memory size overflows u64");
+         let resident = pages.checked_mul(page).ok_or_else(overflow)?;
+         // Block counters are signed C longs (32-bit on 32-bit targets): widen before adding.
+@@ -312,7 +709,12 @@ mod imp {
+             return Err(io::Error::last_os_error());
+         }
+         let secs = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
+-        Ok(ProcessUsage {
++        Ok(ProcessUsageExt {
++            thread_count: std::fs::read_to_string("/proc/self/stat")
++                .ok()
++                .and_then(|stat| procfs::parse_stat(&stat))
++                .map(|fields| fields.num_threads),
++            usage: ProcessUsage {
+             resident_bytes: resident,
+             footprint_bytes: resident,
+             cpu_seconds: secs(ru.ru_utime) + secs(ru.ru_stime),
+@@ -320,23 +722,28 @@ mod imp {
+             disk_ops_total: blocks(ru.ru_inblock).checked_add(blocks(ru.ru_oublock)),
+             disk_read_bytes: None,
+             disk_write_bytes: None,
++        },
+         })
+     }
+ }
+ 
+ #[cfg(windows)]
+ mod imp {
+-    use super::ProcessUsage;
++    use super::{ProcessUsage, ProcessUsageExt};
+     use std::io;
+     use windows::Wdk::System::SystemInformation::{
+         NtQuerySystemInformation, SystemProcessInformation,
+     };
+-    use windows::Win32::Foundation::{FILETIME, STATUS_INFO_LENGTH_MISMATCH};
++    use windows::Win32::Foundation::{
++        CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, STATUS_INFO_LENGTH_MISMATCH,
++    };
+     use windows::Win32::System::ProcessStatus::{
+         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+     };
+     use windows::Win32::System::Threading::{
+-        GetCurrentProcess, GetCurrentProcessId, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
++        GetCurrentProcess, GetProcessIoCounters, GetProcessTimes, OpenProcess, WaitForSingleObject,
++        IO_COUNTERS, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
++        PROCESS_SYNCHRONIZE,
+     };
+     use windows::Win32::System::WindowsProgramming::{
+         SYSTEM_PROCESS_INFORMATION, SYSTEM_THREAD_INFORMATION,
+@@ -359,12 +766,12 @@ mod imp {
+     #[cfg(target_pointer_width = "64")]
+     const MAX_QUERY_BYTES: usize = 256 * 1024 * 1024;
+ 
+-    /// Total context switches (switch-ins, one per thread wake) over every live thread of this
+-    /// process. `ContextSwitchCount` is the `u32` the crate names `Reserved3` in
+-    /// `SYSTEM_THREAD_INFORMATION` (offset 0x40, right after `BasePriority`). `None` on any
+-    /// failure or unexpected layout; never panics.
++    /// Total context switches (switch-ins, one per thread wake) over every live thread of the
++    /// process `pid`, and its thread count. `ContextSwitchCount` is the `u32` the crate names
++    /// `Reserved3` in `SYSTEM_THREAD_INFORMATION` (offset 0x40, right after `BasePriority`).
++    /// `None` on any failure or unexpected layout; never panics.
+     #[cfg(target_pointer_width = "64")]
+-    fn wakeups_total() -> Option<u64> {
++    fn thread_stats(pid: u32) -> Option<(u64, u32)> {
+         // 8-byte aligned backing store; entry offsets are multiples of 8.
+         let mut words: Vec<u64> = vec![0; (1 << 20) / 8];
+         let mut length: u32 = 0;
+@@ -395,7 +802,7 @@ mod imp {
+         }
+         let valid = (length as usize).min(words.len() * 8);
+         let base = words.as_ptr().cast::<u8>();
+-        let pid = unsafe { GetCurrentProcessId() } as usize;
++        let pid = pid as usize;
+         let thread_size = std::mem::size_of::<SYSTEM_THREAD_INFORMATION>();
+         let mut offset = 0usize;
+         loop {
+@@ -428,7 +835,7 @@ mod imp {
+                     }
+                     total = total.checked_add(u64::from(thread.Reserved3))?;
+                 }
+-                return Some(total);
++                return Some((total, u32::try_from(count).ok()?));
+             }
+             let next = entry.NextEntryOffset as usize;
+             if next == 0 {
+@@ -439,13 +846,57 @@ mod imp {
+     }
+ 
+     #[cfg(not(target_pointer_width = "64"))]
+-    fn wakeups_total() -> Option<u64> {
++    fn thread_stats(_pid: u32) -> Option<(u64, u32)> {
+         None
+     }
+ 
+-    pub fn sample() -> io::Result<ProcessUsage> {
++    /// A kernel handle closed on drop.
++    struct Owned(HANDLE);
++    impl Drop for Owned {
++        fn drop(&mut self) {
++            // SAFETY: the handle came from a successful open and is closed once.
++            let _ = unsafe { CloseHandle(self.0) };
++        }
++    }
++
++    /// Another process, by pid. Memory and times need `PROCESS_QUERY_LIMITED_INFORMATION`; the
++    /// I/O counters need the wider `PROCESS_QUERY_INFORMATION` and are `None` without it.
++    pub fn sample_of(pid: u32) -> io::Result<ProcessUsageExt> {
++        let not_found = || io::Error::from(io::ErrorKind::NotFound);
++        let open = |access| match unsafe { OpenProcess(access, false, pid) } {
++            Ok(handle) => Ok(Owned(handle)),
++            Err(error) if error.code() == ERROR_INVALID_PARAMETER.to_hresult() => Err(not_found()),
++            Err(error) => Err(os(error)),
++        };
++        let process = open(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE)?;
++        // A handle can outlive its process: an exited process has nothing left to measure.
++        if unsafe { WaitForSingleObject(process.0, 0) }.0 == 0 {
++            return Err(not_found());
++        }
++        let wide = open(PROCESS_QUERY_INFORMATION).ok();
++        let mut usage = sample_handle(process.0, wide.as_ref().map(|handle| handle.0))?;
++        if let Some((wakeups, threads)) = thread_stats(pid) {
++            usage.usage.wakeups_total = Some(wakeups);
++            usage.thread_count = Some(threads);
++        }
++        Ok(usage)
++    }
++
++    pub fn sample() -> io::Result<ProcessUsageExt> {
++        let process = unsafe { GetCurrentProcess() };
++        let mut usage = sample_handle(process, Some(process))?;
++        if let Some((wakeups, threads)) = thread_stats(std::process::id()) {
++            usage.usage.wakeups_total = Some(wakeups);
++            usage.thread_count = Some(threads);
++        }
++        Ok(usage)
++    }
++
++    /// Memory, CPU time and (when `wide` is a handle with `PROCESS_QUERY_INFORMATION`) I/O
++    /// counters of the process behind the handles. Wake-ups and thread count are filled in by
++    /// the caller.
++    fn sample_handle(process: HANDLE, wide: Option<HANDLE>) -> io::Result<ProcessUsageExt> {
+         unsafe {
+-            let process = GetCurrentProcess();
+             let mut mem = PROCESS_MEMORY_COUNTERS_EX::default();
+             GetProcessMemoryInfo(
+                 process,
+@@ -462,18 +913,29 @@ mod imp {
+             GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user)
+                 .map_err(os)?;
+             let mut io_counters = IO_COUNTERS::default();
+-            GetProcessIoCounters(process, &mut io_counters).map_err(os)?;
+-            Ok(ProcessUsage {
++            let io_read = match wide {
++                Some(handle) => GetProcessIoCounters(handle, &mut io_counters).map(|()| true),
++                None => Ok(false),
++            };
++            // The current process is always readable; for another one a refusal is `None`.
++            let have_io = match io_read {
++                Ok(read) => read,
++                Err(error) if process == GetCurrentProcess() => return Err(os(error)),
++                Err(_) => false,
++            };
++            Ok(ProcessUsageExt {
++                thread_count: None,
++                usage: ProcessUsage {
+                 resident_bytes: mem.WorkingSetSize as u64,
+                 footprint_bytes: mem.PrivateUsage as u64,
+                 // FILETIME ticks are 100 ns.
+                 cpu_seconds: (ticks(kernel) + ticks(user)) as f64 / 1e7,
+-                wakeups_total: wakeups_total(),
+-                disk_ops_total: Some(
+-                    io_counters.ReadOperationCount + io_counters.WriteOperationCount,
+-                ),
+-                disk_read_bytes: Some(io_counters.ReadTransferCount),
+-                disk_write_bytes: Some(io_counters.WriteTransferCount),
++                wakeups_total: None,
++                disk_ops_total: have_io
++                    .then_some(io_counters.ReadOperationCount + io_counters.WriteOperationCount),
++                disk_read_bytes: have_io.then_some(io_counters.ReadTransferCount),
++                disk_write_bytes: have_io.then_some(io_counters.WriteTransferCount),
++            },
+             })
+         }
+     }
+@@ -594,4 +1056,173 @@ mod tests {
+         );
+         assert_eq!(c.rates_since(&b, Duration::ZERO).cpu_percent, 0.0);
+     }
++
++    #[test]
++    fn stat_lines_parse_after_the_last_parenthesis() {
++        // Fields 3.. : state S, ppid 1, ... utime (14) 120, stime (15) 30, ... num_threads (20) 7.
++        let stat = "42 (we ird) name) S 1 42 42 0 -1 4194560 100 0 0 0 120 30 0 0 20 0 7 0 5000 1000 200";
++        let fields = procfs::parse_stat(stat).unwrap();
++        assert_eq!(
++            fields,
++            procfs::StatFields {
++                state: 'S',
++                cpu_ticks: 150,
++                num_threads: 7
++            }
++        );
++        assert!(procfs::parse_stat("garbage").is_none());
++        assert!(procfs::parse_stat("1 (a) S 1 2").is_none());
++    }
++
++    #[test]
++    fn io_files_parse_read_and_write_bytes() {
++        let io = "rchar: 10\nwchar: 20\nsyscr: 1\nsyscw: 2\nread_bytes: 4096\nwrite_bytes: 8192\ncancelled_write_bytes: 0\n";
++        assert_eq!(procfs::parse_io(io), Some((4096, 8192)));
++        assert_eq!(procfs::parse_io("rchar: 1\n"), None);
++    }
++
++    #[test]
++    fn ndjson_lines_carry_every_figure_and_null_for_the_missing_ones() {
++        let usage = ProcessUsageExt {
++            usage: ProcessUsage {
++                resident_bytes: 100,
++                footprint_bytes: 90,
++                cpu_seconds: 1.5,
++                wakeups_total: None,
++                disk_ops_total: Some(7),
++                disk_read_bytes: None,
++                disk_write_bytes: Some(9),
++            },
++            thread_count: Some(4),
++        };
++        assert_eq!(
++            ndjson_line(77, 1000, 1_700_000_000_000, &usage, None),
++            "{\"t_ms\":1000,\"unix_ms\":1700000000000,\"pid\":77,\"resident_bytes\":100,\"footprint_bytes\":90,\"cpu_seconds\":1.5,\"cpu_percent\":null,\"thread_count\":4,\"wakeups_total\":null,\"disk_ops_total\":7,\"disk_read_bytes\":null,\"disk_write_bytes\":9}"
++        );
++        let line = ndjson_line(1, 0, 0, &usage, Some(12.5));
++        assert!(line.contains("\"cpu_percent\":12.5"), "{line}");
++        let nan = ProcessUsageExt {
++            usage: ProcessUsage {
++                cpu_seconds: f64::NAN,
++                ..usage.usage
++            },
++            ..usage
++        };
++        assert!(ndjson_line(1, 0, 0, &nan, Some(f64::INFINITY)).contains("\"cpu_seconds\":null,\"cpu_percent\":null"));
++    }
++
++    #[test]
++    fn a_zero_soak_interval_is_refused() {
++        let mut sink = Vec::new();
++        let error = soak_sample(std::process::id(), &SoakOptions::new(Duration::ZERO), &mut sink)
++            .unwrap_err();
++        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
++        assert!(sink.is_empty());
++    }
++
++    #[cfg(any(
++        target_os = "macos",
++        target_os = "linux",
++        target_os = "android",
++        windows
++    ))]
++    #[test]
++    fn the_own_pid_through_process_usage_of_is_the_current_process() {
++        let ext = process_usage_ext_of(std::process::id()).unwrap();
++        assert!(ext.usage.resident_bytes > 0);
++        assert!(ext.thread_count.is_some_and(|threads| threads >= 1));
++        assert!(process_usage_of(std::process::id()).unwrap().resident_bytes > 0);
++    }
++
++    #[cfg(any(
++        target_os = "macos",
++        target_os = "linux",
++        target_os = "android",
++        windows
++    ))]
++    #[test]
++    fn a_pid_naming_no_process_is_not_found() {
++        let error = process_usage_of(u32::MAX - 1).unwrap_err();
++        assert_eq!(error.kind(), io::ErrorKind::NotFound);
++        let mut sink = Vec::new();
++        let error = soak_sample(
++            u32::MAX - 1,
++            &SoakOptions::new(Duration::from_millis(10)),
++            &mut sink,
++        )
++        .unwrap_err();
++        assert_eq!(error.kind(), io::ErrorKind::NotFound);
++    }
++
++    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
++    #[test]
++    fn another_process_is_measured_by_pid_and_a_soak_follows_it_to_its_exit() {
++        use std::process::{Command, Stdio};
++        let mut child = Command::new("sleep")
++            .arg("30")
++            .stdin(Stdio::null())
++            .spawn()
++            .expect("spawn sleep");
++        let ext = process_usage_ext_of(child.id()).unwrap();
++        assert!(ext.usage.resident_bytes > 0);
++        assert_eq!(ext.thread_count, Some(1));
++
++        let mut out = Vec::new();
++        let report = soak_sample(
++            child.id(),
++            &SoakOptions::new(Duration::from_millis(20)).max_samples(3),
++            &mut out,
++        )
++        .unwrap();
++        assert_eq!(
++            report,
++            SoakReport {
++                samples: 3,
++                ended: SoakEnd::MaxSamples
++            }
++        );
++        let text = String::from_utf8(out).unwrap();
++        assert_eq!(text.lines().count(), 3);
++        assert!(text.lines().all(|line| line.starts_with("{\"t_ms\":")));
++
++        // Killed and reaped: a running soak ends as ProcessExited.
++        child.kill().unwrap();
++        let _ = child.wait();
++        let mut out = Vec::new();
++        let error = soak_sample(child.id(), &SoakOptions::new(Duration::from_millis(20)), &mut out)
++            .unwrap_err();
++        assert_eq!(error.kind(), io::ErrorKind::NotFound);
++    }
++
++    #[test]
++    fn a_soak_stops_on_its_flag_and_its_duration() {
++        #[cfg(any(
++            target_os = "macos",
++            target_os = "linux",
++            target_os = "android",
++            windows
++        ))]
++        {
++            let flag = Arc::new(AtomicBool::new(true));
++            let mut out = Vec::new();
++            let report = soak_sample(
++                std::process::id(),
++                &SoakOptions::new(Duration::from_millis(10)).stop_flag(flag),
++                &mut out,
++            )
++            .unwrap();
++            assert_eq!(report.ended, SoakEnd::Stopped);
++            assert_eq!(report.samples, 1);
++
++            let mut out = Vec::new();
++            let report = soak_sample(
++                std::process::id(),
++                &SoakOptions::new(Duration::from_millis(10)).duration(Duration::from_millis(80)),
++                &mut out,
++            )
++            .unwrap();
++            assert_eq!(report.ended, SoakEnd::Duration);
++            assert!(report.samples >= 1);
++        }
++    }
+ }
+diff --git a/crates/rightkit-child-process/src/windows_job.rs b/crates/rightkit-child-process/src/windows_job.rs
+index 8ddc60c..fd98b25 100644
+--- a/crates/rightkit-child-process/src/windows_job.rs
++++ b/crates/rightkit-child-process/src/windows_job.rs
+@@ -14,7 +14,7 @@ use windows::Win32::System::JobObjects::{
+     JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+     TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
+-    JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++    JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+     JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+ };
+ use windows::Win32::System::Threading::{
+@@ -50,6 +50,7 @@ pub struct WindowsJobBuilder {
+     active_process_limit: Option<u32>,
+     job_memory_limit: Option<usize>,
+     process_memory_limit: Option<usize>,
++    breakaway_ok: bool,
+ }
+ 
+ impl WindowsJobBuilder {
+@@ -72,6 +73,15 @@ impl WindowsJobBuilder {
+         self
+     }
+ 
++    /// Lets a process in the job start a child outside it by passing
++    /// `CREATE_BREAKAWAY_FROM_JOB` (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`). Without it such a spawn
++    /// fails with access denied. Every other descendant stays contained, and the kill-on-close
++    /// guarantee is unchanged for them. Off by default.
++    pub fn breakaway_ok(mut self, allow: bool) -> Self {
++        self.breakaway_ok = allow;
++        self
++    }
++
+     /// Creates the job with these limits.
+     pub fn build(self) -> std::io::Result<WindowsJob> {
+         if self.active_process_limit == Some(0) {
+@@ -93,6 +103,9 @@ impl WindowsJobBuilder {
+         };
+         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
++        if self.breakaway_ok {
++            limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
++        }
+         if let Some(cap) = self.active_process_limit {
+             limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+             limits.BasicLimitInformation.ActiveProcessLimit = cap;
+@@ -144,7 +157,21 @@ impl WindowsJob {
+     /// outer job forbids nesting the assignment fails with `PermissionDenied`, and the caller may
+     /// ignore that error. Call it once, early.
+     pub fn contain_current_process() -> std::io::Result<()> {
+-        let job = WindowsJob::new(None)?;
++        Self::contain_current_process_with(WindowsJob::builder())
++    }
++
++    /// Like [`contain_current_process`](Self::contain_current_process), but the job carries
++    /// `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: one deliberately detached child (for example a reload
++    /// replacement daemon) can still be spawned with `CREATE_BREAKAWAY_FROM_JOB`, while every
++    /// other descendant stays contained and dies with this process.
++    pub fn contain_current_process_allowing_breakaway() -> std::io::Result<()> {
++        Self::contain_current_process_with(WindowsJob::builder().breakaway_ok(true))
++    }
++
++    /// [`contain_current_process`](Self::contain_current_process) with a job built from
++    /// `builder` (memory caps, breakaway); the same leak-on-success rule applies.
++    pub fn contain_current_process_with(builder: WindowsJobBuilder) -> std::io::Result<()> {
++        let job = builder.build()?;
+         // The pseudo-handle from GetCurrentProcess names this process with full access.
+         let process = unsafe { GetCurrentProcess() };
+         unsafe { AssignProcessToJobObject(job.handle, process) }.map_err(os_error)?;
+@@ -197,6 +224,28 @@ impl WindowsJob {
+         assigned.map_err(os_error)
+     }
+ 
++    /// How many processes are alive in the job right now.
++    pub fn active_process_count(&self) -> std::io::Result<u32> {
++        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
++        unsafe {
++            QueryInformationJobObject(
++                Some(self.handle),
++                JobObjectBasicAccountingInformation,
++                (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
++                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
++                None,
++            )
++        }
++        .map_err(os_error)?;
++        Ok(accounting.ActiveProcesses)
++    }
++
++    /// True when no process is alive in the job: the Windows form of "the tree is gone", the
++    /// counterpart of `process_group_exists` on Unix.
++    pub fn is_empty(&self) -> std::io::Result<bool> {
++        Ok(self.active_process_count()? == 0)
++    }
++
+     /// Kills every process in the job now.
+     pub fn terminate(&self) -> std::io::Result<()> {
+         unsafe { TerminateJobObject(self.handle, 1) }.map_err(os_error)
+@@ -240,3 +289,24 @@ impl Drop for WindowsJob {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn an_empty_job_reports_no_processes() {
++        let job = WindowsJob::new(None).unwrap();
++        assert_eq!(job.active_process_count().unwrap(), 0);
++        assert!(job.is_empty().unwrap());
++    }
++
++    #[test]
++    fn the_breakaway_option_is_off_by_default_and_settable() {
++        assert!(!WindowsJob::builder().breakaway_ok);
++        assert!(WindowsJob::builder().breakaway_ok(true).breakaway_ok);
++        // A job with the flag builds like any other.
++        let job = WindowsJob::builder().breakaway_ok(true).build().unwrap();
++        assert!(job.is_empty().unwrap());
++    }
++}

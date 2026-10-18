@@ -1,0 +1,2747 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 12fe03f..43781bd 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6963,7 +6963,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rightkit-fs"
+-version = "0.4.4"
++version = "0.4.5"
+ dependencies = [
+  "blake3",
+  "libc",
+diff --git a/crates/rightkit-fs/CHANGELOG.md b/crates/rightkit-fs/CHANGELOG.md
+index 8ab5e40..7bdd3f4 100644
+--- a/crates/rightkit-fs/CHANGELOG.md
++++ b/crates/rightkit-fs/CHANGELOG.md
+@@ -1,5 +1,19 @@
+ # Changelog
+ 
++## 0.4.5 (2026-10-18)
++
++Additive only (no existing item changed; `Options`, `LeaseOptions` and `LeaseInfo` are `#[non_exhaustive]`, so the new fields are not breaking). Not compiled or run when written.
++
++- Additive (feature `fs`, `lease`; Orthic-Labs/rightkit#478): the lease record names its holder. `LeaseInfo::{exe, kind}` and `LeaseOptions::kind(..)` (`LeaseOptions::kind` field); `exe` is `std::env::current_exe` taken at acquire, `kind` is the caller's role word; `LeaseInfo::is_this_process()`. The record keeps header `rightkit-lease v1` and gains `exe=` and `kind=` lines; a 0.4.4 record without them still parses (both empty) and a 0.4.4 reader ignores them. Holder takeover (dead pid), heartbeat-TTL expiry of a hung live holder and `peek` were already in 0.4.4; tests added for the 0.4.4 record shape and for the new fields.
++- Additive (feature `fs`; #738): `publish_group(&[GroupEntry], &GroupOptions) -> GroupPublished { published, replaced, unsynced, leftover_backups }`, a multi-file publish with backup (hard link, else copy, `.<name>.rkbak-<pid>-<n>`), rollback of every published file on failure, and a cancel gate (`GroupOptions::cancel`, asked before the backups and before each file; a cancel is `FsError::Io` of kind `Interrupted`). Validates first (regular staging files, no symlink or directory destination, no duplicate destination). Not one atomic step for a concurrent reader.
++- Additive (feature `fs`; #738): `remove_tree(root, &RemoveOptions) -> Result<bool>`, a directory-tree removal that retries Windows sharing, lock, access-denied and delete-pending errors (`RemoveOptions { attempts: 8, delay: 50 ms }`), clears the read-only attribute, removes a link inside the tree as an entry without following it, refuses a link or file root, and returns `Ok(false)` for a missing root.
++- Additive (feature `app-dirs`; #738): `Options::data_dir_override(Option<PathBuf>)` (field `Options::data_dir`), a release data-folder override with no environment variable and no feature gate (same layout as the QA override, `isolated` true, absolute and `..` checked); `AppDirs::is_real_user_path(&app, path)` and `AppDirs::is_real_user_path_with(app, os, env, path)`, true for a path at or inside the app's real per-user folders (both namespaces, every legacy name, with and without org) or equal to the home folder or above it. The QA override check now shares the same folder list (and also covers legacy names).
++- Additive (feature `fs`; #732, #613): `StableId` and `new_stable_id()` are defined in `file_key` and exported at the crate root with feature `fs` alone (`rightkit_fs::StableId`, `rightkit_fs::new_stable_id`); `identity::StableId` still resolves to the same type and the ledger still needs `json`.
++- Additive (feature `fs`; #712): `migrate_dir_marked(from, to, &MarkOptions) -> MarkedMigration { migrated, marker }` and `is_marked(dir, &MarkOptions)`: `migrate_dir` that also leaves `migrated-from.json` (`from`, `at_ms`, optional `note`) in the new folder. The marker is written into the source tree first, so `to` never appears without it, and a refused move puts the source's marker state back. `migrate_dir` already moved by rename and set aside an empty destination; unchanged.
++- Additive (#388): `test_mode` module (no feature for the pure parts): `decide`, `Variables`, `Guard`, `TestMode`, `build::{Spec, ReleaseGuard, Resolved, resolve, emit}` (the `build.rs` helper that turns the app's features into the `test_mode_enabled` cfg with a release guard), `forbid_in_release!`; with feature `test-mode`, `init_or_exit`, `current`, `select`, and the embedded `COMPILED_MARKER`. A relative path, `..`, the home folder, user folders, the app's real folders and a symlink into them are refused.
++- Additive (feature `app-dirs`; #765): `app_dirs::user_dirs::{home, desktop, documents, downloads}`, each `fn() -> Option<PathBuf>`, the values of `dirs` 6/7: Windows asks `SHGetKnownFolderPath` (no environment fallback), macOS is `$HOME` plus `Desktop`, `Documents`, `Downloads`, Linux and other unix read `$XDG_CONFIG_HOME/user-dirs.dirs` (else `~/.config/user-dirs.dirs`). They ignore the test root and QA overrides. XDG parsing is unit tested.
++- Docs (#710 item 4): `zip::read_zip` documents that entry names are untrusted.
++
+ ## 0.4.4 (2026-10-18)
+ 
+ - Additive (feature `fs`): `lease` module (Orthic-Labs/rightkit#478): `Lease::try_acquire(path, &LeaseOptions) -> Acquire { Acquired(Lease), Held(LeaseInfo) }`, `Lease::renew`, `Lease::release` (also on drop), `Lease::peek`, `LeaseInfo::staleness() -> Staleness { Fresh, HolderDead, Expired }`. A pid + heartbeat-TTL lease record in a plain file, created exclusively (`ReplaceMode::NoReplace`) and heartbeated by atomic replace. Stale means the holder pid is confirmed dead (the crate's tri-state probe: `kill(pid, 0)` on Unix, `OpenProcess`/`GetExitCodeProcess` plus a complete process snapshot on Windows; an unknown probe is never dead) or the last heartbeat is older than the holder's TTL (or more than a TTL in the future). A stale record is renamed aside, checked, and replaced; a renewing holder whose record was taken learns it from `FsError::Locked`. Not `FileLock`: it is a record, not an OS lock, and it never sleeps or polls. Local machine only. Not compiled or run when written.
+diff --git a/crates/rightkit-fs/Cargo.toml b/crates/rightkit-fs/Cargo.toml
+index d12d5fd..72ccf8c 100644
+--- a/crates/rightkit-fs/Cargo.toml
++++ b/crates/rightkit-fs/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rightkit-fs"
+-version = "0.4.4"
++version = "0.4.5"
+ edition = "2021"
+ rust-version = "1.98.0"
+ description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
+@@ -229,6 +229,9 @@ app-dirs = ["fs"]
+ # Lets `app_dirs` read the QA override variables (RIGHTKIT_QA_DATA_DIR, RIGHTKIT_QA_HOME). Same
+ # feature name as rightkit-daemon: one switch isolates both. Off in release builds, which then
+ # contain none of the variable names.
++# Also compiles `test_mode::{init_or_exit, current}` (the run-time gate) and embeds
++# `test_mode::COMPILED_MARKER`. The `test_mode` module itself (pure decision, build helper) is std
++# only and needs no feature, so a build.rs can use it with default-features = false.
+ test-mode = ["app-dirs"]
+ 
+ [dependencies]
+diff --git a/crates/rightkit-fs/README.md b/crates/rightkit-fs/README.md
+index 0d4896a..b4a9fb2 100644
+--- a/crates/rightkit-fs/README.md
++++ b/crates/rightkit-fs/README.md
+@@ -34,6 +34,20 @@ Without `json`, locks write no owner file, so `recovered_stale` and `current_own
+ - `testing` (debug builds only): fault and event seams for consumer tests: `atomic::testing`, `state::testing`, `clone::testing`, `lock::testing`. It implies `test-seams`.
+ - `test-seams` (allowed in release builds): `atomic::seams`, for a consumer's tests that run in the release profile. `fail_write_after(bytes, kind)` makes this thread's `AtomicWriter::write_all` / `AtomicWriter::writer()` writes fail after `bytes` bytes (the bytes up to the limit are written first); `sync_counts()`, `take_sync_counts()` and `reset_sync_counts()` count the file flushes and directory syncs this thread attempted. Per thread, inert until installed. It does not see a write made through `AtomicWriter::file_mut()` or the `File` an `atomic_write_with*` closure receives.
+ 
++## Test-mode gate (`test_mode`)
++
++`test_mode::decide` / `init_or_exit` / `current` give a desktop app one start-of-process decision (`Off`, `On { data_dir }`, `Refuse`) from an app-named service variable and isolated-data-directory variable, refusing a relative path, `..`, the home folder, user folders, the app's real folders and symlinks into them. `test_mode::build::emit` is the `build.rs` helper that turns the app's features into the `test_mode_enabled` cfg with a release guard, and `forbid_in_release!` is the `compile_error!` form. The run-time reader needs feature `test-mode`; the pure parts and the build helper need none.
++
++## Leases, group publish, tree removal, marked migration
++
++- `lease::Lease` (feature `fs`): a pid + heartbeat-TTL lease file. `Lease::try_acquire(path, &LeaseOptions::new(ttl).label(..).kind("daemon"))` gives `Acquired(lease)` or `Held(info)`; `renew` heartbeats (call at least every `ttl / 3`), `release` or drop gives it up, `Lease::peek` reads the holder without taking it. A holder whose pid is confirmed dead, or whose heartbeat is older than its TTL (a hung live process), is taken over. `LeaseInfo` carries `pid`, `exe` (the holder's executable path), `kind`, `label`, `ttl`, `acquired_ms` and `heartbeat_ms`.
++- `publish_group(&[GroupEntry::new(staged, dest)], &GroupOptions::new().cancel(&gate))`: several finished files published as a group. Existing destinations are backed up first (hard link, else copy), the files are published one by one with a cancel check before each, and a failure or cancel rolls every published file back. Not one atomic step for a concurrent reader; all-or-nothing for the outcome.
++- `remove_tree(root, &RemoveOptions::default())`: `remove_dir_all` that retries Windows sharing and lock violations, clears read-only files, never follows a link inside the tree and refuses a link as the root. `Ok(false)` when the root is already gone.
++- `migrate_dir_marked(from, to, &MarkOptions::new().note(..))` and `is_marked(dir, &MarkOptions::new())`: `migrate_dir` that leaves `migrated-from.json` in the new folder (written into the source first, so it moves with the tree).
++- `StableId` and `new_stable_id()` need only feature `fs`; the ledger (`IdentityStore`) needs `json`.
++- `Options::data_dir_override(Some(dir))` roots an `AppDirs` under a directory the app supplies, in a release build, with no variable and no feature; `AppDirs::is_real_user_path(&app, path)` says whether a path is one of the app's real per-user folders (or the home folder, or above it).
++- `app_dirs::user_dirs::{home, desktop, documents, downloads}`: the account's own folders, the values the `dirs` crate gives.
++
+ ## State directories (`StateDir`)
+ 
+ `StateDir::open`/`create` use `StateOptions::default()`; `open_with`/`create_with` take explicit options. Children from `child` inherit them.
+diff --git a/crates/rightkit-fs/src/app_dirs.rs b/crates/rightkit-fs/src/app_dirs.rs
+index 9856a36..c40f9db 100644
+--- a/crates/rightkit-fs/src/app_dirs.rs
++++ b/crates/rightkit-fs/src/app_dirs.rs
+@@ -31,6 +31,10 @@
+ //!   the installed app's data.
+ //! * **Test root.** Under this crate's own `cfg(test)`, and from [`AppDirs::for_test`] in any build,
+ //!   every folder is under one per-process temp root and the OS is never asked.
++//! * **Data-folder override (any build).** [`Options::data_dir_override`] roots every folder under a
++//!   path the app supplies, with no environment variable and no feature; [`AppDirs::is_real_user_path`]
++//!   says whether a path is one of the app's real per-user folders. [`user_dirs`] gives the account's
++//!   own home, Desktop, Documents and Downloads.
+ //! * **QA override (feature `test-mode`).** Only a build that compiles `test-mode` reads any
+ //!   override variable (the same feature name as `rightkit-daemon`, so one switch isolates both).
+ //!   `RIGHTKIT_QA_DATA_DIR` becomes the data folder (`local`, `cache` and `home` live under it) and
+@@ -56,6 +60,8 @@
+ //! purpose). `rightkit_daemon::Suite::per_user_default` reads the account database for that; this
+ //! crate does not duplicate it.
+ 
++pub mod user_dirs;
++
+ use std::ffi::OsString;
+ use std::io;
+ use std::path::{Path, PathBuf};
+@@ -207,6 +213,9 @@ pub struct Options {
+     pub qa_overrides: bool,
+     /// When set, every folder is under this root and the OS and environment are not consulted.
+     pub test_root: Option<PathBuf>,
++    /// An explicit data-folder override supplied by the app itself, honoured in every build (see
++    /// [`Options::data_dir_override`]). No environment variable is read for it.
++    pub data_dir: Option<PathBuf>,
+ }
+ 
+ impl Options {
+@@ -217,6 +226,7 @@ impl Options {
+             dev: false,
+             qa_overrides: false,
+             test_root: None,
++            data_dir: None,
+         }
+     }
+ 
+@@ -232,6 +242,7 @@ impl Options {
+             } else {
+                 None
+             },
++            data_dir: None,
+         }
+     }
+ 
+@@ -249,6 +260,20 @@ impl Options {
+         self.test_root = root;
+         self
+     }
++
++    /// Root every folder under `dir`, in any build (a release data-folder override, for example an
++    /// app's own `--data-dir` flag or portable mode). Unlike the QA variables this is not gated by
++    /// feature `test-mode` and reads no environment variable: the app decides where `dir` comes
++    /// from, so a release binary carries no variable name for it. `dir` must be absolute and free of
++    /// `..` ([`AppDirsError::NotAbsolute`] otherwise). The layout is the QA layout: `data` is `dir`,
++    /// `config`, `local`, `cache` and `home` are `dir/config`, `dir/local`, `dir/cache` and
++    /// `dir/home`, and [`AppDirs::isolated`] is true. A test root wins over it; it wins over the QA
++    /// variables. It is **not** checked against the real per-user folders (relocating the real data is
++    /// a legitimate use); an app that must never touch them asks [`AppDirs::is_real_user_path`].
++    pub fn data_dir_override(mut self, dir: Option<PathBuf>) -> Options {
++        self.data_dir = dir;
++        self
++    }
+ }
+ 
+ /// The per-process temp root every test resolution uses: `<temp>/rightkit-test-<pid>`.
+@@ -332,6 +357,18 @@ impl AppDirs {
+             });
+         }
+ 
++        if let Some(root) = &opts.data_dir {
++            check_absolute(opts.os, "data dir override", root)?;
++            return Ok(AppDirs {
++                data: root.clone(),
++                config: root.join("config"),
++                local: root.join("local"),
++                cache: root.join("cache"),
++                home: root.join("home"),
++                isolated: true,
++            });
++        }
++
+         if opts.os == Os::Android {
+             return Err(AppDirsError::AndroidNeedsInjectedRoots);
+         }
+@@ -413,6 +450,39 @@ impl AppDirs {
+         })
+     }
+ 
++    /// Whether `path` is one of this app's real per-user folders, or inside one, or is the user's home
++    /// folder or above it: the places a test or an override must never write. Reads this process's
++    /// environment as [`AppDirs::resolve`] does (on Windows the known-folder API first) and uses
++    /// [`Os::current`] for the OS. Both namespaces (`<name>` and `<name>Dev`) are covered, with and
++    /// without the org folder, and every legacy name. An unresolvable base is skipped, so a process
++    /// with no `HOME` gives `false`. Paths are compared by whole components, case-insensitively on
++    /// Windows. This is a textual check: it does not resolve symlinks (resolve `path` with
++    /// [`crate::canonicalize_plain`] first when it may be one).
++    pub fn is_real_user_path(app: &AppId, path: &Path) -> bool {
++        AppDirs::is_real_user_path_with(app, Os::current(), &process_env, path)
++    }
++
++    /// [`AppDirs::is_real_user_path`] over an injected OS and environment (pure).
++    pub fn is_real_user_path_with(
++        app: &AppId,
++        os: Os,
++        env: &dyn Fn(&str) -> Option<OsString>,
++        path: &Path,
++    ) -> bool {
++        let win = os == Os::Windows;
++        let bases = Bases::read(os, env);
++        if real_app_folders(app, &bases)
++            .iter()
++            .any(|real| inside_or_equal(path, real, win))
++        {
++            return true;
++        }
++        bases
++            .home
++            .as_ref()
++            .is_some_and(|home| inside_or_equal(home, path, win))
++    }
++
+     /// Move the directory `from` to `to` (for example an old data folder to the current one) so
+     /// that `to` is never visible half-migrated: one rename on the same volume, otherwise a copy to
+     /// a hidden sibling of `to`, a rename of the sibling to `to`, then removal of `from`. `to` must
+@@ -495,6 +565,27 @@ mod known {
+         data3: 0x4FCF,
+         data4: [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+     };
++    /// `FOLDERID_Desktop`.
++    pub(super) static DESKTOP: Guid = Guid {
++        data1: 0xB4BF_CC3A,
++        data2: 0xDB2C,
++        data3: 0x424C,
++        data4: [0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41],
++    };
++    /// `FOLDERID_Documents`.
++    pub(super) static DOCUMENTS: Guid = Guid {
++        data1: 0xFDD3_9AD0,
++        data2: 0x238F,
++        data3: 0x46AF,
++        data4: [0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7],
++    };
++    /// `FOLDERID_Downloads`.
++    pub(super) static DOWNLOADS: Guid = Guid {
++        data1: 0x374D_E290,
++        data2: 0x123F,
++        data3: 0x4565,
++        data4: [0x91, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B],
++    };
+     /// `FOLDERID_Profile`.
+     pub(super) static PROFILE: Guid = Guid {
+         data1: 0x5E6C_858F,
+@@ -688,6 +779,27 @@ fn real_dirs(
+     })
+ }
+ 
++/// The real per-user folders of this app: under every base, in the release and the dev namespace,
++/// for the current name and every legacy name, with and without the org folder.
++fn real_app_folders(app: &AppId, bases: &Bases) -> Vec<PathBuf> {
++    let mut folders: Vec<PathBuf> = Vec::new();
++    let names = std::iter::once(app.name).chain(app.legacy_names.iter().copied());
++    for name in names {
++        for base in [&bases.data, &bases.config, &bases.local, &bases.cache]
++            .into_iter()
++            .flatten()
++        {
++            for ns in [name.to_string(), format!("{name}Dev")] {
++                for org in [app.org, None] {
++                    let probe = AppId { org, ..app.clone() };
++                    folders.push(app_dir(base, &probe, &ns));
++                }
++            }
++        }
++    }
++    folders
++}
++
+ /// The QA data and home overrides, validated. Compiled to `(None, None)` without `test-mode`, so
+ /// the variable names are absent from a release binary.
+ #[cfg(not(feature = "test-mode"))]
+@@ -720,18 +832,7 @@ fn read_qa(
+     }
+     // The real folders of this app, in both namespaces and with or without the org folder, and the
+     // real home. An override at or inside the first group, or equal to the home, is refused.
+-    let mut inside: Vec<PathBuf> = Vec::new();
+-    for base in [&bases.data, &bases.config, &bases.local, &bases.cache]
+-        .into_iter()
+-        .flatten()
+-    {
+-        for ns in [app.name.to_string(), format!("{}Dev", app.name)] {
+-            for org in [app.org, None] {
+-                let probe = AppId { org, ..app.clone() };
+-                inside.push(app_dir(base, &probe, &ns));
+-            }
+-        }
+-    }
++    let inside = real_app_folders(app, bases);
+     let win = opts.os == Os::Windows;
+     let check = |var: &str, path: PathBuf, home_var: bool| -> Result<PathBuf> {
+         check_absolute(opts.os, var, &path)?;
+@@ -1068,6 +1169,50 @@ mod tests {
+         assert_eq!(d.data, root.join("ViewRightDev").join("data"));
+     }
+ 
++    #[test]
++    fn data_dir_override_roots_every_folder_in_any_build_and_needs_an_absolute_path() {
++        let opts = Options::new(Os::Linux).data_dir_override(Some(p("/srv/app-data")));
++        let dirs = AppDirs::resolve_with(&AppId::new("Zed"), &opts, &|_| None).unwrap();
++        same(&dirs.data, "/srv/app-data");
++        same(&dirs.config, "/srv/app-data/config");
++        same(&dirs.local, "/srv/app-data/local");
++        same(&dirs.cache, "/srv/app-data/cache");
++        same(&dirs.home, "/srv/app-data/home");
++        assert!(dirs.isolated);
++        let relative = Options::new(Os::Linux).data_dir_override(Some(p("data")));
++        assert!(matches!(
++            AppDirs::resolve_with(&AppId::new("Zed"), &relative, &|_| None),
++            Err(AppDirsError::NotAbsolute { .. })
++        ));
++        let dotdot = Options::new(Os::Linux).data_dir_override(Some(p("/srv/../etc")));
++        assert!(AppDirs::resolve_with(&AppId::new("Zed"), &dotdot, &|_| None).is_err());
++        // A test root still wins over the override.
++        let both = opts.test_root(Some(p("/tmp/root")));
++        let dirs = AppDirs::resolve_with(&AppId::new("Zed"), &both, &|_| None).unwrap();
++        same(&dirs.data, "/tmp/root/Zed/data");
++    }
++
++    #[test]
++    fn is_real_user_path_covers_the_app_folders_and_the_home_folder() {
++        let env = env_of(&[("HOME", "/home/bob")]);
++        let app = AppId::new("Zed").with_legacy_names(&["Old"]);
++        let check = |path: &str| {
++            AppDirs::is_real_user_path_with(&app, Os::Linux, &env, &p(path))
++        };
++        assert!(check("/home/bob/.local/share/Orthic Labs/Zed"));
++        assert!(check("/home/bob/.local/share/Orthic Labs/ZedDev/db"));
++        assert!(check("/home/bob/.cache/Orthic Labs/Old/x"));
++        assert!(check("/home/bob/.config/Zed"));
++        assert!(check("/home/bob"));
++        assert!(check("/home"));
++        assert!(!check("/home/bob/scratch/iso"));
++        assert!(!check("/home/bob/.local/share/Other"));
++        assert!(!check("/tmp/iso"));
++        // No HOME: nothing resolves, nothing is real.
++        let none = env_of(&[]);
++        assert!(!AppDirs::is_real_user_path_with(&app, Os::Linux, &none, &p("/home/bob")));
++    }
++
+     #[test]
+     fn config_is_its_own_folder_on_linux_and_data_elsewhere() {
+         let app = AppId::new("Ember");
+diff --git a/crates/rightkit-fs/src/app_dirs/user_dirs.rs b/crates/rightkit-fs/src/app_dirs/user_dirs.rs
+new file mode 100644
+index 0000000..fe0eb64
+--- /dev/null
++++ b/crates/rightkit-fs/src/app_dirs/user_dirs.rs
+@@ -0,0 +1,269 @@
++//! The user's own folders: home, Desktop, Documents and Downloads.
++//!
++//! Each function gives the same answer as the `dirs` crate (`home_dir`, `desktop_dir`,
++//! `document_dir`, `download_dir`), so an app can drop `dirs` for these:
++//!
++//! * **Windows.** The Profile, Desktop, Documents and Downloads known folders, asked of
++//!   `SHGetKnownFolderPath` with no environment fallback (a redirected `%USERPROFILE%` does not
++//!   move them; a folder the user relocated is followed).
++//! * **macOS.** `$HOME` (else the account database), then `Desktop`, `Documents` and `Downloads`
++//!   under it.
++//! * **Linux and other unix.** `$HOME` (else the account database); the three folders come from
++//!   `$XDG_CONFIG_HOME/user-dirs.dirs` (else `~/.config/user-dirs.dirs`), `None` when the file or
++//!   the entry is missing, disabled (`"$HOME/"`) or not in the `"$HOME/x"` / `"/x"` forms.
++//!
++//! These are the real folders of the account, not the per-app folders of [`AppDirs`](super::AppDirs):
++//! they ignore the test root and every QA override. Nothing here creates a directory.
++
++use std::path::PathBuf;
++
++/// The user's home folder, or `None` when the platform cannot say.
++pub fn home() -> Option<PathBuf> {
++    #[cfg(windows)]
++    {
++        super::known::known_folder(&super::known::PROFILE)
++    }
++    #[cfg(unix)]
++    {
++        unix_home()
++    }
++    #[cfg(not(any(windows, unix)))]
++    {
++        None
++    }
++}
++
++/// The user's Desktop folder, or `None`.
++pub fn desktop() -> Option<PathBuf> {
++    #[cfg(windows)]
++    {
++        super::known::known_folder(&super::known::DESKTOP)
++    }
++    #[cfg(not(windows))]
++    {
++        unix_user_dir("Desktop", "DESKTOP")
++    }
++}
++
++/// The user's Documents folder, or `None`.
++pub fn documents() -> Option<PathBuf> {
++    #[cfg(windows)]
++    {
++        super::known::known_folder(&super::known::DOCUMENTS)
++    }
++    #[cfg(not(windows))]
++    {
++        unix_user_dir("Documents", "DOCUMENTS")
++    }
++}
++
++/// The user's Downloads folder, or `None`.
++pub fn downloads() -> Option<PathBuf> {
++    #[cfg(windows)]
++    {
++        super::known::known_folder(&super::known::DOWNLOADS)
++    }
++    #[cfg(not(windows))]
++    {
++        unix_user_dir("Downloads", "DOWNLOAD")
++    }
++}
++
++/// `$HOME` when set and non-empty, else the account database's home for the real uid.
++#[cfg(unix)]
++fn unix_home() -> Option<PathBuf> {
++    use std::os::unix::ffi::OsStringExt;
++    if let Some(h) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
++        return Some(PathBuf::from(h));
++    }
++    #[cfg(any(target_os = "android", target_os = "ios", target_os = "emscripten"))]
++    {
++        None
++    }
++    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "emscripten")))]
++    {
++        // SAFETY: `passwd` is plain data that getpwuid_r fills; the buffer outlives the call and
++        // `pw_dir` is read only when the call succeeded and `result` is non-null, then copied.
++        unsafe {
++            let size = match libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) {
++                n if n < 0 => 512usize,
++                n => n as usize,
++            };
++            let mut buf: Vec<u8> = vec![0; size];
++            let mut passwd: libc::passwd = std::mem::zeroed();
++            let mut result = std::ptr::null_mut();
++            let rc = libc::getpwuid_r(
++                libc::getuid(),
++                &mut passwd,
++                buf.as_mut_ptr().cast(),
++                buf.len(),
++                &mut result,
++            );
++            if rc != 0 || result.is_null() || passwd.pw_dir.is_null() {
++                return None;
++            }
++            let bytes = std::ffi::CStr::from_ptr(passwd.pw_dir).to_bytes();
++            if bytes.is_empty() {
++                None
++            } else {
++                Some(PathBuf::from(std::ffi::OsString::from_vec(bytes.to_vec())))
++            }
++        }
++    }
++}
++
++/// macOS: `<home>/<mac_name>`. Other unix: the XDG entry `xdg_name`. Not compiled on Windows.
++#[cfg(not(windows))]
++fn unix_user_dir(mac_name: &str, xdg_name: &str) -> Option<PathBuf> {
++    #[cfg(not(unix))]
++    {
++        let _ = (mac_name, xdg_name);
++        None
++    }
++    #[cfg(all(unix, target_os = "macos"))]
++    {
++        let _ = xdg_name;
++        unix_home().map(|h| h.join(mac_name))
++    }
++    #[cfg(all(unix, not(target_os = "macos")))]
++    {
++        let _ = mac_name;
++        let home = unix_home()?;
++        let config = std::env::var_os("XDG_CONFIG_HOME")
++            .map(PathBuf::from)
++            .filter(|p| p.is_absolute())
++            .unwrap_or_else(|| home.join(".config"));
++        let bytes = std::fs::read(config.join("user-dirs.dirs")).unwrap_or_default();
++        parse_xdg_user_dir(&home, &bytes, xdg_name)
++    }
++}
++
++/// The value of `XDG_<name>_DIR` in the bytes of a `user-dirs.dirs` file, resolved against
++/// `home`. Only `"$HOME/x"` and `"/x"` are understood; `"$HOME/"` (the XDG way to disable a
++/// folder), an empty value, a relative value or a missing key give `None`. The first line that
++/// names the key and has a usable value wins. Pure.
++#[cfg(unix)]
++#[cfg_attr(target_os = "macos", allow(dead_code))]
++pub(crate) fn parse_xdg_user_dir(home: &std::path::Path, file: &[u8], name: &str) -> Option<PathBuf> {
++    use std::os::unix::ffi::OsStringExt;
++    let wanted = format!("XDG_{name}_DIR");
++    for line in file.split(|b| *b == b'\n') {
++        let Some(eq) = line.iter().position(|b| *b == b'=') else {
++            continue;
++        };
++        if trim_blank(&line[..eq]) != wanted.as_bytes() {
++            continue;
++        }
++        let value = trim_blank(&line[eq + 1..]);
++        let Some(inner) = value
++            .strip_prefix(b"\"")
++            .and_then(|v| v.strip_suffix(b"\""))
++        else {
++            continue;
++        };
++        let (relative, rest) = if inner == b"$HOME/" {
++            continue;
++        } else if let Some(rest) = inner.strip_prefix(b"$HOME/") {
++            (true, rest)
++        } else if inner.starts_with(b"/") {
++            (false, inner)
++        } else {
++            continue;
++        };
++        let value = std::ffi::OsString::from_vec(shell_unescape(rest));
++        return Some(if relative {
++            home.join(value)
++        } else {
++            PathBuf::from(value)
++        });
++    }
++    None
++}
++
++#[cfg(unix)]
++fn trim_blank(bytes: &[u8]) -> &[u8] {
++    let blank = |b: &u8| *b == b' ' || *b == b'\t';
++    let start = bytes.iter().take_while(|b| blank(b)).count();
++    let bytes = &bytes[start..];
++    let end = bytes.iter().rev().take_while(|b| blank(b)).count();
++    &bytes[..bytes.len() - end]
++}
++
++/// POSIX double-quote unescape as `xdg-user-dirs-update` writes it: a backslash takes the next byte.
++#[cfg(unix)]
++fn shell_unescape(escaped: &[u8]) -> Vec<u8> {
++    let mut out = Vec::with_capacity(escaped.len());
++    let mut it = escaped.iter().copied();
++    while let Some(b) = it.next() {
++        if b == b'\\' {
++            if let Some(next) = it.next() {
++                out.push(next);
++            }
++        } else {
++            out.push(b);
++        }
++    }
++    out
++}
++
++#[cfg(all(test, unix))]
++mod tests {
++    use super::*;
++    use std::path::Path;
++
++    const HOME: &str = "/home/bob";
++
++    fn p(file: &str, name: &str) -> Option<PathBuf> {
++        parse_xdg_user_dir(Path::new(HOME), file.as_bytes(), name)
++    }
++
++    #[test]
++    fn empty_file_has_nothing() {
++        assert_eq!(p("", "DESKTOP"), None);
++    }
++
++    #[test]
++    fn home_relative_and_absolute() {
++        let f = "XDG_DESKTOP_DIR=\"$HOME/Desktop\"\nXDG_DOCUMENTS_DIR=\"/data/docs\"\n";
++        assert_eq!(p(f, "DESKTOP"), Some(PathBuf::from("/home/bob/Desktop")));
++        assert_eq!(p(f, "DOCUMENTS"), Some(PathBuf::from("/data/docs")));
++        assert_eq!(p(f, "DOWNLOAD"), None);
++    }
++
++    #[test]
++    fn disabled_empty_relative_and_unquoted_are_none() {
++        assert_eq!(p("XDG_DESKTOP_DIR=\"$HOME/\"", "DESKTOP"), None);
++        assert_eq!(p("XDG_DESKTOP_DIR=\"\"", "DESKTOP"), None);
++        assert_eq!(p("XDG_DESKTOP_DIR=\"desk\"", "DESKTOP"), None);
++        assert_eq!(p("XDG_DESKTOP_DIR=$HOME/Desktop", "DESKTOP"), None);
++        assert_eq!(p("XDG_DESKTOP_DIR=\"$HOxyzME/Desktop\"", "DESKTOP"), None);
++    }
++
++    #[test]
++    fn comments_blanks_and_escapes() {
++        let f = "# XDG_DESKTOP_DIR=\"$HOME/Old\"\n  \tXDG_DESKTOP_DIR = \"$HOME/My\\ \\$Desk\"  \n";
++        // The key is trimmed of blanks around it; the `=` split keeps the value side trimmed.
++        assert_eq!(p(f, "DESKTOP"), Some(PathBuf::from("/home/bob/My $Desk")));
++    }
++
++    #[test]
++    fn first_usable_line_wins_and_crlf_is_not_a_value() {
++        let f = "XDG_DOWNLOAD_DIR=\"$HOME/\"\nXDG_DOWNLOAD_DIR=\"$HOME/Dl\"\n";
++        assert_eq!(p(f, "DOWNLOAD"), Some(PathBuf::from("/home/bob/Dl")));
++        // A CRLF file leaves a trailing CR, which breaks the closing quote: dirs-sys also skips it.
++        assert_eq!(p("XDG_DESKTOP_DIR=\"$HOME/D\"\r\n", "DESKTOP"), None);
++    }
++
++    #[test]
++    fn real_functions_agree_with_each_other_on_unix() {
++        if let Some(h) = home() {
++            assert!(h.is_absolute() || std::env::var_os("HOME").is_some());
++            #[cfg(target_os = "macos")]
++            {
++                assert_eq!(desktop(), Some(h.join("Desktop")));
++                assert_eq!(documents(), Some(h.join("Documents")));
++                assert_eq!(downloads(), Some(h.join("Downloads")));
++            }
++        }
++    }
++}
+diff --git a/crates/rightkit-fs/src/file_key.rs b/crates/rightkit-fs/src/file_key.rs
+index b8f8d71..4b21ae6 100644
+--- a/crates/rightkit-fs/src/file_key.rs
++++ b/crates/rightkit-fs/src/file_key.rs
+@@ -1,8 +1,9 @@
+ //! The filesystem's own identity for a file: [`FileKey`] (device and inode on unix, volume serial
+ //! and file index on Windows).
+ //!
+-//! Compiled with feature `fs` alone. The stable-identity ledger in [`crate::identity`] needs
+-//! feature `json` on top of it; a consumer that only compares two files does not.
++//! Compiled with feature `fs` alone, with [`StableId`] and [`new_stable_id`]. The stable-identity
++//! ledger in [`crate::identity`] needs feature `json` on top of it; a consumer that only compares
++//! two files, or mints its own ids, does not.
+ 
+ use crate::error::{FsError, Result};
+ use std::fs::{File, OpenOptions};
+@@ -135,6 +136,55 @@ fn windows_key(file: &File) -> std::io::Result<FileKey> {
+     windows_info(file).map(|(key, _links)| key)
+ }
+ 
++/// A stable file identifier: 32 lowercase hex characters from 16 random bytes ([`new_stable_id`]).
++/// Defined with feature `fs` alone; the ledger that stores them ([`crate::identity`]) needs `json`.
++pub type StableId = String;
++
++/// A new random [`StableId`] from the operating system's random source (`/dev/urandom` on unix,
++/// `BCryptGenRandom` on Windows).
++pub fn new_stable_id() -> Result<StableId> {
++    let mut bytes = [0u8; 16];
++    random_bytes(&mut bytes)?;
++    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
++}
++
++fn random_bytes(buf: &mut [u8]) -> Result<()> {
++    #[cfg(unix)]
++    {
++        File::open("/dev/urandom")
++            .and_then(|mut f| std::io::Read::read_exact(&mut f, buf))
++            .map_err(|e| FsError::io("/dev/urandom", e))
++    }
++    #[cfg(windows)]
++    {
++        #[link(name = "bcrypt")]
++        unsafe extern "system" {
++            fn BCryptGenRandom(
++                algorithm: *mut std::ffi::c_void,
++                buffer: *mut u8,
++                length: u32,
++                flags: u32,
++            ) -> i32;
++        }
++        // SAFETY: buffer is valid for its length; flag 2 = system-preferred RNG.
++        let status =
++            unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, 2) };
++        if status >= 0 {
++            Ok(())
++        } else {
++            Err(FsError::io(
++                "BCryptGenRandom",
++                std::io::Error::other("RNG failure"),
++            ))
++        }
++    }
++    #[cfg(not(any(unix, windows)))]
++    {
++        let _ = buf;
++        Err(FsError::Unavailable("random bytes"))
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -159,6 +209,14 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn a_new_stable_id_is_32_hex_chars_and_unique() {
++        let (a, b) = (new_stable_id().unwrap(), new_stable_id().unwrap());
++        assert_eq!(a.len(), 32);
++        assert!(a.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
++        assert_ne!(a, b);
++    }
++
+     #[test]
+     fn a_missing_path_is_an_error() {
+         let dir = tempfile::tempdir().unwrap();
+diff --git a/crates/rightkit-fs/src/identity.rs b/crates/rightkit-fs/src/identity.rs
+index 813e20b..788d637 100644
+--- a/crates/rightkit-fs/src/identity.rs
++++ b/crates/rightkit-fs/src/identity.rs
+@@ -18,7 +18,7 @@
+ 
+ use crate::atomic::atomic_write_private;
+ use crate::error::{FsError, Result};
+-pub use crate::file_key::FileKey;
++pub use crate::file_key::{FileKey, StableId};
+ use crate::lock::{FileLock, LockOptions};
+ use serde::{Deserialize, Serialize};
+ use std::collections::BTreeMap;
+@@ -32,8 +32,6 @@ const LOCK_FILE: &str = "identity-ledger.lock";
+ const SAMPLE: u64 = 64 * 1024;
+ const LEDGER_VERSION: u32 = 1;
+ 
+-pub type StableId = String;
+-
+ /// Cheap content fingerprint: size plus FNV-1a over the first and last 64 KiB. Only ever used to
+ /// shortlist a replaced or copied file; never as proof of identity on its own.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+@@ -369,44 +367,5 @@ fn now_ms() -> u64 {
+ }
+ 
+ fn new_id() -> Result<StableId> {
+-    let mut bytes = [0u8; 16];
+-    random_bytes(&mut bytes)?;
+-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+-}
+-
+-fn random_bytes(buf: &mut [u8]) -> Result<()> {
+-    #[cfg(unix)]
+-    {
+-        File::open("/dev/urandom")
+-            .and_then(|mut f| f.read_exact(buf))
+-            .map_err(|e| FsError::io("/dev/urandom", e))
+-    }
+-    #[cfg(windows)]
+-    {
+-        #[link(name = "bcrypt")]
+-        unsafe extern "system" {
+-            fn BCryptGenRandom(
+-                algorithm: *mut std::ffi::c_void,
+-                buffer: *mut u8,
+-                length: u32,
+-                flags: u32,
+-            ) -> i32;
+-        }
+-        // SAFETY: buffer is valid for its length; flag 2 = system-preferred RNG.
+-        let status =
+-            unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, 2) };
+-        if status >= 0 {
+-            Ok(())
+-        } else {
+-            Err(FsError::io(
+-                "BCryptGenRandom",
+-                std::io::Error::other("RNG failure"),
+-            ))
+-        }
+-    }
+-    #[cfg(not(any(unix, windows)))]
+-    {
+-        let _ = buf;
+-        Err(FsError::Unavailable("random bytes"))
+-    }
++    crate::file_key::new_stable_id()
+ }
+diff --git a/crates/rightkit-fs/src/lease.rs b/crates/rightkit-fs/src/lease.rs
+index 40e10cf..85ebcfd 100644
+--- a/crates/rightkit-fs/src/lease.rs
++++ b/crates/rightkit-fs/src/lease.rs
+@@ -1,8 +1,8 @@
+ //! A cross-process lease file with stale-holder detection (pid + heartbeat TTL).
+ //!
+ //! This is not [`crate::FileLock`]. A `FileLock` is an OS advisory lock the kernel drops when its
+-//! holder dies. A [`Lease`] is a small record in a plain file: who holds it (pid, a unique token, a
+-//! label), when it was taken and when the holder last heartbeated, and the TTL the holder promises
++//! holder dies. A [`Lease`] is a small record in a plain file: who holds it (pid, the executable path,
++//! a kind, a unique token, a label), when it was taken and when the holder last heartbeated, and the TTL the holder promises
+ //! to heartbeat within. It outlives the holder's file handles, can be observed by anyone without
+ //! locking, and is taken over when the holder is gone. Use it to elect one process out of many (a
+ //! daemon autostarter, a single scheduler) where the winner keeps running work for a long time.
+@@ -31,6 +31,14 @@
+ //! A live pid with a fresh heartbeat is never taken. A live pid that stopped heartbeating (a hung
+ //! process, or a recycled pid) is taken after its TTL.
+ //!
++//! # Who holds it
++//!
++//! The record names the holder so a second process can tell a daemon from a CLI, or a stuck holder
++//! from a healthy one, without asking it: `pid`, `exe` (the holder's executable path, taken from
++//! `std::env::current_exe` when the lease is acquired; empty when the OS cannot say), `kind` (a short
++//! role word the caller chooses with [`LeaseOptions::kind`], for example `daemon` or `autostart`) and
++//! the free-text `label`. A record written by an earlier 0.4.4 reads with `exe` and `kind` empty.
++//!
+ //! # Takeover and the guard
+ //!
+ //! Every operation that changes an existing record (a takeover, [`Lease::renew`],
+@@ -96,6 +104,9 @@ pub struct LeaseOptions {
+     pub ttl: Duration,
+     /// Free text stored in the record (a role or program name). Line breaks are replaced by spaces.
+     pub label: String,
++    /// A short role word stored in the record (`daemon`, `autostart`, ...), so another process can
++    /// tell what kind of holder it met. Line breaks are replaced by spaces. Empty by default.
++    pub kind: String,
+ }
+ 
+ impl LeaseOptions {
+@@ -104,9 +115,16 @@ impl LeaseOptions {
+         Self {
+             ttl,
+             label: String::new(),
++            kind: String::new(),
+         }
+     }
+ 
++    /// Set the holder kind stored in the record.
++    pub fn kind(mut self, kind: impl Into<String>) -> Self {
++        self.kind = kind.into();
++        self
++    }
++
+     /// Set the label stored in the record.
+     pub fn label(mut self, label: impl Into<String>) -> Self {
+         self.label = label.into();
+@@ -144,6 +162,11 @@ pub struct LeaseInfo {
+     pub token: String,
+     /// The holder's label.
+     pub label: String,
++    /// The holder's executable path as `std::env::current_exe` reported it when the lease was taken
++    /// (empty when it could not be read, and for a record that did not carry one).
++    pub exe: String,
++    /// The holder kind chosen with [`LeaseOptions::kind`] (empty when none was set).
++    pub kind: String,
+     /// The TTL the holder promised to heartbeat within.
+     pub ttl: Duration,
+     /// When the lease was taken, Unix milliseconds.
+@@ -153,6 +176,13 @@ pub struct LeaseInfo {
+ }
+ 
+ impl LeaseInfo {
++    /// True when this record was written by the current process (same pid). A pid alone is not proof
++    /// of ownership: only the [`Lease`] value, whose token is checked by `renew` and `release`, holds
++    /// the lease.
++    pub fn is_this_process(&self) -> bool {
++        self.pid == std::process::id()
++    }
++
+     /// Judge this record now.
+     pub fn staleness(&self) -> Staleness {
+         self.staleness_at(now_ms())
+@@ -174,10 +204,12 @@ impl LeaseInfo {
+ 
+     fn encode(&self) -> String {
+         format!(
+-            "{HEADER}\npid={}\ntoken={}\nlabel={}\nttl_ms={}\nacquired_ms={}\nheartbeat_ms={}\n",
++            "{HEADER}\npid={}\ntoken={}\nlabel={}\nexe={}\nkind={}\nttl_ms={}\nacquired_ms={}\nheartbeat_ms={}\n",
+             self.pid,
+             self.token,
+             self.label,
++            self.exe,
++            self.kind,
+             millis(self.ttl),
+             self.acquired_ms,
+             self.heartbeat_ms
+@@ -190,6 +222,7 @@ impl LeaseInfo {
+             return None;
+         }
+         let (mut pid, mut token, mut label) = (None, None, String::new());
++        let (mut exe, mut kind) = (String::new(), String::new());
+         let (mut ttl, mut acquired, mut heartbeat) = (None, None, None);
+         for line in lines {
+             let (key, value) = line.split_once('=')?;
+@@ -197,6 +230,8 @@ impl LeaseInfo {
+                 "pid" => pid = value.parse::<u32>().ok(),
+                 "token" => token = Some(value.to_string()),
+                 "label" => label = value.to_string(),
++                "exe" => exe = value.to_string(),
++                "kind" => kind = value.to_string(),
+                 "ttl_ms" => ttl = value.parse::<u64>().ok(),
+                 "acquired_ms" => acquired = value.parse::<u64>().ok(),
+                 "heartbeat_ms" => heartbeat = value.parse::<u64>().ok(),
+@@ -207,6 +242,8 @@ impl LeaseInfo {
+             pid: pid?,
+             token: token.filter(|t| !t.is_empty())?,
+             label,
++            exe,
++            kind,
+             ttl: Duration::from_millis(ttl?),
+             acquired_ms: acquired?,
+             heartbeat_ms: heartbeat?,
+@@ -258,6 +295,8 @@ impl Lease {
+             pid: std::process::id(),
+             token: new_token(),
+             label: options.label.replace(['\r', '\n'], " "),
++            exe: current_exe_text(),
++            kind: options.kind.replace(['\r', '\n'], " "),
+             ttl: options.ttl,
+             acquired_ms: now,
+             heartbeat_ms: now,
+@@ -449,6 +488,8 @@ fn unreadable_info(mtime_ms: u64) -> LeaseInfo {
+         pid: 0,
+         token: String::new(),
+         label: String::new(),
++        exe: String::new(),
++        kind: String::new(),
+         ttl: Duration::ZERO,
+         acquired_ms: mtime_ms,
+         heartbeat_ms: mtime_ms,
+@@ -669,6 +710,13 @@ fn write_replace(path: &Path, text: &str) -> Result<()> {
+     )
+ }
+ 
++/// The running executable's path with line breaks folded, or empty when the OS cannot say.
++fn current_exe_text() -> String {
++    std::env::current_exe()
++        .map(|p| p.to_string_lossy().replace(['\r', '\n'], " "))
++        .unwrap_or_default()
++}
++
+ fn new_token() -> String {
+     let nanos = SystemTime::now()
+         .duration_since(UNIX_EPOCH)
+@@ -731,6 +779,8 @@ mod tests {
+             pid,
+             token: token.to_string(),
+             label: "other".into(),
++            exe: "/usr/bin/other".into(),
++            kind: "daemon".into(),
+             ttl: TTL,
+             acquired_ms: heartbeat_ms,
+             heartbeat_ms,
+@@ -753,6 +803,52 @@ mod tests {
+         assert_eq!(Lease::peek(&dir.path().join("none")).unwrap(), None);
+     }
+ 
++    #[test]
++    fn the_record_names_the_holder_by_pid_exe_and_kind() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = lease_path(&dir);
++        let lease = Lease::try_acquire_at(&path, &opts().kind("auto\nstart"), T0)
++            .unwrap()
++            .acquired()
++            .unwrap();
++        let seen = Lease::peek(&path).unwrap().unwrap();
++        assert_eq!(seen.pid, std::process::id());
++        assert!(seen.is_this_process());
++        assert_eq!(seen.kind, "auto start");
++        assert_eq!(seen.exe, current_exe_text());
++        assert!(!seen.exe.is_empty());
++        assert_eq!(&seen, lease.info());
++        // The observer sees the same fields through `Held`.
++        match acquire_at(&path, T0 + 1) {
++            Acquire::Held(holder) => {
++                assert_eq!(holder.kind, "auto start");
++                assert_eq!(holder.exe, seen.exe);
++            }
++            Acquire::Acquired(_) => panic!("a fresh lease must not be taken"),
++        }
++    }
++
++    #[test]
++    fn a_record_without_exe_and_kind_still_parses_and_a_hung_live_holder_expires() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = lease_path(&dir);
++        fs::create_dir_all(path.parent().unwrap()).unwrap();
++        // The 0.4.4 shape: a live pid (this process) that stopped heartbeating.
++        fs::write(
++            &path,
++            format!(
++                "rightkit-lease v1\npid={}\ntoken=old\nlabel=x\nttl_ms=10000\nacquired_ms={T0}\nheartbeat_ms={T0}\n",
++                std::process::id()
++            ),
++        )
++        .unwrap();
++        let seen = Lease::peek(&path).unwrap().unwrap();
++        assert_eq!((seen.exe.as_str(), seen.kind.as_str()), ("", ""));
++        assert!(matches!(acquire_at(&path, T0 + 9_999), Acquire::Held(_)));
++        let taken = acquire_at(&path, T0 + 10_001).acquired().expect("expired");
++        assert_ne!(taken.token(), "old");
++    }
++
+     #[test]
+     fn a_second_acquirer_observes_the_live_holder() {
+         let dir = tempfile::tempdir().unwrap();
+diff --git a/crates/rightkit-fs/src/lib.rs b/crates/rightkit-fs/src/lib.rs
+index 04323f8..9824bfa 100644
+--- a/crates/rightkit-fs/src/lib.rs
++++ b/crates/rightkit-fs/src/lib.rs
+@@ -10,9 +10,14 @@
+ //! - [`lease`] (feature `fs`): [`Lease`], a pid + heartbeat-TTL lease file with stale-holder takeover
+ //!   (not an OS lock): `try_acquire`, `renew`, `release`, `peek`.
+ //! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
+-//!   never shows a half-migrated destination (rename, or copy to a sibling then rename).
++//!   never shows a half-migrated destination (rename, or copy to a sibling then rename), and
++//!   [`migrate_dir_marked`], the same move that leaves a `migrated-from.json` marker in the new folder.
+ //! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
+ //!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
++//!   [`app_dirs::user_dirs`] gives the account's own `home`, `desktop`, `documents` and `downloads`
++//!   folders (the values the `dirs` crate returns).
++//! - [`test_mode`]: the test-mode gate for an app (pure `decide`, isolated-directory guard, build.rs
++//!   cfg helper, `forbid_in_release!`); the run-time reader is feature `test-mode`.
+ //! - [`digest`] (features `digest` / `blake3`): SHA-256 / BLAKE3 of bytes or files, & lowercase hex.
+ //! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
+ //! - [`contain`](mod@contain): [`is_within`], [`contain()`](contain::contain), [`contain_lenient`] and [`Roots`], path containment that
+@@ -22,6 +27,9 @@
+ //! - [`names`]: [`sanitize_file_name`] for names that come from outside, [`numbered_candidates`], and with feature `fs`
+ //!   [`create_unique_file`] / [`create_download_file`].
+ //! - [`publish_dir`](mod@publish_dir) (feature `fs`): [`publish_dir()`](publish_dir::publish_dir), an atomic directory replace.
++//! - [`publish_group`](mod@publish_group) (feature `fs`): [`publish_group()`](publish_group::publish_group), several files
++//!   published as a group with backup, rollback on failure and a cancel gate.
++//! - [`remove`] (feature `fs`): [`remove_tree`], a directory-tree removal that retries Windows sharing violations.
+ //! - [`trash`] (feature `fs`): [`move_to_trash`], and `trash::{list, lookup, restore}` (macOS and Windows).
+ //! - [`zip`]: [`StoredZipWriter`], a deterministic stored-method ZIP writer, and [`crc32`]; also
+ //!   `zip::{write_zip, read_zip, crc_table, crc32_update}` for archives built from files on disk.
+@@ -30,7 +38,8 @@
+ //!   replace refused (access denied, sharing violation).
+ //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
+ //!   `*at` operations) that a swapped or symlinked path cannot redirect.
+-//! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
++//! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement. [`FileKey`],
++//!   [`StableId`] and [`new_stable_id`] need only feature `fs`.
+ //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; [`clone_file_nofollow`] never falls
+ //!   back to a byte copy, [`clone_or_link_or_copy_nofollow`] tries clone, hard link, then copy.
+ //! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
+@@ -77,6 +86,10 @@ pub mod private;
+ #[cfg(feature = "fs")]
+ pub mod publish_dir;
+ #[cfg(feature = "fs")]
++pub mod publish_group;
++#[cfg(feature = "fs")]
++pub mod remove;
++#[cfg(feature = "fs")]
+ pub mod replaced;
+ #[cfg(feature = "fs")]
+ pub mod space;
+@@ -84,6 +97,7 @@ pub mod space;
+ pub mod state;
+ #[cfg(feature = "fs")]
+ pub mod swap;
++pub mod test_mode;
+ #[cfg(feature = "fs")]
+ pub mod trash;
+ #[cfg(feature = "fs")]
+@@ -121,17 +135,20 @@ pub use contain::{open_confined, ConfinedOptions};
+ #[cfg(feature = "fs")]
+ pub use error::{FsError, PostPublishStep, Result};
+ #[cfg(feature = "fs")]
+-pub use file_key::FileKey;
++pub use file_key::{new_stable_id, FileKey, StableId};
+ #[cfg(feature = "fs")]
+ pub use handle::{final_path, link_count, open_read_nofollow, ReadOptions};
+ #[cfg(feature = "json")]
+-pub use identity::{IdentityStore, Resolution, StableId, Tracked};
++pub use identity::{IdentityStore, Resolution, Tracked};
+ #[cfg(feature = "fs")]
+ pub use lease::{Acquire, Lease, LeaseInfo, LeaseOptions, Staleness};
+ #[cfg(feature = "lock")]
+ pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
+ #[cfg(feature = "fs")]
+-pub use migrate::{migrate_dir, MigrateMethod, Migrated};
++pub use migrate::{
++    is_marked, migrate_dir, migrate_dir_marked, MarkOptions, MarkedMigration, MigrateMethod,
++    Migrated,
++};
+ #[cfg(feature = "fs")]
+ pub use names::{create_download_file, create_unique_file};
+ pub use names::{
+@@ -149,6 +166,10 @@ pub use private::{
+ #[cfg(feature = "fs")]
+ pub use publish_dir::{publish_dir, DirPublishMethod, PublishedDir};
+ #[cfg(feature = "fs")]
++pub use publish_group::{publish_group, GroupEntry, GroupOptions, GroupPublished};
++#[cfg(feature = "fs")]
++pub use remove::{remove_tree, RemoveOptions};
++#[cfg(feature = "fs")]
+ pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
+ #[cfg(feature = "fs")]
+ pub use space::free_bytes;
+diff --git a/crates/rightkit-fs/src/migrate.rs b/crates/rightkit-fs/src/migrate.rs
+index 00f4c3a..63a8b1a 100644
+--- a/crates/rightkit-fs/src/migrate.rs
++++ b/crates/rightkit-fs/src/migrate.rs
+@@ -29,6 +29,16 @@
+ //! `from` is removed only after that rename succeeded and the parent directory of `to` was synced
+ //! (if that sync fails, `from` is kept and `source_removed` is false). Windows cannot sync a
+ //! directory, so only files are flushed there. Not compiled or run when written.
++//!
++//! # Move and mark
++//!
++//! [`migrate_dir_marked`] is [`migrate_dir`] that also leaves a marker file in the new folder
++//! (default `migrated-from.json`: where it came from, when, and an optional note). The marker is
++//! written into the **source** tree first, so it travels with the tree and `to` never appears without
++//! it; a failed migration puts the source back as it was (a marker that was already there is
++//! restored). [`is_marked`] tells an app, at its next start, that the move already happened, so it can
++//! skip the legacy-folder check. The marker is a small hand-written JSON object, so no feature beyond
++//! `fs` is needed.
+ 
+ use crate::error::{FsError, Result};
+ use crate::tree::{copy_tree, CopyOptions};
+@@ -137,6 +147,165 @@ pub fn migrate_dir(from: &Path, to: &Path) -> Result<Migrated> {
+     })
+ }
+ 
++/// The default marker file name written by [`migrate_dir_marked`].
++pub const DEFAULT_MARKER: &str = "migrated-from.json";
++
++/// What [`migrate_dir_marked`] writes.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct MarkOptions {
++    /// The marker's file name inside the migrated folder: a plain name, no separators.
++    pub file_name: String,
++    /// Free text stored as `"note"` (for example the old and new app versions). Optional.
++    pub note: Option<String>,
++}
++
++impl Default for MarkOptions {
++    fn default() -> Self {
++        Self {
++            file_name: DEFAULT_MARKER.to_string(),
++            note: None,
++        }
++    }
++}
++
++impl MarkOptions {
++    /// The default marker name and no note.
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Store this note in the marker.
++    pub fn note(mut self, note: impl Into<String>) -> Self {
++        self.note = Some(note.into());
++        self
++    }
++
++    /// Use another marker file name.
++    pub fn file_name(mut self, name: impl Into<String>) -> Self {
++        self.file_name = name.into();
++        self
++    }
++}
++
++/// What [`migrate_dir_marked`] did.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct MarkedMigration {
++    /// The move itself.
++    pub migrated: Migrated,
++    /// The marker file now in the new folder.
++    pub marker: PathBuf,
++}
++
++/// [`migrate_dir`] that leaves a marker file in the new folder. See the module docs ("Move and
++/// mark"). The marker holds `from` (as an absolute path), the time in Unix milliseconds and the note.
++/// `options.file_name` must be a plain file name ([`FsError::BadName`]). Writing the marker into the
++/// source is the first step: if that fails nothing has moved.
++pub fn migrate_dir_marked(
++    from: &Path,
++    to: &Path,
++    options: &MarkOptions,
++) -> Result<MarkedMigration> {
++    check_marker_name(&options.file_name)?;
++    let meta = fs::symlink_metadata(from).map_err(|e| FsError::io(from, e))?;
++    if meta.file_type().is_symlink() {
++        return Err(FsError::Symlink(from.to_path_buf()));
++    }
++    if !meta.is_dir() {
++        return Err(FsError::NotADirectory(from.to_path_buf()));
++    }
++    let abs_from = std::path::absolute(from).map_err(|e| FsError::io(from, e))?;
++    let marker_in_source = abs_from.join(&options.file_name);
++    // Remember a marker that is already there so a failed move can put it back.
++    let previous = match fs::symlink_metadata(&marker_in_source) {
++        Ok(meta) if meta.is_file() => Some(
++            fs::read(&marker_in_source).map_err(|e| FsError::io(&marker_in_source, e))?,
++        ),
++        Ok(_) => return Err(FsError::NotAFile(marker_in_source)),
++        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
++        Err(e) => return Err(FsError::io(&marker_in_source, e)),
++    };
++    let text = marker_text(&abs_from, options.note.as_deref());
++    crate::atomic::atomic_write(&marker_in_source, text.as_bytes())?;
++    match migrate_dir(from, to) {
++        Ok(migrated) => {
++            let abs_to = std::path::absolute(to).map_err(|e| FsError::io(to, e))?;
++            Ok(MarkedMigration {
++                migrated,
++                marker: abs_to.join(&options.file_name),
++            })
++        }
++        Err(e) => {
++            // Nothing moved (or the source is still whole): restore the source's own marker state.
++            match previous {
++                Some(bytes) => {
++                    let _ = crate::atomic::atomic_write(&marker_in_source, &bytes);
++                }
++                None => {
++                    let _ = fs::remove_file(&marker_in_source);
++                }
++            }
++            Err(e)
++        }
++    }
++}
++
++/// Whether `dir` carries the marker `options.file_name` (the migration into it already happened).
++/// A marker that is a symlink or a directory does not count.
++pub fn is_marked(dir: &Path, options: &MarkOptions) -> bool {
++    check_marker_name(&options.file_name).is_ok()
++        && fs::symlink_metadata(dir.join(&options.file_name))
++            .map(|m| m.is_file())
++            .unwrap_or(false)
++}
++
++fn check_marker_name(name: &str) -> Result<()> {
++    let plain = !name.is_empty()
++        && name != "."
++        && name != ".."
++        && !name.contains(['/', '\\', '\0', ':']);
++    if plain {
++        Ok(())
++    } else {
++        Err(FsError::BadName(name.to_string()))
++    }
++}
++
++fn marker_text(from: &Path, note: Option<&str>) -> String {
++    let at_ms = std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|d| d.as_millis() as u64)
++        .unwrap_or(0);
++    let mut out = format!(
++        "{{\n  \"from\": {},\n  \"at_ms\": {at_ms}",
++        json_string(&from.to_string_lossy())
++    );
++    if let Some(note) = note {
++        out.push_str(&format!(",\n  \"note\": {}", json_string(note)));
++    }
++    out.push_str("\n}\n");
++    out
++}
++
++fn json_string(text: &str) -> String {
++    let mut out = String::with_capacity(text.len() + 2);
++    out.push('"');
++    for c in text.chars() {
++        match c {
++            '"' => out.push_str("\\\""),
++            '\\' => out.push_str("\\\\"),
++            '\n' => out.push_str("\\n"),
++            '\r' => out.push_str("\\r"),
++            '\t' => out.push_str("\\t"),
++            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
++            c => out.push(c),
++        }
++    }
++    out.push('"');
++    out
++}
++
+ /// Refuse a destination that is the source or inside it. Decided on canonical paths: `from` is
+ /// canonicalized, and `to` through its deepest existing ancestor (the missing tail is appended
+ /// as is, and may not hold `..`), so a symlink into the source is seen. Nothing is created.
+@@ -596,6 +765,61 @@ mod tests {
+         assert_filled(&to);
+     }
+ 
++    #[test]
++    fn marked_migration_leaves_the_marker_in_the_new_folder() {
++        let root = tempfile::tempdir().unwrap();
++        let from = root.path().join("old");
++        let to = root.path().join("new");
++        fill(&from);
++        let done = migrate_dir_marked(&from, &to, &MarkOptions::new().note("v1 -> v2")).unwrap();
++        assert!(!from.exists());
++        assert_filled(&to);
++        assert_eq!(done.marker, std::path::absolute(&to).unwrap().join(DEFAULT_MARKER));
++        let text = fs::read_to_string(&done.marker).unwrap();
++        assert!(text.contains("\"from\""), "{text}");
++        assert!(text.contains("\"at_ms\""), "{text}");
++        assert!(text.contains("\"note\": \"v1 -> v2\""), "{text}");
++        assert!(is_marked(&to, &MarkOptions::new()));
++        assert!(!is_marked(&to, &MarkOptions::new().file_name("other.json")));
++    }
++
++    #[test]
++    fn a_refused_marked_migration_restores_the_source() {
++        let root = tempfile::tempdir().unwrap();
++        let from = root.path().join("old");
++        let to = root.path().join("new");
++        fill(&from);
++        fs::create_dir(&to).unwrap();
++        fs::write(to.join("keep"), b"mine").unwrap();
++        let err = migrate_dir_marked(&from, &to, &MarkOptions::new()).unwrap_err();
++        assert!(matches!(err, FsError::AlreadyExists(_)), "{err:?}");
++        assert!(!from.join(DEFAULT_MARKER).exists(), "the marker is taken back out");
++        assert_filled(&from);
++        // A marker the source already had is put back as it was.
++        fs::write(from.join(DEFAULT_MARKER), b"previous").unwrap();
++        migrate_dir_marked(&from, &to, &MarkOptions::new()).unwrap_err();
++        assert_eq!(fs::read(from.join(DEFAULT_MARKER)).unwrap(), b"previous");
++    }
++
++    #[test]
++    fn marker_names_must_be_plain_and_text_is_valid_json_shaped() {
++        let root = tempfile::tempdir().unwrap();
++        let from = root.path().join("old");
++        fill(&from);
++        for bad in ["", ".", "..", "a/b", "a\\b", "x:y"] {
++            let err = migrate_dir_marked(
++                &from,
++                &root.path().join("new"),
++                &MarkOptions::new().file_name(bad),
++            )
++            .unwrap_err();
++            assert!(matches!(err, FsError::BadName(_)), "{bad:?}: {err:?}");
++        }
++        assert_filled(&from);
++        assert_eq!(json_string("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
++        assert_eq!(json_string("\u{1}"), "\"\\u0001\"");
++    }
++
+     fn dead_pid() -> u32 {
+         let exe = std::env::current_exe().unwrap();
+         let mut child = std::process::Command::new(exe)
+diff --git a/crates/rightkit-fs/src/publish_group.rs b/crates/rightkit-fs/src/publish_group.rs
+new file mode 100644
+index 0000000..a166a69
+--- /dev/null
++++ b/crates/rightkit-fs/src/publish_group.rs
+@@ -0,0 +1,512 @@
++//! Publish several finished files as one group: all of them become visible, or none of them does.
++//!
++//! [`publish_group`] is the multi-file counterpart of [`crate::publish_file`], for a set of files that
++//! only make sense together (a database and its index, a manifest and the data it lists, a settings
++//! file and its schema). Each entry is a finished staging file the caller wrote next to its
++//! destination; the destinations may be in different directories.
++//!
++//! # What it does
++//!
++//! 1. **Validate.** Every staging file is a real regular file (a symlink is refused), every
++//!    destination is absent or a real regular file (a symlink or directory is refused), no
++//!    destination appears twice, and no staging file is its own destination. Nothing is touched when
++//!    this fails.
++//! 2. **Back up.** Each existing destination is backed up as a sibling `.<name>.rkbak-<pid>-<n>`: a
++//!    hard link when the volume has them (the backup then keeps the old bytes when the destination is
++//!    replaced by rename), else a copy. A destination is never moved away, so readers keep seeing a
++//!    complete file at every name throughout. A backup failure removes the backups already made and
++//!    changes nothing else.
++//! 3. **Publish.** Each staging file replaces its destination with [`crate::publish_file_with`]
++//!    (atomic per file). The cancel gate ([`GroupOptions::cancel`]) is asked before every file.
++//! 4. **Roll back on failure or cancel.** Every destination already published is put back (the
++//!    backup renamed over it, or the new file removed when the destination did not exist), in reverse
++//!    order, and the backups are removed. Staging files that were not published are left in place;
++//!    ones that were published no longer exist as staging files (they became the destination, and the
++//!    rollback restored the old content).
++//! 5. **Commit.** After the last file is in place the backups are removed. A backup that cannot be
++//!    removed is reported in [`GroupPublished::leftover_backups`], not as an error.
++//!
++//! # Guarantees and limits
++//!
++//! * The group is **not** one atomic step for a concurrent reader: between the first and the last
++//!   publish a reader can see some new files and some old. It is all-or-nothing for the outcome: when
++//!   the call returns `Ok` every file is new; when it returns an error each destination holds the
++//!   content it had before (rollback failures excepted, below).
++//! * A crash in the middle leaves a mix of old and new files and the backups `.<name>.rkbak-<pid>-*`
++//!   next to the destinations that existed. Nothing here recovers from that on the next start; a
++//!   caller that needs it keeps its own commit marker.
++//! * If a rollback step itself fails, the remaining steps still run, the backups that could not be
++//!   restored are **kept**, and the error says which destinations are in doubt and where their backups
++//!   are.
++//! * A cancel is reported as an [`FsError::Io`] of kind [`io::ErrorKind::Interrupted`] after the
++//!   rollback ([`FsError::kind`]).
++//! * Each file's publish is durable by default ([`GroupOptions::durable`]); the backups are not
++//!   synced.
++//!
++//! Not compiled or run when written.
++
++use crate::atomic::{publish_file_with, AtomicWriteOptions, ReplaceMode, RetryPolicy};
++use crate::error::{FsError, Result};
++use std::io;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::time::Duration;
++
++static COUNTER: AtomicU64 = AtomicU64::new(0);
++
++/// One file of a group: the finished staging file and the path it becomes.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct GroupEntry {
++    /// The finished file, closed by its writer, on the same volume as `dest`.
++    pub staged: PathBuf,
++    /// Where it must appear.
++    pub dest: PathBuf,
++}
++
++impl GroupEntry {
++    /// An entry publishing `staged` at `dest`.
++    pub fn new(staged: impl Into<PathBuf>, dest: impl Into<PathBuf>) -> Self {
++        Self {
++            staged: staged.into(),
++            dest: dest.into(),
++        }
++    }
++}
++
++/// Options for [`publish_group`].
++#[derive(Clone, Copy)]
++#[non_exhaustive]
++pub struct GroupOptions<'a> {
++    /// Asked before the backups are made and before every file is published; `true` cancels (the
++    /// group is rolled back). Not asked after the last file is in place.
++    pub cancel: Option<&'a dyn Fn() -> bool>,
++    /// Sync each staging file and its directory when publishing it. Default `true`.
++    pub durable: bool,
++    /// Retry a publish or restore step on Windows sharing violations. Default 5 retries, 20 ms apart.
++    pub retry_sharing_violation: Option<RetryPolicy>,
++}
++
++impl Default for GroupOptions<'_> {
++    fn default() -> Self {
++        Self {
++            cancel: None,
++            durable: true,
++            retry_sharing_violation: Some(RetryPolicy::new(5, Duration::from_millis(20))),
++        }
++    }
++}
++
++impl std::fmt::Debug for GroupOptions<'_> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("GroupOptions")
++            .field("cancel", &self.cancel.map(|_| "<gate>"))
++            .field("durable", &self.durable)
++            .field("retry_sharing_violation", &self.retry_sharing_violation)
++            .finish()
++    }
++}
++
++impl<'a> GroupOptions<'a> {
++    /// The defaults.
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Set the cancel gate.
++    pub fn cancel(mut self, gate: &'a dyn Fn() -> bool) -> Self {
++        self.cancel = Some(gate);
++        self
++    }
++
++    /// Set whether each file's publish is durable.
++    pub fn durable(mut self, durable: bool) -> Self {
++        self.durable = durable;
++        self
++    }
++}
++
++/// What [`publish_group`] did.
++#[derive(Clone, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct GroupPublished {
++    /// Files published (the group's size).
++    pub published: usize,
++    /// Of those, how many replaced an existing file.
++    pub replaced: usize,
++    /// Destinations whose content is in place but whose directory sync failed (they may not survive a
++    /// power loss).
++    pub unsynced: Vec<PathBuf>,
++    /// Backups that could not be removed after the commit (harmless; a caller may delete them).
++    pub leftover_backups: Vec<PathBuf>,
++}
++
++struct Slot {
++    entry: GroupEntry,
++    backup: Option<PathBuf>,
++    published: bool,
++}
++
++/// Publish every entry, or none. See the module docs for the steps, the guarantees and the limits.
++pub fn publish_group(entries: &[GroupEntry], options: &GroupOptions<'_>) -> Result<GroupPublished> {
++    validate(entries)?;
++    let cancelled = || options.cancel.is_some_and(|gate| gate());
++    let cancel_error = |path: &Path| {
++        FsError::io(
++            path,
++            io::Error::new(
++                io::ErrorKind::Interrupted,
++                "the group publish was cancelled and rolled back",
++            ),
++        )
++    };
++    let mut slots: Vec<Slot> = entries
++        .iter()
++        .map(|entry| Slot {
++            entry: entry.clone(),
++            backup: None,
++            published: false,
++        })
++        .collect();
++
++    if cancelled() {
++        return Err(cancel_error(&entries[0].dest));
++    }
++
++    // Backups first, so a failure here has changed nothing but the backups themselves.
++    for index in 0..slots.len() {
++        match make_backup(&slots[index].entry.dest) {
++            Ok(backup) => slots[index].backup = backup,
++            Err(e) => {
++                remove_backups(&slots);
++                return Err(e);
++            }
++        }
++    }
++
++    let mut unsynced = Vec::new();
++    for index in 0..slots.len() {
++        if cancelled() {
++            let path = slots[index].entry.dest.clone();
++            return Err(fail(&mut slots, cancel_error(&path)));
++        }
++        let publish = AtomicWriteOptions {
++            replace: ReplaceMode::MoveWriteThrough,
++            durable: options.durable,
++            retry_sharing_violation: options.retry_sharing_violation,
++            ..AtomicWriteOptions::default()
++        };
++        let entry = slots[index].entry.clone();
++        match publish_file_with(&entry.staged, &entry.dest, publish) {
++            Ok(()) => slots[index].published = true,
++            Err(e) if e.target_replaced() => {
++                // The content is in place; only a sync or cleanup step failed.
++                slots[index].published = true;
++                unsynced.push(entry.dest.clone());
++            }
++            Err(e) => return Err(fail(&mut slots, e)),
++        }
++    }
++
++    let replaced = slots.iter().filter(|s| s.backup.is_some()).count();
++    let leftover_backups = remove_backups(&slots);
++    Ok(GroupPublished {
++        published: slots.len(),
++        replaced,
++        unsynced,
++        leftover_backups,
++    })
++}
++
++fn validate(entries: &[GroupEntry]) -> Result<()> {
++    if entries.is_empty() {
++        return Err(FsError::io(
++            Path::new("."),
++            io::Error::new(io::ErrorKind::InvalidInput, "an empty publish group"),
++        ));
++    }
++    for (index, entry) in entries.iter().enumerate() {
++        if entry.staged == entry.dest {
++            return Err(FsError::io(
++                &entry.dest,
++                io::Error::new(
++                    io::ErrorKind::InvalidInput,
++                    "a staging file cannot be its own destination",
++                ),
++            ));
++        }
++        if entries[..index].iter().any(|other| other.dest == entry.dest) {
++            return Err(FsError::io(
++                &entry.dest,
++                io::Error::new(
++                    io::ErrorKind::InvalidInput,
++                    "the same destination appears twice in the group",
++                ),
++            ));
++        }
++        match std::fs::symlink_metadata(&entry.staged) {
++            Ok(meta) if meta.file_type().is_symlink() => {
++                return Err(FsError::Symlink(entry.staged.clone()))
++            }
++            Ok(meta) if !meta.is_file() => return Err(FsError::NotAFile(entry.staged.clone())),
++            Ok(_) => {}
++            Err(e) => return Err(FsError::io(&entry.staged, e)),
++        }
++        match std::fs::symlink_metadata(&entry.dest) {
++            Ok(meta) if meta.file_type().is_symlink() => {
++                return Err(FsError::Symlink(entry.dest.clone()))
++            }
++            Ok(meta) if !meta.is_file() => return Err(FsError::NotAFile(entry.dest.clone())),
++            Ok(_) => {}
++            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
++            Err(e) => return Err(FsError::io(&entry.dest, e)),
++        }
++    }
++    Ok(())
++}
++
++/// Back up `dest` beside itself, or `None` when it does not exist.
++fn make_backup(dest: &Path) -> Result<Option<PathBuf>> {
++    match std::fs::symlink_metadata(dest) {
++        Ok(_) => {}
++        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
++        Err(e) => return Err(FsError::io(dest, e)),
++    }
++    let backup = backup_name(dest)?;
++    if std::fs::hard_link(dest, &backup).is_ok() {
++        return Ok(Some(backup));
++    }
++    match std::fs::copy(dest, &backup) {
++        Ok(_) => Ok(Some(backup)),
++        Err(e) => {
++            let _ = std::fs::remove_file(&backup);
++            Err(FsError::io(dest, e))
++        }
++    }
++}
++
++fn backup_name(dest: &Path) -> Result<PathBuf> {
++    let dir = match dest.parent() {
++        Some(p) if !p.as_os_str().is_empty() => p,
++        _ => Path::new("."),
++    };
++    let name = dest
++        .file_name()
++        .ok_or_else(|| FsError::BadName(dest.display().to_string()))?
++        .to_string_lossy()
++        .chars()
++        .take(100)
++        .collect::<String>();
++    Ok(dir.join(format!(
++        ".{name}.rkbak-{}-{}",
++        std::process::id(),
++        COUNTER.fetch_add(1, Ordering::Relaxed)
++    )))
++}
++
++/// Remove every backup; return those that could not be removed.
++fn remove_backups(slots: &[Slot]) -> Vec<PathBuf> {
++    let mut left = Vec::new();
++    for slot in slots {
++        if let Some(backup) = &slot.backup {
++            match std::fs::remove_file(backup) {
++                Ok(()) => {}
++                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
++                Err(_) => left.push(backup.clone()),
++            }
++        }
++    }
++    left
++}
++
++/// Roll back what was published, then return `cause` (or the rollback failure, which names the
++/// destinations in doubt).
++fn fail(slots: &mut [Slot], cause: FsError) -> FsError {
++    let retry = Some(RetryPolicy::new(5, Duration::from_millis(20)));
++    let mut in_doubt: Vec<String> = Vec::new();
++    for slot in slots.iter_mut().rev() {
++        if !slot.published {
++            continue;
++        }
++        let dest = &slot.entry.dest;
++        let restored = match &slot.backup {
++            Some(backup) => publish_file_with(
++                backup,
++                dest,
++                AtomicWriteOptions {
++                    replace: ReplaceMode::Rename,
++                    durable: false,
++                    retry_sharing_violation: retry,
++                    ..AtomicWriteOptions::default()
++                },
++            )
++            .map(|()| true)
++            .or_else(|e| if e.target_replaced() { Ok(true) } else { Err(e) }),
++            None => match std::fs::remove_file(dest) {
++                Ok(()) => Ok(true),
++                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
++                Err(e) => Err(FsError::io(dest, e)),
++            },
++        };
++        match restored {
++            Ok(_) => {
++                // The backup was renamed onto the destination; it no longer exists as a backup.
++                slot.backup = None;
++                slot.published = false;
++            }
++            Err(e) => in_doubt.push(match &slot.backup {
++                Some(backup) => format!(
++                    "{} (old content kept at {}): {e}",
++                    dest.display(),
++                    backup.display()
++                ),
++                None => format!("{} (new file could not be removed): {e}", dest.display()),
++            }),
++        }
++    }
++    // Backups of entries whose rollback succeeded are gone or removable; keep the ones in doubt.
++    let keep: Vec<bool> = slots.iter().map(|s| s.published).collect();
++    for (slot, in_doubt_slot) in slots.iter().zip(keep) {
++        if in_doubt_slot {
++            continue;
++        }
++        if let Some(backup) = &slot.backup {
++            let _ = std::fs::remove_file(backup);
++        }
++    }
++    if in_doubt.is_empty() {
++        cause
++    } else {
++        let first = slots
++            .first()
++            .map(|s| s.entry.dest.clone())
++            .unwrap_or_default();
++        FsError::io(
++            first,
++            io::Error::other(format!(
++                "the group publish failed ({cause}) and the rollback did not finish; in doubt: {}",
++                in_doubt.join("; ")
++            )),
++        )
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::fs;
++    use std::sync::atomic::AtomicUsize;
++
++    fn staged(dir: &Path, name: &str, text: &str) -> PathBuf {
++        let path = dir.join(format!("{name}.new"));
++        fs::write(&path, text).unwrap();
++        path
++    }
++
++    fn names(dir: &Path) -> Vec<String> {
++        let mut v: Vec<String> = fs::read_dir(dir)
++            .unwrap()
++            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
++            .collect();
++        v.sort();
++        v
++    }
++
++    #[test]
++    fn every_file_is_published_and_backups_are_removed() {
++        let dir = tempfile::tempdir().unwrap();
++        let (a, b) = (dir.path().join("a.db"), dir.path().join("b.idx"));
++        fs::write(&a, "old a").unwrap();
++        let entries = [
++            GroupEntry::new(staged(dir.path(), "a", "new a"), &a),
++            GroupEntry::new(staged(dir.path(), "b", "new b"), &b),
++        ];
++        let done = publish_group(&entries, &GroupOptions::new().durable(false)).unwrap();
++        assert_eq!((done.published, done.replaced), (2, 1));
++        assert!(done.leftover_backups.is_empty());
++        assert_eq!(fs::read_to_string(&a).unwrap(), "new a");
++        assert_eq!(fs::read_to_string(&b).unwrap(), "new b");
++        assert_eq!(names(dir.path()), ["a.db", "b.idx"]);
++    }
++
++    #[test]
++    fn a_cancel_before_the_second_file_rolls_the_first_back() {
++        let dir = tempfile::tempdir().unwrap();
++        let (a, b) = (dir.path().join("a.db"), dir.path().join("b.idx"));
++        fs::write(&a, "old a").unwrap();
++        fs::write(&b, "old b").unwrap();
++        let entries = [
++            GroupEntry::new(staged(dir.path(), "a", "new a"), &a),
++            GroupEntry::new(staged(dir.path(), "b", "new b"), &b),
++        ];
++        // Asked once before the backups and once before each file: cancel on the third question.
++        let asked = AtomicUsize::new(0);
++        let gate = || asked.fetch_add(1, Ordering::SeqCst) == 2;
++        let err = publish_group(&entries, &GroupOptions::new().durable(false).cancel(&gate))
++            .unwrap_err();
++        assert_eq!(err.kind(), Some(io::ErrorKind::Interrupted), "{err:?}");
++        assert_eq!(fs::read_to_string(&a).unwrap(), "old a");
++        assert_eq!(fs::read_to_string(&b).unwrap(), "old b");
++        // Only the staging file of the unpublished entry is left, and no backups.
++        assert_eq!(names(dir.path()), ["a.db", "b.idx", "b.new"]);
++    }
++
++    #[test]
++    fn a_failing_publish_restores_old_content_and_removes_new_files() {
++        let dir = tempfile::tempdir().unwrap();
++        let (a, b) = (dir.path().join("a.db"), dir.path().join("b.idx"));
++        fs::write(&a, "old a").unwrap();
++        // The second staging file vanishes after validation would have passed: simulate with a
++        // staging file that is replaced by a directory only after the first file is published, by
++        // making the destination of the second entry a path whose parent does not exist.
++        let missing_parent = dir.path().join("no-such-dir").join("c.bin");
++        let entries = [
++            GroupEntry::new(staged(dir.path(), "a", "new a"), &a),
++            GroupEntry::new(staged(dir.path(), "b", "new b"), &b),
++            GroupEntry::new(staged(dir.path(), "c", "new c"), &missing_parent),
++        ];
++        let err = publish_group(&entries, &GroupOptions::new().durable(false)).unwrap_err();
++        assert!(err.is_not_found() || err.kind().is_some(), "{err:?}");
++        assert_eq!(fs::read_to_string(&a).unwrap(), "old a");
++        assert!(!b.exists(), "a new file the group created is removed");
++        assert!(names(dir.path()).iter().all(|n| !n.contains(".rkbak-")));
++    }
++
++    #[test]
++    fn invalid_groups_change_nothing() {
++        let dir = tempfile::tempdir().unwrap();
++        let a = dir.path().join("a.db");
++        let s = staged(dir.path(), "a", "x");
++        assert!(publish_group(&[], &GroupOptions::new()).is_err());
++        let twice = [GroupEntry::new(&s, &a), GroupEntry::new(&s, &a)];
++        assert!(publish_group(&twice, &GroupOptions::new()).is_err());
++        let own = [GroupEntry::new(&s, &s)];
++        assert!(publish_group(&own, &GroupOptions::new()).is_err());
++        let absent = [GroupEntry::new(dir.path().join("none"), &a)];
++        assert!(publish_group(&absent, &GroupOptions::new()).is_err());
++        let dest_dir = dir.path().join("d");
++        fs::create_dir(&dest_dir).unwrap();
++        let onto_dir = [GroupEntry::new(&s, &dest_dir)];
++        assert!(matches!(
++            publish_group(&onto_dir, &GroupOptions::new()).unwrap_err(),
++            FsError::NotAFile(_)
++        ));
++        assert!(!a.exists());
++        assert!(s.exists());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_symlink_destination_is_refused() {
++        let dir = tempfile::tempdir().unwrap();
++        let target = dir.path().join("t");
++        fs::write(&target, "keep").unwrap();
++        let link = dir.path().join("l");
++        std::os::unix::fs::symlink(&target, &link).unwrap();
++        let entries = [GroupEntry::new(staged(dir.path(), "l", "new"), &link)];
++        assert!(matches!(
++            publish_group(&entries, &GroupOptions::new()).unwrap_err(),
++            FsError::Symlink(_)
++        ));
++        assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
++    }
++}
+diff --git a/crates/rightkit-fs/src/remove.rs b/crates/rightkit-fs/src/remove.rs
+new file mode 100644
+index 0000000..713b3ac
+--- /dev/null
++++ b/crates/rightkit-fs/src/remove.rs
+@@ -0,0 +1,252 @@
++//! Remove a directory tree, retrying what Windows refuses for a moment.
++//!
++//! [`remove_tree`] is `std::fs::remove_dir_all` with two additions that a Windows desktop app needs:
++//! every removal step is retried (a short bounded number of times) when Windows reports a sharing
++//! or lock violation or a delete that is still pending (an indexer, an antivirus scan or a just-closed
++//! handle holds the entry for a few milliseconds), and a read-only file is made writable and removed.
++//! On other platforms nothing is ever retried.
++//!
++//! * A symlink or junction **inside** the tree is removed as an entry; its target is never followed
++//!   and never touched.
++//! * The **root** must be a real directory: a symlink or junction is refused ([`FsError::Symlink`]), a
++//!   file is [`FsError::NotADirectory`]. A root that does not exist is not an error: the result is
++//!   `Ok(false)`.
++//! * Not atomic: a failure part-way leaves what was not yet removed and returns the error.
++//! * Windows retry classes are `ERROR_SHARING_VIOLATION` (32), `ERROR_LOCK_VIOLATION` (33),
++//!   `ERROR_ACCESS_DENIED` (5), `ERROR_DIR_NOT_EMPTY` (145) and `ERROR_DELETE_PENDING` (303). A real
++//!   permission failure therefore costs `attempts * delay` before it is reported.
++//!
++//! Not compiled or run when written.
++
++use crate::error::{FsError, Result};
++use std::fs;
++use std::io;
++use std::path::Path;
++use std::time::Duration;
++
++/// How hard [`remove_tree`] retries on Windows.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[non_exhaustive]
++pub struct RemoveOptions {
++    /// Retries per entry after the first attempt. Zero means one attempt. Ignored off Windows.
++    pub attempts: u32,
++    /// Pause before each retry.
++    pub delay: Duration,
++}
++
++impl Default for RemoveOptions {
++    fn default() -> Self {
++        Self {
++            attempts: 8,
++            delay: Duration::from_millis(50),
++        }
++    }
++}
++
++impl RemoveOptions {
++    /// `attempts` retries, `delay` apart.
++    pub fn new(attempts: u32, delay: Duration) -> Self {
++        Self { attempts, delay }
++    }
++}
++
++/// Remove the directory tree at `root`. Returns `Ok(true)` when a tree was removed and `Ok(false)`
++/// when `root` did not exist. See the module docs for the rules.
++pub fn remove_tree(root: &Path, options: &RemoveOptions) -> Result<bool> {
++    match fs::symlink_metadata(root) {
++        Ok(meta) if meta.file_type().is_symlink() => {
++            return Err(FsError::Symlink(root.to_path_buf()))
++        }
++        Ok(meta) if !meta.is_dir() => return Err(FsError::NotADirectory(root.to_path_buf())),
++        Ok(_) => {}
++        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
++        Err(e) => return Err(FsError::io(root, e)),
++    }
++    remove_contents(root, options)?;
++    match with_retry(options, || fs::remove_dir(root)) {
++        Ok(()) => Ok(true),
++        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
++        Err(e) => Err(FsError::io(root, e)),
++    }
++}
++
++fn remove_contents(dir: &Path, options: &RemoveOptions) -> Result<()> {
++    let entries = match fs::read_dir(dir) {
++        Ok(entries) => entries,
++        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
++        Err(e) => return Err(FsError::io(dir, e)),
++    };
++    for entry in entries {
++        let entry = entry.map_err(|e| FsError::io(dir, e))?;
++        let path = entry.path();
++        let kind = match entry.file_type() {
++            Ok(kind) => kind,
++            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
++            Err(e) => return Err(FsError::io(&path, e)),
++        };
++        if kind.is_symlink() {
++            // A file symlink goes with `remove_file`; a directory symlink or junction on Windows
++            // needs `remove_dir`. Neither follows the link.
++            let result = with_retry(options, || match remove_file_writable(&path) {
++                Err(e) if cfg!(windows) && e.kind() != io::ErrorKind::NotFound => {
++                    fs::remove_dir(&path).or(Err(e))
++                }
++                other => other,
++            });
++            ignore_missing(result).map_err(|e| FsError::io(&path, e))?;
++        } else if kind.is_dir() {
++            remove_contents(&path, options)?;
++            ignore_missing(with_retry(options, || fs::remove_dir(&path)))
++                .map_err(|e| FsError::io(&path, e))?;
++        } else {
++            ignore_missing(with_retry(options, || remove_file_writable(&path)))
++                .map_err(|e| FsError::io(&path, e))?;
++        }
++    }
++    Ok(())
++}
++
++fn ignore_missing(result: io::Result<()>) -> io::Result<()> {
++    match result {
++        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
++        other => other,
++    }
++}
++
++/// `remove_file`; on a permission failure, clear the read-only attribute and try once more.
++fn remove_file_writable(path: &Path) -> io::Result<()> {
++    match fs::remove_file(path) {
++        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
++            let Ok(meta) = fs::symlink_metadata(path) else {
++                return Err(e);
++            };
++            let mut permissions = meta.permissions();
++            if !permissions.readonly() {
++                return Err(e);
++            }
++            #[allow(clippy::permissions_set_readonly_false)]
++            permissions.set_readonly(false);
++            if fs::set_permissions(path, permissions).is_err() {
++                return Err(e);
++            }
++            fs::remove_file(path)
++        }
++        other => other,
++    }
++}
++
++#[cfg(windows)]
++fn transient(error: &io::Error) -> bool {
++    matches!(error.raw_os_error(), Some(5 | 32 | 33 | 145 | 303))
++}
++
++#[cfg(not(windows))]
++fn transient(_error: &io::Error) -> bool {
++    false
++}
++
++fn with_retry(options: &RemoveOptions, mut op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
++    let mut left = options.attempts;
++    loop {
++        match op() {
++            Err(e) if left > 0 && transient(&e) => {
++                left -= 1;
++                std::thread::sleep(options.delay);
++            }
++            other => return other,
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn opts() -> RemoveOptions {
++        RemoveOptions::new(2, Duration::ZERO)
++    }
++
++    #[test]
++    fn removes_a_nested_tree_and_reports_it() {
++        let dir = tempfile::tempdir().unwrap();
++        let root = dir.path().join("t");
++        fs::create_dir_all(root.join("a/b")).unwrap();
++        fs::write(root.join("a/b/f"), "x").unwrap();
++        fs::write(root.join("g"), "y").unwrap();
++        assert!(remove_tree(&root, &opts()).unwrap());
++        assert!(!root.exists());
++    }
++
++    #[test]
++    fn a_missing_root_is_false_not_an_error() {
++        let dir = tempfile::tempdir().unwrap();
++        assert!(!remove_tree(&dir.path().join("none"), &opts()).unwrap());
++    }
++
++    #[test]
++    fn a_file_root_is_refused_and_kept() {
++        let dir = tempfile::tempdir().unwrap();
++        let file = dir.path().join("f");
++        fs::write(&file, "x").unwrap();
++        assert!(matches!(
++            remove_tree(&file, &opts()).unwrap_err(),
++            FsError::NotADirectory(_)
++        ));
++        assert!(file.exists());
++    }
++
++    #[test]
++    fn a_read_only_file_is_removed() {
++        let dir = tempfile::tempdir().unwrap();
++        let root = dir.path().join("t");
++        fs::create_dir(&root).unwrap();
++        let file = root.join("ro");
++        fs::write(&file, "x").unwrap();
++        let mut permissions = fs::metadata(&file).unwrap().permissions();
++        permissions.set_readonly(true);
++        fs::set_permissions(&file, permissions).unwrap();
++        assert!(remove_tree(&root, &opts()).unwrap());
++        assert!(!root.exists());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_symlink_inside_is_removed_without_touching_its_target() {
++        let dir = tempfile::tempdir().unwrap();
++        let outside = dir.path().join("outside");
++        fs::create_dir(&outside).unwrap();
++        fs::write(outside.join("keep"), "keep").unwrap();
++        let root = dir.path().join("t");
++        fs::create_dir(&root).unwrap();
++        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
++        assert!(remove_tree(&root, &opts()).unwrap());
++        assert_eq!(fs::read_to_string(outside.join("keep")).unwrap(), "keep");
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_symlink_root_is_refused() {
++        let dir = tempfile::tempdir().unwrap();
++        let outside = dir.path().join("outside");
++        fs::create_dir(&outside).unwrap();
++        let link = dir.path().join("link");
++        std::os::unix::fs::symlink(&outside, &link).unwrap();
++        assert!(matches!(
++            remove_tree(&link, &opts()).unwrap_err(),
++            FsError::Symlink(_)
++        ));
++        assert!(outside.exists());
++    }
++
++    #[test]
++    fn the_retry_loop_stops_at_the_first_non_transient_error_and_on_success() {
++        let mut calls = 0;
++        let result = with_retry(&opts(), || {
++            calls += 1;
++            Err(io::Error::from(io::ErrorKind::NotFound))
++        });
++        assert!(result.is_err());
++        assert_eq!(calls, 1);
++        assert!(with_retry(&opts(), || Ok(())).is_ok());
++    }
++}
+diff --git a/crates/rightkit-fs/src/test_mode.rs b/crates/rightkit-fs/src/test_mode.rs
+new file mode 100644
+index 0000000..cbfa259
+--- /dev/null
++++ b/crates/rightkit-fs/src/test_mode.rs
+@@ -0,0 +1,619 @@
++//! The test-mode gate for a Tauri (or any desktop) app: one decision, made once at process start,
++//! that says whether this process was launched under test, plus the build-script helper that turns
++//! the app's Cargo features into `cfg`s.
++//!
++//! Std only; no Cargo feature is needed to use the pure parts, so an app can name this crate in
++//! `[build-dependencies]` with `default-features = false`.
++//!
++//! # Runtime
++//!
++//! The app passes the NAMES of two environment variables ([`Variables`]): the service variable
++//! (set by the test launcher) and the isolated data-directory variable.
++//!
++//! * [`TestMode::Off`]: the service variable is unset or blank. The directory variable alone does
++//!   nothing.
++//! * [`TestMode::On`]: the service variable is set and the directory variable is an absolute path
++//!   without `..` that is created (or exists) and passes the [`Guard`].
++//! * [`TestMode::Refuse`]: the service variable is set but the directory is unset, empty,
++//!   relative, contains `..`, is the user's home folder or an ancestor of it, is at or inside a
++//!   user folder (Documents, Desktop, Downloads, Pictures, Music, Movies, Videos, Public), is at,
++//!   inside or above one of the app's real folders ([`Guard::real_dir`]), resolves (through a
++//!   symlink) into any of those, or cannot become a directory. The process exits before it
++//!   creates anything else; it never falls back to the real folders.
++//!
++//! With the crate feature `test-mode`, [`init_or_exit`] reads the real environment once and exits
++//! with status 2 and one stderr line on `Refuse`; [`current`] returns the decision and panics if
++//! it was never made. Without the feature, [`current`] is a constant `Off`, the reading code is
++//! not compiled, and the release binary carries none of this crate's reading code or the
++//! [`COMPILED_MARKER`].
++//!
++//! # Build script
++//!
++//! [`build::emit`] reads the `CARGO_FEATURE_*` variables of the app's own build script, emits
++//! `cargo:rustc-cfg=test_mode_enabled` (name configurable) and the matching `check-cfg`, applies
++//! the [`build::ReleaseGuard`], and returns [`build::Resolved`] so the app derives its own
++//! combined cfgs. [`forbid_in_release!`] is the `compile_error!` guard for features that must
++//! never be in a release profile.
++//!
++//! The visible marker is [`VISIBLE_MARKER`] (window title suffix via [`TestMode::title_suffix`])
++//! and the startup line is [`TestMode::status_line`].
++
++use std::ffi::OsStr;
++use std::path::{Component, Path, PathBuf};
++
++/// Embedded (feature `test-mode` only) so a release scanner can refuse a binary that contains it.
++pub const COMPILED_MARKER: &str = "RIGHTKIT-TEST-MODE-COMPILED";
++
++/// Text an app shows in its window title or chrome while test mode is on.
++pub const VISIBLE_MARKER: &str = "[TEST MODE]";
++
++#[cfg(feature = "test-mode")]
++#[used]
++static COMPILED_MARKER_BYTES: [u8; COMPILED_MARKER.len()] = {
++    let mut out = [0u8; COMPILED_MARKER.len()];
++    let src = COMPILED_MARKER.as_bytes();
++    let mut i = 0;
++    while i < src.len() {
++        out[i] = src[i];
++        i += 1;
++    }
++    out
++};
++
++/// What the process was launched as.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum TestMode {
++    Off,
++    On { data_dir: PathBuf },
++    Refuse { reason: String },
++}
++
++/// The names of the two environment variables, supplied by the app.
++#[derive(Debug, Clone, Copy)]
++pub struct Variables<'a> {
++    pub service: &'a str,
++    pub data_dir: &'a str,
++}
++
++impl TestMode {
++    pub fn is_on(&self) -> bool {
++        matches!(self, TestMode::On { .. })
++    }
++
++    /// The isolated data directory when test mode is on.
++    pub fn data_dir(&self) -> Option<&Path> {
++        match self {
++            TestMode::On { data_dir } => Some(data_dir),
++            _ => None,
++        }
++    }
++
++    /// The one startup line: `test mode: on, data dir <path>`, `test mode: off`, or the refusal.
++    pub fn status_line(&self) -> String {
++        match self {
++            TestMode::Off => "test mode: off".to_string(),
++            TestMode::On { data_dir } => format!("test mode: on, data dir {}", data_dir.display()),
++            TestMode::Refuse { reason } => format!("test mode: refused, {reason}"),
++        }
++    }
++
++    /// `" [TEST MODE]"` while on, empty otherwise: append it to a window title.
++    pub fn title_suffix(&self) -> &'static str {
++        if self.is_on() {
++            " [TEST MODE]"
++        } else {
++            ""
++        }
++    }
++}
++
++const USER_FOLDERS: [&str; 8] = [
++    "Documents",
++    "Desktop",
++    "Downloads",
++    "Pictures",
++    "Music",
++    "Movies",
++    "Videos",
++    "Public",
++];
++
++/// The folders an isolated data directory must stay away from.
++#[derive(Debug, Clone, Default)]
++pub struct Guard {
++    home: Option<PathBuf>,
++    real_dirs: Vec<PathBuf>,
++}
++
++impl Guard {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// The home folder from `HOME` (or `USERPROFILE`), when set and absolute.
++    pub fn from_environment() -> Self {
++        let home = std::env::var_os("HOME")
++            .filter(|v| !v.is_empty())
++            .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()))
++            .map(PathBuf::from)
++            .filter(|p| p.is_absolute());
++        Self {
++            home,
++            real_dirs: Vec::new(),
++        }
++    }
++
++    pub fn home(mut self, home: impl Into<PathBuf>) -> Self {
++        self.home = Some(home.into());
++        self
++    }
++
++    /// One of the app's real data, local, cache or config folders. The isolated directory may not
++    /// be at, inside or above it.
++    pub fn real_dir(mut self, dir: impl Into<PathBuf>) -> Self {
++        self.real_dirs.push(dir.into());
++        self
++    }
++
++    /// Why `path` is not an acceptable isolated directory, or `None`.
++    pub fn violation(&self, path: &Path) -> Option<String> {
++        let ci = cfg!(any(windows, target_os = "macos"));
++        if let Some(home) = &self.home {
++            if inside_or_equal(home, path, ci) {
++                return Some("is the home folder or contains it".to_string());
++            }
++            for name in USER_FOLDERS {
++                if inside_or_equal(path, &home.join(name), ci) {
++                    return Some(format!("is inside the user folder {name}"));
++                }
++            }
++        }
++        for real in &self.real_dirs {
++            if inside_or_equal(path, real, ci) || inside_or_equal(real, path, ci) {
++                return Some(format!("overlaps the real app folder {}", real.display()));
++            }
++        }
++        None
++    }
++}
++
++fn parts(path: &Path, ci: bool) -> Vec<String> {
++    path.to_string_lossy()
++        .split(|c: char| c == '/' || (cfg!(windows) && c == '\\'))
++        .filter(|c| !c.is_empty())
++        .map(|c| if ci { c.to_lowercase() } else { c.to_string() })
++        .collect()
++}
++
++/// Whether `path` is `base` or below it, component-wise.
++fn inside_or_equal(path: &Path, base: &Path, ci: bool) -> bool {
++    let (p, b) = (parts(path, ci), parts(base, ci));
++    p.len() >= b.len() && p[..b.len()] == b[..]
++}
++
++/// The pure decision. `ensure_dir` makes the directory exist and returns its resolved path (symlinks
++/// followed), or says why it cannot, so the decision stays testable without a disk.
++pub fn decide(
++    vars: &Variables<'_>,
++    service: Option<&str>,
++    data_dir: Option<&OsStr>,
++    guard: &Guard,
++    ensure_dir: &dyn Fn(&Path) -> Result<PathBuf, String>,
++) -> TestMode {
++    if service.is_none_or(|value| value.trim().is_empty()) {
++        return TestMode::Off;
++    }
++    let refuse = |why: &str| TestMode::Refuse {
++        reason: format!("{} is set but {} {why}", vars.service, vars.data_dir),
++    };
++    let Some(raw) = data_dir else {
++        return refuse("is not set");
++    };
++    if raw.is_empty() {
++        return refuse("is empty");
++    }
++    let path = PathBuf::from(raw);
++    if !path.is_absolute() {
++        return refuse("is not an absolute path");
++    }
++    if path.components().any(|c| c == Component::ParentDir) {
++        return refuse("contains `..`");
++    }
++    if let Some(why) = guard.violation(&path) {
++        return refuse(&why);
++    }
++    let resolved = match ensure_dir(&path) {
++        Ok(resolved) => resolved,
++        Err(error) => return refuse(&format!("cannot be used as a directory ({error})")),
++    };
++    if let Some(why) = guard.violation(&resolved) {
++        return refuse(&format!("resolves to {}, which {why}", resolved.display()));
++    }
++    TestMode::On { data_dir: resolved }
++}
++
++#[cfg(feature = "test-mode")]
++static MODE: std::sync::OnceLock<TestMode> = std::sync::OnceLock::new();
++
++#[cfg(feature = "test-mode")]
++fn ensure_dir_on_disk(path: &Path) -> Result<PathBuf, String> {
++    std::fs::create_dir_all(path).map_err(|error| error.to_string())?;
++    if !path.is_dir() {
++        return Err("not a directory".to_string());
++    }
++    crate::plain::canonicalize_plain(path).map_err(|error| error.to_string())
++}
++
++/// Decide once from the real environment (feature `test-mode`). On `Refuse` print one line to
++/// stderr and exit with status 2. Call it first in the process, before any window, file, log,
++/// plugin or credential access. `guard` should carry the app's real folders
++/// ([`Guard::from_environment`] plus [`Guard::real_dir`]).
++#[cfg(feature = "test-mode")]
++pub fn init_or_exit(product: &str, vars: &Variables<'_>, guard: &Guard) -> &'static TestMode {
++    let mode = MODE.get_or_init(|| {
++        decide(
++            vars,
++            std::env::var(vars.service).ok().as_deref(),
++            std::env::var_os(vars.data_dir).as_deref(),
++            guard,
++            &ensure_dir_on_disk,
++        )
++    });
++    if let TestMode::Refuse { .. } = mode {
++        eprintln!("{product}: {}", mode.status_line());
++        std::process::exit(2);
++    }
++    mode
++}
++
++/// The decision made at start. Panics if [`init_or_exit`] has not run: an unmade decision must
++/// never quietly mean "use the real folders".
++#[cfg(feature = "test-mode")]
++pub fn current() -> &'static TestMode {
++    MODE.get()
++        .expect("test_mode::init_or_exit must run before the first use")
++}
++
++/// Without feature `test-mode` the decision is always `Off` and nothing reads the environment.
++#[cfg(not(feature = "test-mode"))]
++pub fn current() -> &'static TestMode {
++    static OFF: TestMode = TestMode::Off;
++    &OFF
++}
++
++/// Choose between a real and a test implementation of anything, keyed on [`current`].
++pub fn select<T>(real: impl FnOnce() -> T, test: impl FnOnce() -> T) -> T {
++    if current().is_on() {
++        test()
++    } else {
++        real()
++    }
++}
++
++/// Fail the compile when a feature of the expanding crate is on in a build without
++/// `debug_assertions`: `rightkit_fs::forbid_in_release!("qa-native");`.
++#[macro_export]
++macro_rules! forbid_in_release {
++    ($feature:literal) => {
++        #[cfg(all(not(debug_assertions), feature = $feature))]
++        compile_error!(concat!(
++            "feature `",
++            $feature,
++            "` must never be enabled in release builds"
++        ));
++    };
++}
++
++/// The helper an app's `build.rs` calls. Std only.
++pub mod build {
++    use std::ffi::OsString;
++
++    /// When enabling the test feature is a build failure.
++    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
++    pub enum ReleaseGuard<'a> {
++        /// Never (a dev build may use any profile; check the built artifact for [`super::COMPILED_MARKER`]).
++        None,
++        /// The test feature, or a legacy feature, on while `debug_assertions` is off.
++        WithoutDebugAssertions,
++        /// The test feature on while this environment variable is set and non-empty (for example
++        /// one the release tool exports).
++        WhenEnvSet(&'a str),
++    }
++
++    #[derive(Debug, Clone, Copy)]
++    pub struct Spec<'a> {
++        /// The app's Cargo feature that turns test mode on, e.g. `dev-control`.
++        pub feature: &'a str,
++        /// Older compile-time automation features that switch test mode off (and that the
++        /// guard also refuses in release).
++        pub legacy_features: &'a [&'a str],
++        /// The cfg name to emit (default `test_mode_enabled`).
++        pub cfg: &'a str,
++        pub guard: ReleaseGuard<'a>,
++    }
++
++    impl<'a> Spec<'a> {
++        pub fn new(feature: &'a str) -> Self {
++            Self {
++                feature,
++                legacy_features: &[],
++                cfg: "test_mode_enabled",
++                guard: ReleaseGuard::WithoutDebugAssertions,
++            }
++        }
++    }
++
++    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
++    pub struct Resolved {
++        /// The cfg is emitted.
++        pub test_mode: bool,
++        /// A legacy automation feature is on.
++        pub legacy_automation: bool,
++        pub debug_assertions: bool,
++    }
++
++    /// `dev-control` becomes `CARGO_FEATURE_DEV_CONTROL`.
++    pub fn feature_var(feature: &str) -> String {
++        format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"))
++    }
++
++    /// Pure resolution over an injected environment. `Err` is the release-guard message.
++    pub fn resolve(
++        spec: &Spec<'_>,
++        env: &dyn Fn(&str) -> Option<OsString>,
++    ) -> Result<Resolved, String> {
++        let on = |name: &str| env(&feature_var(name)).is_some();
++        let debug_assertions = env("CARGO_CFG_DEBUG_ASSERTIONS").is_some();
++        let requested = on(spec.feature);
++        let legacy = spec.legacy_features.iter().any(|f| on(f));
++        let refuse = match spec.guard {
++            ReleaseGuard::None => false,
++            ReleaseGuard::WithoutDebugAssertions => !debug_assertions && (requested || legacy),
++            ReleaseGuard::WhenEnvSet(name) => {
++                env(name).is_some_and(|v| !v.is_empty()) && (requested || legacy)
++            }
++        };
++        if refuse {
++            return Err(format!(
++                "test features (`{}` and legacy {:?}) must never be enabled in a release build",
++                spec.feature, spec.legacy_features
++            ));
++        }
++        Ok(Resolved {
++            test_mode: requested && !legacy,
++            legacy_automation: legacy,
++            debug_assertions,
++        })
++    }
++
++    /// Emit `check-cfg` and the test-mode cfg, and fail the build (panic) on a guard violation.
++    /// Call it from `build.rs` before `tauri_build::build()`; add `check-cfg` for any cfg of the
++    /// app's own that derives from [`Resolved`].
++    pub fn emit(spec: &Spec<'_>) -> Resolved {
++        println!("cargo:rustc-check-cfg=cfg({})", spec.cfg);
++        println!("cargo:rerun-if-env-changed=CARGO_CFG_DEBUG_ASSERTIONS");
++        let resolved =
++            resolve(spec, &|name| std::env::var_os(name)).unwrap_or_else(|why| panic!("{why}"));
++        if resolved.test_mode {
++            println!("cargo:rustc-cfg={}", spec.cfg);
++        }
++        resolved
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::ffi::OsString;
++
++    fn vars() -> Variables<'static> {
++        Variables {
++            service: "SVC_VAR",
++            data_dir: "DIR_VAR",
++        }
++    }
++
++    fn root() -> PathBuf {
++        std::env::temp_dir().join("tm-root")
++    }
++
++    fn ok(p: &Path) -> Result<PathBuf, String> {
++        Ok(p.to_path_buf())
++    }
++
++    #[test]
++    fn decide_table() {
++        let home = root().join("home");
++        let guard = Guard::new()
++            .home(&home)
++            .real_dir(home.join("AppData").join("App"));
++        let good = root().join("iso");
++        let blocked = root().join("blocked");
++        let ensure = |p: &Path| {
++            if p == blocked {
++                Err("denied".to_string())
++            } else {
++                Ok(p.to_path_buf())
++            }
++        };
++        let some = |p: &Path| Some(p.as_os_str().to_owned());
++        let cases: Vec<(&str, Option<&str>, Option<OsString>, &str)> = vec![
++            ("service unset", None, some(&good), "off"),
++            ("service unset, no dir", None, None, "off"),
++            ("service empty", Some(""), some(&good), "off"),
++            ("service blank", Some("  "), some(&good), "off"),
++            ("service and dir", Some("svc"), some(&good), "on"),
++            ("dir unset", Some("svc"), None, "refuse"),
++            ("dir empty", Some("svc"), Some(OsString::new()), "refuse"),
++            (
++                "dir relative",
++                Some("svc"),
++                Some("relative/dir".into()),
++                "refuse",
++            ),
++            ("dir cannot be made", Some("svc"), some(&blocked), "refuse"),
++            (
++                "dir has ..",
++                Some("svc"),
++                some(&good.join("..").join("x")),
++                "refuse",
++            ),
++            ("dir is home", Some("svc"), some(&home), "refuse"),
++            ("dir above home", Some("svc"), some(&root()), "refuse"),
++            (
++                "dir in Documents",
++                Some("svc"),
++                some(&home.join("Documents").join("t")),
++                "refuse",
++            ),
++            (
++                "dir in Downloads",
++                Some("svc"),
++                some(&home.join("Downloads")),
++                "refuse",
++            ),
++            (
++                "dir in home, not a user folder",
++                Some("svc"),
++                some(&home.join("scratch")),
++                "on",
++            ),
++            (
++                "dir is the real app dir",
++                Some("svc"),
++                some(&home.join("AppData").join("App")),
++                "refuse",
++            ),
++            (
++                "dir in the real app dir",
++                Some("svc"),
++                some(&home.join("AppData").join("App").join("x")),
++                "refuse",
++            ),
++            (
++                "dir above the real app dir",
++                Some("svc"),
++                some(&home.join("AppData")),
++                "refuse",
++            ),
++        ];
++        for (label, service, dir, expected) in cases {
++            let mode = decide(&vars(), service, dir.as_deref(), &guard, &ensure);
++            let got = match &mode {
++                TestMode::Off => "off",
++                TestMode::On { .. } => "on",
++                TestMode::Refuse { .. } => "refuse",
++            };
++            assert_eq!(got, expected, "{label}: {mode:?}");
++            if let TestMode::Refuse { reason } = &mode {
++                assert!(
++                    reason.contains("SVC_VAR") && reason.contains("DIR_VAR"),
++                    "{label}"
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn a_symlink_into_a_real_folder_is_refused_after_resolution() {
++        let home = root().join("home");
++        let guard = Guard::new().home(&home);
++        let link = root().join("link");
++        let target = home.join("Documents").join("real");
++        let ensure = |_: &Path| Ok(target.clone());
++        let mode = decide(
++            &vars(),
++            Some("svc"),
++            Some(link.as_os_str()),
++            &guard,
++            &ensure,
++        );
++        match mode {
++            TestMode::Refuse { reason } => assert!(reason.contains("resolves to"), "{reason}"),
++            other => panic!("{other:?}"),
++        }
++    }
++
++    #[test]
++    fn on_reports_the_resolved_directory_and_marker_lines() {
++        let dir = root().join("iso");
++        let mode = decide(
++            &vars(),
++            Some("svc"),
++            Some(dir.as_os_str()),
++            &Guard::new(),
++            &ok,
++        );
++        assert_eq!(mode.data_dir(), Some(dir.as_path()));
++        assert_eq!(
++            mode.status_line(),
++            format!("test mode: on, data dir {}", dir.display())
++        );
++        assert_eq!(mode.title_suffix(), " [TEST MODE]");
++        assert!(mode.title_suffix().contains(&VISIBLE_MARKER[..]));
++        let off = TestMode::Off;
++        assert_eq!(off.status_line(), "test mode: off");
++        assert_eq!(off.title_suffix(), "");
++    }
++
++    #[cfg(not(feature = "test-mode"))]
++    #[test]
++    fn without_the_feature_current_is_off_and_select_takes_the_real_side() {
++        assert_eq!(current(), &TestMode::Off);
++        assert_eq!(select(|| "real", || "test"), "real");
++    }
++
++    #[cfg(feature = "test-mode")]
++    #[test]
++    fn the_compiled_marker_is_embedded_with_the_feature() {
++        assert_eq!(&COMPILED_MARKER_BYTES[..], COMPILED_MARKER.as_bytes());
++    }
++
++    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
++        let pairs: Vec<(String, String)> = pairs
++            .iter()
++            .map(|(k, v)| (k.to_string(), v.to_string()))
++            .collect();
++        move |k: &str| {
++            pairs
++                .iter()
++                .find(|(n, _)| n == k)
++                .map(|(_, v)| OsString::from(v))
++        }
++    }
++
++    #[test]
++    fn build_resolution_table() {
++        use build::*;
++        let legacy = ["qa-native", "dev-native"];
++        let spec = |guard| Spec {
++            feature: "dev-control",
++            legacy_features: &legacy,
++            cfg: "test_mode_enabled",
++            guard,
++        };
++        assert_eq!(feature_var("dev-control"), "CARGO_FEATURE_DEV_CONTROL");
++        // (env, guard, expected test_mode / legacy, or None for a guard failure)
++        let dbg = ("CARGO_CFG_DEBUG_ASSERTIONS", "");
++        let tm = ("CARGO_FEATURE_DEV_CONTROL", "1");
++        let qa = ("CARGO_FEATURE_QA_NATIVE", "1");
++        let g = ReleaseGuard::WithoutDebugAssertions;
++        let r = resolve(&spec(g), &env_of(&[])).unwrap();
++        assert!(!r.test_mode && !r.legacy_automation && !r.debug_assertions);
++        let r = resolve(&spec(g), &env_of(&[dbg, tm])).unwrap();
++        assert!(r.test_mode && !r.legacy_automation && r.debug_assertions);
++        let r = resolve(&spec(g), &env_of(&[dbg, tm, qa])).unwrap();
++        assert!(!r.test_mode && r.legacy_automation);
++        assert!(resolve(&spec(g), &env_of(&[tm])).is_err());
++        assert!(resolve(&spec(g), &env_of(&[qa])).is_err());
++        assert!(
++            resolve(&spec(ReleaseGuard::None), &env_of(&[tm]))
++                .unwrap()
++                .test_mode
++        );
++        let env_guard = ReleaseGuard::WhenEnvSet("RELEASE_BUILD");
++        assert!(resolve(&spec(env_guard), &env_of(&[tm])).unwrap().test_mode);
++        assert!(resolve(&spec(env_guard), &env_of(&[tm, ("RELEASE_BUILD", "1")])).is_err());
++        assert!(resolve(&spec(env_guard), &env_of(&[("RELEASE_BUILD", "1")])).is_ok());
++    }
++}
+diff --git a/crates/rightkit-fs/src/zip.rs b/crates/rightkit-fs/src/zip.rs
+index 28a5315..90a57ac 100644
+--- a/crates/rightkit-fs/src/zip.rs
++++ b/crates/rightkit-fs/src/zip.rs
+@@ -456,6 +456,10 @@ fn checked_zip32(value: u64) -> io::Result<()> {
+ /// Loads archive & entry contents into memory. This verifier supports only this writer's
+ /// STORED, UTF-8, no-extra/comment, single-disk format; other formats return `InvalidData`.
+ /// Malformed or truncated archives return errors without indexing outside input.
++///
++/// The entry names are returned **verbatim and untrusted**: they can hold `..`, absolute paths,
++/// drive letters or reserved names. Never join one onto a directory without
++/// [`crate::contain::contain`] or [`crate::sanitize_file_name`] (zip-slip is the caller's job).
+ pub fn read_zip(path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
+     let data = std::fs::read(path)?;
+     let bad = || io::Error::new(io::ErrorKind::InvalidData, "invalid STORED zip");
