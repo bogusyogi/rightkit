@@ -187,3 +187,54 @@ test("android publication refuses the Android debug certificate", (t) => {
   fx.receipt.signer.subject = "CN=Upload"; fx.receipt.signer.debugCertificate = true; fx.write();
   assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /debug certificate/.test(e.message));
 });
+
+function iosFixture(t, patch = {}) {
+  const fx = fixture(t), ipaBytes = Buffer.from("signed ipa");
+  writeFileSync(path.join(fx.root, "Pulse.ipa"), ipaBytes);
+  const receipt = { schema: 1, contract: "ios-xcodebuild-archive-automatic-v1", teamId: "6KLGD3LLKF", bundleId: "dev.orthic.pulse.ios", marketingVersion: "0.1.0", buildNumber: "2026101801", file: { name: "Pulse.ipa", sha256: digestBytes(ipaBytes), sizeBytes: ipaBytes.length }, ...patch.receipt };
+  const write = () => {
+    const bytes = Buffer.from(JSON.stringify(receipt));
+    writeFileSync(path.join(fx.root, "ios-archive.json"), bytes);
+    fx.manifest.signing.receipts = [{ file: path.join(fx.root, "ios-archive.json"), sha256: digestBytes(bytes) }];
+    fx.save();
+  };
+  fx.manifest.platform = "ios";
+  fx.manifest.signing.teamId = "6KLGD3LLKF";
+  fx.manifest.signing.bundleId = "dev.orthic.pulse.ios";
+  fx.manifest.files = [{ role: "ipa", name: "Pulse.ipa", sha256: digestBytes(ipaBytes), sizeBytes: ipaBytes.length }];
+  write();
+  return { ...fx, receipt, write, options: { ...fx.options, platform: "ios" } };
+}
+
+test("ios publication accepts a receipt bound to the sealed ipa, the pinned team and bundle id", (t) => {
+  const fx = iosFixture(t);
+  assert.ok(verifyPublicationRelease(fx.options, deps).artifacts.has("Pulse.ipa"));
+});
+
+test("ios publication refuses a wrong team, bundle id, digest, size, name and a missing ipa entry", (t) => {
+  const fx = iosFixture(t);
+  fx.receipt.teamId = "OTHERTEAM1"; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /pinned team/.test(e.message));
+  fx.receipt.teamId = "6KLGD3LLKF"; fx.receipt.bundleId = "dev.other.app"; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /pinned bundle id/.test(e.message));
+  fx.receipt.bundleId = "dev.orthic.pulse.ios"; fx.receipt.file.sha256 = "e".repeat(64); fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /sha256 differs/.test(e.message));
+  fx.receipt.file.sha256 = fx.manifest.files[0].sha256; fx.receipt.file.sizeBytes = 99; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /size differs/.test(e.message));
+  fx.receipt.file.sizeBytes = fx.manifest.files[0].sizeBytes; fx.receipt.file.name = "Other.ipa"; fx.write();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /different file/.test(e.message));
+  fx.receipt.file.name = "Pulse.ipa"; fx.write();
+  fx.manifest.files[0].role = "portable"; fx.save();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /no ipa entry/.test(e.message));
+});
+
+test("ios publication refuses an unpinned team, a foreign platform and a release without the iOS receipt", (t) => {
+  const fx = iosFixture(t);
+  delete fx.manifest.signing.teamId; fx.save();
+  assert.throws(() => verifyPublicationRelease(fx.options, deps), (e) => invalid.test(e.message) && /no pinned iOS team/.test(e.message));
+  const android = androidFixture(t);
+  assert.throws(() => verifyPublicationRelease({ ...android.options, platform: "ios" }, deps), (e) => /mismatch|non-iOS/.test(e.message));
+  const win = fixture(t);
+  const bytes = Buffer.from(JSON.stringify(fx.receipt)); writeFileSync(win.receipt, bytes); win.manifest.signing.receipts[0].sha256 = digestBytes(bytes); win.save();
+  assert.throws(() => verifyPublicationRelease(win.options, deps), (e) => invalid.test(e.message) && /non-iOS/.test(e.message));
+});

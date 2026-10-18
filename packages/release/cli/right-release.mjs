@@ -46,6 +46,7 @@ const commands = new Map([
   ["dist-scan", "dist-scan.mjs"],
   ["identity-scan", "packaged-app-identity.mjs"],
   ["apple-profile-create", "apple-profile-create.mjs"],
+  ["ios-credentials", "ios-credentials-command.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -236,6 +237,9 @@ Commands:
                                                       Assert codesign Identifier/Team/cdhash/lipo archs; reject ad-hoc
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
+  upload --platform ios --release <id> [--apply]       Sealed IPA to TestFlight, then the exact build into the beta groups; dry run unless --apply (macOS)
+  ios-credentials store --key-id <KEYID> --issuer <uuid> | check
+                                                      Put the App Store Connect API key (stdin), key id and issuer into the login Keychain once, or check them; never a file (macOS)
   qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (a missing receipt warns and is recorded; it never blocks)
   qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List source/installed QA status per release; exit 1 if an uploaded build lacks passing QA
   publish-update --release <id> --platform mac|win --tier patch|update

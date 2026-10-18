@@ -282,3 +282,27 @@ test("right-release dev uses Cargo's built-in dev profile, written to target/<tr
   assert.equal(cargoProfileDirectory("bench"), "release");
   assert.equal(cargoProfileDirectory("dist"), "dist");
 });
+
+test("ios development: config validates on any host, a dry run prints the generated plan, and a real run needs macOS", () => {
+  const ios = { project: "ios/Pulse.xcodeproj", scheme: "Pulse", install: { kind: "simulator", device: "iPhone 17 Pro", bundleId: "dev.orthic.pulse.ios" } };
+  const config = { development: { targets: { ios } } };
+  const target = validateDevelopmentConfig(config, "ios");
+  assert.equal(target.build.at(-1).cmd, "xcodebuild");
+  assert.equal(target.build.at(-1).args.at(-1), "build");
+  assert.throws(() => validateDevelopmentConfig({ development: { targets: { ios: { ...ios, build: [{ cmd: "sh" }] } } } }, "ios"), /generated/);
+  assert.throws(() => validateDevelopmentConfig({ development: { targets: { ios: { ...ios, configuration: "Release" } } } }, "ios"), /release configuration/);
+  assert.throws(() => assertNativeDevelopmentHost("ios", "win32"), /requires its native host/);
+  assert.throws(() => assertNativeDevelopmentHost("ios", "linux"), /requires its native host/);
+  assert.doesNotThrow(() => assertNativeDevelopmentHost("ios", "darwin"));
+  const root = temp();
+  try {
+    git(root, ["init", "-b", "main"]);
+    git(root, ["remote", "add", "origin", "https://github.com/Orthic-Labs/example.git"]);
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ compile: "github-actions-only" }));
+    const dry = runDevelopment({ root, platform: "ios", config, dryRun: true, env: {}, run: () => assert.fail("a dry run runs nothing") });
+    assert.equal(dry.built, false);
+    assert.equal(dry.plan.build.at(-1).cmd, "xcodebuild");
+    assert.equal(dry.plan.install.kind, "simulator");
+    if (process.platform !== "darwin") assert.throws(() => runDevelopment({ root, platform: "ios", config, env: {}, run: () => assert.fail("no command off macOS") }), /requires its native host/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

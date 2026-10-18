@@ -43,12 +43,20 @@ export function appleProfileAuth(env = process.env, { config = {}, root = proces
 // Only this in-process signer reads key material. Never send it to a subprocess,
 // include it in diagnostics, or expose it in returned renewal plans.
 export function signAppleApiJwt({ keyPath, keyId, issuer }, now = new Date()) {
+  let key;
+  try { key = createPrivateKey(readFileSync(keyPath)); } catch { fail("APPLE_PROFILE_KEY_INVALID", "Unable to sign API JWT with configured .p8 key."); }
+  return signAppleApiJwtWithKey(key, { keyId, issuer }, now);
+}
+
+// The same ES256 App Store Connect JWT from a key that is already in memory (a KeyObject, for example one read from the
+// macOS Keychain by ios-asc-credentials.mjs). No file is read. lifetimeSeconds is at most Apple's 1200 second limit.
+export function signAppleApiJwtWithKey(key, { keyId, issuer }, now = new Date(), { lifetimeSeconds = 600 } = {}) {
   try {
-    const key = createPrivateKey(readFileSync(keyPath));
-    if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error();
+    if (!Number.isInteger(lifetimeSeconds) || lifetimeSeconds < 1 || lifetimeSeconds > 1200) throw new Error();
+    if (key?.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error();
     const iat = Math.floor(now.getTime() / 1000);
     const encoded = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
-    const payload = `${encoded({ alg: "ES256", kid: keyId, typ: "JWT" })}.${encoded({ iss: issuer, iat, exp: iat + 600, aud: "appstoreconnect-v1" })}`;
+    const payload = `${encoded({ alg: "ES256", kid: keyId, typ: "JWT" })}.${encoded({ iss: issuer, iat, exp: iat + lifetimeSeconds, aud: "appstoreconnect-v1" })}`;
     return `${payload}.${sign("sha256", Buffer.from(payload), { key, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
   } catch { fail("APPLE_PROFILE_KEY_INVALID", "Unable to sign API JWT with configured .p8 key."); }
 }

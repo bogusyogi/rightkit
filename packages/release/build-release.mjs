@@ -46,6 +46,14 @@ import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimi
 import { beginArtifactLease, completeArtifactLease, materializeArtifacts, retainArtifacts, resolveArtifactDir, resolveManagedRoot } from "./artifact-storage.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAndroidReceipt } from "./android-release.mjs";
+import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
+import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
+
+// The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
+const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
+  .update(["ios-package-recipe.mjs", "ios-host.mjs"].map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
+  .digest("hex")
+  .slice(0, 16);
 
 // Fingerprint of the pipeline code that can change the bytes we ship or the way
 // they are signed — deliberately NOT the package version, which moves for docs
@@ -109,7 +117,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
 }
-if (platform !== "win" && platform !== "mac" && platform !== "android") fail("--platform must be win, mac or android");
+if (platform !== "win" && platform !== "mac" && platform !== "android" && platform !== "ios") fail("--platform must be win, mac, android or ios");
 if (resumeFrom && !["prepackage", "sign", "package", "post-sign", "harden"].includes(resumeFrom)) fail("--resume-from must be prepackage, sign, package, post-sign, or harden");
 
 const configPath = path.resolve(configName);
@@ -141,8 +149,8 @@ if (dryRun) {
   const config = (await import(`${pathToFileURL(configPath).href}?dry-run=${commit}`)).default;
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   const target = config.targets?.[platform];
-  // Android builds with target.gradle (validated by release.mjs), not a package command.
-  if (platform !== "android" && !target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
+  // Android builds with target.gradle (validated by release.mjs), not a package command; iOS with targets.ios.iosPackage.
+  if (platform !== "android" && platform !== "ios" && !target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
   console.log(`right-release build dry-run: ${config.app} ${config.version} ${platform}`);
   console.log(`config: ${configPath}`);
   console.log(`commit: ${commit}`);
@@ -181,7 +189,13 @@ try {
     fail("app and version must be safe release-id components");
   }
   const target = config.targets?.[platform];
-  if (platform !== "android" && !target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
+  if (platform !== "android" && platform !== "ios" && !target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
+  // iOS: the same strict validation release.mjs applies; yields the IPA path and the team and bundle id the seal pins.
+  let iosSpec = null;
+  if (platform === "ios") {
+    try { iosSpec = expandIosPackageTarget(target, { appRoot }).recipe?.spec ?? null; } catch (error) { fail(`${config.app} ios ${error.message}`); }
+    if (!iosSpec) fail(`${config.app} ios must declare targets.ios.iosPackage`);
+  }
   // Same validation release.mjs applies; yields the normalised upload-certificate pin and the AAB path.
   let androidTarget = null;
   if (platform === "android") {
@@ -198,7 +212,7 @@ try {
   const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput }) : collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
-  const platformDir = platform === "win" ? "windows" : platform === "android" ? "android" : "mac";
+  const platformDir = platform === "win" ? "windows" : platform === "android" ? "android" : platform === "ios" ? "ios" : "mac";
   const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
   const signingIdentity = platform === "win" ? {
     contract: target.signingContract ?? "<missing>",
@@ -230,6 +244,15 @@ try {
     uploadCertSha256: androidTarget.signing.expectedCertSha256,
     // release.mjs writes the AAB receipt into RIGHT_RELEASE_STATE_ROOT (= stateRoot) as android-aab.json.
     receiptInputs: [path.resolve(stateRoot, ANDROID_RECEIPT_NAME)],
+  } : platform === "ios" ? {
+    contract: "ios-xcodebuild-archive-automatic-v1",
+    pipeline: IOS_PIPELINE_FINGERPRINT,
+    configSha256: hashFile(configPath),
+    // The team and bundle id the IPA receipt must carry; the upload re-checks both from the sealed manifest.
+    teamId: iosSpec.teamId,
+    bundleId: iosSpec.bundleId,
+    // release.mjs writes the IPA receipt into RIGHT_RELEASE_STATE_ROOT (= stateRoot) as ios-archive.json.
+    receiptInputs: [path.resolve(stateRoot, IOS_RECEIPT_NAME)],
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = nativeLayout.lockPath;
@@ -323,6 +346,7 @@ try {
   env.RIGHT_RELEASE_ARTIFACT_DIR = managedArtifactDir;
   const buildRoot = managedCargoTarget ? null : path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
   env.RIGHT_RELEASE_STATE_ROOT = stateRoot;
+  env.RIGHT_RELEASE_VAULT_STATE_ROOT = path.join(vaultRoot, "state");
   const lockPayload = {
     schema: 1,
     releaseId,
@@ -427,7 +451,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -467,7 +491,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot }) {
+function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -507,11 +531,12 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
   // updater block: `target.artifacts` entries (paths or { file }) seal with the
   // "portable" role. On android the declared AAB seals with the "aab" role instead.
   const aabSource = platform === "android" ? resolveArtifactPath(androidTarget.aab.file) : null;
+  const ipaSource = platform === "ios" ? resolveArtifactPath(iosSpec.ipa) : null;
   for (const artifact of target.artifacts ?? []) {
     const file = typeof artifact === "string" ? artifact : artifact?.file;
     if (typeof file !== "string" || !file) fail("target.artifacts entries must be paths or { file }");
     const source = resolveArtifactPath(file);
-    addSource(source, source === aabSource ? "aab" : "portable");
+    addSource(source, source === aabSource ? "aab" : source === ipaSource ? "ipa" : "portable");
   }
   if (sources.size === 0) fail(`nothing to seal: declare installer.artifacts, updater.artifacts or artifacts for the ${platform} target`);
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
@@ -524,6 +549,16 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
     if (!existsSync(receiptPath)) fail(`no signing receipts found to seal; expected at least ${receiptPath}`);
     try { androidReceipt = verifyAndroidReceipt(receiptPath, aabSource); } catch (error) { fail(`android AAB receipt rejected: ${error.message}`); }
     if (androidReceipt.signer?.certSha256 !== signingIdentity.uploadCertSha256) fail("android AAB receipt signer certificate is not the pinned upload certificate");
+  }
+  // iOS: the receipt must describe exactly the IPA being sealed (bytes re-hashed), for the pinned team and bundle id.
+  let iosReceipt = null;
+  if (platform === "ios") {
+    if (!sources.has(ipaSource)) fail("ios seal requires targets.ios.artifacts to list iosPackage.ipa");
+    const [receiptPath] = signingIdentity.receiptInputs;
+    if (!existsSync(receiptPath)) fail(`no signing receipts found to seal; expected at least ${receiptPath}`);
+    try { iosReceipt = verifyIosReceipt(receiptPath, ipaSource); } catch (error) { fail(`ios IPA receipt rejected: ${error.message}`); }
+    if (iosReceipt.teamId !== signingIdentity.teamId || iosReceipt.bundleId !== signingIdentity.bundleId) fail("ios IPA receipt team or bundle id is not the one pinned by the release config");
+    if (iosReceipt.sourceCommit !== commit) fail(`ios IPA receipt was built from ${String(iosReceipt.sourceCommit)}, not the release commit ${commit}`);
   }
   // rightkit-ffmpeg decode sidecar: release.mjs signed the binaries with the app and wrote media-sidecar.json. The seal
   // refuses a release without it, re-checks its shape against the configuration, and (Windows) that every sidecar's
@@ -557,6 +592,8 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, nativeLayo
     copyFileSync(source, path.join(temp, name));
     files.push(androidReceipt && source === aabSource && name === androidReceipt.file.name
       ? androidSealEntry(androidReceipt)
+      : iosReceipt && source === ipaSource && name === iosReceipt.file.name
+      ? iosSealEntry(iosReceipt)
       : { role: [...roles].sort().join("+"), name, sha256: hashFile(source), sizeBytes: statSync(source).size });
     artifactInputs.push({ source, name });
   }
@@ -843,7 +880,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release build --platform win|mac|android [--config right-release.config.mjs] [--dry-run]");
+  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run]");
   process.exit(code);
 }
 

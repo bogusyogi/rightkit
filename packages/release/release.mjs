@@ -51,6 +51,7 @@ import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
+import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -257,6 +258,11 @@ let androidTarget; // validated Android AAB target (android only; see android-re
 if (opts.platform === "android") {
   try { androidTarget = validateAndroidTarget(target, { root }); } catch (error) { fail(`${config.app ?? "app"} android ${error.message}`); }
 }
+let iosSpec; // validated iOS iosPackage spec (ios only; package-recipe-targets.mjs expands targets.ios, ios-package-recipe.mjs runs it)
+if (opts.platform === "ios") {
+  if (target.recipe?.kind !== "iosPackage") fail(`${config.app ?? "app"} ios must declare targets.ios.iosPackage; there is no hand-written iOS package script`);
+  iosSpec = target.recipe.spec;
+}
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
  * Assemble preflight inputs from the app's own files. Kept here (not in
@@ -408,7 +414,7 @@ try {
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
-if (!command && opts.platform !== "android" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
+if (!command && opts.platform !== "android" && opts.platform !== "ios" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
 if (opts.upload && !target.publish && !target.upload) {
   fail(`${config.app ?? "app"} has no ${opts.platform} upload config`);
 }
@@ -523,6 +529,16 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     scanFiles: (label, files, scanOptions) => assertNoQaControlBinaries(label, files, scanOptions),
     receiptDir: path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts")),
     allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only",
+  });
+} else if (opts.platform === "ios") {
+  // Archive and export with Xcode automatic signing in the GUI session, then the IPA verification and the receipt (macOS only;
+  // --dry-run prints the plan anywhere). Upload is a separate command: `right-release upload --platform ios`.
+  await runIosPackageRecipe({
+    root, app: config.app ?? path.basename(root), spec: iosSpec, dryRun: opts.dryRun,
+    receiptDir: path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts")),
+    scanFiles: (label, files, scanOptions) => assertNoQaControlBinaries(label, files, scanOptions),
+    // The build number counter outlives every release id: it lives in the vault state root that right-release build exports.
+    ...(process.env.RIGHT_RELEASE_VAULT_STATE_ROOT ? { counterDir: path.join(path.resolve(process.env.RIGHT_RELEASE_VAULT_STATE_ROOT), "ios-build-numbers") } : {}),
   });
 } else if (nativeAssembly) {
   if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);

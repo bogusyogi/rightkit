@@ -283,3 +283,43 @@ test("macPackage without updater leaves postSign alone and refuses a bad updater
   assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { updater: "out.zip" } }), { appRoot }), /\.tar\.gz/);
   assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { updater: "../out.tar.gz" } }), { appRoot }), /stay inside the app/);
 });
+
+// ---- iosPackage (bogusyogi/rightkit#349) ----------------------------------------------------------------------------
+const IOS_CONTRACT = "ios-xcodebuild-archive-automatic-v1";
+const iosTarget = (extra = {}) => ({
+  signed: true,
+  iosPackage: { project: "ios/Pulse.xcodeproj", projectSpec: "ios/project.yml", scheme: "Pulse", teamId: "6KLGD3LLKF", bundleId: "dev.orthic.pulse.ios", archive: "build/ios/Pulse.xcarchive", ipa: "build/ios/export/Pulse.ipa" },
+  artifacts: ["build/ios/export/Pulse.ipa"],
+  ...extra,
+});
+
+test("iosPackage is validated strictly and kept as a recipe spec; there is no hook to expand into", () => {
+  const out = expandPackageRecipeTarget(iosTarget(), { platform: "ios", appRoot });
+  assert.equal(out.iosPackage, undefined);
+  assert.equal(out.signingContract, IOS_CONTRACT);
+  assert.equal(out.recipe.kind, "iosPackage");
+  assert.equal(out.recipe.spec.configuration, "Release");
+  assert.equal(out.recipe.spec.teamId, "6KLGD3LLKF");
+  assert.equal(out.prePackage, undefined);
+  assert.equal(out.package, undefined);
+  assert.deepEqual(out.artifacts, ["build/ios/export/Pulse.ipa"]);
+});
+
+test("iosPackage refuses unknown keys, hand-written scripts, credentials, another signing contract and an unlisted IPA", () => {
+  const cfg = { platform: "ios", appRoot };
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ prePackage: { cmd: "scripts/appstore-archive.sh" } }), cfg), PackageRecipeTargetError);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ package: { cmd: "node" } }), cfg), /unknown key/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ notarize: { file: "x.dmg" } }), cfg), /unknown key/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ appStoreConnect: { keyPath: "~/AuthKey.p8" } }), cfg), /credentials never belong in a target/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ signingContract: "android-aab-upload-key-v1" }), cfg), /signingContract/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ signed: false }), cfg), /signed: true/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ artifacts: [] }), cfg), /artifacts must list iosPackage\.ipa/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ iosPackage: { ...iosTarget().iosPackage, certificate: "Apple Distribution" } }), cfg), /unknown key\(s\): certificate/);
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ iosPackage: { ...iosTarget().iosPackage, teamId: undefined } }), cfg), /teamId is required/);
+});
+
+test("iosPackage is not accepted on another platform, and a plain ios target without it passes through", () => {
+  assert.throws(() => expandPackageRecipeTarget(iosTarget(), { platform: "android", appRoot }), /not valid on android/);
+  const plain = { signed: true, package: { cmd: "node" } };
+  assert.equal(expandPackageRecipeTarget(plain, { platform: "ios", appRoot }), plain);
+});

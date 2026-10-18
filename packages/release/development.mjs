@@ -14,6 +14,7 @@ import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.m
 import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from "./install-tauri-devid.mjs";
+import { assertIosDevelopmentSession, installIosDevelopment, prepareIosDevelopment, validateIosDevelopment } from "./ios-dev.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
@@ -58,6 +59,8 @@ export function developmentEnvironment(env = process.env) {
 
 export function validateDevelopmentConfig(config, platform, { root = process.cwd() } = {}) {
   const target = config?.development?.targets?.[platform];
+  // iOS builds its commands from project, scheme and install (ios-dev.mjs); there is no hand-written build array.
+  if (platform === "ios") return validateIosDevelopment(target, { root });
   if (!target || !Array.isArray(target.build) || target.build.length === 0) throw new Error(`development.targets.${platform}.build must be a non-empty command array`);
   for (const [index, command] of target.build.entries()) validateCommand(command, `development.targets.${platform}.build[${index}]`);
   if (target.install?.kind === "command") validateCommand(target.install, `development.targets.${platform}.install`);
@@ -85,8 +88,9 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
   codesignEnvironment = macosCodesignEnvironment, serial }) {
-  if (!new Set(["win", "mac", "android"]).has(platform)) throw new Error("--platform must be win, mac or android");
-  assertNativeDevelopmentHost(platform);
+  if (!new Set(["win", "mac", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, android or ios");
+  // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
+  if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
   const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot, env);
@@ -94,6 +98,12 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
   // Refuse an invalid or off-CI ad hoc opt-in before the (long) build, not after it.
   if (!buildOnly && platform === "mac" && target.install?.kind === "tauri") requestedCiAdhocSigning({ descriptor: target.install, env });
+  // iOS: the device or simulator is resolved (and a device proven ready) before the build, and a device build needs the GUI signing session.
+  let iosPrepared = null;
+  if (platform === "ios") {
+    assertIosDevelopmentSession(target, { env, run });
+    iosPrepared = prepareIosDevelopment(target, { root, env, run, serial });
+  }
   // Android: the device serial is required, so a missing one is refused before the (long) build too.
   if (!buildOnly && platform === "android" && target.install) androidDevelopmentSerial({ descriptor: target.install, serial, env });
   const childEnv = codesignEnvironment(developmentEnvironment(env));
@@ -104,12 +114,13 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
-    for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
+    for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
     if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
+    if (iosPrepared) return { built: true, installed: true, ios: installIosDevelopment(iosPrepared.install, { root, env: childEnv, run }) };
     if (target.install.kind === TAURI_DEVID_KIND) {
       // installTauriDevId is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
       const built = resolveTauriArtifact(target.install, { root, platform, env: childEnv });
@@ -124,7 +135,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
 }
 
 export function assertNativeDevelopmentHost(platform, host = process.platform) {
-  if ((platform === "win" && host !== "win32") || (platform === "mac" && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
+  if ((platform === "win" && host !== "win32") || ((platform === "mac" || platform === "ios") && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
 }
 
 function install(descriptor, { root, platform, config, env, run, sinceMs = null, serial }) {
@@ -338,7 +349,7 @@ function inside(root, child) { const rel = path.relative(path.resolve(root), pat
 export async function main(args = process.argv.slice(2)) {
   let platform, configPath = "right-release.config.mjs", dryRun = false, buildOnly = false, serial;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android [--config right-release.config.mjs] [--dry-run] [--build-only] [--serial <adb serial>]"); return; }
+    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run] [--build-only] [--serial <adb serial | iOS device id>]"); return; }
     if (args[i] === "--platform") platform = args[++i];
     else if (args[i] === "--config") configPath = args[++i];
     else if (args[i] === "--dry-run") dryRun = true;
@@ -346,7 +357,7 @@ export async function main(args = process.argv.slice(2)) {
     else if (args[i] === "--serial") serial = args[++i];
     else throw new Error(`unknown dev option: ${args[i]}`);
   }
-  if (!platform) throw new Error("right-release dev requires --platform win|mac|android");
+  if (!platform) throw new Error("right-release dev requires --platform win|mac|android|ios");
   const absoluteConfig = path.resolve(configPath);
   const safeEnv = developmentEnvironment(process.env);
   for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;

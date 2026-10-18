@@ -36,7 +36,12 @@ if (platform === "android") {
   const { main } = await import("./android-play-upload.mjs");
   process.exit(await main({ releaseId, configName, apply, dryRun }));
 }
-if (apply) fail("--apply is Android only; win and mac preview with --dry-run");
+// iOS: TestFlight through the App Store Connect build-upload API (in process, no key file), with its own gate and a dry run by default (ios-upload.mjs).
+if (platform === "ios") {
+  const { main } = await import("./ios-upload.mjs");
+  process.exit(await main({ releaseId, configName, apply, dryRun }));
+}
+if (apply) fail("--apply is Android and iOS only; win and mac preview with --dry-run");
 
 // Tier, primary checkout, clean tree, sealed commit, ownership evidence, provider and repository are checked by
 // the gate that `right-release github --release` also uses; nothing below runs until it passes.
@@ -82,7 +87,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]\n       right-release upload --platform android --release <sealed-id> [--config right-release.config.mjs] [--apply]   (Play internal track; dry run unless --apply)");
+  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]\n       right-release upload --platform android --release <sealed-id> [--config right-release.config.mjs] [--apply]   (Play internal track; dry run unless --apply)\n       right-release upload --platform ios --release <sealed-id> [--config right-release.config.mjs] [--apply]   (TestFlight; dry run unless --apply)");
   process.exit(code);
 }
 

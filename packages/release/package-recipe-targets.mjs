@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
+import { IOS_SIGNING_CONTRACT, IosPackageError, validateIosPackageConfig } from "./ios-package-recipe.mjs";
 
 export class PackageRecipeTargetError extends Error {
   constructor(message) { super(message); this.name = "PackageRecipeTargetError"; this.code = "RK_PACKAGE_RECIPE_TARGET"; }
@@ -249,11 +250,38 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   };
 }
 
+const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "recipe"]);
+
+/**
+ * `targets.ios.iosPackage` (bogusyogi/rightkit#349) is validated strictly and kept as `recipe: { kind: "iosPackage", spec }`.
+ * Unlike macPackage there is no hook to expand into: xcodebuild archive and export run in ios-package-recipe.mjs (macOS only),
+ * which release.mjs calls like the Android lane. The target may carry only the keys in IOS_TARGET_KEYS: a hand-written
+ * prePackage / package / sign / notarize / gradle script, or an App Store Connect credential, is refused.
+ * `artifacts` must list the .ipa so the IPA is checked and sealed.
+ */
+export function expandIosPackageTarget(target, { appRoot: _appRoot } = {}) {
+  if (!isObject(target) || target.iosPackage === undefined) return withoutRecipe(target);
+  const unknown = Object.keys(target).filter((key) => !IOS_TARGET_KEYS.has(key));
+  if (unknown.length) fail(`targets.ios has unknown key(s): ${unknown.join(", ")} (allowed: ${[...IOS_TARGET_KEYS].filter((key) => key !== "recipe").join(", ")}); the iOS recipe replaces prePackage, package, sign and notarize scripts, and App Store Connect credentials never belong in a target`);
+  if (target.signed !== true) fail("targets.ios must declare signed: true");
+  if (target.signingContract !== undefined && target.signingContract !== IOS_SIGNING_CONTRACT) fail(`targets.ios.iosPackage signs with Xcode automatic signing; signingContract must be ${IOS_SIGNING_CONTRACT}, got ${target.signingContract}`);
+  let spec;
+  try { spec = validateIosPackageConfig(target.iosPackage); } catch (error) {
+    if (error instanceof IosPackageError) fail(`targets.ios.${error.message}`);
+    throw error;
+  }
+  const declared = (target.artifacts ?? []).map((artifact) => String(typeof artifact === "string" ? artifact : artifact?.file).replaceAll("\\", "/").replace(/^\.\//, ""));
+  if (!declared.includes(spec.ipa)) fail("targets.ios.artifacts must list iosPackage.ipa so the IPA is checked and sealed");
+  const { iosPackage, recipe: _ignored, ...rest } = target;
+  return { ...rest, signingContract: IOS_SIGNING_CONTRACT, recipe: { kind: "iosPackage", spec } };
+}
+
 /** Expand whichever declarative package key the target carries. */
 export function expandPackageRecipeTarget(target, { platform, appRoot, config, env, resolveTargetRoot }) {
   const injected = { ...(env ? { env } : {}), ...(resolveTargetRoot ? { resolveTargetRoot } : {}) };
   if (platform === "win") return expandWinPackageTarget(target, { appRoot, config, ...injected });
   if (platform === "mac") return expandMacPackageTarget(target, { appRoot, config, ...injected });
-  if (target?.winPackage || target?.macPackage) fail(`winPackage / macPackage are not valid on ${platform}`);
+  if (platform === "ios") return expandIosPackageTarget(target, { appRoot });
+  if (target?.winPackage || target?.macPackage || target?.iosPackage) fail(`winPackage / macPackage / iosPackage are not valid on ${platform}`);
   return target;
 }

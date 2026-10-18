@@ -41,7 +41,9 @@ export function assertArtifactUnchanged(artifact) {
   return artifact.bytes;
 }
 
-export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId }, deps = {}) {
+// `streamRoles`: sealed entries of these roles are hash-verified by a streamed read and returned WITHOUT their bytes (the caller reads
+// byte ranges of `file`), so a large IPA is never held in memory.
+export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId, streamRoles = [] }, deps = {}) {
   let sealed;
   try { sealed = verifySealedRelease(sealedDir); }
   catch (error) {
@@ -65,14 +67,16 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   let notarized = false;
   let signed = false;
   let androidVerified = false;
+  let iosVerified = false;
   for (const receipt of receipts) {
     const artifact = readVerifiedArtifact(path.resolve(appRoot, receipt.file), receipt);
     let value;
     try { value = JSON.parse(artifact.bytes); } catch { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "invalid sealed signing receipt"); }
     if (value.schema !== 1) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "malformed sealed signing receipt");
     if (value.contract !== undefined) {
-      verifyAndroidPublicationReceipt(value, manifest, platform);
-      androidVerified = true; signed = true;
+      if (value.contract === IOS_RECEIPT_CONTRACT) { verifyIosPublicationReceipt(value, manifest, platform); iosVerified = true; }
+      else { verifyAndroidPublicationReceipt(value, manifest, platform); androidVerified = true; }
+      signed = true;
       continue;
     }
     if (Array.isArray(value.files)) {
@@ -93,10 +97,11 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   if (!signed) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed native signing evidence is required");
   if (platform === "mac" && !notarized) throw new PublicationError("PUBLICATION_NOTARIZATION_MISSING", "sealed notarization evidence is required");
   if (platform === "android" && !androidVerified) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed android AAB upload-key receipt is required");
+  if (platform === "ios" && !iosVerified) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed iOS IPA build receipt is required");
   const artifacts = new Map();
   for (const entry of manifest.files ?? []) {
     if (typeof entry.name !== "string" || path.basename(entry.name) !== entry.name || artifacts.has(entry.name)) throw new PublicationError("PUBLICATION_SEAL_INVALID", "unsafe or duplicate sealed artifact name");
-    artifacts.set(entry.name, readVerifiedArtifact(path.join(sealedDir, entry.name), entry));
+    artifacts.set(entry.name, streamRoles.includes(entry.role) ? verifyArtifactFile(path.join(sealedDir, entry.name), entry) : readVerifiedArtifact(path.join(sealedDir, entry.name), entry));
   }
   if (!artifacts.size) throw new PublicationError("PUBLICATION_SEAL_INVALID", "sealed release has no artifacts");
   return { ...sealed, artifacts };
@@ -122,6 +127,26 @@ function verifyAndroidPublicationReceipt(value, manifest, platform) {
   if (!/^[a-f0-9]{64}$/.test(value.file?.sha256 ?? "") || value.file.sha256 !== aab.sha256) invalid("android AAB receipt sha256 differs from the sealed aab entry");
   if (!Number.isInteger(value.file.sizeBytes) || value.file.sizeBytes !== aab.sizeBytes) invalid("android AAB receipt size differs from the sealed aab entry");
   if (value.file.name !== aab.name) invalid("android AAB receipt names a different file than the sealed aab entry");
+}
+
+// iOS IPA receipt (ios-package-recipe.mjs: contract "ios-xcodebuild-archive-automatic-v1"). The receipt was already read from the
+// manifest's signing.receipts and hash-verified by the caller; here it must describe exactly the sealed "ipa" file, for the team
+// and bundle id pinned in the sealed signing policy. Fails closed with a specific message on any mismatch.
+const IOS_RECEIPT_CONTRACT = "ios-xcodebuild-archive-automatic-v1";
+function verifyIosPublicationReceipt(value, manifest, platform) {
+  const invalid = (message) => { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", message); };
+  if (platform !== "ios" || manifest.platform !== "ios") invalid("iOS IPA receipt in a non-iOS release");
+  const pinnedTeam = manifest.signing?.teamId;
+  if (!/^[A-Z0-9]{10}$/.test(pinnedTeam ?? "")) invalid("sealed signing policy has no pinned iOS team id");
+  if (value.teamId !== pinnedTeam) invalid("iOS IPA receipt team id is not the pinned team");
+  if (!manifest.signing?.bundleId || value.bundleId !== manifest.signing.bundleId) invalid("iOS IPA receipt bundle id is not the pinned bundle id");
+  if (!value.marketingVersion || !value.buildNumber) invalid("iOS IPA receipt has no version identity");
+  const ipas = (manifest.files ?? []).filter((entry) => entry.role === "ipa");
+  if (ipas.length !== 1) invalid(ipas.length ? "sealed release has more than one ipa entry" : "sealed release has no ipa entry");
+  const [ipa] = ipas;
+  if (!/^[a-f0-9]{64}$/.test(value.file?.sha256 ?? "") || value.file.sha256 !== ipa.sha256) invalid("iOS IPA receipt sha256 differs from the sealed ipa entry");
+  if (!Number.isInteger(value.file.sizeBytes) || value.file.sizeBytes !== ipa.sizeBytes) invalid("iOS IPA receipt size differs from the sealed ipa entry");
+  if (value.file.name !== ipa.name) invalid("iOS IPA receipt names a different file than the sealed ipa entry");
 }
 
 // Bounded memory for large artifacts. Transport must read back against this digest.

@@ -12,6 +12,7 @@ import { runInNewContext } from "node:vm";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
+import { IOS_SIGNING_CONTRACT, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 
 // LF whatever the checkout: the patterns below span lines.
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
@@ -139,7 +140,7 @@ test("sealing resolves installer and updater artifacts against the broker target
   assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);
   // Portable contracts declare bare archives under target.artifacts; the seal must read them.
   assert.match(source, /for \(const artifact of target\.artifacts \?\? \[\]\)/);
-  assert.match(source, /addSource\(source, source === aabSource \? "aab" : "portable"\)/);
+  assert.match(source, /addSource\(source, source === aabSource \? "aab" : source === ipaSource \? "ipa" : "portable"\)/);
   assert.match(source, /nothing to seal: declare installer\.artifacts, updater\.artifacts or artifacts/);
   assert.match(source, /const targetPrefix = "src-tauri\/target\/";/);
   assert.match(source, /if \(managedCargoTarget && normalized\.startsWith\(targetPrefix\)\) \{/);
@@ -366,13 +367,9 @@ function androidFixture() {
 }
 
 test("build accepts --platform android and keys its identity, state dir and receipt to the Android lane", () => {
-  assert.match(source, /platform !== "win" && platform !== "mac" && platform !== "android"/);
-  assert.match(source, /platform === "android" \? "android" : "mac"/);
   assert.match(source, /platform === "android" \? \{\s*contract: target\.signingContract \?\? "<missing>",\s*pipeline: ANDROID_PIPELINE_FINGERPRINT,/);
   assert.match(source, /uploadCertSha256: androidTarget\.signing\.expectedCertSha256/);
   assert.match(source, /receiptInputs: \[path\.resolve\(stateRoot, ANDROID_RECEIPT_NAME\)\]/);
-  // Android builds with target.gradle, so a missing package command must not stop it; win/mac still require one.
-  assert.match(source, /platform !== "android" && !target\?\.package && !packageCommandOptional/);
   // The sealed entry is the receipt's, and the receipt is a sealed signing receipt like win/mac ones.
   assert.match(source, /androidSealEntry\(androidReceipt\)/);
   assert.match(source, /present\.map\(\(file\) => \(\{ file, sha256: hashFile\(file\) \}\)\)/);
@@ -403,4 +400,107 @@ test("android seal fails on a missing receipt, changed AAB bytes, another file n
 
   fx = androidFixture();
   assert.throws(() => androidPreSeal({ ...fx, sources: new Map() }), /requires targets\.android\.artifacts to list aab\.file/);
+});
+
+// ---- ios: the IPA is sealed from its verified build receipt, for the team and bundle id the release config pins ----------------
+function iosPreSeal({ sources, ipaSource, signingIdentity, commit }) {
+  const start = source.indexOf("  let iosReceipt = null;");
+  const end = source.indexOf("  // rightkit-ffmpeg decode sidecar", start);
+  assert.ok(start >= 0 && end > start, "ios pre-seal receipt block must exist before the media-sidecar block");
+  return runInNewContext(`${source.slice(start, end)}\niosReceipt;`, {
+    platform: "ios",
+    sources,
+    ipaSource,
+    signingIdentity,
+    commit: commit ?? "c".repeat(40),
+    existsSync,
+    verifyIosReceipt,
+    fail: (message) => { throw new Error(message); },
+  });
+}
+
+function iosFixture() {
+  const dir = tempRoot("right-build-ios-");
+  const ipaFile = path.join(dir, "Pulse.ipa");
+  const bytes = Buffer.from("PK fake ipa bytes for sealing");
+  writeFileSync(ipaFile, bytes);
+  const receiptPath = path.join(dir, "ios-archive.json");
+  const receipt = {
+    schema: 1,
+    contract: IOS_SIGNING_CONTRACT,
+    app: "fixture",
+    teamId: "6KLGD3LLKF",
+    bundleId: "dev.orthic.pulse.ios",
+    sourceCommit: "c".repeat(40),
+    file: { name: "Pulse.ipa", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length },
+  };
+  writeFileSync(receiptPath, JSON.stringify(receipt));
+  const signingIdentity = { contract: IOS_SIGNING_CONTRACT, teamId: "6KLGD3LLKF", bundleId: "dev.orthic.pulse.ios", receiptInputs: [receiptPath] };
+  return { dir, ipaFile, ipaSource: ipaFile, receiptPath, receipt, signingIdentity, sources: new Map([[ipaFile, new Set(["ipa"])]]) };
+}
+
+test("build accepts --platform ios and keys its identity, state dir and receipt to the iOS lane", () => {
+  assert.match(source, /platform === "ios" \? \{\s*contract: "ios-xcodebuild-archive-automatic-v1",\s*pipeline: IOS_PIPELINE_FINGERPRINT,/);
+  assert.match(source, /teamId: iosSpec\.teamId,\s*bundleId: iosSpec\.bundleId,/);
+  assert.match(source, /receiptInputs: \[path\.resolve\(stateRoot, IOS_RECEIPT_NAME\)\]/);
+  assert.match(source, /iosSealEntry\(iosReceipt\)/);
+  assert.match(source, /expandIosPackageTarget\(target, \{ appRoot \}\)/);
+});
+
+test("ios seal verifies the receipt against the IPA bytes and returns it for the files entry", () => {
+  const fx = iosFixture();
+  const receipt = iosPreSeal(fx);
+  assert.deepEqual(iosSealEntry(receipt), { role: "ipa", name: "Pulse.ipa", sha256: fx.receipt.file.sha256, sizeBytes: fx.receipt.file.sizeBytes });
+});
+
+test("ios seal fails on a missing receipt, changed IPA bytes, another file name, another team or bundle id, or an unlisted IPA", () => {
+  let fx = iosFixture();
+  rmSync(fx.receiptPath);
+  assert.throws(() => iosPreSeal(fx), /no signing receipts found to seal; expected at least .*ios-archive\.json/);
+
+  fx = iosFixture();
+  writeFileSync(fx.ipaFile, "PK different bytes, same length!!");
+  assert.throws(() => iosPreSeal(fx), /ios IPA receipt rejected: IPA bytes differ from the build receipt/);
+
+  fx = iosFixture();
+  const other = path.join(fx.dir, "other.ipa");
+  writeFileSync(other, readFileSync(fx.ipaFile));
+  assert.throws(() => iosPreSeal({ ...fx, ipaSource: other, sources: new Map([[other, new Set(["ipa"])]]) }), /receipt names a different file/);
+
+  fx = iosFixture();
+  assert.throws(() => iosPreSeal({ ...fx, signingIdentity: { ...fx.signingIdentity, teamId: "OTHERTEAM1" } }), /team or bundle id is not the one pinned/);
+  assert.throws(() => iosPreSeal({ ...fx, signingIdentity: { ...fx.signingIdentity, bundleId: "dev.other.app" } }), /team or bundle id is not the one pinned/);
+
+  fx = iosFixture();
+  assert.throws(() => iosPreSeal({ ...fx, commit: "d".repeat(40) }), /was built from c+, not the release commit d+/);
+
+  fx = iosFixture();
+  assert.throws(() => iosPreSeal({ ...fx, sources: new Map() }), /requires targets\.ios\.artifacts to list iosPackage\.ipa/);
+});
+
+// ---- behaviour: which platforms build accepts, and which need a package command ------------------------------------------
+function dryRunIn(platform, targets) {
+  const root = tempRoot("right-build-platforms-");
+  writeFileSync(path.join(root, "right-release.config.mjs"), `export default { app: 'fixture', version: '1.0.0', targets: ${JSON.stringify(targets)} };\n`);
+  for (const args of [["init", "--initial-branch", "main"], ["config", "user.email", "test@example.com"], ["config", "user.name", "Test"], ["add", "."], ["commit", "-m", "init"]]) execFileSync("git", args, { cwd: root });
+  return spawnSync(process.execPath, [build, "--config", "right-release.config.mjs", "--platform", platform, "--dry-run"], { cwd: root, encoding: "utf8" });
+}
+
+test("build --dry-run accepts android and ios without a package command, and still demands one for mac and win", () => {
+  for (const platform of ["android", "ios"]) {
+    const result = dryRunIn(platform, { [platform]: { signed: true } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, new RegExp(`build dry-run: fixture 1\\.0\\.0 ${platform}`));
+  }
+  for (const platform of ["mac", "win"]) {
+    const result = dryRunIn(platform, { [platform]: { signed: true } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(`has no ${platform} package command`));
+  }
+});
+
+test("build refuses a platform it does not know, and names the four it does", () => {
+  const result = dryRunIn("watchos", { watchos: {} });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--platform must be win, mac, android or ios/);
 });

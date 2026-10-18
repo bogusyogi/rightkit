@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
-import { appleProfileAuth, configuredAppleProfile, decodeAppleProfile, describeAppleProfile, entitlementsSuperset, main, renewAppleProfile, signAppleApiJwt } from "./apple-profile-renew.mjs";
+import { appleProfileAuth, configuredAppleProfile, decodeAppleProfile, describeAppleProfile, entitlementsSuperset, main, renewAppleProfile, signAppleApiJwt, signAppleApiJwtWithKey } from "./apple-profile-renew.mjs";
 import { fileURLToPath } from "node:url";
 
 // Not run on Windows: Apple profile renewal runs on macOS.
@@ -306,4 +306,18 @@ test("Apple auth: unmanaged hosts keep the file-path behavior and report missing
   assert.throws(() => appleProfileAuth({ APPLE_API_KEY: "FAKEKEYID", APPLE_API_ISSUER: "fake-issuer", APPLE_API_KEY_PATH: "/fake/absent.p8" }), { code: "APPLE_PROFILE_KEY_MISSING" });
   assert.throws(() => appleProfileAuth({ APPLE_API_KEY_PATH: f.keyPath, APPLE_API_ISSUER: "fake-issuer" }), { code: "APPLE_PROFILE_KEY_MISSING" });
   assert.throws(() => appleProfileAuth({ APPLE_API_KEY: "FAKEKEYID", APPLE_API_KEY_PATH: f.keyPath }), { code: "APPLE_PROFILE_ISSUER_MISSING" });
+});
+
+test("the JWT signer also signs from an in-memory key, with a bounded lifetime and no file", () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const token = signAppleApiJwtWithKey(privateKey, { keyId: "SYNTHETIC", issuer: "synthetic-issuer" }, now, { lifetimeSeconds: 1200 });
+  const [header, payload, signature] = token.split(".");
+  const claims = JSON.parse(Buffer.from(payload, "base64url"));
+  assert.equal(claims.exp - claims.iat, 1200);
+  assert.equal(verify("sha256", Buffer.from(`${header}.${payload}`), { key: publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url")), true);
+  assert.equal(JSON.parse(Buffer.from(signAppleApiJwtWithKey(privateKey, { keyId: "K", issuer: "I" }, now).split(".")[1], "base64url")).exp - Math.floor(now.getTime() / 1000), 600);
+  assert.throws(() => signAppleApiJwtWithKey(privateKey, { keyId: "K", issuer: "I" }, now, { lifetimeSeconds: 1201 }), { code: "APPLE_PROFILE_KEY_INVALID" });
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  assert.throws(() => signAppleApiJwtWithKey(rsa, { keyId: "K", issuer: "I" }, now), { code: "APPLE_PROFILE_KEY_INVALID" });
+  assert.throws(() => signAppleApiJwtWithKey(undefined, { keyId: "K", issuer: "I" }, now), { code: "APPLE_PROFILE_KEY_INVALID" });
 });

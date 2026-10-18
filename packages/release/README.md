@@ -348,6 +348,23 @@ The Android lane is native Kotlin with Gradle plus Rust `.so` libraries per ABI 
 - Secrets: the keystore passwords and the Play service-account JSON live in the OS credential store (macOS Keychain `rightkit-android-<name>`; a protected token file on Windows and Linux, so store the JSON as one line) or in a 0600 file outside the repository, selected by `{ credential: "<name>" }` or `{ file: "<path>" }`. They never appear in the environment, on argv, in config, or in a log; key material found in the environment refuses the command.
 - Dev: a debug build installed by serial (never "the only device") with a package ending in `.dev`, `.qa`, `.test` or `.debug`; release tasks and signing properties are refused.
 
+## iOS (archive, export, TestFlight, simulator and device install)
+
+One declarative recipe for every iOS app (bogusyogi/rightkit#349); full reference and example config in `docs/IOS-PACKAGE-RECIPE.md`. Same split as Android: `build` never uploads, `upload` never builds, and the upload is a dry run unless `--apply`.
+
+| Step | Command | Config |
+|---|---|---|
+| Build | `right-release build --platform ios` | `targets.ios`: `iosPackage` (`project`, `projectSpec?`, `scheme`, `teamId`, `bundleId`, `archive`, `ipa`, `extraBuildSettings?`, `prepare?`, `cleanup?`, `checks?`) and `artifacts` listing the IPA |
+| Upload | `right-release upload --platform ios --release <sealed-id> [--apply]` | top-level `distribution: { provider: "app-store-connect", appId, bundleId, track: "testflight", groups (required), submitExternalBetaReview? (default false), credentials? }` |
+| Credentials, once | `right-release ios-credentials store --key-id <KEYID> --issuer <uuid>` (`.p8` on stdin), `ios-credentials check` | Keychain service names, optional |
+| Dev | `right-release dev --platform ios [--serial <device id>]` | `development.targets.ios`: `project`, `projectSpec?`, `scheme`, `teamId?`, `install: { kind: "simulator" \| "device", device, bundleId, ... }` |
+
+- Build: `xcodegen generate` (required when `projectSpec` is named; a committed xcodeproj is never a fallback), `xcodebuild archive` with automatic signing, `-allowProvisioningUpdates`, the configured team and a date build number `YYYYMMDDNN` (the marketing version stays as the app sets it), then the archive checks (one version across the app, appex and Watch plists, QA/release-switch scan, forbidden strings), `xcodebuild -exportArchive`, the IPA checks (entitlements, distribution profile, code signature) and a receipt over the final IPA bytes. A failure deletes the archive, the IPA and the receipt. macOS only, in the GUI signing session; on Windows and Linux only config validation and `--dry-run` run.
+- Credentials (D4): the App Store Connect `.p8`, key id and issuer id are read from the macOS login Keychain (`security find-generic-password -s <service> -a <account> -w`; defaults `rightkit-asc-api-key`, `rightkit-asc-key-id`, `rightkit-asc-issuer-id`). A key path, key id, issuer or key in config, and key material in the environment, are refused; the ASC environment variables are refused on managed hosts. Key material never reaches a log.
+- Upload: the sealed IPA is uploaded in process through the App Store Connect build-upload resources (`buildUploads`, `buildUploadFiles`, pre-signed part uploads, commit, poll to `COMPLETE`), then the exact build is assigned to the TestFlight beta groups (in-process ES256 JWT). Idempotent calls are retried with bounded backoff (the create POSTs never), an interrupted upload for the same version and build is resumed or finished, pre-signed URLs are limited to `*.blobstore.apple.com` and may not carry credential headers, and the IPA is streamed in ranges. A per-release lock, a GUI-session check before the Keychain read and marker identity checks guard a rerun. No altool and no file ever holds the key. No App Store submission. Apps must git-ignore `.right-release/` (see `docs/IOS-PACKAGE-RECIPE.md`).
+- Dev: simulator (`simctl boot/install/launch`) or physical device (`devicectl install` and `process launch`), chosen by id, built Debug with generated commands.
+
+
 ## Bundled FFmpeg decode sidecar (Ember and other media apps)
 
 An app that decodes video through `rightkit-ffmpeg` ships the verified LGPL `ffmpeg` and `ffprobe` programs as a Tauri `externalBin` sidecar. right-release adds no new bundling mechanism: Tauri bundles the files (mac `Contents/MacOS`, Windows next to the app EXE), and right-release plans them from the catalog the app compiled against, ships the LGPL text and source offer, signs the binaries with the app, and seals their hashes. Set `targets.mac.mediaSidecar` and `targets.win.mediaSidecar`:
