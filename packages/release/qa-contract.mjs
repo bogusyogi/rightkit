@@ -106,6 +106,33 @@ export function qaManifests(appRoot, { readdir = readdirSync } = {}) {
   return found.sort();
 }
 
+/**
+ * Native Apple UI-test targets under `appRoot`: an XcodeGen `project.yml` target of `type: bundle.ui-testing`,
+ * or an `.xcodeproj` whose `project.pbxproj` declares `com.apple.product-type.bundle.ui-testing`. An XCUITest
+ * target is the QA lane of a native iOS or macOS app, which has no package.json or Cargo.toml to pin RightKit QA in.
+ */
+export function nativeAppleUiTestLanes(appRoot, { readdir = readdirSync, readFile = readFileSync } = {}) {
+  const lanes = [];
+  const read = (file) => { try { return readFile(file, "utf8"); } catch { return ""; } };
+  const visit = (dir, depth) => {
+    let entries;
+    try { entries = readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      const relative = path.relative(appRoot, full).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        if (entry.name.endsWith(".xcodeproj")) {
+          if (read(path.join(full, "project.pbxproj")).includes("com.apple.product-type.bundle.ui-testing")) lanes.push(`native XCUITest lane (${relative})`);
+        } else if (depth < MAX_DEPTH && !SKIP_DIRS.test(entry.name) && relative !== "rightkit" && relative !== "tools/rightkit") visit(full, depth + 1);
+      } else if (entry.name === "project.yml" && /^\s*type:\s*bundle\.ui-testing\s*$/m.test(read(full))) {
+        lanes.push(`native XCUITest lane (${relative})`);
+      }
+    }
+  };
+  visit(appRoot, 0);
+  return [...new Set(lanes)].sort();
+}
+
 /** `[dependencies]`-style section header that holds dependencies (including target-specific ones). */
 const DEPENDENCY_HEADER = /^\[\s*(?:target\.[^\]]+\.)?(?:dev-|build-)?dependencies\s*\]/;
 const DEPENDENCY_TABLE_HEADER = /^\[\s*(?:target\.[^\]]+\.)?(?:dev-|build-)?dependencies\.([A-Za-z0-9_-]+)\s*\]/;
@@ -215,11 +242,12 @@ export function evaluateQaAdoption({ appRoot, repoRoot, app }, deps = {}) {
   }
   const label = app ?? "this app";
   const adopted = [...new Set(pins.filter((pin) => pin.name === NPM_QA || pin.name === CARGO_QA).map((pin) => pin.name))];
-  const lane = exists(path.join(appRoot, "right-qa.config.mjs")) ? ["native wdio lane (right-qa.config.mjs)", ...adopted] : adopted;
+  const nativeApple = deps.nativeAppleLanes ?? nativeAppleUiTestLanes(appRoot, deps);
+  const lane = [...(exists(path.join(appRoot, "right-qa.config.mjs")) ? ["native wdio lane (right-qa.config.mjs)"] : []), ...nativeApple, ...adopted];
   const refusals = [];
   const warnings = [];
   if (lane.length === 0) {
-    refusals.push(`RightKit QA is mandatory for every Orthic Labs app, and ${label} has no QA lane: no right-qa.config.mjs, no ${NPM_QA} in a package.json, no ${CARGO_QA} in a Cargo.toml${unreadable.length ? ` (unreadable: ${unreadable.join("; ")})` : ""}. Adopt it: add ${NPM_QA} to devDependencies (plus ${NPM_QA_CHROME} for a web UI) and/or ${CARGO_QA} to Cargo.toml [dev-dependencies], add the rightkit-qa floor run (smoke.launch, journey), see docs/ADOPTION.md, then run: node rightkit-drift.mjs --apply. Only a repository that is not an app is exempt (${QA_EXEMPTIONS_FILE}); an app cannot opt out`);
+    refusals.push(`RightKit QA is mandatory for every Orthic Labs app, and ${label} has no QA lane: no right-qa.config.mjs, no XCUITest target, no ${NPM_QA} in a package.json, no ${CARGO_QA} in a Cargo.toml${unreadable.length ? ` (unreadable: ${unreadable.join("; ")})` : ""}. Adopt it: add ${NPM_QA} to devDependencies (plus ${NPM_QA_CHROME} for a web UI) and/or ${CARGO_QA} to Cargo.toml [dev-dependencies], add the rightkit-qa floor run (smoke.launch, journey), see docs/ADOPTION.md, then run: node rightkit-drift.mjs --apply. Only a repository that is not an app is exempt (${QA_EXEMPTIONS_FILE}); an app cannot opt out`);
   }
   const lagging = pins
     .map((pin) => ({ ...pin, latest: pin.version && latestFor(versions, pin.ecosystem, pin.name) }))
