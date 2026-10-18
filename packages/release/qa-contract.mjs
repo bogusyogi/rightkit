@@ -222,7 +222,7 @@ export function qaExemption({ appRoot, repoRoot }, { exemptions = loadExemptions
 
 
 /** Pure evaluation: { exempt, lane, refusals[], warnings[] }. */
-export function evaluateQaAdoption({ appRoot, repoRoot, app, inheritRepoLane = false }, deps = {}) {
+export function evaluateQaAdoption({ appRoot, repoRoot, app }, deps = {}) {
   const { readFile = readFileSync, exists = existsSync, versions = loadRightkitVersions() } = deps;
   const exempt = qaExemption({ appRoot, repoRoot }, deps);
   if (exempt) return { exempt, lane: null, refusals: [], warnings: [] };
@@ -246,25 +246,6 @@ export function evaluateQaAdoption({ appRoot, repoRoot, app, inheritRepoLane = f
   const lane = [...(exists(path.join(appRoot, "right-qa.config.mjs")) ? ["native wdio lane (right-qa.config.mjs)"] : []), ...nativeApple, ...adopted];
   const refusals = [];
   const warnings = [];
-  // A native iOS app (no src-tauri, no package.json) has no RightKit QA lane of its own yet: RightKit has no iOS QA lane and the
-  // apple profile is unratified. It passes only when the same repository's app already runs RightKit QA (for example the
-  // desktop app beside it); a repository with no QA anywhere is still refused. Recorded as a warning on every release.
-  if (lane.length === 0 && inheritRepoLane && repoRoot && path.resolve(repoRoot) !== path.resolve(appRoot)) {
-    const repoPins = [];
-    for (const file of qaManifests(repoRoot, deps)) {
-      let text;
-      try { text = readFile(path.join(repoRoot, file), "utf8"); } catch { continue; }
-      if (file.endsWith("package.json")) {
-        let manifest;
-        try { manifest = JSON.parse(text); } catch { continue; }
-        if (npmQaPins(manifest, NPM_QA).length) repoPins.push(`${NPM_QA} (${file})`);
-      } else if (cargoQaPins(text).length) repoPins.push(`${CARGO_QA} (${file})`);
-    }
-    if (repoPins.length) {
-      lane.push(`repository QA lane: ${repoPins.join(", ")}`);
-      warnings.push(`${label} is a native iOS app with no QA lane of its own; it passes on its repository's RightKit QA lane (${repoPins.join(", ")}). RightKit has no iOS QA lane yet`);
-    }
-  }
   if (lane.length === 0) {
     refusals.push(`RightKit QA is mandatory for every Orthic Labs app, and ${label} has no QA lane: no right-qa.config.mjs, no XCUITest target, no ${NPM_QA} in a package.json, no ${CARGO_QA} in a Cargo.toml${unreadable.length ? ` (unreadable: ${unreadable.join("; ")})` : ""}. Adopt it: add ${NPM_QA} to devDependencies (plus ${NPM_QA_CHROME} for a web UI) and/or ${CARGO_QA} to Cargo.toml [dev-dependencies], add the rightkit-qa floor run (smoke.launch, journey), see docs/ADOPTION.md, then run: node rightkit-drift.mjs --apply. Only a repository that is not an app is exempt (${QA_EXEMPTIONS_FILE}); an app cannot opt out`);
   }
