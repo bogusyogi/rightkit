@@ -122,6 +122,17 @@ the usual ASC variables (`APPLE_API_KEY`, `APPLE_API_KEY_PATH`, `APPLE_API_ISSUE
 
 Residual risk: the Keychain item is readable by any process running as the same user in the unlocked GUI session (a Keychain access prompt or ACL on the item narrows this; right-release cannot). The key is read only in memory, only in the Aqua session (`upload --apply` checks the session before the read and refuses SSH), and the JWT lifetime is 18 minutes (Apple's limit is 20), renewed one minute before it expires.
 
+## Ownership scan scope
+
+The release-preflight ownership scan of an iOS target covers only the files the app is built from, not the whole repository. The scope is a sorted, de-duplicated list of repository-relative roots:
+
+- the directory holding `iosPackage.projectSpec` (or `iosPackage.project`);
+- every local SwiftPM package referenced by `path:` in that XcodeGen `project.yml` `packages:` section, resolved from the spec's directory (remote `url:` packages add nothing);
+- `.rightkit`, so the repository exceptions file is still read;
+- plus `targets.ios.ownershipScope: string[]`, an optional list of repository-relative directories for prebuilt native inputs the project does not name (for example a Rust FFI crate that is linked as a static library). Absolute paths, `..` escapes, the repository root, and missing directories are refused.
+
+Findings, coverage gaps, and lockfile resolution outside the scope are not inventoried; exceptions whose path is outside it show as stale warnings, never failures. The scan still reads the committed tree of a clean checkout and keeps the commit/tree binding, trust and key-log checks, and catalog/scanner digests. The sealed ownership evidence records `ownershipScope`; `upload --platform ios` re-derives the scope from the current config and fails if it differs from the sealed one before it re-scans with that same scope. Desktop targets and `right-release ownership` keep scanning the whole repository.
+
 ## Upload
 
 `right-release upload --platform ios --release <sealed-id>` verifies the sealed release (commit, ownership, signed and hardened

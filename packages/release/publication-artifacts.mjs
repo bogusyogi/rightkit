@@ -43,7 +43,7 @@ export function assertArtifactUnchanged(artifact) {
 
 // `streamRoles`: sealed entries of these roles are hash-verified by a streamed read and returned WITHOUT their bytes (the caller reads
 // byte ranges of `file`), so a large IPA is never held in memory.
-export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId, streamRoles = [] }, deps = {}) {
+export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId, streamRoles = [], ownershipScope = null }, deps = {}) {
   let sealed;
   try { sealed = verifySealedRelease(sealedDir); }
   catch (error) {
@@ -54,7 +54,7 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   if (!/^[a-f0-9]{40}$/.test(commit ?? "") || manifest.commit !== commit
     || (app && manifest.app !== app) || (version && manifest.version !== version)
     || manifest.platform !== platform || (releaseId && manifest.releaseId !== releaseId)) throw new PublicationError("PUBLICATION_SOURCE_MISMATCH", "sealed release source or product identity mismatch");
-  const ownership = (deps.verifyOwnership ?? verifyOwnershipEvidence)(manifest.ownershipEvidence, repoRoot, appRoot);
+  const ownership = (deps.verifyOwnership ?? verifyOwnershipEvidence)(manifest.ownershipEvidence, repoRoot, appRoot, ownershipScope);
   if (!ownership.ok || manifest.ownershipEvidence?.commit !== commit) throw new PublicationError("PUBLICATION_OWNERSHIP_INVALID", `sealed ownership evidence rejected: ${ownership.reason ?? "commit mismatch"}`);
   if (!manifest.checkpoints?.includes("signed") || !manifest.checkpoints?.includes("hardened")) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "signed & hardened seal checkpoints are required");
   if (configPath && digestBytes(readFileSync(configPath)) !== manifest.signing?.configSha256) throw new PublicationError("PUBLICATION_POLICY_MISMATCH", "release config differs from sealed signing policy");

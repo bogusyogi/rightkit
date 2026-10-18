@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { gitListedInventory } from "./ownership-git-inventory.mjs";
+import { inOwnershipScope } from "./ownership-scope.mjs";
 import os from "node:os";
 import path from "node:path";
 
@@ -240,14 +241,40 @@ function fileInventory(appRoot, trust, pathPrefix = "", repositoryRoot = appRoot
   return listedCoverage(inventory);
 }
 
-function committedFileInventory(appRoot, trust, pathPrefix, committed) {
+// A scoped scan also reads the workspace/lockfile authorities that sit in an ancestor directory of a scope root
+// (a root Cargo.toml / Cargo.lock / lockfile resolves a member crate's inherited fields and lock graph), so a member
+// of a larger workspace is judged against the same lockfile as in a whole-repository scan.
+function inScopeOrAuthority(scope, rel) {
+  if (inOwnershipScope(scope, rel)) return true;
+  const dir = path.posix.dirname(rel);
+  return ["Cargo.toml", "Cargo.lock", "package.json", "pnpm-workspace.yaml", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel))
+    && scope.some((root) => dir === "." || root === dir || root.startsWith(`${dir}/`));
+}
+
+// Directories named by local path dependencies of in-scope manifests that are not yet in scope. A target that is not a
+// directory of the committed tree is left to resolveLocalPath, which records a blocking coverage gap for it.
+function localDependencyRoots(deps, scope, entries) {
+  const roots = new Set();
+  for (const dep of deps) {
+    if (!dep.local || typeof dep.source !== "string" || !dep.source.startsWith("path:")) continue;
+    const value = dep.source.slice(5);
+    if (!value || value.startsWith("workspace:") || path.posix.isAbsolute(value) || path.win32.isAbsolute(value) || value.includes("\\")) continue;
+    const relative = path.posix.normalize(path.posix.join(path.posix.dirname(dep.file), value)).replace(/\/$/, "");
+    if (relative === "." || relative === ".." || relative.startsWith("../") || inOwnershipScope(scope, relative)) continue;
+    if (entries.some((entry) => entry.rel.startsWith(`${relative}/`))) roots.add(relative);
+  }
+  return [...roots];
+}
+
+function committedFileInventory(appRoot, trust, pathPrefix, committed, scope = null) {
   const prefix = pathPrefix ? `${pathPrefix.replace(/\/$/, "")}/` : "";
   const repositoryFiles = committed.entries.filter((entry) => entry.type === "blob").map((entry) => ({ rel: entry.rel, size: entry.size, bytes: entry.bytes, mode: entry.mode }));
-  const files = [], coverage = committed.coverage.filter((entry) => !prefix || entry.path.startsWith(prefix)).map((entry) => ({ ...entry, path: prefix ? entry.path.slice(prefix.length) : entry.path }));
+  const files = [], coverage = committed.coverage.filter((entry) => (!prefix || entry.path.startsWith(prefix)) && inScopeOrAuthority(scope, entry.path)).map((entry) => ({ ...entry, path: prefix ? entry.path.slice(prefix.length) : entry.path }));
   const protectedPaths = new Set((trust?.provenance ?? []).flatMap((record) => record.paths ?? []));
   const reportedOpaque = new Set(), reportedNodeModules = new Set();
   for (const entry of committed.entries) {
     if (prefix && !entry.rel.startsWith(prefix)) continue;
+    if (!inScopeOrAuthority(scope, entry.rel)) continue;
     const rel = prefix ? entry.rel.slice(prefix.length) : entry.rel;
     if (!rel) continue;
     if (entry.mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "committed-symlink" }); continue; }
@@ -834,14 +861,28 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
     keyCheckpoint = resolved.checkpoint;
   }
   const location = { root: committed.repositoryRoot, prefix: pathPrefix, pathBase: "repository" };
-  const inventory = committedFileInventory(appRoot, trust, location.prefix, committed);
-  if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
-    inventory.coverage.push({ path: ".", status: "unscanned", reason: "registered-root-missing-from-committed-tree" });
-  }
+  const declaredScope = options.scope ?? null;
   const committedEnrollment = trust?.rootFingerprint
     ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined;
-  const scanned = scanInternal(appRoot, manifest, { inventory, trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, committedEnrollment), shipped: options.shippedAllowlist }) });
+  // The scope is closed under local path dependencies: a path dependency of an in-scope manifest that lands in an
+  // out-of-scope directory adds that directory to the scope and the scan repeats, so compiled-in code is never skipped.
+  let scope = declaredScope ? [...declaredScope] : null;
+  let inventory, scanned;
+  for (let round = 0; ; round += 1) {
+    inventory = committedFileInventory(appRoot, trust, location.prefix, committed, scope);
+    if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
+      inventory.coverage.push({ path: ".", status: "unscanned", reason: "registered-root-missing-from-committed-tree" });
+    }
+    scanned = scanInternal(appRoot, manifest, { inventory, trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, committedEnrollment), shipped: options.shippedAllowlist }) });
+    if (!scope) break;
+    const added = localDependencyRoots(scanned.deps, scope, committed.entries);
+    if (!added.length) break;
+    if (round >= 64) throw new Error("committed ownership: scan scope did not converge under local path dependencies");
+    scope = [...new Set([...scope, ...added])].sort();
+  }
+  // Provenance and lockfile diagnostics are computed beside the inventory; a scoped scan reports only gaps under its scope.
+  if (scope) scanned.coverage = scanned.coverage.filter((entry) => typeof entry.path !== "string" || entry.path === "." || inScopeOrAuthority(scope, entry.path));
   const exceptionPath = [location.prefix.replace(/\/$/, ""), EXCEPTIONS_FILE.split(path.sep).join("/")].filter(Boolean).join("/");
   const exceptionObject = committed.entries.find((entry) => entry.rel === exceptionPath);
   const exceptionEntry = exceptionObject?.bytes;
@@ -856,6 +897,7 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
     scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"),
     scannerVersion: SCANNER_VERSION, contentDigests: scanned.contentDigests, coverage: scanned.coverage,
     pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, exceptionDigest,
+    ...(scope ? { ownershipScopeClosed: scope } : {}),
     source: "committed-git-tree", ...(keyLogDigest ? { keyLogDigest, keyCheckpoint, rootFingerprint: trust.rootFingerprint, ...(keyAuthorityBinding ? { keyAuthority: keyAuthorityBinding } : {}) } : {}),
   };
   const result = evaluate(scanned.findings, exceptions, { ...options, manifest, trust, trustEnrollment: trust?.rootFingerprint

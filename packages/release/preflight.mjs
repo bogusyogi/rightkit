@@ -192,6 +192,7 @@ export function collectPreflight({
   isBrokerManagedHost = brokerManagedHost,
   ownership = true,
   ownershipEvidenceFactory = createOwnershipEvidence,
+  ownershipScope = null,
   runtimeBudgetAdoption = appRuntimeBudgetAdoptionCheck,
   freeDisk = freeDiskGb,
   projectType,
@@ -329,7 +330,7 @@ export function collectPreflight({
   if (repoRoot && ownership) {
     // An app living inside the RightKit workspace repository is scoped to its own directory.
     const workspace = existsSync(path.join(repoRoot, "tools", "rightkit", "packages", "release"));
-    checks.push(ownershipCheck(repoRoot, { scanRoot: workspace && appRoot ? appRoot : repoRoot, evidenceFactory: ownershipEvidenceFactory }));
+    checks.push(ownershipCheck(repoRoot, { scanRoot: workspace && appRoot ? appRoot : repoRoot, scope: ownershipScope, evidenceFactory: ownershipEvidenceFactory }));
   }
 
   return checks;
@@ -338,7 +339,7 @@ export function collectPreflight({
 /** Release-blocking: the app keeps no unexcepted copy of a RightKit-owned capability. */
 export function ownershipCheck(repoRoot, options = {}) {
   let checked;
-  try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot); }
+  try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot, options.scope ?? null); }
   catch (error) { return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog"); }
   const { result, evidence, floor } = checked;
   if (checked.ok) {

@@ -251,7 +251,7 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   };
 }
 
-const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "distribution", "recipe"]);
+const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "distribution", "ownershipScope", "recipe"]);
 
 /**
  * `targets.ios.iosPackage` (bogusyogi/rightkit#349) is validated strictly and kept as `recipe: { kind: "iosPackage", spec }`.
@@ -271,6 +271,7 @@ export function expandIosPackageTarget(target, { appRoot: _appRoot } = {}) {
       throw error;
     }
   }
+  if (target.ownershipScope !== undefined && (!Array.isArray(target.ownershipScope) || target.ownershipScope.some((entry) => typeof entry !== "string" || !entry.trim()))) fail("targets.ios.ownershipScope must be an array of repository-relative directory strings");
   if (target.signed !== true) fail("targets.ios must declare signed: true");
   if (target.signingContract !== undefined && target.signingContract !== IOS_SIGNING_CONTRACT) fail(`targets.ios.iosPackage signs with Xcode automatic signing; signingContract must be ${IOS_SIGNING_CONTRACT}, got ${target.signingContract}`);
   let spec;

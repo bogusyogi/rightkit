@@ -31,6 +31,7 @@ import {
 import { buildUploadPlan, fileSource, uploadIpaToAppStoreConnect } from "./ios-build-upload.mjs";
 import { IOS_SIGNING_CONTRACT } from "./ios-package-recipe.mjs";
 import { ASC_API, createAscClient, createTokenProvider, distributeToTestFlight, normalizeGroupSelection, TestFlightError, testflightPlan } from "./ios-testflight.mjs";
+import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { assertArtifactUnchanged, digestBytes, verifyPublicationRelease } from "./publication-artifacts.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
@@ -149,7 +150,7 @@ export async function authorizeIosUpload({ releaseId, configName = "right-releas
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "ios");
   const appRoot = path.dirname(configPath);
   // The IPA is verified by a streamed hash and never held in memory (streamRoles); the parts are read as byte ranges at upload time.
-  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app: config.app, version: config.version, platform: "ios", configPath, releaseId, streamRoles: ["ipa"] });
+  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app: config.app, version: config.version, platform: "ios", configPath, releaseId, streamRoles: ["ipa"], ownershipScope: iosOwnershipScope({ repoRoot, appRoot, target: config.targets?.ios, nativeAssembly: config.nativeAssembly }) });
   const entries = sealed.manifest.files.filter((entry) => entry.role === "ipa");
   if (entries.length !== 1) refuse("IOS_IPA_MISSING", "the sealed release must hold exactly one ipa entry");
   const ipa = sealed.artifacts.get(entries[0].name);

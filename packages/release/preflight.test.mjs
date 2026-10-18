@@ -204,3 +204,11 @@ test("the disk floor is 25 GB by default and RIGHT_RELEASE_MIN_FREE_GB overrides
   assert.equal(diskCheck(collectPreflight({ ...diskBase, env: { RIGHT_RELEASE_MIN_FREE_GB: "30" }, freeDisk: () => 17 })).status, "fail");
   assert.equal(diskCheck(collectPreflight({ ...diskBase, env: { RIGHT_RELEASE_MIN_FREE_GB: "banana" }, freeDisk: free })).status, "fail");
 });
+
+test("preflight hands the target's ownership scope to the evidence factory; no scope stays whole-repo", () => {
+  const seen = [];
+  const factory = (repo, scanRoot, scope) => { seen.push(scope); return { ok: true, result: { problems: [], violations: [], covered: [], coverage: [] }, floor: { ok: true, problems: [] }, evidence: { source: "committed-git-tree" } }; };
+  collectPreflight({ platform: "ios", repoRoot: process.cwd(), ownershipScope: [".rightkit", "ios"], ownershipEvidenceFactory: factory });
+  collectPreflight({ platform: "mac", repoRoot: process.cwd(), ownershipEvidenceFactory: factory });
+  assert.deepEqual(seen, [[".rightkit", "ios"], null]);
+});

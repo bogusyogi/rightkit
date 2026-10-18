@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
@@ -80,8 +81,11 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativ
   } catch {
     version = undefined;
   }
+  // An iOS target is built from its Xcode project and local packages only; the ownership scan covers just those roots.
+  const ownershipScope = platform === "ios" ? iosOwnershipScope({ repoRoot, appRoot, target, nativeAssembly: config?.nativeAssembly }) : null;
   return collectPreflight({
     platform,
+    ownershipScope,
     appRoot,
     repoRoot,
     app: config.app,

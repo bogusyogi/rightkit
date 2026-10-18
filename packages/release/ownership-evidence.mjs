@@ -23,6 +23,7 @@ function rootContains(root, candidate) {
 
 function createEvidence(repoRoot, {
   scanRoot = repoRoot,
+  scope: requestedScope = null,
   manifestPath = path.join(path.dirname(fileURLToPath(import.meta.url)), MANIFEST_FILE),
   scan = checkApp,
   trustLoader = loadTrustedExternal,
@@ -33,6 +34,7 @@ function createEvidence(repoRoot, {
   policyBundleProvider = runningPolicyBundle,
 } = {}, readAuthority = readCommittedKeyAuthority, scanCommitted = checkCommittedApp) {
   const root = path.resolve(repoRoot);
+  const scope = requestedScope ? [...new Set(requestedScope)].sort() : null;
   const manifestBytes = readFileSync(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   let trustState = trustLoader();
@@ -114,21 +116,27 @@ function createEvidence(repoRoot, {
     }
   }
   const registration = registrationCheck?.registration ?? null;
-  const requestedRootRegistered = registration?.roots.some((registered) => rootContains(registered, requestedRoot)) ?? false;
-  if (registration && !requestedRootRegistered) {
-    if (!enrollmentPending) throw new Error(`release app root is outside protected ownership roots: ${requestedRoot}`);
-    evidenceDiagnostics.push(`requested scan root is outside protected ownership roots during pending enrollment: ${requestedRoot}`);
+  if (scope && !useCommittedSource) throw new Error("a scoped ownership scan requires the committed-source scan; this host's trust enrollment cannot provide it");
+  // A scoped scan covers its scope roots; the unscoped scan covers the requested root.
+  const coverageTargets = scope ?? [requestedRoot];
+  const unregisteredTargets = registration ? coverageTargets.filter((target) => !registration.roots.some((registered) => rootContains(registered, target))) : [];
+  const requestedRootRegistered = unregisteredTargets.length === 0;
+  for (const target of unregisteredTargets) {
+    if (!enrollmentPending) throw new Error(`release app root is outside protected ownership roots: ${target}`);
+    evidenceDiagnostics.push(`requested scan root is outside protected ownership roots during pending enrollment: ${target}`);
   }
 
   // The release app's manifest/config can be nested, but the external registry
   // defines repository coverage. Scan every protected root so a nested release
   // cannot omit sibling packages or engine source by narrowing scanRoot.
-  const scanRoots = registration?.roots ? [...registration.roots] : [];
-  if (!requestedRootRegistered && !scanRoots.includes(requestedRoot)) scanRoots.push(requestedRoot);
-  const scans = (scanRoots.length ? scanRoots : [requestedRoot]).map((registered) => {
+  const overlapsScope = (registered) => !scope || scope.some((target) => rootContains(registered, target) || rootContains(target, registered));
+  const scanRoots = registration?.roots ? registration.roots.filter(overlapsScope) : [];
+  if (scope) { for (const target of unregisteredTargets) if (!scanRoots.includes(target)) scanRoots.push(target); }
+  else if (!requestedRootRegistered && !scanRoots.includes(requestedRoot)) scanRoots.push(requestedRoot);
+  const scans = (scanRoots.length ? scanRoots : [scope ? "." : requestedRoot]).map((registered) => {
     const absolute = registered === "." ? root : path.resolve(root, ...registered.split("/"));
     const scanned = useCommittedSource
-      ? scanCommitted(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source })
+      ? scanCommitted(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source, ...(scope ? { scope } : {}) })
       : scan(absolute, manifest, { trust: { trust: trustState.trust, enrolled: trustState.enrolled, pending: enrollmentPending }, scannerVersion, catalogVersion, ...(enrollmentPending ? { enrollmentPendingAdvisory: true } : {}) });
     if (repositoryIdentity && canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
     if (useCommittedSource && scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
@@ -181,6 +189,7 @@ function createEvidence(repoRoot, {
     floorOk: floor.ok,
     visibility: registration?.visibility ?? null,
     registrationDigest: registration ? sha256(registration) : null,
+    ...(scope ? { ownershipScope: scope, ownershipScopeClosed: [...new Set(scans.flatMap(({ scanned }) => scanned.metadata?.ownershipScopeClosed ?? scope))].sort() } : {}),
     registeredRoots: registration ? [...registration.roots] : [],
     contentDigest: enrollmentPending ? null : contentDigest,
     checkedAt: new Date().toISOString(),
@@ -190,13 +199,13 @@ function createEvidence(repoRoot, {
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */
-export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot) {
-  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true, allowPendingAdvisory: true });
+export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null) {
+  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true, allowPendingAdvisory: true });
 }
 
 /** Alias spelling makes the immutable-source contract explicit at adapter boundaries. */
-export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot) {
-  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true });
+export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null) {
+  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true });
 }
 
 // Injection seam is deliberately named for tests and is not used by release commands.
@@ -219,21 +228,24 @@ export function runProtectedLocalOwnershipCheck(repoRoot, scanRoot = repoRoot) {
 }
 
 /** Re-scan exact source and compare every sealed binding before release upload. */
-export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot) {
-  return verifyEvidence(expected, repoRoot, scanRoot, () => createCommittedOwnershipEvidence(repoRoot, scanRoot));
+export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot, scope = null) {
+  return verifyEvidence(expected, repoRoot, scanRoot, () => createCommittedOwnershipEvidence(repoRoot, scanRoot, scope), scope);
 }
 
 export function verifyOwnershipEvidenceForTest(expected, repoRoot, options) {
-  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => createOwnershipEvidenceForTest(repoRoot, options));
+  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => createOwnershipEvidenceForTest(repoRoot, options), options.scope ?? null);
 }
 
-function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent) {
+function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent, scope = null) {
   if (!expected || expected.schema !== 1) return { ok: false, reason: "sealed ownership evidence is missing or malformed" };
+  // The sealed scope must equal what the current config yields; the re-scan below uses that same scope.
+  const wanted = scope ? [...new Set(scope)].sort() : null;
+  if (JSON.stringify(expected.ownershipScope ?? null) !== JSON.stringify(wanted)) return { ok: false, reason: "ownership evidence ownershipScope changed after build" };
   let current;
   try { current = createCurrent(); }
   catch (error) { return { ok: false, reason: error.message }; }
-  for (const key of ["repositoryIdentity", "source", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "keyLogDigest", "keyCheckpoint", "rootFingerprint", "keyAuthority", "visibility", "registrationDigest", "registeredRoots", "contentDigest"]) {
-    const unchanged = key === "registeredRoots" || key === "keyCheckpoint" || key === "keyAuthority"
+  for (const key of ["repositoryIdentity", "source", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "keyLogDigest", "keyCheckpoint", "rootFingerprint", "keyAuthority", "visibility", "registrationDigest", "registeredRoots", "contentDigest", "ownershipScopeClosed"]) {
+    const unchanged = key === "registeredRoots" || key === "ownershipScopeClosed" || key === "keyCheckpoint" || key === "keyAuthority"
       ? JSON.stringify(expected[key]) === JSON.stringify(current.evidence[key])
       : expected[key] === current.evidence[key];
     if (!unchanged) return { ok: false, reason: `ownership evidence ${key} changed after build` };
