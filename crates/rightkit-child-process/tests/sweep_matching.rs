@@ -6,15 +6,57 @@ use rightkit_child_process::{
     find_processes, sweep_matching, AdoptedIdentity, MatchSweepOptions, ProcessQuery,
 };
 use std::{
-    io::ErrorKind,
+    io::{self, ErrorKind, Read},
     num::NonZeroU32,
-    process::{Child, Command, Stdio},
-    sync::atomic::{AtomicU32, Ordering},
+    ops::{Deref, DerefMut},
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
+const CHILD_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Retain ownership through assertions too, so a failed scan cannot leak its fixture.
+struct TestChild(Child);
+
+impl Deref for TestChild {
+    type Target = Child;
+
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl DerefMut for TestChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+impl Drop for TestChild {
+    fn drop(&mut self) {
+        let _ = self.kill();
+        let _ = wait_bounded(self, Duration::from_secs(2));
+    }
+}
+
+fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
 
 /// A command-line token no other process has.
 fn marker() -> String {
@@ -29,14 +71,14 @@ fn marker() -> String {
 }
 
 /// A process that waits (on stdin, or in a sleep) with `marker` in its command line.
-fn spawn_marked(marker: &str) -> Child {
+fn spawn_marked(marker: &str) -> TestChild {
     #[cfg(unix)]
     let mut command = {
         // `read` is a builtin, so the shell stays the process and keeps its arguments; the
         // marker is `$0`. The piped stdin is never written, so the shell waits until it is killed.
         let mut command = Command::new("/bin/sh");
         command
-            .args(["-c", "read line", marker])
+            .args(["-c", "printf R; read line", marker])
             .stdin(Stdio::piped());
         command
     };
@@ -48,21 +90,43 @@ fn spawn_marked(marker: &str) -> Child {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            &format!("Start-Sleep -Seconds 600 # {marker}"),
+            &format!("[Console]::Out.Write('R'); Start-Sleep -Seconds 600 # {marker}"),
         ]);
         command.stdin(Stdio::null());
         command
     };
-    command
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn a marked child")
+    let mut child = TestChild(
+        command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn a marked child"),
+    );
+    // spawn() only proves the initial exec succeeded. macOS /bin/sh can re-exec its
+    // actual shell afterwards, temporarily making command-line inspection unavailable.
+    // Wait for code in that final process before testing the one-shot process scan.
+    let mut stdout = child.stdout.take().expect("readiness pipe");
+    let (ready_tx, ready_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut ready = [0];
+        let result = stdout.read_exact(&mut ready).and_then(|()| {
+            if ready == [b'R'] {
+                Ok(())
+            } else {
+                Err(io::Error::other("unexpected child readiness byte"))
+            }
+        });
+        let _ = ready_tx.send(result);
+    });
+    ready_rx
+        .recv_timeout(CHILD_TIMEOUT)
+        .expect("marked child did not become ready within 10 seconds")
+        .expect("marked child readiness failed");
+    child
 }
 
-fn stop(mut child: Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+fn stop(child: TestChild) {
+    drop(child);
 }
 
 fn identity(child: &Child) -> AdoptedIdentity {
@@ -168,14 +232,17 @@ fn a_sweep_stops_the_marked_child_and_leaves_an_unmarked_one() {
     // before the sweep signals it. Keep the pipe open until the sweep is done.
     let _target_stdin = target.stdin.take();
     // The target is our own child: reap it as soon as it dies, as its parent would.
-    let reaper = thread::spawn(move || target.wait());
+    let reaper = thread::spawn(move || wait_bounded(&mut target, CHILD_TIMEOUT));
 
     let report = sweep_matching(
         &ProcessQuery::new().arg_containing(marker_a),
         &MatchSweepOptions::new().grace(Duration::from_secs(5)),
     )
     .unwrap();
-    reaper.join().unwrap().unwrap();
+    assert!(
+        reaper.join().unwrap().unwrap().is_some(),
+        "sweep did not stop child {target_pid} within 10 seconds: {report:?}"
+    );
 
     assert!(!report.dry_run);
     assert_eq!(report.matched.len(), 1, "{report:?}");
