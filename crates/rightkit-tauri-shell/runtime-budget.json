@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "crate": "rightkit-tauri-shell",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "ceilings": {
     "residentMemoryBytes": 124780544,
     "idleCpuPercent": 1,
@@ -32,33 +34,6 @@
   "measurements": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64",
-        "model": "Mac18,5"
-      },
-      "crateVersion": "0.3.2",
-      "commit": "0b0a275db2424a231315f050e592ce2d22c20386",
-      "date": "2026-10-17",
-      "scope": "synthetic",
-      "dataScale": {
-        "description": "synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)",
-        "unit": "watchdogs",
-        "count": 1
-      },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget",
-      "observed": {
-        "residentMemoryBytes": 61358080,
-        "idleCpuPercent": 0.024,
-        "wakeupsPerSecond": 5.089,
-        "diskOpsPerSecond": null
-      },
-      "evidence": {
-        "file": "runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt",
-        "sha256": "292b696d0b5992b72f8a5e39ea271540b05f575d8ae560acf75e8452e0e2c044"
-      }
-    },
-    {
-      "host": {
         "os": "win32",
         "arch": "x64",
         "model": "13th Gen Intel(R) Core(TM) i9-13900H"
@@ -82,6 +57,33 @@
       "evidence": {
         "file": "runtime-budget.evidence/win32-x64-0.3.2-synthetic.txt",
         "sha256": "8eb09704495192c3cdb202440f93e694ba6664ee6e0715c92b6c53201a440277"
+      }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.3.2",
+      "commit": "8d96d8ca29df2fdaaaf03a738eaf24855f96d32b",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "default hang watchdog on an idle Wry Tauri event loop with no windows; 5 s warm-up, 30 s idle",
+        "unit": "watchdogs",
+        "count": 1
+      },
+      "command": "rustright cargo test -p rightkit-tauri-shell --profile release-iterate --bench budget -- 30",
+      "observed": {
+        "residentMemoryBytes": 67731456,
+        "idleCpuPercent": 0.053,
+        "wakeupsPerSecond": 5.121,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt",
+        "sha256": "ea35573730c33828a3f98a630202f38984715a6f914412fde1750dab4b0a03a4"
       }
     }
   ],

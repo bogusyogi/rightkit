@@ -1,21 +1,25 @@
-rustright managed-agent: request c96050cd-c754-40a2-bae5-4827755b0e28
+rustright: request e50257ab-ca54-4130-9c5f-59ea7a7d3185
 [rightkit] target warm-candidate at start (6 entries, generation 2)
-    Finished `release-iterate` profile [optimized] target(s) in 1.08s
-     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-9699bd0f4ce030cf)
-warm-up: event loop running, watchdog installed, resident 58.5 MiB (before app build 9.1 MiB)
+   Compiling rightkit-fs v0.4.3 (/Volumes/D/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-child-process v0.5.1 (/Volumes/D/claude/rightkit/crates/rightkit-child-process)
+   Compiling rightkit-daemon v0.2.7 (/Volumes/D/claude/rightkit/crates/rightkit-daemon)
+   Compiling rightkit-tauri-shell v0.3.2 (/Volumes/D/claude/rightkit/crates/rightkit-tauri-shell)
+    Finished `release-iterate` profile [optimized] target(s) in 15.61s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-7a56005b16eba1d0)
+warm-up: event loop running, watchdog installed, resident 64.5 MiB (before app build 9.1 MiB)
 RESULT watchdog_stalls=0 stalls
-RESULT watchdog_last_beat_age_ms=425 ms
-RESULT warm_resident_bytes=61358080 bytes
-RESULT idle_resident_bytes=59441152 bytes
-RESULT resident_memory_bytes=61358080 bytes
-RESULT footprint_bytes=10552136 bytes
+RESULT watchdog_last_beat_age_ms=870 ms
+RESULT warm_resident_bytes=67682304 bytes
+RESULT idle_resident_bytes=67731456 bytes
+RESULT resident_memory_bytes=67731456 bytes
+RESULT footprint_bytes=10388320 bytes
 RESULT idle_window_seconds=30.1 seconds
-RESULT idle_cpu_percent=0.024 percent
-RESULT wakeups_per_second=5.089 per_second
+RESULT idle_cpu_percent=0.053 percent
+RESULT wakeups_per_second=5.121 per_second
 RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
 RESULT disk_read_bytes_per_second=0.000 bytes_per_second
 RESULT disk_write_bytes_per_second=0.000 bytes_per_second
 RESULT scale=1 default hang watchdog on an idle Wry event loop with no windows
 RESULT scope=synthetic
-RESULT budget crate=rightkit-tauri-shell version=0.3.2 resident_bytes=61358080 idle_cpu_percent=0.024 wakeups_per_s=5.089 disk_ops_per_s=unavailable scale_unit=watchdogs scale_count=1
-[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/650
+RESULT budget crate=rightkit-tauri-shell version=0.3.2 resident_bytes=67731456 idle_cpu_percent=0.053 wakeups_per_s=5.121 disk_ops_per_s=unavailable scale_unit=watchdogs scale_count=1
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 5/654

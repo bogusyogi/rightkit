@@ -352,13 +352,13 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 
 - Resident memory ceiling: 119.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
-- Wake-ups ceiling: 3 per second.
+- Wake-ups ceiling: 10.2 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 1 watchdogs or more.
-- Required hosts: macOS and Windows.
+- Required hosts: macOS only (Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run).
 - Status exposure: `status()` in `src/watchdog.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: darwin/arm64 (Mac18,5), rightkit-tauri-shell 0.3.2 at 0b0a275db242, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 292b696d0b59: resident memory 58.5 MiB, idle CPU 0.024%, wake-ups 5.089 per second, disk operations n/a (not measurable on this host).
 - Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-tauri-shell 0.3.2 at 2c2303f8cae6, 1 watchdogs (synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget`, 2026-10-17, evidence 8eb097044951: resident memory 9.8 MiB, idle CPU 0%, wake-ups 4.859 per second, disk operations 0 operations per second.
+- Measured: darwin/arm64 (Mac18,5), rightkit-tauri-shell 0.3.2 at 8d96d8ca29df, 1 watchdogs (default hang watchdog on an idle Wry Tauri event loop with no windows; 5 s warm-up, 30 s idle), synthetic, `rustright cargo test -p rightkit-tauri-shell --profile release-iterate --bench budget -- 30`, 2026-10-18, evidence ea35573730c3: resident memory 64.6 MiB, idle CPU 0.053%, wake-ups 5.121 per second, disk operations n/a (not measurable on this host).
 
 ## Engine policy & independent trays (G15–G18)
 
