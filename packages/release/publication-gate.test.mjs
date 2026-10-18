@@ -183,3 +183,48 @@ test('provenGateSteps counts only what the evidence for this commit proves', () 
   assert.deepEqual(provenGateSteps(null), { tests: false, clippy: false, fmt: false, secretScan: false });
   assert.deepEqual(provenGateSteps(evidence({ runs: [] })), { tests: false, clippy: false, fmt: false, secretScan: false });
 });
+
+// ---- win32-only host policy: a crate published from the Windows host under the local-build grant ----
+const winOnly = (over = {}) => evidence({ hostPolicy: 'win32-only', hostPolicyReason: 'r', runs: [run('win32')], ...over });
+
+test('win32-only policy: one valid Windows receipt qualifies, and every other requirement still applies', () => {
+  assert.deepEqual(checkPublicationGate(base(winOnly())), { ok: true, missing: [] });
+  const missing = (ev, opts) => checkPublicationGate(base(ev, opts)).missing.join('\n');
+  // The policy needs its reason, exactly like darwin-only.
+  assert.match(missing(winOnly({ hostPolicyReason: ' ' })), /no macOS host run receipt/);
+  assert.match(missing(winOnly({ hostPolicyReason: undefined })), /no macOS host run receipt/);
+  // The one receipt must be the Windows host's own, authentic and qualifying.
+  assert.match(missing(winOnly({ runs: [run('darwin')] })), /no Windows host run receipt/);
+  assert.match(missing(winOnly({ runs: [] })), /no Windows host run receipt/);
+  assert.match(missing(winOnly({ runs: [run('win32', { failed: 1 })] })), /Windows run receipt 0 invalid: failed \(must be 0\)/);
+  assert.match(missing(winOnly({ runs: [run('win32', { passed: 0 })] })), /Windows run receipt 0 invalid: passed/);
+  assert.match(missing(winOnly({ runs: [run('win32', { commit: 'c'.repeat(40) })] })), /Windows run receipt 0 invalid: commit/);
+  assert.match(missing(winOnly({ runs: [run('win32', { artifactSha256: 'c'.repeat(64) })] })), /Windows run receipt 0 invalid: artifactSha256/);
+  assert.match(missing(winOnly({ runs: [run('win32'), run('win32', { failed: 3 })] })), /Windows run receipt 1 invalid: failed/);
+  assert.match(missing(winOnly({ artifactSha256: 'xyz' })), /artifactSha256 must be a 64-hex hash/);
+  assert.match(missing(winOnly(), { head: 'd'.repeat(40) }), /!= current HEAD/);
+  assert.match(missing(winOnly(), { dirty: ' M src/lib.rs' }), /not clean/);
+  const bytes = Buffer.from('packed');
+  assert.match(checkPublicationGate({ ...base(winOnly()), artifactBytes: bytes }).missing.join('\n'), /artifact sha256 does not match evidence/);
+});
+
+test('win32-only policy applies to npm and crates only; Swift stays macOS-only and an unknown policy is no policy', () => {
+  const swift = (ev) => checkPublicationGate({ ...base(ev), kind: 'swift' });
+  assert.match(swift(winOnly({ kind: 'swift' })).missing.join('\n'), /no macOS host run receipt/);
+  assert.match(checkPublicationGate(base(evidence({ hostPolicy: 'windows-only', hostPolicyReason: 'r', runs: [run('win32')] }))).missing.join('\n'), /no macOS host run receipt/);
+  // darwin-only evidence is unchanged: a Windows receipt alone does not satisfy it.
+  assert.match(checkPublicationGate(base(evidence({ hostPolicy: 'darwin-only', hostPolicyReason: 'r', runs: [run('win32')] }))).missing.join('\n'), /no macOS host run receipt/);
+  assert.deepEqual(checkPublicationGate(base(evidence({ hostPolicy: 'darwin-only', hostPolicyReason: 'r', runs: [run('darwin')] }))), { ok: true, missing: [] });
+});
+
+test('provenGateSteps proves steps on the Windows host under win32-only, and never from the other host', () => {
+  const win = (over = {}) => winOnly({ runs: [run('win32', { steps: [testStep], batch: batch(over) })] });
+  assert.deepEqual(provenGateSteps(win()), { tests: true, clippy: true, fmt: true, secretScan: true });
+  assert.equal(provenGateSteps(winOnly({ runs: [run('darwin', { steps: [testStep] })] })).tests, false);
+  assert.equal(provenGateSteps(winOnly({ runs: [run('win32', { steps: [{ ...testStep, executed: 0 }] })] })).tests, false);
+  assert.equal(provenGateSteps(win({ rows: { fmt: { ok: false } } })).fmt, false);
+  assert.equal(provenGateSteps(winOnly({ runs: [run('win32', { commit: 'c'.repeat(40), steps: [testStep] })] })).tests, false);
+  // Two-host evidence is still proved on darwin alone.
+  assert.equal(provenGateSteps(evidence({ runs: [run('win32', { steps: [testStep] })] })).tests, false);
+  assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { steps: [testStep] }), run('win32')] })).tests, true);
+});

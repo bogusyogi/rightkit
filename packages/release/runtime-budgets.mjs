@@ -45,7 +45,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { parse } from "smol-toml";
-import { isDarwinOnlyPolicy } from "./publication-gate.mjs";
+import { singleHostOfPolicy } from "./publication-gate.mjs";
 import { findWorkspaceRoot, lockClosure, pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 
 export const RUNTIME_BUDGET_CHECK = "runtime-budget";
@@ -132,7 +132,8 @@ export function isRuntimeBudgetCrate(crate, manifestText) {
 
 /** Hosts the budget must be measured on. `evidence` (release evidence) is the policy authority when given. */
 export function requiredBudgetHosts(budget, evidence) {
-  return isDarwinOnlyPolicy(evidence ?? budget) ? ["darwin"] : ["darwin", "win32"];
+  const single = singleHostOfPolicy(evidence ?? budget);
+  return single ? [single] : ["darwin", "win32"];
 }
 
 // ---------------------------------------------------------------- README view (generated from the JSON)
@@ -456,14 +457,15 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
   if (budget.schema !== RUNTIME_BUDGET_SCHEMA) problems.push(`${RUNTIME_BUDGET_FILE} schema must be ${RUNTIME_BUDGET_SCHEMA}`);
   if (budget.crate !== crate) problems.push(`${RUNTIME_BUDGET_FILE} is for ${budget.crate}, expected ${crate}`);
   if (!nonEmpty(version)) problems.push("publishing version is unknown, cannot bind the measurements to it");
-  if (budget.hostPolicy !== undefined && budget.hostPolicy !== "darwin-only") problems.push('hostPolicy must be "darwin-only" when present');
-  if (budget.hostPolicy === "darwin-only" && !nonEmpty(budget.hostPolicyReason)) problems.push("hostPolicy darwin-only needs a hostPolicyReason");
+  if (budget.hostPolicy !== undefined && budget.hostPolicy !== "darwin-only" && budget.hostPolicy !== "win32-only") problems.push('hostPolicy must be "darwin-only" or "win32-only" when present');
+  if ((budget.hostPolicy === "darwin-only" || budget.hostPolicy === "win32-only") && !nonEmpty(budget.hostPolicyReason)) problems.push(`hostPolicy ${budget.hostPolicy} needs a hostPolicyReason`);
   // One source of truth for the host policy: the release evidence. The budget file may repeat it, never differ.
   if (evidence) {
-    const evidenceDarwinOnly = requiredBudgetHosts(null, evidence).length === 1;
-    const budgetDarwinOnly = requiredBudgetHosts(budget).length === 1;
-    if (evidenceDarwinOnly !== budgetDarwinOnly) {
-      problems.push(`hostPolicy disagrees with the release evidence (evidence: ${evidenceDarwinOnly ? "darwin-only" : "macOS and Windows"}; ${RUNTIME_BUDGET_FILE}: ${budgetDarwinOnly ? "darwin-only" : "macOS and Windows"})`);
+    const policyLabel = (hosts) => (hosts.length === 1 ? `${hosts[0]}-only` : "macOS and Windows");
+    const evidenceHosts = requiredBudgetHosts(null, evidence);
+    const budgetHosts = requiredBudgetHosts(budget);
+    if (evidenceHosts.join() !== budgetHosts.join()) {
+      problems.push(`hostPolicy disagrees with the release evidence (evidence: ${policyLabel(evidenceHosts)}; ${RUNTIME_BUDGET_FILE}: ${policyLabel(budgetHosts)})`);
     }
   }
 
@@ -531,7 +533,7 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
   const required = heldResource ? [] : requiredBudgetHosts(budget, evidence);
   for (const host of required) {
     const onHost = counted.filter(({ m }) => m.host.os === host);
-    if (onHost.length === 0) { problems.push(`no ${HOSTS[host]} measurement for version ${version} (required hosts: ${required.map((h) => HOSTS[h]).join(" and ")}${required.length > 1 ? "; apps ship on both and the release gate requires both unless a darwin-only policy with a reason is recorded" : `; darwin-only policy: ${String((evidence ?? budget).hostPolicyReason).trim()}`})`); continue; }
+    if (onHost.length === 0) { problems.push(`no ${HOSTS[host]} measurement for version ${version} (required hosts: ${required.map((h) => HOSTS[h]).join(" and ")}${required.length > 1 ? "; apps ship on both and the release gate requires both unless a darwin-only policy with a reason is recorded" : `; ${required[0]}-only policy: ${String((evidence ?? budget).hostPolicyReason).trim()}`})`); continue; }
     const fresh = onHost.filter(({ m }) => stale(m) === null);
     if (fresh.length === 0) { problems.push(`${HOSTS[host]} measurement is stale: ${onHost.map(({ m }) => stale(m)).join("; ")}`); continue; }
     const within = fresh.filter(({ m }) => withinCeilings(m));

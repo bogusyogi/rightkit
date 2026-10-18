@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
-import { LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublish } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublish } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -467,4 +467,80 @@ test('batchCargoExecute echoes inherited output under the crate name and leaves 
   const captured = await execute('cargo', ['metadata'], { cwd: '/w', stdio: 'pipe' });
   assert.equal(captured.stdout, 'one\ntwo\n');
   assert.deepEqual([lines, seen], [[], [true, true]]);
+});
+
+// ---- Windows host (win32-only policy): crates only, same gate ----
+test('win32: a crate publishes from Windows with win32-only evidence the unchanged gate accepts, and no token is passed', async () => {
+  const root = workspace({ kind: 'cargo', gateConfig: { rust: { 'rightkit-demo': { os: ['windows'], featureSets: [['--all-features']] } } } });
+  const h = harness(root, 'cargo', { platform: 'win32', arch: 'x64' });
+  const result = await h.run();
+  assert.ok(h.logs.some((line) => /local-build grant, win32-only policy\)/.test(line)));
+  assert.ok(!h.logs.some((line) => /darwin-only/.test(line)));
+  const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
+  assert.equal(evidence.hostPolicy, 'win32-only');
+  assert.equal(evidence.hostPolicyReason, LOCAL_WIN32_HOST_POLICY_REASON);
+  assert.equal(evidence.runs.length, 1);
+  assert.deepEqual([evidence.runs[0].host.os, evidence.runs[0].host.arch, evidence.runs[0].operator, evidence.runs[0].failed, evidence.runs[0].passed], ['win32', 'x64', 'agent (local-build grant)', 0, 12]);
+  assert.equal(evidence.artifactSha256, crypto.createHash('sha256').update('crate-bytes').digest('hex'));
+  const gate = checkPublicationGate({ kind: 'cargo', name: 'rightkit-demo', version: '1.2.3', packagePath: path.join(root, 'crates/rightkit-demo'), evidencePath: result.evidencePath, git: (args) => (args[0] === 'rev-parse' ? HEAD : '') });
+  assert.deepEqual(gate.missing, []);
+  // The evidence proves its tests and clippy on the Windows host, so the publisher need not repeat them.
+  assert.deepEqual(provenGateSteps(evidence), { tests: true, clippy: true, fmt: false, secretScan: false });
+  // Windows publishes with the credential cargo stores itself: no argument carries a token, none is logged.
+  assert.ok(h.calls.every((c) => !c.args.some((arg) => /--token|^cargo_/i.test(arg))));
+  const call = h.published.find((entry) => entry.crate);
+  assert.equal(call.evidence, result.evidencePath);
+  assert.equal(call.trustEvidenceSteps, true);
+  assert.ok(!('token' in call));
+});
+
+test('win32: refused without the grant, for npm (Keychain token and signed helper are Mac only) and on other hosts; nothing is written', async () => {
+  const cargoRoot = workspace({ kind: 'cargo' });
+  await refused(harness(cargoRoot, 'cargo', { platform: 'win32', localBuildGranted: () => false }).run(), /local-build grant/);
+  await refused(harness(cargoRoot, 'cargo', { platform: 'linux' }).run(), /Mac only.*win32-only.*this host is linux/);
+  assert.equal(fs.existsSync(path.join(cargoRoot, 'release-evidence')), false);
+  const npmRoot = workspace();
+  const npm = harness(npmRoot, 'npm', { platform: 'win32' });
+  await refused(npm.run(), /npm --local needs the macOS Keychain npm token and runs on the Mac only.*this host is win32/);
+  assert.deepEqual(npm.calls, []);
+  assert.deepEqual(npm.published, []);
+  assert.equal(fs.existsSync(path.join(npmRoot, 'release-evidence')), false);
+});
+
+test('win32: the gate still stops a failing test, a skipped test and a registry-published version on Windows', async () => {
+  const root = workspace({ kind: 'cargo' });
+  const failing = harness(root, 'cargo', { platform: 'win32', run: (command, args) => (args[0] === 'test' ? { status: 101, stdout: 'test result: FAILED. 1 passed; 1 failed; 0 ignored', stderr: 'boom' } : { status: 0, stdout: '', stderr: '' }) });
+  await refused(failing.run(), /step failed.*cargo test -p rightkit-demo/s);
+  const skipped = harness(root, 'cargo', { platform: 'win32', run: (command, args) => ({ status: 0, stdout: args[0] === 'test' ? `${LIBTEST}SKIP needs sibling\n` : '', stderr: '' }) });
+  await refused(skipped.run(), /not qualified/);
+  await refused(harness(root, 'cargo', { platform: 'win32', registryHas: async () => true }).run(), /already on the crates\.io registry/);
+  assert.deepEqual([failing.published, skipped.published], [[], []]);
+  assert.equal(fs.existsSync(path.join(root, 'release-evidence')), false);
+});
+
+test('win32: localTestPlan honours the gate config host names for each platform', () => {
+  const only = (os, platform) => () => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'x', config: { rust: { 'rightkit-demo': { os } } }, platform });
+  assert.doesNotThrow(only(['windows'], 'win32'));
+  assert.doesNotThrow(only(['macos', 'windows'], 'win32'));
+  assert.throws(only(['macos'], 'win32'), /restricted to macos by ci\/gate\.config\.json; it cannot be qualified on this Windows host/);
+  assert.throws(only(['windows'], 'darwin'), /restricted to windows.*this Mac/);
+  assert.doesNotThrow(only(['macos'], 'darwin'));
+});
+
+test('win32 batch: win32-only evidence per crate with the batch receipt, gate accepted, an OS-restricted crate refused up front', async () => {
+  const h = batchHarness(NAMES, { over: { platform: 'win32', arch: 'x64' } });
+  const result = await h.run();
+  assert.deepEqual(result.results.map((r) => r.name).sort(), NAMES);
+  assert.ok(h.logs.some((line) => /cargo batch: 3 crate\(s\).*local-build grant, win32-only policy\)/.test(line)));
+  for (const name of NAMES) {
+    const evidence = JSON.parse(fs.readFileSync(evidencePathOf(h.root, name), 'utf8'));
+    assert.equal(evidence.hostPolicy, 'win32-only');
+    assert.deepEqual([evidence.runs.length, evidence.runs[0].host.os], [1, 'win32']);
+    const gate = checkPublicationGate({ kind: 'cargo', name, version: '1.0.0', packagePath: path.join(h.root, 'crates', name), evidencePath: evidencePathOf(h.root, name), git: gitForBatch });
+    assert.deepEqual(gate.missing, []);
+    assert.deepEqual(provenGateSteps(evidence), { tests: true, clippy: true, fmt: true, secretScan: true });
+  }
+  const restricted = batchHarness(NAMES, { over: { platform: 'win32' }, gateConfig: { rust: { 'rightkit-b': { os: ['macos'] } } } });
+  await refused(restricted.run(), /rightkit-b is restricted to macos.*this Windows host/);
+  assert.deepEqual(restricted.calls, []);
 });

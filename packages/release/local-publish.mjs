@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// `right-release publish npm|cargo ... --local`: publish ONE @rightkit npm package or crate from the Mac under
-// Adrian's local-build grant (2026-10-14, committed .rightkit-local-build.json). It does not weaken the
-// publication gate: it runs the unit's own CI tests (ci/gate.config.json, ci/asset-gated.json,
-// scripts/ci/gate.mjs semantics), packs the artifact, writes a schema-1 evidence file with one darwin receipt
-// (hostPolicy "darwin-only"), then calls the EXISTING enforcePublicationGate and the EXISTING publisher
+// `right-release publish npm|cargo ... --local`: publish ONE @rightkit npm package or crate from the Mac (npm and
+// crates) or from Windows (crates only) under Adrian's local-build grant (2026-10-14, committed
+// .rightkit-local-build.json). It does not weaken the publication gate: it runs the unit's own CI tests
+// (ci/gate.config.json, ci/asset-gated.json, scripts/ci/gate.mjs semantics), packs the artifact, writes a
+// schema-1 evidence file with one receipt for the publishing host (hostPolicy "darwin-only" on the Mac,
+// "win32-only" on Windows), then calls the EXISTING enforcePublicationGate and the EXISTING publisher
 // (publishGatedTarball for npm, runCargoPublish for cargo). There is no way to skip a test or the evidence.
 //
 // Batch mode (`cargo --crates a,b,c | --crates-file f --local`): fmt, the secret scan and clippy run ONCE for
@@ -29,6 +30,10 @@ import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
+export const LOCAL_WIN32_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt";
+// The hosts `--local` accepts and the host policy each records in the evidence.
+export const LOCAL_HOST_POLICIES = Object.freeze({ darwin: "darwin-only", win32: "win32-only" });
+const localHostPolicyReason = (platform) => (platform === "win32" ? LOCAL_WIN32_HOST_POLICY_REASON : LOCAL_HOST_POLICY_REASON);
 const STEP_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class LocalPublishError extends Error {
@@ -213,7 +218,7 @@ export function allFeatureCheckSets(entry = {}) {
 }
 
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
-export function localTestPlan({ kind, unit, dir, config, manifest, batch = false }) {
+export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
   if (kind === "npm") {
     if (!manifest?.scripts?.test) refuse(`${unit} has no test script; --local never publishes an untested package`);
     return {
@@ -225,7 +230,9 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
     };
   }
   const entry = config?.rust?.[unit] ?? {};
-  if (entry.os && !entry.os.includes("macos")) refuse(`${unit} is restricted to ${entry.os.join(", ")} by ci/gate.config.json; it cannot be qualified on this Mac`);
+  // gate.config.json names hosts "macos" and "windows" (scripts/ci/gate.mjs HOST).
+  const gateHost = platform === "win32" ? "windows" : "macos";
+  if (entry.os && !entry.os.includes(gateHost)) refuse(`${unit} is restricted to ${entry.os.join(", ")} by ci/gate.config.json; it cannot be qualified on this ${platform === "win32" ? "Windows host" : "Mac"}`);
   const featureSets = entry.featureSets ?? [[]];
   const steps = [];
   for (const features of featureSets) {
@@ -273,10 +280,12 @@ function testEnv(deps, isAssetGated) {
   return { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
 }
 
-function assertLocalHost(deps, workspaceRoot) {
+function assertLocalHost(deps, workspaceRoot, kind) {
   const platform = deps.platform ?? process.platform;
   if (!(deps.localBuildGranted ?? localBuildGranted)(workspaceRoot)) refuse(`--local needs the local-build grant: a committed ${LOCAL_BUILD_FILE} (allow "build-test-publish") naming this repository at ${workspaceRoot}`);
-  if (platform !== "darwin") refuse(`--local publishes from the Mac only (host policy: darwin-only); this host is ${platform}`);
+  if (!Object.hasOwn(LOCAL_HOST_POLICIES, platform)) refuse(`--local publishes from the Mac only (host policy: darwin-only) or from Windows (host policy: win32-only); this host is ${platform}`);
+  // The npm path reads the registry token from the macOS Keychain and ships a Developer-ID-signed helper: Mac only.
+  if (kind === "npm" && platform !== "darwin") refuse(`publish npm --local needs the macOS Keychain npm token and runs on the Mac only; Windows publishes crates (publish cargo --local); this host is ${platform}`);
   return platform;
 }
 
@@ -300,7 +309,7 @@ async function publishUnit(parsed, deps, batch) {
   const run = deps.run ?? (batch ? defaultRunAsync : defaultRun);
 
   // 1. Preconditions, fail closed.
-  const platform = assertLocalHost(deps, workspaceRoot);
+  const platform = assertLocalHost(deps, workspaceRoot, kind);
   const dir = kind === "npm" ? `packages/${unit.slice("@rightkit/".length)}` : `crates/${unit}`;
   const unitPath = path.join(workspaceRoot, dir);
   if (!fs.existsSync(unitPath)) refuse(`unit directory not found: ${unitPath}`);
@@ -328,14 +337,14 @@ async function publishUnit(parsed, deps, batch) {
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
   if (dirty !== "") refuse(`tree is not clean for ${dir}; commit first:\n${dirty}`);
   if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
-  log(`[right-release] local publish ${kind}:${unit}@${version} at ${head.slice(0, 12)} (local-build grant, darwin-only policy)`);
+  log(`[right-release] local publish ${kind}:${unit}@${version} at ${head.slice(0, 12)} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
   // 2. The unit's own tests, exactly as the CI gate defines them.
   const gateConfig = readJson(path.join(workspaceRoot, "ci", "gate.config.json")) ?? {};
   const assetGated = readJson(path.join(workspaceRoot, "ci", "asset-gated.json")) ?? {};
   const gatedSection = assetGated[kind === "npm" ? "npm" : "crates"] ?? {};
   const isAssetGated = Object.hasOwn(gatedSection, unit);
-  const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch) });
+  const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch), platform });
   const modules = await (deps.loadWorkspaceModules ?? defaultLoadWorkspaceModules)(workspaceRoot);
   const { ResultScanner, TEST_COMMAND, judgeUnit } = modules.results;
   const env = testEnv(deps, isAssetGated);
@@ -411,9 +420,9 @@ async function publishUnit(parsed, deps, batch) {
     const timestamp = (deps.now ?? (() => new Date().toISOString()))();
     const evidence = {
       schema: GATE_SCHEMA, kind, name: unit, version, commit: head, artifactSha256,
-      hostPolicy: "darwin-only", hostPolicyReason: LOCAL_HOST_POLICY_REASON,
+      hostPolicy: LOCAL_HOST_POLICIES[platform], hostPolicyReason: localHostPolicyReason(platform),
       runs: [{
-        host: { os: "darwin", arch: deps.arch ?? process.arch }, commit: head, features: plan.featureLabels, artifactSha256,
+        host: { os: platform, arch: deps.arch ?? process.arch }, commit: head, features: plan.featureLabels, artifactSha256,
         command: commands.join(" && "), operator: LOCAL_OPERATOR, timestamp,
         passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored, allowIgnored: ignoredAllowed,
         ...(configReason ? { allowIgnoredReason: configReason } : {}),
@@ -460,7 +469,7 @@ async function runLocalPublishBatch(parsed, deps) {
   const git = deps.git ?? defaultGit;
   const readJson = deps.readJson ?? defaultReadJson;
   const run = deps.run ?? defaultRunAsync;
-  assertLocalHost(deps, workspaceRoot);
+  const platform = assertLocalHost(deps, workspaceRoot, "cargo");
 
   // 1. The crate list and its dependency layers.
   const requested = parsed.batch.file ? parseCrateLayers((deps.readText ?? ((file) => fs.readFileSync(file, "utf8")))(parsed.batch.file)) : [parsed.batch.crates];
@@ -483,7 +492,7 @@ async function runLocalPublishBatch(parsed, deps) {
     if (pkg.name !== unit) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${unit}`);
     if (typeof pkg.version !== "string" || !pkg.version.trim()) refuse(`${unit} has no literal version`);
     versions.set(unit, pkg.version);
-    localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true }); // refuses an OS-restricted crate now, not mid-batch
+    localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true, platform }); // refuses an OS-restricted crate now, not mid-batch
   }
   const head = git(["rev-parse", "HEAD"], workspaceRoot);
   if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
@@ -496,7 +505,7 @@ async function runLocalPublishBatch(parsed, deps) {
   const registryHas = deps.registryHas ?? defaultRegistryHas;
   const published = (await Promise.all(crates.map(async (unit) => ((await registryHas({ kind: "cargo", name: unit, version: versions.get(unit) })) ? `${unit}@${versions.get(unit)}` : null)))).filter(Boolean);
   if (published.length) refuse(`already on the crates.io registry: ${published.join(", ")}; bump the version or remove them from the batch`);
-  log(`[right-release] local publish cargo batch: ${crates.length} crate(s) in ${layers.length} layer(s) at ${head.slice(0, 12)}, concurrency ${concurrency} (local-build grant, darwin-only policy)`);
+  log(`[right-release] local publish cargo batch: ${crates.length} crate(s) in ${layers.length} layer(s) at ${head.slice(0, 12)}, concurrency ${concurrency} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
   // 3. Batch-level checks, once, at the batch commit. Each is recorded in every crate's evidence.
   const env = testEnv(deps, false);

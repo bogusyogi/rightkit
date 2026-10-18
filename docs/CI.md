@@ -96,13 +96,17 @@ protects a publication" below).
 `right-release publish npm --package @rightkit/<name> --local` or
 `right-release publish cargo --crate <name> --local`. `--local` refuses unless the committed
 `.rightkit-local-build.json` (repository `bogusyogi/rightkit`, `allow: "build-test-publish"`) is present, the host is
-macOS, the unit's directory is clean at a resolvable HEAD, and the version is not yet on the registry. It then runs the
+macOS or Windows (a crate publishes from either; `publish npm --local` needs the macOS Keychain token and stays on the
+Mac), the unit's directory is clean at a resolvable HEAD, and the version is not yet on the registry. It then runs the
 unit's own CI commands from `ci/gate.config.json` (a unit in `ci/asset-gated.json` runs with
 `RIGHTKIT_REQUIRE_ASSETS=0` and its skipped count is recorded; any other unit runs strict), packs the artifact
-(`pnpm pack` / `cargo package --locked`), and writes the normal gate evidence to `release-evidence/gate/`: one darwin
-receipt (operator `agent (local-build grant)`) with `hostPolicy: "darwin-only"` and the grant as the reason. The existing
+(`pnpm pack` / `cargo package --locked`), and writes the normal gate evidence to `release-evidence/gate/`: one receipt
+for the publishing host (operator `agent (local-build grant)`), a `darwin` run with `hostPolicy: "darwin-only"` on the
+Mac or a `win32` run with `hostPolicy: "win32-only"` on Windows, and the grant as the reason. The existing
 `enforcePublicationGate` and the existing publisher (`publishGatedTarball`, or the `publish cargo` flow) then run on that
-evidence. No test or evidence step can be skipped, and Windows is covered by the next CI run.
+evidence. No test or evidence step can be skipped. Windows publishes with the credential Cargo stores in
+`~/.cargo/credentials.toml` (no token is passed, read or logged), so the Mac and the Dell can publish different crates of a
+batch in parallel.
 
 **Signed helper.** An npm run that names `@rightkit/release` first runs the `sign-swap` job (`xcode-27`, `environment: release`):
 it builds `rightkit-swap` with no secret in scope, then installs the Developer ID identity from `APPLE_CERTIFICATE_BASE64`,

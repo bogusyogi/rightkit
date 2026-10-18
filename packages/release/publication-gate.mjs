@@ -20,6 +20,11 @@ const SHA = /^[0-9a-f]{40}$/;
 // The one definition of a recorded darwin-only host policy (release evidence and the runtime budget gate share it).
 export const isDarwinOnlyPolicy = (source) => source?.hostPolicy === "darwin-only"
   && typeof source.hostPolicyReason === "string" && source.hostPolicyReason.trim() !== "";
+// The symmetric recorded win32-only host policy: a crate published from the Windows host under the local-build grant.
+export const isWin32OnlyPolicy = (source) => source?.hostPolicy === "win32-only"
+  && typeof source.hostPolicyReason === "string" && source.hostPolicyReason.trim() !== "";
+/** The one host a recorded single-host policy names ("darwin" or "win32"), or null when none is recorded. */
+export const singleHostOfPolicy = (source) => (isDarwinOnlyPolicy(source) ? "darwin" : isWin32OnlyPolicy(source) ? "win32" : null);
 
 export function defaultEvidencePath(workspaceRoot, kind, name) {
   return path.join(workspaceRoot, "release-evidence", "gate", `${kind}-${name.replace(/^@/, "").replace("/", "-")}.json`);
@@ -91,13 +96,15 @@ export function batchReceiptProblems(batch, evidence, tree) {
  * Which per-crate publication steps the evidence ALREADY proves for this exact commit, so the publisher may
  * skip repeating them: `tests` (a passing `cargo test -p <name>` step that executed tests), `clippy` (a passing
  * `cargo clippy -p <name> ... -D warnings` step, or a valid batch receipt covering the crate), and `fmt` and
- * `secretScan` (a valid batch receipt covering the crate). Every darwin run at the evidence commit must prove a
+ * `secretScan` (a valid batch receipt covering the crate). Every run on the proving host (darwin, or win32 under a win32-only policy) at the evidence commit must prove a
  * step for it to count. Call after the gate accepted the evidence (the gate binds commit, tree and artifact).
  */
 export function provenGateSteps(evidence) {
   const none = { tests: false, clippy: false, fmt: false, secretScan: false };
   if (!evidence || !SHA.test(String(evidence.commit ?? "")) || !text(evidence.name)) return none;
-  const runs = (Array.isArray(evidence.runs) ? evidence.runs : []).filter((run) => run?.host?.os === "darwin");
+  // The proving host is the one a recorded win32-only policy names; every other evidence is proved on darwin.
+  const proofHost = isWin32OnlyPolicy(evidence) ? "win32" : "darwin";
+  const runs = (Array.isArray(evidence.runs) ? evidence.runs : []).filter((run) => run?.host?.os === proofHost);
   if (!runs.length || runs.some((run) => run.commit !== evidence.commit)) return none;
   const name = escapeRegExp(evidence.name);
   const stepProves = (run, pattern, needTests) => (Array.isArray(run.steps) ? run.steps : []).some((step) => step?.ok === true
@@ -158,8 +165,10 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
     // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
     // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
-    const darwinOnly = (kind === "npm" || kind === "cargo") && isDarwinOnlyPolicy(evidence);
-    for (const host of darwinOnly ? ["darwin"] : requiredHosts(kind)) {
+    // A crate published from the Windows host under the local-build grant records the symmetric
+    // hostPolicy "win32-only" + reason, and then the one required receipt is the Windows run.
+    const singleHost = (kind === "npm" || kind === "cargo") ? singleHostOfPolicy(evidence) : null;
+    for (const host of singleHost ? [singleHost] : requiredHosts(kind)) {
       const label = host === "darwin" ? "macOS" : "Windows";
       const matching = runs.filter((run) => run?.host?.os === host);
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }

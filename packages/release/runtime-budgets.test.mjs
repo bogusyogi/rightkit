@@ -162,6 +162,19 @@ test("darwin-only comes from the release evidence and the budget file may not di
   refused(evaluate(crate(t, { budget: budgetFor({ measurements: [measurement("darwin")], hostPolicy: "mac-first", hostPolicyReason: "x" }) })), /hostPolicy must be "darwin-only"/);
 });
 
+test("win32-only comes from the release evidence the same way: the Windows measurement alone, and the files may not disagree", (t) => {
+  const policy = { hostPolicy: "win32-only", hostPolicyReason: "published from the Windows host under the local-build grant" };
+  const win = budgetFor({ measurements: [measurement("win32")], ...policy });
+  assert.deepEqual(evaluate(crate(t, { budget: win }), { evidence: policy }), { ok: true, problems: [] });
+  assert.deepEqual(evaluate(crate(t, { budget: budgetFor({ measurements: [measurement("win32")] }) }), { evidence: policy }).ok, false);
+  refused(evaluate(crate(t, { budget: budgetFor({ measurements: [measurement("win32")] }) }), { evidence: policy }), /hostPolicy disagrees with the release evidence \(evidence: win32-only; runtime-budget\.json: macOS and Windows\)/);
+  refused(evaluate(crate(t, { budget: win }), { evidence: {} }), /hostPolicy disagrees with the release evidence \(evidence: macOS and Windows; runtime-budget\.json: win32-only\)/);
+  refused(evaluate(crate(t, { budget: win }), { evidence: { hostPolicy: "darwin-only", hostPolicyReason: "r" } }), /hostPolicy disagrees with the release evidence \(evidence: darwin-only; runtime-budget\.json: win32-only\)/);
+  // The required measurement is the Windows one; a macOS measurement alone does not satisfy a win32-only policy.
+  refused(evaluate(crate(t, { budget: budgetFor({ measurements: [measurement("darwin")], ...policy }) }), { evidence: policy }), /no Windows measurement for version 0\.2\.0 \(required hosts: Windows; win32-only policy: published from the Windows host/);
+  refused(evaluate(crate(t, { budget: budgetFor({ measurements: [measurement("win32")], hostPolicy: "win32-only" }) })), /hostPolicy win32-only needs a hostPolicyReason/);
+});
+
 test("refuses a missing, wrong-crate or below-scale measurement: the doc's scale is enforced per crate", (t) => {
   refused(evaluate(crate(t, { budget: budgetFor({ requiredScale: null }) })), /requiredScale is undeclared/);
   refused(evaluate(crate(t, { budget: budgetFor({ requiredScale: { unit: "entries", minCount: 0 } }) })), /requiredScale must name unit and a positive minCount/);
