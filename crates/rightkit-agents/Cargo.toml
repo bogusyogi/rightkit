@@ -32,3 +32,11 @@ file = "src/session.rs"
 holds = ["child", "thread", "memory"]
 scale = "one vendor agent CLI child tree (owned: killed with the session) plus up to two reader threads (stdout reader, stderr reader) blocked on the child pipes and the pending-request tables; fixed per session, independent of conversation length"
 release = "Session::shutdown, or Drop of the Session (OwnedChild tears down the tree and the reader threads end when the pipes close)"
+
+[[package.metadata.rightkit.resources]]
+api = "detect"
+file = "src/discovery.rs"
+holds = ["memory"]
+scale = "two process-wide OnceLock slots (one per vendor CLI: Claude, Codex), each one VendorCliStatus (installed flag, path, version line, sign-in flag) filled once by the first detect call for that vendor; fixed size, independent of conversation length or data"
+release = "process exit (the statics have no release function; the cached snapshot is never re-probed)"
+static_note = "fn detect's two OnceLock statics hold a bounded value: one snapshot per vendor, two slots in total, no collection and no data-scale growth. Nothing long-lived is spawned here: probe runs bounded child processes via rightkit_child_process::run and waits for each before returning. The cache has no per-caller hold, so it lasts for the process; it is reachable only through detect and list_models."
