@@ -6,7 +6,7 @@
 // Config (release config, top level):
 //   distribution: {
 //     provider: "app-store-connect",
-//     appId: "6806854037",                 // the App Store Connect app id (numeric); config, never a built-in default
+//     appId: "6806854037",                 // optional: the App Store Connect app id; when absent it is looked up from bundleId at --apply
 //     bundleId: "app.heardright.ios.native",
 //     track: "testflight",                 // the only track; there is no App Store submission
 //     groups: "all" | ["Internal Dogfood"], // REQUIRED: no implicit policy
@@ -61,8 +61,9 @@ export function validateIosDistribution(distribution) {
     if (CREDENTIAL_LIKE.test(key)) refuse("IOS_ASC_CREDENTIAL_SOURCE_REFUSED", `distribution.${key} is refused: App Store Connect credentials are read only from the macOS login Keychain (distribution.credentials names the Keychain services), never from the config, a file or the environment`);
     refuse("IOS_UPLOAD_CONFIG_INVALID", `distribution has unsupported key ${key} (allowed: ${DISTRIBUTION_KEYS.join(", ")})`);
   }
-  const appId = String(distribution.appId ?? "");
-  if (!/^\d{5,20}$/.test(appId)) refuse("IOS_UPLOAD_CONFIG_INVALID", "distribution.appId must be the numeric App Store Connect app id");
+  // appId is optional: absent, --apply resolves it from bundleId through the App Store Connect API (resolveAscAppId).
+  const appId = distribution.appId === undefined ? null : String(distribution.appId);
+  if (appId !== null && !/^\d{5,20}$/.test(appId)) refuse("IOS_UPLOAD_CONFIG_INVALID", "distribution.appId must be the numeric App Store Connect app id (or omit it to resolve it from bundleId)");
   const bundleId = String(distribution.bundleId ?? "");
   if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) refuse("IOS_UPLOAD_CONFIG_INVALID", "distribution.bundleId must be the reverse-DNS app bundle id");
   if (TEST_SEGMENT.test(bundleId.split(".").at(-1))) refuse("IOS_UPLOAD_TEST_BUNDLE", `distribution.bundleId ${bundleId} is a dev/qa/test/debug id; those never go to TestFlight`);
@@ -92,10 +93,27 @@ export function validateIosDistribution(distribution) {
   };
 }
 
+const APP_ID_PENDING = "{appId from bundleId}";
+
+/**
+ * The App Store Connect app id for a bundle id: exactly one app whose bundleId equals it (the filter is not trusted to be exact).
+ * Read with the same in-memory JWT as the upload, so the config needs only the bundle id.
+ */
+export async function resolveAscAppId({ client, bundleId }) {
+  const apps = await client.getAll(`/v1/apps?${new URLSearchParams({ "filter[bundleId]": bundleId, limit: "200" })}`);
+  const exact = apps.filter((app) => String(app?.attributes?.bundleId ?? "") === bundleId);
+  if (exact.length !== 1) refuse("IOS_ASC_APP_NOT_FOUND", exact.length ? `${exact.length} App Store Connect apps have bundle id ${bundleId}; set distribution.appId` : `no App Store Connect app has bundle id ${bundleId}; create the app record in App Store Connect first`);
+  const id = String(exact[0].id ?? "");
+  if (!/^\d{5,20}$/.test(id)) refuse("IOS_ASC_APP_NOT_FOUND", `App Store Connect returned a non-numeric app id for ${bundleId}`);
+  return id;
+}
+
 /** The plan printed by a dry run: pure data, no secret, no Keychain read. */
 export function iosUploadPlan({ distribution, ipa, receipt }) {
+  const appId = distribution.appId ?? APP_ID_PENDING;
   return {
-    appId: distribution.appId,
+    appId,
+    ...(distribution.appId ? {} : { appIdSource: `resolved at --apply: GET ${ASC_API}/v1/apps?filter[bundleId]=${distribution.bundleId} (exactly one exact match)` }),
     bundleId: distribution.bundleId,
     track: distribution.track,
     ipa: { name: ipa.name, sha256: ipa.sha256, sizeBytes: ipa.sizeBytes },
@@ -103,8 +121,8 @@ export function iosUploadPlan({ distribution, ipa, receipt }) {
     buildNumber: receipt.buildNumber,
     credentials: { source: "macOS login Keychain", services: [distribution.credentialServices.keyService, distribution.credentialServices.keyIdService, distribution.credentialServices.issuerService], account: distribution.credentialServices.account },
     steps: [
-      ...buildUploadPlan({ appId: distribution.appId, marketingVersion: receipt.marketingVersion, buildNumber: receipt.buildNumber, ipa }),
-      ...testflightPlan({ appId: distribution.appId, marketingVersion: receipt.marketingVersion, buildNumber: receipt.buildNumber, groups: distribution.groups, submitExternalBetaReview: distribution.submitExternalBetaReview }),
+      ...buildUploadPlan({ appId, marketingVersion: receipt.marketingVersion, buildNumber: receipt.buildNumber, ipa }),
+      ...testflightPlan({ appId, marketingVersion: receipt.marketingVersion, buildNumber: receipt.buildNumber, groups: distribution.groups, submitExternalBetaReview: distribution.submitExternalBetaReview }),
     ],
   };
 }
@@ -213,7 +231,6 @@ export async function runIosUpload({
     log(JSON.stringify(plan, null, 2));
     return { applied: false, plan };
   }
-  const identity = { appId: plan.appId, bundleId: plan.bundleId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, ipaSha256: ipaEvidence.sha256 };
   try { assertIosHost({ operation: "right-release upload --apply", platform }); } catch (error) {
     if (error instanceof IosHostError) refuse(error.code, error.message);
     throw error;
@@ -221,27 +238,37 @@ export async function runIosUpload({
   // One apply per release at a time (the same pid lock the build lane uses).
   const lock = acquireLock(path.join(auth.repoRoot, ".right-release", "locks", `ios-upload-${releaseId}.lock.json`), `right-release upload --platform ios ${releaseId}`);
   try {
+    // The Keychain is read only in the GUI (Aqua) session; an SSH session is refused before any read. The key is read once, lazily.
+    let ascClient;
+    const client = () => {
+      if (ascClient) return ascClient;
+      try { assertGuiSigningSession({ operation: "right-release upload --apply (login Keychain)", env, run, detect: detectSession }); } catch (error) {
+        if (error instanceof IosHostError) refuse(error.code, error.message);
+        throw error;
+      }
+      const { keyId, issuer, privateKey } = readCredentials({ credentials: auth.distribution.credentials, env, platform });
+      ascClient = createAscClient({ tokenProvider: createTokenProvider({ privateKey, keyId, issuer }), fetchImpl, ...(sleep ? { sleep } : {}) });
+      return ascClient;
+    };
+    if (!auth.distribution.appId) {
+      plan.appId = await resolveAscAppId({ client: client(), bundleId: plan.bundleId });
+      log(`right-release upload: App Store Connect app ${plan.appId} resolved from bundle id ${plan.bundleId}`);
+    }
+    const identity = { appId: plan.appId, bundleId: plan.bundleId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, ipaSha256: ipaEvidence.sha256 };
     if (existsSync(distributedMarker)) {
       readMarker(distributedMarker, identity, "distribution");
       log(`right-release upload: already distributed ${releaseId} to TestFlight`);
       return { applied: false, alreadyDistributed: true, plan };
     }
-    // The Keychain is read only in the GUI (Aqua) session; an SSH session is refused before any read.
-    try { assertGuiSigningSession({ operation: "right-release upload --apply (login Keychain)", env, run, detect: detectSession }); } catch (error) {
-      if (error instanceof IosHostError) refuse(error.code, error.message);
-      throw error;
-    }
-    const { keyId, issuer, privateKey } = readCredentials({ credentials: auth.distribution.credentials, env, platform });
 
     // 1. The sealed bytes are uploaded once, in process (or an existing upload is resumed); a rerun after a later failure skips straight
     //    to the TestFlight steps, but only on a marker written for this very IPA, app and build number.
-    const client = createAscClient({ tokenProvider: createTokenProvider({ privateKey, keyId, issuer }), fetchImpl, ...(sleep ? { sleep } : {}) });
     const waits = { ...(sleep ? { sleep } : {}), ...(monotonic ? { monotonic } : {}) };
     if (!existsSync(uploadedMarker)) {
       const source = fileSource(auth.ipa.file, auth.entry); // streamed hash; refuses bytes that changed since the seal
       log(`right-release upload: uploading ${ipaEvidence.name} through the App Store Connect API (in process, no key file)`);
       const uploaded = await uploadIpaToAppStoreConnect({
-        client, appId: plan.appId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, source, fileName: ipaEvidence.name, fetchImpl,
+        client: client(), appId: plan.appId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, source, fileName: ipaEvidence.name, fetchImpl,
         journal: buildUploadJournal(journalDir ?? (env.RIGHT_RELEASE_VAULT_STATE_ROOT ? path.join(path.resolve(env.RIGHT_RELEASE_VAULT_STATE_ROOT), "ios-build-uploads") : path.join(auth.repoRoot, ".right-release", "state", "ios-build-uploads")), plan.appId),
         pollIntervalMs: auth.distribution.pollIntervalSeconds * 1000, timeoutMs: auth.distribution.waitTimeoutSeconds * 1000, ...waits,
         log: (line) => log(`right-release upload: ${line}`),
@@ -255,7 +282,7 @@ export async function runIosUpload({
 
     // 2. TestFlight: the exact build into the beta groups.
     const distributed = await distributeToTestFlight({
-      client, appId: plan.appId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, groups: auth.distribution.groups,
+      client: client(), appId: plan.appId, marketingVersion: plan.marketingVersion, buildNumber: plan.buildNumber, groups: auth.distribution.groups,
       submitExternalBetaReview: auth.distribution.submitExternalBetaReview,
       pollIntervalMs: auth.distribution.pollIntervalSeconds * 1000, timeoutMs: auth.distribution.waitTimeoutSeconds * 1000,
       ...waits,

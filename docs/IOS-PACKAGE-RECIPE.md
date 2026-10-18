@@ -73,7 +73,7 @@ targets: {
 // An app that also ships desktop puts this under targets.ios.distribution instead (it wins over the top level).
 distribution: {
   provider: "app-store-connect",
-  appId: "1234567890",                           // the App Store Connect app id (config, never a default)
+  appId: "1234567890",                           // optional: omit it and --apply looks it up from bundleId (exactly one exact match)
   bundleId: "dev.orthic.pulse.ios",              // must equal iosPackage.bundleId
   track: "testflight",                           // the only track
   groups: "all",                                 // REQUIRED, no default: "all" or ["Internal Dogfood"] (the recipe has no policy of its own)

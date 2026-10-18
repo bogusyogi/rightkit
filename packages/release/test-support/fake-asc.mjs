@@ -2,7 +2,7 @@
 const APP_MARKETING = "1.0.214";
 const APP_BUILD = "2026101801";
 // A recording fake of the App Store Connect endpoints used by the distribution.
-export function fakeAsc({ builds, groups, assigned = {}, externalState = "READY_FOR_BETA_SUBMISSION", submissions = [], failAssign = false, failStatus, partSize = 4, uploadStates = ["PROCESSING", "COMPLETE"], failPut = false, uploadErrors = [], upload = {} } = {}) {
+export function fakeAsc({ builds, groups, assigned = {}, externalState = "READY_FOR_BETA_SUBMISSION", submissions = [], failAssign = false, failStatus, partSize = 4, uploadStates = ["PROCESSING", "COMPLETE"], failPut = false, uploadErrors = [], upload = {}, apps = [{ id: "6806854037", bundleId: "app.heardright.ios.native" }] } = {}) {
   // upload: { existing: [{ id, state, marketing?, build?, files?: [{ id, fileName, fileSize, deliveryState?, operations? }] }],
   //   putStatuses: [503, 200...] consumed per part PUT, retryAfter: "2", opHost, expiration, urlExpires, headers, flaky: { "GET /v1/buildUploads/bu1": [503, 429] } }
   const opHost = upload.opHost ?? "store-030.blobstore.apple.com";
@@ -38,6 +38,11 @@ export function fakeAsc({ builds, groups, assigned = {}, externalState = "READY_
       }
       return operations;
     };
+    if (parsed.pathname === "/v1/apps" && method === "GET") {
+      // like the real filter, a prefix match: the caller must keep only the exact bundle id
+      const wanted = parsed.searchParams.get("filter[bundleId]") ?? "";
+      return reply(200, { data: apps.filter((app) => app.bundleId.startsWith(wanted)).map((app) => ({ id: app.id, type: "apps", attributes: { bundleId: app.bundleId } })) });
+    }
     if (/^\/v1\/apps\/\d+\/buildUploads$/.test(parsed.pathname) && method === "GET") {
       return reply(200, { data: (upload.existing ?? []).map((item) => ({ id: item.id, type: "buildUploads", attributes: { cfBundleShortVersionString: item.marketing ?? APP_MARKETING, cfBundleVersion: item.build ?? APP_BUILD, platform: "IOS", state: { state: item.state } } })) });
     }

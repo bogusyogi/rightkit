@@ -7,7 +7,7 @@ import test, { mock } from "node:test";
 import { fakeAsc } from "./test-support/fake-asc.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import {
-  IOS_DISTRIBUTED_MARKER, IOS_EVIDENCE_NAME, IOS_UPLOADED_MARKER, IosUploadError, authorizeIosUpload, buildUploadJournal, iosUploadPlan, main, runIosUpload, validateIosDistribution,
+  IOS_DISTRIBUTED_MARKER, IOS_EVIDENCE_NAME, IOS_UPLOADED_MARKER, IosUploadError, authorizeIosUpload, buildUploadJournal, iosUploadPlan, main, resolveAscAppId, runIosUpload, validateIosDistribution,
 } from "./ios-upload.mjs";
 import { readVerifiedArtifact } from "./publication-artifacts.mjs";
 
@@ -311,4 +311,35 @@ test("the upload journals the build upload it created in the vault state root; a
   assert.throws(() => direct.read(), (error) => error.code === "IOS_UPLOAD_JOURNAL_INVALID");
   fs.rmSync(journalFile);
   assert.deepEqual(direct.read(), []);
+});
+
+// ---- appId resolved from bundleId (the config may carry only the bundle id) ---------------------------------------
+test("appId is optional; a present one must still be numeric", () => {
+  assert.equal(validateIosDistribution(distribution({ appId: undefined })).appId, null);
+  refused("IOS_UPLOAD_CONFIG_INVALID", () => validateIosDistribution(distribution({ appId: "abc" })));
+});
+
+test("resolveAscAppId keeps only the exact bundle id and needs exactly one app", async () => {
+  const client = (apps) => ({ getAll: async () => apps.map(([id, bundleId]) => ({ id, attributes: { bundleId } })) });
+  assert.equal(await resolveAscAppId({ client: client([[APP_ID, BUNDLE], ["1111111111", `${BUNDLE}.widget`]]), bundleId: BUNDLE }), APP_ID);
+  await assert.rejects(resolveAscAppId({ client: client([["1111111111", `${BUNDLE}.widget`]]), bundleId: BUNDLE }), (error) => error.code === "IOS_ASC_APP_NOT_FOUND" && /create the app record/.test(error.message));
+  await assert.rejects(resolveAscAppId({ client: client([[APP_ID, BUNDLE], ["2222222222", BUNDLE]]), bundleId: BUNDLE }), (error) => error.code === "IOS_ASC_APP_NOT_FOUND" && /set distribution.appId/.test(error.message));
+  await assert.rejects(resolveAscAppId({ client: client([["x1", BUNDLE]]), bundleId: BUNDLE }), (error) => error.code === "IOS_ASC_APP_NOT_FOUND");
+});
+
+test("without appId the dry run reads nothing and says where the id comes from; apply resolves it first", async () => {
+  const dry = fixture({ distribution: { appId: undefined }, readCredentials: () => assert.fail("a dry run reads no Keychain item") });
+  const planned = await runIosUpload({ ...dry.deps, fetchImpl: () => assert.fail("a dry run sends nothing") });
+  assert.match(planned.plan.appIdSource, /filter\[bundleId\]=app\.heardright\.ios\.native/);
+
+  const f = fixture({ distribution: { appId: undefined }, fake: { apps: [{ id: APP_ID, bundleId: BUNDLE }, { id: "1111111111", bundleId: `${BUNDLE}.widget` }] } });
+  const result = await runIosUpload({ ...f.deps, apply: true });
+  assert.equal(result.applied, true);
+  const calls = f.asc.requests.filter((request) => request.path.startsWith("/v1/")).map((request) => `${request.method} ${request.path}`);
+  assert.deepEqual(calls.slice(0, 2), ["GET /v1/apps", `GET /v1/apps/${APP_ID}/buildUploads`]);
+  assert.equal(JSON.parse(readFileSync(path.join(f.stateRoot, IOS_DISTRIBUTED_MARKER), "utf8")).appId, APP_ID);
+
+  const missing = fixture({ distribution: { appId: undefined }, fake: { apps: [] } });
+  await assert.rejects(runIosUpload({ ...missing.deps, apply: true }), (error) => error.code === "IOS_ASC_APP_NOT_FOUND");
+  assert.equal(missing.asc.puts.length, 0, "nothing is uploaded when the app is not found");
 });
