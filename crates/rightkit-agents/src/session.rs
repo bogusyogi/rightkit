@@ -6,7 +6,7 @@
 //! `rightkit_child_process::OwnedCommand`, so it owns its tree: [`Session::shutdown`] and
 //! dropping the [`Session`] terminate the CLI and every descendant it started.
 //!
-//! ```ignore
+//! ```text
 //! let mut session = Session::spawn(SessionConfig::new(Backend::Claude(ClaudeOptions::default())))?;
 //! session.send_user_message("summarise the diff")?;
 //! while let Ok(event) = session.events().recv() {

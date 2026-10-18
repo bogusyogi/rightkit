@@ -225,6 +225,8 @@ mod tests {
         }
     }
 
+    // The read side takes Android's `/`-rooted paths as strings; a Windows temp dir is not one.
+    #[cfg(unix)]
     #[test]
     fn writes_prunes_reads_and_clears() {
         let dir = temp("rw");
