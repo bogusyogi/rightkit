@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "spend-ledger",
-      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`) variants, strict transition mode",
+      "summary": "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve on request id, in-flight and overrun handling, opaque allowance periods, optional account key and per-reservation currency, billed-unknown commit, caller-transaction (`_in`/`_on`) variants, strict transition mode, carry-over, atomic multi-cap reserve with epoch-reset device allowance, caller and process budgets, provider-reported cost and invoice reconciliation, cap-setting audit, optional overrun gate",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

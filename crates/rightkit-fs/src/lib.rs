@@ -7,9 +7,13 @@
 //!   [`FileLock::acquire_shared`] takes a shared (reader) lock. [`LockKind`] picks POSIX record
 //!   locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; [`probe_owner`] reads the
 //!   owner record without locking.
+//! - [`lease`] (feature `fs`): [`Lease`], a pid + heartbeat-TTL lease file with stale-holder takeover
+//!   (not an OS lock): `try_acquire`, `renew`, `release`, `peek`.
+//! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
+//!   never shows a half-migrated destination (rename, or copy to a sibling then rename).
 //! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
 //!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
-//! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
+//! - [`digest`] (features `digest` / `blake3`): SHA-256 / BLAKE3 of bytes or files, & lowercase hex.
 //! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
 //! - [`contain`](mod@contain): [`is_within`], [`contain()`](contain::contain), [`contain_lenient`] and [`Roots`], path containment that
 //!   follows links but refuses to leave a root; with feature `fs`, [`open_confined`] / [`Roots::open_confined`], a no-follow
@@ -19,7 +23,8 @@
 //!   [`create_unique_file`] / [`create_download_file`].
 //! - [`publish_dir`](mod@publish_dir) (feature `fs`): [`publish_dir()`](publish_dir::publish_dir), an atomic directory replace.
 //! - [`trash`] (feature `fs`): [`move_to_trash`], and `trash::{list, lookup, restore}` (macOS and Windows).
-//! - [`zip`]: [`StoredZipWriter`], a deterministic stored-method ZIP writer, and [`crc32`].
+//! - [`zip`]: [`StoredZipWriter`], a deterministic stored-method ZIP writer, and [`crc32`]; also
+//!   `zip::{write_zip, read_zip, crc_table, crc32_update}` for archives built from files on disk.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`replaced`]: [`open_replaced`] / [`read_replaced`], readers that retry, on Windows, an open a concurrent
 //!   replace refused (access denied, sharing violation).
@@ -47,7 +52,7 @@ pub mod atomic;
 #[cfg(feature = "fs")]
 pub mod clone;
 pub mod contain;
-#[cfg(feature = "digest")]
+#[cfg(any(feature = "digest", feature = "blake3"))]
 pub mod digest;
 #[cfg(feature = "fs")]
 pub mod error;
@@ -57,8 +62,12 @@ pub mod file_key;
 pub mod handle;
 #[cfg(feature = "json")]
 pub mod identity;
+#[cfg(feature = "fs")]
+pub mod lease;
 #[cfg(feature = "lock")]
 pub mod lock;
+#[cfg(feature = "fs")]
+pub mod migrate;
 pub mod names;
 #[cfg(feature = "fs")]
 pub mod netfs;
@@ -79,7 +88,7 @@ pub mod swap;
 pub mod trash;
 #[cfg(feature = "fs")]
 pub mod tree;
-#[cfg(all(feature = "fs", feature = "digest"))]
+#[cfg(all(feature = "fs", any(feature = "digest", feature = "blake3")))]
 pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
@@ -117,8 +126,12 @@ pub use file_key::FileKey;
 pub use handle::{final_path, link_count, open_read_nofollow, ReadOptions};
 #[cfg(feature = "json")]
 pub use identity::{IdentityStore, Resolution, StableId, Tracked};
+#[cfg(feature = "fs")]
+pub use lease::{Acquire, Lease, LeaseInfo, LeaseOptions, Staleness};
 #[cfg(feature = "lock")]
 pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
+#[cfg(feature = "fs")]
+pub use migrate::{migrate_dir, MigrateMethod, Migrated};
 #[cfg(feature = "fs")]
 pub use names::{create_download_file, create_unique_file};
 pub use names::{
@@ -148,7 +161,9 @@ pub use trash::{move_to_trash, TrashEntry, TrashIdentity};
 #[cfg(feature = "fs")]
 pub use tree::{copy_tree, CopyOptions};
 #[cfg(all(feature = "fs", feature = "digest"))]
-pub use verified::{copy_verified, VerifiedCopy};
+pub use verified::{copy_verified, copy_verified_with_progress, VerifiedCopy};
+#[cfg(all(feature = "fs", any(feature = "digest", feature = "blake3")))]
+pub use verified::{copy_verified_with_digest, DigestAlgorithm, VerifiedDigestCopy};
 pub use zip::{crc32, stored_zip_bytes, StoredZipWriter};
 
 /// Conservative liveness result used by crash recovery.

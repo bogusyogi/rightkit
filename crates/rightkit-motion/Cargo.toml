@@ -1,10 +1,10 @@
 [package]
 name = "rightkit-motion"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
-description = "Product-neutral motion helpers for Right Suite video: bracketed-script beat sync against word timings, and storyboard inspect-sheet planning and assembly"
+description = "Product-neutral motion helpers for Right Suite video: bracketed-script beat sync, storyboard inspect sheets, and a frame-source render and encode driver (H.264/MPEG-4, ProRes 4444 and VP9 alpha, PNG stills)"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-motion"
@@ -21,14 +21,25 @@ path = "src/lib.rs"
 default = []
 # PNG sheet assembly from caller-supplied RGBA frames (uses `image`, PNG codec only).
 assemble = ["dep:image"]
+# Render and encode: the `FrameSource` driver, encoder pick, ProRes 4444 / VP9 alpha, PNG to PPM/PAM and stills.
+# Runs ffmpeg through `rightkit-ffmpeg` (owned child process); PNG decode uses `image`.
+encode = ["dep:rightkit-ffmpeg", "dep:image"]
 
 [dependencies]
-rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
+rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"
+rightkit-ffmpeg = { version = "0.2.9", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "encode_e2e"
+required-features = ["encode"]
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "pure script parsing, beat snapping and sheet layout over caller-provided data, no I/O loop; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
+continuous_reason = "pure script parsing, beat snapping and sheet layout over caller-provided data, and (feature encode) a bounded per-call render that pipes frames to one ffmpeg child through rightkit-ffmpeg run_with_stdin, which owns the only writer thread and joins it before returning; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

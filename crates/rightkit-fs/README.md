@@ -21,8 +21,10 @@ Do not use it as a substitute for a database transaction. It guards single files
 
 ## Cargo features
 
-No feature is on by default (0.4.0). Name `fs`, `lock`, `json` and `digest` as you use them (the 0.3.x default was all four); `testing` is never default.
+No feature is on by default (0.4.0). Name `fs`, `lock`, `json`, `digest`, `blake3` & `zip` as you use them (the 0.3.x default was all four); `testing` is never default.
 
+- `blake3`: `digest::{Blake3Hasher, blake3_bytes, blake3_reader, blake3_file, blake3_file_with_len, blake3_file_with_progress}`. Depends only on `blake3`; does not enable SHA-256 or `fs`.
+- `zip`: names the `zip` module (`zip::{write_zip, read_zip, crc_table, crc32_update}` beside `StoredZipWriter`). The module is compiled without any feature; `zip` is an empty alias that adds no code, no dependency and does not enable `fs`.
 - `digest`: `digest` module (`sha256_bytes`, `sha256_reader`, `sha256_file`, `sha256_file_with_len`, `hex`). Depends only on `sha2`.
 - `fs`: atomic writes, owner-only files, `StateDir`, netfs checks, clonefile, path swap (and the `rightkit-swap` binary), `FileKey` (`file_key`, no `json` needed), `free_bytes`, `copy_tree`, confined opens (`open_confined`), `handle`, `publish_dir`, `trash`, and the error type. Depends on `libc` (unix) and `thiserror`. Without any feature the crate still has `canonicalize_plain`, `contain` (`is_within`, `contain`, `Roots`), `names` (`sanitize_file_name`) and `zip` (`StoredZipWriter`).
 - `lock`: cross-process locks (`FileLock`, `with_lock`). Depends on `fs` and `libc` (unix).
@@ -135,6 +137,8 @@ One module, `contain` (std only for the checks; the opens need `fs`), answers "i
   4. Once old versions are gone, delete the marker code and the marker path.
 
   The marker format and staleness rule belong to the consumer, so a generic mode would need both as parameters and would still leave orphaned markers to the consumer's policy; that is why this is guidance, not a mode.
+- `Lease` (`fs`): a pid + heartbeat-TTL lease file, not an OS lock. `Lease::try_acquire(path, &LeaseOptions::new(ttl).label("..."))` creates the record exclusively and returns `Acquire::Acquired(lease)`, or `Acquire::Held(info)` for a live holder; `lease.renew()` heartbeats (call it every `ttl / 3` or sooner; `FsError::Locked` or `NotFound` means the lease was lost); `lease.release()` or drop removes the record only if it is still this lease's; `Lease::peek(path)` reads it. A record is stale when its pid is confirmed dead or its last heartbeat is older than its TTL; a stale record is taken over, a live and fresh one never. Local machine only, wall-clock based, never sleeps. See `src/lease.rs` for the takeover protocol and its stated races.
+- `migrate_dir(from, to)` / `AppDirs::migrate_dir(from, to)` (`fs`): move a directory so `to` is never half-migrated. Same volume: one rename. Different volumes: copy to a hidden sibling of `to`, rename it to `to`, remove `from`. `to` must be absent or empty (a populated `to` is `FsError::AlreadyExists`, nothing written). Safe to repeat after an interruption; stale hidden copies of dead processes are swept.
 
 ## Platform support
 
@@ -165,3 +169,49 @@ One module, `contain` (std only for the checks; the opens need `fs`), answers "i
 ## Version and changes
 
 Published version: see [INDEX.md](../../INDEX.md). Version history: [CHANGELOG.md](CHANGELOG.md).
+
+## BLAKE3 identity & verified-copy progress (G8)
+
+```toml
+rightkit-fs = { version = "0.4.4", default-features = false, features = ["fs", "blake3"] }
+```
+
+```rust,ignore
+use rightkit_fs::{copy_verified_with_digest, AtomicWriteOptions, DigestAlgorithm};
+let (identity, bytes) = rightkit_fs::digest::blake3_file_with_progress(
+    source, |read, total| report_hash_bytes(read, total),
+)?;
+let copied = copy_verified_with_digest(
+    source, destination, AtomicWriteOptions::default(), DigestAlgorithm::Blake3,
+    Some(&identity), |written, total| report_copy_bytes(written, total),
+)?;
+assert_eq!(copied.digest, identity);
+assert_eq!(copied.bytes, bytes);
+```
+
+Callbacks run synchronously at zero & after each chunk (up to 64 KiB), with byte count
+& initial file length. Empty files report `(0, 0)` once. Metadata length is a snapshot;
+hash functions return bytes actually read. Verified copies reject a changed length.
+Copy progress covers writes to temp: the final callback precedes verification & publication.
+Treat successful return as completion. Failed verification preserves destination contents;
+`AtomicWriter` can report directory-sync or cleanup errors after replacement.
+
+Existing SHA-256 `copy_verified` & `VerifiedCopy.sha256` stay compatible.
+`copy_verified_with_progress` supplies byte progress for that API. For algorithm selection,
+`copy_verified_with_digest` returns `VerifiedDigestCopy { algorithm, digest, bytes }`.
+
+## Deterministic STORED ZIP (G9)
+
+Call `rightkit_fs::zip::write_zip(destination, &entries)` with
+`entries: Vec<(String, PathBuf)>`. Order is preserved; sort entries before calling if
+ordering starts from directory enumeration. Identical names, order & source bytes produce
+identical output regardless of clock, source mtime, permissions or host OS. Encoding matches
+CutRight’s former `cutright-qa/src/zip.rs`: STORED, UTF-8 flag, DOS epoch 1980-01-01,
+Unix creator 3.0, mode 0644, no extras, comments or data descriptors.
+
+ZIP64 is unsupported: fewer than 65535 entries, names at most 65535 UTF-8 bytes, sizes
+& offsets below 0xffffffff. Oversized inputs return `io::ErrorKind::InvalidInput`.
+Sources must stay unchanged during CRC & copy passes. Names are stored verbatim;
+callers select safe archive names. Destination is truncated directly & must not alias
+sources; failures may leave partial archives. Writes flush buffers without fsync.
+`read_zip` verifies this writer’s format & CRCs, loading contents into memory.

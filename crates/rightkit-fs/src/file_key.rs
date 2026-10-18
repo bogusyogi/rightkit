@@ -143,7 +143,8 @@ mod tests {
     fn a_directory_has_an_identity_and_it_matches_its_handle() {
         let dir = tempfile::tempdir().unwrap();
         let by_path = FileKey::of_path(dir.path()).expect("a directory opens for its identity");
-        let handle = File::open(dir.path()).unwrap();
+        // A directory handle needs the backup-semantics flag on Windows; `File::open` is denied there.
+        let handle = open_for_identity(dir.path()).unwrap();
         assert_eq!(FileKey::of_file(&handle, dir.path()).unwrap(), by_path);
     }
 

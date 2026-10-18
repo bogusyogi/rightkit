@@ -36,7 +36,7 @@ realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["ndarray", "half"] }
-rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript" }
+rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
 # Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
 # crate (and its C regex build). Parakeet CoreML and ONNX TDT paths do not need it.

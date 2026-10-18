@@ -540,6 +540,20 @@ pub mod tauri_commands {
             self.source_registry().set_authoriser(authoriser);
         }
 
+        /// Authorise sources through a live Tauri asset-protocol scope on every platform.
+        /// Pass `app.asset_protocol_scope()` during setup, then register the
+        /// [`authorised_media_source_id`] command on macOS and Windows alike.
+        ///
+        /// The scope shares subsequent file/directory grants and forbids. Tauri checks the
+        /// canonical path, including Windows verbatim drive and UNC paths, with forbidden
+        /// patterns taking precedence. No prefix stripping or fallback grant is performed.
+        /// Ids admitted through this hook are checked again on use; sources explicitly
+        /// registered with [`register_source`](Self::register_source) retain their independent
+        /// grant. This replaces any previous authoriser and does not widen the asset scope.
+        pub fn set_asset_scope(&self, scope: tauri::scope::fs::Scope) {
+            self.set_authoriser(move |path| scope.is_allowed(path));
+        }
+
         /// Allow regular files under `roots`, recursively (see [`allowed_roots`]).
         pub fn allow_roots<I, P>(&self, roots: I)
         where
@@ -664,6 +678,83 @@ pub mod tauri_commands {
     #[tauri::command]
     pub fn revoke_media_source(source: String, state: tauri::State<'_, PlaybackState>) -> bool {
         state.revoke_source(&source)
+    }
+
+    #[cfg(test)]
+    mod asset_scope_tests {
+        use super::*;
+
+        struct Host;
+
+        impl PlaybackHost for Host {
+            fn source(&self, _: &str) -> Result<PlaybackSource, String> {
+                unreachable!()
+            }
+            fn cache_dir(&self) -> Result<PathBuf, String> {
+                unreachable!()
+            }
+            fn ffmpeg(&self) -> Result<PathBuf, String> {
+                unreachable!()
+            }
+            fn allow_asset(&self, _: &Path) -> Result<(), String> {
+                unreachable!()
+            }
+        }
+
+        #[test]
+        fn asset_scope_replaces_previous_hook_and_tracks_forbids() {
+            let app = tauri::test::mock_app();
+            let scope = tauri::scope::fs::Scope::new(&app, &Default::default()).unwrap();
+            let scratch = tempfile::tempdir().unwrap();
+            let file = scratch.path().join("clip.mp4");
+            fs::write(&file, b"media").unwrap();
+            let state = PlaybackState::new(Arc::new(Host));
+            state.set_authoriser(|_| true);
+            state.set_asset_scope(scope.clone());
+            assert_eq!(
+                state.authorised_media_source_id(&file),
+                Err(PlaybackError::NotAllowed)
+            );
+            assert!(state.source_registry().is_empty());
+
+            scope.allow_file(&file).unwrap();
+            let id = state.authorised_media_source_id(&file).unwrap();
+            assert_eq!(
+                state.resolve_source(id.as_str()).unwrap(),
+                file.canonicalize().unwrap()
+            );
+            scope.forbid_file(&file).unwrap();
+            assert_eq!(
+                state.resolve_source(id.as_str()),
+                Err(PlaybackError::NotAllowed)
+            );
+        }
+
+        #[test]
+        fn clearing_asset_scope_hook_revokes_only_conditional_sources() {
+            let app = tauri::test::mock_app();
+            let scope = tauri::scope::fs::Scope::new(&app, &Default::default()).unwrap();
+            let scratch = tempfile::tempdir().unwrap();
+            let conditional = scratch.path().join("conditional.mp4");
+            let explicit = scratch.path().join("explicit.mp4");
+            fs::write(&conditional, b"media").unwrap();
+            fs::write(&explicit, b"media").unwrap();
+            scope.allow_directory(scratch.path(), true).unwrap();
+            let state = PlaybackState::new(Arc::new(Host));
+            state.set_asset_scope(scope);
+            let conditional_id = state.authorised_media_source_id(&conditional).unwrap();
+            let explicit_id = state.register_source(&explicit).unwrap();
+
+            state.clear_authoriser();
+            assert_eq!(
+                state.resolve_source(conditional_id.as_str()),
+                Err(PlaybackError::NotAllowed)
+            );
+            assert_eq!(
+                state.resolve_source(explicit_id.as_str()).unwrap(),
+                explicit.canonicalize().unwrap()
+            );
+        }
     }
 }
 

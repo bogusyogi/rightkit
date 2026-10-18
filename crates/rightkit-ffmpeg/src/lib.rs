@@ -47,9 +47,10 @@ pub use content_digest::{
 };
 pub use encoders::{pick_h264, EncoderInventory};
 pub use handle::{
-    bundled_tool_candidates, resolve_ffmpeg_handle, resolve_ffprobe_handle,
-    verified_or_development, verify_ffmpeg_or_development, verify_ffprobe_or_development,
-    FfmpegHandle, FfprobeHandle, ToolHandle,
+    bundled_tool_candidates, resolve_ffmpeg_handle, resolve_ffmpeg_handle_with,
+    resolve_ffprobe_handle, resolve_ffprobe_handle_with, verified_or_development,
+    verify_ffmpeg_or_development, verify_ffprobe_or_development, FfmpegHandle, FfprobeHandle,
+    HandleResolution, ResolveOptions, SkippedCandidate, ToolHandle,
 };
 /// Re-exports of the `rightkit-child-process` types that appear in this crate's public signatures
 /// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return

@@ -117,7 +117,9 @@ pub fn normalize_words(words: &[TimedWord]) -> Vec<TimedWord> {
                 }
             }
         }
-        out.push(TimedWord::new(text, w.start_ms, w.end_ms));
+        let mut word = TimedWord::new(text, w.start_ms, w.end_ms);
+        word.source_ms = w.source_ms;
+        out.push(word);
     }
     out
 }
@@ -126,34 +128,114 @@ fn chars(s: &str) -> usize {
     s.chars().count()
 }
 
-fn greedy_wrap(words: &[&str], max: usize) -> Vec<Vec<usize>> {
-    // Returns word-index ranges per line as index lists (start..end pairs flattened).
-    let mut lines: Vec<Vec<usize>> = Vec::new();
-    let mut cur: Vec<usize> = Vec::new();
-    let mut len = 0usize;
-    for (i, w) in words.iter().enumerate() {
-        let wl = chars(w);
-        if cur.is_empty() {
-            cur.push(i);
-            len = wl;
-        } else if len + 1 + wl <= max {
-            cur.push(i);
-            len += 1 + wl;
+/// Width callback & usable text width for deterministic measured line breaking.
+///
+/// `measure_width` receives whole candidate lines, including spaces, in rendered
+/// case. Return widths in the same units as `max_width_px` (normally pixels).
+/// Capture font face & size in the callback; this crate has no font dependency.
+/// The callback should return identical widths for identical text. Errors pass
+/// through [`wrap_lines`] & [`build_cues_with_metrics`] unchanged.
+#[derive(Clone, Copy)]
+pub struct LineMetrics<'a> {
+    pub measure_width: &'a dyn Fn(&str) -> Result<u64, String>,
+    pub max_width_px: u64,
+    /// Measure uppercase text & count its expanded characters without changing
+    /// transcript text or returned display lines.
+    pub uppercase: bool,
+}
+
+impl std::fmt::Debug for LineMetrics<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LineMetrics")
+            .field("max_width_px", &self.max_width_px)
+            .field("uppercase", &self.uppercase)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LineMetrics<'_> {
+    fn width(&self, text: &str) -> Result<u64, String> {
+        if self.uppercase {
+            (self.measure_width)(&text.to_uppercase())
         } else {
+            (self.measure_width)(text)
+        }
+    }
+}
+
+fn fits(text: &str, max: usize, metrics: Option<&LineMetrics<'_>>) -> Result<bool, String> {
+    let count = if metrics.is_some_and(|m| m.uppercase) {
+        chars(&text.to_uppercase())
+    } else {
+        chars(text)
+    };
+    Ok(count <= max
+        && match metrics {
+            Some(m) => m.width(text)? <= m.max_width_px,
+            None => true,
+        })
+}
+
+/// Wrap whitespace-separated text, preserving case & word order.
+///
+/// With metrics, both character count & measured width must fit. An overlong
+/// word splits at Unicode scalar boundaries; an individual glyph that cannot
+/// fit returns an error. Without metrics, overlong words stay on one line &
+/// character-count wrapping is infallible. Empty text returns no lines.
+/// Wrapping does not change cue timing or word indices.
+pub fn wrap_lines(
+    text: &str,
+    max_chars: usize,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<Vec<String>, String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let joined = if cur.is_empty() {
+            word.to_string()
+        } else {
+            format!("{cur} {word}")
+        };
+        if fits(&joined, max_chars, metrics)? {
+            cur = joined;
+            continue;
+        }
+        if !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
-            cur.push(i);
-            len = wl;
+        }
+        if metrics.is_none() || fits(word, max_chars, metrics)? {
+            cur = word.to_string();
+            continue;
+        }
+        // An overlong word keeps its timing, but occupies multiple display lines.
+        for c in word.chars() {
+            let joined = format!("{cur}{c}");
+            if !fits(&joined, max_chars, metrics)? {
+                if cur.is_empty() || !fits(&c.to_string(), max_chars, metrics)? {
+                    return Err(format!("caption glyph {c:?} exceeds the safe line width"));
+                }
+                lines.push(std::mem::take(&mut cur));
+            }
+            cur.push(c);
         }
     }
     if !cur.is_empty() {
         lines.push(cur);
     }
-    lines
+    Ok(lines)
 }
 
-fn line_count(group: &[TimedWord], max: usize) -> usize {
-    let w: Vec<&str> = group.iter().map(|w| w.text.as_str()).collect();
-    greedy_wrap(&w, max).len()
+fn line_count(
+    group: &[TimedWord],
+    max: usize,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<usize, String> {
+    let text = group
+        .iter()
+        .map(|w| w.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(wrap_lines(&text, max, metrics)?.len())
 }
 
 fn text_chars(group: &[TimedWord]) -> usize {
@@ -174,20 +256,24 @@ fn span(group: &[TimedWord]) -> u64 {
     }
 }
 
-fn needs_split(group: &[TimedWord], cfg: &CaptionConfig) -> bool {
+fn needs_split(
+    group: &[TimedWord],
+    cfg: &CaptionConfig,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<bool, String> {
     if group.len() <= 1 {
-        return false;
+        return Ok(false);
     }
     let dur = span(group);
     if dur > cfg.max_cue_ms {
-        return true;
+        return Ok(true);
     }
-    if line_count(group, cfg.max_chars_per_line) > cfg.max_lines {
-        return true;
+    if line_count(group, cfg.max_chars_per_line, metrics)? > cfg.max_lines {
+        return Ok(true);
     }
     // Judge reading speed against the time the cue will actually be on screen.
     let shown = dur.max(cfg.min_cue_ms) as f64 / 1000.0;
-    text_chars(group) as f64 > cfg.max_chars_per_second * shown
+    Ok(text_chars(group) as f64 > cfg.max_chars_per_second * shown)
 }
 
 /// Split index (start of the right half): prefers sentence then clause ends
@@ -216,19 +302,24 @@ fn split_index(group: &[TimedWord]) -> usize {
     best.map(|b| b.2).unwrap_or(1).clamp(1, group.len() - 1)
 }
 
-fn split_rec(group: Vec<TimedWord>, cfg: &CaptionConfig, out: &mut Vec<Vec<TimedWord>>) {
+fn split_rec(
+    group: Vec<TimedWord>,
+    cfg: &CaptionConfig,
+    metrics: Option<&LineMetrics<'_>>,
+    out: &mut Vec<Vec<TimedWord>>,
+) -> Result<(), String> {
     if group.is_empty() {
-        return;
+        return Ok(());
     }
-    if !needs_split(&group, cfg) {
+    if !needs_split(&group, cfg, metrics)? {
         out.push(group);
-        return;
+        return Ok(());
     }
     let at = split_index(&group);
     let mut left = group;
     let right = left.split_off(at);
-    split_rec(left, cfg, out);
-    split_rec(right, cfg, out);
+    split_rec(left, cfg, metrics, out)?;
+    split_rec(right, cfg, metrics, out)
 }
 
 fn phrase_groups(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Vec<TimedWord>> {
@@ -236,7 +327,10 @@ fn phrase_groups(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Vec<TimedWord>
     for w in words {
         let new = match groups.last().and_then(|g| g.last()) {
             None => true,
-            Some(last) => w.start_ms - last.end_ms > cfg.max_gap_ms || sentence_end(&last.text),
+            // Mapped words can overlap at cut points: an overlap is no gap.
+            Some(last) => {
+                w.start_ms.saturating_sub(last.end_ms) > cfg.max_gap_ms || sentence_end(&last.text)
+            }
         };
         if new {
             groups.push(vec![w.clone()]);
@@ -249,19 +343,23 @@ fn phrase_groups(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Vec<TimedWord>
 
 /// Merges a too-short cue into its neighbour when the pair still fits the
 /// limits, the gap is small and no sentence ends between them.
-fn merge_short(groups: Vec<Vec<TimedWord>>, cfg: &CaptionConfig) -> Vec<Vec<TimedWord>> {
+fn merge_short(
+    groups: Vec<Vec<TimedWord>>,
+    cfg: &CaptionConfig,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<Vec<Vec<TimedWord>>, String> {
     let mut out: Vec<Vec<TimedWord>> = Vec::new();
     let mut iter = groups.into_iter().peekable();
     while let Some(mut cur) = iter.next() {
         while span(&cur) < cfg.min_cue_ms {
             let Some(next) = iter.peek() else { break };
-            let gap = next[0].start_ms - cur.last().unwrap().end_ms;
+            let gap = next[0].start_ms.saturating_sub(cur.last().unwrap().end_ms);
             if gap > cfg.max_gap_ms || sentence_end(&cur.last().unwrap().text) {
                 break;
             }
             let mut joined = cur.clone();
             joined.extend(next.iter().cloned());
-            if needs_split(&joined, cfg) {
+            if needs_split(&joined, cfg, metrics)? {
                 break;
             }
             cur = joined;
@@ -270,11 +368,11 @@ fn merge_short(groups: Vec<Vec<TimedWord>>, cfg: &CaptionConfig) -> Vec<Vec<Time
         // Also fold a short leftover into the previous cue when it fits.
         if span(&cur) < cfg.min_cue_ms {
             if let Some(prev) = out.last_mut() {
-                let gap = cur[0].start_ms - prev.last().unwrap().end_ms;
+                let gap = cur[0].start_ms.saturating_sub(prev.last().unwrap().end_ms);
                 if gap <= cfg.max_gap_ms && !sentence_end(&prev.last().unwrap().text) {
                     let mut joined = prev.clone();
                     joined.extend(cur.iter().cloned());
-                    if !needs_split(&joined, cfg) {
+                    if !needs_split(&joined, cfg, metrics)? {
                         *prev = joined;
                         continue;
                     }
@@ -283,39 +381,50 @@ fn merge_short(groups: Vec<Vec<TimedWord>>, cfg: &CaptionConfig) -> Vec<Vec<Time
         }
         out.push(cur);
     }
-    out
+    Ok(out)
 }
 
 /// Breaks a cue's words into display lines: greedy wrap, then for two lines the
 /// balanced break that prefers a clause boundary.
-fn break_lines(group: &[TimedWord], cfg: &CaptionConfig) -> Vec<String> {
+fn break_lines(
+    group: &[TimedWord],
+    cfg: &CaptionConfig,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<Vec<String>, String> {
     let w: Vec<&str> = group.iter().map(|w| w.text.as_str()).collect();
-    let greedy = greedy_wrap(&w, cfg.max_chars_per_line);
+    let greedy = wrap_lines(&w.join(" "), cfg.max_chars_per_line, metrics)?;
     let join = |r: &[usize]| r.iter().map(|&i| w[i]).collect::<Vec<_>>().join(" ");
     if greedy.len() != 2 || cfg.max_lines < 2 {
-        return greedy.iter().map(|l| join(l)).collect();
+        return Ok(greedy);
     }
     let all: Vec<usize> = (0..w.len()).collect();
-    let total: usize = all.iter().map(|&i| chars(w[i]) + 1).sum::<usize>() - 1;
-    let mut best: Option<((u8, usize), usize)> = None;
+    let mut best: Option<((u8, u64), usize)> = None;
     for k in 1..w.len() {
         let l = join(&all[..k]);
         let r = join(&all[k..]);
-        if chars(&l) > cfg.max_chars_per_line || chars(&r) > cfg.max_chars_per_line {
+        if !fits(&l, cfg.max_chars_per_line, metrics)?
+            || !fits(&r, cfg.max_chars_per_line, metrics)?
+        {
             continue;
         }
-        let diff = chars(&l).abs_diff(chars(&r));
-        let short = chars(&l).min(chars(&r));
+        let size = |s: &str| match metrics {
+            Some(m) => m.width(s),
+            None => Ok(chars(s) as u64),
+        };
+        let (left, right) = (size(&l)?, size(&r)?);
+        let diff = left.abs_diff(right);
+        let short = left.min(right);
+        let total = left + right + u64::from(metrics.is_none());
         let punct = (sentence_end(w[k - 1]) || clause_end(w[k - 1])) && short * 4 >= total;
         let key = (u8::from(!punct), diff);
         if best.is_none_or(|(b, _)| key < b) {
             best = Some((key, k));
         }
     }
-    match best {
+    Ok(match best {
         Some((_, k)) => vec![join(&all[..k]), join(&all[k..])],
-        None => greedy.iter().map(|l| join(l)).collect(),
-    }
+        None => greedy,
+    })
 }
 
 /// Rules for [`group_words`], the lightweight cue grouper for engines whose
@@ -440,12 +549,28 @@ pub fn cues_from_spans(spans: &[TimedWord], min_cue_ms: u64) -> Vec<Cue> {
 /// shorter than `min_cue_ms` is held on screen up to [`ALIGNMENT_TOLERANCE_MS`]
 /// past its last word (never into the next cue).
 pub fn build_cues(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Cue> {
+    build_cues_with_metrics(words, cfg, None).expect("character-count layout is infallible")
+}
+
+/// Builds cues using caller-measured widths, or character limits without metrics.
+///
+/// Measured limits apply to splitting, short-cue merging & line balancing.
+/// Character limits remain an upper bound. Returned text keeps input case;
+/// indices refer to [`normalize_words`] output & timings stay on word boundaries
+/// within [`ALIGNMENT_TOLERANCE_MS`]. A single word may occupy more than
+/// `max_lines` when it must split to fit. Measurement & overwide-glyph errors
+/// propagate without returning partial cues.
+pub fn build_cues_with_metrics(
+    words: &[TimedWord],
+    cfg: &CaptionConfig,
+    metrics: Option<&LineMetrics<'_>>,
+) -> Result<Vec<Cue>, String> {
     let words = normalize_words(words);
     let mut groups = Vec::new();
     for phrase in phrase_groups(&words, cfg) {
-        split_rec(phrase, cfg, &mut groups);
+        split_rec(phrase, cfg, metrics, &mut groups)?;
     }
-    let groups = merge_short(groups, cfg);
+    let groups = merge_short(groups, cfg, metrics)?;
 
     // Word index of the start of each group.
     let mut cues: Vec<Cue> = Vec::with_capacity(groups.len());
@@ -456,7 +581,7 @@ pub fn build_cues(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Cue> {
         cues.push(Cue {
             start_ms: g[0].start_ms,
             end_ms: g.last().unwrap().end_ms,
-            lines: break_lines(g, cfg),
+            lines: break_lines(g, cfg, metrics)?,
             first_word: first,
             last_word: idx - 1,
         });
@@ -464,7 +589,7 @@ pub fn build_cues(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Cue> {
     for i in 0..cues.len() {
         let next_start = cues.get(i + 1).map(|c| c.start_ms);
         let c = &mut cues[i];
-        if c.end_ms - c.start_ms < cfg.min_cue_ms {
+        if c.end_ms.saturating_sub(c.start_ms) < cfg.min_cue_ms {
             let mut end = (c.start_ms + cfg.min_cue_ms).min(c.end_ms + ALIGNMENT_TOLERANCE_MS);
             if let Some(n) = next_start {
                 end = end.min(n);
@@ -472,7 +597,7 @@ pub fn build_cues(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Cue> {
             c.end_ms = end.max(c.end_ms);
         }
     }
-    cues
+    Ok(cues)
 }
 
 #[cfg(test)]
@@ -504,5 +629,163 @@ mod tests {
         let ordered = [TimedWord::new("a", 100, 300), TimedWord::new("b", 320, 900)];
         assert_eq!(span(&ordered), 800);
         assert_eq!(span(&[]), 0);
+    }
+}
+
+#[cfg(test)]
+mod measured_tests {
+    use super::*;
+
+    fn count(text: &str) -> Result<u64, String> {
+        Ok(text.chars().count() as u64)
+    }
+
+    #[test]
+    fn wraps_whitespace_and_preserves_overlong_words_without_metrics() {
+        assert_eq!(
+            wrap_lines("  one\n two\tthree ", 7, None).unwrap(),
+            ["one two", "three"]
+        );
+        assert_eq!(
+            wrap_lines("superlong x", 3, None).unwrap(),
+            ["superlong", "x"]
+        );
+        assert!(wrap_lines(" \t\n", 0, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn measured_long_word_splits_unicode_without_losing_text() {
+        let metrics = LineMetrics {
+            measure_width: &count,
+            max_width_px: 2,
+            uppercase: false,
+        };
+        assert_eq!(
+            wrap_lines("é😀界abc", 42, Some(&metrics)).unwrap(),
+            ["é😀", "界a", "bc"]
+        );
+        assert_eq!(
+            wrap_lines("abcde", 1, Some(&metrics)).unwrap(),
+            ["a", "b", "c", "d", "e"]
+        );
+    }
+
+    #[test]
+    fn uppercase_expansion_counts_rendered_characters_and_preserves_case() {
+        let measured = |text: &str| {
+            assert_eq!(text, text.to_uppercase());
+            count(text)
+        };
+        let metrics = LineMetrics {
+            measure_width: &measured,
+            max_width_px: 100,
+            uppercase: true,
+        };
+        assert_eq!(
+            wrap_lines("ßa b", 2, Some(&metrics)).unwrap(),
+            ["ß", "a", "b"]
+        );
+    }
+
+    #[test]
+    fn callback_measures_complete_candidate_lines_including_spaces() {
+        // A whole-line measurement can model kerning/shaping, not just advances.
+        let measure = |text: &str| {
+            Ok(if text == "ab cd" {
+                4
+            } else {
+                text.chars().count() as u64
+            })
+        };
+        let metrics = LineMetrics {
+            measure_width: &measure,
+            max_width_px: 4,
+            uppercase: false,
+        };
+        assert_eq!(wrap_lines("ab cd", 10, Some(&metrics)).unwrap(), ["ab cd"]);
+    }
+
+    #[test]
+    fn errors_propagate_and_impossible_glyph_is_reported() {
+        let fail = |_: &str| Err("measurement failed".to_string());
+        let metrics = LineMetrics {
+            measure_width: &fail,
+            max_width_px: 100,
+            uppercase: false,
+        };
+        assert_eq!(
+            wrap_lines("x", 42, Some(&metrics)),
+            Err("measurement failed".into())
+        );
+        assert_eq!(
+            build_cues_with_metrics(
+                &[TimedWord::new("x", 0, 800)],
+                &CaptionConfig::default(),
+                Some(&metrics)
+            ),
+            Err("measurement failed".into())
+        );
+        let metrics = LineMetrics {
+            measure_width: &count,
+            max_width_px: 0,
+            uppercase: false,
+        };
+        assert_eq!(
+            wrap_lines("界", 42, Some(&metrics)),
+            Err("caption glyph '界' exceeds the safe line width".into())
+        );
+    }
+
+    #[test]
+    fn measured_balance_prefers_clause_boundary() {
+        let words: Vec<_> = "aa bb, cc dd"
+            .split(' ')
+            .enumerate()
+            .map(|(i, t)| TimedWord::new(t, i as u64 * 800, (i as u64 + 1) * 800))
+            .collect();
+        let metrics = LineMetrics {
+            measure_width: &count,
+            max_width_px: 8,
+            uppercase: false,
+        };
+        assert_eq!(
+            break_lines(&words, &CaptionConfig::default(), Some(&metrics)).unwrap(),
+            ["aa bb,", "cc dd"]
+        );
+    }
+
+    #[test]
+    fn short_merge_respects_measured_line_limit_in_both_directions() {
+        let cfg = CaptionConfig {
+            max_lines: 1,
+            max_chars_per_second: 1000.0,
+            ..CaptionConfig::default()
+        };
+        let groups = vec![
+            vec![TimedWord::new("wide", 0, 200)],
+            vec![TimedWord::new("wide", 200, 400)],
+        ];
+        assert_eq!(merge_short(groups.clone(), &cfg, None).unwrap().len(), 1);
+        let metrics = LineMetrics {
+            measure_width: &count,
+            max_width_px: 4,
+            uppercase: false,
+        };
+        assert_eq!(merge_short(groups, &cfg, Some(&metrics)).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn normalization_keeps_source_spans_when_clamping_output() {
+        let mut words = vec![
+            TimedWord::new(" one\t word ", 0, 500),
+            TimedWord::new("two", 400, 800),
+        ];
+        words[0].source_ms = Some((1000, 1500));
+        words[1].source_ms = Some((1400, 1800));
+        let normalized = normalize_words(&words);
+        assert_eq!(normalized[0].text, "one word");
+        assert_eq!(normalized[0].end_ms, 400);
+        assert_eq!(normalized[0].source_ms, Some((1000, 1500)));
+        assert_eq!(normalized[1].source_ms, Some((1400, 1800)));
     }
 }

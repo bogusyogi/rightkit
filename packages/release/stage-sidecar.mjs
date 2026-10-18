@@ -11,8 +11,8 @@
 //     { kind: "resource", from, to, sha256?, machO?, clean?, platforms? },   // `from` may be a directory (copied recursively, every file hashed)
 //     { kind: "command", name, cmd, args?, cwd?, output, externalBin: true | (false with dest), dest?, clean?, platforms? },
 //     { kind: "remote", name, url (https), sha256, dest | to, size?, extract?, memberSha256?, executable?, clean?, platforms? },
-//     { kind: "cmake", name, repo (https), commit (40 hex), target?, output?, cmakeArgs?, platformArgs?, generator?, smoke?, sha256?, dest?, clean?, platforms? },
-//     { kind: "prebuilt", name, from?, manifest: { file, entry, sha256?, approvalSha256?, approvalAlgorithm? }, dest?, platforms? },
+//     { kind: "cmake", name, repo (https), commit (40 hex), target?, output?, cmakeArgs?, platformArgs?, generator?, platformGenerators?, architecture?, cmakeBin?, smoke?, sha256?, dest?, clean?, platforms? },
+//     { kind: "prebuilt", name, from? (a path, or { aarch64, x86_64 } for universal-apple-darwin), manifest: { file, entry, sha256?, approvalSha256?, approvalAlgorithm? }, dest?, platforms? },
 //   ]
 //
 // `dest` (cargo-bin, command, remote) is a contained app-relative path (never the app root, the stage dir, the receipt, the cache, .git, src, src-tauri, node_modules or package.json; outputs may not overlap) used instead of <stageDir>/<name>-<triple>; the file is
@@ -24,7 +24,9 @@
 // profile pair; RIGHTKIT_BUILD_MODE (dev|release, default release) selects. The target `universal-apple-darwin` builds
 // both slices of a cargo-bin and lipo-creates `<name>-universal-apple-darwin`. `ffmpeg` and `onnxruntime` do the same from their
 // per-arch catalog rows (each slice staged under .right-release/slices/<triple>, then lipo-merged), a `cmake` entry builds with
-// CMAKE_OSX_ARCHITECTURES="arm64;x86_64".
+// CMAKE_OSX_ARCHITECTURES="arm64;x86_64". A `prebuilt` entry does it from per-arch host-built inputs (`from: { aarch64, x86_64 }`, or the
+// staged `<name>-<slice triple>` files), each verified against its own manifest entry and then lipo-merged. An `ffmpeg` source may be a
+// local path (`sources.ffmpeg: { path: "../vendor/ffmpeg-lgpl" }`) instead of a pinned https archive.
 //
 // It never signs (release.mjs signs staged files) and never calls bare cargo. Every effect goes through `deps`.
 import { createHash } from "node:crypto";
@@ -77,7 +79,7 @@ const KEYS = Object.freeze({
   resource: ["kind", "from", "to", "sha256", "machO", "clean", "platforms"],
   command: ["kind", "name", "cmd", "args", "cwd", "output", "externalBin", "dest", "clean", "platforms"],
   remote: ["kind", "name", "url", "sha256", "dest", "to", "size", "extract", "memberSha256", "executable", "clean", "platforms"],
-  cmake: ["kind", "name", "repo", "commit", "target", "output", "cmakeArgs", "platformArgs", "generator", "smoke", "sha256", "dest", "clean", "platforms"],
+  cmake: ["kind", "name", "repo", "commit", "target", "output", "cmakeArgs", "platformArgs", "generator", "platformGenerators", "architecture", "cmakeBin", "smoke", "sha256", "dest", "clean", "platforms"],
   prebuilt: ["kind", "name", "from", "manifest", "dest", "platforms"],
 });
 const TRIPLES = Object.freeze({
@@ -190,6 +192,8 @@ function parseCatalogSpec(value, label, errors, kind) {
   return undefined;
 }
 
+const CMAKE_GENERATOR = /^[A-Za-z0-9][A-Za-z0-9 .+-]{0,60}$/;
+const CMAKE_ARCHITECTURE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 const CMAKE_DEFINE = /^-D[A-Za-z0-9_]+(?::[A-Z]+)?=[^\s]*$/;
 const SOURCE_ARCHES = ["aarch64", "x86_64"];
 
@@ -205,8 +209,25 @@ function parseArchiveSource(value, label, errors) {
 }
 
 /**
- * `ffmpeg.sources`: where to download the bytes of a catalog row (the catalog pins digests, not URLs). A tool maps to one
- * archive source, or to `{ aarch64: source, x86_64: source }`; a universal target needs the per-arch form for every tool.
+ * A local ffmpeg source: `{ path, member? }`. `path` is relative to the app root and MAY step out of it (a vendored build such as
+ * ../vendor/ffmpeg-lgpl); it names the binary itself, or a directory holding `<member>` (or `bin/<member>`). Nothing is downloaded and no
+ * archive digest exists: the file's digest must still equal the APPROVED catalog row, exactly like a fetched member.
+ */
+function parseLocalSource(value, label, errors) {
+  for (const key of Object.keys(value)) if (!["path", "member"].includes(key)) errors.push(`${label}: unknown key ${JSON.stringify(key)} for a local { path, member? } source`);
+  const raw = value.path;
+  const normalized = typeof raw === "string" ? raw.replaceAll("\\", "/") : "";
+  if (typeof raw !== "string" || !raw.trim() || path.isAbsolute(raw) || /^[A-Za-z]:/.test(raw) || /^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) { errors.push(`${label}.path must be a relative path (it may start with ../); a URL belongs in { url, sha256, member }`); return undefined; }
+  if (!normalized.split("/").some((segment) => segment !== "" && segment !== "." && segment !== "..")) { errors.push(`${label}.path must name a file or directory, not the app root or a bare parent: ${raw}`); return undefined; }
+  if (value.member !== undefined && (typeof value.member !== "string" || !NAME.test(value.member))) errors.push(`${label}.member must be the bare file name of the binary inside the directory`);
+  return { path: normalized.replace(/\/+$/, ""), ...(typeof value.member === "string" ? { member: value.member } : {}) };
+}
+
+const parseFfmpegSource = (value, label, errors) => (isObject(value) && "path" in value ? parseLocalSource(value, label, errors) : parseArchiveSource(value, label, errors));
+
+/**
+ * `ffmpeg.sources`: where the bytes of a catalog row come from (the catalog pins digests, not locations). A tool maps to one
+ * source (a pinned https archive, or a local path), or to `{ aarch64: source, x86_64: source }`; a universal target needs the per-arch form for every tool.
  */
 function parseFfmpegSources(raw, where, errors, { universal }) {
   if (raw === undefined) return undefined;
@@ -215,12 +236,12 @@ function parseFfmpegSources(raw, where, errors, { universal }) {
   for (const [tool, value] of Object.entries(raw)) {
     const label = `${where}: sources.${tool}`;
     if (!["ffmpeg", "ffprobe"].includes(tool)) { errors.push(`${label}: not ffmpeg or ffprobe`); continue; }
-    const perArch = isObject(value) && SOURCE_ARCHES.some((arch) => arch in value) && !("url" in value);
+    const perArch = isObject(value) && SOURCE_ARCHES.some((arch) => arch in value) && !("url" in value) && !("path" in value);
     if (universal && !perArch) { errors.push(`${label} needs { aarch64, x86_64 } sources for universal-apple-darwin (each slice is a thin file)`); continue; }
     if (perArch) {
       for (const key of Object.keys(value)) if (!SOURCE_ARCHES.includes(key)) errors.push(`${label}: unknown arch ${JSON.stringify(key)}`);
-      out[tool] = Object.fromEntries(SOURCE_ARCHES.filter((arch) => arch in value).map((arch) => [arch, parseArchiveSource(value[arch], `${label}.${arch}`, errors)]));
-    } else out[tool] = parseArchiveSource(value, label, errors);
+      out[tool] = Object.fromEntries(SOURCE_ARCHES.filter((arch) => arch in value).map((arch) => [arch, parseFfmpegSource(value[arch], `${label}.${arch}`, errors)]));
+    } else out[tool] = parseFfmpegSource(value, label, errors);
   }
   return out;
 }
@@ -397,19 +418,40 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
           else platformArgs[key] = flagList(list, `platformArgs.${key}`);
         }
       }
-      if (item.generator !== undefined && (typeof item.generator !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 .+-]{0,60}$/.test(item.generator))) errors.push(`${where}: generator must be a generator name such as "Ninja"`);
+      if (item.generator !== undefined && (typeof item.generator !== "string" || !CMAKE_GENERATOR.test(item.generator))) errors.push(`${where}: generator must be a generator name such as "Ninja"`);
+      const platformGenerators = {};
+      if (item.platformGenerators !== undefined) {
+        if (!isObject(item.platformGenerators)) errors.push(`${where}: platformGenerators must be an object keyed by mac, win or linux`);
+        else for (const [key, generator] of Object.entries(item.platformGenerators)) {
+          if (!PLATFORMS.has(key)) errors.push(`${where}: platformGenerators.${key}: platforms are ${[...PLATFORMS].join(", ")}`);
+          else if (typeof generator !== "string" || !CMAKE_GENERATOR.test(generator)) errors.push(`${where}: platformGenerators.${key} must be a generator name such as "Visual Studio 17 2022"`);
+          else platformGenerators[key] = generator;
+        }
+      }
+      if (item.architecture !== undefined && (typeof item.architecture !== "string" || !CMAKE_ARCHITECTURE.test(item.architecture))) errors.push(`${where}: architecture must be a cmake -A platform such as x64, Win32 or ARM64`);
+      if (item.cmakeBin !== undefined && (typeof item.cmakeBin !== "string" || !item.cmakeBin.trim() || /[\0\r\n]/.test(item.cmakeBin))) errors.push(`${where}: cmakeBin must be a cmake executable name or path`);
       if (item.smoke !== undefined && (!Array.isArray(item.smoke) || item.smoke.some((arg) => typeof arg !== "string"))) errors.push(`${where}: smoke must be a list of argument strings`);
       sha(item.sha256, "sha256");
       const dest = destOf(item.dest);
       const clean = cleanOf();
       if (!skipped) { if (dest) claim(dest, where); else if (typeof name === "string" && stageDir) claim(stagedClaim(name), where); }
-      Object.assign(entry, { name, repo: item.repo, commit: item.commit, target, ...(output ? { output } : {}), cmakeArgs, platformArgs, ...(item.generator ? { generator: item.generator } : {}), ...(item.smoke ? { smoke: [...item.smoke] } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
+      Object.assign(entry, { name, repo: item.repo, commit: item.commit, target, ...(output ? { output } : {}), cmakeArgs, platformArgs, ...(item.generator ? { generator: item.generator } : {}), ...(Object.keys(platformGenerators).length ? { platformGenerators } : {}), ...(item.architecture ? { architecture: item.architecture } : {}), ...(item.cmakeBin ? { cmakeBin: item.cmakeBin.trim() } : {}), ...(item.smoke ? { smoke: [...item.smoke] } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
     } else if (item.kind === "prebuilt") {
       const name = item.name;
       if (typeof name !== "string" || !NAME.test(name) || /\.exe$/i.test(name) || name !== path.basename(name)) errors.push(`${where}: name must be a bare sidecar name (no path, no .exe, no target triple)`);
-      const from = item.from === undefined ? undefined : relativePath(item.from, `${where}: from`, errors);
+      let from;
+      if (isObject(item.from)) {
+        // Per-arch inputs: each slice is verified against its own manifest entry; universal-apple-darwin lipo-merges them.
+        from = {};
+        for (const [arch, value] of Object.entries(item.from)) {
+          if (!SOURCE_ARCHES.includes(arch)) errors.push(`${where}: from.${arch}: arches are ${SOURCE_ARCHES.join(", ")}`);
+          else { const file = relativePath(value, `${where}: from.${arch}`, errors); if (file) from[arch] = file; }
+        }
+        if (!Object.keys(item.from).length) errors.push(`${where}: from must name at least one of ${SOURCE_ARCHES.join(", ")}`);
+        if (!skipped && t.arch === "universal" && !SOURCE_ARCHES.every((arch) => arch in item.from)) errors.push(`${where}: from needs both aarch64 and x86_64 for universal-apple-darwin (or omit from to use the staged <name>-<slice triple> files)`);
+      } else from = item.from === undefined ? undefined : relativePath(item.from, `${where}: from`, errors);
       const manifest = parsePrebuiltManifest(item.manifest, where, errors);
-      if (!skipped && t.arch === "universal") errors.push(`${where}: a prebuilt binary is verified per architecture; there is no universal manifest entry`);
+      if (!skipped && t.arch === "universal" && typeof item.from === "string") errors.push(`${where}: from must be { aarch64, x86_64 } for universal-apple-darwin (each slice is verified against its own manifest entry, then lipo-merged)`);
       const dest = destOf(item.dest);
       if (!skipped) { if (dest) claim(dest, where); else if (typeof name === "string" && stageDir) claim(stagedClaim(name), where); }
       Object.assign(entry, { name, ...(from ? { from } : {}), ...(manifest ? { manifest } : {}), ...(dest ? { dest } : {}) });
@@ -673,10 +715,22 @@ function stageCargoBuild(entry, ctx, triple) {
 }
 
 /** The archive source for one tool at one arch: a single source, or the per-arch form. */
-const ffmpegSourceFor = (sources, tool, arch) => { const spec = sources?.[tool]; return spec?.url ? spec : spec?.[arch]; };
+const ffmpegSourceFor = (sources, tool, arch) => { const spec = sources?.[tool]; return spec?.url || spec?.path ? spec : spec?.[arch]; };
+
+/** The binary a local ffmpeg source names: the file itself, or `<dir>/<member>` / `<dir>/bin/<member>` (`.exe` added for a Windows target). */
+function resolveLocalFfmpegSource(ctx, spec, tool) {
+  const { fs } = ctx;
+  const base = path.resolve(ctx.appRoot, spec.path);
+  if (fs.existsSync(base) && fs.statSync(base).isFile()) return base;
+  const member = spec.member ?? `${tool}${ctx.windows ? ".exe" : ""}`;
+  const candidates = [path.join(base, member), path.join(base, "bin", member)];
+  const found = candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+  if (!found) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the local ${tool} source ${spec.path} has no ${member} (looked in ${candidates.join(", ")}); vendor the build first, nothing is downloaded for a path source`, { tool, candidates });
+  return found;
+}
 
 /**
- * Download the bytes of the catalog rows that `ffmpeg.sources` names: an archive pinned by digest, one member unpacked, the
+ * Fetch the bytes of the catalog rows that `ffmpeg.sources` names (a local `path` is copied, never downloaded): an archive pinned by digest, one member unpacked, the
  * member's digest checked against the APPROVED catalog row (so a swapped archive can never stage). A staged file that already
  * matches its row is left alone.
  */
@@ -687,6 +741,13 @@ async function fetchFfmpegSources(entry, ctx, plan, arch) {
     const spec = ffmpegSourceFor(entry.sources, file.tool, arch);
     if (!spec) continue;
     if (fs.existsSync(file.stagedPath) && sha256Of(fs.readFileSync(file.stagedPath)) === file.contentSha256) { ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`); continue; }
+    if (spec.path) {
+      const local = resolveLocalFfmpegSource(ctx, spec, file.tool);
+      const actual = sha256Of(fs.readFileSync(local));
+      if (actual !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${local} is ${actual}, the approved catalog row ${file.artifactId} says ${file.contentSha256}; nothing staged`, { expected: file.contentSha256, actual });
+      copyInto(ctx, local, file.stagedPath, { executable: true });
+      continue;
+    }
     const { cached } = await ensureCachedDownload(ctx, spec);
     const scratch = ctx.makeTempDir();
     try {
@@ -1041,6 +1102,32 @@ function checkoutPinnedSource(ctx, entry, srcDir) {
   }
 }
 
+/** Fixed Visual Studio Installer (vswhere) location under %ProgramFiles(x86)%, and the cmake Visual Studio bundles under an installationPath. */
+const VSWHERE_PARTS = ["Microsoft Visual Studio", "Installer", "vswhere.exe"];
+const VS_CMAKE_PARTS = ["Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe"];
+
+/**
+ * Which cmake to run. Order: the entry's `cmakeBin` (a bare name is looked up on PATH; a path with separators is resolved against the
+ * app root); off a Windows host plain `cmake`; on a Windows host `cmake` when `where cmake` finds one, else the Visual Studio-bundled
+ * cmake that vswhere locates (installationPath\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe), else plain `cmake`
+ * (which then fails with the usual spawn error naming it).
+ */
+function resolveCmakeBinary(ctx, entry) {
+  if (entry.cmakeBin) return /[\\/]/.test(entry.cmakeBin) ? path.resolve(ctx.appRoot, entry.cmakeBin) : entry.cmakeBin;
+  if (ctx.host.os !== "windows") return "cmake";
+  const probe = ctx.run("where", ["cmake"], { cwd: ctx.appRoot, env: ctx.env });
+  if (!probe?.error && probe?.status === 0 && String(probe.stdout ?? "").trim()) return "cmake";
+  const programFiles = ctx.env["ProgramFiles(x86)"];
+  if (typeof programFiles !== "string" || !programFiles) return "cmake";
+  const vswhere = path.win32.join(programFiles, ...VSWHERE_PARTS);
+  if (!ctx.fs.existsSync(vswhere)) return "cmake";
+  const found = ctx.run(vswhere, ["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.CMake.Project", "-property", "installationPath"], { cwd: ctx.appRoot, env: ctx.env });
+  const installation = found?.error || found?.status !== 0 ? "" : String(found.stdout ?? "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  if (!installation) return "cmake";
+  const bundled = path.win32.join(installation, ...VS_CMAKE_PARTS);
+  return ctx.fs.existsSync(bundled) ? bundled : "cmake";
+}
+
 /**
  * Build a pinned git commit with the build tool (no shell) and stage the result as <name>-<triple>[.exe]: fetch the commit, configure,
  * build `target`, locate the executable, check it carries both archs for universal-apple-darwin, optionally pin its digest and
@@ -1049,6 +1136,8 @@ function checkoutPinnedSource(ctx, entry, srcDir) {
  */
 function stageCmake(entry, ctx) {
   const { appRoot, fs, run, env, target } = ctx;
+  const cmake = resolveCmakeBinary(ctx, entry);
+  const generator = entry.platformGenerators?.[target.platform] ?? entry.generator;
   const root = path.resolve(appRoot, CMAKE_ROOT, entry.name);
   const srcDir = path.join(root, "src");
   const buildDir = path.join(root, "build");
@@ -1058,10 +1147,10 @@ function stageCmake(entry, ctx) {
   const archFlag = target.platform !== "mac" ? undefined
     : target.arch === "universal" ? "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
       : `-DCMAKE_OSX_ARCHITECTURES=${target.arch === "aarch64" ? "arm64" : "x86_64"}`;
-  const configure = ["-S", srcDir, "-B", buildDir, "-DCMAKE_BUILD_TYPE=Release", ...(entry.generator ? ["-G", entry.generator] : []), ...(archFlag ? [archFlag] : []), ...(entry.platformArgs[target.platform] ?? []), ...entry.cmakeArgs];
+  const configure = ["-S", srcDir, "-B", buildDir, "-DCMAKE_BUILD_TYPE=Release", ...(generator ? ["-G", generator] : []), ...(entry.architecture ? ["-A", entry.architecture] : []), ...(archFlag ? [archFlag] : []), ...(entry.platformArgs[target.platform] ?? []), ...entry.cmakeArgs];
   const step = (args, label) => {
-    ctx.log(`stage-sidecar: cmake ${args.join(" ")}`);
-    const result = run("cmake", args, { cwd: appRoot, env });
+    ctx.log(`stage-sidecar: ${cmake} ${args.join(" ")}`);
+    const result = run(cmake, args, { cwd: appRoot, env });
     if (result?.error || result?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `cmake ${label} of ${entry.name} failed (${result?.error?.message ?? `exit ${result?.status}`})`, { name: entry.name, stderr: tail(result?.stderr) });
   };
   step(configure, "configure");
@@ -1081,22 +1170,21 @@ function stageCmake(entry, ctx) {
     const smoked = run(dest, entry.smoke, { cwd: appRoot, env });
     if (smoked?.error || smoked?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `${entry.name} does not run (${entry.smoke.join(" ")}): ${smoked?.error?.message ?? `exit ${smoked?.status}`}`, { name: entry.name });
   }
-  return [{ kind: "cmake", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, repo: entry.repo, commit: entry.commit, cmakeTarget: entry.target, flags: configure.filter((arg) => arg.startsWith("-D")), externalBin: !entry.dest }];
+  return [{ kind: "cmake", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, repo: entry.repo, commit: entry.commit, cmakeTarget: entry.target, ...(cmake !== "cmake" ? { cmakeBin: cmake } : {}), ...(generator ? { generator } : {}), flags: configure.filter((arg) => arg.startsWith("-D")), externalBin: !entry.dest }];
 }
 
 /** `{platform}` in a prebuilt manifest entry: macos-aarch64, macos-x86_64, windows-x86_64, linux-x86_64, ... */
 const prebuiltPlatformKey = (t) => `${t.os}-${t.arch}`;
 
 /**
- * Verify a host-built binary (already staged at <stageDir>/<name>-<triple>, or copied from `from`) against the digest in an app
- * manifest file: its raw sha256, and when the manifest names an approval hash, the signing-independent approval digest
+ * Verify one host-built binary `source` for `slice` (a parsed target: its os and arch name the manifest entry) against the digest in
+ * an app manifest file: its raw sha256, and when the manifest names an approval hash, the signing-independent approval digest
  * (`macho-codesign-strip-linkedit-v1` on macOS, `raw-sha256` elsewhere). Nothing is built or downloaded: a missing file or
- * a mismatch fails closed.
+ * a mismatch fails closed. Returns { platformKey, actual, approval? }.
  */
-async function stagePrebuilt(entry, ctx) {
-  const { appRoot, fs, target } = ctx;
-  const dest = destFor(entry, ctx);
-  const platformKey = prebuiltPlatformKey(target);
+async function verifyPrebuilt(entry, ctx, source, slice) {
+  const { appRoot, fs } = ctx;
+  const platformKey = prebuiltPlatformKey(slice);
   const manifestFile = path.resolve(appRoot, entry.manifest.file);
   let manifest;
   try { manifest = JSON.parse(String(fs.readFileSync(manifestFile))); } catch (error) { fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `cannot read the prebuilt manifest ${manifestFile} as JSON`, { cause: error }); }
@@ -1105,7 +1193,6 @@ async function stagePrebuilt(entry, ctx) {
   if (!isObject(node)) fail("STAGE_SIDECAR_NOT_APPROVED", `${entry.manifest.file} has no ${entry.manifest.entry.replaceAll("{platform}", platformKey)} entry for ${entry.name} on ${platformKey}`);
   const pinned = node[entry.manifest.sha256];
   if (typeof pinned !== "string" || !SHA256.test(pinned)) fail("STAGE_SIDECAR_NOT_APPROVED", `${entry.manifest.file} ${platformKey}.${entry.manifest.sha256} is not a lowercase 64-hex SHA-256`);
-  const source = entry.from ? path.resolve(appRoot, entry.from) : dest;
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `prebuilt ${entry.name} for ${platformKey} is missing: ${source}. Build it on its native host first; packaging never substitutes a stock binary.`, { name: entry.name, source });
   const actual = sha256Of(fs.readFileSync(source));
   if (actual !== pinned) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.name} integrity failure: ${source} is ${actual}, ${entry.manifest.file} pins ${pinned}`, { expected: pinned, actual });
@@ -1113,13 +1200,40 @@ async function stagePrebuilt(entry, ctx) {
   if (entry.manifest.approvalSha256) {
     const expected = node[entry.manifest.approvalSha256];
     if (typeof expected !== "string" || !SHA256.test(expected)) fail("STAGE_SIDECAR_NOT_APPROVED", `${entry.manifest.file} ${platformKey}.${entry.manifest.approvalSha256} is not a lowercase 64-hex SHA-256`);
-    const algorithm = entry.manifest.approvalAlgorithm ? node[entry.manifest.approvalAlgorithm] : (target.os === "macos" ? APPROVAL_MACHO_STRIP_LINKEDIT_V1 : APPROVAL_RAW_SHA256);
+    const algorithm = entry.manifest.approvalAlgorithm ? node[entry.manifest.approvalAlgorithm] : (slice.os === "macos" ? APPROVAL_MACHO_STRIP_LINKEDIT_V1 : APPROVAL_RAW_SHA256);
     if (typeof algorithm !== "string") fail("STAGE_SIDECAR_NOT_APPROVED", `${entry.manifest.file} ${platformKey}.${entry.manifest.approvalAlgorithm} does not name an approval hash algorithm`);
     let digest;
     try { digest = await ctx.approvalDigest(source, algorithm); } catch (error) { fail("STAGE_SIDECAR_APPROVAL_FAILED", `${entry.name} approval hash (${algorithm}): ${error.message}`, { cause: error, causeCode: error.code }); }
     if (digest !== expected) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.name} signing-independent integrity failure: ${algorithm} is ${digest}, ${entry.manifest.file} pins ${expected}`, { expected, actual: digest });
     approval = { algorithm, sha256: digest };
   }
+  return { platformKey, actual, ...(approval ? { approval } : {}) };
+}
+
+/**
+ * Verify a host-built binary (already staged at <stageDir>/<name>-<triple>, or copied from `from`) against the app manifest and stage it.
+ * `from` is a path, or `{ aarch64, x86_64 }` (the entry for this arch is used). `universal-apple-darwin`: each slice (its `from.<arch>`, else the
+ * staged `<stageDir>/<name>-<slice triple>`) is verified against its own manifest entry (macos-aarch64, macos-x86_64), then the two are
+ * lipo-merged by the same helper the ffmpeg, onnxruntime and cmake kinds use into `<name>-universal-apple-darwin`; a thin merge result is refused.
+ */
+async function stagePrebuilt(entry, ctx) {
+  const { fs, target, appRoot } = ctx;
+  const dest = destFor(entry, ctx);
+  if (target.arch === "universal") {
+    const parts = [];
+    for (const triple of SLICES) {
+      const slice = parseTargetTriple(triple);
+      const from = entry.from?.[slice.arch];
+      const source = from ? path.resolve(appRoot, from) : path.resolve(appRoot, ctx.stageDir, stagedName(entry.name, slice));
+      parts.push({ triple, source, ...(await verifyPrebuilt(entry, ctx, source, slice)) });
+    }
+    const merged = lipoMergeInto(ctx, parts.map((part) => part.source), dest, `prebuilt ${entry.name}`, { executable: true });
+    return [{ kind: "prebuilt", name: entry.name, path: rel(ctx, dest), ...merged, sourceSha256: merged.sha256, manifest: entry.manifest.file, platform: "macos-universal", externalBin: !entry.dest, slices: parts.map((part) => ({ triple: part.triple, sha256: part.actual, platform: part.platformKey, ...(part.approval ? { approvalAlgorithm: part.approval.algorithm, approvalSha256: part.approval.sha256 } : {}) })) }];
+  }
+  const declared = isObject(entry.from) ? entry.from[target.arch] : entry.from;
+  if (isObject(entry.from) && !declared) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `prebuilt ${entry.name} declares from for ${Object.keys(entry.from).join(", ")}, not ${target.arch}`, { name: entry.name });
+  const source = declared ? path.resolve(appRoot, declared) : dest;
+  const { platformKey, actual, approval } = await verifyPrebuilt(entry, ctx, source, target);
   let copied;
   if (path.resolve(source) === path.resolve(dest)) {
     if (!ctx.windows) fs.chmodSync(dest, 0o755);

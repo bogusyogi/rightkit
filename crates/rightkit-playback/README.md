@@ -70,14 +70,25 @@ await invoke<boolean>("revoke_media_source", { source: sourceId });  // later pr
 By default no path becomes a source unless Rust registers it. A host that already authorises whole folders (for example Tauri's asset scope) can hand the registry that decision instead of registering files one by one:
 
 ```rust
+use tauri::Manager;
+
 let state = PlaybackState::new(Arc::new(MyHost));
-// Either the host's own rule (receives the canonical path) ...
-let app = handle.clone();
-state.set_authoriser(move |path| app.asset_protocol_scope().is_allowed(path));
-// ... or a ready helper: regular files under these directories, recursively.
-state.allow_roots([project_dir]);
-// register `authorised_media_source_id` next to `media_source_id` in the invoke handler
+state.set_asset_scope(handle.asset_protocol_scope());
+// Manage state during setup, then register this command on every platform:
+// rightkit_playback::tauri_commands::authorised_media_source_id
 ```
+
+`PlaybackState::set_asset_scope(scope)` (feature `tauri`) installs Tauri's live scope as the authoriser. Later `allow_file`, `allow_directory`, `forbid_file` & `forbid_directory` calls affect registration & use of hook-issued ids. Tauri owns path matching, including Windows verbatim drive/UNC forms & forbidden-pattern precedence. RightKit preserves canonical paths for source identity without stripping prefixes or retrying denied paths under another spelling. Apps need Tauri's `protocol-asset` feature to obtain `asset_protocol_scope()`.
+
+macOS & Windows use one frontend call:
+
+```ts
+const sourceId = await invoke<string>("authorised_media_source_id", { path });
+```
+
+For another policy, use `state.set_authoriser(hook)` (receives canonical paths) or `state.allow_roots([project_dir])`. Each setter replaces the previous hook.
+
+For scope-bound sources, let this command register them on demand. Calling `register_source` or `SourceRegistry::register` explicitly grants independent authority: such ids survive scope forbids & `clear_authoriser`.
 
 `authorised_media_source_id(path)` (Tauri command and `PlaybackState` method; `SourceRegistry::resolve_or_register` underneath) returns the id for any file the hook allows, registering it on demand. `media_source_id` keeps its contract and never registers.
 
@@ -99,3 +110,5 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/remux_e2
 ## Verification
 
 Run through the RightKit wrapper: `rightkit cargo test -p rightkit-playback`.
+
+Scope tests require `tauri`: `rustright cargo test -p rightkit-playback --features tauri --lib --test asset_scope`. Run on Windows for plain/verbatim drive identity, cross-spelling forbids & paths exceeding 260 characters. These tests use Tauri's mock runtime with its real filesystem scope; they need no FFmpeg or visible windows. Network-share UNC access requires a separate Windows share fixture.

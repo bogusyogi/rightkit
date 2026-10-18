@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+Issue bogusyogi/rightkit#480. The `process_table` tests pass on macOS arm64; Windows is verified on the Dell before publication.
+
+- **Published here: `command_std` and `tokio_support::command`** (no-window command builders), which were on main after 0.5.1 without a version bump.
+
+- **New: `process_table()` and `ProcessEntry`** (pid, parent pid, full command line, working set in bytes): one cross-platform snapshot of the process table that replaces shelling out to `ps` and to PowerShell `Win32_Process`. Linux reads `/proc/<pid>/stat`, `statm` and `cmdline`; macOS uses `proc_listpids`, `proc_pidinfo` (`PROC_PIDTBSDINFO`, `PROC_PIDTASKINFO`) and the `KERN_PROCARGS2` sysctl; Windows uses a Toolhelp snapshot, `GetProcessMemoryInfo` and `NtQueryInformationProcess(ProcessCommandLineInformation)`. A field the caller may not read (another user's, protected or exiting process, a kernel thread) is `None`; one unreadable process never fails the scan. Other hosts return `ErrorKind::Unsupported`. No new dependencies or features, nothing held between calls. Additive; `ProcessEntry` is `#[non_exhaustive]`.
+
 ## 0.4.3
 
 Issue #271. Written without compiling or running Cargo here; CI builds and runs the tests.

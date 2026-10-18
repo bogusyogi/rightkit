@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.10 (2026-10-18)
+
+- New (issue #479): "override first" for the one-call resolver. `ResolveOptions::new().override_first(path)`
+  makes `resolve_ffmpeg_handle_with` and `resolve_ffprobe_handle_with` verify the caller-supplied path
+  before any bundled candidate, with the same checks (catalog digest and build probe, development
+  fallback only in a development build). An override that is missing or fails is skipped and recorded
+  in `HandleResolution::skipped` (`SkippedCandidate { path, reason }`), then the normal order applies.
+  The crate reads no environment variable for this: the app reads its own (for example
+  `GENRIGHT_FFMPEG`) and passes the path. `resolve_ffmpeg_handle` and `resolve_ffprobe_handle` are
+  unchanged (bundled first). Written without compiling or running anything.
+- New (issue #353): encoder selection policies in `encoders`. `EncoderInventory::from_names`,
+  `probe_cached(binary, timeout, cancel)` (per-path process cache, failures never cached, cancelled
+  token refused even on a hit) and `probe_uncached`; `encoder_cache_clear`; `EncoderError`
+  (`Unavailable`, `Probe(RunError)`, stable `code()`); `Encoder`/`codec_name`; `select_delivery`
+  (platform-only: VideoToolbox, NVENC then Media Foundation), `require_listed`,
+  `select_qualified_delivery` (qualifies every listed candidate, optional `libopenh264`),
+  `qualify_encoder` and `hardware_usable` (short black-frame encode), and
+  `IntermediateFormat`/`IntermediateEncode`/`select_intermediate`/`intermediate_for`
+  (H.264, HEVC Main 10 or ProRes HQ by bit depth and chroma). Additive: `EncoderInventory::probe`,
+  `parse`, `pick_h264` and the 0.2.9 items are unchanged. New `tests/encoder_selection_e2e.rs`
+  (unix, scripted child processes). Written without compiling or running anything.
+
 ## 0.2.9 (2026-10-17)
 
 - `DecodeOptions` gained public `max_duration` and `audio_stream_index` (both `Option`, default `None`) plus `Default` and builder methods. Literals using `..Default::default()` keep compiling; exhaustive literals must name the two fields (source-breaking, deliberate).

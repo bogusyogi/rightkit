@@ -114,3 +114,23 @@ fn a_symlink_source_is_refused_and_private_copies_are_0600() {
     let mode = std::fs::metadata(&private).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
 }
+
+#[test]
+fn sha256_progress_wrapper_keeps_existing_result_shape() {
+    let d = tempfile::tempdir().unwrap();
+    let src = d.path().join("src");
+    let dest = d.path().join("dest");
+    std::fs::write(&src, b"abc").unwrap();
+    let mut events = Vec::new();
+    let result = rightkit_fs::copy_verified_with_progress(
+        &src,
+        &dest,
+        AtomicWriteOptions::default(),
+        Some(&sha256_bytes(b"abc")),
+        |n, total| events.push((n, total)),
+    )
+    .unwrap();
+    assert_eq!(result.sha256, sha256_bytes(b"abc"));
+    assert_eq!(result.bytes, 3);
+    assert_eq!(events, [(0, 3), (3, 3)]);
+}

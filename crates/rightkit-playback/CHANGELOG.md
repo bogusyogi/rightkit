@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.0 (2026-10-18)
+
+- New: `set_asset_scope` lets the host narrow the asset protocol's file scope (issue bogusyogi/rightkit#359, from CutRight). Tests: `tests/asset_scope.rs`.
 
 ## 0.2.2 (2026-10-17)
 

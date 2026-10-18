@@ -480,7 +480,6 @@ mod sys {
     }
 
     struct Record {
-        info: PathBuf,
         data: PathBuf,
         key: FileKey,
         original: String,
@@ -516,7 +515,6 @@ mod sys {
                 continue; // a record whose data is gone
             };
             out.push(Record {
-                info,
                 data,
                 key,
                 original: parsed.original,

@@ -750,7 +750,7 @@ function fakeSourceBuild({ files, target = MAC, outputName = "whisper-cli", head
       if (args[0] === "status") return { status: 0, stdout: dirty, stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     }
-    if (command === "cmake" && args[0] === "--build" && produce) files.set(path.join(BUILD_DIR, "bin", `${outputName}${target === WIN ? ".exe" : ""}`), Buffer.from("whisper-bytes"));
+    if (/cmake/i.test(command) && args[0] === "--build" && produce) files.set(path.join(BUILD_DIR, "bin", `${outputName}${target === WIN ? ".exe" : ""}`), Buffer.from("whisper-bytes"));
     if (command === "lipo" && args[0] === "-create") { files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-whisper")); return { status: 0, stdout: "", stderr: "" }; }
     if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
     return { status: 0, stdout: "", stderr: "" };
@@ -869,7 +869,7 @@ test("prebuilt fails closed on a missing binary, a sha256 or approval mismatch, 
   await assert.rejects(stage(prebuiltFixture({ approval: "nope" })), { code: "STAGE_SIDECAR_NOT_APPROVED" });
 });
 
-test("prebuilt copies `from`, defaults to raw-sha256 off macOS, and refuses a universal target", async () => {
+test("prebuilt copies `from`, defaults to raw-sha256 off macOS, and validates the manifest keys", async () => {
   const fixture = prebuiltFixture({ target: WIN, key: "windows-x86_64", algorithm: "raw-sha256", stage: false });
   fixture.files.set(at("build", "sd-server.exe"), Buffer.from("sd-bytes"));
   const seen = [];
@@ -878,7 +878,7 @@ test("prebuilt copies `from`, defaults to raw-sha256 off macOS, and refuses a un
   assert.deepEqual(seen, ["raw-sha256"]);
   assert.equal(fixture.fs.readFileSync(at("src-tauri", "binaries", `sd-server-${WIN}.exe`)).toString(), "sd-bytes");
   assert.equal(result.files[0].changed, true);
-  assert.throws(() => validateSidecarManifest([PREBUILT], { target: UNIVERSAL }), /no universal manifest entry/);
+  assert.doesNotThrow(() => validateSidecarManifest([PREBUILT], { target: UNIVERSAL }), "a universal prebuilt target is merged from per-arch inputs (#692)");
   assert.throws(() => validateSidecarManifest([{ kind: "prebuilt", name: "x", manifest: { file: "../m.json", entry: "a..b", approvalAlgorithm: "alg", extra: 1 } }], { target: MAC }), (error) => ["must be relative", "dot path", "needs approvalSha256", "unknown key \"extra\""].every((needle) => error.message.includes(needle)));
 });
 
@@ -1043,4 +1043,193 @@ test("universal onnxruntime stages the arm64 and x86_64 rows thin and lipo-merge
   assert.deepEqual(file.slices.map((slice) => [slice.triple, slice.sha256]), [["aarch64-apple-darwin", sha(arm)], ["x86_64-apple-darwin", sha(x86)]]);
   assert.equal(file.notices.length, 1, "the shared notice is listed once");
   await assert.rejects(stage({ status: "planned" }).attempt, { code: "STAGE_SIDECAR_NOT_APPROVED", message: /x86_64.*planned/ });
+});
+
+// ---- #691 cmake binary, VS-bundled cmake discovery, -A architecture, per-platform generator; #692 local ffmpeg source, universal prebuilt ----
+
+const VS_ROOT = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community";
+const VSWHERE = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
+const VS_CMAKE = `${VS_ROOT}\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe`;
+
+/** Windows-host cmake build: `where cmake` answers per `onPath`, vswhere per `installation`, and only the listed files exist. */
+async function cmakeOnWindows({ cmakeEntry = {}, onPath = false, installation = VS_ROOT, existing = [VSWHERE, VS_CMAKE], env = { "ProgramFiles(x86)": "C:\\Program Files (x86)" } } = {}) {
+  const { fs, files } = fakeFs();
+  const build = fakeSourceBuild({ files, target: WIN, head: COMMIT });
+  const run = (command, args, options) => {
+    if (command === "where") { build.calls.push({ command, args, options }); return onPath ? { status: 0, stdout: "C:\\tools\\cmake.exe\r\n" } : { status: 1, stdout: "" }; }
+    if (command === VSWHERE) { build.calls.push({ command, args, options }); return { status: 0, stdout: installation ? `${installation}\r\n` : "" }; }
+    return build.run(command, args, options);
+  };
+  const exists = (file) => fs.existsSync(file) || file === path.join(SRC_DIR, ".git") || existing.includes(file);
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest: [{ ...SOURCE_CMAKE, smoke: undefined, ...cmakeEntry }], deps: deps({ fs: { ...fs, existsSync: exists }, run, env, host: { os: "windows", arch: "x86_64" } }) });
+  return { result, calls: build.calls, cmakeCalls: build.calls.filter((call) => call.args[0] === "-S" || call.args[0] === "--build") };
+}
+
+test("cmake kind runs the explicit cmakeBin, resolving a path against the app root and a bare name through PATH", async () => {
+  const manifest = (cmakeBin) => [{ ...SOURCE_CMAKE, smoke: undefined, cmakeBin }];
+  const mac = { os: "macos", arch: "aarch64" };
+  const pathed = fakeFs();
+  const pathedBuild = fakeSourceBuild({ files: pathed.files });
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: manifest("tools/cmake/bin/cmake"), deps: deps({ fs: pathed.fs, run: pathedBuild.run, host: mac }) });
+  const tools = pathedBuild.calls.filter((call) => call.args[0] === "-S" || call.args[0] === "--build").map((call) => call.command);
+  assert.deepEqual(tools, [at("tools", "cmake", "bin", "cmake"), at("tools", "cmake", "bin", "cmake")]);
+  const named = fakeFs();
+  const namedBuild = fakeSourceBuild({ files: named.files });
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest: manifest("cmake3"), deps: deps({ fs: named.fs, run: namedBuild.run, host: mac }) });
+  assert.deepEqual(namedBuild.calls.filter((call) => call.args[0] === "-S").map((call) => call.command), ["cmake3"]);
+  assert.equal(result.files[0].cmakeBin, "cmake3");
+  const plain = fakeFs();
+  const plainBuild = fakeSourceBuild({ files: plain.files });
+  const plainResult = await stageSidecars({ appRoot: APP, target: MAC, manifest: manifest(undefined), deps: deps({ fs: plain.fs, run: plainBuild.run, host: mac }) });
+  assert.equal(plainBuild.calls.find((call) => call.args[0] === "-S").command, "cmake", "default unchanged");
+  assert.equal("cmakeBin" in plainResult.files[0], false);
+});
+
+test("cmake kind on a Windows host: PATH cmake wins over Visual Studio's, which is found through vswhere when PATH has none", async () => {
+  const onPath = await cmakeOnWindows({ onPath: true });
+  assert.deepEqual(onPath.cmakeCalls.map((call) => call.command), ["cmake", "cmake"]);
+  assert.ok(!onPath.calls.some((call) => call.command === VSWHERE), "vswhere is not consulted when cmake is on PATH");
+
+  const bundled = await cmakeOnWindows();
+  assert.deepEqual(bundled.cmakeCalls.map((call) => call.command), [VS_CMAKE, VS_CMAKE]);
+  assert.deepEqual(bundled.calls.find((call) => call.command === VSWHERE).args, ["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.CMake.Project", "-property", "installationPath"]);
+  assert.equal(bundled.result.files[0].cmakeBin, VS_CMAKE);
+
+  const explicit = await cmakeOnWindows({ cmakeEntry: { cmakeBin: "cmake-custom" } });
+  assert.ok(!explicit.calls.some((call) => call.command === "where" || call.command === VSWHERE), "an explicit cmakeBin skips discovery");
+  assert.deepEqual([...new Set(explicit.cmakeCalls.map((call) => call.command))], ["cmake-custom"]);
+
+  for (const missing of [{ existing: [] }, { existing: [VSWHERE] }, { installation: "" }, { env: {} }]) {
+    const fallback = await cmakeOnWindows(missing);
+    assert.deepEqual([...new Set(fallback.cmakeCalls.map((call) => call.command))], ["cmake"], JSON.stringify(missing));
+  }
+});
+
+test("cmake kind passes -A architecture after the generator, picks a per-platform generator over generator, and validates both", async () => {
+  const { cmakeCalls } = await cmakeOnWindows({ onPath: true, cmakeEntry: { generator: "Ninja", platformGenerators: { win: "Visual Studio 17 2022" }, architecture: "x64" } });
+  const configure = cmakeCalls[0].args;
+  assert.deepEqual(configure.slice(configure.indexOf("-G"), configure.indexOf("-G") + 4), ["-G", "Visual Studio 17 2022", "-A", "x64"]);
+  const mac = fakeFs();
+  const macBuild = fakeSourceBuild({ files: mac.files });
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...SOURCE_CMAKE, smoke: undefined, generator: "Ninja", platformGenerators: { win: "Visual Studio 17 2022" } }], deps: deps({ fs: mac.fs, run: macBuild.run, host: { os: "macos", arch: "aarch64" } }) });
+  const macConfigure = macBuild.calls.find((call) => call.args[0] === "-S").args;
+  assert.deepEqual(macConfigure.slice(macConfigure.indexOf("-G"), macConfigure.indexOf("-G") + 2), ["-G", "Ninja"], "the win generator is not used for macOS");
+  assert.ok(!macConfigure.includes("-A"));
+  let error;
+  try {
+    validateSidecarManifest([{ ...SOURCE_CMAKE, architecture: "x64;evil", cmakeBin: "", platformGenerators: { beos: "Ninja", win: "bad;gen", mac: 3 } }], { target: WIN });
+  } catch (caught) { error = caught; }
+  for (const needle of ["architecture must be a cmake -A platform", "cmakeBin must be a cmake executable name or path", "platformGenerators.beos", "platformGenerators.win must be a generator name", "platformGenerators.mac must be a generator name"]) {
+    assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
+  }
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...SOURCE_CMAKE, architecture: "ARM64", cmakeBin: "C:\\Program Files\\CMake\\bin\\cmake.exe" }], { target: WIN }));
+});
+
+test("ffmpeg local path source copies a vendored build (outside the app root) after checking the approved catalog row; no download", async () => {
+  const stage = (bytes, source = { path: "../vendor/ffmpeg-lgpl" }, file = path.resolve(APP, "..", "vendor", "ffmpeg-lgpl", "bin", "ffmpeg")) => {
+    const fixture = ffmpegFixture();
+    const base = fakeFs({ [path.join(fixture.crateDir, "notices", "LGPL-2.1.txt")]: "LGPL text", [file]: bytes });
+    let fetched = false;
+    const manifest = [{ ...ffmpegManifest[0], stage: undefined, sources: { ffmpeg: source } }];
+    const attempt = () => stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs: base.fs, fetch: () => { fetched = true; }, fetchBytes: () => { fetched = true; }, loadMediaCatalog: () => ({ catalog: fixture.catalog, crateDir: fixture.crateDir }) }) });
+    return { attempt, fs: base.fs, wasFetched: () => fetched };
+  };
+  const ok = stage("ffmpeg-bytes");
+  const result = await ok.attempt();
+  assert.equal(ok.fs.readFileSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)).toString(), "ffmpeg-bytes");
+  assert.equal(ok.wasFetched(), false);
+  assert.equal(result.files[0].sha256, sha("ffmpeg-bytes"));
+  assert.equal(result.files[0].catalogRow, "ffmpeg-decode-macos-arm64");
+  const direct = stage("ffmpeg-bytes", { path: "../vendor/ffmpeg-lgpl/ffmpeg" }, path.resolve(APP, "..", "vendor", "ffmpeg-lgpl", "ffmpeg"));
+  await direct.attempt();
+  assert.equal(direct.fs.existsSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)), true, "a path may name the file itself");
+  const named = stage("ffmpeg-bytes", { path: "vendor/out", member: "ffmpeg-custom" }, at("vendor", "out", "ffmpeg-custom"));
+  await named.attempt();
+  assert.equal(named.fs.existsSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)), true);
+  const swapped = stage("not-the-approved-build");
+  await assert.rejects(swapped.attempt(), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /approved catalog row ffmpeg-decode-macos-arm64/ });
+  assert.equal(swapped.fs.existsSync(at("src-tauri", "binaries", `ffmpeg-${MAC}`)), false, "a mismatching vendored build never stages");
+  const missing = stage("ffmpeg-bytes", { path: "../vendor/elsewhere" });
+  await assert.rejects(missing.attempt(), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+});
+
+test("ffmpeg local path sources are validated, mix with the per-arch form and are not mistaken for URLs", () => {
+  const base = { kind: "ffmpeg", notices: NOTICES, catalog: "c.json" };
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: { path: "../vendor/ffmpeg-lgpl" }, ffprobe: { path: "vendor/ffprobe", member: "ffprobe" } } }], { target: MAC }));
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: { aarch64: { path: "../vendor/arm" }, x86_64: { path: "../vendor/x86" } } } }], { target: UNIVERSAL }));
+  assert.throws(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: { path: "../vendor/ffmpeg" } } }], { target: UNIVERSAL }), /needs \{ aarch64, x86_64 \} sources/);
+  let error;
+  try {
+    validateSidecarManifest([{ ...base, sources: { ffmpeg: { path: "/abs/ffmpeg" }, ffprobe: { path: "https://example.test/ffprobe", sha256: hex("a") } } }], { target: MAC });
+  } catch (caught) { error = caught; }
+  assert.ok(error.message.includes("sources.ffmpeg.path must be a relative path") && error.message.includes("sources.ffprobe.path must be a relative path"), error.message);
+  for (const bogus of [{ path: ".." }, { path: "." }, { path: "C:\\ffmpeg" }, { path: "v/f", member: "a/b" }, { path: "v/f", extra: 1 }]) {
+    assert.throws(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: bogus } }], { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" }, JSON.stringify(bogus));
+  }
+});
+
+function universalPrebuiltFixture({ x86Pinned = sha("sd-x86"), staged = true } = {}) {
+  const manifest = { binaries: {
+    "macos-aarch64": { sha256: sha("sd-arm"), approval_sha256: hex("a") },
+    "macos-x86_64": { sha256: x86Pinned, approval_sha256: hex("b") },
+  } };
+  const initial = { [at("assets", "runtime-manifest.json")]: JSON.stringify(manifest) };
+  if (staged) { initial[at("src-tauri", "binaries", "sd-server-aarch64-apple-darwin")] = "sd-arm"; initial[at("src-tauri", "binaries", "sd-server-x86_64-apple-darwin")] = "sd-x86"; }
+  const fixture = fakeFs(initial);
+  const calls = [];
+  const run = (command, args) => {
+    calls.push([command, args]);
+    if (command === "lipo" && args[0] === "-create") fixture.files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-sd"));
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const seen = [];
+  const approvalDigest = (file) => { seen.push(path.basename(file)); return /x86/.test(file) ? hex("b") : hex("a"); };
+  const entry = { kind: "prebuilt", name: "sd-server", manifest: { file: "assets/runtime-manifest.json", entry: "binaries.{platform}", approvalSha256: "approval_sha256", approvalAlgorithm: undefined } };
+  return { ...fixture, calls, seen, entry, deps: (extra) => deps({ fs: fixture.fs, run, approvalDigest, host: { os: "macos", arch: "aarch64" }, ...extra }) };
+}
+
+test("prebuilt universal verifies each arch against its own manifest entry, then lipo-merges them with the shared helper", async () => {
+  const fixture = universalPrebuiltFixture();
+  const result = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [fixture.entry], deps: fixture.deps() });
+  assert.equal(fixture.fs.readFileSync(at("src-tauri", "binaries", `sd-server-${UNIVERSAL}`)).toString(), "fat-sd");
+  const lipo = fixture.calls.find(([command, args]) => command === "lipo" && args[0] === "-create")[1];
+  assert.deepEqual(lipo.slice(3), [at("src-tauri", "binaries", "sd-server-aarch64-apple-darwin"), at("src-tauri", "binaries", "sd-server-x86_64-apple-darwin")]);
+  assert.deepEqual(fixture.seen, ["sd-server-aarch64-apple-darwin", "sd-server-x86_64-apple-darwin"]);
+  const [row] = result.files;
+  assert.equal(row.sha256, sha("fat-sd"));
+  assert.equal(row.platform, "macos-universal");
+  assert.deepEqual(row.slices.map((slice) => [slice.triple, slice.platform, slice.sha256, slice.approvalSha256]), [["aarch64-apple-darwin", "macos-aarch64", sha("sd-arm"), hex("a")], ["x86_64-apple-darwin", "macos-x86_64", sha("sd-x86"), hex("b")]]);
+  assert.deepEqual(result.externalBinNames, ["sd-server"]);
+  validateStageSidecarReceipt(result.receipt, { target: UNIVERSAL, names: ["sd-server"] });
+});
+
+test("prebuilt universal takes per-arch `from` inputs, fails closed on a slice mismatch or a missing input, and refuses a thin merge", async () => {
+  const fixture = universalPrebuiltFixture({ staged: false });
+  fixture.files.set(at("build", "arm", "sd"), Buffer.from("sd-arm"));
+  fixture.files.set(at("build", "x86", "sd"), Buffer.from("sd-x86"));
+  const entry = { ...fixture.entry, from: { aarch64: "build/arm/sd", x86_64: "build/x86/sd" } };
+  await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [entry], deps: fixture.deps() });
+  assert.ok(fixture.fs.existsSync(at("src-tauri", "binaries", `sd-server-${UNIVERSAL}`)));
+  const mismatch = universalPrebuiltFixture({ x86Pinned: sha("other") });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [mismatch.entry], deps: mismatch.deps() }), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  assert.ok(!mismatch.calls.some(([command]) => command === "lipo"), "nothing is merged after a failed slice");
+  const absent = universalPrebuiltFixture({ staged: false });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [absent.entry], deps: absent.deps() }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND" });
+  const thin = universalPrebuiltFixture();
+  const thinRun = (command, args) => (command === "lipo" && args[0] === "-archs" ? { status: 0, stdout: "arm64\n" } : command === "lipo" ? (thin.files.set(args[args.indexOf("-output") + 1], Buffer.from("x")), { status: 0 }) : { status: 0 });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [thin.entry], deps: thin.deps({ run: thinRun }) }), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+});
+
+test("prebuilt `from` per-arch form validates, selects the target arch on a thin target, and a plain string is refused for universal", async () => {
+  assert.throws(() => validateSidecarManifest([{ ...PREBUILT, from: "build/sd" }], { target: UNIVERSAL }), /from must be \{ aarch64, x86_64 \} for universal-apple-darwin/);
+  assert.throws(() => validateSidecarManifest([{ ...PREBUILT, from: { aarch64: "build/sd" } }], { target: UNIVERSAL }), /from needs both aarch64 and x86_64/);
+  assert.throws(() => validateSidecarManifest([{ ...PREBUILT, from: { arm64: "build/sd", x86_64: "../sd" } }], { target: MAC }), (error) => error.message.includes("from.arm64: arches are") && error.message.includes("from.x86_64 must be relative"));
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...PREBUILT }], { target: UNIVERSAL }), "omitted from uses the staged slice files");
+  const fixture = prebuiltFixture({ stage: false });
+  fixture.files.set(at("build", "arm", "sd"), Buffer.from("sd-bytes"));
+  const result = await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...PREBUILT, from: { aarch64: "build/arm/sd", x86_64: "build/x86/sd" } }], deps: deps({ fs: fixture.fs, approvalDigest: () => hex("c") }) });
+  assert.equal(result.files[0].changed, true);
+  assert.equal(fixture.fs.readFileSync(at("src-tauri", "binaries", `sd-server-${MAC}`)).toString(), "sd-bytes");
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...PREBUILT, from: { x86_64: "build/x86/sd" } }], deps: deps({ fs: prebuiltFixture({ stage: false }).fs }) }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND", message: /not aarch64/ });
 });

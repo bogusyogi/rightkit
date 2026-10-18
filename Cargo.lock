@@ -6792,7 +6792,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "libc",
  "tokio",
@@ -6941,7 +6941,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6963,8 +6963,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
+ "blake3",
  "libc",
  "serde",
  "serde_json",
@@ -7145,12 +7146,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "image",
+ "rightkit-ffmpeg",
  "rightkit-transcript",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -7269,12 +7272,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
  "rightkit-fs",
  "tauri",
+ "tempfile",
 ]
 
 [[package]]
@@ -7396,7 +7400,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-spend"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-db",
  "tempfile",
@@ -7459,7 +7463,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",

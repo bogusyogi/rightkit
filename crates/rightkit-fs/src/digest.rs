@@ -1,8 +1,9 @@
-//! SHA-256 digests and lowercase hex, behind the `digest` feature.
+//! SHA-256 (`digest` feature), BLAKE3 (`blake3` feature), & lowercase hex.
 //!
 //! Consolidates the file-digest and hex helpers that Right Suite crates each copied. File
 //! digests stream in 64 KiB chunks, so large artifacts never load into memory.
 
+#[cfg(feature = "digest")]
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{self, Read};
@@ -46,9 +47,11 @@ pub fn unhex(text: &str) -> Option<Vec<u8>> {
 /// second `sha2` major. Feed it with [`Sha256Hasher::update`] (or as an [`io::Write`]), then take the
 /// lowercase hex with [`Sha256Hasher::finalize`]. The result equals [`sha256_bytes`] of the
 /// concatenated input.
+#[cfg(feature = "digest")]
 #[derive(Clone, Default)]
 pub struct Sha256Hasher(Sha256);
 
+#[cfg(feature = "digest")]
 impl Sha256Hasher {
     pub fn new() -> Self {
         Self::default()
@@ -70,6 +73,7 @@ impl Sha256Hasher {
     }
 }
 
+#[cfg(feature = "digest")]
 impl io::Write for Sha256Hasher {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.update(buf);
@@ -82,26 +86,31 @@ impl io::Write for Sha256Hasher {
 }
 
 /// Lowercase hex SHA-256 of `bytes`.
+#[cfg(feature = "digest")]
 pub fn sha256_bytes(bytes: &[u8]) -> String {
     hex(Sha256::digest(bytes).as_slice())
 }
 
 /// Lowercase hex SHA-256 of everything `reader` yields, read to end-of-file.
+#[cfg(feature = "digest")]
 pub fn sha256_reader<R: Read>(reader: &mut R) -> io::Result<String> {
     sha256_reader_counted(reader).map(|(digest, _)| digest)
 }
 
 /// Lowercase hex SHA-256 of the file at `path`, streamed.
+#[cfg(feature = "digest")]
 pub fn sha256_file(path: &Path) -> io::Result<String> {
     sha256_file_with_len(path).map(|(digest, _)| digest)
 }
 
 /// As [`sha256_file`], also returning the number of bytes that were hashed.
+#[cfg(feature = "digest")]
 pub fn sha256_file_with_len(path: &Path) -> io::Result<(String, u64)> {
     let mut file = File::open(path)?;
     sha256_reader_counted(&mut file)
 }
 
+#[cfg(feature = "digest")]
 fn sha256_reader_counted<R: Read>(reader: &mut R) -> io::Result<(String, u64)> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
@@ -117,7 +126,7 @@ fn sha256_reader_counted<R: Read>(reader: &mut R) -> io::Result<(String, u64)> {
     Ok((hex(hasher.finalize().as_slice()), total))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "digest"))]
 mod tests {
     use super::*;
 
@@ -172,5 +181,156 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = sha256_file(&dir.path().join("absent")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+}
+
+/// Incremental BLAKE3; results use lowercase hex unless raw bytes are requested.
+#[cfg(feature = "blake3")]
+#[derive(Clone, Default)]
+pub struct Blake3Hasher(blake3::Hasher);
+
+#[cfg(feature = "blake3")]
+impl Blake3Hasher {
+    /// Start an unkeyed BLAKE3 digest.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Hash more input.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+    /// Lowercase hex of all input.
+    pub fn finalize(self) -> String {
+        self.0.finalize().to_hex().to_string()
+    }
+    /// Raw 32-byte digest of all input.
+    pub fn finalize_bytes(self) -> [u8; 32] {
+        *self.0.finalize().as_bytes()
+    }
+}
+
+#[cfg(feature = "blake3")]
+impl io::Write for Blake3Hasher {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.update(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Lowercase hex BLAKE3 of `bytes`.
+#[cfg(feature = "blake3")]
+pub fn blake3_bytes(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
+}
+
+/// Lowercase hex BLAKE3 of everything `reader` yields, streamed in 64 KiB chunks.
+#[cfg(feature = "blake3")]
+pub fn blake3_reader<R: Read>(reader: &mut R) -> io::Result<String> {
+    blake3_reader_counted(reader, &mut |_| {}).map(|(digest, _)| digest)
+}
+
+/// Lowercase hex BLAKE3 of file contents, streamed.
+#[cfg(feature = "blake3")]
+pub fn blake3_file(path: &Path) -> io::Result<String> {
+    blake3_file_with_len(path).map(|(digest, _)| digest)
+}
+
+/// As [`blake3_file`], also returning bytes hashed.
+#[cfg(feature = "blake3")]
+pub fn blake3_file_with_len(path: &Path) -> io::Result<(String, u64)> {
+    blake3_file_with_progress(path, |_, _| {})
+}
+
+/// Hash file contents & report `(bytes_hashed, initial_file_length)` synchronously.
+/// Called once with zero bytes, then after each 64 KiB read (or final shorter read).
+/// An empty file reports `(0, 0)` once. Length is a snapshot: a concurrent writer may
+/// change it; this function hashes until EOF & returns bytes actually read.
+/// No callback occurs if opening or reading metadata fails. Read errors propagate.
+#[cfg(feature = "blake3")]
+pub fn blake3_file_with_progress(
+    path: &Path,
+    mut progress: impl FnMut(u64, u64),
+) -> io::Result<(String, u64)> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    progress(0, length);
+    blake3_reader_counted(&mut file, &mut |bytes| progress(bytes, length))
+}
+
+#[cfg(feature = "blake3")]
+fn blake3_reader_counted<R: Read>(
+    reader: &mut R,
+    progress: &mut dyn FnMut(u64),
+) -> io::Result<(String, u64)> {
+    let mut hasher = Blake3Hasher::new();
+    let mut buffer = vec![0; CHUNK];
+    let mut total = 0;
+    loop {
+        let n = match reader.read(&mut buffer) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+        total += n as u64;
+        progress(total);
+    }
+    Ok((hasher.finalize(), total))
+}
+
+#[cfg(all(test, feature = "blake3"))]
+mod blake3_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn published_vectors_and_incremental_write() {
+        assert_eq!(
+            blake3_bytes(b""),
+            "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+        );
+        let abc = "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85";
+        assert_eq!(blake3_bytes(b"abc"), abc);
+        let mut hasher = Blake3Hasher::new();
+        hasher.update(b"a");
+        hasher.write_all(b"bc").unwrap();
+        hasher.flush().unwrap();
+        assert_eq!(hex(&hasher.clone().finalize_bytes()), abc);
+        assert_eq!(hasher.finalize(), abc);
+        assert_eq!(blake3_reader(&mut &b"abc"[..]).unwrap(), abc);
+    }
+
+    #[test]
+    fn reader_propagates_failure_and_retries_interrupted_reads() {
+        struct Interrupted(bool);
+        impl Read for Interrupted {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    Err(io::ErrorKind::Interrupted.into())
+                } else {
+                    Ok(0)
+                }
+            }
+        }
+        assert_eq!(
+            blake3_reader(&mut Interrupted(false)).unwrap(),
+            blake3_bytes(b"")
+        );
+        struct Failed;
+        impl Read for Failed {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::Other.into())
+            }
+        }
+        assert_eq!(
+            blake3_reader(&mut Failed).unwrap_err().kind(),
+            io::ErrorKind::Other
+        );
     }
 }

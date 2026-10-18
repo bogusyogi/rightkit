@@ -209,7 +209,21 @@ in which that could happen. The rule that replaces it:
   different program between the scan and the signal keeps its identity and is not re-checked. Tests:
   `tests/sweep_matching.rs`.
 
-## Unreleased (not yet published; version unchanged)
+## Also (0.5.2)
+
+- `process_table() -> io::Result<Vec<ProcessEntry>>` snapshots every process the OS lets this process see, so callers
+  stop shelling out to `ps` or PowerShell `Win32_Process`. A `ProcessEntry` has `pid`, `parent_pid`, `command_line:
+  Option<String>` and `working_set_bytes: Option<u64>` (resident memory in bytes) and is `#[non_exhaustive]`. The
+  command line is one string: Linux and macOS join the arguments with a single space (quoting is not recoverable, the
+  macOS environment is excluded), Windows returns the raw command line. A field that cannot be read (another user's,
+  protected or exiting process, a kernel thread) is `None`; it never fails the scan. On Linux and macOS a process whose
+  parent cannot be read (it exited mid-scan) is left out. The table is a racy snapshot and pids are reused, so use
+  `AdoptedIdentity` before signalling anything found in it. Linux reads `/proc/<pid>/{stat,statm,cmdline}`, macOS
+  `proc_listpids`, `proc_pidinfo` and `KERN_PROCARGS2`, Windows a Toolhelp snapshot, `GetProcessMemoryInfo` and
+  `NtQueryInformationProcess` (command line needs Windows 8.1+). No shell-out, no new dependency or feature, nothing
+  held between calls. Other hosts return `ErrorKind::Unsupported`. Tests: the unit tests in `src/process_table.rs`.
+
+## Command builders (0.5.2)
 
 - Command builders that are already no-window: `command_std(program)` returns a
   `std::process::Command`, and with feature `tokio`, `tokio_support::command(program)` returns a

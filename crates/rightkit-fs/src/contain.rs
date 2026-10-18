@@ -140,17 +140,48 @@ fn unusable_new_name(name: &OsStr) -> bool {
             .is_none_or(crate::names::is_unsafe_windows_component)
 }
 
+/// `InvalidRelative` when a `..` follows a component that does not exist. Decided from the
+/// components of the original path, before the OS collapses `..` lexically (Windows does, so
+/// `missing\..` would otherwise resolve to the parent and look contained).
+fn refuse_dot_dot_in_missing_part(path: &Path) -> Result<(), ContainError> {
+    let mut cur = PathBuf::new();
+    let mut exists = true;
+    for component in path.components() {
+        match component {
+            Component::ParentDir if !exists => return Err(ContainError::InvalidRelative),
+            Component::ParentDir => cur.push(".."),
+            other => {
+                cur.push(other.as_os_str());
+                if exists && matches!(other, Component::Normal(_)) {
+                    exists = std::fs::symlink_metadata(&cur).is_ok();
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The real path of the deepest existing ancestor with the not-yet-existing tail appended.
 ///
 /// `InvalidRelative` when the missing tail holds (or the path ends in) `..`, or (Windows) a name that
 /// cannot be a plain component; `Io` when an existing entry cannot be resolved (a dangling or looping
 /// link, or a file used as a directory).
 fn resolve_lenient(path: &Path) -> Result<PathBuf, ContainError> {
+    refuse_dot_dot_in_missing_part(path)?;
     let mut tail: Vec<OsString> = Vec::new();
     let mut head = path.to_path_buf();
     loop {
         let e = match canonicalize_plain(&head) {
             Ok(mut real) => {
+                // Names below `real` are only a tail if `real` can hold them. Windows reports a
+                // file used as a directory as "not found", so the failed resolve above looked like
+                // an absent tail; check the existing prefix is a directory.
+                if !tail.is_empty() && !real.is_dir() {
+                    return Err(ContainError::Io(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "a path component is not a directory",
+                    )));
+                }
                 real.extend(tail.iter().rev());
                 return Ok(plain_path(real));
             }

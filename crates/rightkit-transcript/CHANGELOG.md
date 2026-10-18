@@ -3,8 +3,22 @@
 All notable changes to `rightkit-transcript`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## Unreleased
+## 0.4.0
 
+This is a minor (0.x) bump because `TimedWord` gained a public field. Struct literals
+of `TimedWord` need `source_ms: None` (or should use `TimedWord::new`). Serialised output
+is unchanged when `source_ms` is absent.
+
+- Added `TimedWord::source_ms: Option<(u64, u64)>`, the original source span (exclusive
+  end). `words_from_transcript` records it, `normalize_words` preserves it (including when
+  output overlaps are clamped), and it is omitted from JSON when `None`, so old payloads
+  still parse. Constructors default it to `None`.
+- Added `LineMetrics` and `wrap_lines`, and `build_cues_with_metrics`. Measured layout takes
+  a caller-supplied, fallible `measure_width` callback so widths come from the caller's font
+  and size; the crate keeps no font dependency. `build_cues` is unchanged and equals
+  `build_cues_with_metrics(.., None)`.
+- Fixed: cue segmentation no longer underflows (a panic in debug builds) on mapped words
+  that overlap at a cut point; an overlap counts as no gap.
 - Fixed: the `span()` helper behind cue splitting no longer underflows on a reversed group (last end
   before first start) or an empty group. Both measure zero, as `group_words` does. The helper is
   private, so no public signature changed and no checked variant was added.

@@ -1,10 +1,10 @@
 [package]
 name = "rightkit-spend"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
-description = "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, in-flight and overrun handling."
+description = "Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, atomic multi-cap reserve, carry-over, budgets, reconciliation, cap audit."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["spend", "budget", "ledger", "sqlite"]

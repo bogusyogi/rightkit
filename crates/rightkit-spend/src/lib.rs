@@ -53,6 +53,31 @@
 //! that must see a double settle as a bug. Replay of [`Ledger::reserve`] by request id is
 //! unaffected: it is the idempotency key, not a transition.
 //!
+//! Carry-over: a reservation made with [`ReserveOptions::carry_over`] also counts the open
+//! (`reserved`, `in_flight`) estimates of earlier periods of the same scope against the new
+//! period's cap, so a reservation that outlives midnight keeps counting against the daily cap
+//! until it is settled. "Earlier" is text order on a period string of the same length, so
+//! periods of one kind must be fixed-width and sort chronologically (`2026-10-17`, `2026-10`).
+//!
+//! Several caps at once: [`Ledger::reserve_multi`] holds one estimate against a list of [`Cap`]s
+//! (daily, monthly, an epoch-reset device allowance, ...) under one request id, all or nothing;
+//! [`Ledger::commit_group`], [`Ledger::release_group`] and [`Ledger::mark_in_flight_group`]
+//! settle every leg together. [`Ledger::set_device_allowance`] starts a new epoch (a fresh
+//! allowance) on every set or clear, so spend before the reset no longer counts.
+//!
+//! Budget scopes: a [`Budget`] is a ceiling on one caller key ([`ReserveOptions::caller_budget`])
+//! or on every reservation made through this ledger value ([`Ledger::set_process_budget`]). It
+//! is checked after the caps and can only refuse more ([`SpendError::BudgetExceeded`]).
+//!
+//! Provider cost and invoices: [`Ledger::record_provider_reported`] and
+//! [`Ledger::reconcile_invoice`] store the provider's and the invoice's figures beside the
+//! ledger and move no cap. [`Ledger::adjust_actual`] (and `reconcile_invoice` with
+//! `adjust_committed`) corrects a committed actual and the allowance total with it.
+//!
+//! Audit: every allowance create or limit change and every device-allowance set or clear writes
+//! a row read back with [`Ledger::cap_audit`]. A stored limit that is not a finite non-negative
+//! number reads as 0, so the allowance refuses every non-zero reservation (fail closed).
+//!
 //! The ledger lives in the app's SQLite file under `spend_*` tables; its schema version is kept
 //! in the table `rightkit_spend_meta`, so the app's own `user_version` is untouched. The daemon
 //! single-writer policy is the app's: this crate serialises writers only through SQLite.
@@ -68,7 +93,17 @@ use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
 
 pub use rightkit_db::rusqlite;
 
+mod audit;
+mod budget;
+mod group;
+mod reconcile;
 mod scope;
+pub use audit::CapAudit;
+pub use budget::{Budget, BudgetKind, BudgetSpend};
+pub use group::{Cap, DeviceAllowance, GroupOutcome};
+pub use reconcile::{
+    Invoice, InvoiceInput, InvoiceLine, InvoiceReport, MatchedLine, ProviderReported, UnmatchedLine,
+};
 pub use scope::{Scope, ScopeError};
 
 pub type Result<T> = std::result::Result<T, SpendError>;
@@ -113,6 +148,26 @@ pub enum SpendError {
     /// `Connection::transaction`) first; the call would otherwise commit on its own.
     #[error("no transaction is open on the connection; begin one before a `_on` call")]
     NoActiveTransaction,
+    /// A caller or process budget would be exceeded. `remaining_micro` is what the budget still
+    /// allows after the spend already counted against its key (never negative).
+    #[error("{kind} budget {key:?} would be exceeded (needed {needed_micro}, remaining {remaining_micro}); nothing was reserved")]
+    BudgetExceeded {
+        kind: &'static str,
+        key: String,
+        needed_micro: i64,
+        remaining_micro: i64,
+    },
+    /// One cap of a [`Ledger::reserve_multi`] refused; nothing was reserved on any cap.
+    #[error("cap {scope:?}/{period:?} refused: {cause}")]
+    CapRefused {
+        scope: String,
+        period: String,
+        #[source]
+        cause: Box<SpendError>,
+    },
+    /// The invoice reference is already recorded with another provider, period or total.
+    #[error("invoice reference {invoice_ref:?} is already recorded with a different provider, period or total")]
+    InvoiceConflict { invoice_ref: String },
 }
 
 /// Where a reservation is in its life.
@@ -196,6 +251,10 @@ pub struct ReserveOptions {
     pub account: Option<String>,
     /// The currency the estimate is in (for example `USD`), stored on the reservation as given.
     pub currency: Option<String>,
+    /// Count open reservations of earlier periods of the scope against this period's cap.
+    carry_over: bool,
+    /// The caller budget checked and tagged with this reservation.
+    budget: Option<Budget>,
 }
 
 impl ReserveOptions {
@@ -204,7 +263,25 @@ impl ReserveOptions {
         Self {
             account: Some(account.into()),
             currency: None,
+            carry_over: false,
+            budget: None,
         }
+    }
+
+    /// Count the open reservations of earlier periods of the same scope against this period's
+    /// cap (see the crate docs). Not part of the idempotency check: it is a policy of this call,
+    /// not a stored fact.
+    pub fn carry_over(mut self, carry_over: bool) -> Self {
+        self.carry_over = carry_over;
+        self
+    }
+
+    /// Also hold the reservation against a caller [`Budget`] (one per reservation; a later call replaces it) (see [`Budget::new`]). The budget
+    /// is checked after the cap and can only refuse more; its key is stored with the
+    /// reservation so later reservations of the key count this one.
+    pub fn caller_budget(mut self, budget: Budget) -> Self {
+        self.budget = Some(budget);
+        self
     }
 
     /// Set the currency.
@@ -397,9 +474,89 @@ UPDATE spend_reservations SET billed_unknown = 1
 CREATE INDEX spend_reservations_by_account ON spend_reservations (scope, account, state, created_at);
 ";
 
+/// Cap audit, multi-cap groups, device allowances, budget tags, provider and invoice figures.
+/// Purely additive: no existing table or column changes.
+const SCHEMA_V3: &str = "
+CREATE TABLE spend_cap_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    who TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('allowance', 'device_allowance')),
+    scope TEXT NOT NULL,
+    period TEXT NOT NULL,
+    old_limit_micro INTEGER,
+    new_limit_micro INTEGER,
+    old_revision INTEGER,
+    new_revision INTEGER,
+    note TEXT
+);
+CREATE TABLE spend_groups (
+    request_id TEXT PRIMARY KEY,
+    route_id TEXT NOT NULL,
+    price_version TEXT NOT NULL,
+    estimated_micro INTEGER NOT NULL CHECK (estimated_micro >= 0),
+    account TEXT,
+    currency TEXT,
+    caps TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE spend_group_legs (
+    request_id TEXT NOT NULL REFERENCES spend_groups (request_id),
+    leg INTEGER NOT NULL,
+    seq INTEGER NOT NULL UNIQUE REFERENCES spend_reservations (seq),
+    PRIMARY KEY (request_id, leg)
+);
+CREATE TABLE spend_device_allowances (
+    scope TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    epoch INTEGER NOT NULL CHECK (epoch >= 1),
+    limit_micro INTEGER CHECK (limit_micro IS NULL OR limit_micro >= 0),
+    set_at INTEGER NOT NULL,
+    PRIMARY KEY (scope, device_id)
+);
+CREATE TABLE spend_budget_tags (
+    seq INTEGER NOT NULL REFERENCES spend_reservations (seq),
+    kind TEXT NOT NULL CHECK (kind IN ('caller', 'process')),
+    key TEXT NOT NULL,
+    PRIMARY KEY (seq, kind)
+);
+CREATE INDEX spend_budget_tags_by_key ON spend_budget_tags (kind, key);
+CREATE TABLE spend_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq INTEGER NOT NULL REFERENCES spend_reservations (seq),
+    at INTEGER NOT NULL,
+    old_micro INTEGER NOT NULL,
+    new_micro INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    note TEXT
+);
+CREATE TABLE spend_provider_reported (
+    seq INTEGER PRIMARY KEY REFERENCES spend_reservations (seq),
+    reported_micro INTEGER NOT NULL CHECK (reported_micro >= 0),
+    source TEXT NOT NULL,
+    reported_at INTEGER NOT NULL
+);
+CREATE TABLE spend_invoices (
+    invoice_ref TEXT PRIMARY KEY,
+    ref_generated INTEGER NOT NULL CHECK (ref_generated IN (0, 1)),
+    provider TEXT NOT NULL,
+    period_from INTEGER NOT NULL,
+    period_to INTEGER NOT NULL,
+    total_micro INTEGER NOT NULL CHECK (total_micro >= 0),
+    recorded_at INTEGER NOT NULL
+);
+CREATE TABLE spend_invoice_lines (
+    seq INTEGER PRIMARY KEY REFERENCES spend_reservations (seq),
+    invoice_ref TEXT NOT NULL REFERENCES spend_invoices (invoice_ref),
+    invoice_micro INTEGER NOT NULL CHECK (invoice_micro >= 0),
+    recorded_at INTEGER NOT NULL
+);
+";
+
 const MIGRATIONS: &[Migration] = &[
     Migration::sql(1, "spend-ledger", SCHEMA_V1),
     Migration::sql(2, "spend-account-currency-unknown", SCHEMA_V2),
+    Migration::sql(3, "spend-caps-groups-budgets-reconcile", SCHEMA_V3),
 ];
 
 const ALLOWANCE_COLUMNS: &str =
@@ -413,6 +570,11 @@ const RESERVATION_COLUMNS: &str = "seq, request_id, scope, period, route_id, pri
 struct Ctx {
     now: i64,
     strict: bool,
+    /// Refuse `reserve` while an unacknowledged overrun exists on the allowance.
+    gate: bool,
+    /// Recorded as `who` on cap audit rows.
+    actor: String,
+    process: Option<Budget>,
 }
 
 /// The ledger. It owns one connection; open a second connection for the app's own queries, or
@@ -421,6 +583,9 @@ pub struct Ledger {
     conn: Connection,
     clock: Box<dyn Fn() -> i64 + Send>,
     strict: bool,
+    overrun_gate: bool,
+    actor: String,
+    process_budget: Option<Budget>,
 }
 
 impl Ledger {
@@ -448,7 +613,52 @@ impl Ledger {
             conn,
             clock: Box::new(clock),
             strict: false,
+            overrun_gate: true,
+            actor: "unknown".to_owned(),
+            process_budget: None,
         })
+    }
+
+    /// Turn the overrun gate on or off. On (the default), [`Ledger::reserve`] refuses while an
+    /// allowance has an unacknowledged overrun. Off, overruns are still flagged and counted but
+    /// never block a reservation.
+    pub fn with_overrun_gate(mut self, gate: bool) -> Self {
+        self.overrun_gate = gate;
+        self
+    }
+
+    /// As [`Ledger::with_overrun_gate`] on an existing ledger.
+    pub fn set_overrun_gate(&mut self, gate: bool) {
+        self.overrun_gate = gate;
+    }
+
+    /// Whether the overrun gate is on.
+    pub fn overrun_gate(&self) -> bool {
+        self.overrun_gate
+    }
+
+    /// Who the cap audit rows name (default `unknown`). The ledger cannot tell who the app's
+    /// user is; the app says.
+    pub fn with_actor(mut self, actor: impl Into<String>) -> Self {
+        self.actor = actor.into();
+        self
+    }
+
+    /// As [`Ledger::with_actor`] on an existing ledger.
+    pub fn set_actor(&mut self, actor: impl Into<String>) {
+        self.actor = actor.into();
+    }
+
+    /// Set or clear the process budget: every reservation made through this ledger value is
+    /// refused beyond it, counting all reservations tagged with the same key (so several jobs of
+    /// one run share it). It sits beside the caps and never loosens them.
+    pub fn set_process_budget(&mut self, budget: Option<Budget>) {
+        self.process_budget = budget;
+    }
+
+    /// The process budget, if any.
+    pub fn process_budget(&self) -> Option<&Budget> {
+        self.process_budget.as_ref()
     }
 
     /// Turn strict mode on or off (see the crate docs). Off by default.
@@ -491,6 +701,9 @@ impl Ledger {
         Ctx {
             now: self.now(),
             strict: self.strict,
+            gate: self.overrun_gate,
+            actor: self.actor.clone(),
+            process: self.process_budget.clone(),
         }
     }
 
@@ -1040,6 +1253,16 @@ fn set_allowance_impl(
                  committed_micro, revision, updated_at) VALUES (?1, ?2, ?3, 0, 0, 1, ?4)",
                 params![scope, period, limit_micro, ctx.now],
             )?;
+            audit::record(
+                conn,
+                ctx,
+                "allowance",
+                scope,
+                period,
+                (None, Some(limit_micro)),
+                (None, Some(1)),
+                None,
+            )?;
             require_allowance(conn, scope, period)
         }
         Some(current) => {
@@ -1069,6 +1292,16 @@ fn set_allowance_impl(
             if changed == 0 {
                 return Err(conflict(conn, &current)?);
             }
+            audit::record(
+                conn,
+                ctx,
+                "allowance",
+                scope,
+                period,
+                (Some(current.limit_micro), Some(limit_micro)),
+                (Some(current.revision), Some(next)),
+                None,
+            )?;
             require_allowance(conn, scope, period)
         }
     }
@@ -1085,6 +1318,41 @@ fn reserve_impl(
     price_version: &str,
     estimate_micro: i64,
     options: &ReserveOptions,
+) -> Result<Outcome> {
+    let out = reserve_core(
+        conn,
+        ctx,
+        scope,
+        request_id,
+        period,
+        route_id,
+        price_version,
+        estimate_micro,
+        options,
+        options.carry_over,
+    )?;
+    if !out.replayed {
+        // After the cap: a budget can only refuse more. A refusal rolls the hold back with the
+        // enclosing transaction or savepoint.
+        budget::apply_budgets(conn, ctx, options, &out.reservation)?;
+    }
+    Ok(out)
+}
+
+/// One hold against one allowance: validation, request-id idempotency, the overrun gate, the
+/// remaining check (with carry-over when asked) and the write. No budget handling.
+#[allow(clippy::too_many_arguments)]
+fn reserve_core(
+    conn: &Connection,
+    ctx: &Ctx,
+    scope: &str,
+    request_id: &str,
+    period: &str,
+    route_id: &str,
+    price_version: &str,
+    estimate_micro: i64,
+    options: &ReserveOptions,
+    carry_over: bool,
 ) -> Result<Outcome> {
     non_empty("scope", scope)?;
     non_empty("request_id", request_id)?;
@@ -1113,11 +1381,18 @@ fn reserve_impl(
     }
 
     let allowance = require_allowance(conn, scope, period)?;
-    let unacked = unacknowledged_overruns(conn, scope, period)?;
-    if unacked > 0 {
-        return Err(SpendError::OverrunUnacknowledged { count: unacked });
+    if ctx.gate {
+        let unacked = unacknowledged_overruns(conn, scope, period)?;
+        if unacked > 0 {
+            return Err(SpendError::OverrunUnacknowledged { count: unacked });
+        }
     }
-    let remaining = allowance.remaining_micro();
+    let mut remaining = allowance.remaining_micro();
+    if carry_over {
+        remaining = remaining
+            .checked_sub(carried_open_micro(conn, scope, period)?)
+            .ok_or(SpendError::Overflow)?;
+    }
     if estimate_micro > remaining {
         return Err(SpendError::AllowanceExceeded {
             estimate_micro,
@@ -1458,11 +1733,59 @@ fn spent_total(a: &Allowance) -> Result<i64> {
     add(a.reserved_micro, a.committed_micro)
 }
 
+/// Estimates of the open reservations of `scope` in earlier periods of the same width: the
+/// amount a reservation with carry-over counts against `period`'s cap on top of its own totals.
+fn carried_open_micro(conn: &Connection, scope: &str, period: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(estimated_micro), 0) FROM spend_reservations \
+         WHERE scope = ?1 AND period < ?2 AND length(period) = length(?2) \
+         AND state IN ('reserved', 'in_flight')",
+        params![scope, period],
+        |row| row.get(0),
+    )?)
+}
+
+/// The stored limit as a usable cap. Fail closed: anything that is not a finite non-negative
+/// number (a hand-edited `inf`, `nan` text, a negative) reads as 0, so the allowance refuses
+/// every non-zero reservation instead of lifting the limit.
+fn limit_from_raw(raw: rusqlite::types::Value) -> i64 {
+    use rusqlite::types::Value;
+    let from_float = |f: f64| {
+        if f.is_finite() && f >= 0.0 {
+            f.floor() as i64
+        } else {
+            0
+        }
+    };
+    match raw {
+        Value::Integer(n) if n >= 0 => n,
+        Value::Real(f) => from_float(f),
+        Value::Text(t) => t.trim().parse::<f64>().map_or(0, from_float),
+        _ => 0,
+    }
+}
+
+/// Convert a decimal amount of currency units (for example dollars) to micro-units. Rejects a
+/// non-finite or negative amount ([`SpendError::BadInput`]) and one beyond `i64`
+/// ([`SpendError::Overflow`]), so a `NaN` or infinite cap never reaches the ledger.
+pub fn micro_from_units(units: f64) -> Result<i64> {
+    if !units.is_finite() || units < 0.0 {
+        return Err(SpendError::BadInput(
+            "amount must be a finite, non-negative number".into(),
+        ));
+    }
+    let micro = (units * 1_000_000.0).round();
+    if micro >= 9.2e18 {
+        return Err(SpendError::Overflow);
+    }
+    Ok(micro as i64)
+}
+
 fn allowance_from_row(row: &Row<'_>) -> rusqlite::Result<Allowance> {
     Ok(Allowance {
         scope: row.get(0)?,
         period: row.get(1)?,
-        limit_micro: row.get(2)?,
+        limit_micro: limit_from_raw(row.get(2)?),
         reserved_micro: row.get(3)?,
         committed_micro: row.get(4)?,
         revision: row.get(5)?,
@@ -2882,5 +3205,803 @@ mod tests {
         let stored = f.ledger.reservation(&r.reservation_id).unwrap().unwrap();
         assert!(stored.billed_unknown());
         assert_eq!(f.ledger.report(SCOPE, MONTH).unwrap().billed_unknown(), 1);
+    }
+
+    fn count(f: &Fixture, table: &str) -> i64 {
+        f.ledger
+            .connection()
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn two_caps(f: &mut Fixture, daily: i64, monthly: i64) -> Vec<Cap> {
+        f.ledger
+            .set_allowance(SCOPE, "2026-10-17", daily, None)
+            .unwrap();
+        f.ledger
+            .set_allowance(SCOPE, "2026-10", monthly, None)
+            .unwrap();
+        vec![
+            Cap::allowance(SCOPE, "2026-10-17"),
+            Cap::allowance(SCOPE, "2026-10"),
+        ]
+    }
+
+    #[test]
+    fn carry_over_counts_open_reservations_of_earlier_periods() {
+        let mut f = fixture();
+        for day in ["2026-10-17", "2026-10-18", "2026-10-19"] {
+            f.ledger.set_allowance(SCOPE, day, 1_000, None).unwrap();
+        }
+        // A month-width period sorts before the days but is a different kind: never carried.
+        f.ledger.set_allowance(SCOPE, MONTH, 100_000, None).unwrap();
+        f.ledger
+            .reserve(SCOPE, "old", "2026-10-17", "fal-ai/flux", "v1", 600)
+            .unwrap();
+        f.ledger
+            .reserve(SCOPE, "month", MONTH, "fal-ai/flux", "v1", 5_000)
+            .unwrap();
+        let carry = ReserveOptions::default().carry_over(true);
+        let day18 = |f: &mut Fixture, id: &str, est: i64, opts: &ReserveOptions| {
+            f.ledger
+                .reserve_with(SCOPE, id, "2026-10-18", "fal-ai/flux", "v1", est, opts)
+        };
+
+        // The 600 still open from the 17th counts: 1000 - 600 leaves 400.
+        assert!(matches!(
+            day18(&mut f, "d1", 401, &carry),
+            Err(SpendError::AllowanceExceeded {
+                estimate_micro: 401,
+                remaining_micro: 400
+            })
+        ));
+        day18(&mut f, "d1", 400, &carry).unwrap();
+        assert!(matches!(
+            day18(&mut f, "d2", 1, &carry),
+            Err(SpendError::AllowanceExceeded {
+                remaining_micro: 0,
+                ..
+            })
+        ));
+        // Without carry-over only the day's own totals count: 600 remain.
+        day18(&mut f, "d3", 600, &ReserveOptions::default()).unwrap();
+
+        // Settling the old reservation stops it carrying.
+        let old = f.ledger.reservation("res-00000001").unwrap().unwrap();
+        f.ledger.commit(&old.reservation_id, 100).unwrap();
+        // Release d1, the 400; the 19th then carries only d3's 600 (the 17th is committed).
+        f.ledger.release("res-00000003", None).unwrap();
+        let day19 = |f: &mut Fixture, id: &str, est: i64| {
+            f.ledger
+                .reserve_with(SCOPE, id, "2026-10-19", "fal-ai/flux", "v1", est, &carry)
+        };
+        assert!(matches!(
+            day19(&mut f, "e1", 401),
+            Err(SpendError::AllowanceExceeded {
+                remaining_micro: 400,
+                ..
+            })
+        ));
+        day19(&mut f, "e1", 400).unwrap();
+    }
+
+    #[test]
+    fn multi_cap_reserve_is_all_or_nothing() {
+        let mut f = fixture();
+        let caps = two_caps(&mut f, 1_000, 500);
+        let opts = ReserveOptions::default();
+        let before = |f: &Fixture| {
+            (
+                f.ledger.allowance(SCOPE, "2026-10-17").unwrap().unwrap(),
+                f.ledger.allowance(SCOPE, "2026-10").unwrap().unwrap(),
+            )
+        };
+        let (day0, month0) = before(&f);
+
+        // The monthly cap refuses; the daily leg that fit is not left behind.
+        match f
+            .ledger
+            .reserve_multi("g1", &caps, "fal-ai/flux", "v1", 600, &opts)
+        {
+            Err(SpendError::CapRefused {
+                scope,
+                period,
+                cause,
+            }) => {
+                assert_eq!((scope.as_str(), period.as_str()), (SCOPE, "2026-10"));
+                assert!(matches!(
+                    *cause,
+                    SpendError::AllowanceExceeded {
+                        estimate_micro: 600,
+                        remaining_micro: 500
+                    }
+                ));
+            }
+            other => panic!("expected CapRefused, got {other:?}"),
+        }
+        assert_eq!(count(&f, "spend_reservations"), 0);
+        assert_eq!(count(&f, "spend_groups"), 0);
+        assert_eq!(count(&f, "spend_group_legs"), 0);
+        assert!(f.ledger.group("g1").unwrap().is_none());
+        assert_eq!(before(&f), (day0, month0), "totals and revisions untouched");
+
+        // The same request id succeeds once it fits; both caps hold the estimate.
+        let ok = f
+            .ledger
+            .reserve_multi("g1", &caps, "fal-ai/flux", "v1", 500, &opts)
+            .unwrap();
+        assert!(!ok.replayed);
+        assert_eq!(ok.legs.len(), 2);
+        assert_eq!(ok.legs[0].reservation.request_id, "g1#0");
+        assert_eq!(ok.legs[0].allowance.reserved_micro, 500);
+        assert_eq!(ok.legs[1].allowance.reserved_micro, 500);
+
+        // Replay writes nothing; a different estimate is a mismatch.
+        let again = f
+            .ledger
+            .reserve_multi("g1", &caps, "fal-ai/flux", "v1", 500, &opts)
+            .unwrap();
+        assert!(again.replayed);
+        assert_eq!(count(&f, "spend_reservations"), 2);
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("g1", &caps, "fal-ai/flux", "v1", 400, &opts),
+            Err(SpendError::RequestMismatch { .. })
+        ));
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("g1", &caps[..1], "fal-ai/flux", "v1", 500, &opts),
+            Err(SpendError::RequestMismatch { .. })
+        ));
+
+        // Settling moves every leg together.
+        f.ledger.mark_in_flight_group("g1").unwrap();
+        let done = f.ledger.commit_group("g1", 450).unwrap();
+        assert!(!done.replayed);
+        for leg in &done.legs {
+            assert_eq!(leg.reservation.state, ReservationState::Committed);
+            assert_eq!(leg.allowance.committed_micro, 450);
+            assert_eq!(leg.allowance.reserved_micro, 0);
+        }
+        assert!(f.ledger.commit_group("g1", 450).unwrap().replayed);
+
+        // A released group gives every cap its estimate back.
+        f.ledger
+            .reserve_multi("g2", &caps, "fal-ai/flux", "v1", 50, &opts)
+            .unwrap();
+        let released = f.ledger.release_group("g2", Some("not sent")).unwrap();
+        assert!(released
+            .legs
+            .iter()
+            .all(|l| l.reservation.state == ReservationState::Released
+                && l.allowance.reserved_micro == 0));
+        assert!(matches!(
+            f.ledger.commit_group("nope", 1),
+            Err(SpendError::NotFound(_))
+        ));
+        assert!(f.ledger.report(SCOPE, "2026-10").unwrap().reconciles);
+    }
+
+    #[test]
+    fn multi_cap_reserve_rejects_bad_lists() {
+        let mut f = fixture();
+        let caps = two_caps(&mut f, 1_000, 1_000);
+        let opts = ReserveOptions::default();
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("g", &[], "fal-ai/flux", "v1", 1, &opts),
+            Err(SpendError::BadInput(_))
+        ));
+        let dup = vec![caps[0].clone(), caps[0].clone()];
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("g", &dup, "fal-ai/flux", "v1", 1, &opts),
+            Err(SpendError::BadInput(_))
+        ));
+        let missing = vec![Cap::allowance(SCOPE, "2099-01")];
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("g", &missing, "fal-ai/flux", "v1", 1, &opts),
+            Err(SpendError::CapRefused { .. })
+        ));
+        assert_eq!(count(&f, "spend_groups"), 0);
+    }
+
+    #[test]
+    fn device_allowance_resets_by_epoch_and_audits() {
+        let mut f = fixture();
+        f.ledger.set_actor("adrian");
+        f.ledger
+            .set_allowance(SCOPE, "2026-10-17", 1_000, None)
+            .unwrap();
+        let caps = vec![
+            Cap::allowance(SCOPE, "2026-10-17"),
+            Cap::device(SCOPE, "dev1"),
+        ];
+        let opts = ReserveOptions::default();
+
+        // No device allowance yet: only the daily cap applies.
+        let first = f
+            .ledger
+            .reserve_multi("a0", &caps, "fal-ai/flux", "v1", 10, &opts)
+            .unwrap();
+        assert_eq!(first.legs.len(), 1);
+
+        let d1 = f
+            .ledger
+            .set_device_allowance(SCOPE, "dev1", Some(300), Some("fill"))
+            .unwrap();
+        assert_eq!((d1.epoch, d1.limit_micro), (1, Some(300)));
+        assert_eq!(d1.period.as_deref(), Some("device:dev1:1"));
+        f.ledger
+            .reserve_multi("a", &caps, "fal-ai/flux", "v1", 200, &opts)
+            .unwrap();
+        match f
+            .ledger
+            .reserve_multi("b", &caps, "fal-ai/flux", "v1", 200, &opts)
+        {
+            Err(SpendError::CapRefused { period, .. }) => assert_eq!(period, "device:dev1:1"),
+            other => panic!("expected the device cap to refuse, got {other:?}"),
+        }
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, "2026-10-17")
+                .unwrap()
+                .unwrap()
+                .reserved_micro,
+            210,
+            "the refused request held nothing on the daily cap"
+        );
+
+        // A refill starts a new epoch: the 200 held before no longer counts against it.
+        let d2 = f
+            .ledger
+            .set_device_allowance(SCOPE, "dev1", Some(300), None)
+            .unwrap();
+        assert_eq!((d2.epoch, d2.period.as_deref()), (2, Some("device:dev1:2")));
+        assert_eq!(d2.allowance.as_ref().unwrap().reserved_micro, 0);
+        f.ledger
+            .reserve_multi("b", &caps, "fal-ai/flux", "v1", 200, &opts)
+            .unwrap();
+        let old = f.ledger.allowance(SCOPE, "device:dev1:1").unwrap().unwrap();
+        assert_eq!(
+            old.reserved_micro, 200,
+            "the old epoch keeps its own totals"
+        );
+        // The old epoch's reservation still settles on its own allowance.
+        f.ledger.commit_group("a", 150).unwrap();
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, "device:dev1:1")
+                .unwrap()
+                .unwrap()
+                .committed_micro,
+            150
+        );
+
+        // Clearing starts another epoch and lifts the device cap.
+        let cleared = f
+            .ledger
+            .set_device_allowance(SCOPE, "dev1", None, None)
+            .unwrap();
+        assert_eq!((cleared.epoch, cleared.limit_micro), (3, None));
+        let after = f
+            .ledger
+            .reserve_multi("c", &caps, "fal-ai/flux", "v1", 100, &opts)
+            .unwrap();
+        assert_eq!(after.legs.len(), 1);
+        assert!(matches!(
+            f.ledger.set_device_allowance(SCOPE, "dev1", Some(-1), None),
+            Err(SpendError::BadInput(_))
+        ));
+
+        let audit = f.ledger.cap_audit(Some(SCOPE), 20).unwrap();
+        let device: Vec<_> = audit
+            .iter()
+            .filter(|a| a.kind == "device_allowance")
+            .collect();
+        assert_eq!(device.len(), 3);
+        // Newest first: the clear, the refill, the first set.
+        assert_eq!(
+            (device[0].old_limit_micro, device[0].new_limit_micro),
+            (Some(300), None)
+        );
+        assert_eq!(
+            (device[0].old_revision, device[0].new_revision),
+            (Some(2), Some(3))
+        );
+        assert_eq!(device[1].old_limit_micro, Some(300));
+        assert_eq!(device[2].old_limit_micro, None);
+        assert_eq!(device[2].note.as_deref(), Some("fill"));
+        assert!(device.iter().all(|a| a.who == "adrian"));
+    }
+
+    #[test]
+    fn caller_budget_counts_its_key_and_never_loosens_a_cap() {
+        let mut f = funded(10_000);
+        let budget = Budget::new("job-1", 500).unwrap();
+        let opts = ReserveOptions::default().caller_budget(budget.clone());
+        let held = reserve_with(&mut f, "r1", 300, &opts).unwrap();
+
+        match reserve_with(&mut f, "r2", 300, &opts) {
+            Err(SpendError::BudgetExceeded {
+                kind,
+                key,
+                needed_micro,
+                remaining_micro,
+            }) => assert_eq!(
+                (kind, key.as_str(), needed_micro, remaining_micro),
+                ("caller", "job-1", 300, 200)
+            ),
+            other => panic!("expected BudgetExceeded, got {other:?}"),
+        }
+        // The refused call left nothing behind, on the allowance or on the budget.
+        let a = f.ledger.allowance(SCOPE, MONTH).unwrap().unwrap();
+        assert_eq!(a.reserved_micro, 300);
+        assert_eq!(count(&f, "spend_reservations"), 1);
+
+        // Another key has its own budget.
+        let other = ReserveOptions::default().caller_budget(Budget::new("job-2", 500).unwrap());
+        reserve_with(&mut f, "r3", 300, &other).unwrap();
+
+        // Settling counts the actual, not the estimate.
+        f.ledger
+            .commit(&held.reservation.reservation_id, 100)
+            .unwrap();
+        reserve_with(&mut f, "r2", 300, &opts).unwrap();
+        let spend = f.ledger.budget_spend(BudgetKind::Caller, "job-1").unwrap();
+        assert_eq!((spend.reserved_micro, spend.committed_micro), (300, 100));
+        assert!(f
+            .ledger
+            .check_budget(BudgetKind::Caller, &budget, 100)
+            .is_ok());
+        assert!(f
+            .ledger
+            .check_budget(BudgetKind::Caller, &budget, 101)
+            .is_err());
+
+        // A generous budget does not admit what the cap refuses.
+        let huge = ReserveOptions::default().caller_budget(Budget::new("job-3", i64::MAX).unwrap());
+        assert!(matches!(
+            reserve_with(&mut f, "r4", 20_000, &huge),
+            Err(SpendError::AllowanceExceeded { .. })
+        ));
+        assert!(matches!(Budget::new("  ", 1), Err(SpendError::BadInput(_))));
+        assert!(matches!(Budget::new("k", -1), Err(SpendError::BadInput(_))));
+    }
+
+    #[test]
+    fn process_budget_is_shared_by_every_reservation_of_the_run() {
+        let mut f = funded(100_000);
+        f.ledger
+            .set_process_budget(Some(Budget::new("run-1", 400).unwrap()));
+        reserve(&mut f, "j1", 250).unwrap();
+        match reserve(&mut f, "j2", 250) {
+            Err(SpendError::BudgetExceeded {
+                kind,
+                remaining_micro,
+                ..
+            }) => assert_eq!((kind, remaining_micro), ("process", 150)),
+            other => panic!("expected BudgetExceeded, got {other:?}"),
+        }
+        reserve(&mut f, "j2", 150).unwrap();
+        let spend = f.ledger.budget_spend(BudgetKind::Process, "run-1").unwrap();
+        assert_eq!(spend.counted_micro(), 400);
+
+        f.ledger.set_process_budget(None);
+        reserve(&mut f, "j3", 250).unwrap();
+        assert_eq!(
+            f.ledger
+                .budget_spend(BudgetKind::Process, "run-1")
+                .unwrap()
+                .counted_micro(),
+            400,
+            "an untagged reservation counts nowhere"
+        );
+    }
+
+    #[test]
+    fn a_budget_counts_a_multi_cap_estimate_once() {
+        let mut f = fixture();
+        let caps = two_caps(&mut f, 10_000, 10_000);
+        f.ledger
+            .set_process_budget(Some(Budget::new("run-1", 400).unwrap()));
+        let opts = ReserveOptions::default();
+        f.ledger
+            .reserve_multi("m1", &caps, "fal-ai/flux", "v1", 300, &opts)
+            .unwrap();
+        f.ledger
+            .reserve_multi("m2", &caps, "fal-ai/flux", "v1", 100, &opts)
+            .unwrap();
+        assert!(matches!(
+            f.ledger
+                .reserve_multi("m3", &caps, "fal-ai/flux", "v1", 1, &opts),
+            Err(SpendError::BudgetExceeded {
+                kind: "process",
+                ..
+            })
+        ));
+        assert!(f.ledger.group("m3").unwrap().is_none());
+        assert_eq!(count(&f, "spend_reservations"), 4);
+    }
+
+    #[test]
+    fn reconciliation_adjusts_the_committed_actual() {
+        let mut f = funded(10_000);
+        let r1 = reserve(&mut f, "r1", 1_000)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        let r2 = reserve(&mut f, "r2", 500)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        f.ledger.commit(&r1, 900).unwrap();
+        f.ledger.commit(&r2, 500).unwrap();
+        let committed = |f: &Fixture| {
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .committed_micro
+        };
+        assert_eq!(committed(&f), 1_400);
+
+        // A provider-reported figure and an invoice are recorded beside the ledger.
+        let pr = f
+            .ledger
+            .record_provider_reported(&r1, 850, "x-cost header")
+            .unwrap();
+        assert_eq!(pr.reported_micro, 850);
+        assert_eq!(
+            f.ledger.provider_reported(&r1).unwrap().unwrap().source,
+            "x-cost header"
+        );
+        assert!(matches!(
+            f.ledger.record_provider_reported(&r1, 1, "  "),
+            Err(SpendError::BadInput(_))
+        ));
+        let mut inv = InvoiceInput::new("fal-ai", 0, 2_000_000, 870);
+        inv.invoice_ref = Some("inv-1".into());
+        inv.lines = vec![InvoiceLine::by_reservation(&r1, 870)];
+        let report = f.ledger.reconcile_invoice(&inv).unwrap();
+        assert!(!report.already_recorded);
+        assert_eq!(report.matched.len(), 1);
+        let m = &report.matched[0];
+        assert_eq!(
+            (m.settled_micro, m.difference_micro, m.adjusted),
+            (900, -30, false)
+        );
+        assert_eq!(report.settled_micro, 1_400);
+        assert_eq!(report.total_minus_settled_micro, -530);
+        assert_eq!(report.lines_minus_total_micro, Some(0));
+        assert_eq!(report.unmatched_reservations, vec![r2.clone()]);
+        assert_eq!(committed(&f), 1_400, "recording moves no cap");
+        assert!(f.ledger.reconcile_invoice(&inv).unwrap().already_recorded);
+        let mut changed = inv.clone();
+        changed.total_micro = 871;
+        assert!(matches!(
+            f.ledger.reconcile_invoice(&changed),
+            Err(SpendError::InvoiceConflict { .. })
+        ));
+        // Another provider, a request id that is not there and a row taken by inv-1.
+        let mut other = InvoiceInput::new("other-provider", 0, 2_000_000, 10);
+        other.lines = vec![
+            InvoiceLine::by_reservation(&r1, 10),
+            InvoiceLine::by_request("zzz", 1),
+        ];
+        let other_report = f.ledger.reconcile_invoice(&other).unwrap();
+        assert_eq!(other_report.unmatched_lines.len(), 2);
+        assert!(other_report.invoice.ref_generated);
+        let mut taken = InvoiceInput::new("fal-ai", 0, 2_000_000, 5);
+        taken.invoice_ref = Some("inv-x".into());
+        taken.lines = vec![InvoiceLine::by_reservation(&r1, 5)];
+        let taken_report = f.ledger.reconcile_invoice(&taken).unwrap();
+        assert_eq!(taken_report.unmatched_lines.len(), 1);
+
+        // With adjust_committed the invoice line becomes the actual, and the allowance follows.
+        let mut inv2 = InvoiceInput::new("fal-ai", 0, 2_000_000, 650);
+        inv2.invoice_ref = Some("inv-2".into());
+        inv2.lines = vec![InvoiceLine::by_request("r2", 650)];
+        inv2.adjust_committed = true;
+        let report2 = f.ledger.reconcile_invoice(&inv2).unwrap();
+        assert!(report2.matched[0].adjusted);
+        let r2_now = f.ledger.reservation(&r2).unwrap().unwrap();
+        assert_eq!(r2_now.committed_micro, Some(650));
+        assert!(r2_now.over_reservation, "650 against an estimate of 500");
+        assert_eq!(committed(&f), 1_550);
+        assert!(matches!(
+            reserve(&mut f, "r9", 1),
+            Err(SpendError::OverrunUnacknowledged { count: 1 })
+        ));
+        f.ledger.acknowledge_overrun(&r2, None).unwrap();
+
+        // Adjusting down, and a replay writes nothing.
+        let down = f
+            .ledger
+            .adjust_actual(&r1, 100, "manual", Some("credit"))
+            .unwrap();
+        assert!(!down.replayed);
+        assert_eq!(committed(&f), 750);
+        assert!(
+            f.ledger
+                .adjust_actual(&r1, 100, "manual", None)
+                .unwrap()
+                .replayed
+        );
+        assert_eq!(count(&f, "spend_adjustments"), 2);
+        let open = reserve(&mut f, "r5", 10)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        assert!(matches!(
+            f.ledger.adjust_actual(&open, 5, "manual", None),
+            Err(SpendError::InvalidTransition { .. })
+        ));
+
+        // A billed-unknown ceiling commit stops being unknown once the real cost is known.
+        let r3 = reserve(&mut f, "r3", 400)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        f.ledger.commit_unknown(&r3, None).unwrap();
+        assert_eq!(committed(&f), 1_150);
+        f.ledger.acknowledge_overrun(&r3, None).unwrap();
+        let known = f.ledger.adjust_actual(&r3, 120, "provider", None).unwrap();
+        assert!(!known.reservation.billed_unknown() && !known.reservation.over_reservation);
+        assert_eq!(known.reservation.committed_micro, Some(120));
+        assert_eq!(committed(&f), 870);
+        assert!(f.ledger.report(SCOPE, MONTH).unwrap().reconciles);
+    }
+
+    #[test]
+    fn cap_changes_leave_audit_rows_that_roll_back_with_the_transaction() {
+        let mut f = fixture();
+        f.ledger.set_actor("adrian");
+        f.ledger.set_allowance(SCOPE, MONTH, 1_000, None).unwrap();
+        f.ledger
+            .set_allowance(SCOPE, MONTH, 2_000, Some(1))
+            .unwrap();
+        let rows = f.ledger.cap_audit(Some(SCOPE), 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (
+                rows[0].old_limit_micro,
+                rows[0].new_limit_micro,
+                rows[0].who.as_str()
+            ),
+            (Some(1_000), Some(2_000), "adrian")
+        );
+        assert_eq!(
+            (rows[0].old_revision, rows[0].new_revision),
+            (Some(1), Some(2))
+        );
+        assert_eq!(rows[0].kind, "allowance");
+        assert_eq!(
+            (rows[1].old_limit_micro, rows[1].new_limit_micro),
+            (None, Some(1_000))
+        );
+        assert!(f.ledger.cap_audit(Some("other"), 10).unwrap().is_empty());
+
+        // A refused change writes nothing; a dropped transaction takes its audit row along.
+        assert!(f.ledger.set_allowance(SCOPE, MONTH, 5, Some(1)).is_err());
+        {
+            let tx = f.ledger.begin().unwrap();
+            f.ledger
+                .set_allowance_in(&tx, SCOPE, MONTH, 3_000, Some(2))
+                .unwrap();
+        }
+        assert_eq!(f.ledger.cap_audit(None, 10).unwrap().len(), 2);
+        let tx = f.ledger.begin().unwrap();
+        f.ledger
+            .set_allowance_in(&tx, SCOPE, MONTH, 3_000, Some(2))
+            .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(f.ledger.cap_audit(None, 10).unwrap().len(), 3);
+        assert_eq!(
+            f.ledger.cap_audit(None, 1).unwrap()[0].new_limit_micro,
+            Some(3_000)
+        );
+    }
+
+    #[test]
+    fn a_non_finite_stored_cap_fails_closed() {
+        let mut f = funded(1_000);
+        let conn = f.ledger.connection();
+        conn.execute("UPDATE spend_allowances SET limit_micro = 9e999", [])
+            .unwrap();
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .limit_micro,
+            0
+        );
+        assert!(matches!(
+            reserve(&mut f, "r1", 1),
+            Err(SpendError::AllowanceExceeded {
+                estimate_micro: 1,
+                remaining_micro: 0
+            })
+        ));
+        let conn = f.ledger.connection();
+        conn.execute("UPDATE spend_allowances SET limit_micro = 'NaN'", [])
+            .unwrap();
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, MONTH)
+                .unwrap()
+                .unwrap()
+                .limit_micro,
+            0
+        );
+        assert!(reserve(&mut f, "r1", 1).is_err());
+        // Multi-cap reserve fails closed the same way.
+        let caps = vec![Cap::allowance(SCOPE, MONTH)];
+        assert!(f
+            .ledger
+            .reserve_multi(
+                "g",
+                &caps,
+                "fal-ai/flux",
+                "v1",
+                1,
+                &ReserveOptions::default()
+            )
+            .is_err());
+        // The owner can repair it through the normal compare-and-swap.
+        let fixed = f.ledger.set_allowance(SCOPE, MONTH, 500, Some(1)).unwrap();
+        assert_eq!(fixed.limit_micro, 500);
+        reserve(&mut f, "r1", 1).unwrap();
+
+        // A float amount that is not finite never becomes a cap.
+        assert!(matches!(
+            micro_from_units(f64::NAN),
+            Err(SpendError::BadInput(_))
+        ));
+        assert!(matches!(
+            micro_from_units(f64::INFINITY),
+            Err(SpendError::BadInput(_))
+        ));
+        assert!(matches!(
+            micro_from_units(-0.5),
+            Err(SpendError::BadInput(_))
+        ));
+        assert!(matches!(micro_from_units(1e300), Err(SpendError::Overflow)));
+        assert_eq!(micro_from_units(1.5).unwrap(), 1_500_000);
+    }
+
+    #[test]
+    fn the_overrun_gate_is_optional() {
+        let mut f = funded(1_000);
+        assert!(f.ledger.overrun_gate());
+        let r1 = reserve(&mut f, "r1", 100)
+            .unwrap()
+            .reservation
+            .reservation_id;
+        f.ledger.commit(&r1, 150).unwrap();
+        assert!(matches!(
+            reserve(&mut f, "r2", 10),
+            Err(SpendError::OverrunUnacknowledged { count: 1 })
+        ));
+        f.ledger.set_overrun_gate(false);
+        assert!(!f.ledger.overrun_gate());
+        reserve(&mut f, "r2", 10).unwrap();
+        let report = f.ledger.report(SCOPE, MONTH).unwrap();
+        assert_eq!(
+            (report.over_reservations, report.unacknowledged_overruns),
+            (1, 1),
+            "still flagged and counted"
+        );
+    }
+
+    #[test]
+    fn the_new_writes_run_in_and_on_a_callers_transaction() {
+        let mut f = fixture();
+        let caps = two_caps(&mut f, 1_000, 1_000);
+        let opts = ReserveOptions::default();
+        {
+            let tx = f.ledger.begin().unwrap();
+            f.ledger
+                .set_device_allowance_in(&tx, SCOPE, "dev1", Some(500), None)
+                .unwrap();
+            f.ledger
+                .reserve_multi_in(&tx, "g", &caps, "fal-ai/flux", "v1", 100, &opts)
+                .unwrap();
+            f.ledger.mark_in_flight_group_in(&tx, "g").unwrap();
+            let done = f.ledger.commit_group_in(&tx, "g", 90).unwrap();
+            let id = done.legs[0].reservation.reservation_id.clone();
+            f.ledger
+                .record_provider_reported_in(&tx, &id, 80, "header")
+                .unwrap();
+            f.ledger
+                .adjust_actual_in(&tx, &id, 85, "provider", None)
+                .unwrap();
+            let mut inv = InvoiceInput::new("fal-ai", 0, 2_000_000, 85);
+            inv.lines = vec![InvoiceLine::by_reservation(&id, 85)];
+            f.ledger.reconcile_invoice_in(&tx, &inv).unwrap();
+            f.ledger
+                .reserve_multi_in(&tx, "h", &caps, "fal-ai/flux", "v1", 10, &opts)
+                .unwrap();
+            f.ledger.release_group_in(&tx, "h", None).unwrap();
+            // A failing call leaves the transaction usable and writes nothing.
+            assert!(f
+                .ledger
+                .reserve_multi_in(&tx, "big", &caps, "fal-ai/flux", "v1", 5_000, &opts)
+                .is_err());
+            assert!(f.ledger.group("big").unwrap().is_none());
+            // Dropped: everything above rolls back.
+        }
+        assert_eq!(count(&f, "spend_groups"), 0);
+        assert_eq!(count(&f, "spend_invoices"), 0);
+        assert!(f.ledger.device_allowance(SCOPE, "dev1").unwrap().is_none());
+
+        let conn = f.ledger.connection();
+        assert!(matches!(
+            f.ledger
+                .reserve_multi_on(conn, "g", &caps, "fal-ai/flux", "v1", 1, &opts),
+            Err(SpendError::NoActiveTransaction)
+        ));
+        assert!(matches!(
+            f.ledger
+                .set_device_allowance_on(conn, SCOPE, "dev1", Some(1), None),
+            Err(SpendError::NoActiveTransaction)
+        ));
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        f.ledger
+            .set_device_allowance_on(conn, SCOPE, "dev1", Some(500), None)
+            .unwrap();
+        let out = f
+            .ledger
+            .reserve_multi_on(conn, "g", &caps, "fal-ai/flux", "v1", 100, &opts)
+            .unwrap();
+        f.ledger.commit_group_on(conn, "g", 90).unwrap();
+        let id = out.legs[0].reservation.reservation_id.clone();
+        f.ledger
+            .adjust_actual_on(conn, &id, 85, "provider", None)
+            .unwrap();
+        f.ledger
+            .record_provider_reported_on(conn, &id, 80, "header")
+            .unwrap();
+        let mut inv = InvoiceInput::new("fal-ai", 0, 2_000_000, 85);
+        inv.lines = vec![InvoiceLine::by_reservation(&id, 85)];
+        f.ledger.reconcile_invoice_on(conn, &inv).unwrap();
+        f.ledger.mark_in_flight_group_on(conn, "g").unwrap_err();
+        conn.execute_batch("COMMIT").unwrap();
+        assert_eq!(count(&f, "spend_invoice_lines"), 1);
+        assert_eq!(
+            f.ledger
+                .allowance(SCOPE, "2026-10-17")
+                .unwrap()
+                .unwrap()
+                .committed_micro,
+            85
+        );
+    }
+
+    #[test]
+    fn a_version_2_ledger_upgrades_to_the_new_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v2.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE rightkit_spend_meta (\"key\" TEXT PRIMARY KEY, \"value\" TEXT NOT NULL);
+                 INSERT INTO rightkit_spend_meta (\"key\", \"value\") VALUES ('schema', '2');
+                 INSERT INTO spend_allowances VALUES ('s', 'p', 1000, 0, 300, 4, 1);",
+            )
+            .unwrap();
+        }
+        let mut ledger = Ledger::attach(Connection::open(&path).unwrap()).unwrap();
+        assert_eq!(
+            ledger.allowance("s", "p").unwrap().unwrap().committed_micro,
+            300
+        );
+        assert!(ledger.cap_audit(None, 5).unwrap().is_empty());
+        ledger.set_allowance("s", "p", 2_000, Some(4)).unwrap();
+        assert_eq!(ledger.cap_audit(Some("s"), 5).unwrap().len(), 1);
     }
 }

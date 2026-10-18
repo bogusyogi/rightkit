@@ -329,7 +329,8 @@ fn unchanged_v1_host_transcribes_and_never_sees_minor1_fields() {
         vec![TimedWord {
             text: "hello".into(),
             start_ms: 0,
-            end_ms: 400
+            end_ms: 400,
+            source_ms: None,
         }]
     );
     assert_eq!(

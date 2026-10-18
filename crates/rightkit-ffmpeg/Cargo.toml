@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ffmpeg"
-version = "0.2.9"
+version = "0.2.10"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -36,4 +36,4 @@ required-features = ["native"]
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: per-call pipe-reader and child-exit threads (lib.rs build probe, runner.rs run), joined or ended with the child before the call returns; sleep: child poll interval inside one run, bounded by timeout and cancellation; the only process-lifetime memory is verify_cache (one entry per verified ffmpeg binary, not data-scale); no listener, timer or watcher (reviewed 2026-10-11); resident-static: CACHE in src/verify_cache.rs is a LazyLock Mutex HashMap of two booleans per verified ffmpeg binary state (path, size, mtime, identity, artifact id, expected hash); an entry is added only when a binary is first verified or its file changes, so growth follows binary installs and updates, not calls or data, and verify_cache_clear empties it; there is no size cap or eviction (reviewed 2026-10-17); DIGEST_COMPUTATIONS is a per-thread counter"
+continuous_reason = "thread-spawn: per-call pipe-reader and child-exit threads (lib.rs build probe, runner.rs run), joined or ended with the child before the call returns; sleep: child poll interval inside one run, bounded by timeout and cancellation; the only process-lifetime memory is verify_cache (one entry per verified ffmpeg binary, not data-scale); no listener, timer or watcher (reviewed 2026-10-11); resident-static: CACHE in src/verify_cache.rs is a LazyLock Mutex HashMap of two booleans per verified ffmpeg binary state (path, size, mtime, identity, artifact id, expected hash); an entry is added only when a binary is first verified or its file changes, so growth follows binary installs and updates, not calls or data, and verify_cache_clear empties it; there is no size cap or eviction (reviewed 2026-10-17); INVENTORIES in src/encoders.rs caches one encoder-name set per immutable binary path for the process lifetime; encoder_cache_clear empties it, probe and probe_uncached bypass it, failures are not cached & size follows distinct binary installs (reviewed 2026-10-17); DIGEST_COMPUTATIONS is a per-thread counter"

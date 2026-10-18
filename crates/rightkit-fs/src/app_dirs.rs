@@ -413,6 +413,16 @@ impl AppDirs {
         })
     }
 
+    /// Move the directory `from` to `to` (for example an old data folder to the current one) so
+    /// that `to` is never visible half-migrated: one rename on the same volume, otherwise a copy to
+    /// a hidden sibling of `to`, a rename of the sibling to `to`, then removal of `from`. `to` must
+    /// be absent or an empty directory; a populated one is refused with
+    /// [`FsError::AlreadyExists`](crate::FsError::AlreadyExists) and nothing is written. See
+    /// [`crate::migrate`] for the full rules.
+    pub fn migrate_dir(from: &Path, to: &Path) -> crate::error::Result<crate::migrate::Migrated> {
+        crate::migrate::migrate_dir(from, to)
+    }
+
     /// Create the folders (plain `create_dir_all`; use `ensure_private_dir` for private state).
     pub fn create_all(&self) -> io::Result<()> {
         for d in [

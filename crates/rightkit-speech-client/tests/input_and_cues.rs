@@ -53,6 +53,7 @@ fn file_transcript_cues_are_the_host_srt_cues() {
             text: "hello".into(),
             start_ms: 0,
             end_ms: 900,
+            source_ms: None,
         }],
     };
     assert_eq!(

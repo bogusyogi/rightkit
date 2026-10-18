@@ -17,6 +17,7 @@ mod no_window;
 mod owned;
 mod power;
 mod process_handle;
+mod process_table;
 #[cfg(unix)]
 mod process_unix;
 #[cfg(windows)]
@@ -57,6 +58,7 @@ pub use owned::{
 };
 pub use power::{PowerAssertion, PowerKind};
 pub use process_handle::ProcessHandle;
+pub use process_table::{process_table, ProcessEntry};
 pub use registry::{owned_count, terminate_all_owned, TerminateAllReport};
 pub use restart::{
     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,

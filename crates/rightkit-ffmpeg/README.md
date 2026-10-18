@@ -14,7 +14,7 @@ FFmpeg safety primitives for Right Suite desktop apps. The crate owns the catalo
 - **Verification.** Validate catalog metadata and SHA-256 before probing or execution. Require the approved version banner (`ffmpeg version` / `ffprobe version`) and the mandatory `--disable-gpl --disable-nonfree --disable-autodetect` flags. Reject `--enable-gpl`, `--enable-nonfree`, and GPL encoder libraries, case-insensitively.
 - **Licence record.** Each statically linked component is recorded with licence, source, digest, enable flag, and notice. The entry's SPDX expression is FFmpeg's LGPL `AND` each component's.
 - **Resolution.** Resolve catalog binaries only from an explicit override, a bundled path, or an explicitly enabled development path. Non-catalog binaries come only from `unverified::resolve_unverified` (configured path, named environment variable, or opt-in `PATH`). These are labelled `UNVERIFIED`, expose encoder, decoder, and filter probing, and are refused in `BuildMode::Release`.
-- **One handle.** `ToolHandle<V>` (`FfmpegHandle`, `FfprobeHandle`) is `Verified` or `Development`; `Development` exists only in a development build, for a not-in-catalog error on a file that exists (`handle::verified_or_development`). `resolve_ffmpeg_handle` and `resolve_ffprobe_handle` are the one-call resolver: the first bundled candidate beside the executable or in `src-tauri/binaries/<tool>-<triple>` is verified, and a development build alone falls back to its `UnverifiedRequest`. A release build never runs a bundled binary that has no catalog row.
+- **One handle.** `ToolHandle<V>` (`FfmpegHandle`, `FfprobeHandle`) is `Verified` or `Development`; `Development` exists only in a development build, for a not-in-catalog error on a file that exists (`handle::verified_or_development`). `resolve_ffmpeg_handle` and `resolve_ffprobe_handle` are the one-call resolver: the first bundled candidate beside the executable or in `src-tauri/binaries/<tool>-<triple>` is verified, and a development build alone falls back to its `UnverifiedRequest`. A release build never runs a bundled binary that has no catalog row. To let an app's own development override win over the bundled binary, pass `ResolveOptions::new().override_first(path)` to `resolve_ffmpeg_handle_with` (or `resolve_ffprobe_handle_with`); the app reads its own variable (for example `GENRIGHT_FFMPEG`) and supplies the path, which gets the same verification as a bundled file. An override that is missing or fails verification is listed in `HandleResolution::skipped` with its reason, and the normal order follows.
 - **Encoders.** `encoders::EncoderInventory::probe` runs `-encoders` once and keeps the video encoders in listing order. `encoders::pick_h264` picks the H.264 encoder: the first listed hardware encoder for the platform that the caller's `usable` callback accepts, then `libopenh264` only when listed. `libx264` is never picked.
 - **Arguments.** `command::extract_args` builds a clip, audio-only or stream-copy argument list (`-y [-ss] -i in [-t] [-vn | -c copy] extra out`); `decode::DecodeOptions` takes `max_duration` (`-t`) and `audio_stream_index` (`-map 0:a:N`).
 - **Bundled handle.** `verify_bundled_ffmpeg(path, variant, timeout)` and `verify_bundled_ffprobe(path, variant, timeout)` take the path of a binary shipped in the app, the catalog variant the app expects, and a probe timeout. They select the one approved row for that tool, variant and this host, check the content digest, run the LGPL build probe, and return a `VerifiedFfmpeg` / `VerifiedFfprobe`. The handle is `Clone`, implements `FfmpegBinary`, and is what every run, probe, decode, loudness and staging call takes, so an app verifies once at start-up and passes the handle everywhere. Repeat calls for the same unchanged file hit the verify cache (no re-hash, no second `-version`). On Windows the cache has no file identity, so a file replaced with the same size and modification time is not detected; call `verify_cache_clear` after such a replacement (`src/verify_cache.rs:1-12`). The `_in` forms take an explicit catalog, OS and architecture.
@@ -92,6 +92,28 @@ Licensed under either MIT or Apache-2.0, at your option. FFmpeg artifacts retain
 ## Changes
 
 Release notes: [CHANGELOG.md](CHANGELOG.md). Version and status history is also in `INDEX.md`.
+
+## Encoder selection policies (0.2.10)
+
+`encoders::EncoderInventory::probe(&binary, timeout)` is the simple uncached listing. For
+apps that need cancellation and process-lifetime reuse, `probe_cached(&binary, timeout,
+&cancel)` lists video encoders through the owned child runner and caches successful listings
+per immutable binary path; use `probe_uncached` for mutable paths or `encoder_cache_clear`
+after replacing tools. `parse` and `from_names` support deterministic selection tests.
+
+- `select_delivery(&inventory, os, &mut hardware_ok)` preserves CutRight policy: macOS
+  VideoToolbox; Windows usable NVENC, then listed Media Foundation; otherwise
+  `EncoderError::Unavailable`. Only NVENC invokes qualification here.
+- `select_intermediate(&inventory, os, format, &mut hardware_ok)` keeps existing
+  quality/profile arguments: H.264 for 8-bit, HEVC Main 10 for 10-bit 4:2:0, ProRes HQ
+  fallback. 10-bit 4:2:2 always requires software `prores_ks`. `IntermediateFormat::pix_fmt`
+  supplies the separate pixel-format argument. `intermediate_for` probes for the current host.
+- `qualify_encoder(&binary, name, timeout, &cancel)` runs a short black-frame encode;
+  `hardware_usable` supplies a boolean callback adapter. Use the typed qualification result
+  when cancellation, timeout or failure details must propagate.
+- `select_qualified_delivery(&inventory, os, allow_software, &mut encoder_ok)` tests every
+  listed platform candidate, then optional `libopenh264` software fallback. It never
+  implicitly selects GPL `libx264`; catalog variants need not ship OpenH264.
 
 ## Falling back to a development ffmpeg
 

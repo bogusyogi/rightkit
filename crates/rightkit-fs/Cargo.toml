@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.4.3"
+version = "0.4.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -189,6 +189,16 @@ name = "owner_verified"
 path = "tests/owner_verified.rs"
 required-features = ["fs", "digest"]
 
+[[test]]
+name = "blake3_verified"
+path = "tests/blake3_verified.rs"
+required-features = ["fs", "blake3"]
+
+[[test]]
+name = "stored_zip"
+path = "tests/stored_zip.rs"
+required-features = ["zip"]
+
 [features]
 default = []
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
@@ -201,6 +211,11 @@ lock = ["fs"]
 json = ["lock", "dep:serde", "dep:serde_json"]
 # `digest` module: streaming and in-memory SHA-256, lowercase hex. No other dependency.
 digest = ["dep:sha2"]
+# BLAKE3 hashing (independent of SHA-256); verified copy also needs `fs`.
+blake3 = ["dep:blake3"]
+# Names the `zip` module for consumers that ask for it (`write_zip`, `read_zip`). The module is
+# compiled without it (std only, since `StoredZipWriter`), so this adds no code and no dependency.
+zip = []
 # Fault injection around the replace call (`atomic::testing`), for consumer tests. Off by default;
 # a release build (no `debug_assertions`) with it enabled fails to compile.
 testing = ["fs", "test-seams"]
@@ -217,6 +232,7 @@ app-dirs = ["fs"]
 test-mode = ["app-dirs"]
 
 [dependencies]
+blake3 = { version = "1.8", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }

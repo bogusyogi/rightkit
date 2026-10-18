@@ -1,0 +1,21 @@
+1
+00:00:00,500 --> 00:00:02,100
+Welcome back to the channel.
+
+2
+00:00:02,300 --> 00:00:07,300
+Today we are building a video editor,
+and it runs entirely on your own computer.
+
+3
+00:00:09,000 --> 00:00:09,800
+No cloud.
+
+4
+00:00:09,900 --> 00:00:10,500
+Ready?
+
+5
+00:00:10,500 --> 00:00:11,300
+Let's go!
+

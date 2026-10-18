@@ -235,6 +235,9 @@ pub fn create_unique_file(
         {
             Ok(file) => return Ok((path, file)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = path,
+            // Windows refuses `create_new` on an existing directory with access denied, not
+            // "already exists". A name that is taken by anything (a directory, a link) is skipped.
+            Err(_) if std::fs::symlink_metadata(&path).is_ok() => last = path,
             Err(e) => return Err(FsError::io(&path, e)),
         }
     }

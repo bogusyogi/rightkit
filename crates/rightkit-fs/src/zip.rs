@@ -18,7 +18,9 @@
 //! dependency for it.
 
 use std::collections::HashSet;
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
 
 /// The DOS time of every entry: 00:00:00.
 const DOS_TIME: u16 = 0;
@@ -302,6 +304,260 @@ pub fn stored_zip_bytes(entries: &[(&str, &[u8])]) -> io::Result<Vec<u8>> {
     writer.finish()
 }
 
+// Archives built from files on disk, byte-compatible with CutRight's former writer (rightkit#467).
+
+/// "Version made by" of [`write_zip`]: host Unix (3), specification 3.0. This is the byte-exact
+/// value CutRight's former `cutright-qa/src/zip.rs` wrote; [`StoredZipWriter`] keeps its own 2.0.
+const FILE_ZIP_MADE_BY: u16 = 0x031E;
+
+fn io_context(context: String, error: io::Error) -> io::Error {
+    io::Error::new(error.kind(), format!("{context}: {error}"))
+}
+
+/// The CRC-32 (IEEE, as [`crc32`]) lookup table, for use with [`crc32_update`].
+pub fn crc_table() -> [u32; 256] {
+    CRC_TABLE
+}
+
+/// Extend CRC-32 with `bytes`; start at zero & pass each returned CRC to the next call.
+pub fn crc32_update(table: &[u32; 256], crc: u32, bytes: &[u8]) -> u32 {
+    let mut c = !crc;
+    for &b in bytes {
+        c = table[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8);
+    }
+    !c
+}
+
+fn file_crc_size(path: &Path) -> io::Result<(u32, u64)> {
+    let table = crc_table();
+    let mut f =
+        File::open(path).map_err(|e| io_context(format!("opening {}", path.display()), e))?;
+    let mut crc = 0u32;
+    let mut size = 0u64;
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| io_context(format!("reading {}", path.display()), e))?;
+        if n == 0 {
+            break;
+        }
+        crc = crc32_update(&table, crc, &buf[..n]);
+        size += n as u64;
+    }
+    Ok((crc, size))
+}
+
+/// Write `entries` (UTF-8 archive name, source file) to `dest`, in caller-supplied order.
+/// Uses STORED entries, ZIP epoch (1980-01-01 00:00:00), Unix creator version 3.0,
+/// fixed regular-file mode 0644, UTF-8 flags, & no extras/comments/data descriptors.
+/// Identical ordered names & file bytes produce byte-identical archives across runs.
+/// Source mtimes, permissions & host platform do not affect output.
+///
+/// ZIP64 is unsupported: fewer than 65535 entries, names at most 65535 UTF-8 bytes,
+/// & sizes/offsets below 0xffffffff. Invalid limits return `InvalidInput`.
+/// Sources must remain unchanged throughout both CRC & copy passes. Names are stored
+/// verbatim, including separators & duplicates; callers choose extraction-safe names.
+/// `dest` is created/truncated directly; errors can leave partial output. It must not
+/// alias any source. Success flushes the buffer but does not fsync or publish atomically.
+pub fn write_zip(dest: &Path, entries: &[(String, PathBuf)]) -> io::Result<()> {
+    if entries.len() >= 0xFFFF {
+        return Err(invalid("too many files for a zip"));
+    }
+    for (name, _) in entries {
+        if name.len() > u16::MAX as usize {
+            return Err(invalid("archive name exceeds 65535 UTF-8 bytes"));
+        }
+    }
+    let io = |e| io_context(format!("writing {}", dest.display()), e);
+    let mut out = BufWriter::new(File::create(dest).map_err(io)?);
+    let mut offset: u64 = 0;
+    let mut central: Vec<u8> = Vec::new();
+    for (name, src) in entries {
+        let (crc, size) = file_crc_size(src)?;
+        if size >= 0xFFFF_FFFF || offset >= 0xFFFF_FFFF {
+            return Err(invalid(format!(
+                "{} is too large for a zip (ZIP64 is not written)",
+                src.display()
+            )));
+        }
+        // Reserve both records before narrowing lengths or offsets to ZIP32 fields.
+        let name_bytes = name.as_bytes();
+        checked_zip32(offset + 30 + name_bytes.len() as u64 + size)?;
+        checked_zip32(central.len() as u64 + 46 + name_bytes.len() as u64)?;
+        let mut local = Vec::with_capacity(30 + name_bytes.len());
+        local.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        local.extend_from_slice(&VERSION_NEEDED.to_le_bytes());
+        local.extend_from_slice(&FLAG_UTF8.to_le_bytes());
+        local.extend_from_slice(&0u16.to_le_bytes()); // stored
+        local.extend_from_slice(&DOS_TIME.to_le_bytes());
+        local.extend_from_slice(&DOS_DATE.to_le_bytes());
+        local.extend_from_slice(&crc.to_le_bytes());
+        local.extend_from_slice(&(size as u32).to_le_bytes());
+        local.extend_from_slice(&(size as u32).to_le_bytes());
+        local.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        local.extend_from_slice(&0u16.to_le_bytes());
+        local.extend_from_slice(name_bytes);
+        out.write_all(&local).map_err(io)?;
+        let mut f =
+            File::open(src).map_err(|e| io_context(format!("opening {}", src.display()), e))?;
+        let copied = std::io::copy(&mut f, &mut out).map_err(io)?;
+        if copied != size {
+            return Err(invalid(format!("{} changed while zipping", src.display())));
+        }
+
+        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        central.extend_from_slice(&FILE_ZIP_MADE_BY.to_le_bytes());
+        central.extend_from_slice(&VERSION_NEEDED.to_le_bytes());
+        central.extend_from_slice(&FLAG_UTF8.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&DOS_TIME.to_le_bytes());
+        central.extend_from_slice(&DOS_DATE.to_le_bytes());
+        central.extend_from_slice(&crc.to_le_bytes());
+        central.extend_from_slice(&(size as u32).to_le_bytes());
+        central.extend_from_slice(&(size as u32).to_le_bytes());
+        central.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes()); // extra
+        central.extend_from_slice(&0u16.to_le_bytes()); // comment
+        central.extend_from_slice(&0u16.to_le_bytes()); // disk
+        central.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
+        central.extend_from_slice(&FILE_ATTRIBUTES.to_le_bytes());
+        central.extend_from_slice(&(offset as u32).to_le_bytes());
+        central.extend_from_slice(name_bytes);
+        offset += local.len() as u64 + size;
+    }
+    let cd_offset = offset;
+    checked_zip32(cd_offset)?;
+    checked_zip32(central.len() as u64)?;
+    out.write_all(&central).map_err(io)?;
+    let mut end = Vec::with_capacity(22);
+    end.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    end.extend_from_slice(&0u16.to_le_bytes());
+    end.extend_from_slice(&0u16.to_le_bytes());
+    end.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    end.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    end.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    end.extend_from_slice(&(cd_offset as u32).to_le_bytes());
+    end.extend_from_slice(&0u16.to_le_bytes());
+    out.write_all(&end).map_err(io)?;
+    out.flush().map_err(io)?;
+    Ok(())
+}
+
+fn checked_zip32(value: u64) -> io::Result<()> {
+    if value >= u32::MAX as u64 {
+        Err(invalid("archive exceeds ZIP32 limits"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Read archives produced by [`write_zip`], checking record bounds, sizes & every CRC.
+/// Loads archive & entry contents into memory. This verifier supports only this writer's
+/// STORED, UTF-8, no-extra/comment, single-disk format; other formats return `InvalidData`.
+/// Malformed or truncated archives return errors without indexing outside input.
+pub fn read_zip(path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let data = std::fs::read(path)?;
+    let bad = || io::Error::new(io::ErrorKind::InvalidData, "invalid STORED zip");
+    let u16at = |o: usize| -> io::Result<usize> {
+        let bytes: [u8; 2] = data
+            .get(o..o.checked_add(2).ok_or_else(bad)?)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?;
+        Ok(u16::from_le_bytes(bytes) as usize)
+    };
+    let u32at = |o: usize| -> io::Result<u32> {
+        let bytes: [u8; 4] = data
+            .get(o..o.checked_add(4).ok_or_else(bad)?)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?;
+        Ok(u32::from_le_bytes(bytes))
+    };
+    let eocd = data.len().checked_sub(22).ok_or_else(bad)?;
+    if u32at(eocd)? != 0x0605_4b50
+        || u16at(eocd + 4)? != 0
+        || u16at(eocd + 6)? != 0
+        || u16at(eocd + 20)? != 0
+    {
+        return Err(bad());
+    }
+    let count = u16at(eocd + 10)?;
+    if count >= 0xffff || u16at(eocd + 8)? != count {
+        return Err(bad());
+    }
+    let central_size = u32at(eocd + 12)? as usize;
+    let central_start = u32at(eocd + 16)? as usize;
+    if central_start.checked_add(central_size) != Some(eocd) {
+        return Err(bad());
+    }
+    let table = crc_table();
+    let mut p = central_start;
+    let mut local_end = 0;
+    let mut out = Vec::new();
+    for _ in 0..count {
+        let header_end = p.checked_add(46).filter(|&n| n <= eocd).ok_or_else(bad)?;
+        if u32at(p)? != 0x0201_4b50
+            || u16at(p + 8)? != 0x0800
+            || u16at(p + 10)? != 0
+            || u16at(p + 30)? != 0
+            || u16at(p + 32)? != 0
+            || u16at(p + 34)? != 0
+        {
+            return Err(bad());
+        }
+        let crc = u32at(p + 16)?;
+        let size = u32at(p + 24)? as usize;
+        if u32at(p + 20)? as usize != size {
+            return Err(bad());
+        }
+        let name_len = u16at(p + 28)?;
+        let next = header_end
+            .checked_add(name_len)
+            .filter(|&n| n <= eocd)
+            .ok_or_else(bad)?;
+        let name_bytes = &data[header_end..next];
+        let name = std::str::from_utf8(name_bytes)
+            .map_err(|_| bad())?
+            .to_owned();
+        let local = u32at(p + 42)? as usize;
+        let start = local
+            .checked_add(30)
+            .and_then(|n| n.checked_add(name_len))
+            .filter(|&n| n <= central_start)
+            .ok_or_else(bad)?;
+        let end = start
+            .checked_add(size)
+            .filter(|&n| n <= central_start)
+            .ok_or_else(bad)?;
+        if local != local_end
+            || u32at(local)? != 0x0403_4b50
+            || u16at(local + 6)? != 0x0800
+            || u16at(local + 8)? != 0
+            || u32at(local + 14)? != crc
+            || u32at(local + 18)? as usize != size
+            || u32at(local + 22)? as usize != size
+            || u16at(local + 26)? != name_len
+            || u16at(local + 28)? != 0
+            || &data[local + 30..start] != name_bytes
+        {
+            return Err(bad());
+        }
+        let bytes = &data[start..end];
+        if crc32_update(&table, 0, bytes) != crc {
+            return Err(bad());
+        }
+        out.push((name, bytes.to_vec()));
+        local_end = end;
+        p = next;
+    }
+    if p != eocd || local_end != central_start {
+        return Err(bad());
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +740,58 @@ mod tests {
         assert_eq!(
             writer.add_file("a", b"x").unwrap_err().kind(),
             io::ErrorKind::StorageFull
+        );
+    }
+}
+
+#[cfg(test)]
+mod file_zip_tests {
+    use super::*;
+
+    #[test]
+    fn crc_table_matches_known_value() {
+        let t = crc_table();
+        assert_eq!(crc32_update(&t, 0, b"123456789"), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn round_trips_and_is_deterministic() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("a.txt"), b"alpha").unwrap();
+        std::fs::write(d.path().join("b.bin"), vec![7u8; 100_000]).unwrap();
+        let entries = vec![
+            ("pkg/a.txt".to_string(), d.path().join("a.txt")),
+            ("pkg/b.bin".to_string(), d.path().join("b.bin")),
+        ];
+        write_zip(&d.path().join("1.zip"), &entries).unwrap();
+        write_zip(&d.path().join("2.zip"), &entries).unwrap();
+        assert_eq!(
+            std::fs::read(d.path().join("1.zip")).unwrap(),
+            std::fs::read(d.path().join("2.zip")).unwrap()
+        );
+        let back = read_zip(&d.path().join("1.zip")).unwrap();
+        assert_eq!(back[0], ("pkg/a.txt".to_string(), b"alpha".to_vec()));
+        assert_eq!(back[1].1.len(), 100_000);
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    #[test]
+    fn zip32_sentinel_is_refused() {
+        assert!(checked_zip32(u32::MAX as u64 - 1).is_ok());
+        assert_eq!(
+            checked_zip32(u32::MAX as u64).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+    #[test]
+    fn crc_can_be_extended_across_chunks() {
+        let t = crc_table();
+        assert_eq!(
+            crc32_update(&t, crc32_update(&t, 0, b"1234"), b"56789"),
+            0xcbf43926
         );
     }
 }
