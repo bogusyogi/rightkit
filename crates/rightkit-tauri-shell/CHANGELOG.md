@@ -3,6 +3,10 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.3 (2026-10-18)
+
+- Fixed: `build.rs` emitted `cargo:rustc-link-arg-benches` on windows-msvc, but the published package ships no `benches/`, so Cargo refused to build the crate for every Windows consumer (#774). Each link-arg kind is now emitted only when its directory exists.
+
 ## 0.3.2 (2026-10-17)
 
 - Changed: `frameless::button_frames`, `ButtonFrame` and `ButtonFrames` are compiled only with the `qa-probes` feature and `clipboard::qa` are compiled only with `qa-probes` in a debug-assertions build (QA probe, never in a release build): the gate is `all(feature = "qa-probes", debug_assertions)` and a release build that enables `qa-probes` fails with `compile_error!`. The 0.3.2 note already said so; the code did not.

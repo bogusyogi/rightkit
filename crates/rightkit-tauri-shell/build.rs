@@ -14,8 +14,15 @@ fn main() {
         && std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|v| v == "msvc");
     if windows_msvc {
         // `tests` covers integration tests; `benches` covers the budget bench, which runs a real Wry
-        // event loop and so links the same comctl32 imports.
+        // event loop and so links the same comctl32 imports. The published package ships no
+        // `benches/`, and Cargo rejects `rustc-link-arg-<kind>` for a kind the package has no target
+        // of, so emit each only when its directory exists (#774).
+        let manifest_dir =
+            std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());
         for target in ["tests", "benches"] {
+            if !manifest_dir.join(target).is_dir() {
+                continue;
+            }
             println!("cargo:rustc-link-arg-{target}=/MANIFEST:EMBED");
             println!(
                 "cargo:rustc-link-arg-{target}=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
