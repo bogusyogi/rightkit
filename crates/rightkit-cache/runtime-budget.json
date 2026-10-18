@@ -8,9 +8,9 @@
     "diskOpsPerSecond": 1
   },
   "ceilingSources": {
-    "residentMemoryBytes": "rule: 2x the larger measured resident set (29024256 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
+    "residentMemoryBytes": "rule: 2x the larger measured resident set at 0.2.1 (29024256 B), rounded up to a whole MiB; 0.2.2 measured 50380800 B on macOS and 37236736 B on Windows, within it; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
-    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows 0.2.2 measured 0.333",
     "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
   },
   "requiredScale": {
@@ -109,6 +109,33 @@
       "evidence": {
         "file": "runtime-budget.evidence/darwin-arm64-0.2.2-synthetic.txt",
         "sha256": "58aad814cb4fcb307e19768f7c47c2b7b3fc4bba94c46de279b0da5b841d5071"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.2.2",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-cache/benches/budget.rs): 100,000 entries under a 32 MiB cap, 30 s idle, Windows 11 dev profile, measured at a937654d",
+        "unit": "entries",
+        "count": 100000
+      },
+      "command": "rustright cargo test -p rightkit-cache --profile dev --bench budget --jobs 20 -- 100000 30",
+      "observed": {
+        "residentMemoryBytes": 37236736,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 0.333,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.2.2-synthetic.txt",
+        "sha256": "af411bfe5dd0ef12f3afc867b56370fa1eb38db2fb3f4875b2e9b3be363715f0"
       }
     }
   ],

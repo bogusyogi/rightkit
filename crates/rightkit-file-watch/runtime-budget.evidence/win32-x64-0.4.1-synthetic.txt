@@ -1,33 +1,27 @@
-rightkit: request a904dcdf-a6f8-44c8-aa64-4adb6a0f9b5f
-[rightkit] target warm-candidate at start (4 entries, generation 3)
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-   Compiling windows v0.62.2
-   Compiling rightkit-child-process v0.4.3 (D:\Claude\rightkit\crates\rightkit-child-process)
-   Compiling rightkit-file-watch v0.4.1 (D:\Claude\rightkit\crates\rightkit-file-watch)
-    Finished `release-iterate` profile [optimized] target(s) in 1m 20s
-     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-8ecee754702e3afb.exe)
-built 50400 files (400 churned) in 56.9s
-before watch: resident     4.6 MB  footprint     0.7 MB  cpu 15.19 s
-watch started (recursive, idle 2 s): resident     4.9 MB  footprint     0.8 MB  cpu 15.22 s
-watch start: 3.3 ms
-after churn (watch on): resident     5.2 MB  footprint     1.1 MB  cpu 23.36 s
-after quiet period: resident     5.2 MB  footprint     1.1 MB  cpu 23.41 s
-churn window: files=50400 churn_ops_per_s=400 churn_s=60 wall_s=59.5 cpu_s=8.12 cpu_percent=13.6 records_queued_per_s=806.1 records_received_per_s=806.0 queue_depth_max=0 queue_depth_end=0 overflow_total=0 error_total=0 start_ms=3.3 watch_drained=48001 quiet_overflow=false
-churn window rates (include the bench's own file writes): wakeups_per_s=1506.0 disk_ops_per_s=403.0
+rustright: request b03cdaee-8a80-43a3-a003-5017ee6a84f4
+[rightkit] target warm-candidate at start (5 entries, generation 3)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.77s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\debug\deps\budget-9dc2883514948fe3.exe)
+built 50400 files (400 churned) in 26.7s
+before watch: resident     4.3 MB  footprint     0.7 MB  cpu 10.44 s
+watch started (recursive, idle 2 s): resident     4.8 MB  footprint     0.9 MB  cpu 10.47 s
+watch start: 0.7 ms
+after churn (watch on): resident     5.1 MB  footprint     1.0 MB  cpu 15.12 s
+after quiet period: resident     5.1 MB  footprint     1.0 MB  cpu 15.14 s
+churn window: files=50400 churn_ops_per_s=400 churn_s=60 wall_s=59.1 cpu_s=4.61 cpu_percent=7.8 records_queued_per_s=812.6 records_received_per_s=812.6 queue_depth_max=0 queue_depth_end=0 overflow_total=0 error_total=0 start_ms=0.7 watch_drained=48001 quiet_overflow=false
+churn window rates (include the bench's own file writes): wakeups_per_s=2037.0 disk_ops_per_s=406.3
 RESULT queue_depth_after_idle=0 records
-RESULT warm_resident_bytes=5451776 bytes
-RESULT idle_resident_bytes=5455872 bytes
-RESULT resident_memory_bytes=5455872 bytes
-RESULT footprint_bytes=1150976 bytes
+RESULT warm_resident_bytes=5308416 bytes
+RESULT idle_resident_bytes=5308416 bytes
+RESULT resident_memory_bytes=5308416 bytes
+RESULT footprint_bytes=1089536 bytes
 RESULT idle_window_seconds=30.0 seconds
 RESULT idle_cpu_percent=0.052 percent
-RESULT wakeups_per_second=10.385 per_second
+RESULT wakeups_per_second=2.032 per_second
 RESULT disk_ops_per_second=0.000 per_second
 RESULT disk_read_bytes_per_second=0.000 bytes_per_second
 RESULT disk_write_bytes_per_second=0.000 bytes_per_second
 RESULT scale=50400 files watched recursively after 400 modify ops/s churn, then idle
 RESULT scope=synthetic
-RESULT budget crate=rightkit-file-watch version=0.4.1 resident_bytes=5455872 idle_cpu_percent=0.052 wakeups_per_s=10.385 disk_ops_per_s=0.000 scale_unit=files scale_count=50400
-[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 4/709
+RESULT budget crate=rightkit-file-watch version=0.4.1 resident_bytes=5308416 idle_cpu_percent=0.052 wakeups_per_s=2.032 disk_ops_per_s=0.000 scale_unit=files scale_count=50400
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/8952

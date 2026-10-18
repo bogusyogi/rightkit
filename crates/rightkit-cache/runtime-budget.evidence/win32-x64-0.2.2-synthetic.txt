@@ -1,0 +1,32 @@
+rustright: request 8f3adedb-85d9-42f4-9b78-fa6ecbb43146
+[rightkit] target warm-candidate at start (5 entries, generation 3)
+warning: field `info` is never read
+   --> crates\rightkit-fs\src\trash.rs:483:9
+    |
+482 |     struct Record {
+    |            ------ field in this struct
+483 |         info: PathBuf,
+    |         ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rightkit-fs` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\003\t\x86_64-pc-windows-msvc\debug\deps\budget-038fd2f3f368a8b9.exe)
+warm-up: 100000 puts in 142.3 s, 100000 gets in 15.0 s (65536 hits), resident entries 65536, bytes 33554432, evictions 34464, resident 35.5 MiB (before open 4.7 MiB)
+RESULT cache_entries=65536 entries
+RESULT cache_evictions=34464 entries
+RESULT warm_resident_bytes=37216256 bytes
+RESULT idle_resident_bytes=37236736 bytes
+RESULT resident_memory_bytes=37236736 bytes
+RESULT footprint_bytes=33517568 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=0.333 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 512-byte entries put and read through a 32 MiB cap, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-cache version=0.2.2 resident_bytes=37236736 idle_cpu_percent=0.052 wakeups_per_s=0.333 disk_ops_per_s=0.000 scale_unit=entries scale_count=100000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/8952

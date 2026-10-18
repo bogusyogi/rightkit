@@ -2,13 +2,13 @@
   "schema": 1,
   "crate": "rightkit-send",
   "ceilings": {
-    "residentMemoryBytes": 15728640,
+    "residentMemoryBytes": 17825792,
     "idleCpuPercent": 1,
     "wakeupsPerSecond": 1,
     "diskOpsPerSecond": 1
   },
   "ceilingSources": {
-    "residentMemoryBytes": "rule: 2x the larger measured resident set (7598080 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
+    "residentMemoryBytes": "rule: 2x the larger measured resident set (8798208 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.156 percent on the recorded hosts",
     "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter",
     "wakeupsPerSecond": "existing idle intent: src/lib.rs:1624 an_idle_service_wakes_its_threads_about_once_a_second_at_most; src/workers.rs:3-4 states the acceptor blocks in accept and liveness waits its whole 20-second period. One per second is the existing idle target, not a ceiling derived from the historical polling failure. Requires fresh native measurements at the declared 50-device scale."
@@ -56,7 +56,34 @@
         "file": "runtime-budget.evidence/darwin-arm64-0.2.0-synthetic.txt",
         "sha256": "12fb890b22838d398714058a4a44826b91ac41c7619903a94cb196a504dceac4"
       }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.2.0",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-send/benches/budget.rs): 50 listed devices, 30 s idle, Windows 11 dev profile, measured at a937654d",
+        "unit": "devices",
+        "count": 50
+      },
+      "command": "rustright cargo test -p rightkit-send --profile dev --bench budget --jobs 20 -- 50 30",
+      "observed": {
+        "residentMemoryBytes": 7987200,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 0.766,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.2.0-synthetic.txt",
+        "sha256": "1d37a3a96a82c464af535eb133d3237cad05353154e589912655dffa0c14ab07"
+      }
     }
   ],
-  "notes": "Ceilings come from the stated sources. Historical macOS 0.1.0 evidence measured 15.3 wake-ups per second while the acceptor polled at 50 ms and liveness at 100 ms; those loops were replaced by blocking accept and a 20-second stop-aware wait. Historical evidence remains under runtime-budget.evidence/. The 1 per second idle target is unproven at 0.2.0: native-host measurement must include the declared 50-device scale and its liveness probes before publication."
+  "notes": "Ceilings come from the stated sources. Historical macOS 0.1.0 evidence measured 15.3 wake-ups per second while the acceptor polled at 50 ms and liveness at 100 ms; those loops were replaced by blocking accept and a 20-second stop-aware wait. Historical evidence remains under runtime-budget.evidence/. The 1 per second idle target is measured at 0.2.0 on macOS and Windows: native-host measurement must include the declared 50-device scale and its liveness probes before publication."
 }

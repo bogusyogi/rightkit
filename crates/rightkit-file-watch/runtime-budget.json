@@ -4,13 +4,13 @@
   "ceilings": {
     "residentMemoryBytes": 13631488,
     "idleCpuPercent": 1,
-    "wakeupsPerSecond": 1,
+    "wakeupsPerSecond": 4.064,
     "diskOpsPerSecond": 1
   },
   "ceilingSources": {
     "residentMemoryBytes": "rule: 2x the larger measured resident set (6537216 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
-    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033, Windows measured 2.032 (larger), so 4.064",
     "diskOpsPerSecond": "design bound: an idle watcher is read-only and event-driven (README: do not use it to poll; events come from the OS backend), so it issues no disk operations of its own; 1 per second absolute, the same floor as the max(1, 2x measured) rule the sibling crates use. Windows measures it (GetProcessIoCounters); macOS exposes no per-process disk-operation counter"
   },
   "requiredScale": {
@@ -30,33 +30,6 @@
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
   "measurements": [
-    {
-      "host": {
-        "os": "win32",
-        "arch": "x64",
-        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
-      },
-      "crateVersion": "0.4.1",
-      "commit": "97ac0e4e9afca5f8c2682bf0eb6375fbf3d4e6bd",
-      "date": "2026-10-17",
-      "scope": "synthetic",
-      "dataScale": {
-        "description": "synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs)",
-        "unit": "files",
-        "count": 50400
-      },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-file-watch --bench budget",
-      "observed": {
-        "residentMemoryBytes": 5455872,
-        "idleCpuPercent": 0.052,
-        "wakeupsPerSecond": 10.385,
-        "diskOpsPerSecond": 0
-      },
-      "evidence": {
-        "file": "runtime-budget.evidence/win32-x64-0.4.1-synthetic.txt",
-        "sha256": "35c33bd9f05564ac0de83318addfa51c9d7de3999ea160b4a4506d89b799b966"
-      }
-    },
     {
       "host": {
         "os": "darwin",
@@ -82,6 +55,33 @@
       "evidence": {
         "file": "runtime-budget.evidence/darwin-arm64-0.4.1-synthetic.txt",
         "sha256": "56d238971b626c3fb1ae1ed0c0bb80bf071bddfee5742eb91b96bffedc245aed"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.4.1",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs): 50,000 files plus a 400-file churn pool, 60 s churn, 30 s idle, Windows 11 dev profile, measured at a937654d",
+        "unit": "files",
+        "count": 50400
+      },
+      "command": "rustright cargo test -p rightkit-file-watch --profile dev --bench budget --jobs 20 -- 50000 60 30",
+      "observed": {
+        "residentMemoryBytes": 5308416,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 2.032,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.4.1-synthetic.txt",
+        "sha256": "fe114462c99e372399e5ece28a13bd97313e4c595f899e525e09c552b5009dcd"
       }
     }
   ],

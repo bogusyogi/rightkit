@@ -70,7 +70,7 @@ integration tests in `tests/localsend.rs` (no network is needed beyond the local
 
 Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
 
-- Resident memory ceiling: 15.0 MiB.
+- Resident memory ceiling: 17.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
@@ -78,3 +78,4 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required hosts: macOS and Windows.
 - Status exposure: `Service::status()` in `src/lib.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: darwin/arm64 (Mac18,5), rightkit-send 0.2.0 at a0de6304c28a, 50 devices (50 discovered devices; service idle for 30 seconds), synthetic, `rustright cargo test -p rightkit-send --profile dev --bench budget --jobs 12 -- 50 30`, 2026-10-18, evidence 12fb890b2283: resident memory 8.4 MiB, idle CPU 0.012%, wake-ups 0.199 per second, disk operations n/a (not measurable on this host).
+- Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-send 0.2.0 at a1c00a3f6163, 50 devices (synthetic bench at the declared requiredScale (crates/rightkit-send/benches/budget.rs): 50 listed devices, 30 s idle, Windows 11 dev profile, measured at a937654d), synthetic, `rustright cargo test -p rightkit-send --profile dev --bench budget --jobs 20 -- 50 30`, 2026-10-18, evidence 1d37a3a96a82: resident memory 7.6 MiB, idle CPU 0.052%, wake-ups 0.766 per second, disk operations 0 operations per second.
