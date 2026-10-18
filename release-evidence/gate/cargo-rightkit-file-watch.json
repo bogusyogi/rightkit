@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-file-watch",
+  "version": "0.4.1",
+  "commit": "5ab2baa539bc9084c8ec31abaae72215123546b7",
+  "artifactSha256": "b0fe19bf26c72f64aea283babcfd64ce87d2687430552ab6b72ff12bcf21e9db",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "5ab2baa539bc9084c8ec31abaae72215123546b7",
+      "features": [
+        "--all-features"
+      ],
+      "artifactSha256": "b0fe19bf26c72f64aea283babcfd64ce87d2687430552ab6b72ff12bcf21e9db",
+      "command": "cargo test -p rightkit-file-watch --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-file-watch --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-file-watch --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-file-watch && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:16:20.913Z",
+      "passed": 194,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 4,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-file-watch --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 97,
+          "failed": 0,
+          "ignored": 2,
+          "skipped": 0,
+          "binaries": 10
+        },
+        {
+          "command": "cargo test -p rightkit-file-watch --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output",
+          "ok": true,
+          "executed": 97,
+          "failed": 0,
+          "ignored": 2,
+          "skipped": 0,
+          "binaries": 10
+        },
+        {
+          "command": "cargo clippy -p rightkit-file-watch --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

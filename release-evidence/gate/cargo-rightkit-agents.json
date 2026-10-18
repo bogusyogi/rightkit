@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-agents",
+  "version": "0.2.0",
+  "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+  "artifactSha256": "82acf0e2445d01be59bd552f5865810b7900b6c70967f8c89d5fef0e9164679e",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+      "features": [
+        "--all-features",
+        "default"
+      ],
+      "artifactSha256": "82acf0e2445d01be59bd552f5865810b7900b6c70967f8c89d5fef0e9164679e",
+      "command": "cargo test -p rightkit-agents --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-agents --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-agents --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-agents && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:04:28.136Z",
+      "passed": 81,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-agents --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 66,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo test -p rightkit-agents --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-agents --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

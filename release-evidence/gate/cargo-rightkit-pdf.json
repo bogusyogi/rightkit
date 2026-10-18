@@ -2,27 +2,61 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-pdf",
-  "version": "0.2.0",
-  "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
-  "artifactSha256": "c4b337da91cd12b83726195c3a6dde696d129fd9dea50eee9296d5cedb5f78a0",
-  "artifactBasis": "cargo package rightkit-pdf-0.2.0.crate",
+  "version": "0.3.2",
+  "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+  "artifactSha256": "1f2fbf922b82f5a7ccbacd8a88accdff49b2e926a44c846389e409558d6df445",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
-      "command": "right-release publish cargo --crate rightkit-pdf --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
       "features": [
-        "default"
+        "default",
+        "--features extract"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T21:51:05Z",
-      "passed": 103,
-      "failed": 0
+      "artifactSha256": "1f2fbf922b82f5a7ccbacd8a88accdff49b2e926a44c846389e409558d6df445",
+      "command": "cargo test -p rightkit-pdf --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-pdf --message-format=json-render-diagnostics --features extract --no-fail-fast -- --show-output && cargo clippy -p rightkit-pdf --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-pdf --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-pdf && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:04:32.504Z",
+      "passed": 618,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 16,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-pdf --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 306,
+          "failed": 0,
+          "ignored": 7,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo test -p rightkit-pdf --message-format=json-render-diagnostics --features extract --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 312,
+          "failed": 0,
+          "ignored": 9,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-pdf --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-pdf --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
     }
   ]
 }

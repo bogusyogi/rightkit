@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-asr",
-  "version": "0.2.1",
-  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
-  "artifactSha256": "114b85a4217d6b3b2eb6b381844a518a3fffc36cbf9f4aeb3e91290ffb164695",
+  "version": "0.2.4",
+  "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+  "artifactSha256": "5d637f8c1cd043caf0f1291942176fd95e3c7bdee83ff93c18d5bbc14c22e90f",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,33 +13,37 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
       "features": [
         "default"
       ],
-      "artifactSha256": "114b85a4217d6b3b2eb6b381844a518a3fffc36cbf9f4aeb3e91290ffb164695",
-      "command": "cargo test -p rightkit-asr --no-fail-fast -- --show-output && cargo clippy -p rightkit-asr --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-asr && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "5d637f8c1cd043caf0f1291942176fd95e3c7bdee83ff93c18d5bbc14c22e90f",
+      "command": "cargo test -p rightkit-asr --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-asr --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-asr --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-asr && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T18:19:22.823Z",
-      "passed": 162,
+      "timestamp": "2026-10-18T06:04:26.742Z",
+      "passed": 178,
       "failed": 0,
       "skipped": 14,
-      "ignored": 2,
+      "ignored": 1,
       "allowIgnored": true,
       "requireAssets": "0",
       "assetGated": true,
       "steps": [
         {
-          "command": "cargo test -p rightkit-asr --no-fail-fast -- --show-output",
+          "command": "cargo test -p rightkit-asr --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 162,
+          "executed": 178,
           "failed": 0,
-          "ignored": 2,
+          "ignored": 1,
           "skipped": 14,
           "binaries": 11
         },
         {
-          "command": "cargo clippy -p rightkit-asr --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-asr --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-asr --message-format=json-render-diagnostics --all-targets --all-features",
           "ok": true
         }
       ]

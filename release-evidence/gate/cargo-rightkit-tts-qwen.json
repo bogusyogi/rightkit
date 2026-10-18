@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-tts-qwen",
+  "version": "0.2.7",
+  "commit": "d35c5785333ddf63e90243e5eb84abcf14f307c5",
+  "artifactSha256": "6895cfa208d12474fc4ce1036169b59589f04750a976073b095833c2d563f961",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "d35c5785333ddf63e90243e5eb84abcf14f307c5",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "6895cfa208d12474fc4ce1036169b59589f04750a976073b095833c2d563f961",
+      "command": "cargo test -p rightkit-tts-qwen --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-tts-qwen --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo package --locked --no-verify -p rightkit-tts-qwen && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:10:50.624Z",
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 2,
+      "allowIgnored": true,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-tts-qwen --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 51,
+          "failed": 0,
+          "ignored": 2,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-tts-qwen --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

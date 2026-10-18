@@ -12,7 +12,7 @@
   "ceilingSources": {
     "residentMemoryBytes": "rule: 2x the larger measured resident set (62046208 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.053 percent on the recorded hosts",
-    "wakeupsPerSecond": "rule: max(1, 2x the largest recorded 0.3.2 release-iterate whole-process idle rate), rounded up to 0.1/s: ceil(10 * max(1, 2 * max(5.089, 4.859))) / 10 = 10.2/s. Workload: default watchdog on an idle Wry event loop with no windows, 5 s warm-up, 30 s observation. macOS measures process interrupt wake-ups; Windows measures live-thread context-switch totals as a proxy. Includes heartbeat-induced main-thread dispatch and native runtime activity; not a watchdog-thread-only design bound. Evidence: runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt and win32-x64-0.3.2-synthetic.txt.",
+    "wakeupsPerSecond": "rule: max(1, 2x the largest 0.3.2 release-iterate whole-process idle rate), rounded up to 0.1/s: ceil(10 * max(1, 2 * max(5.089, 4.859))) / 10 = 10.2/s, from the first 0.3.2 runs (macOS 5.089, Windows 4.859). Current records: macOS 5.121 (release-iterate, 8d96d8ca) and Windows 6.862 (dev profile, d35c5785), both within it. Workload: default watchdog on an idle Wry event loop with no windows, 5 s warm-up, 30 s observation. macOS measures process interrupt wake-ups; Windows measures live-thread context-switch totals as a proxy. Includes heartbeat-induced main-thread dispatch and native runtime activity; not a watchdog-thread-only design bound. Evidence: runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt and win32-x64-0.3.2-synthetic.txt.",
     "diskOpsPerSecond": "design bound: the watchdog threads touch only atomics, the wake bell and the callback (src/watchdog.rs module doc), so the crate issues no disk operations; 1 per second absolute, the sibling crates' floor. Windows measures it (GetProcessIoCounters); macOS exposes no per-process disk-operation counter"
   },
   "requiredScale": {
@@ -39,24 +39,24 @@
         "model": "13th Gen Intel(R) Core(TM) i9-13900H"
       },
       "crateVersion": "0.3.2",
-      "commit": "2c2303f8cae68898b447604958289cf9dd57b660",
-      "date": "2026-10-17",
+      "commit": "d35c5785333ddf63e90243e5eb84abcf14f307c5",
+      "date": "2026-10-18",
       "scope": "synthetic",
       "dataScale": {
-        "description": "synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs)",
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-tauri-shell/benches/budget.rs): 30 s idle, Windows 11 dev profile",
         "unit": "watchdogs",
         "count": 1
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-tauri-shell --bench budget",
+      "command": "rustright cargo test -p rightkit-tauri-shell --profile dev --bench budget --jobs 20 -- 30",
       "observed": {
-        "residentMemoryBytes": 10268672,
-        "idleCpuPercent": 0,
-        "wakeupsPerSecond": 4.859,
+        "residentMemoryBytes": 12886016,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 6.862,
         "diskOpsPerSecond": 0
       },
       "evidence": {
         "file": "runtime-budget.evidence/win32-x64-0.3.2-synthetic.txt",
-        "sha256": "8eb09704495192c3cdb202440f93e694ba6664ee6e0715c92b6c53201a440277"
+        "sha256": "61ea5d13ca347e482cc0862d148dccb02082f72d7fde084adbcfa1fc591d586b"
       }
     },
     {

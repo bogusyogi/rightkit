@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-docs",
+  "version": "0.1.1",
+  "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+  "artifactSha256": "d085f38a4bf8e213566786b40b3b2a4c2d1511e0179d53729bcd2bec26673a5f",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "d085f38a4bf8e213566786b40b3b2a4c2d1511e0179d53729bcd2bec26673a5f",
+      "command": "cargo test -p rightkit-docs --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-docs --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-docs --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-docs && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:07:45.753Z",
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-docs --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 51,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 4
+        },
+        {
+          "command": "cargo clippy -p rightkit-docs --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-docs --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

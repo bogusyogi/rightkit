@@ -2,31 +2,51 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-cache",
-  "version": "0.1.0",
-  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-  "artifactSha256": "0bbc390d3590abe6f6078c77218c0dd61cb8233f627eddb20a8c8ad036d1e9bc",
+  "version": "0.2.2",
+  "commit": "5ab2baa539bc9084c8ec31abaae72215123546b7",
+  "artifactSha256": "0196523e4b6e2c7e36d5d2a4e1812ecc66be1035bd8a33b6dedc75d4f2601d15",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "win32"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-cache --no-fail-fast -- --test-threads=1 (rightkit, win native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:25:10.433647Z",
-      "passed": 2,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "darwin"
-      },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-cache --no-fail-fast -- --test-threads=1 (rightkit, mac native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:25:23Z",
-      "passed": 2,
-      "failed": 0
+      "commit": "5ab2baa539bc9084c8ec31abaae72215123546b7",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "0196523e4b6e2c7e36d5d2a4e1812ecc66be1035bd8a33b6dedc75d4f2601d15",
+      "command": "cargo test -p rightkit-cache --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-cache --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-cache --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-cache && cargo metadata --offline --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T06:14:32.641Z",
+      "passed": 52,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-cache --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 52,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 11
+        },
+        {
+          "command": "cargo clippy -p rightkit-cache --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-cache --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
     }
   ]
 }

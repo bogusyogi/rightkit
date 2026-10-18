@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-browser",
-  "version": "0.3.1",
-  "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
-  "artifactSha256": "70b05c3287450f39797504dd8313b38f0529c5679c445458aa2bc29d93c0b61d",
+  "version": "0.3.4",
+  "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
+  "artifactSha256": "f1c01820e068ac1a37b12b2bcdbb194d774d8184171942d63017252a8c3fe979",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
+      "commit": "a1c00a3f61638f70eefb9ff77faf6ffb1639ccd0",
       "features": [
         "default"
       ],
-      "artifactSha256": "70b05c3287450f39797504dd8313b38f0529c5679c445458aa2bc29d93c0b61d",
-      "command": "cargo test -p rightkit-browser --no-fail-fast -- --show-output && cargo clippy -p rightkit-browser --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-browser && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "f1c01820e068ac1a37b12b2bcdbb194d774d8184171942d63017252a8c3fe979",
+      "command": "cargo test -p rightkit-browser --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-browser --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-browser --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-browser && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:39:57.521Z",
-      "passed": 63,
+      "timestamp": "2026-10-18T06:06:13.708Z",
+      "passed": 108,
       "failed": 0,
       "skipped": 0,
       "ignored": 1,
@@ -30,16 +30,20 @@
       "assetGated": true,
       "steps": [
         {
-          "command": "cargo test -p rightkit-browser --no-fail-fast -- --show-output",
+          "command": "cargo test -p rightkit-browser --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 63,
+          "executed": 108,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,
           "binaries": 6
         },
         {
-          "command": "cargo clippy -p rightkit-browser --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-browser --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-browser --message-format=json-render-diagnostics --all-targets --all-features",
           "ok": true
         }
       ]
