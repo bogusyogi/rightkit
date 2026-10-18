@@ -56,7 +56,7 @@ Every Right app has absolutely NO access to DevTools; the single exception is Vi
 
 - `name` (required, unique): environment variable, argument flag, settings key or `VITE_*` name.
 - `class` (required): `S1`..`S6`. `channel` (required): `env`, `argv`, `settings`, `preference` or `frontend`.
-- S1-S4 need `compiledOut`: `feature:<name>`, `cfg:test` or `cfg:debug_assertions` (the read exists only there). S5 needs `userGesture: true`. S6 needs `valueType` of `bool`, `int` or `enum`.
+- S1-S4 need `compiledOut`: `feature:<name>`, `cfg:test`, `cfg:debug_assertions` or, for Swift, `swift:DEBUG` (the read sits inside `#if DEBUG`; the read exists only there). The source walk skips test directories, including Swift bundles named `Tests`, `UITests`, `<App>Tests` and `<App>UITests`. S5 needs `userGesture: true`. S6 needs `valueType` of `bool`, `int` or `enum`.
 - `anchor` and `note` are informational. Fixtures: `fixtures/release-switches/` (`app/` is a clean example).
 
 ## Commands

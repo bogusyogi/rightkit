@@ -36,7 +36,7 @@
 //         "channel": "env",                               // env | argv | settings | preference | frontend
 //         "anchor": "src/test_mode.rs:97",                // where it is read (informational)
 //         "compiledOut": "feature:test-mode",             // required for S1-S4: feature:<name> | cfg:test |
-//                                                         // cfg:debug_assertions (read exists only there)
+//                                                         // cfg:debug_assertions | swift:DEBUG (read exists only there)
 //         "valueType": "bool",                            // required for S6: bool | int | enum
 //         "userGesture": true,                            // required for S5: chosen by a user gesture
 //         "note": "free text" } ],
@@ -54,7 +54,8 @@ const CHUNK = 4 * 1024 * 1024;
 const FORBIDDEN_CLASSES = new Set(["S1", "S2", "S3", "S4"]);
 const CLASSES = new Set(["S1", "S2", "S3", "S4", "S5", "S6"]);
 const CHANNELS = new Set(["env", "argv", "settings", "preference", "frontend"]);
-const COMPILED_OUT = /^(feature:[A-Za-z0-9_-]+|cfg:test|cfg:debug_assertions)$/;
+// `swift:DEBUG`: the read sits inside `#if DEBUG`, which an Xcode Release configuration compiles out.
+const COMPILED_OUT = /^(feature:[A-Za-z0-9_-]+|cfg:test|cfg:debug_assertions|swift:DEBUG)$/;
 
 export const REGISTRY = JSON.parse(readFileSync(new URL("./release-switch-registry.json", import.meta.url), "utf8"));
 
@@ -235,7 +236,7 @@ export function parseInventory(text, label = "switches.json") {
     if (!CHANNELS.has(entry.channel)) bad(`${where}: \`channel\` must be one of ${[...CHANNELS].join(", ")}`);
     if (FORBIDDEN_CLASSES.has(entry.class)) {
       if (typeof entry.compiledOut !== "string" || !COMPILED_OUT.test(entry.compiledOut)) {
-        issues.push({ layer: "inventory", rule: "not-compiled-out", file: label, reason: `not-compiled-out: ${where} is class ${entry.class} and must declare \`compiledOut\` as feature:<name>, cfg:test or cfg:debug_assertions (release builds may not contain it)` });
+        issues.push({ layer: "inventory", rule: "not-compiled-out", file: label, reason: `not-compiled-out: ${where} is class ${entry.class} and must declare \`compiledOut\` as feature:<name>, cfg:test, cfg:debug_assertions or swift:DEBUG (release builds may not contain it)` });
       }
     } else if (entry.class === "S6") {
       if (!["bool", "int", "enum"].includes(entry.valueType)) bad(`${where}: class S6 needs a bounded \`valueType\` (bool, int or enum)`);
@@ -248,6 +249,8 @@ export function parseInventory(text, label = "switches.json") {
 
 const SOURCE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".vue", ".svelte", ".swift", ".c", ".cc", ".cpp", ".h", ".m", ".mm"]);
 const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", ".git", "tests", "__tests__", "benches", "examples", "fixtures", "test", "coverage", ".vite"]);
+// Swift/Xcode test bundles are capitalised (`Tests`, `UITests`, `<App>Tests`, `<App>UITests`): they are test code too.
+const skipDir = (name) => SKIP_DIRS.has(name.toLowerCase()) || /(?:^|[a-z0-9])(?:UI)?Tests$/.test(name);
 const TEST_FILE = /(\.test\.|\.spec\.|_tests?\.rs$|^tests?\.rs$)/;
 
 // Reads of a literal name; group 1 is the name.
@@ -289,7 +292,7 @@ function* walkSource(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) { if (!SKIP_DIRS.has(entry.name)) stack.push(full); continue; }
+      if (entry.isDirectory()) { if (!skipDir(entry.name)) stack.push(full); continue; }
       if (entry.isFile() && SOURCE_EXT.has(path.extname(entry.name)) && !TEST_FILE.test(entry.name)) yield full;
     }
   }
