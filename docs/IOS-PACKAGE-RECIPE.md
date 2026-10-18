@@ -11,7 +11,7 @@ command, dry run by default).
 | Step | Command | Config |
 | --- | --- | --- |
 | Build | `right-release build --platform ios` | `targets.ios` (below) |
-| Upload | `right-release upload --platform ios --release <sealed-id> [--apply]` | top-level `distribution` (below) |
+| Upload | `right-release upload --platform ios --release <sealed-id> [--apply]` | `targets.ios.distribution`, else top-level `distribution` (below) |
 | One-time credentials | `right-release ios-credentials store --key-id <KEYID> --issuer <uuid>` (key on stdin) | none |
 | Dev install | `right-release dev --platform ios [--serial <device id>]` | `development.targets.ios` (below) |
 
@@ -70,6 +70,7 @@ targets: {
     artifacts: ["build/ios/export/Pulse.ipa"],   // must list iosPackage.ipa (seals the IPA)
   },
 },
+// An app that also ships desktop puts this under targets.ios.distribution instead (it wins over the top level).
 distribution: {
   provider: "app-store-connect",
   appId: "1234567890",                           // the App Store Connect app id (config, never a default)

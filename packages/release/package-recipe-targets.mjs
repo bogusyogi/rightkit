@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
 import { IOS_SIGNING_CONTRACT, IosPackageError, validateIosPackageConfig } from "./ios-package-recipe.mjs";
+import { IosUploadError, validateIosDistribution } from "./ios-upload.mjs";
 
 export class PackageRecipeTargetError extends Error {
   constructor(message) { super(message); this.name = "PackageRecipeTargetError"; this.code = "RK_PACKAGE_RECIPE_TARGET"; }
@@ -250,19 +251,26 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   };
 }
 
-const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "recipe"]);
+const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "distribution", "recipe"]);
 
 /**
  * `targets.ios.iosPackage` (bogusyogi/rightkit#349) is validated strictly and kept as `recipe: { kind: "iosPackage", spec }`.
  * Unlike macPackage there is no hook to expand into: xcodebuild archive and export run in ios-package-recipe.mjs (macOS only),
  * which release.mjs calls like the Android lane. The target may carry only the keys in IOS_TARGET_KEYS: a hand-written
  * prePackage / package / sign / notarize / gradle script, or an App Store Connect credential, is refused.
- * `artifacts` must list the .ipa so the IPA is checked and sealed.
+ * `artifacts` must list the .ipa so the IPA is checked and sealed. `distribution` (the App Store Connect target of an app that
+ * also ships desktop) is validated here exactly as the upload validates it, so a credential in it fails the build.
  */
 export function expandIosPackageTarget(target, { appRoot: _appRoot } = {}) {
   if (!isObject(target) || target.iosPackage === undefined) return withoutRecipe(target);
   const unknown = Object.keys(target).filter((key) => !IOS_TARGET_KEYS.has(key));
   if (unknown.length) fail(`targets.ios has unknown key(s): ${unknown.join(", ")} (allowed: ${[...IOS_TARGET_KEYS].filter((key) => key !== "recipe").join(", ")}); the iOS recipe replaces prePackage, package, sign and notarize scripts, and App Store Connect credentials never belong in a target`);
+  if (target.distribution !== undefined) {
+    try { validateIosDistribution(target.distribution); } catch (error) {
+      if (error instanceof IosUploadError) fail(`targets.ios.${error.message.replace(/^\[[A-Z0-9_]+\] /, "")}`);
+      throw error;
+    }
+  }
   if (target.signed !== true) fail("targets.ios must declare signed: true");
   if (target.signingContract !== undefined && target.signingContract !== IOS_SIGNING_CONTRACT) fail(`targets.ios.iosPackage signs with Xcode automatic signing; signingContract must be ${IOS_SIGNING_CONTRACT}, got ${target.signingContract}`);
   let spec;

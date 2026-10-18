@@ -34,6 +34,7 @@ import { ASC_API, createAscClient, createTokenProvider, distributeToTestFlight, 
 import { assertArtifactUnchanged, digestBytes, verifyPublicationRelease } from "./publication-artifacts.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
+import { targetDistribution } from "./target-distribution.mjs";
 
 export const IOS_PROVIDER = "app-store-connect";
 export const IOS_TRACK = "testflight";
@@ -126,7 +127,7 @@ export async function authorizeIosUpload({ releaseId, configName = "right-releas
   if (!existsSync(configPath)) refuse("IOS_UPLOAD_CONFIG_INVALID", `release config is required: ${configName}`);
   // The config is a module that runs on import: loaded only after the tree is proven clean.
   const config = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
-  const distribution = validateIosDistribution(config?.distribution);
+  const distribution = validateIosDistribution(targetDistribution(config, "ios"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "ios");
   const appRoot = path.dirname(configPath);
   // The IPA is verified by a streamed hash and never held in memory (streamRoles); the parts are read as byte ranges at upload time.

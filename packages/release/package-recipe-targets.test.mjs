@@ -323,3 +323,13 @@ test("iosPackage is not accepted on another platform, and a plain ios target wit
   const plain = { signed: true, package: { cmd: "node" } };
   assert.equal(expandPackageRecipeTarget(plain, { platform: "ios", appRoot }), plain);
 });
+
+test("targets.ios.distribution is allowed for apps that also ship desktop, and validated at build like the upload does", () => {
+  const distribution = { provider: "app-store-connect", appId: "1234567890", bundleId: "dev.orthic.pulse.ios", groups: ["Internal"] };
+  const out = expandPackageRecipeTarget(iosTarget({ distribution }), { platform: "ios", appRoot });
+  assert.equal(out.recipe.kind, "iosPackage");
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ distribution: { ...distribution, apiKeyPath: "/x/AuthKey.p8" } }), { platform: "ios", appRoot }),
+    (error) => error instanceof PackageRecipeTargetError && /targets\.ios\.distribution\.apiKeyPath is refused/.test(error.message));
+  assert.throws(() => expandPackageRecipeTarget(iosTarget({ distribution: { ...distribution, groups: undefined } }), { platform: "ios", appRoot }),
+    (error) => error instanceof PackageRecipeTargetError && /groups is required/.test(error.message));
+});

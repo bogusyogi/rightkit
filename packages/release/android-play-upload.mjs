@@ -27,6 +27,7 @@ import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { describeAabProblems, scanAabBuffer } from "./android-aab-scan.mjs";
 import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
+import { targetDistribution } from "./target-distribution.mjs";
 import { AndroidReleaseError, createAndroidCredentialStore, resolveAndroidSecret, validateSecretSource } from "./android-release.mjs";
 import { assertArtifactUnchanged, digestBytes, verifyPublicationRelease } from "./publication-artifacts.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
@@ -199,7 +200,7 @@ export async function authorizePlayUpload({ releaseId, configName = "right-relea
   if (!existsSync(configPath)) refuse("PLAY_CONFIG_INVALID", `release config is required: ${configName}`);
   // The config is a module that runs on import: loaded only after the tree is proven clean.
   const config = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
-  const distribution = validatePlayDistribution(config?.distribution);
+  const distribution = validatePlayDistribution(targetDistribution(config, "android"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "android");
   const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot: path.dirname(configPath), commit, app: config.app, version: config.version, platform: "android", configPath, releaseId });
   const entries = sealed.manifest.files.filter((entry) => entry.role === "aab");
