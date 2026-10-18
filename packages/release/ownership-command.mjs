@@ -6,6 +6,7 @@
 //   right-release ownership [--app <dir>] --audit-json   (Legion governance.capability-ownership provider)
 //   right-release ownership trust-compare [--json]   (print this host's protected-trust digest; policy-bundle drift is a warning, never a block)
 //   right-release ownership trust-sync               (retired: prints why and exits 0)
+//   right-release ownership trust-refresh [--dry-run] [--app <dir>]   (elevated, key-neutral: merge new repository registrations and floors from the installed release into protected trust)
 //   right-release ownership --write-manifest [--rightkit <rightkit>] [--approve-new-capabilities]
 // --approve-new-capabilities permits new ids during local generation only.
 // Existing owner changes are always refused; installation needs protected authorization.
@@ -75,7 +76,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   if (args[0] === "trust-compare") return trustCompare(args, { print, trustLoader });
   if (args.includes("--staged")) return stagedMain(args, { print });
   if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
-  if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
+  if (["enroll", "approve-key", "revoke-key", "trust-refresh"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });
   }

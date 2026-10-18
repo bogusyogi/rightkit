@@ -138,6 +138,17 @@ digests). Trust with no `policyBundle` has nothing to compare. `right-release ow
 prints why and exits 0. A QA receipt still records the bundle digest it was written under; that binds the receipt to
 the code that produced it and does not depend on trust.
 
+`right-release ownership trust-refresh [--dry-run]` is the key-neutral way to carry a new repository registration
+(for example a moved or renamed repository in `ownership-repositories.json`) into protected trust. It sends the host's
+current committed key log and pinned root to the same elevated updater the key ceremonies use, which merges only
+**additions** from the `ownership-repositories.json` beside the running script (the installed release's copy, or a checkout's if run from one, which also pins that checkout's scanner source as the policy bundle, so run it from a clean tree at the committed revision) (an identity already registered with different roots
+or visibility keeps its protected entry and reports `RK_OWNERSHIP_REPOSITORY_DRIFT`) and applies that updater's usual
+floor raise and policy-bundle pin from the same release. It never adds, approves or revokes a key, never moves the
+root, checkpoint or key authority, and makes no commit; like the other key verbs it first fetches and fast-forwards the key log from origin. `--dry-run` prints what would
+be added and exits without elevating. It refuses on a host with no protected trust, a key log that fails verification, or a
+missing or malformed installed registry. On the Mac it needs a human at a terminal (sudo) or the desktop administrator
+dialog; an unattended agent session cannot pass it.
+
 ## Default-deny dependency allowlist
 
 `packages/release/ownership-dependency-allowlist.json` lists approved direct dependencies as

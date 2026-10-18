@@ -6,7 +6,7 @@ import path from "node:path";
 import { createHash, generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog } from "./ownership-key-log.mjs";
-import { prepareTrustUpdate } from "./ownership-key-trust.mjs";
+import { mergeRepositoriesFromInstalledRelease, prepareTrustUpdate } from "./ownership-key-trust.mjs";
 import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { resolveKeyLogTrust } from "./ownership-approval.mjs";
 import { __testOnly, acquireCommandLock, main } from "./ownership-key-command.mjs";
@@ -571,4 +571,124 @@ test("command lock records its pid and reclaims a lock whose pid is dead", () =>
     rmSync(lock);
     void fd;
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+const REFRESH_OLD = { repositoryIdentity: "https://github.com/example/pulse-old", roots: ["."], visibility: "private" };
+const REFRESH_NEW = { repositoryIdentity: "https://github.com/example/pulse-new", roots: ["."], visibility: "private" };
+function refreshSetup(f, registry = { schema: 1, repositories: [REFRESH_OLD, REFRESH_NEW] }) {
+  const state = { requests: [], elevations: 0, lines: [], nativeCalls: 0 };
+  const original = f.deps.runner;
+  f.deps.runner = (cmd, args, opts) => { if (cmd === "native-helper") state.nativeCalls++; return original(cmd, args, opts); };
+  f.deps.print = (line) => state.lines.push(line);
+  f.deps.installedRegistry = registry;
+  f.deps.elevate = (_run, requestPath, digest) => {
+    state.elevations++;
+    const bytes = readFileSync(requestPath);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), digest);
+    const request = JSON.parse(bytes.toString("utf8"));
+    state.requests.push(request);
+    // The elevated updater's real steps, with the fixture registry standing in for the installed sibling file.
+    f.trustHolder.trust = mergeRepositoriesFromInstalledRelease(prepareTrustUpdate(f.trustHolder.trust, request), { registry }).trust;
+  };
+  return state;
+}
+const gitHead = (f) => f.runner("git", ["-C", f.repo, "rev-parse", "HEAD"]).stdout.trim();
+
+test("trust-refresh sends the existing key log and pinned root, elevates once, and changes no key or metadata", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    f.trustHolder.trust.repositories = [REFRESH_OLD];
+    const logFile = path.join(f.repo, ".rightkit/ownership-keys.json");
+    const logBefore = readFileSync(logFile, "utf8"), headBefore = gitHead(f), checkpointBefore = { ...f.trustHolder.trust.keyCheckpoint };
+    const state = refreshSetup(f);
+    assert.equal(await main(["trust-refresh"], f.deps), 0, state.lines.join("\n"));
+    assert.equal(state.elevations, 1);
+    assert.equal(state.nativeCalls, 0);
+    const [request] = state.requests;
+    assert.deepEqual(request.log, JSON.parse(logBefore));
+    assert.equal(request.rootFingerprint, f.root.record.keyId);
+    assert.equal(request.baseline, null);
+    assert.deepEqual(request.authority, f.deps.authority(f.repo));
+    assert.equal(readFileSync(logFile, "utf8"), logBefore);
+    assert.equal(gitHead(f), headBefore);
+    assert.equal(f.runner("git", ["-C", f.repo, "status", "--porcelain", "--untracked-files=all", "--", ".rightkit"]).stdout.trim(), "");
+    assert.deepEqual(f.trustHolder.trust.keyCheckpoint, checkpointBefore);
+    assert.deepEqual(f.trustHolder.trust.repositories.map((r) => r.repositoryIdentity), [REFRESH_OLD.repositoryIdentity, REFRESH_NEW.repositoryIdentity]);
+    const output = state.lines.join("\n");
+    assert.match(output, /would add 1 repository to protected trust: example\/pulse-new/);
+    assert.match(output, /Repositories added \(1\): example\/pulse-new/);
+    assert.match(output, /Protected trust now registers 2 repositories: example\/pulse-old, example\/pulse-new/);
+    assert.equal(existsSync(path.join(f.repo, ".rightkit/key-requests")), false);
+  } finally { f.cleanup(); }
+});
+
+test("trust-refresh --dry-run prints the summary and never elevates or writes", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    f.trustHolder.trust.repositories = [REFRESH_OLD];
+    const trustBefore = JSON.stringify(f.trustHolder.trust), headBefore = gitHead(f);
+    const state = refreshSetup(f);
+    assert.equal(await main(["trust-refresh", "--dry-run"], f.deps), 0, state.lines.join("\n"));
+    assert.equal(state.elevations, 0);
+    assert.equal(state.nativeCalls, 0);
+    assert.match(state.lines.join("\n"), /would add 1 repository to protected trust: example\/pulse-new/);
+    assert.match(state.lines.join("\n"), /Dry run: nothing was elevated or written/);
+    assert.equal(JSON.stringify(f.trustHolder.trust), trustBefore);
+    assert.equal(gitHead(f), headBefore);
+  } finally { f.cleanup(); }
+});
+
+test("trust-refresh refuses a host with no protected trust and never elevates", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    const state = refreshSetup(f);
+    f.trustHolder.trust = null;
+    assert.equal(await main(["trust-refresh"], f.deps), 1);
+    assert.equal(state.elevations, 0);
+    assert.match(state.lines.join("\n"), /ownership trust-refresh failed: this host is not enrolled/);
+  } finally { f.cleanup(); }
+});
+
+test("trust-refresh refuses a key log that fails verification", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    const logFile = path.join(f.repo, ".rightkit/ownership-keys.json");
+    const log = JSON.parse(readFileSync(logFile, "utf8"));
+    log.events[0].signature.value = Buffer.from("tampered").toString("base64");
+    writeFileSync(logFile, `${JSON.stringify(log, null, 2)}\n`);
+    const state = refreshSetup(f);
+    assert.equal(await main(["trust-refresh", "--dry-run"], f.deps), 1);
+    assert.equal(state.elevations, 0);
+    assert.match(state.lines.join("\n"), /ownership key log rejected/);
+  } finally { f.cleanup(); }
+});
+
+test("trust-refresh refuses a missing or malformed installed registry and unknown arguments", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    const state = refreshSetup(f, { schema: 1, repositories: [] });
+    assert.equal(await main(["trust-refresh"], f.deps), 1);
+    assert.match(state.lines.join("\n"), /registry is missing or malformed/);
+    state.lines.length = 0;
+    f.deps.installedRegistry = { schema: 1, repositories: [REFRESH_NEW] };
+    assert.equal(await main(["trust-refresh", "--force"], f.deps), 1);
+    assert.match(state.lines.join("\n"), /accepts only --dry-run and --app <dir>; unexpected: --force/);
+    assert.equal(state.elevations, 0);
+  } finally { f.cleanup(); }
+});
+
+test("trust-refresh on macOS without a terminal says a human must pass the elevation", { skip: process.platform !== "darwin" || (process.stdin.isTTY && process.stdout.isTTY) }, async () => {
+  const f = setup();
+  try {
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    const state = refreshSetup(f);
+    f.deps.elevate = () => { state.elevations++; throw new Error("elevated trust update failed or was cancelled"); };
+    assert.equal(await main(["trust-refresh"], f.deps), 1);
+    assert.equal(state.elevations, 1);
+    assert.match(state.lines.join("\n"), /needs a human: .*without a tty cannot pass it/);
+  } finally { f.cleanup(); }
 });

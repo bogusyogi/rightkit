@@ -8,6 +8,8 @@ import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "
 import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, TRUST_SYNC_RETIRED, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { buildMacInvocation, hasTerminal } from "./ownership-key-elevation.mjs";
+import { mergeRepositoriesFromInstalledRelease, prepareTrustUpdate, REPOSITORY_REGISTRY_MALFORMED_CODE } from "./ownership-key-trust.mjs";
+import { summarizeTrustChange } from "./ownership-trust-summary.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -355,14 +357,24 @@ export async function main(args, deps = {}) {
   if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
   try {
     if (!platform) throw new Error(`ownership key management unsupported platform: ${process.platform}`);
+    const refresh = args[0] === "trust-refresh";
     // Delegate BEFORE taking the command lock: the desktop-session child needs that same lock.
-    const helper = deps.helper ?? helperFor(run);
+    // trust-refresh signs nothing, so it never touches the native key helper.
+    const helper = deps.helper ?? (refresh ? null : helperFor(run));
     const lockPath = deps.lockPath ?? path.join(os.tmpdir(), "rightkit-key-command.lock");
     let lockFd;
     lockFd = acquireCommandLock(lockPath);
     try {
       commandTemp = mkdtempSync(path.join(os.tmpdir(), "rightkit-key-command-"));
       const authority = resolveAuthority(root, run, deps.authority);
+      if (refresh) {
+        // Key-neutral: no key log event, no metadata commit, so no minimize hook. A dry run changes nothing at all,
+        // so it also skips the fetch and fast-forward that the real ceremony performs.
+        const dryRun = args.includes("--dry-run");
+        const transport = dryRun ? null : syncBeforeCeremony(root, run);
+        const headSnapshot = dryRun ? null : git(run, root, ["rev-parse", "HEAD"]);
+        return await trustRefresh(args, { ...deps, run, print, root, authority, transport, headSnapshot });
+      }
       const hook = detectMinimizeHook(root, run, deps);
       const transport = syncBeforeCeremony(root, run);
       const headSnapshot = git(run, root, ["rev-parse", "HEAD"]);
@@ -370,7 +382,7 @@ export async function main(args, deps = {}) {
       if (verb === "enroll") return await enroll(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "approve-key") return await approve(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "revoke-key") return await revoke(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
-      throw new Error("expected enroll, approve-key, or revoke-key (trust-sync is retired)");
+      throw new Error("expected enroll, approve-key, revoke-key, or trust-refresh (trust-sync is retired)");
     } finally {
       closeSync(lockFd);
       rmSync(lockPath, { force: true });
@@ -569,6 +581,61 @@ async function revoke(args, d) {
   await updateCheckpoint(next, pin, d);
   postVerify(root, next, d);
   print(`Ownership key revoked: ${keyId}; active keys: ${verifyKeyLog(next, { rootFingerprint: pin }).keys.length}`);
+  return 0;
+}
+const repositoryNames = (list) => list.map((identity) => String(identity).replace(/^https:\/\/github\.com\//i, "")).join(", ");
+
+/**
+ * Key-neutral elevated trust update. Builds the same request an approve-key checkpoint update sends (current committed
+ * key log, the host's pinned root fingerprint, the protected authority) so performProtectedTrustUpdate runs its
+ * additions-only registration merge and floor raise from the INSTALLED release. It adds no key event, writes nothing
+ * under .rightkit/ and creates no commit. Elevation, the pinned request digest and the installed-sibling-script rule
+ * are the unchanged elevate() path.
+ */
+async function trustRefresh(args, d) {
+  const { print, root } = d;
+  const dryRun = args.includes("--dry-run");
+  const rest = args.slice(1);
+  const unexpected = rest.filter((arg, i) => !(arg === "--dry-run" || arg === "--app" || rest[i - 1] === "--app"));
+  if (unexpected.length) throw new Error(`trust-refresh accepts only --dry-run and --app <dir>; unexpected: ${unexpected.join(" ")}`);
+  assertSafeMetadataParents(root, LOG);
+  const hostTrust = (d.trustLoader ?? trustState)();
+  const existing = hostTrust?.trust;
+  if (!existing?.rootFingerprint) throw new Error("this host is not enrolled: protected ownership trust has no pinned root. trust-refresh never creates trust; run `right-release ownership enroll` first");
+  const log = readLog(root);
+  if (!log.events.length) throw new Error("no root key log exists in this checkout");
+  // Verifies the local log against the pinned root, the protected authority, and (unless injected) the committed HEAD blob.
+  currentLogTrust(root, log, hostTrust, d.authority, Boolean(d.resolveTrust));
+  const pin = existing.rootFingerprint;
+  const requestBytes = Buffer.from(json({ schema: 1, log, rootFingerprint: pin, baseline: null, authority: d.authority }));
+  const registry = d.installedRegistry ? { registry: d.installedRegistry } : {};
+  const merge = mergeRepositoriesFromInstalledRelease(prepareTrustUpdate(existing, JSON.parse(requestBytes.toString("utf8"))), registry);
+  const unusable = merge.warnings.find((item) => item.code === REPOSITORY_REGISTRY_MALFORMED_CODE);
+  if (unusable) throw new Error(`the installed release's repository registry is missing or malformed (${unusable.message}); refusing to refresh trust from it`);
+  const summary = summarizeTrustChange({ existing, requestBytes, ...registry });
+  const before = new Set((existing.repositories ?? []).map((entry) => entry.repositoryIdentity));
+  const added = merge.trust.repositories.map((entry) => entry.repositoryIdentity).filter((identity) => !before.has(identity));
+  print(added.length
+    ? `trust-refresh would add ${added.length} repositor${added.length === 1 ? "y" : "ies"} to protected trust: ${repositoryNames(added)}`
+    : "trust-refresh would add no repository registrations");
+  for (const line of summary.lines) print(`  ${line}`);
+  if (!summary.changed) { print("Protected ownership trust is already current; nothing to elevate."); return 0; }
+  if (dryRun) { print("Dry run: nothing was elevated or written."); return 0; }
+  if (git(d.run, root, ["rev-parse", "HEAD"]) !== d.headSnapshot) throw new Error("repository HEAD changed during ownership ceremony");
+  const request = makeTrustRequest(log, pin, null, d.authority);
+  try {
+    if (request.digest !== summary.payloadDigest) throw new Error("trust request bytes differ from the summarized request; refusing to elevate");
+    try { await (d.elevate ?? elevate)(d.run, request.file, request.digest); }
+    catch (error) {
+      if (platform === "macos" && !hasTerminal()) error.message += ". macOS elevation needs a human: run `right-release ownership trust-refresh` at a terminal for the sudo prompt, or approve the administrator dialog on the desktop; an unattended agent session without a tty cannot pass it";
+      throw error;
+    }
+  } finally { await import("node:fs").then(({ unlinkSync }) => unlinkSync(request.file)).catch(() => {}); }
+  postVerify(root, log, d);
+  const present = ((d.trustLoader ?? trustState)().trust?.repositories ?? []).map((entry) => entry.repositoryIdentity);
+  const missing = added.filter((identity) => !present.includes(identity));
+  if (missing.length) throw new Error(`elevated update finished but protected trust still lacks: ${repositoryNames(missing)}`);
+  print(`Protected trust now registers ${present.length} repositories: ${repositoryNames(present)}`);
   return 0;
 }
 async function signWithHelper(run, helper, log, operation, subject, signer) {
