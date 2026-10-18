@@ -302,6 +302,18 @@ export function assertDistributionEntitlements(entitlements, label) {
   if (aps !== undefined && aps !== "production") throw fail(`${label} has aps-environment ${JSON.stringify(aps)}; a release needs production`);
 }
 
+/**
+ * Pure: XML plist text that `plutil -convert json` accepts. JSON has no date or data type, so a provisioning profile (its
+ * ExpirationDate/CreationDate and DeveloperCertificates) is refused as-is: dates become their ISO strings, data blobs empty
+ * strings. Only used to read values the checks compare; never written back.
+ */
+export function jsonSafePlistText(text) {
+  return String(text ?? "")
+    .replace(/<date>([^<]*)<\/date>/g, "<string>$1</string>")
+    .replace(/<data>[^<]*<\/data>/g, "<string></string>")
+    .replace(/<data\/>/g, "<string></string>");
+}
+
 /** Pure: the distribution provisioning profile embedded in the main app. */
 export function assertDistributionProfile(profile, { teamId, bundleId }) {
   const fail = (message) => new IosPackageError("IOS_PACKAGE_VERIFY_FAILED", message);
@@ -415,7 +427,7 @@ export async function runIosPackageRecipe({
     // A signed bundle with no entitlements prints nothing: that is an empty set, not a failure.
     if (emptyIsNone && first.status === 0 && !String(first.stdout ?? "").trim()) return {};
     if (first.status !== 0 || !String(first.stdout ?? "").includes("<")) throw new IosPackageError("IOS_PACKAGE_VERIFY_FAILED", `${id} could not be read`);
-    const second = sh("plutil", ["-convert", "json", "-o", "-", "-"], { input: first.stdout, timeout: 60_000 });
+    const second = sh("plutil", ["-convert", "json", "-o", "-", "-"], { input: jsonSafePlistText(first.stdout), timeout: 60_000 });
     try { if (second.status === 0) return JSON.parse(String(second.stdout)); } catch { /* reported below */ }
     throw new IosPackageError("IOS_PACKAGE_VERIFY_FAILED", `${id} is not a readable property list`);
   };

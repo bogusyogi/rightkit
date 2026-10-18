@@ -7,7 +7,7 @@ import { tempRoot } from "./test-support/temp-roots.mjs";
 import {
   IOS_PACKAGE_STEPS, IOS_RECEIPT_NAME, IOS_SIGNING_CONTRACT, IosPackageError, archiveArgv, assertDistributionEntitlements, assertDistributionProfile,
   assertVersionIdentity, exportArgv, exportOptionsPlist, iosPackagePlan, iosSealEntry, nextDateBuildNumber, runIosPackageRecipe, validateIosPackageConfig,
-  verifyIosReceipt, xcodegenArgv,
+  jsonSafePlistText, verifyIosReceipt, xcodegenArgv,
 } from "./ios-package-recipe.mjs";
 import { outputTail } from "./ios-host.mjs";
 
@@ -527,4 +527,25 @@ test("the seal-time receipt must be for the commit being sealed", async () => {
   const result = await runIosPackageRecipe(f.deps);
   assert.equal(JSON.parse(readFileSync(f.receipt, "utf8")).sourceCommit, "a".repeat(40));
   assert.ok(result.sealEntry);
+});
+
+test("a provisioning profile's dates and certificate data convert to JSON (plutil refuses both as-is)", { skip: process.platform !== "darwin" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Name</key><string>iOS Team Store Provisioning Profile: app.example</string>
+<key>UUID</key><string>00000000-0000-0000-0000-000000000000</string>
+<key>CreationDate</key><date>2026-10-19T00:00:00Z</date>
+<key>ExpirationDate</key><date>2027-10-19T00:00:00Z</date>
+<key>DeveloperCertificates</key><array><data>
+MIIF</data></array>
+<key>TeamIdentifier</key><array><string>${TEAM}</string></array>
+<key>Entitlements</key><dict><key>application-identifier</key><string>${TEAM}.app.example</string><key>get-task-allow</key><false/></dict>
+</dict></plist>`;
+  assert.notEqual(spawnSync("plutil", ["-convert", "json", "-o", "-", "-"], { input: xml }).status, 0);
+  const converted = spawnSync("plutil", ["-convert", "json", "-o", "-", "-"], { input: jsonSafePlistText(xml), encoding: "utf8" });
+  assert.equal(converted.status, 0, converted.stderr);
+  const summary = assertDistributionProfile(JSON.parse(converted.stdout), { teamId: TEAM, bundleId: "app.example" });
+  assert.equal(summary.expiration, "2027-10-19T00:00:00Z");
 });
