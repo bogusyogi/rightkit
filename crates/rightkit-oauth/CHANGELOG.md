@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0 — unpublished staging
+
+- BREAKING (D23): public signatures take `rightkit-credentials` 0.3 types (`Store`, `Secret` or the Android keystore bridge), which changes their type identity from 0.2. Requires rightkit-credentials 0.3.0.
+
 ## 0.8.0 (2026-10-17)
 
 Orthic-Labs/rightkit#586, #587, #588, #589, #600 (CodeRight and MailRight ports). Additive: every existing call behaves as before; `OAuthConfig`, `CallbackOptions` and `LoopbackHost` keep their shapes, and the new settings sit behind builder methods on private fields. Endpoint URLs are now parsed, not prefix-checked: userinfo, backslashes and whitespace are refused, and plain `http` is accepted only for the exact hosts `127.0.0.1`, `[::1]`, `localhost`. Not built or run locally.

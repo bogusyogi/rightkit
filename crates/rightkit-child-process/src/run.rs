@@ -105,9 +105,13 @@ pub struct RunOutput {
 /// Any other stdin write failure is returned as `Err` after the tree is down. A process that
 /// outlived the tree and still holds stdin without reading it cannot hold `run` past its
 /// deadline: once the tree is down the writer gets a short grace, then it is cancelled (Unix:
-/// non-blocking write end; Windows: `CancelIoEx`) and joined, so no writer thread and no open
-/// write end outlive the call. A writer that cannot be stopped within its bound makes the call
-/// fail with `TimedOut` instead of being left running.
+/// non-blocking write end; Windows: `CancelIoEx`) and joined. Every `Ok` return, and every
+/// `Err` other than `TimedOut`, leaves no writer thread and no open write end behind. A
+/// writer that cannot be stopped within its bound makes the call fail with
+/// `ErrorKind::TimedOut`; then the parent has closed the write end on Unix (the thread, if
+/// still alive, can deliver nothing and ends on its next step), while on Windows the writer
+/// thread may still be alive and blocked in a write, owning the write end, with its cancel flag
+/// set (a pending `CancelIoEx` failing to abort a write is not expected).
 pub fn run_with_stdin<I, S>(
     program: impl AsRef<OsStr>,
     args: I,
@@ -213,6 +217,12 @@ struct WriterState {
     /// `Some` always acts on an open handle.
     #[cfg(windows)]
     handle: std::sync::Mutex<Option<usize>>,
+    /// Unix: the parent's write end. It lives here, not in the writer thread, so the parent can
+    /// close it (`close_pipe`) even if the thread never comes back. Writes happen only while
+    /// holding this lock and seeing `Some`, so no write can target a closed or reused
+    /// descriptor.
+    #[cfg(unix)]
+    pipe: std::sync::Mutex<Option<ChildStdin>>,
 }
 
 impl WriterState {
@@ -221,7 +231,22 @@ impl WriterState {
             cancel: AtomicBool::new(false),
             #[cfg(windows)]
             handle: std::sync::Mutex::new(None),
+            #[cfg(unix)]
+            pipe: std::sync::Mutex::new(None),
         }
+    }
+
+    #[cfg(unix)]
+    fn pipe(&self) -> std::sync::MutexGuard<'_, Option<ChildStdin>> {
+        self.pipe
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Closes the write end (the EOF). Idempotent; callable from any thread.
+    #[cfg(unix)]
+    fn close_pipe(&self) {
+        drop(self.pipe().take());
     }
 
     fn cancelled(&self) -> bool {
@@ -271,9 +296,10 @@ impl Drop for LiveWriter {
     }
 }
 
-/// The thread that feeds `input` to the child's stdin. It owns the parent's write end, and its
-/// shutdown is bounded and verified: when [`finish`](Self::finish) or `Drop` returns `Ok`, the
-/// thread has ended and the write end is closed.
+/// The thread that feeds `input` to the child's stdin. Its shutdown is bounded and verified:
+/// when [`finish`](Self::finish) or `Drop` returns `Ok` (or any error but `TimedOut`), the
+/// thread has been joined and the write end is closed. On `TimedOut` see
+/// [`settle`](Self::settle) for exactly what may remain.
 struct StdinWriter {
     state: Arc<WriterState>,
     done: mpsc::Receiver<io::Result<()>>,
@@ -285,6 +311,10 @@ impl StdinWriter {
         let state = Arc::new(WriterState::new());
         let (sender, done) = mpsc::channel();
         let shared = Arc::clone(&state);
+        #[cfg(unix)]
+        {
+            *state.pipe() = Some(stdin);
+        }
         #[cfg(test)]
         let live = LiveWriter::start();
         let handle = std::thread::Builder::new()
@@ -292,11 +322,21 @@ impl StdinWriter {
             .spawn(move || {
                 #[cfg(test)]
                 let _live = live;
-                let mut stdin = stdin;
-                let result = write_input(&mut stdin, &bytes, &shared);
-                // Dropping the pipe is the EOF, and closes the write end before the result
+                // Closing the pipe is the EOF, and closes the write end before the result
                 // below is reported.
-                drop(stdin);
+                #[cfg(unix)]
+                let result = {
+                    let result = write_input(&bytes, &shared);
+                    shared.close_pipe();
+                    result
+                };
+                #[cfg(windows)]
+                let result = {
+                    let mut stdin = stdin;
+                    let result = write_input(&mut stdin, &bytes, &shared);
+                    drop(stdin);
+                    result
+                };
                 let _ = sender.send(result);
             })?;
         Ok(Self {
@@ -343,8 +383,14 @@ impl StdinWriter {
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // The cancel flag stays set, so the thread writes nothing more once it wakes,
-                // but it has not ended: say so rather than pretend.
+                // The one path where the thread may outlive this call, and the handle is
+                // dropped here rather than joined. The cancel flag stays set. Unix: the
+                // parent closes the write end now, so the thread can deliver nothing more and
+                // ends on its next step. Windows: the thread may still be blocked in a write
+                // and still owns the write end; it is not expected to survive repeated
+                // `CancelIoEx`, but nothing here can close the handle safely under it.
+                #[cfg(unix)]
+                self.state.close_pipe();
                 Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "the stdin writer did not stop within its cancellation bound",
@@ -376,17 +422,24 @@ impl Drop for StdinWriter {
 /// cannot pin the thread; the flag is checked at least every [`WRITE_POLL`]. If the mode cannot
 /// be switched the write fails closed: a blocking write could not be cancelled.
 #[cfg(unix)]
-fn write_input(stdin: &mut ChildStdin, bytes: &[u8], state: &WriterState) -> io::Result<()> {
+fn write_input(bytes: &[u8], state: &WriterState) -> io::Result<()> {
     use std::os::fd::AsRawFd;
-    let fd = stdin.as_raw_fd();
-    // SAFETY: fcntl on a descriptor `stdin` owns for the whole call. O_NONBLOCK is a property of
-    // this open file description (the write end only); the child's read end is unaffected.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
-            return Err(io::Error::last_os_error());
+    let fd = {
+        let guard = state.pipe();
+        let Some(pipe) = guard.as_ref() else {
+            return Ok(());
+        };
+        let fd = pipe.as_raw_fd();
+        // SAFETY: fcntl on a descriptor the guarded `pipe` owns. O_NONBLOCK is a property of
+        // this open file description (the write end only); the child's read end is unaffected.
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+                return Err(io::Error::last_os_error());
+            }
         }
-    }
+        fd
+    };
     let mut written = 0;
     while written < bytes.len() {
         if state.cancelled() {
@@ -394,25 +447,39 @@ fn write_input(stdin: &mut ChildStdin, bytes: &[u8], state: &WriterState) -> io:
         }
         let rest = &bytes[written..];
         let chunk = rest.len().min(1 << 20);
-        // SAFETY: `rest` is valid for `chunk` bytes and `fd` is open (see above).
-        let count = unsafe { libc::write(fd, rest.as_ptr().cast(), chunk) };
-        if count >= 0 {
-            written += count as usize;
-            continue;
-        }
-        let error = io::Error::last_os_error();
-        match error.kind() {
-            io::ErrorKind::Interrupted => {}
-            io::ErrorKind::WouldBlock => {
-                let mut entry = libc::pollfd {
-                    fd,
-                    events: libc::POLLOUT,
-                    revents: 0,
-                };
-                // SAFETY: one valid pollfd, as counted. A negative result (EINTR) just loops.
-                unsafe { libc::poll(&mut entry, 1, WRITE_POLL.as_millis() as libc::c_int) };
+        // The write happens only while the lock shows the pipe still open, and its errno is
+        // read before the lock is released.
+        let outcome = {
+            let guard = state.pipe();
+            let Some(pipe) = guard.as_ref() else {
+                // The parent closed the write end: stop, deliver nothing more.
+                return Ok(());
+            };
+            // SAFETY: `rest` is valid for `chunk` bytes and the pipe's descriptor is open
+            // while `guard` holds it.
+            let count = unsafe { libc::write(pipe.as_raw_fd(), rest.as_ptr().cast(), chunk) };
+            if count >= 0 {
+                Ok(count as usize)
+            } else {
+                Err(io::Error::last_os_error())
             }
-            _ => return Err(error),
+        };
+        match outcome {
+            Ok(count) => written += count,
+            Err(error) => match error.kind() {
+                io::ErrorKind::Interrupted => {}
+                io::ErrorKind::WouldBlock => {
+                    let mut entry = libc::pollfd {
+                        fd,
+                        events: libc::POLLOUT,
+                        revents: 0,
+                    };
+                    // SAFETY: one valid pollfd, as counted; it only observes readiness, so a
+                    // closed or reused number is harmless. A negative result (EINTR) loops.
+                    unsafe { libc::poll(&mut entry, 1, WRITE_POLL.as_millis() as libc::c_int) };
+                }
+                _ => return Err(error),
+            },
         }
     }
     Ok(())

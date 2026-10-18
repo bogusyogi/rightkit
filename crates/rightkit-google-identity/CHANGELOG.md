@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0 — unpublished staging
+
+- BREAKING (D23): public signatures take `rightkit-credentials` 0.3 types (`Store`, `Secret` or the Android keystore bridge), which changes their type identity from 0.2. Requires rightkit-credentials 0.3.0.
+
 ## 0.1.0 (2026-10-17)
 
 - New crate 0.1.0 (Orthic-Labs/rightkit#162). OAuth PKCE (`Pkce`, `AuthRequest`, `parse_redirect`), token request bodies and `TokenResponse`, ID-token claim decoding and `validate_claims`, `RefreshTokenStore` over rightkit-credentials, `IdTokenProvider` seam for the Android Credential Manager path.

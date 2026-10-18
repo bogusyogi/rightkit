@@ -82,20 +82,32 @@ impl DerefMut for TestChild {
 
 impl Drop for TestChild {
     fn drop(&mut self) {
-        let pid = self.id();
         // Kill through the owned handle while the child is still unreaped (so its pid cannot
-        // have been reused), and unregister BEFORE reaping: once reaped the pid is free and the
-        // watchdog must never see this entry again.
+        // have been reused), then reap through `reap`, which unregisters atomically.
         let _ = self.kill();
-        lock(&LIVE).retain(|(live, _)| *live != pid);
         let _ = wait_bounded(self, Duration::from_secs(2));
     }
+}
+
+/// The ONLY way a fixture child is reaped (`try_wait` returns the status of an exited child and
+/// frees its pid, and so does `wait`). It runs under the `LIVE` lock and drops the registry
+/// entry in the same critical section, so the watchdog, which holds that lock from identity
+/// check to signal, can never signal a pid that has been reaped and possibly reused. Do not call
+/// `try_wait`/`wait` on a fixture child anywhere else.
+fn reap(child: &mut Child) -> io::Result<Option<ExitStatus>> {
+    let pid = child.id();
+    let mut live = lock(&LIVE);
+    let status = child.try_wait()?;
+    if status.is_some() {
+        live.retain(|(registered, _)| *registered != pid);
+    }
+    Ok(status)
 }
 
 fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(status) = child.try_wait()? {
+        if let Some(status) = reap(child)? {
             return Ok(Some(status));
         }
         if Instant::now() >= deadline {
@@ -211,7 +223,7 @@ fn a_marker_finds_exactly_the_marked_child_without_signalling_it() {
     assert_eq!(report.matched.len(), 1);
     assert_eq!(report.sweep, Default::default());
     assert!(
-        child.try_wait().unwrap().is_none(),
+        reap(&mut child).unwrap().is_none(),
         "a dry run must not signal"
     );
     stop(child);
@@ -312,7 +324,7 @@ fn a_sweep_stops_the_marked_child_and_leaves_an_unmarked_one() {
     );
     let mut bystander = bystander;
     assert!(
-        bystander.try_wait().unwrap().is_none(),
+        reap(&mut bystander).unwrap().is_none(),
         "a process the query does not match must keep running"
     );
     stop(bystander);
