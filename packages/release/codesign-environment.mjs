@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { detectMacSigningSession } from "./macos-signing-session.mjs";
 import { ensurePrivateDirectory, privatePath } from "./rightkit-signing-agent.mjs";
-import { resolveManagedRoot } from "./artifact-storage.mjs";
+import { canonicalManagedRoot, resolveManagedRoot } from "./artifact-storage.mjs";
 
 const quote = (text) => `'${String(text).replaceAll("'", "'\\''")}'`;
 export function codesignShimScript({ route, node = process.execPath,
@@ -35,7 +35,7 @@ fi
 exec /bin/bash "$@"\n`;
   // Immutable wrappers avoid races between GUI & SSH builds or package versions.
   const identity = createHash("sha256").update(script).update(automationScript).update(bashScript).digest("hex").slice(0, 24);
-  const bin = path.join(resolveManagedRoot({ env }), "signing", "codesign-bin", identity);
+  const bin = path.join(canonicalManagedRoot(resolveManagedRoot({ env })), "signing", "codesign-bin", identity);
   ensurePrivateDirectory(bin, { io });
   const file = path.join(bin, "codesign");
   if (io.existsSync(file)) {

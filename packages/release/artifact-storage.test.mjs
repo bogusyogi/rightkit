@@ -154,3 +154,25 @@ test("process start identity stays conservative when inspection denied", () => {
   assert.deepEqual(artifactProcessIdentity(31151, { alive: () => true, run: () => ({ status: 1 }) }), { alive: true, startTime: null });
   assert.deepEqual(artifactProcessIdentity(31151, { alive: () => true, run: () => ({ status: 0, stdout: "start\n" }) }), { alive: true, startTime: "start" });
 });
+
+test("the managed root is canonicalised once, so a root moved to another volume behind a symlink still works", async () => {
+  const { canonicalManagedRoot, resolveManagedRoot } = await import("./artifact-storage.mjs");
+  // resolveManagedRoot stays lexical (the signing agent's allowed roots use that spelling); only canonicalManagedRoot resolves.
+  const fsMod = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const base = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rk-root-"));
+  const real = pathMod.join(base, "E-managed");
+  fsMod.mkdirSync(real);
+  const link = pathMod.join(base, "D-managed");
+  let linked = true;
+  try { fsMod.symlinkSync(real, link, "junction"); } catch { linked = false; }
+  if (linked) {
+    assert.equal(canonicalManagedRoot(link), fsMod.realpathSync.native(real));
+    assert.equal(resolveManagedRoot({ env: { RIGHTKIT_MANAGED_ROOT: link } }), pathMod.resolve(link));
+  }
+  const missing = pathMod.join(base, "not-yet");
+  assert.equal(canonicalManagedRoot(missing), pathMod.resolve(missing), "a root that does not exist yet stays as configured");
+  assert.throws(() => canonicalManagedRoot(real, { realpath: () => { const error = new Error("denied"); error.code = "EACCES"; throw error; } }), /denied/);
+  fsMod.rmSync(base, { recursive: true, force: true });
+});

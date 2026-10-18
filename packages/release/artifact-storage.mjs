@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -19,6 +20,21 @@ export const ARTIFACT_MARKER_SCHEMA = 1;
 export const DEFAULT_MANAGED_ROOT = resolveManagedRoots().dataRoot;
 
 const SAFE_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
+
+/**
+ * The configured root, canonicalised once: an owner may move the managed root to another volume and leave a symlink at the
+ * configured path (2026-10-18: /Volumes/D/.rightkit-managed -> /Volumes/E/.rightkit-managed). Every path below it is still checked
+ * for symlinks by its consumer (ensurePrivateDirectory refuses symlink ancestors); only the root itself is resolved here.
+ * Used only where a strict ancestor walk needs it (codesign-environment.mjs): resolveManagedRoot stays lexical, because the
+ * Mac signing agent's allowed roots are recorded in that lexical spelling.
+ */
+export function canonicalManagedRoot(root, { realpath = realpathSync.native } = {}) {
+  const resolved = path.resolve(root);
+  try { return realpath(resolved); } catch (error) {
+    if (error?.code === "ENOENT") return resolved;
+    throw error;
+  }
+}
 
 export function resolveManagedRoot({ env = process.env, exists = existsSync } = {}) {
   if (env.RIGHTKIT_DATA_ROOT || env.RIGHTKIT_MANAGED_ROOT || env.RIGHTKIT_EXTERNAL_ROOT) return path.resolve(resolveManagedRoots({ env }).dataRoot);
