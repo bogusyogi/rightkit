@@ -118,8 +118,11 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   ].filter((step) => !(PROVEN_STEP[step.label] && proven[PROVEN_STEP[step.label]] === true));
   if (!dryRun) plan.push(
     // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
-    // explicitly to bind target/package/<name>-<version>.crate to evidence before Cargo uploads.
-    { label: "package archive", command: "cargo", args: ["package", ...offline, "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
+    // explicitly to bind target/package/<name>-<version>.crate to evidence before Cargo uploads. Always
+    // online and --locked, like qualification: offline packaging resolves the archive's Cargo.lock from
+    // only the .crate files already downloaded, so a sibling published since then silently resolves to an
+    // older version and the archive no longer matches its evidence hash.
+    { label: "package archive", command: "cargo", args: ["package", "--locked", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
     { label: "package location", command: "cargo", args: ["metadata", ...offline, "--format-version", "1", "--no-deps"], capture: true },
     { label: "archive hash check", internal: "verify-archive" },
     { label: "registry publish", command: "cargo", args: verifyHere ? ["publish", "--locked", "-p", crate] : ["publish", ...(packageVerified ? ["--locked"] : []), "--no-verify", "-p", crate] },
@@ -245,7 +248,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     }
     if (step.label === "registry publish") assertArtifactUnchanged(artifact);
     // `execute` may be synchronous (the default) or async (the batch publisher overlaps uploads).
-    const isReadOnlyInspection = ["package contents", "package archive", "package location"].includes(step.label);
+    const isReadOnlyInspection = ["package contents", "package location"].includes(step.label);
     const settings = {
       cwd: options.workspaceRoot,
       encoding: "utf8",

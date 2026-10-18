@@ -38,7 +38,7 @@ test("cargo publish plan always runs local safety gates before upload", () => {
     "registry publish",
     "registry readback",
   ]);
-  assert.deepEqual(plan.find((step) => step.label === "package archive").args, ["package", "--no-verify", "-p", "rightkit-license"]);
+  assert.deepEqual(plan.find((step) => step.label === "package archive").args, ["package", "--locked", "--no-verify", "-p", "rightkit-license"]);
   assert.equal(plan.find((step) => step.label === "archive hash check").internal, "verify-archive");
   assert.deepEqual(plan.find((step) => step.label === "registry publish"), {
     label: "registry publish", command: "cargo", args: ["publish", "--no-verify", "-p", "rightkit-license"],
@@ -51,7 +51,9 @@ test("cargo publish plan always runs local safety gates before upload", () => {
 test("local offline mode scopes offline to package inspection, then keeps upload online", () => {
   const plan = buildCargoPublishPlan({ crate: "rightkit-license", crateDir: "C:/rightkit/crates/rightkit-license", dryRun: false, offlineReadOnly: true, verifyOnPublish: true });
   assert.deepEqual(plan.find((step) => step.label === "package contents").args, ["package", "--list", "--offline", "-p", "rightkit-license"]);
-  assert.deepEqual(plan.find((step) => step.label === "package archive").args, ["package", "--offline", "--no-verify", "-p", "rightkit-license"]);
+  // The archive is packaged online and locked even in offline mode: an offline package resolves its
+  // Cargo.lock from downloaded .crate files only and can drift from the qualified archive.
+  assert.deepEqual(plan.find((step) => step.label === "package archive").args, ["package", "--locked", "--no-verify", "-p", "rightkit-license"]);
   assert.deepEqual(plan.find((step) => step.label === "package location").args, ["metadata", "--offline", "--format-version", "1", "--no-deps"]);
   assert.deepEqual(plan.find((step) => step.label === "format").args, ["fmt", "-p", "rightkit-license", "--check"]);
   assert.deepEqual(plan.find((step) => step.label === "tests").args, ["test", "-p", "rightkit-license", "--", "--test-threads=1"]);
@@ -159,7 +161,8 @@ test("local offline inspections capture output while registry publish stays onli
     return fx.execute(command, args, settings);
   };
   await runCargoPublish({ ...fx.options, offlineReadOnly: true, verifyOnPublish: true }, execute, fx.deps);
-  for (const entry of seen.filter(({ args }) => ["package", "metadata"].includes(args[0]))) {
+  // The archive step (`package --no-verify`) is packaged online and locked; only inspections are offline.
+  for (const entry of seen.filter(({ args }) => ["package", "metadata"].includes(args[0]) && !args.includes("--no-verify"))) {
     assert.ok(entry.args.includes("--offline"));
     assert.equal(entry.stdio, "pipe");
   }
@@ -342,7 +345,7 @@ test("trustEvidenceSteps skips only what the evidence proves; verifyOnPublish pu
   process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
   try { await runCargoPublish({ ...fx.options, trustEvidenceSteps: true, verifyOnPublish: true }, execute, deps); } finally { process.stdout.write = write; }
   // fmt has no batch receipt, so it still runs; tests and clippy are proven; the dry-run is gone.
-  assert.deepEqual(stepsRun, [`fmt -p ${fx.name} --check`, `package --list -p ${fx.name}`, `package --no-verify -p ${fx.name}`, "metadata --format-version 1 --no-deps", `publish --locked -p ${fx.name}`]);
+  assert.deepEqual(stepsRun, [`fmt -p ${fx.name} --check`, `package --list -p ${fx.name}`, `package --locked --no-verify -p ${fx.name}`, "metadata --format-version 1 --no-deps", `publish --locked -p ${fx.name}`]);
   assert.match(lines.join(""), /cargo tests: proven by the gate evidence/);
   // Without trustEvidenceSteps the same evidence skips nothing (a plain publish proved nothing in advance).
   stepsRun.length = 0;
