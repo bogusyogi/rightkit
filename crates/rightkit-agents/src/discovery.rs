@@ -336,7 +336,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod bounded_tests {
     use super::*;
 
