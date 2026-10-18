@@ -119,6 +119,39 @@
         "file": "runtime-budget.evidence/darwin-arm64-0.3.3-synthetic.txt",
         "sha256": "d44a1e2cb505bc2eba1400563c6bcdba055762552b59d8af797e798337ba2777"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.4.0",
+      "commit": "db7de41ee2db00575bfaf634d229ed8037724bfa",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "3 interleaved pairs of a bare Wry loop and the default hang watchdog, 35 s each, median pair (#789)",
+        "unit": "watchdogs",
+        "count": 1
+      },
+      "command": "rustright cargo test -p rightkit-tauri-shell --profile release-iterate --bench budget -- 30",
+      "observed": {
+        "residentMemoryBytes": 67616768,
+        "idleCpuPercent": 0.103,
+        "wakeupsPerSecond": 10.481,
+        "diskOpsPerSecond": null
+      },
+      "baseline": {
+        "wakeupsPerSecond": 9.489
+      },
+      "delta": {
+        "wakeupsPerSecond": 0.992
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.4.0-synthetic.txt",
+        "sha256": "df44e6df9b7f0a97da018ebbb954d9a41d21cc457545faacfdab9729a263e6cc"
+      }
     }
   ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. From 0.4.0 wakeupsPerSecond is gated on a delta (ceilingBasis.wakeupsPerSecond = delta-over-bare): the synthetic bench measures a bare Wry loop and the watchdog back to back and the gate compares watchdog minus bare to deltaCeilings.wakeupsPerSecond, recomputing it from the raw figures; the whole-process figure is recorded as evidence. ceilings.wakeupsPerSecond (10.2, derived from the 0.3.2 whole-process measurements on both hosts) is unchanged and still governs real and installed measurements and app adoption. Measurements for 0.3.2 and 0.3.3 carry no baseline and stay as history; a 0.4.0 synthetic measurement without a baseline is refused, so 0.4.0 needs a fresh run on each required host. diskOpsPerSecond is a design bound (see ceilingSources); macOS exposes no per-process disk-operation counter."

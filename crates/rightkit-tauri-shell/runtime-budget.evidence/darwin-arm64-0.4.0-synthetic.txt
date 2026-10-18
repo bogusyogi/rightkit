@@ -1,0 +1,26 @@
+rustright: request 6ab0301f-9dcb-4782-993a-ba096a5de1a9
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling rightkit-tauri-shell v0.4.0 (/Volumes/D/claude/rightkit/crates/rightkit-tauri-shell)
+    Finished `release-iterate` profile [optimized] target(s) in 12.82s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-97d1f6345eb80915)
+PAIR 1/3 bare_wakeups_per_s=9.401 watchdog_wakeups_per_s=10.354 delta_per_s=0.953
+PAIR 2/3 bare_wakeups_per_s=9.325 watchdog_wakeups_per_s=10.482 delta_per_s=1.157
+PAIR 3/3 bare_wakeups_per_s=9.489 watchdog_wakeups_per_s=10.481 delta_per_s=0.992
+bench: median of 3 pair(s) by delta, idle window 30 s each
+warm-up: event loop running, watchdog installed, resident 64.5 MiB (before app build 9.2 MiB)
+RESULT watchdog_stalls=0 stalls
+RESULT watchdog_last_beat_age_ms=926 ms
+RESULT warm_resident_bytes=67616768 bytes
+RESULT idle_resident_bytes=67616768 bytes
+RESULT resident_memory_bytes=67616768 bytes
+RESULT footprint_bytes=10044232 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.103 percent
+RESULT wakeups_per_second=10.481 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=1 default hang watchdog on an idle Wry event loop with no windows
+RESULT scope=synthetic
+RESULT budget crate=rightkit-tauri-shell version=0.4.0 resident_bytes=67616768 idle_cpu_percent=0.103 wakeups_per_s=10.481 disk_ops_per_s=unavailable scale_unit=watchdogs scale_count=1 bare_wakeups_per_s=9.489 wakeups_delta_per_s=0.992
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 1/667
