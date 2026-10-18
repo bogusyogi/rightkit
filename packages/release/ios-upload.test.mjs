@@ -128,7 +128,7 @@ test("apply uploads in process through the build-upload resources, then distribu
   assert.ok(f.asc.puts.every((put) => put.method === "PUT" && put.headers["Content-Type"] === "application/octet-stream" && !("Authorization" in put.headers)));
   const commit = f.asc.requests.find((request) => request.method === "PATCH").body.data;
   assert.equal(commit.attributes.uploaded, true);
-  assert.deepEqual(commit.attributes.sourceFileChecksums.file, { hash: f.auth.entry.sha256, algorithm: "SHA_256" });
+  assert.deepEqual(commit.attributes.sourceFileChecksums.file, { hash: createHash("md5").update("IPA-BYTES").digest("hex"), algorithm: "MD5" }, "MD5 of exactly the bytes sent: the live API refuses SHA_256 here");
   assert.equal(result.evidence.testflight.buildId, "b1");
   const evidence = JSON.parse(readFileSync(path.join(f.repoRoot, ".right-release", "receipts", IOS_EVIDENCE_NAME), "utf8"));
   assert.equal(evidence.ipa.sha256, f.auth.entry.sha256);

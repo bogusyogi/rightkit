@@ -12,7 +12,7 @@
 //                relationships { buildUpload } (required) }
 //         response attributes.uploadOperations[]: { method, url, length, offset, partNumber, entityTag, expiration, requestHeaders[{name,value}] }
 //   PATCH /v1/buildUploadFiles/{id}  https://developer.apple.com/documentation/appstoreconnectapi/patch-v1-builduploadfiles-_id_  (commit)
-//         data { type "buildUploadFiles", id, attributes { uploaded: true, sourceFileChecksums: { file: { hash, algorithm: MD5|SHA_256 } } } }
+//         data { type "buildUploadFiles", id, attributes { uploaded: true, sourceFileChecksums: { file: { hash, algorithm: MD5 } } } } (SHA_256 refused live)
 //   GET   /v1/buildUploads/{id}   attributes.state { state: AWAITING_UPLOAD|PROCESSING|FAILED|COMPLETE, errors[], warnings[], infos[] }
 //         https://developer.apple.com/documentation/appstoreconnectapi/builduploadstate
 // Pre-signed part uploads (https://developer.apple.com/documentation/appstoreconnectapi/uploading-assets-to-app-store-connect, read as
@@ -28,6 +28,7 @@
 // are never retried: an existing buildUploads for the same app, version and build is looked up first and resumed (AWAITING_UPLOAD),
 // waited for (PROCESSING), finished (COMPLETE) or refused (FAILED), but ONLY if the record is in this vault's journal for the same IPA
 // sha256 (written right after each create POST). Any other record for that version and build is another binary's: refused, never adopted.
+import { createHash } from "node:crypto";
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { verifyArtifactFile } from "./publication-artifacts.mjs";
 import { RETRY_DEFAULTS, TestFlightError, parseRetryAfter, retryDelayMs, retryableStatus } from "./ios-testflight.mjs";
@@ -241,12 +242,16 @@ export async function uploadIpaToAppStoreConnect({
       if (!Array.isArray(operations) || !operations.length) fail("IOS_BUILD_UPLOAD_INVALID", "buildUploadFiles returned no upload operations");
       const ordered = tile(operations, source.size);
       for (const op of ordered) assertUploadOperation(op, { now: now() }); // all structure and header checks before a single byte leaves
-      for (const op of ordered) await putPart(op, source.read(op.offset, op.length), { fetchImpl, sleep, retry, partTimeoutMs, now });
+      // The commit carries the file's MD5: the live API refused SHA_256 for sourceFileChecksums.file (HTTP 409, 2026-10-19). The parts tile
+      // the file in order, so the digest is taken over exactly the bytes sent; the sealed SHA-256 is still enforced by fileSource.
+      const md5 = createHash("md5");
+      for (const op of ordered) { const bytes = source.read(op.offset, op.length); md5.update(bytes); await putPart(op, bytes, { fetchImpl, sleep, retry, partTimeoutMs, now }); }
+      const fileMd5 = md5.digest("hex");
       parts = ordered.length;
       log(`build upload ${buildUploadId}: ${parts} part(s) sent`);
       await client.request("PATCH", `/v1/buildUploadFiles/${encodeURIComponent(fileId)}`, { data: {
         type: "buildUploadFiles", id: fileId,
-        attributes: { uploaded: true, sourceFileChecksums: { file: { hash: source.sha256, algorithm: "SHA_256" } } },
+        attributes: { uploaded: true, sourceFileChecksums: { file: { hash: fileMd5, algorithm: "MD5" } } },
       } });
     }
   }
