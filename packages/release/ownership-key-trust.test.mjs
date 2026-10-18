@@ -285,7 +285,7 @@ test("seeded ownership-repositories.json validates; the default policy carries n
     ["https://github.com/orthic-labs/legion", "public"],
     ["https://github.com/bogusyogi/workright", "private"],
     ["https://github.com/orthic-labs/sellright", "public"],
-    ["https://github.com/orthic-labs/pulse", "public"],
+    ["https://github.com/bogusyogi/pulse", "private"],
     ["https://github.com/bogusyogi/swiftright", "private"],
   ]);
   assert.equal(seeded.repositories.some((x) => /rightsuite/.test(x.repositoryIdentity)), false);

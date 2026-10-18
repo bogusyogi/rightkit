@@ -1036,7 +1036,7 @@
       ]
     },
     {
-      "repositoryIdentity": "https://github.com/orthic-labs/pulse",
+      "repositoryIdentity": "https://github.com/bogusyogi/pulse",
       "dependencies": [
         "cargo:chrono",
         "cargo:dirs",
