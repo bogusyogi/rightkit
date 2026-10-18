@@ -201,6 +201,15 @@ export function nativeIosPrepareProblems({ appRoot, config, prepare = [] }) {
   return problems;
 }
 
+/** The repo-relative-to-app Package.resolved an iosPackage with trusted Swift macros/plugins pins, or null when it trusts none. */
+export function iosTrustPackageResolved(iosSpec) {
+  const listed = (value) => Array.isArray(value) && value.length > 0;
+  if (!listed(iosSpec?.trustedSwiftMacros) && !listed(iosSpec?.trustedSwiftPlugins)) return null;
+  if (typeof iosSpec.packageResolved === "string" && iosSpec.packageResolved) return iosSpec.packageResolved;
+  if (typeof iosSpec.project !== "string" || !iosSpec.project) return null;
+  return path.posix.join(iosSpec.project.replaceAll("\\", "/"), "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved");
+}
+
 const outside = (root, file) => { const relative = path.relative(root, file); return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative); };
 
 export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target, env = process.env }) {
@@ -226,6 +235,11 @@ export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, confi
   // The xcodegen spec is an input whenever iosPackage names one (a declared-but-missing spec is refused below).
   // Only native iOS mode: an iOS app with src-tauri keeps exactly its pre-existing input set.
   const iosProjectSpec = nativeIos && typeof iosSpec?.projectSpec === "string" && iosSpec.projectSpec ? [path.resolve(appRoot, iosSpec.projectSpec)] : [];
+  // Reviewed Swift macro/plugin trust (iosPackage.trustedSwiftMacros / trustedSwiftPlugins): the Package.resolved holding the pins is a
+  // required, hashed, git-tracked release input on both iOS paths (native and src-tauri). Without a list nothing is added.
+  const packageResolvedInput = iosTrustPackageResolved(iosSpec);
+  if (packageResolvedInput && outside(repoRoot, path.resolve(appRoot, packageResolvedInput))) throw new Error(`Package.resolved ${packageResolvedInput} is outside the repository ${repoRoot}; a release pins only sources it can seal`);
+  const iosPackageResolved = packageResolvedInput ? [path.resolve(appRoot, packageResolvedInput)] : [];
   const requiredInputs = [
     configPath,
     ...(swift
@@ -236,6 +250,7 @@ export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, confi
       ? [...optionalIfPresent(["package.json", "pnpm-lock.yaml"]), ...(pinnedLayout ? [pinnedLayout.manifestPath, pinnedLayout.lockPath] : [])]
       : [path.join(appRoot, "package.json"), path.join(appRoot, "pnpm-lock.yaml"), nativeLayout.manifestPath, nativeLayout.lockPath]),
     ...iosProjectSpec,
+    ...iosPackageResolved,
     ...(target?.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file, env))),
   ].filter((file, index, files) => files.indexOf(file) === index);
   for (const file of requiredInputs) {

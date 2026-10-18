@@ -7,7 +7,7 @@ import { tempRoot } from "./test-support/temp-roots.mjs";
 import {
   IOS_PACKAGE_STEPS, IOS_RECEIPT_NAME, IOS_SIGNING_CONTRACT, IosPackageError, archiveArgv, assertDistributionEntitlements, assertDistributionProfile,
   assertVersionIdentity, exportArgv, exportOptionsPlist, iosPackagePlan, iosSealEntry, nextDateBuildNumber, runIosPackageRecipe, validateIosPackageConfig,
-  jsonSafePlistText, verifyIosReceipt, xcodegenArgv,
+  jsonSafePlistText, verifyIosReceipt, xcodegenArgv, assertTrustedPins, parsePackageResolved, swiftTrustFlags,
 } from "./ios-package-recipe.mjs";
 import { outputTail } from "./ios-host.mjs";
 
@@ -178,6 +178,91 @@ test("distribution entitlements and profile checks", () => {
   assert.throws(() => assertDistributionProfile(profile, { teamId: TEAM, bundleId: "dev.other.app" }), /authorizes/);
 });
 
+// CodeRight's real pins (the five packages whose macros Xcode refuses until they are trusted).
+const CODERIGHT_PINS = {
+  "swift-composable-architecture": "ead11e04e5011c437722c1990d22f80d87056978",
+  "swift-case-paths": "1866d1046fd4e54d590af6be5b23de6ca3af2bf9",
+  "swift-dependencies": "5e0815746534ccaa9e20588ea35d3bb2cb27bab8",
+  "swift-perception": "de219a1cf34e958134e75a9ebb134cf09bf52fc6",
+  "swift-navigation": "418a57db2e757b02817dfd3d8a0374d5794664ab",
+};
+const trustList = (pins = CODERIGHT_PINS) => Object.entries(pins).map(([name, revision]) => ({ package: name, revision }));
+const resolvedFile = (pins, version = 3) => JSON.stringify({
+  originHash: "x", version,
+  pins: Object.entries(pins).map(([identity, revision]) => ({ identity, kind: "remoteSourceControl", location: `https://github.com/pointfreeco/${identity}`, state: { revision, version: "1.0.0" } })),
+});
+const trustSpec = (extra = {}) => ({ packageResolved: "Package.resolved", trustedSwiftMacros: trustList(), ...extra });
+const SKIP_FLAGS = ["-skipMacroValidation", "-skipPackagePluginValidation"];
+const archiveCall = (f) => f.calls.find((call) => call.cmd === "xcodebuild" && call.args.includes("archive"));
+
+// ---- trusted Swift macros / plugins: config -----------------------------------------------------------------------
+test("trustedSwiftMacros config is validated strictly: 40 hex revisions, no duplicates, no unknown keys, no stray packageResolved", () => {
+  const ok = validateIosPackageConfig(baseSpec(trustSpec()));
+  assert.equal(ok.trustedSwiftMacros.length, 5);
+  assert.deepEqual(ok.trustedSwiftPlugins, []);
+  const rev = CODERIGHT_PINS["swift-case-paths"];
+  const entry = (extra = {}) => ({ package: "swift-case-paths", revision: rev, ...extra });
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: "swift-case-paths" })), /trustedSwiftMacros must be an array/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: ["swift-case-paths"] })), /trustedSwiftMacros\[0\] must be an object/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ version: "1.0.0" })] })), /unknown key\(s\): version/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ revision: "1866d10" })] })), /exact 40 character/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ revision: rev.toUpperCase() })] })), /exact 40 character/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ revision: `${rev}0` })] })), /exact 40 character/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ revision: "1.2.3" })] })), /exact 40 character/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ package: "Swift-Case-Paths" })] })), /lowercase SwiftPM package identity/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry({ package: "https://github.com/pointfreeco/swift-case-paths" })] })), /package identity/);
+  invalid(baseSpec(trustSpec({ trustedSwiftMacros: [entry(), entry()] })), /lists swift-case-paths twice/);
+  invalid(baseSpec(trustSpec({ trustedSwiftPlugins: [entry(), entry()] })), /trustedSwiftPlugins lists swift-case-paths twice/);
+  invalid(baseSpec({ trustedSwiftMacros: [entry()] }), /need packageResolved/); // xcodegen project: its own Package.resolved is untracked
+  invalid(baseSpec({ packageResolved: "Package.resolved" }), /only used with trustedSwift/);
+  invalid(baseSpec(trustSpec({ packageResolved: "../Package.resolved" })), /relative/);
+  invalid(baseSpec(trustSpec({ packageResolved: "Other.json" })), /must match .*Package/);
+  // No projectSpec: the in-xcodeproj default is allowed without packageResolved.
+  assert.equal(validateIosPackageConfig(baseSpec({ projectSpec: undefined, trustedSwiftMacros: [entry()] })).packageResolved, null);
+});
+
+test("no trust list: the archive has no skip or resolution flag, the plan has no trust step and the receipt has no swiftTrust (Pulse unchanged)", async () => {
+  const spec = validateIosPackageConfig(baseSpec());
+  assert.deepEqual([spec.packageResolved, spec.trustedSwiftMacros, spec.trustedSwiftPlugins], [null, [], []]);
+  const args = archiveArgv(spec, { root: path.resolve("fixture-app"), buildNumber: "2026101801", storage: { derivedData: "/d" } });
+  for (const flag of [...SKIP_FLAGS, "-disableAutomaticPackageResolution", "-onlyUsePackageVersionsFromResolvedFile"]) assert.ok(!args.includes(flag), flag);
+  assert.ok(!iosPackagePlan(spec, { root: "/app", receiptDir: "/r" }).steps.some((step) => step.id === "trust-check"));
+  const f = fixture();
+  await runIosPackageRecipe(f.deps);
+  assert.ok(!archiveCall(f).args.some((arg) => SKIP_FLAGS.includes(arg) || /Package(Resolution|Versions)/.test(arg)));
+  assert.ok(!f.calls.some((call) => call.cmd === "git"), "no git call without a trust list");
+  assert.equal(JSON.parse(readFileSync(f.receipt, "utf8")).swiftTrust, undefined);
+});
+
+// ---- trusted Swift macros / plugins: pins ------------------------------------------------------------------------
+test("Package.resolved versions 2 and 3 parse; other versions, bad JSON and duplicate identities are refused", () => {
+  for (const version of [2, 3]) {
+    const pins = parsePackageResolved(resolvedFile(CODERIGHT_PINS, version));
+    assert.equal(pins.get("swift-perception").revision, CODERIGHT_PINS["swift-perception"]);
+  }
+  const code = (error) => error instanceof IosPackageError && error.code === "IOS_PACKAGE_TRUST_FAILED";
+  assert.throws(() => parsePackageResolved(JSON.stringify({ version: 1, object: { pins: [] } })), code);
+  assert.throws(() => parsePackageResolved("{"), code);
+  assert.throws(() => parsePackageResolved(JSON.stringify({ version: 3 })), code);
+  assert.throws(() => parsePackageResolved(JSON.stringify({ version: 3, pins: [{ identity: "a", state: {} }, { identity: "A", state: {} }] })), /twice/);
+});
+
+test("assertTrustedPins names every mismatching package; skip flags need its verified evidence", () => {
+  const pins = parsePackageResolved(resolvedFile({ ...CODERIGHT_PINS, "swift-case-paths": "f".repeat(40) }));
+  const spec = validateIosPackageConfig(baseSpec(trustSpec({ trustedSwiftPlugins: [{ package: "swiftlint-plugin", revision: "1".repeat(40) }] })));
+  assert.throws(() => assertTrustedPins(pins, spec), (error) => error.code === "IOS_PACKAGE_TRUST_MISMATCH"
+    && error.message.includes(`swift-case-paths is pinned to ${"f".repeat(40)}`) && error.message.includes(`reviewed revision is ${CODERIGHT_PINS["swift-case-paths"]}`)
+    && error.message.includes("trustedSwiftPlugins: swiftlint-plugin is not pinned"));
+  const noRevision = parsePackageResolved(JSON.stringify({ version: 3, pins: [{ identity: "swift-case-paths", kind: "localSourceControl", location: "/x", state: { version: "1.0.0" } }] }));
+  assert.throws(() => assertTrustedPins(noRevision, { trustedSwiftMacros: [{ package: "swift-case-paths", revision: CODERIGHT_PINS["swift-case-paths"] }] }), /pinned without a git revision/);
+  // Fail closed: a list without verified evidence (absent, or a forged object) never yields a skip flag.
+  assert.throws(() => swiftTrustFlags(spec), (error) => error.code === "IOS_PACKAGE_TRUST_FAILED");
+  assert.throws(() => swiftTrustFlags(spec, { macros: [], plugins: [] }), (error) => error.code === "IOS_PACKAGE_TRUST_FAILED");
+  assert.throws(() => archiveArgv(spec, { root: "/app", buildNumber: "1", storage: { derivedData: "/d" } }), /not verified/);
+  const good = assertTrustedPins(parsePackageResolved(resolvedFile({ ...CODERIGHT_PINS, "swiftlint-plugin": "1".repeat(40) })), spec);
+  assert.deepEqual(swiftTrustFlags(spec, good), ["-skipMacroValidation", "-skipPackagePluginValidation", "-disableAutomaticPackageResolution", "-onlyUsePackageVersionsFromResolvedFile"]);
+});
+
 // ---- the run, with every dependency injected ----------------------------------------------------------------------
 function fixture(over = {}) {
   const root = tempRoot("rk-ios-recipe-");
@@ -239,8 +324,15 @@ function fixture(over = {}) {
       const { bundle } = JSON.parse(readFileSync(args.at(-1), "utf8"));
       return ok(`<plist-json>${JSON.stringify(over.profile ?? { TeamIdentifier: [TEAM], Entitlements: { "application-identifier": `${TEAM}.${bundle}`, "get-task-allow": false }, Name: "iOS Team Store", UUID: "uuid-1", ExpirationDate: "2027-01-01T00:00:00Z" })}`);
     }
+    if (cmd === "git" && args[0] === "ls-files") return over.untrackedPins ? { status: 1, stdout: "", stderr: "error: pathspec did not match" } : ok(args.at(-1));
+    if (cmd === "git" && args[0] === "diff") return over.dirtyPins ? { status: 1, stdout: "", stderr: "" } : ok();
     return { status: 1, stdout: "", stderr: `unexpected command ${cmd} ${args.join(" ")}` };
   };
+  if (over.pins !== undefined) {
+    const pinsFile = path.join(root, over.pinsPath ?? "Package.resolved");
+    mkdirSync(path.dirname(pinsFile), { recursive: true });
+    writeFileSync(pinsFile, typeof over.pins === "string" ? over.pins : resolvedFile(over.pins));
+  }
   const deps = {
     root, spec, env: { PATH: "/usr/bin" }, platform: "darwin", run, now: () => NOW, log: () => {}, tmpRoot: root, counterDir: path.join(root, "vault-state", "ios-build-numbers"),
     detectSession: () => ({ guiRunner: false, reason: "Aqua security session" }),
@@ -548,4 +640,118 @@ MIIF</data></array>
   assert.equal(converted.status, 0, converted.stderr);
   const summary = assertDistributionProfile(JSON.parse(converted.stdout), { teamId: TEAM, bundleId: "app.example" });
   assert.equal(summary.expiration, "2027-10-19T00:00:00Z");
+});
+
+// ---- trusted Swift macros / plugins: the run -----------------------------------------------------------------------
+const DEFAULT_PINS_PATH = "ios/Pulse.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
+
+test("matching pins add -skipMacroValidation plus the resolution locks to the archive only; export gets neither; the receipt records what was trusted", async () => {
+  const f = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS });
+  await runIosPackageRecipe(f.deps);
+  const archive = archiveCall(f).args;
+  assert.ok(archive.includes("-skipMacroValidation"));
+  assert.ok(!archive.includes("-skipPackagePluginValidation"), "no plugin flag without a trustedSwiftPlugins list");
+  assert.ok(archive.includes("-disableAutomaticPackageResolution") && archive.includes("-onlyUsePackageVersionsFromResolvedFile"));
+  assert.equal(archive.at(-1), "archive");
+  const exported = f.calls.find((call) => call.args[0] === "-exportArchive").args;
+  assert.ok(!exported.some((arg) => arg.startsWith("-skip") || arg.startsWith("-disableAutomatic") || arg.startsWith("-onlyUse")));
+  const receipt = JSON.parse(readFileSync(f.receipt, "utf8"));
+  const bytes = readFileSync(path.join(f.root, "Package.resolved"));
+  assert.equal(receipt.swiftTrust.packageResolved.sha256, sha(bytes));
+  assert.equal(receipt.swiftTrust.packageResolved.path, "Package.resolved");
+  assert.deepEqual(receipt.swiftTrust.macros.map((m) => [m.package, m.revision]), Object.entries(CODERIGHT_PINS));
+  assert.deepEqual(receipt.swiftTrust.plugins, []);
+  // The committed file was copied into the generated project, and the trust check ran before xcodegen touched anything.
+  assert.equal(sha(readFileSync(path.join(f.root, DEFAULT_PINS_PATH))), sha(bytes));
+  const order = f.calls.map((call) => `${call.cmd}:${call.args[0]}`);
+  assert.ok(order.indexOf("git:ls-files") < order.indexOf("xcodegen:generate"));
+});
+
+test("a plugin list adds -skipPackagePluginValidation under the same rules", async () => {
+  const plugin = { package: "swiftlint-plugin", revision: "2".repeat(40) };
+  const f = fixture({ spec: trustSpec({ trustedSwiftMacros: undefined, trustedSwiftPlugins: [plugin] }), pins: { ...CODERIGHT_PINS, "swiftlint-plugin": plugin.revision } });
+  await runIosPackageRecipe(f.deps);
+  const archive = archiveCall(f).args;
+  assert.ok(archive.includes("-skipPackagePluginValidation") && !archive.includes("-skipMacroValidation"));
+  assert.deepEqual(JSON.parse(readFileSync(f.receipt, "utf8")).swiftTrust.plugins.map((p) => p.package), ["swiftlint-plugin"]);
+  const bad = fixture({ spec: trustSpec({ trustedSwiftMacros: undefined, trustedSwiftPlugins: [plugin] }), pins: { ...CODERIGHT_PINS, "swiftlint-plugin": "3".repeat(40) } });
+  await rejects(runIosPackageRecipe(bad.deps), "IOS_PACKAGE_TRUST_MISMATCH", /swiftlint-plugin is pinned to 3{40}/);
+  assert.equal(bad.calls.some((call) => call.cmd === "xcodebuild" && call.args.includes("archive")), false);
+});
+
+test("a revision mismatch or a package missing from Package.resolved is refused before xcodegen or any build, naming each package", async () => {
+  const moved = { ...CODERIGHT_PINS, "swift-dependencies": "9".repeat(40) };
+  delete moved["swift-navigation"];
+  const f = fixture({ spec: trustSpec(), pins: moved });
+  await rejects(runIosPackageRecipe(f.deps), "IOS_PACKAGE_TRUST_MISMATCH", /swift-dependencies is pinned to 9{40}[^]*swift-navigation is not pinned/);
+  assert.ok(!f.calls.some((call) => call.cmd === "xcodegen" && call.args[0] === "generate"));
+  assert.ok(!f.calls.some((call) => call.cmd === "xcodebuild" && call.args.includes("archive")));
+  assert.ok(!existsSync(f.receipt) && !existsSync(f.ipa));
+});
+
+test("Package.resolved missing, untracked, modified, unreadable or the wrong format version is refused", async () => {
+  const missing = fixture({ spec: trustSpec() });
+  await rejects(runIosPackageRecipe(missing.deps), "IOS_PACKAGE_TRUST_FAILED", /Package\.resolved does not exist/);
+  const untracked = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS, untrackedPins: true });
+  await rejects(runIosPackageRecipe(untracked.deps), "IOS_PACKAGE_TRUST_FAILED", /not tracked by git/);
+  const dirty = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS, dirtyPins: true });
+  await rejects(runIosPackageRecipe(dirty.deps), "IOS_PACKAGE_TRUST_FAILED", /differs from HEAD/);
+  const v1 = fixture({ spec: trustSpec(), pins: JSON.stringify({ version: 1, object: { pins: [] } }) });
+  await rejects(runIosPackageRecipe(v1.deps), "IOS_PACKAGE_TRUST_FAILED", /version 1 is not supported/);
+  for (const f of [missing, untracked, dirty, v1]) assert.ok(!f.calls.some((call) => call.cmd === "xcodebuild" && call.args.includes("archive")));
+});
+
+test("without a projectSpec the in-xcodeproj Package.resolved is the tracked source, and nothing is copied", async () => {
+  const f = fixture({ spec: { projectSpec: undefined, trustedSwiftMacros: trustList() }, pins: CODERIGHT_PINS, pinsPath: DEFAULT_PINS_PATH });
+  mkdirSync(path.join(f.root, "ios", "Pulse.xcodeproj"), { recursive: true });
+  await runIosPackageRecipe(f.deps);
+  assert.ok(archiveCall(f).args.includes("-skipMacroValidation"));
+  assert.equal(JSON.parse(readFileSync(f.receipt, "utf8")).swiftTrust.packageResolved.path, DEFAULT_PINS_PATH);
+  const missing = fixture({ spec: { projectSpec: undefined, trustedSwiftMacros: trustList() } });
+  mkdirSync(path.join(missing.root, "ios", "Pulse.xcodeproj"), { recursive: true });
+  await rejects(runIosPackageRecipe(missing.deps), "IOS_PACKAGE_TRUST_FAILED", /does not exist/);
+});
+
+test("a different Package.resolved already inside the generated project is refused, never overwritten; an identical one is accepted", async () => {
+  const f = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS });
+  const inProject = path.join(f.root, DEFAULT_PINS_PATH);
+  mkdirSync(path.dirname(inProject), { recursive: true });
+  writeFileSync(inProject, resolvedFile({ ...CODERIGHT_PINS, "swift-case-paths": "e".repeat(40) }));
+  await rejects(runIosPackageRecipe(f.deps), "IOS_PACKAGE_TRUST_FAILED", /already exists and differs/);
+  assert.match(readFileSync(inProject, "utf8"), /e{40}/);
+  assert.ok(!archiveCall(f));
+  const same = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS });
+  const sameFile = path.join(same.root, DEFAULT_PINS_PATH);
+  mkdirSync(path.dirname(sameFile), { recursive: true });
+  writeFileSync(sameFile, readFileSync(path.join(same.root, "Package.resolved")));
+  await runIosPackageRecipe(same.deps);
+  assert.ok(archiveCall(same));
+});
+
+test("pins that change between the check and the archive, or during the archive, fail the run and delete the outputs", async () => {
+  const f = fixture({ spec: trustSpec({ prepare: [{ cmd: "node", args: ["rewrite.mjs"] }] }), pins: CODERIGHT_PINS });
+  const inner = f.deps.run;
+  const tamper = (cmd, args, options) => {
+    if (cmd === "node") { const file = path.join(f.root, DEFAULT_PINS_PATH); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, "{}"); }
+    return inner(cmd, args, options);
+  };
+  await rejects(runIosPackageRecipe({ ...f.deps, run: tamper }), "IOS_PACKAGE_TRUST_FAILED", /already exists and differs/);
+  const g = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS });
+  const inner2 = g.deps.run;
+  const moveDuringArchive = (cmd, args, options) => {
+    const result = inner2(cmd, args, options);
+    if (cmd === "xcodebuild" && args.includes("archive")) writeFileSync(path.join(g.root, DEFAULT_PINS_PATH), resolvedFile({ ...CODERIGHT_PINS, "swift-perception": "d".repeat(40) }));
+    return result;
+  };
+  await rejects(runIosPackageRecipe({ ...g.deps, run: moveDuringArchive }), "IOS_PACKAGE_TRUST_FAILED", /differs from the verified Package\.resolved/);
+  assert.ok(!existsSync(g.archive) && !existsSync(g.receipt));
+});
+
+test("the dry run shows the trust step and the flags without reading the pins file", async () => {
+  const f = fixture({ spec: trustSpec() });
+  const lines = [];
+  const result = await runIosPackageRecipe({ ...f.deps, platform: "win32", dryRun: true, run: () => assert.fail("a dry run runs nothing"), log: (line) => lines.push(line) });
+  assert.ok(result.plan.steps.some((step) => step.id === "trust-check"));
+  assert.ok(result.plan.steps.find((step) => step.id === "archive").args.includes("-skipMacroValidation"));
+  assert.ok(lines.some((line) => /trust-check/.test(line)));
 });

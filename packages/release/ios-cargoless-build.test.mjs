@@ -24,7 +24,7 @@ import { assertNoForbiddenBuildFeatures, resolveCargoManifestPath } from "./qa-b
 import { nativeCargoDeclared, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { collectPreflight } from "./preflight.mjs";
 import { requiredBuildExecutables } from "./project-type.mjs";
-import { isNativeIosTarget, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { dirtyBuildInputs, isNativeIosTarget, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 
 // Native iOS app (CodeRight shape): right-release.config.mjs, project.yml, source dirs; no src-tauri, no package.json.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -808,4 +808,61 @@ test("a prepare cargo command without --locked or --frozen is refused, because t
   assert.equal(problemsOf(["check", ...manifest, "--frozen"]), "");
   const target = { ...app.config.targets.ios, iosPackage: iosPackage({ prepare: [{ cmd: "cargo", args: ["build", ...manifest] }] }) };
   assert.throws(() => resolveReleaseBuildInputs({ repoRoot: app.repo, appRoot: app.root, configPath: app.configPath, config: app.config, target }), /has no --locked/);
+});
+
+// ---- reviewed Swift macro/plugin trust: Package.resolved is a required, hashed, tracked release input ----------------
+const TRUSTED = [{ package: "swift-composable-architecture", revision: "ead11e04e5011c437722c1990d22f80d87056978" }];
+const PINS = JSON.stringify({ version: 3, pins: [{ identity: "swift-composable-architecture", kind: "remoteSourceControl", location: "https://github.com/pointfreeco/swift-composable-architecture", state: { revision: TRUSTED[0].revision, version: "1.0.0" } }] });
+const withPins = (options, pinsPath = "Package.resolved") => {
+  const app = iosApp({ ...options, commit: false });
+  mkdirSync(path.dirname(path.join(app.root, pinsPath)), { recursive: true });
+  writeFileSync(path.join(app.root, pinsPath), PINS);
+  return app;
+};
+
+test("native iOS: a trust list makes the committed Package.resolved a required input; a missing file is refused; no list adds nothing", () => {
+  const iosExtra = { packageResolved: "Package.resolved", trustedSwiftMacros: TRUSTED };
+  const app = withPins({ iosExtra });
+  const { requiredInputs, buildInputs } = inputsOf(app);
+  assert.deepEqual(rel(app, requiredInputs), ["right-release.config.mjs", "project.yml", "Package.resolved"]);
+  assert.ok(buildInputs.required.includes("Package.resolved"));
+  const missing = iosApp({ iosExtra, commit: false });
+  assert.throws(() => inputsOf(missing), /missing required release input: .*Package\.resolved/);
+  const plain = iosApp({ commit: false });
+  writeFileSync(path.join(plain.root, "Package.resolved"), PINS);
+  assert.deepEqual(rel(plain, inputsOf(plain).requiredInputs), ["right-release.config.mjs", "project.yml"], "an app with no list keeps its input set exactly");
+});
+
+test("native iOS without a projectSpec: the in-xcodeproj Package.resolved is the required input", () => {
+  const pinsPath = "CodeRight.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
+  const app = withPins({ projectSpec: false, iosExtra: { trustedSwiftPlugins: TRUSTED } }, pinsPath);
+  assert.deepEqual(rel(app, inputsOf(app).requiredInputs), ["right-release.config.mjs", pinsPath]);
+  const recipeTarget = { signed: true, recipe: { kind: "iosPackage", spec: validateIosPackageConfig(iosPackage({ projectSpec: undefined, trustedSwiftPlugins: TRUSTED })) } };
+  assert.deepEqual(rel(app, inputsOf(app, recipeTarget).requiredInputs), ["right-release.config.mjs", pinsPath]);
+});
+
+test("src-tauri iOS (Pulse shape): a trust list adds Package.resolved, no list keeps the input set", () => {
+  const iosExtra = { projectSpec: undefined, packageResolved: "Package.resolved", trustedSwiftMacros: TRUSTED };
+  const tauri = withPins({ srcTauri: true, packageJson: true, lock: true, iosExtra });
+  assert.equal(isNativeIosTarget({ appRoot: tauri.root, target: tauri.config.targets.ios }), false);
+  assert.ok(rel(tauri, inputsOf(tauri).requiredInputs).includes("Package.resolved"));
+  const pulse = iosApp({ srcTauri: true, packageJson: true, lock: true, commit: false });
+  writeFileSync(path.join(pulse.root, "Package.resolved"), PINS);
+  assert.ok(!rel(pulse, inputsOf(pulse).requiredInputs).includes("Package.resolved"));
+});
+
+test("Package.resolved is a git-tracked input: untracked or modified counts as dirty, committed is clean", () => {
+  const app = withPins({ iosExtra: { packageResolved: "Package.resolved", trustedSwiftMacros: TRUSTED } });
+  const inputs = inputsOf(app).buildInputs;
+  git(app.root, "init", "--initial-branch", "main");
+  git(app.root, "config", "user.email", "t@example.com");
+  git(app.root, "config", "user.name", "T");
+  git(app.root, "add", "right-release.config.mjs", "project.yml", "Sources");
+  git(app.root, "commit", "-m", "init");
+  assert.ok(dirtyBuildInputs(app.root, inputs).includes("Package.resolved"), "untracked");
+  git(app.root, "add", "Package.resolved");
+  git(app.root, "commit", "-m", "pins");
+  assert.ok(!dirtyBuildInputs(app.root, inputs).includes("Package.resolved"), "committed");
+  writeFileSync(path.join(app.root, "Package.resolved"), PINS.replace("1.0.0", "1.0.1"));
+  assert.ok(dirtyBuildInputs(app.root, inputs).includes("Package.resolved"), "modified");
 });

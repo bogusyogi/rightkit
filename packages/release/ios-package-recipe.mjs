@@ -39,7 +39,7 @@ const invalid = (message) => new IosPackageError("IOS_PACKAGE_CONFIG_INVALID", `
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 // ---- config ------------------------------------------------------------------------------------------------------
-const IOS_KEYS = ["project", "projectSpec", "scheme", "configuration", "teamId", "bundleId", "exportMethod", "signing", "buildNumber", "extraBuildSettings", "prepare", "cleanup", "checks", "archive", "ipa", "timeoutMs"];
+const IOS_KEYS = ["project", "projectSpec", "scheme", "configuration", "teamId", "bundleId", "exportMethod", "signing", "buildNumber", "extraBuildSettings", "packageResolved", "trustedSwiftMacros", "trustedSwiftPlugins", "prepare", "cleanup", "checks", "archive", "ipa", "timeoutMs"];
 const CLEANUP_KEYS = ["derivedData"];
 const CHECK_KEYS = ["versionIdentity", "forbidStrings", "plist"];
 const COMMAND_KEYS = ["cmd", "args", "cwd"];
@@ -66,6 +66,28 @@ function commandList(value, label) {
     if (typeof item.cmd !== "string" || !item.cmd.trim() || /\s/.test(item.cmd.trim())) throw invalid(`${where}.cmd must be one executable; put its arguments in args`);
     if (item.args !== undefined && (!Array.isArray(item.args) || item.args.some((arg) => typeof arg !== "string"))) throw invalid(`${where}.args must be a list of strings`);
     return { cmd: item.cmd.trim(), args: [...(item.args ?? [])], ...(item.cwd === undefined ? {} : { cwd: relativeInside(item.cwd, `${where}.cwd`) }) };
+  });
+}
+
+const TRUST_ENTRY_KEYS = ["package", "revision"];
+const SWIFT_IDENTITY = /^[a-z0-9][a-z0-9._-]{0,100}$/;
+const GIT_REVISION = /^[0-9a-f]{40}$/;
+/** Where Xcode reads the SwiftPM pins of a project (`-project` builds). */
+export const defaultPackageResolvedPath = (project) => path.posix.join(project, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved");
+
+function trustList(value, label) {
+  if (!Array.isArray(value)) throw invalid(`${label} must be an array of { package, revision }`);
+  const seen = new Set();
+  return value.map((item, index) => {
+    const where = `${label}[${index}]`;
+    if (!isPlainObject(item)) throw invalid(`${where} must be an object { package, revision }`);
+    const unknown = Object.keys(item).filter((key) => !TRUST_ENTRY_KEYS.includes(key));
+    if (unknown.length) throw invalid(`${where} has unknown key(s): ${unknown.join(", ")} (allowed: ${TRUST_ENTRY_KEYS.join(", ")})`);
+    if (typeof item.package !== "string" || !SWIFT_IDENTITY.test(item.package)) throw invalid(`${where}.package must be a lowercase SwiftPM package identity such as swift-composable-architecture`);
+    if (typeof item.revision !== "string" || !GIT_REVISION.test(item.revision)) throw invalid(`${where}.revision must be the exact 40 character lowercase hex git commit the package is pinned to (no tag, branch or abbreviation)`);
+    if (seen.has(item.package)) throw invalid(`${label} lists ${item.package} twice`);
+    seen.add(item.package);
+    return { package: item.package, revision: item.revision };
   });
 }
 
@@ -102,6 +124,13 @@ export function validateIosPackageConfig(spec) {
       extraBuildSettings[name] = value;
     }
   }
+
+  const trustedSwiftMacros = spec.trustedSwiftMacros === undefined ? [] : trustList(spec.trustedSwiftMacros, "trustedSwiftMacros");
+  const trustedSwiftPlugins = spec.trustedSwiftPlugins === undefined ? [] : trustList(spec.trustedSwiftPlugins, "trustedSwiftPlugins");
+  const trusting = trustedSwiftMacros.length > 0 || trustedSwiftPlugins.length > 0;
+  const packageResolved = spec.packageResolved === undefined ? null : relativeInside(spec.packageResolved, "packageResolved", /(?:^|\/)Package\.resolved$/);
+  if (packageResolved && !trusting) throw invalid("packageResolved is only used with trustedSwiftMacros or trustedSwiftPlugins; remove it or list the reviewed packages");
+  if (trusting && projectSpec && !packageResolved) throw invalid("trustedSwiftMacros/trustedSwiftPlugins with a projectSpec need packageResolved: the xcodegen project is regenerated, so its own Package.resolved is untracked; name a committed Package.resolved outside the xcodeproj");
 
   const cleanup = { derivedData: false };
   if (spec.cleanup !== undefined) {
@@ -148,6 +177,9 @@ export function validateIosPackageConfig(spec) {
     signing: "automatic",
     buildNumber: "date",
     extraBuildSettings,
+    packageResolved,
+    trustedSwiftMacros,
+    trustedSwiftPlugins,
     prepare: spec.prepare === undefined ? [] : commandList(spec.prepare, "prepare"),
     cleanup,
     checks,
@@ -212,7 +244,107 @@ export function xcodegenArgv(spec, root) {
   return ["generate", "--spec", path.resolve(root, spec.projectSpec), "--project", path.resolve(root, path.posix.dirname(spec.project))];
 }
 
-export function archiveArgv(spec, { root, buildNumber, storage }) {
+// ---- reviewed Swift macro / plugin trust ---------------------------------------------------------------------------
+// Xcode refuses a macro or build-tool plugin the user has not enabled ("Macro ... must be enabled before it can be used").
+// -skipMacroValidation / -skipPackagePluginValidation are BUILD-WIDE switches (they trust every macro/plugin of every
+// package), so they are added only when the app lists the exact reviewed package revisions AND every one is pinned to that
+// revision in a tracked, hashed Package.resolved. -disableAutomaticPackageResolution and -onlyUsePackageVersionsFromResolvedFile
+// then stop Xcode from moving a pin after the check. Without a list nothing changes.
+const VERIFIED_TRUST = new WeakSet();
+const trustError = (code, message) => new IosPackageError(code, message);
+
+/** Pure: parse a Package.resolved (format versions 2 and 3) into pins keyed by lowercase identity. Anything else throws. */
+export function parsePackageResolved(text) {
+  let json;
+  try { json = JSON.parse(String(text)); } catch { throw trustError("IOS_PACKAGE_TRUST_FAILED", "Package.resolved is not valid JSON"); }
+  if (!isPlainObject(json) || (json.version !== 2 && json.version !== 3)) throw trustError("IOS_PACKAGE_TRUST_FAILED", `Package.resolved version ${JSON.stringify(json?.version)} is not supported (only versions 2 and 3, which key pins by identity)`);
+  if (!Array.isArray(json.pins)) throw trustError("IOS_PACKAGE_TRUST_FAILED", "Package.resolved has no pins array");
+  const pins = new Map();
+  for (const [index, pin] of json.pins.entries()) {
+    if (!isPlainObject(pin) || typeof pin.identity !== "string" || !pin.identity) throw trustError("IOS_PACKAGE_TRUST_FAILED", `Package.resolved pins[${index}] has no identity`);
+    const identity = pin.identity.toLowerCase();
+    if (pins.has(identity)) throw trustError("IOS_PACKAGE_TRUST_FAILED", `Package.resolved pins ${identity} twice`);
+    const state = isPlainObject(pin.state) ? pin.state : {};
+    pins.set(identity, { identity, kind: String(pin.kind ?? ""), location: String(pin.location ?? ""), revision: typeof state.revision === "string" ? state.revision.toLowerCase() : null, version: typeof state.version === "string" ? state.version : null });
+  }
+  return pins;
+}
+
+/**
+ * Throws IOS_PACKAGE_TRUST_MISMATCH naming every package that is not pinned, or is pinned to another revision than its
+ * allowlist entry. Returns the evidence object that archiveArgv requires before it adds a skip flag.
+ */
+export function assertTrustedPins(pins, { trustedSwiftMacros = [], trustedSwiftPlugins = [] }) {
+  const problems = [];
+  const evidence = { macros: [], plugins: [] };
+  for (const [listName, key, list] of [["trustedSwiftMacros", "macros", trustedSwiftMacros], ["trustedSwiftPlugins", "plugins", trustedSwiftPlugins]]) {
+    for (const entry of list) {
+      const pin = pins.get(entry.package);
+      if (!pin) problems.push(`${listName}: ${entry.package} is not pinned in Package.resolved (reviewed revision ${entry.revision})`);
+      else if (!pin.revision) problems.push(`${listName}: ${entry.package} is pinned without a git revision (${pin.kind || "unknown kind"}); reviewed revision ${entry.revision}`);
+      else if (pin.revision !== entry.revision) problems.push(`${listName}: ${entry.package} is pinned to ${pin.revision} in Package.resolved but the reviewed revision is ${entry.revision}`);
+      else evidence[key].push({ package: entry.package, revision: entry.revision, location: pin.location });
+    }
+  }
+  if (problems.length) throw trustError("IOS_PACKAGE_TRUST_MISMATCH", `Swift macro/plugin trust refused; review the update, then change the allowlist in the same commit as Package.resolved:\n- ${problems.join("\n- ")}`);
+  VERIFIED_TRUST.add(evidence);
+  return evidence;
+}
+
+/** The xcodebuild flags for the trust lists. Fails closed: a non-empty list without verified evidence throws. */
+export function swiftTrustFlags(spec, trusted) {
+  const macros = spec.trustedSwiftMacros?.length > 0;
+  const plugins = spec.trustedSwiftPlugins?.length > 0;
+  if (!macros && !plugins) return [];
+  if (!trusted || !VERIFIED_TRUST.has(trusted)) throw trustError("IOS_PACKAGE_TRUST_FAILED", "trustedSwiftMacros/trustedSwiftPlugins are set but the Package.resolved pins were not verified; refusing to skip macro or plugin validation");
+  return [...(macros ? ["-skipMacroValidation"] : []), ...(plugins ? ["-skipPackagePluginValidation"] : []), "-disableAutomaticPackageResolution", "-onlyUsePackageVersionsFromResolvedFile"];
+}
+
+/**
+ * Before any effect: the pinned file must exist, be tracked by git and equal HEAD, parse, and hold every listed package at
+ * exactly the reviewed revision. Returns { sourceRel, effectiveRel, bytes, sha256, evidence }, or null when no list is configured.
+ */
+export function verifySwiftTrustSource({ spec, root, sh, fs = nodeFs }) {
+  if (!spec.trustedSwiftMacros?.length && !spec.trustedSwiftPlugins?.length) return null;
+  const effectiveRel = defaultPackageResolvedPath(spec.project);
+  const sourceRel = spec.packageResolved ?? effectiveRel;
+  const sourceAbs = path.resolve(root, sourceRel);
+  if (!fs.existsSync(sourceAbs)) throw trustError("IOS_PACKAGE_TRUST_FAILED", `${sourceRel} does not exist; trustedSwiftMacros/trustedSwiftPlugins need a committed Package.resolved${spec.packageResolved ? "" : " inside the xcodeproj (or name one with iosPackage.packageResolved)"}`);
+  const tracked = sh("git", ["ls-files", "--error-unmatch", "--", sourceRel], { timeout: 60_000 });
+  if (tracked.error || tracked.status !== 0) throw trustError("IOS_PACKAGE_TRUST_FAILED", `${sourceRel} is not tracked by git; the pins that unlock macro trust must be committed`);
+  const clean = sh("git", ["diff", "--quiet", "HEAD", "--", sourceRel], { timeout: 60_000 });
+  if (clean.error || clean.status !== 0) throw trustError("IOS_PACKAGE_TRUST_FAILED", `${sourceRel} differs from HEAD; commit the reviewed pins first`);
+  const bytes = Buffer.from(fs.readFileSync(sourceAbs));
+  const evidence = assertTrustedPins(parsePackageResolved(bytes.toString("utf8")), spec);
+  return { sourceRel, effectiveRel, bytes, sha256: sha256Bytes(bytes), evidence };
+}
+
+/** The file Xcode reads must be exactly the verified bytes (checked before and after the archive). */
+export function assertSwiftTrustUnchanged({ trust, root, fs = nodeFs }) {
+  let current;
+  try { current = fs.readFileSync(path.resolve(root, trust.effectiveRel)); } catch { throw trustError("IOS_PACKAGE_TRUST_FAILED", `${trust.effectiveRel} is missing; Xcode would read other pins than the verified ones`); }
+  if (sha256Bytes(current) !== trust.sha256) throw trustError("IOS_PACKAGE_TRUST_FAILED", `${trust.effectiveRel} differs from the verified ${trust.sourceRel} (sha256 changed)`);
+}
+
+/**
+ * After generate and prepare: make the committed file the one Xcode reads. When it lives elsewhere it is copied into the
+ * project's swiftpm location; a different file already there is refused, never overwritten.
+ */
+export function installSwiftTrustSource({ trust, root, fs = nodeFs }) {
+  if (trust.sourceRel !== trust.effectiveRel) {
+    const effectiveAbs = path.resolve(root, trust.effectiveRel);
+    if (fs.existsSync(effectiveAbs)) {
+      if (!Buffer.from(fs.readFileSync(effectiveAbs)).equals(trust.bytes)) throw trustError("IOS_PACKAGE_TRUST_FAILED", `${trust.effectiveRel} already exists and differs from ${trust.sourceRel}; refusing to overwrite it`);
+    } else {
+      fs.mkdirSync(path.dirname(effectiveAbs), { recursive: true });
+      fs.writeFileSync(effectiveAbs, trust.bytes);
+    }
+  }
+  assertSwiftTrustUnchanged({ trust, root, fs });
+}
+
+export function archiveArgv(spec, { root, buildNumber, storage, trusted }) {
+  const trustFlags = swiftTrustFlags(spec, trusted);
   return [
     "-project", path.resolve(root, spec.project),
     "-scheme", spec.scheme,
@@ -225,6 +357,7 @@ export function archiveArgv(spec, { root, buildNumber, storage }) {
     `CURRENT_PROJECT_VERSION=${buildNumber}`,
     ...Object.entries(spec.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
     "-allowProvisioningUpdates",
+    ...trustFlags,
     "archive",
   ];
 }
@@ -236,6 +369,14 @@ export function exportArgv(spec, { root, optionsFile }) {
   return ["-exportArchive", "-archivePath", path.resolve(root, spec.archive), "-exportPath", exportDirectory(spec, root), "-exportOptionsPlist", optionsFile, "-allowProvisioningUpdates"];
 }
 
+/** Dry-run display only: the flags the run would add once its own check passes. The real run never uses this. */
+const plannedTrust = (spec) => {
+  if (!spec.trustedSwiftMacros.length && !spec.trustedSwiftPlugins.length) return undefined;
+  const planned = { macros: [], plugins: [] };
+  VERIFIED_TRUST.add(planned);
+  return planned;
+};
+
 /** The ordered plan (pure; no secret is part of any argument). Used by --dry-run and by the run itself. */
 export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", storage = { derivedData: "<rightkit storage xcode-args -derivedDataPath>" }, receiptDir }) {
   const optionsFile = path.join(receiptDir, "ios-export-options.plist");
@@ -244,7 +385,10 @@ export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", stora
       { id: "preflight", description: "macOS host, GUI signing session, xcodebuild" + (spec.projectSpec ? ", xcodegen (required)" : "") },
       ...(spec.projectSpec ? [{ id: "generate", cmd: "xcodegen", args: xcodegenArgv(spec, root) }] : []),
       ...spec.prepare.map((step, index) => ({ id: "prepare", index, cmd: step.cmd, args: step.args, cwd: step.cwd ?? "." })),
-      { id: "archive", cmd: "xcodebuild", args: archiveArgv(spec, { root, buildNumber, storage }) },
+      ...(spec.trustedSwiftMacros.length || spec.trustedSwiftPlugins.length
+        ? [{ id: "trust-check", description: `Package.resolved (${spec.packageResolved ?? defaultPackageResolvedPath(spec.project)}) tracked and equal to HEAD; ${[...spec.trustedSwiftMacros, ...spec.trustedSwiftPlugins].map((entry) => entry.package).join(", ")} pinned to the reviewed revisions; the skip flags below are added only after this passes` }]
+        : []),
+      { id: "archive", cmd: "xcodebuild", args: archiveArgv(spec, { root, buildNumber, storage, trusted: plannedTrust(spec) }) },
       { id: "verify-archive", description: "version identity across app, appex and Watch plists; bundle id; build number; QA scan; forbidden strings" },
       { id: "export", cmd: "xcodebuild", args: exportArgv(spec, { root, optionsFile }), optionsFile },
       { id: "verify-ipa", description: "extracted IPA: version identity, entitlements, embedded.mobileprovision, code signature" },
@@ -438,6 +582,8 @@ export async function runIosPackageRecipe({
 
   let tempDir;
   try {
+    // ---- trust-check: reviewed Swift macro/plugin pins, before anything is generated or built ----
+    const trust = verifySwiftTrustSource({ spec, root, sh, fs });
     // ---- generate ----
     if (spec.projectSpec) {
       step("generate", "IOS_PACKAGE_GENERATE_FAILED", "xcodegen", xcodegenArgv(spec, root));
@@ -448,9 +594,11 @@ export async function runIosPackageRecipe({
       const cwd = path.resolve(root, command.cwd ?? ".");
       step(`prepare ${index + 1}`, "IOS_PACKAGE_PREPARE_FAILED", command.cmd, command.args, { cwd });
     }
+    if (trust) installSwiftTrustSource({ trust, root, fs });
     // ---- archive ----
     const buildNumber = nextDateBuildNumber({ now: now(), stateFile: path.join(counterDir, `ios-build-number.${spec.bundleId}.json`), fs });
-    step("archive", "IOS_PACKAGE_ARCHIVE_FAILED", "xcodebuild", archiveArgv(spec, { root, buildNumber, storage: resolvedStorage }), { logFile: path.join(receiptDir, "ios-archive.log") });
+    step("archive", "IOS_PACKAGE_ARCHIVE_FAILED", "xcodebuild", archiveArgv(spec, { root, buildNumber, storage: resolvedStorage, trusted: trust?.evidence }), { logFile: path.join(receiptDir, "ios-archive.log") });
+    if (trust) assertSwiftTrustUnchanged({ trust, root, fs });
     const appsDir = path.join(archive, "Products", "Applications");
     const apps = fs.existsSync(appsDir) ? fs.readdirSync(appsDir).filter((name) => name.endsWith(".app")) : [];
     if (apps.length !== 1) throw new IosPackageError("IOS_PACKAGE_ARCHIVE_FAILED", `the archive must hold exactly one app under Products/Applications, found ${apps.length}`);
@@ -542,6 +690,8 @@ export async function runIosPackageRecipe({
       profile,
       bundles: ipaInfos.map((bundle) => ({ role: bundle.role, name: bundle.label, bundleId: String(bundle.info.CFBundleIdentifier ?? "") })),
       archiveVersion: identity,
+      // Present only when the app trusts reviewed Swift macros/plugins: what was trusted and the exact pins file it was checked against.
+      ...(trust ? { swiftTrust: { packageResolved: { path: trust.sourceRel, sha256: trust.sha256 }, macros: trust.evidence.macros, plugins: trust.evidence.plugins } } : {}),
     };
     try { fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`); }
     catch (error) { throw new IosPackageError("IOS_PACKAGE_RECEIPT_FAILED", `cannot write the iOS receipt: ${error.message}`); }
