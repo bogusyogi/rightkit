@@ -622,7 +622,7 @@ test("the seal-time receipt must be for the commit being sealed", async () => {
 });
 
 test("a provisioning profile's dates and certificate data convert to JSON (plutil refuses both as-is)", { skip: process.platform !== "darwin" }, async () => {
-  const { spawnSync } = await import("node:child_process");
+  const { spawnSync } = await import("./background-process.mjs");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>

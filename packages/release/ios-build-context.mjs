@@ -11,7 +11,7 @@ import { isNativeIosTarget, nativeIosPrepareProblems } from "./release-invocatio
 
 // Everything the release lane exports for Rust builds is removed from a native iOS build: releaseEnvironment() sets
 // CARGO_TARGET_DIR, CARGO_HOME, SCCACHE_DIR, RUSTC_WRAPPER (and in shared mode SCCACHE_CACHE_SIZE, SCCACHE_BASEDIRS,
-// SCCACHE_IGNORE_SERVER_IO_ERROR), and the host shell may carry RUSTFLAGS, RUSTC_*, CARGO_REGISTRY_TOKEN and the like. Matching by
+// SCCACHE_IGNORE_SERVER_IO_ERROR), and the host shell may carry RUSTFLAGS, RUSTC_* and other Cargo settings or registry secrets. Matching by
 // prefix keeps any later addition covered.
 const RUST_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RIGHT_RELEASE_CACHE_OWNER"];
 // Kept as the host has them, so a hand `cargo build` in iosPackage.prepare behaves as it does in the user's shell: harmless tuning
