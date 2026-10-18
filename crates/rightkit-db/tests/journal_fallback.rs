@@ -62,3 +62,65 @@ fn local_disks_keep_wal_on_the_requested_file_even_with_fallback_enabled() {
     assert!(requested.exists());
     assert!(!per_host_path(&requested).exists() || per_host_path(&requested) == requested);
 }
+
+#[test]
+fn a_runtime_wal_refusal_never_deletes_data_another_connection_committed_into_the_main_file() {
+    use rightkit_db::rusqlite::Connection;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    let requested = dir.path().join("shared.db");
+    let sibling = per_host_path(&requested);
+    // Sibling-only (kill switch) layouts never touch the main file; this test needs the
+    // WAL-then-fall-back path on the requested file itself.
+    if sibling == requested {
+        return;
+    }
+    let env = unique_env("RUNTIME_REFUSAL");
+    std::env::remove_var(&env);
+    let main = requested.clone();
+    let fired = Arc::new(AtomicBool::new(false));
+    let hook_fired = fired.clone();
+    let mut options = DbOptions::new(&requested)
+        .with_journal_env(&env)
+        .with_per_host_fallback(true);
+    // `init` runs on the first (main-file) connection before its journal setup. A deferred
+    // BEGIN makes `journal_mode=WAL` fail ("within a transaction"), which is the runtime
+    // refusal; while the creator is in that window another connection commits rollback-journal
+    // data into the same main file and closes, with no sidecar left behind.
+    options.init = Some(Arc::new(move |conn| {
+        if !hook_fired.swap(true, Ordering::SeqCst) {
+            let other = Connection::open(&main)?;
+            other.execute_batch(
+                "CREATE TABLE survivor(x INTEGER); INSERT INTO survivor VALUES (42);",
+            )?;
+            drop(other);
+            conn.execute_batch("BEGIN;")?;
+        }
+        Ok(())
+    }));
+
+    let writer = options.open_writer().unwrap();
+    assert!(fired.load(Ordering::SeqCst), "the concurrent commit ran");
+    assert_eq!(
+        journal_mode(&writer).unwrap(),
+        "truncate",
+        "the refusal landed the writer on the rollback-journaled per-host sibling"
+    );
+    assert!(sibling.exists());
+    drop(writer);
+
+    assert!(
+        requested.exists(),
+        "the main file holding another connection's committed data is retained"
+    );
+    let check = Connection::open(&requested).unwrap();
+    let kept: i64 = check
+        .query_row("SELECT x FROM survivor", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        kept, 42,
+        "the concurrent committed row survived the fallback"
+    );
+}

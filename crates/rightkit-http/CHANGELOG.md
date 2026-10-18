@@ -3,6 +3,7 @@
 ## 0.3.6 — unpublished staging
 
 - Reports physical-hop outcomes, bounds retry budgets, and scopes credentials without changing request configuration.
+- A refused or timed-out connect on a redirect hop now reports `AttemptDelivery::NotSent` for that hop in `on_attempt_outcome` (it was `Uncertain`); the call's error, retry decision, and the rule that a POST whose first hop was answered is never replayed are unchanged. Blocking and async clients. Tests in `tests/attempt_outcomes.rs`; not compiled or run here.
 
 ## 0.3.5 (2026-10-17)
 

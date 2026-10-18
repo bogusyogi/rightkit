@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.4.4 — unpublished staging
+## 0.5.0 — unpublished staging
+
+- BREAKING (D23): `RecoveryPolicy` is a new required public field, so external struct literals must set it; published as a minor bump, not a patch.
 
 - Backup work shares one total deadline and keeps backup files private.
+- Fix: a runtime WAL refusal under `per_host_fallback` no longer deletes the requested main file. File identity is not exclusive ownership: another connection may have committed rollback-journal data into it before the fallback ran, and any check-then-remove could destroy that write. The main file and any `-wal`/`-shm`/`-journal` beside it are retained; the writer still lands on the per-host sibling. A runtime refusal may therefore leave an empty requested file behind. Not compiled when written.
 
 ## 0.4.3 (2026-10-17)
 

@@ -1303,11 +1303,14 @@ fn backup_atomic(from: &Path, to: &Path) -> io::Result<()> {
 
 /// One step that keeps the content at `path` before something replaces or removes it: moves it to
 /// `kept_as` ([`PreserveStep::Quarantine`]) or copies it there. A failure is returned, never
-/// dropped.
+/// dropped. Every copy, under a fixed name or a timestamped one, is staged owner-only before any
+/// byte is written and renamed over `kept_as` (`backup_atomic`), so a replaced destination is
+/// never left with the wider permissions it had or that the parent directory would give a plain
+/// `fs::copy`. A move keeps the permissions of the file it moves.
 fn preserve(step: PreserveStep, path: &Path, kept_as: &Path) -> Result<(), Error> {
     let done = match step {
         PreserveStep::Quarantine => rename_file(path, kept_as),
-        PreserveStep::CorruptCopy | PreserveStep::Backup => copy_file(path, kept_as),
+        PreserveStep::CorruptCopy | PreserveStep::Backup => backup_atomic(path, kept_as),
     };
     done.map_err(|source| Error::PreserveFailed {
         step,
@@ -1317,8 +1320,9 @@ fn preserve(step: PreserveStep, path: &Path, kept_as: &Path) -> Result<(), Error
     })
 }
 
-// The two calls below are the only places `preserve` touches the file system, so a unit test can
-// make either fail (`fault`), which no public seam of this crate or of rightkit-fs reaches.
+// `rename_file`, `backup_atomic` and `copy_file_new` are the only places the preservation steps
+// touch the file system, so a unit test can make them fail (`fault`), which no public seam of this
+// crate or of rightkit-fs reaches.
 
 fn rename_file(from: &Path, to: &Path) -> io::Result<()> {
     #[cfg(test)]
@@ -1328,15 +1332,7 @@ fn rename_file(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
 }
 
-fn copy_file(from: &Path, to: &Path) -> io::Result<()> {
-    #[cfg(test)]
-    if let Some(error) = fault::copy() {
-        return Err(error);
-    }
-    fs::copy(from, to).map(|_| ())
-}
-
-/// [`copy_file`] that refuses to replace: the destination is claimed with `create_new`, so an
+/// A copy, like [`backup_atomic`]'s, that refuses to replace: the destination is claimed with `create_new`, so an
 /// existing file yields `AlreadyExists` and the caller retries with the next candidate. A copy
 /// that fails after claiming removes its own partial file.
 fn copy_file_new(from: &Path, to: &Path) -> io::Result<()> {

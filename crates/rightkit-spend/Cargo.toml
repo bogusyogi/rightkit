@@ -12,11 +12,11 @@ categories = ["database"]
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-db = { version = "0.4.2", path = "../rightkit-db", default-features = false }
+rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false }
 thiserror = "2"
 
 [dev-dependencies]
-rightkit-db = { version = "0.4.2", path = "../rightkit-db", default-features = false, features = ["bundled"] }
+rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false, features = ["bundled"] }
 tempfile = "3"
 
 [package.metadata.rightkit]

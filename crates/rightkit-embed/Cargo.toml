@@ -20,7 +20,7 @@ vector = ["dep:rusqlite", "dep:rightkit-db"]
 bench-internals = ["inference"]
 
 [dependencies]
-rightkit-db = { version = "0.4", path = "../rightkit-db", default-features = false, optional = true }
+rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-onnx = { version = "0.2.6", path = "../rightkit-onnx", features = ["half"], optional = true }
 rusqlite = { version = "0.40.2", default-features = false, optional = true }

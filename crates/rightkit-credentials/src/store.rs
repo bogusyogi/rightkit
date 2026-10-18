@@ -1,8 +1,10 @@
 use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend};
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, Namespace};
+use crate::rotation::{lock_file_name, RotationLock};
 use crate::secret::Secret;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -51,23 +53,23 @@ pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardMode {
     /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
-    /// Volatile: values vanish on exit, so an *environment* guard can only select this in
-    /// debug/test builds. In a release build an env-tripped `Memory` guard behaves as
-    /// [`GuardMode::Deny`] (see `effective_guard_mode`); only an explicit
-    /// [`Config::guard_when`] from caller code may still force `Memory` in release.
+    /// Volatile: values vanish on exit. A test capability only: builds with debug assertions
+    /// honour it; a release build never selects it, whether the guard was tripped by the
+    /// environment or forced from code with [`Config::guard_when`], and behaves as
+    /// [`GuardMode::Deny`] instead (see `effective_guard_mode`).
     Memory,
     /// Every operation fails with [`Error::Guarded`] (e.g. an app guard such as `MYAPP_DISABLE_OS_KEYCHAIN`).
     Deny,
 }
 
-/// The mode a tripped guard actually gets. A release binary must never let a stray
-/// environment variable silently swap the durable OS store for process memory (keys minted
-/// there vanish on exit and strand encrypted data), so an env-tripped guard is `Deny` in
-/// release whatever mode was configured. An explicit `Deny` is preserved in every build, and
-/// a guard forced from caller code ([`Config::guard_when`]) keeps its configured mode: that
-/// decision is compiled in and auditable, not volatile environment input.
-fn effective_guard_mode(mode: GuardMode, forced_by_caller: bool, release: bool) -> GuardMode {
-    if release && !forced_by_caller {
+/// The mode a tripped guard actually gets. The volatile memory store is a test capability
+/// and is excluded from release: a release binary never swaps the durable OS store for
+/// process memory (keys minted there vanish on exit and strand encrypted data), whether an
+/// environment variable or caller code asked for it. A tripped guard in release is `Deny`, so
+/// it still fails closed and touches no OS store. Builds with debug assertions keep the
+/// configured mode.
+fn effective_guard_mode(mode: GuardMode, release: bool) -> GuardMode {
+    if release {
         GuardMode::Deny
     } else {
         mode
@@ -83,6 +85,7 @@ pub struct Config {
     forced_guard: bool,
     timeout: Option<Duration>,
     backend: Option<Arc<dyn Backend>>,
+    rotation_lock_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -95,6 +98,7 @@ impl Config {
             forced_guard: false,
             timeout: None,
             backend: None,
+            rotation_lock_dir: None,
         }
     }
     /// App-specific guard variable names, e.g. `MYAPP_NO_KEYCHAIN`. A guard is tripped by a
@@ -128,6 +132,17 @@ impl Config {
     /// Replace the OS store (tests, isolated keychains). Guards still take precedence.
     pub fn backend(mut self, backend: Arc<dyn Backend>) -> Self {
         self.backend = Some(backend);
+        self
+    }
+    /// The directory of the cross-process rotation lock files (`begin_rotation`,
+    /// `commit_rotation`, `abort_rotation` and their `_of` forms). It must be an absolute path
+    /// that is private to the current user (created `0700` on Unix; on Windows pick a directory
+    /// under the user's profile), and EVERY process that rotates the same credential must use the
+    /// same directory, for example the app's per-user runtime or state directory. A durable (OS)
+    /// store refuses to rotate without it, because a process-local lock cannot exclude an
+    /// abort/rebegin in another process; memory and test backends do not need it.
+    pub fn rotation_lock_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.rotation_lock_dir = Some(dir.into());
         self
     }
 }
@@ -172,6 +187,7 @@ pub struct Store {
     mode: Interaction,
     timeout: Duration,
     guard: Option<(String, GuardMode)>,
+    rotation_lock_dir: Option<PathBuf>,
 }
 
 struct Denied(String);
@@ -221,7 +237,8 @@ impl Backend for Denied {
 /// Serializes read→mint→persist inside this process; `add_if_absent` covers other processes.
 static MINT_LOCK: Mutex<()> = Mutex::new(());
 
-/// One lock per credential target for whole rotation transactions (`rotation.rs`). The
+/// One process-local lock per credential target for whole rotation invocations (`rotation.rs`;
+/// the cross-process layer is a lock file beside it). The
 /// per-call [`TargetPermit`] below cannot span a rotation: it is released with each OS call,
 /// so an abort/rebegin could land between commit's pending read and its primary write and the
 /// stale commit would then overwrite the newer primary and delete the newer marker. Keyed like
@@ -347,40 +364,31 @@ impl Store {
     /// Resolve guards and the backend. Infallible: a tripped guard yields a memory or denying
     /// store, never the OS store.
     pub fn open(cfg: Config) -> Store {
-        // An env trip and a caller-forced guard are told apart: only the env trip is volatile
-        // input that a release build must not let select the memory store.
+        // Either an env trip or a caller-forced guard; in release neither may select the memory
+        // store (`effective_guard_mode`).
         let tripped = cfg
             .guard_envs
             .iter()
             .map(String::as_str)
             .chain(std::iter::once(UNIVERSAL_GUARD_ENV))
             .find(|n| env_tripped(n))
-            .map(|n| (n.to_string(), false))
-            .or_else(|| {
-                cfg.forced_guard
-                    .then(|| ("forced-by-caller".to_string(), true))
-            });
+            .map(str::to_string)
+            .or_else(|| cfg.forced_guard.then(|| "forced-by-caller".to_string()));
         let timeout = cfg.timeout.unwrap_or(match cfg.interaction {
             Interaction::NonInteractive => Duration::from_secs(5),
             Interaction::Interactive => Duration::from_secs(90),
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
-            Some((name, forced_by_caller)) => {
-                match effective_guard_mode(
-                    cfg.guard_mode,
-                    forced_by_caller,
-                    !cfg!(debug_assertions),
-                ) {
-                    GuardMode::Memory => (
-                        MemoryBackend::process_wide(),
-                        Some((name, GuardMode::Memory)),
-                    ),
-                    GuardMode::Deny => (
-                        Arc::new(Denied(name.clone())),
-                        Some((name, GuardMode::Deny)),
-                    ),
-                }
-            }
+            Some(name) => match effective_guard_mode(cfg.guard_mode, !cfg!(debug_assertions)) {
+                GuardMode::Memory => (
+                    MemoryBackend::process_wide(),
+                    Some((name, GuardMode::Memory)),
+                ),
+                GuardMode::Deny => (
+                    Arc::new(Denied(name.clone())),
+                    Some((name, GuardMode::Deny)),
+                ),
+            },
             None => (cfg.backend.unwrap_or_else(system_backend), None),
         };
         Store {
@@ -389,6 +397,7 @@ impl Store {
             mode: cfg.interaction,
             timeout,
             guard,
+            rotation_lock_dir: cfg.rotation_lock_dir,
         }
     }
 
@@ -422,6 +431,15 @@ impl Store {
         }
     }
 
+    /// Same store, with the cross-process rotation lock directory set (see
+    /// [`Config::rotation_lock_dir`]).
+    pub fn with_rotation_lock_dir(&self, dir: impl Into<PathBuf>) -> Store {
+        Store {
+            rotation_lock_dir: Some(dir.into()),
+            ..self.clone()
+        }
+    }
+
     /// Same backend and policy, another namespace (legacy services, `SecretRef.service`).
     pub fn with_namespace(&self, ns: Namespace) -> Store {
         Store { ns, ..self.clone() }
@@ -440,20 +458,46 @@ impl Store {
         }
     }
 
-    /// One bound store plus its shared whole-rotation lock for `account`
-    /// (see `ROTATION_LOCKS`). The store is bound once, here, through the same
-    /// [`bind_mutation`] decision mutations use, and the account is named by the backend's
+    /// One bound store plus its whole-rotation lock for `account`
+    /// (see `ROTATION_LOCKS` and `rotation.rs`). The store is bound once, here, through the
+    /// same [`bind_mutation`] decision mutations use, and the account is named by the backend's
     /// native credential identity, so `begin`/`commit`/`abort` on any `Store` over the same
-    /// native credential serialise against each other. The caller locks the returned mutex
-    /// and uses the returned store for the whole invocation, including reads and cleanup.
-    pub(crate) fn rotation_store(&self, account: &str) -> Result<(Store, Arc<Mutex<()>>)> {
+    /// native credential serialise against each other: in this process through the shared
+    /// mutex, and across processes through the lock file named by the same identity in
+    /// `rotation_lock_dir`. A durable backend with no lock directory is refused (fail closed):
+    /// nothing would exclude another process. The caller takes the lock with
+    /// [`RotationLock::acquire`] and uses the returned store for the whole invocation, including
+    /// reads and cleanup.
+    pub(crate) fn rotation_store(&self, account: &str) -> Result<(Store, RotationLock)> {
         check_target(&self.ns, account)?;
         let (backend, store) = bind_mutation(&self.backend)?;
-        let key = (store, backend.credential_identity(&self.ns, account)?);
+        let credential = backend.credential_identity(&self.ns, account)?;
+        let file = match &self.rotation_lock_dir {
+            Some(dir) => {
+                if !dir.is_absolute() {
+                    return Err(Error::Invalid {
+                        what: "rotation lock directory",
+                        reason: "must be an absolute path".into(),
+                    });
+                }
+                // Named by the backend's own store identity (not the per-allocation fallback
+                // used for the in-process table), so every process derives the same file.
+                let identity = backend.exclusion_identity().unwrap_or_default();
+                Some(dir.join(lock_file_name(backend.name(), &identity, &credential)))
+            }
+            None if backend.durable() => {
+                return Err(Error::Unavailable(
+                    "rotation on a durable credential store needs Config::rotation_lock_dir, a lock directory shared by every process"
+                        .into(),
+                ));
+            }
+            None => None,
+        };
+        let key = (store, credential);
         let mut locks = ROTATION_LOCKS
             .lock()
             .map_err(|_| Error::Unavailable("rotation lock registry poisoned".into()))?;
-        let lock = locks
+        let local = locks
             .entry(key)
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
@@ -462,7 +506,7 @@ impl Store {
                 backend,
                 ..self.clone()
             },
-            lock,
+            RotationLock::new(local, file, self.timeout),
         ))
     }
 
@@ -668,28 +712,20 @@ mod base64_tests {
     use super::{base64_standard, effective_guard_mode, GuardMode, Store};
 
     #[test]
-    fn env_guard_cannot_select_memory_in_release_but_deny_is_preserved() {
-        // Env-tripped (not forced by caller code): release always denies.
+    fn release_never_selects_memory_whoever_asks_and_debug_keeps_the_configured_mode() {
+        // Release: the memory test capability is excluded; a tripped guard denies.
         assert_eq!(
-            effective_guard_mode(GuardMode::Memory, false, true),
+            effective_guard_mode(GuardMode::Memory, true),
             GuardMode::Deny
         );
-        assert_eq!(
-            effective_guard_mode(GuardMode::Deny, false, true),
-            GuardMode::Deny
-        );
+        assert_eq!(effective_guard_mode(GuardMode::Deny, true), GuardMode::Deny);
         // Debug/test builds keep the configured test capability.
         assert_eq!(
-            effective_guard_mode(GuardMode::Memory, false, false),
-            GuardMode::Memory
-        );
-        // A guard forced from caller code is a compiled-in decision, not env input.
-        assert_eq!(
-            effective_guard_mode(GuardMode::Memory, true, true),
+            effective_guard_mode(GuardMode::Memory, false),
             GuardMode::Memory
         );
         assert_eq!(
-            effective_guard_mode(GuardMode::Deny, true, true),
+            effective_guard_mode(GuardMode::Deny, false),
             GuardMode::Deny
         );
     }

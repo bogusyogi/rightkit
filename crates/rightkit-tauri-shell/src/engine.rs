@@ -166,6 +166,8 @@ pub struct EngineHost {
 }
 
 impl EngineHost {
+    /// A host with the default policy, which denies every method; use [`EngineHost::with_policy`]
+    /// to permit calls.
     pub fn new(spec: EngineSpec) -> Self {
         Self::with_policy(spec, EnginePolicy::default())
     }
@@ -385,8 +387,14 @@ mod policy_tests {
     use super::*;
 
     #[test]
-    fn unrestricted_default_and_exact_allowlist_with_empty_deny_all() {
-        assert!(EnginePolicy::default().check_method("anything").is_ok());
+    fn deny_all_default_and_exact_allowlist_with_empty_deny_all() {
+        assert_eq!(
+            EnginePolicy::default()
+                .check_method("anything")
+                .unwrap_err()
+                .code,
+            "method_not_allowed"
+        );
         let policy = EnginePolicy::default().allow_methods(["project.show"]);
         assert!(policy.check_method("project.show").is_ok());
         for method in ["project", "project.show.extra", "PROJECT.SHOW"] {

@@ -426,19 +426,6 @@ impl DbOptions {
 
     fn open(&self, kind: ConnectionKind) -> Result<Connection> {
         let path = self.effective_path();
-        // Sampled absence is no creation receipt: only an exclusively created file whose
-        // identity is captured here may later be removed by the fallback cleanup below.
-        let created = if self.per_host_fallback && self.owner_only && path == self.path {
-            rightkit_fs::create_private_new(&path)
-                .ok()
-                .and_then(|file| {
-                    let key = rightkit_fs::FileKey::of_file(&file, &path).ok();
-                    drop(file);
-                    key
-                })
-        } else {
-            None
-        };
         // The per-host sibling is always rollback-journaled, whoever opens it.
         let forced = (path != self.path).then(|| match effective_journal(self) {
             mode if mode.is_rollback() => mode,
@@ -446,13 +433,14 @@ impl DbOptions {
         });
         let (conn, journal) = self.open_at(&path, kind, forced)?;
         // WAL refused at runtime: with per-host fallback, the rollback journal belongs on the
-        // per-host sibling. Only the exclusively created main file may go away, and only
-        // while it is still that file with no sidecars present; main identity never
-        // authorizes removing a `-wal`/`-shm`/`-journal`, which may belong to another
-        // connection. An uncertain family is retained whole.
+        // per-host sibling. The main file this open touched stays where it is, with every
+        // `-wal`/`-shm`/`-journal` beside it. Deleting it is never safe: file identity proves
+        // origin, not exclusive lifetime, and another connection may have committed
+        // rollback-journal data into that same file (and closed) before this point, so any
+        // check-then-remove can destroy a committed write. A created-empty main is harmless
+        // (it never holds data this open wrote, and a later open falls back again).
         if journal == Opened::FellBack && self.per_host_fallback && path == self.path {
             drop(conn);
-            remove_created_main_if_still_owned(&path, created);
             let sibling = per_host_path(&self.path);
             return Ok(self
                 .open_at(&sibling, kind, Some(JournalSelect::Truncate))?
@@ -537,26 +525,6 @@ pub fn open_existing_writer(path: impl AsRef<Path>) -> Result<Connection> {
 /// Default-options private in-memory database.
 pub fn open_in_memory() -> Result<Connection> {
     DbOptions::new(":memory:").open_in_memory()
-}
-
-/// Removes `path` only when `created` is the identity captured at its exclusive creation,
-/// the file at `path` still has that identity, and no sidecar is present. Anything else
-/// (no receipt, identity changed or unavailable, any `-wal`/`-shm`/`-journal` present)
-/// retains the whole family: it may belong to a concurrent creator or connection.
-fn remove_created_main_if_still_owned(path: &Path, created: Option<rightkit_fs::FileKey>) {
-    let Some(want) = created else {
-        return;
-    };
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut name = OsString::from(path.as_os_str());
-        name.push(suffix);
-        if std::fs::symlink_metadata(PathBuf::from(name)).is_ok() {
-            return;
-        }
-    }
-    if rightkit_fs::FileKey::of_path(path).ok() == Some(want) {
-        let _ = std::fs::remove_file(path);
-    }
 }
 
 fn harden_sidecars(db: &Path) -> Result<()> {

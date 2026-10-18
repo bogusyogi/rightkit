@@ -458,7 +458,8 @@ pub fn wait_process_group_empty(pgid: NonZeroU32, timeout: Duration) -> io::Resu
     #[cfg(not(unix))]
     {
         let _ = timeout;
-        return process_group_exists(pgid);
+        // `Ok(true)` here means "empty", the inverse of `process_group_exists`.
+        process_group_exists(pgid).map(|exists| !exists)
     }
     #[cfg(unix)]
     {

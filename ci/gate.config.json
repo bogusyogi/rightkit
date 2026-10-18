@@ -111,6 +111,13 @@
       ]
     },
     "rightkit-tauri-shell": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "engine"
+        ]
+      ],
       "checkFeatureSets": [
         [
           "--features",

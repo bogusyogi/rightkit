@@ -20,11 +20,13 @@ interface Generation {
   // A load that finished while a write was pending is not applied (it would overwrite the optimistic value with
   // the state from before the write); it is repeated once the writes have drained.
   reloadSkipped: boolean;
+  // Sequence of the newest load started on this generation; an older load that settles later is discarded.
+  loadSeq: number;
   reload: () => Promise<unknown>;
 }
 
 function newGeneration(backend: SettingsBackend, revision: number | undefined): Generation {
-  return { backend, revision, chain: Promise.resolve(), pending: 0, reloadSkipped: false, reload: () => Promise.resolve() };
+  return { backend, revision, chain: Promise.resolve(), pending: 0, reloadSkipped: false, loadSeq: 0, reload: () => Promise.resolve() };
 }
 
 /**
@@ -50,13 +52,17 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
     alive.current = true;
     const g = gen;
     // Per-run flag: `alive` is shared, so a StrictMode/backend re-run flips it back to true before the first run's
-    // subscribe promise settles, which would keep (and leak) the first subscription.
+    // subscribe promise settles, which would keep (and leak) the first subscription. Every load, load failure and
+    // subscription callback of this run checks it, and a load also must still be the newest one of its generation,
+    // so a cancelled or superseded load (or its error) can never overwrite a newer result.
     let cancelled = false;
     let off: (() => void) | undefined;
-    const reload = () =>
-      g.backend.load().then(
+    const reload = () => {
+      const seq = ++g.loadSeq;
+      const live = () => !cancelled && seq === g.loadSeq && isCurrent(g);
+      return g.backend.load().then(
         (snap) => {
-          if (!isCurrent(g)) return;
+          if (!live()) return;
           if (g.pending > 0) {
             g.reloadSkipped = true;
             setLoaded(true);
@@ -67,17 +73,18 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
           setLoaded(true);
         },
         (e) => {
-          if (isCurrent(g)) {
+          if (live()) {
             setError(message(e));
             setLoaded(true);
           }
         },
       );
+    };
     g.reload = reload;
     setSaving(g.pending > 0);
     void reload();
     void g.backend.subscribe?.(() => {
-      if (isCurrent(g) && g.pending === 0) void reload();
+      if (!cancelled && isCurrent(g) && g.pending === 0) void reload();
     }).then((u) => {
       if (cancelled) u();
       else off = u;

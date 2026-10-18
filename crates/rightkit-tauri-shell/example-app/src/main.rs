@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use rightkit_child_process::OwnedCommand;
 use rightkit_qa::embedded::Control;
-use rightkit_tauri_shell::engine::EngineSpec;
+use rightkit_tauri_shell::engine::{EnginePolicy, EngineSpec};
 use rightkit_tauri_shell::{
     ExternalOpener, MenuEntry, MenuGroup, MenuSpec, RecoverySpec, Shell, StreamPolicy, TraySpec,
     WatchdogConfig,
@@ -118,12 +118,15 @@ fn main() {
         }))
         .stream_protocol("rk-stream", StreamPolicy::default())
         .recovery(RecoverySpec::documents())
-        .engine(EngineSpec::new(|| {
-            let mut c = OwnedCommand::new(std::env::current_exe().expect("exe"));
-            c.command_mut().arg("--engine");
-            c.windows_hide();
-            c
-        }));
+        .engine_with_policy(
+            EngineSpec::new(|| {
+                let mut c = OwnedCommand::new(std::env::current_exe().expect("exe"));
+                c.command_mut().arg("--engine");
+                c.windows_hide();
+                c
+            }),
+            EnginePolicy::default().allow_methods(["echo", "stream"]),
+        );
     if let Ok(ms) = std::env::var("RIGHTKIT_EXAMPLE_IDLE_MS") {
         if let Ok(ms) = ms.parse::<u64>() {
             shell = shell.webview_idle(Duration::from_millis(ms));

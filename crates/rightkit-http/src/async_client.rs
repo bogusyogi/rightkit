@@ -23,9 +23,9 @@ use tokio::time::{sleep, timeout, Sleep};
 
 use crate::cancel::CancelToken;
 use crate::client::{
-    header_of, observe_attempt_outcome, redact_str, redaction_values_for, scrub_error,
-    status_error, AttemptEvent, AttemptOutcome, AttemptOutcomeObserver, ClientConfig, Method,
-    Request, Response, RetryEvent,
+    attempt_delivery, header_of, observe_attempt_outcome, redact_str, redaction_values_for,
+    scrub_error, status_error, AttemptDelivery, AttemptEvent, AttemptOutcome,
+    AttemptOutcomeObserver, ClientConfig, Method, Request, Response, RetryEvent,
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
 use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy};
@@ -499,7 +499,8 @@ impl AsyncClient {
                 Err(err) => {
                     let retryable = match &err {
                         HttpError::Transport { connect_phase, .. } => {
-                            *connect_phase && identity.as_ref().is_some_and(|(_, _, hop)| *hop == 0)
+                            *connect_phase
+                                && identity.as_ref().is_some_and(|(_, _, hop, _)| *hop == 0)
                                 || req.method.is_idempotent()
                         }
                         HttpError::Timeout { .. } => req.method.is_idempotent(),
@@ -558,7 +559,7 @@ impl AsyncClient {
         total: Option<Duration>,
         secrets: &[String],
         attempt: u32,
-        identity: &mut Option<(String, Method, u32)>,
+        identity: &mut Option<(String, Method, u32, Option<AttemptDelivery>)>,
     ) -> Result<Raw, HttpError> {
         let started = Instant::now();
         let overall = total.map(|t| started + t);
@@ -601,13 +602,21 @@ impl AsyncClient {
                     Some(left)
                 }
             };
-            *identity = Some((raw_url.clone(), method, hops));
+            *identity = Some((raw_url.clone(), method, hops, None));
             let raw = match self
                 .once_hop(method, &url, &raw_url, &headers, &body, remaining, hops > 0)
                 .await
             {
                 Ok(raw) => raw,
-                Err(e) if hops > 0 => return Err(e.into_redirect_phase()),
+                Err(e) if hops > 0 => {
+                    // The hop's own delivery is read before the error is relabelled as a
+                    // redirect-phase failure, which clears `connect_phase` so the chain
+                    // stays unsafe to replay. The observation reports the hop truthfully.
+                    if let Some(id) = identity.as_mut() {
+                        id.3 = Some(attempt_delivery(&e));
+                    }
+                    return Err(e.into_redirect_phase());
+                }
                 Err(e) => return Err(e),
             };
             if self.config.max_redirects == 0 || !redirect::is_redirect_status(raw.status) {

@@ -2,7 +2,9 @@
 
 ## 0.2.2 — unpublished staging
 
+- Changed (M11): release builds never select the volatile memory store. A tripped guard is `Deny` in release whether the environment or `Config::guard_when` asked for `Memory`; debug/test builds keep the configured mode.
 - Adds pinned key rotation through `Store::pinned` and the credentials exec path.
+- Fixes (adversarial review R4, P1): rotation was serialised per process only, so an abort/rebegin/commit in another process could let a stale commit overwrite a newer primary. `begin`/`commit`/`abort` now also hold a per-credential lock file (`Config::rotation_lock_dir`, `Store::with_rotation_lock_dir`) across their whole read-write-remove sequence, bounded by the store timeout (`Error::InProgress`); a durable (OS) store with no lock directory now refuses to rotate (`Error::Unavailable`). Adds `Store::commit_rotation_of` and `Store::abort_rotation_of`, which act only while the caller's own new value is still the pending one: a stale commit is refused with `Error::Invalid { what: "pending rotation", .. }` and a newer primary or marker is never touched. Additive API; behaviour change for durable stores that rotate without a lock directory.
 
 ## 0.2.1 (2026-10-17)
 

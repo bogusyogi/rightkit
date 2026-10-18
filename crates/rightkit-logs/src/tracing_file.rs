@@ -9,7 +9,7 @@
 use crate::{
     collect_diagnostics, now_ms, BundleMetadata, CollectionPolicy, DiagnosticsBundle, LogSource,
 };
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -443,24 +443,78 @@ impl DailyJsonlWriter {
                 }
             }
         }
-        match OpenOptions::new().write(true).open(self.dir.join(&active)) {
-            Ok(file) => {
-                if let Err(error) = file.set_len(0) {
+        // Truncate only a file this writer could open privately: the private
+        // open refuses a symlink or non-regular file at the final component,
+        // so a replaced link never reaches `set_len`. A missing file is
+        // created empty and owner-only, which the reopen below needs anyway.
+        let active_path = self.dir.join(&active);
+        match rightkit_fs::open_private_append(&active_path) {
+            Ok(held) => {
+                if let Err(error) = truncate_verified(&held, &active_path) {
                     if outcome.is_ok() {
                         outcome = Err(error);
                     }
                 }
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => {
                 if outcome.is_ok() {
-                    outcome = Err(error);
+                    outcome = Err(error.into());
                 }
             }
         }
         // Reopen even after a partial failure, so later lines still land.
         self.refresh()?;
         outcome
+    }
+}
+
+/// Truncate the active daily file through a handle that is proven to be the
+/// regular file `held` opened privately, never through a pathname that could
+/// have been swapped for a link since.
+///
+/// Unix: `held` is an `O_NOFOLLOW` append descriptor (a write descriptor), so
+/// `ftruncate` acts on that exact inode. Windows: an append-only handle has no
+/// `FILE_WRITE_DATA`, so a second handle is opened with
+/// `FILE_FLAG_OPEN_REPARSE_POINT` (a link is opened itself, never its target),
+/// refused when it is a reparse point or not a regular file, and refused unless
+/// its volume and file index equal `held`'s, before `set_len(0)`.
+fn truncate_verified(held: &File, path: &Path) -> io::Result<()> {
+    if !held.metadata()?.is_file() {
+        return Err(io::Error::other(format!(
+            "tracing log {} is not a regular file",
+            path.display()
+        )));
+    }
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        let writer = OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let meta = writer.metadata()?;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 || !meta.is_file() {
+            return Err(io::Error::other(format!(
+                "tracing log {} is a reparse point or not a regular file",
+                path.display()
+            )));
+        }
+        if rightkit_fs::FileKey::of_file(&writer, path)?
+            != rightkit_fs::FileKey::of_file(held, path)?
+        {
+            return Err(io::Error::other(format!(
+                "tracing log {} changed identity during clear",
+                path.display()
+            )));
+        }
+        writer.set_len(0)
+    }
+    #[cfg(not(windows))]
+    {
+        held.set_len(0)
     }
 }
 

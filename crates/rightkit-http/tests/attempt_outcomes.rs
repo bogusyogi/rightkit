@@ -377,6 +377,68 @@ fn zero_send_validation_produces_no_transport_outcome() {
     assert!(seen.lock().unwrap().is_empty());
 }
 
+fn assert_redirect_connect_refusal_is_hop_local(seen: &[AttemptOutcome], server: &MockServer) {
+    // The first hop was answered, so the original POST was delivered exactly once.
+    assert_eq!(server.request_count(), 1);
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(seen[0].redirect_hop, 0);
+    assert_eq!(seen[0].method, Method::Post);
+    assert_eq!(seen[0].status, Some(303));
+    assert_eq!(seen[0].delivery, AttemptDelivery::Responded);
+    // The refused connect on hop 1 is truthfully NotSent for that hop alone.
+    assert_eq!(seen[1].redirect_hop, 1);
+    assert_eq!(seen[1].method, Method::Get);
+    assert_eq!(seen[1].status, None);
+    assert_eq!(seen[1].error_phase, Some(Phase::Redirect));
+    assert_eq!(seen[1].delivery, AttemptDelivery::NotSent, "{:?}", seen[1]);
+    // Still not retried: the chain may have delivered the original POST.
+    assert_eq!(seen[1].attempt, 1);
+    assert_eq!(seen[1].next_delay, None);
+}
+
+#[test]
+fn redirect_hop_connect_refusal_is_hop_local_not_sent_but_chain_not_replayed() {
+    let (server, config, seen) = redirect_fixture(&closed_port_url());
+    let err = observed_client(config, &seen)
+        .send(&Request::post(server.url("/charge")))
+        .unwrap_err();
+    // The returned error keeps the conservative chain verdict: not a pure connect failure.
+    match err {
+        HttpError::Transport {
+            connect_phase,
+            phase,
+            ..
+        } => {
+            assert!(!connect_phase);
+            assert_eq!(phase, Phase::Redirect);
+        }
+        other => panic!("expected a redirect-phase transport error, got {other:?}"),
+    }
+    assert_redirect_connect_refusal_is_hop_local(&seen.lock().unwrap(), &server);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_redirect_hop_connect_refusal_is_hop_local_not_sent_but_chain_not_replayed() {
+    let (server, config, seen) = redirect_fixture(&closed_port_url());
+    let err = observed_async_client(config, &seen)
+        .send(&Request::post(server.url("/charge")))
+        .await
+        .unwrap_err();
+    match err {
+        HttpError::Transport {
+            connect_phase,
+            phase,
+            ..
+        } => {
+            assert!(!connect_phase);
+            assert_eq!(phase, Phase::Redirect);
+        }
+        other => panic!("expected a redirect-phase transport error, got {other:?}"),
+    }
+    assert_redirect_connect_refusal_is_hop_local(&seen.lock().unwrap(), &server);
+}
+
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn async_redirect_refusals_preserve_post_response() {

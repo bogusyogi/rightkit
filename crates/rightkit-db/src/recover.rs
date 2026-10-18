@@ -262,6 +262,8 @@ pub(crate) fn unfinished_quarantine(db: &Path) -> Option<PathBuf> {
 /// Quarantine with the steps journaled: the recovery marker `<db>.quarantine-journal` is written
 /// before any file moves, removed once the quarantine finished or was fully undone, and kept when
 /// a partial move could not be undone.
+// Crate-private: the failure carries the partial-move state the caller reports, so it is not boxed.
+#[allow(clippy::result_large_err)]
 pub(crate) fn quarantine_database_journaled(
     db: &Path,
     stamp: QuarantineStamp,
@@ -292,6 +294,7 @@ struct Moved {
     to: PathBuf,
 }
 
+#[allow(clippy::result_large_err)]
 fn quarantine_steps(
     db: &Path,
     options: &QuarantineOptions,

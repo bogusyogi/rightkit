@@ -267,3 +267,113 @@ fn without_sidecars_there_is_no_backup_to_refresh() {
     bump(&store, 5).unwrap();
     assert_eq!(store.get().n, 5);
 }
+
+/// The settings file written owner-only, so the test does not depend on the temp directory's mode.
+#[cfg(unix)]
+fn write_private_source(path: &Path, bytes: &[u8]) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
+    file.write_all(bytes).unwrap();
+}
+
+#[cfg(not(unix))]
+fn write_private_source(path: &Path, bytes: &[u8]) {
+    fs::write(path, bytes).unwrap();
+}
+
+/// Owner-only through rightkit-fs: mode `0o600`-style bits on Unix, the protected single-ACE
+/// check on Windows (`is_owner_only` rejects an ACE for any other principal).
+fn assert_owner_only(path: &Path) {
+    rightkit_fs::private::verify_owner_only(path)
+        .unwrap_or_else(|error| panic!("{} is not owner-only: {error}", path.display()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "{}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn a_fixed_name_corrupt_copy_is_owner_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    let copy = dir.path().join("s.json.corrupt");
+    write_private_source(&path, b"{ damaged");
+
+    Store::<Cfg>::open_path(
+        &path,
+        fixed_name()
+            .on_corrupt(OnCorrupt::Overwrite)
+            .keep_corrupt_copy(true),
+    )
+    .unwrap();
+
+    assert_eq!(fs::read(&copy).unwrap(), b"{ damaged");
+    assert_owner_only(&copy);
+    assert_eq!(
+        names(dir.path()),
+        vec!["s.json", "s.json.corrupt"],
+        "no staging file is left behind"
+    );
+}
+
+#[test]
+fn a_fixed_name_corrupt_copy_replaces_a_wider_previous_copy_with_an_owner_only_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    let copy = dir.path().join("s.json.corrupt");
+    write_private_source(&path, b"{ damaged");
+    fs::write(&copy, b"older evidence").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&copy, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    Store::<Cfg>::open_path(
+        &path,
+        fixed_name()
+            .on_corrupt(OnCorrupt::Overwrite)
+            .keep_corrupt_copy(true),
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read(&copy).unwrap(),
+        b"{ damaged",
+        "the fixed name keeps its replace-the-previous behaviour"
+    );
+    assert_owner_only(&copy);
+}
+
+#[test]
+fn the_backup_is_owner_only_and_stays_so_when_refreshed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    let bak = dir.path().join("s.json.bak");
+    let store = Store::<Cfg>::open_path(&path, StoreOptions::new(schema())).unwrap();
+    bump(&store, 1).unwrap();
+    bump(&store, 2).unwrap();
+    assert!(bak.is_file());
+    assert_owner_only(&bak);
+
+    // A wider backup left by something else is replaced by an owner-only one on the next write.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&bak, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    bump(&store, 3).unwrap();
+    assert_owner_only(&bak);
+}

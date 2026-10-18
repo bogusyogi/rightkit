@@ -95,7 +95,9 @@ pub enum AttemptDelivery {
 /// credential-named values (including `Set-Cookie` and `Authorization`) replaced and
 /// recorded secret values scrubbed, `error` text is scrubbed the same way, and no body
 /// ever appears. `attempt` groups redirect hops within one retry. `delivery` describes
-/// only this hop: a later `NotSent` never makes an earlier responded POST safe to replay.
+/// only this hop (a refused connect on a redirect hop is `NotSent` for that hop): a later
+/// `NotSent` never makes an earlier responded POST safe to replay, and the call's error and
+/// retry decision still treat the whole redirect chain as possibly delivered.
 /// Redirect responses report before target validation; their `next_delay` is `None`.
 /// Only the final hop can carry a retry delay. A pre-send validation or policy refusal
 /// reports no outcome; earlier hop outcomes remain available.
@@ -1872,7 +1874,7 @@ impl Client {
                         let retryable = match &err {
                             HttpError::Transport { connect_phase, .. } => {
                                 *connect_phase
-                                    && identity.as_ref().is_some_and(|(_, _, hop)| *hop == 0)
+                                    && identity.as_ref().is_some_and(|(_, _, hop, _)| *hop == 0)
                                     || req.method.is_idempotent()
                             }
                             HttpError::Timeout { .. } => req.method.is_idempotent(),
@@ -1930,7 +1932,7 @@ impl Client {
         total: Option<Duration>,
         secrets: &[String],
         attempt: u32,
-        identity: &mut Option<(String, Method, u32)>,
+        identity: &mut Option<(String, Method, u32, Option<AttemptDelivery>)>,
     ) -> Result<Raw, HttpError> {
         let started = Instant::now();
         let mut method = req.method;
@@ -1968,10 +1970,18 @@ impl Client {
                     Some(left)
                 }
             };
-            *identity = Some((url.clone(), method, hops));
+            *identity = Some((url.clone(), method, hops, None));
             let raw = match self.once_hop(method, &url, &headers, &body, remaining, hops > 0) {
                 Ok(raw) => raw,
-                Err(e) if hops > 0 => return Err(e.into_redirect_phase()),
+                Err(e) if hops > 0 => {
+                    // The hop's own delivery is read before the error is relabelled as a
+                    // redirect-phase failure, which clears `connect_phase` so the chain
+                    // stays unsafe to replay. The observation reports the hop truthfully.
+                    if let Some(id) = identity.as_mut() {
+                        id.3 = Some(attempt_delivery(&e));
+                    }
+                    return Err(e.into_redirect_phase());
+                }
                 Err(e) => return Err(e),
             };
             if self.config.max_redirects == 0 || !redirect::is_redirect_status(raw.status) {
@@ -2252,7 +2262,7 @@ pub(crate) fn redaction_values_for(config: &ClientConfig, req: &Request) -> Vec<
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn observe_attempt_outcome(
     observer: &Option<AttemptOutcomeObserver>,
-    identity: &Option<(String, Method, u32)>,
+    identity: &Option<(String, Method, u32, Option<AttemptDelivery>)>,
     values: &[String],
     attempt: u32,
     status: Option<u16>,
@@ -2260,7 +2270,7 @@ pub(crate) fn observe_attempt_outcome(
     error: Option<&HttpError>,
     next_delay: Option<Duration>,
 ) {
-    let Some((url, method, redirect_hop)) = identity else {
+    let Some((url, method, redirect_hop, hop_delivery)) = identity else {
         return;
     };
     if matches!(
@@ -2290,7 +2300,9 @@ pub(crate) fn observe_attempt_outcome(
         error_phase: error.and_then(HttpError::phase),
         error: error.map(|e| redact_str(&redact_urls_in_text(&e.to_string()), values)),
         delivery: match error {
-            Some(e) => attempt_delivery(e),
+            // A redirect hop's own phase (read before the chain's error is relabelled) wins
+            // over the relabelled error, which can only say "may have been delivered".
+            Some(e) => hop_delivery.unwrap_or_else(|| attempt_delivery(e)),
             None => AttemptDelivery::Responded,
         },
         next_delay,

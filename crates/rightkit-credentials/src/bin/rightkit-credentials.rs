@@ -114,8 +114,8 @@ fn exec(args: &[String]) -> rightkit_credentials::Result<i32> {
     let mut ns = None;
     let mut account = None;
     let mut env = None;
-    let mut pairs = options.chunks_exact(2);
-    for pair in &mut pairs {
+    let (pairs, remainder) = options.as_chunks::<2>();
+    for pair in pairs {
         let slot = match pair[0].as_str() {
             "--namespace" => &mut ns,
             "--account" => &mut account,
@@ -131,7 +131,7 @@ fn exec(args: &[String]) -> rightkit_credentials::Result<i32> {
             return Err(invalid("option", "duplicate exec option"));
         }
     }
-    if !pairs.remainder().is_empty() {
+    if !remainder.is_empty() {
         return Err(invalid("option", "missing exec option value"));
     }
     let required = |value: Option<String>, name| value.ok_or_else(|| invalid(name, "required"));

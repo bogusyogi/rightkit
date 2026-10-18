@@ -190,7 +190,7 @@ impl Outbox {
     pub fn retire_dedupe(&self, dedupe_key: &str) -> io::Result<bool> {
         let mut state = self.lock();
         let _guard = self.acquire_ledger_lock()?;
-        self.reload_locked(&mut state);
+        self.reload_locked(&mut state)?;
         if !state.ledger.dedupe_receipts.contains_key(dedupe_key) {
             return Ok(false);
         }
@@ -228,10 +228,8 @@ impl Outbox {
         let _guard = self
             .acquire_ledger_lock()
             .map_err(|e| EnqueueError::Storage(e.to_string()))?;
-        self.reload_locked(&mut state);
-        if let Some(error) = &state.load_error {
-            return Err(EnqueueError::Storage(error.clone()));
-        }
+        self.reload_locked(&mut state)
+            .map_err(|e| EnqueueError::Storage(e.to_string()))?;
         if let Some(key) = dedupe_key {
             if let Some(&id) = state.ledger.dedupe_receipts.get(key) {
                 return Ok(id);
@@ -303,7 +301,7 @@ impl Outbox {
     pub fn acknowledge(&self, ids: &[u64]) -> io::Result<()> {
         let mut state = self.lock();
         let _guard = self.acquire_ledger_lock()?;
-        self.reload_locked(&mut state);
+        self.reload_locked(&mut state)?;
         let mut candidate = state.ledger.clone();
         candidate.events.retain(|event| !ids.contains(&event.id));
         self.persist(&mut state, candidate)
@@ -314,7 +312,7 @@ impl Outbox {
     pub fn record_failure(&self, ids: &[u64], not_before_ms: i64) -> io::Result<()> {
         let mut state = self.lock();
         let _guard = self.acquire_ledger_lock()?;
-        self.reload_locked(&mut state);
+        self.reload_locked(&mut state)?;
         let mut candidate = state.ledger.clone();
         for event in candidate.events.iter_mut().filter(|e| ids.contains(&e.id)) {
             event.upload_attempts = event.upload_attempts.saturating_add(1).min(8);
@@ -387,14 +385,24 @@ impl Outbox {
         Ok(lock)
     }
 
-    /// Refresh `state` from disk while the ledger lock is held. A refreshed
-    /// load error keeps the last good in-memory state (and its absent error),
-    /// so a transient read failure cannot erase queued events; the caller's
-    /// persist then surfaces any real storage failure.
-    fn reload_locked(&self, state: &mut State) {
+    /// Refresh `state` from disk while the ledger lock is held. A failed
+    /// reload returns the error and the caller must abort its mutation: the
+    /// cached ledger may be stale (another process may have accepted events
+    /// or dedupe receipts since), and persisting it would atomically replace
+    /// the newer ledger. The cached events stay readable, and the error is
+    /// recorded in `state.load_error` for [`Outbox::status`]; the next
+    /// successful reload replaces the whole state and clears it.
+    fn reload_locked(&self, state: &mut State) -> io::Result<()> {
         let refreshed = load(&self.path);
-        if refreshed.load_error.is_none() {
-            *state = refreshed;
+        match refreshed.load_error {
+            None => {
+                *state = refreshed;
+                Ok(())
+            }
+            Some(error) => {
+                state.load_error = Some(error.clone());
+                Err(io::Error::other(error))
+            }
         }
     }
 

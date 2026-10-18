@@ -1929,6 +1929,263 @@ fn commit_rotation_holds_the_rotation_lock_until_the_marker_is_removed() {
     );
 }
 
+// ---- R4: cross-process rotation exclusion and the stale-commit fixture ----
+
+/// One durable-looking store shared by several `Store`s, as two processes share an OS store.
+struct SharedDurable(MemoryBackend);
+
+impl Backend for SharedDurable {
+    fn name(&self) -> &'static str {
+        "shared-durable-test"
+    }
+    fn exclusion_identity(&self) -> Option<String> {
+        Some("shared-durable-test".into())
+    }
+    fn durable(&self) -> bool {
+        true
+    }
+    fn credential_identity(
+        &self,
+        ns: &Namespace,
+        account: &str,
+    ) -> rightkit_credentials::Result<String> {
+        self.0.credential_identity(ns, account)
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<Option<Secret>> {
+        self.0.get(ns, account, mode)
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.0.exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<()> {
+        self.0.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.0.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<bool> {
+        self.0.delete(ns, account, mode)
+    }
+    fn delete_if_equals(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        expected: &Secret,
+        mode: Interaction,
+    ) -> rightkit_credentials::Result<ConditionalDelete> {
+        self.0.delete_if_equals(ns, account, expected, mode)
+    }
+}
+
+/// A separate `Store` over the shared durable store: one "process".
+fn process_over(backend: &Arc<SharedDurable>, ns: &Namespace, lock_dir: &std::path::Path) -> Store {
+    Store::open(
+        Config::new(ns.clone())
+            .backend(backend.clone())
+            .rotation_lock_dir(lock_dir),
+    )
+}
+
+fn is_superseded(result: rightkit_credentials::Result<bool>) -> bool {
+    matches!(
+        result,
+        Err(Error::Invalid {
+            what: "pending rotation",
+            ..
+        })
+    )
+}
+
+fn value_of(store: &Store, account: &str) -> Option<String> {
+    store
+        .get(account)
+        .unwrap()
+        .map(|s| s.expose_str().unwrap().to_string())
+}
+
+#[test]
+fn stale_commit_after_another_process_aborts_and_rebegins_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(SharedDurable(MemoryBackend::new()));
+    let ns = Namespace::new("dev.rightkit.secrets.test.rotation-stale-commit").unwrap();
+    let process_a = process_over(&backend, &ns, dir.path());
+    let process_b = process_over(&backend, &ns, dir.path());
+    process_a.set_str("db", "old").unwrap();
+    let new_a = Secret::from_string("new-a");
+    let new_b = Secret::from_string("new-b");
+
+    // A begins and starts re-keying its database with new-a.
+    assert!(process_a.begin_rotation("db", &new_a).unwrap());
+    // B finds A's marker, aborts it and begins its own rotation.
+    assert!(process_b.abort_rotation("db").unwrap());
+    assert!(process_b.begin_rotation("db", &new_b).unwrap());
+
+    // A's commit arrives while B's rotation is pending: refused, nothing moved.
+    assert!(is_superseded(process_a.commit_rotation_of("db", &new_a)));
+    assert_eq!(value_of(&process_a, "db").as_deref(), Some("old"));
+    assert_eq!(
+        process_b
+            .pending_rotation("db")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "new-b"
+    );
+
+    // B commits.
+    assert!(process_b.commit_rotation_of("db", &new_b).unwrap());
+    assert_eq!(value_of(&process_a, "db").as_deref(), Some("new-b"));
+    assert!(process_a.pending_rotation("db").unwrap().is_none());
+
+    // A's stale commit, now with nothing pending and B's value as primary: still refused.
+    assert!(is_superseded(process_a.commit_rotation_of("db", &new_a)));
+    assert_eq!(value_of(&process_a, "db").as_deref(), Some("new-b"));
+    assert!(process_a.pending_rotation("db").unwrap().is_none());
+
+    // B's own commit is idempotent: the primary already holds its value, nothing is pending.
+    assert!(!process_b.commit_rotation_of("db", &new_b).unwrap());
+    assert_eq!(value_of(&process_b, "db").as_deref(), Some("new-b"));
+}
+
+#[test]
+fn stale_commit_is_refused_when_the_rotation_was_only_aborted() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(SharedDurable(MemoryBackend::new()));
+    let ns = Namespace::new("dev.rightkit.secrets.test.rotation-stale-aborted").unwrap();
+    let process_a = process_over(&backend, &ns, dir.path());
+    let process_b = process_over(&backend, &ns, dir.path());
+    process_a.set_str("db", "old").unwrap();
+    let new_a = Secret::from_string("new-a");
+    assert!(process_a.begin_rotation("db", &new_a).unwrap());
+    assert!(process_b.abort_rotation("db").unwrap());
+    // Aborted, never replaced: a commit must not install a value whose marker is gone.
+    assert!(is_superseded(process_a.commit_rotation_of("db", &new_a)));
+    assert_eq!(value_of(&process_a, "db").as_deref(), Some("old"));
+}
+
+#[test]
+fn own_commit_of_and_abort_of_work_and_a_stale_abort_keeps_the_newer_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(SharedDurable(MemoryBackend::new()));
+    let ns = Namespace::new("dev.rightkit.secrets.test.rotation-of").unwrap();
+    let process_a = process_over(&backend, &ns, dir.path());
+    let process_b = process_over(&backend, &ns, dir.path());
+    process_a.set_str("db", "old").unwrap();
+    let new_a = Secret::from_string("new-a");
+    let new_a2 = Secret::from_string("new-a2");
+    let new_b = Secret::from_string("new-b");
+
+    // The ordinary path: begin, commit_of, and a second commit_of is a no-op.
+    assert!(process_a.begin_rotation("db", &new_a).unwrap());
+    assert!(process_a.commit_rotation_of("db", &new_a).unwrap());
+    assert!(!process_a.commit_rotation_of("db", &new_a).unwrap());
+    assert_eq!(value_of(&process_a, "db").as_deref(), Some("new-a"));
+
+    // A stale abort leaves the newer marker alone and reports nothing removed.
+    assert!(process_a.begin_rotation("db", &new_a2).unwrap());
+    assert!(process_b.abort_rotation("db").unwrap());
+    assert!(process_b.begin_rotation("db", &new_b).unwrap());
+    assert!(!process_a.abort_rotation_of("db", &new_a2).unwrap());
+    assert_eq!(
+        process_b
+            .pending_rotation("db")
+            .unwrap()
+            .unwrap()
+            .expose_str()
+            .unwrap(),
+        "new-b"
+    );
+    // The owner's abort removes its own marker.
+    assert!(process_b.abort_rotation_of("db", &new_b).unwrap());
+    assert!(process_b.pending_rotation("db").unwrap().is_none());
+    assert_eq!(value_of(&process_b, "db").as_deref(), Some("new-a"));
+}
+
+#[test]
+fn the_generation_check_holds_without_a_lock_directory_on_a_non_durable_store() {
+    let store = memory_store("dev.rightkit.secrets.test.rotation-stale-memory");
+    store.set_str("db", "old").unwrap();
+    let new_a = Secret::from_string("new-a");
+    let new_b = Secret::from_string("new-b");
+    assert!(store.begin_rotation("db", &new_a).unwrap());
+    assert!(store.abort_rotation("db").unwrap());
+    assert!(store.begin_rotation("db", &new_b).unwrap());
+    assert!(is_superseded(store.commit_rotation_of("db", &new_a)));
+    assert_eq!(value_of(&store, "db").as_deref(), Some("old"));
+    assert!(store.commit_rotation_of("db", &new_b).unwrap());
+    assert_eq!(value_of(&store, "db").as_deref(), Some("new-b"));
+}
+
+#[test]
+fn a_durable_store_refuses_to_rotate_without_a_lock_directory_but_still_reads() {
+    let backend = Arc::new(SharedDurable(MemoryBackend::new()));
+    let ns = Namespace::new("dev.rightkit.secrets.test.rotation-no-dir").unwrap();
+    let bare = Store::open(Config::new(ns.clone()).backend(backend.clone()));
+    bare.set_str("db", "old").unwrap();
+    let new = Secret::from_string("new");
+    assert!(matches!(
+        bare.begin_rotation("db", &new),
+        Err(Error::Unavailable(_))
+    ));
+    assert!(matches!(
+        bare.commit_rotation("db"),
+        Err(Error::Unavailable(_))
+    ));
+    assert!(matches!(
+        bare.commit_rotation_of("db", &new),
+        Err(Error::Unavailable(_))
+    ));
+    assert!(matches!(
+        bare.abort_rotation("db"),
+        Err(Error::Unavailable(_))
+    ));
+    assert!(bare.pending_rotation("db").unwrap().is_none());
+    // A relative directory would name a different lock in every working directory.
+    let relative = bare.with_rotation_lock_dir("relative-lock-dir");
+    assert!(matches!(
+        relative.begin_rotation("db", &new),
+        Err(Error::Invalid {
+            what: "rotation lock directory",
+            ..
+        })
+    ));
+    assert_eq!(value_of(&bare, "db").as_deref(), Some("old"));
+    // With a directory set after the fact, the same store rotates.
+    let dir = tempfile::tempdir().unwrap();
+    let with_dir = bare.with_rotation_lock_dir(dir.path());
+    assert!(with_dir.begin_rotation("db", &new).unwrap());
+    assert!(with_dir.commit_rotation_of("db", &new).unwrap());
+    assert_eq!(value_of(&with_dir, "db").as_deref(), Some("new"));
+}
+
 #[cfg(debug_assertions)]
 #[test]
 fn an_env_memory_guard_still_swaps_in_memory_in_debug_builds() {

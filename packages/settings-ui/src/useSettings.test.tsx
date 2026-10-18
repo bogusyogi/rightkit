@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useSettings } from "./useSettings.js";
 import type { SettingsBackend, SettingsSnapshot, SettingsValues } from "./types.js";
@@ -187,5 +188,108 @@ describe("useSettings backend switch (generation ownership)", () => {
     expect(aLoads).toBe(loadsBefore);
     expect(result.current.values).toEqual({ theme: "b" });
     expect(result.current.error).toBeNull();
+  });
+});
+
+/** A backend whose every load() is a deferred the test settles by hand, and whose subscription handlers are exposed. */
+function manualBackend() {
+  const loads: ReturnType<typeof deferred<SettingsSnapshot>>[] = [];
+  const handlers: (() => void)[] = [];
+  let unsubscribed = 0;
+  const backend: SettingsBackend = {
+    load: () => {
+      const d = deferred<SettingsSnapshot>();
+      loads.push(d);
+      return d.promise;
+    },
+    patch: () => Promise.reject(new Error("unused")),
+    subscribe: (handler) => {
+      handlers.push(() => handler([]));
+      return Promise.resolve(() => {
+        unsubscribed += 1;
+      });
+    },
+  };
+  return { backend, loads, handlers, unsubscribed: () => unsubscribed };
+}
+
+describe("useSettings load races (per-run cancellation and load order)", () => {
+  it("when an older load resolves after a newer one, the newer values stay", async () => {
+    const m = manualBackend();
+    const { result } = renderHook(() => useSettings(m.backend));
+    await act(async () => {});
+    act(() => m.handlers[0]!()); // another window changed a key: a second load starts while the first is open
+    expect(m.loads).toHaveLength(2);
+    await act(async () => {
+      m.loads[1]!.resolve({ values: { theme: "new" }, revision: 2 });
+    });
+    expect(result.current.values).toEqual({ theme: "new" });
+    expect(result.current.loaded).toBe(true);
+    await act(async () => {
+      m.loads[0]!.resolve({ values: { theme: "old" }, revision: 1 });
+    });
+    expect(result.current.values).toEqual({ theme: "new" });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("an older load that rejects after a newer one succeeded shows no error and keeps the newer value", async () => {
+    const m = manualBackend();
+    const { result } = renderHook(() => useSettings(m.backend));
+    await act(async () => {});
+    act(() => m.handlers[0]!());
+    await act(async () => {
+      m.loads[1]!.resolve({ values: { theme: "new" }, revision: 2 });
+    });
+    await act(async () => {
+      m.loads[0]!.reject(new Error("old load failed"));
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.values).toEqual({ theme: "new" });
+    expect(result.current.loaded).toBe(true);
+  });
+
+  it("StrictMode replay: the cancelled first run's load and error never overwrite the replayed run's load", async () => {
+    const m = manualBackend();
+    const { result } = renderHook(() => useSettings(m.backend), { wrapper: StrictMode });
+    await act(async () => {});
+    expect(m.loads).toHaveLength(2); // mount, cleanup, mount again: one load per effect run
+    await act(async () => {
+      m.loads[1]!.resolve({ values: { theme: "replay" }, revision: 2 });
+    });
+    expect(result.current.values).toEqual({ theme: "replay" });
+    await act(async () => {
+      m.loads[0]!.resolve({ values: { theme: "cancelled" }, revision: 1 });
+    });
+    expect(result.current.values).toEqual({ theme: "replay" });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("StrictMode replay: a cancelled first load that rejects first does not set an error or loaded", async () => {
+    const m = manualBackend();
+    const { result } = renderHook(() => useSettings(m.backend), { wrapper: StrictMode });
+    await act(async () => {});
+    await act(async () => {
+      m.loads[0]!.reject(new Error("first run failed"));
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.loaded).toBe(false);
+    await act(async () => {
+      m.loads[1]!.resolve({ values: { theme: "replay" }, revision: 2 });
+    });
+    expect(result.current.values).toEqual({ theme: "replay" });
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("StrictMode replay: the cancelled run's subscription is released and its handler starts no load", async () => {
+    const m = manualBackend();
+    renderHook(() => useSettings(m.backend), { wrapper: StrictMode });
+    await act(async () => {});
+    expect(m.handlers).toHaveLength(2);
+    expect(m.unsubscribed()).toBe(1);
+    act(() => m.handlers[0]!());
+    expect(m.loads).toHaveLength(2);
+    act(() => m.handlers[1]!());
+    expect(m.loads).toHaveLength(3);
   });
 });

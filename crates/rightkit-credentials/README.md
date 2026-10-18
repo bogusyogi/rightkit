@@ -67,6 +67,15 @@ backend when default keychain changes. Ordinary Store handles continue following
 After restart, reselect original default keychain for commit recovery; production explicit-file
 macOS backends remain read/delete-only.
 
+Rotation is exclusive across processes: set `Config::rotation_lock_dir(dir)` (absolute, private to
+the user, the same directory in every process; a durable OS store refuses to rotate without it).
+Each begin, commit & abort holds that credential's lock file for its whole read-write-remove
+sequence and waits at most the store timeout (`Error::InProgress`). The caller that began a
+rotation commits it with `commit_rotation_of(account, &new)` (abort: `abort_rotation_of`): it acts
+only while `new` is still the pending value, so a rotation aborted or replaced by another process
+is refused with `Error::Invalid { what: "pending rotation", .. }` and never overwrites the newer
+primary. `commit_rotation` / `abort_rotation` act on whatever is pending, for recovery after a restart.
+
 `rightkit-credentials exec --namespace N --account A --env NAME -- /absolute/native/executable args...`
 reads one credential from an unguarded durable OS store & puts its UTF-8 value only in child
 environment. Missing credentials, read errors, NUL bytes, invalid UTF-8 & scripts prevent child

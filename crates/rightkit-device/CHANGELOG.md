@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.1 — unpublished staging
+## 0.3.0 — unpublished staging
+
+- BREAKING (D23): `AuthorizationDenial` gains variants, so exhaustive matches outside the crate need a new arm; published as a minor bump, not a patch.
 
 - Adds an optional atomic M11 credentials adapter.
 

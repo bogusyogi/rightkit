@@ -3,6 +3,8 @@
 ## 0.3.3 — unpublished staging
 
 - Keeps log files private, scrubs sensitive data, clears through a durable barrier, and persists the outbox.
+- Fixed: a writer-owned clear (`TracingGuard::clear`) no longer truncates through an ordinary pathname open. It reopens the active daily file with `rightkit_fs::open_private_append` (a symlink or non-regular file is refused) and truncates that regular-file handle; on Windows it also opens the file with `FILE_FLAG_OPEN_REPARSE_POINT`, rejects any reparse point, and requires the same file identity as the private handle. A link replaced at the active path now fails the clear and its target keeps its bytes. Tests: `tests/tracing_clear_links.rs`. Not compiled or run.
+- Fixed: an `Outbox` mutation (`enqueue`, `enqueue_deduped`, `acknowledge`, `record_failure`, `retire_dedupe`) now aborts with the error when the ledger reload under the cross-process lock fails, instead of persisting the cached ledger over events and dedupe receipts another process accepted. `status()` reports the failed reload until a reload succeeds. Test: `tests/outbox_stale_reload.rs`. Not compiled or run.
 
 ## 0.3.2 (2026-10-17)
 

@@ -3,6 +3,7 @@
 ## 0.2.4 — unpublished staging
 
 - Backups stay private, and corrupt copies are preserved for recovery.
+- A corrupt copy kept under a fixed `QuarantineName` is staged owner-only before any byte is written and renamed over the previous copy, like the timestamped copy and the `.bak`; it was a plain `fs::copy`. Tests: `tests/preserve.rs`.
 
 ## 0.2.3 (2026-10-17)
 

@@ -737,7 +737,7 @@ fn crate_file(rel: &str) -> String {
 
 #[test]
 fn dev_inspect_is_never_compiled_in_any_build() {
-    assert!(!DEV_INSPECT_COMPILED);
+    const { assert!(!DEV_INSPECT_COMPILED) };
     assert_eq!(DEV_INSPECT_MARKER, "RIGHTKIT-SHELL-DEV-INSPECT-COMPILED");
 }
 

@@ -894,6 +894,7 @@ impl DbOptions {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn degrade_in_memory(
         &self,
         migrations: &[Migration],

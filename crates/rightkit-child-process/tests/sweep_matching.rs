@@ -12,7 +12,7 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicU32, Ordering},
-        mpsc,
+        mpsc, Mutex, Once,
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -20,6 +20,57 @@ use std::{
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 const CHILD_TIMEOUT: Duration = Duration::from_secs(10);
+/// Hard ceiling for this whole test binary (it normally finishes in seconds). Every fixture
+/// child blocks on a stdin pipe that only this process holds open, so a test that wedged would
+/// otherwise leave the suite, and the children, waiting for ever.
+const SUITE_DEADLINE: Duration = Duration::from_secs(180);
+
+/// Serializes `spawn`. On macOS std creates a pipe and then marks it close-on-exec in two steps,
+/// so a fork on another test thread between them can hand one fixture the write end of
+/// another's stdin pipe; the pair then keep each other's stdin open and never see EOF.
+static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+/// Pids of fixture children that have not been reaped, for the watchdog.
+static LIVE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static WATCHDOG: Once = Once::new();
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn kill_pid(pid: u32) {
+    #[cfg(unix)]
+    // SAFETY: SIGKILL to a fixture child this binary spawned and has not reaped.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    let _ = Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Starts (once) the thread that ends a wedged run: after [`SUITE_DEADLINE`] it kills every
+/// fixture child still alive and exits the binary with a failure, instead of hanging.
+fn arm_watchdog() {
+    WATCHDOG.call_once(|| {
+        thread::spawn(|| {
+            thread::sleep(SUITE_DEADLINE);
+            let pids = lock(&LIVE).clone();
+            for pid in &pids {
+                kill_pid(*pid);
+            }
+            eprintln!(
+                "sweep_matching: still running after {SUITE_DEADLINE:?}; killed fixture children {pids:?}"
+            );
+            std::process::exit(101);
+        });
+    });
+}
 
 /// Retain ownership through assertions too, so a failed scan cannot leak its fixture.
 struct TestChild(Child);
@@ -40,8 +91,11 @@ impl DerefMut for TestChild {
 
 impl Drop for TestChild {
     fn drop(&mut self) {
+        let pid = self.id();
         let _ = self.kill();
-        let _ = wait_bounded(self, Duration::from_secs(2));
+        if matches!(wait_bounded(self, Duration::from_secs(2)), Ok(Some(_))) {
+            lock(&LIVE).retain(|live| *live != pid);
+        }
     }
 }
 
@@ -95,13 +149,17 @@ fn spawn_marked(marker: &str) -> TestChild {
         command.stdin(Stdio::null());
         command
     };
-    let mut child = TestChild(
+    arm_watchdog();
+    let spawned = {
+        let _spawning = lock(&SPAWN_LOCK);
         command
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("spawn a marked child"),
-    );
+            .expect("spawn a marked child")
+    };
+    lock(&LIVE).push(spawned.id());
+    let mut child = TestChild(spawned);
     // spawn() only proves the initial exec succeeded. macOS /bin/sh can re-exec its
     // actual shell afterwards, temporarily making command-line inspection unavailable.
     // Wait for code in that final process before testing the one-shot process scan.
