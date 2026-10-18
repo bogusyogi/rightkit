@@ -72,7 +72,7 @@ export function fakeAsc({ builds, groups, assigned = {}, externalState = "READY_
       const included = state.builds.map((build) => ({ id: `pre-${build.id}`, type: "preReleaseVersions", attributes: { version: build.marketing } }));
       return reply(200, { data, included });
     }
-    if (/^\/v1\/apps\/\d+\/betaGroups$/.test(parsed.pathname)) return reply(200, { data: groupList.map((group) => ({ id: group.id, attributes: { name: group.name, isInternalGroup: group.internal } })) });
+    if (/^\/v1\/apps\/\d+\/betaGroups$/.test(parsed.pathname)) return reply(200, { data: groupList.map((group) => ({ id: group.id, attributes: { name: group.name, isInternalGroup: group.internal, ...(group.allBuilds !== undefined ? { hasAccessToAllBuilds: group.allBuilds } : {}) } })) });
     const groupBuilds = /^\/v1\/betaGroups\/([^/]+)\/relationships\/builds$/.exec(parsed.pathname);
     if (groupBuilds && method === "GET") return reply(200, { data: [...(state.assigned.get(groupBuilds[1]) ?? [])].map((id) => ({ id, type: "builds" })) });
     if (groupBuilds && method === "POST") {

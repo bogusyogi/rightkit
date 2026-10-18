@@ -181,9 +181,15 @@ export async function distributeToTestFlight({
   const buildId = text(build.id);
   log(`TestFlight: build ${identity} is VALID (${buildId})`);
 
+  // An internal group with access to all builds gets every build by itself, and App Store Connect refuses to assign one
+  // (HTTP 422 "Cannot add internal group to a build", live run 2026-10-19), so it is not assigned and counts as holding the build.
+  const automatic = (group) => isInternal(group) && group.attributes?.hasAccessToAllBuilds === true;
+  for (const group of await listGroups()) {
+    if (automatic(group)) log(`TestFlight: internal group ${groupName(group)} receives every build (access to all builds)`);
+  }
   let converged = false;
   for (let attempt = 0; attempt < 3 && !converged; attempt += 1) {
-    const list = await listGroups();
+    const list = (await listGroups()).filter((group) => !automatic(group));
     const assigned = await assignedIds(buildId, list);
     const missing = list.filter((group) => !assigned.has(text(group.id)));
     if (!missing.length) { converged = true; break; }
@@ -195,7 +201,7 @@ export async function distributeToTestFlight({
       }
     }
   }
-  const finalGroups = await listGroups();
+  const finalGroups = (await listGroups()).filter((group) => !automatic(group));
   const finalAssigned = await assignedIds(buildId, finalGroups);
   const unassigned = finalGroups.filter((group) => !finalAssigned.has(text(group.id)));
   if (unassigned.length) fail("TESTFLIGHT_ASSIGN_FAILED", `build assignment did not converge for beta groups: ${unassigned.map(groupName).join(", ")}`);

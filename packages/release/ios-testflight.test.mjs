@@ -39,6 +39,13 @@ test("a group that already holds the build is not assigned again; internal-only 
   assert.deepEqual(evidence.betaReviewSubmissionIds, []);
 });
 
+test("an internal group with access to all builds is never assigned (App Store Connect answers 422); it counts as holding the build", async () => {
+  const fake = fakeAsc({ groups: [{ id: "g1", name: "Internal", internal: true, allBuilds: true }] });
+  const evidence = await distributeToTestFlight(options(fake));
+  assert.equal(fake.requests.filter((request) => request.method === "POST" && request.path.includes("/relationships/builds")).length, 0);
+  assert.deepEqual(evidence.betaReviewSubmissionIds, []);
+});
+
 test("submitExternalBetaReview false leaves external review alone", async () => {
   const fake = fakeAsc();
   const evidence = await distributeToTestFlight(options(fake, { submitExternalBetaReview: false }));
