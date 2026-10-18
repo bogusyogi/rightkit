@@ -2,48 +2,60 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-fsindex",
-  "version": "0.3.0",
-  "commit": "545b46b4fde62f91d5bc18102f5c318d16cdb6cd",
-  "artifactSha256": "7db188d196ab0a070de17558da8aa443cda1a76f77378bad201e76e457b7d7ed",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "version": "0.4.1",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "b48f529cd647219a3224022b88951723bcf0edd65cde909021d276d2447f0e83",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "545b46b4fde62f91d5bc18102f5c318d16cdb6cd",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default"
       ],
-      "artifactSha256": "7db188d196ab0a070de17558da8aa443cda1a76f77378bad201e76e457b7d7ed",
-      "command": "cargo test -p rightkit-fsindex --no-fail-fast -- --show-output && cargo clippy -p rightkit-fsindex --no-deps --all-targets -- -D warnings && cargo check -p rightkit-fsindex --all-targets --all-features && cargo package --locked -p rightkit-fsindex && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "b48f529cd647219a3224022b88951723bcf0edd65cde909021d276d2447f0e83",
+      "command": "cargo fmt -p rightkit-fsindex --check && cargo test -p rightkit-fsindex --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-fsindex --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-fsindex --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-fsindex && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-16T01:13:27.908Z",
-      "passed": 87,
+      "timestamp": "2026-10-18T03:10:36.368Z",
+      "passed": 52,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
-      "allowIgnored": true,
+      "allowIgnored": false,
       "requireAssets": "1",
       "assetGated": false,
       "steps": [
         {
-          "command": "cargo test -p rightkit-fsindex --no-fail-fast -- --show-output",
+          "command": "scanCrateForSecrets crates/rightkit-fsindex",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-fsindex --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-fsindex --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 87,
+          "executed": 52,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
           "binaries": 10
         },
         {
-          "command": "cargo clippy -p rightkit-fsindex --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-fsindex --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
           "ok": true
         },
         {
-          "command": "cargo check -p rightkit-fsindex --all-targets --all-features",
+          "command": "cargo check -p rightkit-fsindex --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-fsindex",
           "ok": true
         }
       ]

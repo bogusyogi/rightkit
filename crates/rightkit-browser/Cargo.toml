@@ -95,3 +95,11 @@ file = "src/fixture.rs"
 holds = ["task", "memory"]
 scale = "one lease-timer task bounded by the fixture deadline, the event-monitor tasks (EventTasks) and, on Windows, one Fetch-interception task, on top of the BrowserSession, FixtureServer and BrowserPage it owns; Test/QA only"
 release = "Drop (cancels the timer, which runs cleanup_resources; EventTasks aborts its tasks)"
+
+[[package.metadata.rightkit.resources]]
+api = "now_ms"
+file = "src/design_mode.rs"
+holds = ["memory"]
+scale = "one fixed-size Instant in one process-wide OnceLock, initialized on the first clock read; no per-call accumulation, thread or timer"
+release = "process exit"
+static_note = "BASE holds exactly one Instant for the monotonic gesture clock; it is not a collection and cannot grow"

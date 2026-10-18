@@ -396,62 +396,69 @@
   "stagedCargo": {
     "rightkit-agent-tools": "0.1.4",
     "rightkit-agents": "0.1.0",
-    "rightkit-app-settings": "0.2.0",
+    "rightkit-android": "0.2.0",
+    "rightkit-app-settings": "0.2.3",
     "rightkit-asr": "0.2.1",
     "rightkit-audio": "0.3.1",
-    "rightkit-automation": "0.4.1",
+    "rightkit-automation": "0.4.4",
     "rightkit-browser": "0.3.1",
     "rightkit-cache": "0.2.0",
     "rightkit-channel-memory": "0.2.1",
     "rightkit-child-process": "0.5.0",
     "rightkit-compose": "0.2.0",
     "rightkit-contracts": "0.1.7",
-    "rightkit-crash": "0.3.0",
-    "rightkit-credentials": "0.2.0",
+    "rightkit-crash": "0.3.2",
+    "rightkit-credentials": "0.2.1",
     "rightkit-crypto": "0.1.0",
-    "rightkit-daemon": "0.2.3",
-    "rightkit-db": "0.4.0",
-    "rightkit-device": "0.1.3",
+    "rightkit-daemon": "0.2.7",
+    "rightkit-db": "0.4.3",
+    "rightkit-device": "0.2.0",
     "rightkit-docs": "0.1.0",
     "rightkit-embed": "0.5.0",
-    "rightkit-ffmpeg": "0.2.6",
+    "rightkit-ffmpeg": "0.2.9",
     "rightkit-file-watch": "0.4.0",
     "rightkit-fs": "0.4.3",
-    "rightkit-fsindex": "0.3.0",
+    "rightkit-fsindex": "0.4.1",
+    "rightkit-google-identity": "0.1.0",
     "rightkit-hooks": "0.2.0",
     "rightkit-hotkeys": "0.1.2",
     "rightkit-http": "0.3.5",
     "rightkit-identity": "0.1.0",
-    "rightkit-job-queue": "0.3.1",
-    "rightkit-license": "0.2.0",
+    "rightkit-job-queue": "0.3.2",
+    "rightkit-license": "0.2.2",
     "rightkit-llm": "0.2.1",
-    "rightkit-logs": "0.3.0",
-    "rightkit-mcp": "0.6.0",
+    "rightkit-logs": "0.3.2",
+    "rightkit-mcp": "0.7.0",
     "rightkit-models": "0.4.4",
-    "rightkit-oauth": "0.5.0",
+    "rightkit-motion": "0.1.0",
+    "rightkit-oauth": "0.8.0",
     "rightkit-ocr": "0.2.2",
     "rightkit-onnx": "0.2.3",
     "rightkit-overlay": "0.1.2",
-    "rightkit-ownership": "0.2.1",
+    "rightkit-ownership": "0.3.1",
     "rightkit-pdf": "0.3.0",
-    "rightkit-playback": "0.2.1",
+    "rightkit-platform-rules": "0.1.0",
+    "rightkit-playback": "0.2.2",
     "rightkit-qa": "0.6.4",
     "rightkit-qa-driver": "0.5.0",
     "rightkit-record": "0.3.0",
-    "rightkit-review": "0.2.0",
+    "rightkit-review": "0.4.0",
     "rightkit-sandbox": "0.4.0",
-    "rightkit-search": "0.2.1",
+    "rightkit-search": "0.4.0",
     "rightkit-send": "0.1.0",
     "rightkit-sidecar": "0.2.1",
-    "rightkit-speech-client": "0.3.5",
+    "rightkit-speech-client": "0.3.6",
+    "rightkit-spend": "0.1.1",
     "rightkit-sync": "0.1.1",
     "rightkit-tauri-shell": "0.3.0",
+    "rightkit-time": "0.1.0",
     "rightkit-transcript": "0.3.0",
     "rightkit-tts": "0.2.1",
     "rightkit-tts-qwen": "0.2.6",
     "rightkit-tts-qwen-sys": "0.1.2",
+    "rightkit-typeset": "0.1.0",
     "rightkit-vad": "0.1.1",
-    "rightkit-workflow": "0.1.0"
+    "rightkit-workflow": "0.2.0"
   },
   "swift": {
     "rightkit-swift": {
@@ -470,10 +477,11 @@
     "cargo": {
       "rightkit-agent-tools": "0.1.4",
       "rightkit-agents": "0.1.0",
-      "rightkit-app-settings": "0.2.0",
+      "rightkit-android": "0.2.0",
+      "rightkit-app-settings": "0.2.3",
       "rightkit-asr": "0.2.1",
       "rightkit-audio": "0.3.1",
-      "rightkit-automation": "0.4.1",
+      "rightkit-automation": "0.4.4",
       "rightkit-browser": "0.3.1",
       "rightkit-cache": "0.2.0",
       "rightkit-channel-memory": "0.2.1",
@@ -481,39 +489,42 @@
       "rightkit-compose": "0.2.0",
       "rightkit-contracts": "0.1.7",
       "rightkit-control": "0.3.0",
-      "rightkit-crash": "0.3.0",
-      "rightkit-credentials": "0.2.0",
+      "rightkit-crash": "0.3.2",
+      "rightkit-credentials": "0.2.1",
       "rightkit-crypto": "0.1.0",
-      "rightkit-daemon": "0.2.3",
-      "rightkit-db": "0.4.0",
-      "rightkit-device": "0.1.3",
+      "rightkit-daemon": "0.2.7",
+      "rightkit-db": "0.4.3",
+      "rightkit-device": "0.2.0",
       "rightkit-docs": "0.1.0",
       "rightkit-embed": "0.5.0",
-      "rightkit-ffmpeg": "0.2.6",
+      "rightkit-ffmpeg": "0.2.9",
       "rightkit-file-watch": "0.4.0",
       "rightkit-framed-sidecar": "0.2.0",
       "rightkit-fs": "0.4.3",
-      "rightkit-fsindex": "0.3.0",
+      "rightkit-fsindex": "0.4.1",
+      "rightkit-google-identity": "0.1.0",
       "rightkit-hooks": "0.2.0",
       "rightkit-hotkeys": "0.1.2",
       "rightkit-http": "0.3.5",
       "rightkit-identity": "0.1.0",
-      "rightkit-job-queue": "0.3.1",
+      "rightkit-job-queue": "0.3.2",
       "rightkit-jobs": "0.3.0",
-      "rightkit-license": "0.2.0",
+      "rightkit-license": "0.2.2",
       "rightkit-llm": "0.2.1",
-      "rightkit-logs": "0.3.0",
-      "rightkit-mcp": "0.6.0",
+      "rightkit-logs": "0.3.2",
+      "rightkit-mcp": "0.7.0",
       "rightkit-media": "0.2.6",
-      "rightkit-models": "0.3.2",
-      "rightkit-oauth": "0.5.0",
+      "rightkit-models": "0.4.4",
+      "rightkit-motion": "0.1.0",
+      "rightkit-oauth": "0.8.0",
       "rightkit-ocr": "0.2.2",
       "rightkit-onnx": "0.2.3",
       "rightkit-ort": "0.2.3",
       "rightkit-overlay": "0.1.2",
-      "rightkit-ownership": "0.2.1",
+      "rightkit-ownership": "0.3.1",
       "rightkit-pdf": "0.3.0",
-      "rightkit-playback": "0.2.1",
+      "rightkit-platform-rules": "0.1.0",
+      "rightkit-playback": "0.2.2",
       "rightkit-process": "0.4.0",
       "rightkit-qa": "0.6.1",
       "rightkit-qa-driver": "0.5.0",
@@ -521,26 +532,29 @@
       "rightkit-qts-ggml": "0.1.2",
       "rightkit-qts-ggml-sys": "0.1.2",
       "rightkit-record": "0.3.0",
-      "rightkit-review": "0.2.0",
+      "rightkit-review": "0.4.0",
       "rightkit-sandbox": "0.4.0",
-      "rightkit-search": "0.2.1",
+      "rightkit-search": "0.4.0",
       "rightkit-secrets": "0.2.0",
       "rightkit-send": "0.1.0",
       "rightkit-service": "0.1.4",
       "rightkit-settings": "0.2.0",
       "rightkit-shell": "0.3.0",
       "rightkit-sidecar": "0.2.1",
-      "rightkit-speech-client": "0.3.5",
+      "rightkit-speech-client": "0.3.6",
+      "rightkit-spend": "0.1.1",
       "rightkit-sync": "0.1.1",
       "rightkit-tauri": "0.1.3",
       "rightkit-tauri-shell": "0.3.0",
+      "rightkit-time": "0.1.0",
       "rightkit-transcript": "0.3.0",
       "rightkit-tts": "0.2.1",
       "rightkit-tts-qwen": "0.2.6",
       "rightkit-tts-qwen-sys": "0.1.2",
+      "rightkit-typeset": "0.1.0",
       "rightkit-vad": "0.1.1",
       "rightkit-watch": "0.4.0",
-      "rightkit-workflow": "0.1.0"
+      "rightkit-workflow": "0.2.0"
     },
     "npm": {
       "@rightkit/app-shell": "0.6.2",
@@ -574,7 +588,8 @@
   },
   "legacyCargo": {
     "rightkit-ownership": [
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-browser": [
       "0.2.0",
@@ -604,7 +619,8 @@
     "rightkit-db": [
       "0.2.1",
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.4.0"
     ],
     "rightkit-embed": [
       "0.2.1",
@@ -631,7 +647,8 @@
       "0.5.0",
       "0.5.1",
       "0.5.2",
-      "0.5.3"
+      "0.5.3",
+      "0.6.0"
     ],
     "rightkit-media": [
       "0.2.2",
@@ -642,7 +659,8 @@
       "0.2.0",
       "0.2.1",
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.5.0"
     ],
     "rightkit-ort": [
       "0.1.4",
@@ -652,7 +670,8 @@
     "rightkit-playback": [
       "0.1.0",
       "0.1.1",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-process": [
       "0.2.1",
@@ -746,7 +765,8 @@
       "0.1.3"
     ],
     "rightkit-search": [
-      "0.1.0"
+      "0.1.0",
+      "0.2.1"
     ],
     "rightkit-tauri": [
       "0.1.1"
@@ -762,12 +782,14 @@
       "0.3.0",
       "0.3.1",
       "0.3.2",
-      "0.3.4"
+      "0.3.4",
+      "0.3.5"
     ],
     "rightkit-crash": [
       "0.1.0",
       "0.2.0",
-      "0.2.2"
+      "0.2.2",
+      "0.3.0"
     ],
     "rightkit-qts-ggml-sys": [
       "0.1.0",
@@ -776,7 +798,8 @@
     "rightkit-fsindex": [
       "0.1.0",
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.3.0"
     ],
     "rightkit-asr": [
       "0.0.2",
@@ -784,7 +807,8 @@
     ],
     "rightkit-logs": [
       "0.2.0",
-      "0.2.2"
+      "0.2.2",
+      "0.3.0"
     ],
     "rightkit-ocr": [
       "0.1.2",
@@ -811,10 +835,12 @@
     "rightkit-daemon": [
       "0.2.0",
       "0.2.1",
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "rightkit-job-queue": [
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-qa-driver": [
       "0.3.0",
@@ -828,7 +854,8 @@
     ],
     "rightkit-automation": [
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "rightkit-child-process": [
       "0.4.0",
@@ -856,6 +883,27 @@
     ],
     "rightkit-overlay": [
       "0.1.1"
+    ],
+    "rightkit-app-settings": [
+      "0.2.0"
+    ],
+    "rightkit-ffmpeg": [
+      "0.2.6"
+    ],
+    "rightkit-license": [
+      "0.2.0"
+    ],
+    "rightkit-credentials": [
+      "0.2.0"
+    ],
+    "rightkit-review": [
+      "0.2.0"
+    ],
+    "rightkit-workflow": [
+      "0.1.0"
+    ],
+    "rightkit-device": [
+      "0.1.3"
     ]
   }
 }

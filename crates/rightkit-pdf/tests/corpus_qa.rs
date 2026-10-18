@@ -6,7 +6,7 @@
 //! rightkit cargo test corpus_qa_matrix -- --ignored --nocapture
 //! ```
 //!
-//! Iterates every `*.pdf` under `RIGHTKIT_PDF_CORPUS_DIR` (default `../../../.qa-corpus`, i.e. the repo root) and exercises the real
+//! Iterates every `*.pdf` under `RK_PDF_CORPUS_DIR` (default `../../../.qa-corpus`, i.e. the repo root) and exercises the real
 //! backend pipeline end to end per file: lopdf load → `walk_page_graph` on up to the first 12
 //! pages → one `ReplaceSourceText` compose on the first editable island → one `AddText` compose
 //! through the discovered `FontCatalog` → reopen each candidate and re-walk the affected page.
@@ -232,8 +232,7 @@ fn run_one(path: &PathBuf, catalog: &FontCatalog) -> FileReport {
 #[test]
 #[ignore]
 fn corpus_qa_diagnose_one() {
-    let dir =
-        std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
+    let dir = std::env::var("RK_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
     let name = std::env::var("RIGHTKIT_PDF_CORPUS_FILE").unwrap_or_else(|_| "irs-p17.pdf".into());
     let path = PathBuf::from(&dir).join(&name);
     let bytes = std::fs::read(&path).expect("read");
@@ -306,8 +305,7 @@ fn corpus_qa_diagnose_one() {
 #[test]
 #[ignore]
 fn corpus_qa_matrix() {
-    let dir =
-        std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
+    let dir = std::env::var("RK_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("corpus dir must exist")
         .filter_map(|e| e.ok().map(|e| e.path()))

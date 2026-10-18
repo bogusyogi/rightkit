@@ -152,9 +152,9 @@ Feature `optimize` (off by default). `optimize::optimize(bytes, &OptimizeOptions
 
 ## Measuring coverage
 
-`tests/corpus_coverage.rs` (ignored) rotates the first 5+ letter word of editable islands on page 1 of every PDF in `RIGHTKIT_PDF_CORPUS_DIR` and prints islands / editable / tried / ok / refusals per file, plus the `editBlocker` histogram of refused islands:
+`tests/corpus_coverage.rs` (ignored) rotates the first 5+ letter word of editable islands on page 1 of every PDF in `RK_PDF_CORPUS_DIR` and prints islands / editable / tried / ok / refusals per file, plus the `editBlocker` histogram of refused islands:
 
-`RIGHTKIT_PDF_CORPUS_DIR=<dir> rightkit cargo test -p rightkit-pdf --test corpus_coverage -- --ignored --nocapture`
+`RK_PDF_CORPUS_DIR=<dir> rightkit cargo test -p rightkit-pdf --test corpus_coverage -- --ignored --nocapture`
 
 ## Verification
 

@@ -4,13 +4,14 @@
   "ceilings": {
     "residentMemoryBytes": 15728640,
     "idleCpuPercent": 1,
-    "wakeupsPerSecond": null,
+    "wakeupsPerSecond": 1,
     "diskOpsPerSecond": 1
   },
   "ceilingSources": {
     "residentMemoryBytes": "rule: 2x the larger measured resident set (7598080 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.156 percent on the recorded hosts",
-    "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
+    "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter",
+    "wakeupsPerSecond": "existing idle intent: src/lib.rs:1624 an_idle_service_wakes_its_threads_about_once_a_second_at_most; src/workers.rs:3-4 states the acceptor blocks in accept and liveness waits its whole 20-second period. One per second is the existing idle target, not a ceiling derived from the historical polling failure. Requires fresh native measurements at the declared 50-device scale."
   },
   "requiredScale": {
     "unit": "devices",
@@ -29,5 +30,5 @@
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
   "measurements": [],
-  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. wakeupsPerSecond left null: measured 15.3 per second: the acceptor sleeps 50 ms on WouldBlock (src/lib.rs spawn_acceptor) and the liveness thread wakes every 100 ms (spawn_liveness); polling is a defect, not a budget."
+  "notes": "Ceilings come from the stated sources. Historical macOS 0.1.0 evidence measured 15.3 wake-ups per second while the acceptor polled at 50 ms and liveness at 100 ms; those loops were replaced by blocking accept and a 20-second stop-aware wait. Historical evidence remains under runtime-budget.evidence/. The 1 per second idle target is unproven at 0.2.0: native-host measurement must include the declared 50-device scale and its liveness probes before publication."
 }

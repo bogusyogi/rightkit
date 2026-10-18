@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-time",
+  "version": "0.1.0",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "596fc5915ff7186bd8bff256ffcb49ad4a091a2242d0d37b04b8966f72a9f8c2",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "runs": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64"
+      },
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "596fc5915ff7186bd8bff256ffcb49ad4a091a2242d0d37b04b8966f72a9f8c2",
+      "command": "cargo fmt -p rightkit-time --check && cargo test -p rightkit-time --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-time --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-time --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-time && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:30:29.314Z",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-time",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-time --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-time --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 10,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-time --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-time --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-time",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

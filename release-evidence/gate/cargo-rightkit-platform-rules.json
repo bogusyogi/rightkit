@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-platform-rules",
+  "version": "0.1.0",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "4d266cedd72672be967816408400bb20b6367d16dabd7cd3941c6f9662f7cd98",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "runs": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64"
+      },
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "4d266cedd72672be967816408400bb20b6367d16dabd7cd3941c6f9662f7cd98",
+      "command": "cargo fmt -p rightkit-platform-rules --check && cargo test -p rightkit-platform-rules --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-platform-rules --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-platform-rules --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-platform-rules && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:17:56.043Z",
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-platform-rules",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-platform-rules --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-platform-rules --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 23,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-platform-rules --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-platform-rules --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-platform-rules",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

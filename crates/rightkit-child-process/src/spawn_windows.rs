@@ -513,7 +513,7 @@ pub(crate) fn spawn(
                 let retry_flags = CREATE_SUSPENDED
                     | CREATE_UNICODE_ENVIRONMENT
                     | EXTENDED_STARTUPINFO_PRESENT
-                    | crate::process_windows::in_job_detached_flags(priority);
+                    | crate::process_windows::in_job_detached_flags(hidden, priority);
                 create(retry_flags, &mut retry_line)?;
                 stayed_in_parent_job = true;
             }

@@ -9,6 +9,7 @@ import {
   packageFileViolations,
   parseCargoPublishArgs,
   runCargoPublish,
+  runCargoReadOnly,
 } from "./publish-cargo.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { checkPublicationGate } from "./publication-gate.mjs";
@@ -47,6 +48,54 @@ test("cargo publish plan always runs local safety gates before upload", () => {
   assert.deepEqual(plan.find((step) => step.label === "tests").args, ["test", "-p", "rightkit-license", "--", "--test-threads=1"]);
 });
 
+test("local offline mode scopes offline to package inspection, then keeps upload online", () => {
+  const plan = buildCargoPublishPlan({ crate: "rightkit-license", crateDir: "C:/rightkit/crates/rightkit-license", dryRun: false, offlineReadOnly: true, verifyOnPublish: true });
+  assert.deepEqual(plan.find((step) => step.label === "package contents").args, ["package", "--list", "--offline", "-p", "rightkit-license"]);
+  assert.deepEqual(plan.find((step) => step.label === "package archive").args, ["package", "--offline", "--no-verify", "-p", "rightkit-license"]);
+  assert.deepEqual(plan.find((step) => step.label === "package location").args, ["metadata", "--offline", "--format-version", "1", "--no-deps"]);
+  assert.deepEqual(plan.find((step) => step.label === "format").args, ["fmt", "-p", "rightkit-license", "--check"]);
+  assert.deepEqual(plan.find((step) => step.label === "tests").args, ["test", "-p", "rightkit-license", "--", "--test-threads=1"]);
+  assert.deepEqual(plan.find((step) => step.label === "registry publish").args, ["publish", "--locked", "-p", "rightkit-license"]);
+  assert.equal(plan.find((step) => step.label === "registry dry-run"), undefined);
+});
+
+test("offline inspection retries one explicit cache miss online and preserves both failures", async () => {
+  const calls = [], logged = [];
+  const execute = async (_command, args) => {
+    calls.push(args);
+    return calls.length === 1
+      ? { status: 101, stdout: "first out", stderr: "attempting to make an HTTP request, but --offline was specified" }
+      : { status: 101, stdout: "second out", stderr: "second error" };
+  };
+  const result = await runCargoReadOnly(["metadata", "--offline", "--format-version", "1"], {}, execute, (failure) => logged.push(failure.stderr));
+  assert.deepEqual(calls, [["metadata", "--offline", "--format-version", "1"], ["metadata", "--format-version", "1"]]);
+  assert.deepEqual(logged, ["attempting to make an HTTP request, but --offline was specified"]);
+  assert.equal(result.offlineFallbackFailed, true);
+  assert.match(result.stdout, /first out[\s\S]*second out/);
+  assert.match(result.stderr, /attempting to make an HTTP request[\s\S]*second error/);
+});
+
+test("offline cache miss succeeds with one online retry", async () => {
+  const calls = [];
+  const execute = async (_command, args) => {
+    calls.push(args);
+    return calls.length === 1
+      ? { status: 101, stderr: "As a reminder, you're using offline mode (--offline)" }
+      : { status: 0, stdout: "{}", stderr: "" };
+  };
+  const result = await runCargoReadOnly(["package", "--offline", "--no-verify"], {}, execute);
+  assert.equal(result.usedOfflineFallback, true);
+  assert.deepEqual(calls, [["package", "--offline", "--no-verify"], ["package", "--no-verify"]]);
+});
+
+test("offline inspection does not retry ordinary failures or non-inspection commands", async () => {
+  let calls = 0;
+  const execute = async () => { calls += 1; return { status: 101, stdout: "compile failed", stderr: "build error" }; };
+  await runCargoReadOnly(["package", "--offline", "--list"], {}, execute);
+  await runCargoReadOnly(["test", "--offline", "-p", "x"], {}, execute);
+  assert.equal(calls, 2);
+});
+
 test("dry-run plan never contains a real registry upload", () => {
   const plan = buildCargoPublishPlan({ crate: "rightkit-logs", crateDir: "C:/rightkit/crates/rightkit-logs", dryRun: true });
   assert.equal(plan.at(-1)?.label, "registry dry-run");
@@ -62,7 +111,7 @@ test("package inspection rejects secret and build-output paths", () => {
   ]), [".env", "keys/signing.p8", "target/release/app"]);
 });
 
-function fixture(t) {
+function fixture(t, { verifyOnPublish = false } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-publish-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const name = "rightkit-fixture", version = "1.0.0", bytes = Buffer.from("fixture crate archive");
@@ -79,7 +128,7 @@ function fixture(t) {
     assert.equal(settings.windowsHide, true);
     if (args[0] === "package" && args.includes("--no-verify")) events.push("package");
     if (args[0] === "publish" && !args.includes("--dry-run")) {
-      assert.deepEqual(args, ["publish", "--no-verify", "-p", name]);
+      assert.deepEqual(args, ["publish", verifyOnPublish ? "--locked" : "--no-verify", "-p", name]);
       events.push("publish");
     }
     return { status: 0, stdout: args[0] === "metadata" ? JSON.stringify({ target_directory: target })
@@ -101,6 +150,22 @@ test("Cargo publisher packages, checks evidence hash, publishes through same run
   const result = await runCargoPublish(fx.options, fx.execute, fx.deps);
   assert.deepEqual(fx.events, ["package", "hash check", "publish", "readback"]);
   assert.deepEqual(result, { name: fx.name, version: fx.version, sha256: fx.evidence.artifactSha256 });
+});
+
+test("local offline inspections capture output while registry publish stays online", async (t) => {
+  const fx = fixture(t, { verifyOnPublish: true }), seen = [];
+  const execute = (command, args, settings) => {
+    seen.push({ args, stdio: settings.stdio });
+    return fx.execute(command, args, settings);
+  };
+  await runCargoPublish({ ...fx.options, offlineReadOnly: true, verifyOnPublish: true }, execute, fx.deps);
+  for (const entry of seen.filter(({ args }) => ["package", "metadata"].includes(args[0]))) {
+    assert.ok(entry.args.includes("--offline"));
+    assert.equal(entry.stdio, "pipe");
+  }
+  const upload = seen.find(({ args }) => args[0] === "publish" && !args.includes("--dry-run"));
+  assert.ok(upload);
+  assert.equal(upload.args.includes("--offline"), false);
 });
 
 test("runtime-budget crate without a measured runtime-budget.json is refused before packaging or upload", async (t) => {

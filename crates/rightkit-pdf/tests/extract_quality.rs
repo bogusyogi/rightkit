@@ -244,7 +244,7 @@ fn verify_pin(corpus: &Corpus) -> HashMap<String, Vec<u8>> {
 // ---------------------------------------------------------------------------------------------
 
 fn pdftotext() -> PathBuf {
-    std::env::var_os("RIGHTKIT_PDFTOTEXT")
+    std::env::var_os("RK_PDFTOTEXT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("pdftotext"))
 }
@@ -359,7 +359,7 @@ fn scores_json(scores: &[FileScore], oracle: &str, tolerance: f64) -> Value {
 }
 
 #[test]
-#[ignore = "needs the external oracle: poppler pdftotext (RIGHTKIT_PDFTOTEXT or PATH); see tests/fixtures/extract-quality/README.md"]
+#[ignore = "needs the external oracle: poppler pdftotext (RK_PDFTOTEXT or PATH); see tests/fixtures/extract-quality/README.md"]
 fn extract_quality_vs_pdftotext() {
     let corpus = load_corpus();
     let bytes_by_name = verify_pin(&corpus);
@@ -372,7 +372,7 @@ fn extract_quality_vs_pdftotext() {
                 );
                 return;
             }
-            panic!("oracle missing: {error}. This is a failure, not a pass. Install poppler or set RIGHTKIT_PDFTOTEXT.");
+            panic!("oracle missing: {error}. This is a failure, not a pass. Install poppler or set RK_PDFTOTEXT.");
         }
     };
     println!(
@@ -406,7 +406,7 @@ fn extract_quality_vs_pdftotext() {
     }
 
     let tolerance = 0.02;
-    if let Some(path) = std::env::var_os("RIGHTKIT_PDF_QUALITY_RECORD") {
+    if let Some(path) = std::env::var_os("RK_PDF_QUALITY_RECORD") {
         let text =
             serde_json::to_string_pretty(&scores_json(&scores, &version, tolerance)).unwrap();
         std::fs::write(&path, text + "\n").expect("write the recorded baseline");
@@ -447,7 +447,7 @@ fn extract_quality_vs_pdftotext() {
             }
         }
     } else {
-        println!("NOTICE: BASELINE NOT RECORDED. Run with RIGHTKIT_PDF_QUALITY_RECORD=<file> and commit the result.");
+        println!("NOTICE: BASELINE NOT RECORDED. Run with RK_PDF_QUALITY_RECORD=<file> and commit the result.");
     }
 
     // The decision the issue asks for.

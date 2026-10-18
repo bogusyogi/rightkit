@@ -2,44 +2,60 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-playback",
-  "version": "0.2.1",
-  "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
-  "artifactSha256": "0490b27f0c2174b56cb2ae542fed7c63c4780f83296a529c11238cbefe308a45",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "version": "0.2.2",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "f6545be2b7a12afe52be8ff66529d8f6cf92e3644ce826fd32d0354204177df1",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "1d5e66f83c28a6a222fb537ea89df74a58c1a63c",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default"
       ],
-      "artifactSha256": "0490b27f0c2174b56cb2ae542fed7c63c4780f83296a529c11238cbefe308a45",
-      "command": "cargo test -p rightkit-playback --no-fail-fast -- --show-output && cargo clippy -p rightkit-playback --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-playback && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "f6545be2b7a12afe52be8ff66529d8f6cf92e3644ce826fd32d0354204177df1",
+      "command": "cargo fmt -p rightkit-playback --check && cargo test -p rightkit-playback --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-playback --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-playback --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-playback && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:22:32.187Z",
-      "passed": 26,
+      "timestamp": "2026-10-18T03:20:16.679Z",
+      "passed": 24,
       "failed": 0,
-      "skipped": 0,
+      "skipped": 1,
       "ignored": 0,
       "allowIgnored": false,
       "requireAssets": "0",
       "assetGated": true,
       "steps": [
         {
-          "command": "cargo test -p rightkit-playback --no-fail-fast -- --show-output",
+          "command": "scanCrateForSecrets crates/rightkit-playback",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-playback --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-playback --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 26,
+          "executed": 24,
           "failed": 0,
           "ignored": 0,
-          "skipped": 0,
+          "skipped": 1,
           "binaries": 7
         },
         {
-          "command": "cargo clippy -p rightkit-playback --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-playback --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-playback --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-playback",
           "ok": true
         }
       ]

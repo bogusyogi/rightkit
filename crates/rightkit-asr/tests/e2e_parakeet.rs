@@ -12,11 +12,12 @@
 //! CoreML `.mlpackage` compile path, `RIGHTKIT_PARAKEET_COREML_PKG_DIR`: the same
 //!   four stages as `.mlpackage`, `pipeline.json`, `vocab.txt` (ScrapeRight
 //!   `tdt_w15_p6`).
-//! ONNX (any OS), `RIGHTKIT_PARAKEET_ONNX_DIR`: a transducer export dir with
+//! ONNX (any OS), `RK_PARAKEET_ONNX_DIR`: a transducer export dir with
 //!   `encoder-model.onnx` (+ `encoder-model.onnx.data` if external),
-//!   `decoder_joint-model.onnx`, `nemo128.onnx` (mel), `vocab.txt`, `config.json`
+//!   `decoder_joint-model.onnx`, `mel_nemo.onnx` (+ `.data` when external),
+//!   `vocab.txt`, `config.json`
 //!   (parakeet-tdt-0.6b-v3 ONNX, int8 or fp32), plus an ONNX Runtime dylib via
-//!   `ORT_DYLIB_PATH`. No such export exists on this machine today.
+//!   `ORT_DYLIB_PATH`.
 //!
 //! The model-free tests exercise the shared decode contract against the real
 //! audio fixtures and the real detokenizer fixture file.
@@ -564,13 +565,13 @@ mod coreml {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs an ONNX Parakeet TDT export (RIGHTKIT_PARAKEET_ONNX_DIR); run with --ignored"]
+#[ignore = "needs an ONNX Parakeet TDT export (RK_PARAKEET_ONNX_DIR); run with --ignored"]
 fn onnx_transducer_decodes_the_fixtures_when_the_export_is_present() {
     use rightkit_asr::{ExecutionConfig, ExecutionProvider, Transducer, TransducerOptions};
     let dir = gate!(
-        first_existing("RIGHTKIT_PARAKEET_ONNX_DIR", &[]),
+        first_existing("RK_PARAKEET_ONNX_DIR", &[]),
         "ONNX Parakeet TDT export",
-        "RIGHTKIT_PARAKEET_ONNX_DIR (encoder-model.onnx[+.data], decoder_joint-model.onnx, nemo128.onnx, vocab.txt, config.json; plus the ORT dylib named by ORT_DYLIB_PATH)"
+        "RK_PARAKEET_ONNX_DIR (encoder-model.onnx[+.data], decoder_joint-model.onnx, mel_nemo.onnx[+.data], vocab.txt, config.json; plus the ORT dylib named by ORT_DYLIB_PATH)"
     );
     let mut t = Transducer::load_with_options(
         &dir,

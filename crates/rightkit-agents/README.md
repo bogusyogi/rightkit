@@ -17,7 +17,7 @@ Catalog capability: `agent-sessions`. Release versions are tracked in [INDEX.md]
 ## What it does not own
 
 - One-shot model calls and BYOK HTTP clients: `rightkit-llm`.
-- Process spawning and tree ownership: `rightkit-child-process` (used by `session`). Working-directory pinning and job records: `rightkit-fs`, `rightkit-job-queue` (not wired here).
+- Process spawning and tree ownership: `rightkit-child-process` (used by discovery in every build & by `session`). Working-directory pinning and job records: `rightkit-fs`, `rightkit-job-queue` (not wired here).
 - Send, publish and spend decisions: the owning app, through `rightkit-agent-tools` effects. The vendor permission mode is defence in depth only.
 - Provider registries, profiles and editor protocols (ACP): the apps.
 
@@ -46,3 +46,10 @@ let mut parser = StreamParser::new();
 let events = parser.parse_line(r#"{"type":"system","subtype":"init","session_id":"s1"}"#)?;
 let frame = user_turn_frame("summarise the diff"); // write to the child's stdin
 ```
+
+## Host permission answers
+
+`claude::answer_can_use_tool` takes `Option<Receiver<PermissionAnswer>>` for one request.
+The host dispatches that request & owns its producer's cancellation/cleanup; this helper
+spawns no callback thread. No receiver, disconnect or timeout fails closed. A timeout
+drops that request's receiver, so a late send fails; it does not cancel host work.

@@ -2,27 +2,63 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-mcp",
-  "version": "0.5.2",
-  "commit": "83a7047b3c9603cd7d03d7265fa7602d4e6f8e7c",
-  "artifactSha256": "172235c2ac79b299ba503b9d1162f03920fc92e8caaeab24a5f8658550b90075",
-  "artifactBasis": "cargo package rightkit-mcp-0.5.2.crate",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "version": "0.7.0",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "f2275b8e9a08a65480b46996b209ab4ca01740b1161261b76f5d4bfd8cc078a5",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "83a7047b3c9603cd7d03d7265fa7602d4e6f8e7c",
-      "command": "right-release publish cargo --crate rightkit-mcp --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
-        "default"
+        "--features advanced-http"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T11:27:55Z",
-      "passed": 83,
-      "failed": 0
+      "artifactSha256": "f2275b8e9a08a65480b46996b209ab4ca01740b1161261b76f5d4bfd8cc078a5",
+      "command": "cargo fmt -p rightkit-mcp --check && cargo test -p rightkit-mcp --message-format=json-render-diagnostics --features advanced-http --no-fail-fast -- --show-output && cargo clippy -p rightkit-mcp --message-format=json-render-diagnostics --no-deps --all-targets --features advanced-http -- -D warnings && cargo check -p rightkit-mcp --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-mcp && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:08:43.610Z",
+      "passed": 161,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-mcp",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-mcp --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-mcp --message-format=json-render-diagnostics --features advanced-http --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 161,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 13
+        },
+        {
+          "command": "cargo clippy -p rightkit-mcp --message-format=json-render-diagnostics --no-deps --all-targets --features advanced-http -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-mcp --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-mcp",
+          "ok": true
+        }
+      ]
     }
   ]
 }

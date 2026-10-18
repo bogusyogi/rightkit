@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-crash",
-  "version": "0.3.0",
-  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
-  "artifactSha256": "21e4d9ff4bf4885535e2f5eeb6bf9cc274afe3bbc158de24cd98b64c37802dce",
+  "version": "0.3.2",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "dfa70664de348e27f8035e4eefb512d931ddefad0c449862fb38226c47bba1a3",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default"
       ],
-      "artifactSha256": "21e4d9ff4bf4885535e2f5eeb6bf9cc274afe3bbc158de24cd98b64c37802dce",
-      "command": "cargo test -p rightkit-crash --no-fail-fast -- --show-output && cargo clippy -p rightkit-crash --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-crash && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "dfa70664de348e27f8035e4eefb512d931ddefad0c449862fb38226c47bba1a3",
+      "command": "cargo test -p rightkit-crash --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-crash --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-crash --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-crash && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:48:22.229Z",
-      "passed": 33,
+      "timestamp": "2026-10-18T03:26:32.593Z",
+      "passed": 48,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -30,16 +30,20 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "cargo test -p rightkit-crash --no-fail-fast -- --show-output",
+          "command": "cargo test -p rightkit-crash --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 33,
+          "executed": 48,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
           "binaries": 4
         },
         {
-          "command": "cargo clippy -p rightkit-crash --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-crash --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-crash --message-format=json-render-diagnostics --all-targets --all-features",
           "ok": true
         }
       ]

@@ -79,6 +79,12 @@ overflow, so directory watches use a native overlapped ReadDirectoryChangesW rea
 (64 KiB buffer) that does, and `lost` fires there; if it cannot open the folder the watch
 falls back to notify, where `lost` cannot fire. See CHANGELOG.
 
+`TypedWatcher::watch` also uses this reader on Windows. It keeps recursive directory
+watches, exact-path filtering for individual files, rename pairing & its unbounded stream.
+Overflow & reader errors reach existing `WatchEvent::Overflow` / `WatchEvent::Error`
+variants instead of being lost or only logged by notify. Native arm failures fall back
+to notify. Dropping either stream stops its backend before joining its translator.
+
 Legacy `new`, `with_recursive` & `default` keep coalescing on, strict arming,
 all mutation kinds, `max_wait = Some(quiet * 10)`, flushing on disconnect & no
 snapshot reconciliation. Explicit options use `WatchOptions` defaults instead.

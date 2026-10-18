@@ -134,7 +134,7 @@ Release notes: see [CHANGELOG.md](CHANGELOG.md).
 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead. This replaces the old `RIGHTKIT_ALLOW_MISSING_MODELS` switch, which made a missing model fail by default.
 
-- `tests/e2e_parakeet.rs` (the `coreml` module, including the `.mlpackage` compile test): the CoreML Parakeet bundle, enabled by `RIGHTKIT_PARAKEET_COREML_DIR` or `RIGHTKIT_PARAKEET_COREML_PKG_DIR` (`.mlpackage`). `onnx_transducer_decodes_the_fixtures_when_the_export_is_present` is ignored and also needs `RIGHTKIT_PARAKEET_ONNX_DIR` and the ORT dylib.
+- `tests/e2e_parakeet.rs` (the `coreml` module, including the `.mlpackage` compile test): the CoreML Parakeet bundle, enabled by `RIGHTKIT_PARAKEET_COREML_DIR` or `RIGHTKIT_PARAKEET_COREML_PKG_DIR` (`.mlpackage`). `onnx_transducer_decodes_the_fixtures_when_the_export_is_present` is ignored and also needs `RK_PARAKEET_ONNX_DIR` and the ORT dylib.
 - `tests/transcript_roundtrip.rs`: the CoreML Parakeet bundle, enabled by `RIGHTKIT_PARAKEET_COREML_DIR`.
 - `tests/e2e_whisper.rs` (the `coreml` module): the WhisperKit CoreML directory, enabled by `RIGHTKIT_WHISPER_COREML_DIR`. `vad_chunked_decode_retimes_onto_the_source_timeline` also needs `RIGHTKIT_VAD_MODEL` and the ONNX Runtime dylib (`RIGHTKIT_ORT_TEST_DYLIB`).
 - `tests/e2e_whisper.rs` (the `cpp` module) and `tests/e2e_whisper_ggml.rs`: whisper.cpp 1.9.3 (the library at `RIGHTKIT_WHISPER_LIB`; `load` refuses any other version, `src/whisper/cpp.rs:25`) plus a multilingual ggml model (`RIGHTKIT_WHISPER_GGML`).

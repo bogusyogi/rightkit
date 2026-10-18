@@ -668,8 +668,8 @@ mod tests {
         #[test]
         #[ignore = "needs a second OS account; see comment"]
         fn cross_user_socket_is_rejected() {
-            let path = std::env::var("RIGHTKIT_SERVICE_FOREIGN_SOCKET")
-                .expect("set RIGHTKIT_SERVICE_FOREIGN_SOCKET to a socket served by another user");
+            let path = std::env::var("RK_SERVICE_FOREIGN_SOCKET")
+                .expect("set RK_SERVICE_FOREIGN_SOCKET to a socket served by another user");
             let s = UnixStream::connect(path).unwrap();
             assert!(matches!(
                 verify_peer_is_current_user(&s),

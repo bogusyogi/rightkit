@@ -59,10 +59,8 @@ fn split_report(e: &Embedder, cases: &[(&str, String)]) {
 #[test]
 #[ignore = "benchmark: needs a DirectML GPU, the E40 bundle and an idle machine"]
 fn e40_resident_w12_w14() {
-    let (Some(dir), Some(runtime)) = (
-        input("RIGHTKIT_EMBED_GEMMA2_E40_DIR"),
-        input("RIGHTKIT_ORT_TEST_DYLIB"),
-    ) else {
+    let (Some(dir), Some(runtime)) = (input("RK_EMBED_GEMMA2_E40_DIR"), input("RK_ORT_TEST_DYLIB"))
+    else {
         eprintln!("E40 bundle or ONNX Runtime not provided; skipped");
         return;
     };

@@ -1,7 +1,8 @@
 //! Native watch backends and the options that reach them through [`TypedWatcher::watch_with`].
 //!
-//! Every pre-existing constructor stays on `notify`, unchanged. `watch_with` adds, on top of the
-//! same [`Translator`](crate::typed::Translator): a bounded queue, path exclusions, directory
+//! `TypedWatcher::watch` uses the native Windows reader, with notify on other hosts or if native
+//! arming fails. `watch_with` adds, on top of the same [`Translator`](crate::typed::Translator):
+//! a bounded queue, path exclusions, directory
 //! granularity, and (macOS) a native FSEvents backend with a resumable [`WatchCursor`].
 //!
 //! # Seam for platform backends

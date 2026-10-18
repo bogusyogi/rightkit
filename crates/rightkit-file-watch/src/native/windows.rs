@@ -29,7 +29,8 @@
 //!   request already completed), the resources are leaked on purpose rather than freed under a
 //!   live request.
 //! * Stop: [`DirWatcher::drop`] signals a stop event and joins the reader thread. The thread waits
-//!   on `[io event, stop event]`, so it wakes for either; on stop (or a failed wait) it returns,
+//!   on `[stop event, io event]`, giving stop priority when both are ready; it checks stop again
+//!   before rearming. On stop (or a failed wait) it returns,
 //!   dropping the `Reader`, which cancels and waits as above. No handle outlives the join.
 //! * The first request is armed on the reader thread and `start_with` waits for the result, so changes after `start` returns are
 //!   captured and an open or arm failure is returned to the caller (which falls back to notify).
@@ -127,6 +128,7 @@ const ERROR_IO_INCOMPLETE: u32 = 996;
 const ERROR_NOTIFY_ENUM_DIR: u32 = 1022;
 
 const WAIT_OBJECT_0: u32 = 0;
+const WAIT_TIMEOUT: u32 = 258;
 const INFINITE: u32 = 0xFFFF_FFFF;
 
 /// Buffer for each request: 64 KiB, the most `ReadDirectoryChangesW` accepts on a network share.
@@ -489,6 +491,21 @@ impl Drop for DirWatcher {
     }
 }
 
+/// Wait for one completion, with stop first so a continuously ready I/O event cannot starve it.
+/// The handles stay owned by the caller for this entire wait. False also covers wait failure.
+fn wait_for_io_or_stop(event: &OwnedHandle, stop: &OwnedHandle) -> bool {
+    let handles = [stop.as_raw_handle(), event.as_raw_handle()];
+    // SAFETY: two valid handles owned by references that outlive the call.
+    unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) == WAIT_OBJECT_0 + 1 }
+}
+
+/// Check stop once before issuing more I/O. A failed wait also ends the reader safely.
+fn stop_requested(stop: &OwnedHandle) -> bool {
+    let handles = [stop.as_raw_handle()];
+    // SAFETY: one valid handle owned by a reference that outlives the call; zero timeout.
+    unsafe { WaitForMultipleObjects(1, handles.as_ptr(), 0, 0) != WAIT_TIMEOUT }
+}
+
 fn run(
     mut reader: Reader,
     stop: &OwnedHandle,
@@ -506,10 +523,7 @@ fn run(
         unsafe { WaitForMultipleObjects(1, handles.as_ptr(), 0, INFINITE) };
     };
     loop {
-        let handles = [reader.event_handle(), stop_handle];
-        // SAFETY: two valid handles that outlive the call.
-        let woke = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) };
-        if woke != WAIT_OBJECT_0 {
+        if !wait_for_io_or_stop(&reader.res.event, stop) {
             // Stop requested (or the wait failed): dropping `reader` cancels and waits.
             return;
         }
@@ -539,6 +553,11 @@ fn run(
                 park();
                 return;
             }
+        }
+        // Stop may have arrived while this completed buffer was being translated. Do not arm
+        // another request after that; Reader::drop still owns all cancellation and cleanup.
+        if stop_requested(stop) {
+            return;
         }
         if let Err(error) = reader.arm() {
             fail(error);
@@ -808,6 +827,62 @@ mod tests {
             }
         }
         false
+    }
+
+    #[test]
+    fn stop_wins_when_io_and_stop_are_both_ready() {
+        let event = create_event().unwrap();
+        let stop = create_event().unwrap();
+        // SAFETY: both event handles are valid and owned for the whole test.
+        unsafe {
+            assert_ne!(SetEvent(event.as_raw_handle()), 0);
+            assert_ne!(SetEvent(stop.as_raw_handle()), 0);
+        }
+        assert!(!wait_for_io_or_stop(&event, &stop));
+        assert!(stop_requested(&stop));
+    }
+
+    #[test]
+    fn legacy_typed_drop_finishes_while_files_are_still_changing() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let watch = crate::TypedWatcher::watch(&root).unwrap();
+        let writing = Arc::new(AtomicBool::new(true));
+        let writer_flag = Arc::clone(&writing);
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let writer = thread::spawn(move || {
+            let path = root.join("hot.txt");
+            std::fs::write(&path, b"warm").unwrap();
+            let _ = started_tx.send(());
+            while writer_flag.load(Ordering::Acquire) {
+                std::fs::write(&path, b"changing").unwrap();
+            }
+        });
+        let started = started_rx.recv_timeout(Duration::from_secs(5));
+        if started.is_err() {
+            writing.store(false, Ordering::Release);
+            let _ = writer.join();
+            panic!("writer did not start: {started:?}");
+        }
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let dropping = thread::spawn(move || {
+            drop(watch);
+            let _ = done_tx.send(());
+        });
+        // Keep writes running throughout this bound. If it fails, stop writes before cleanup so
+        // a broken I/O-first wait can drain and leave the test without a blocked join.
+        let dropped_while_writing = done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        writing.store(false, Ordering::Release);
+        writer.join().unwrap();
+        if dropped_while_writing || done_rx.recv_timeout(Duration::from_secs(5)).is_ok() {
+            dropping.join().unwrap();
+        }
+        assert!(
+            dropped_while_writing,
+            "drop did not finish during continuous writes"
+        );
     }
 
     #[test]

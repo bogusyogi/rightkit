@@ -26,10 +26,8 @@ fn e40_token_dump() {
         eprintln!("EG2_TOKEN_DUMP not set; skipped");
         return;
     };
-    let (Some(dir), Some(runtime)) = (
-        input("RIGHTKIT_EMBED_GEMMA2_E40_DIR"),
-        input("RIGHTKIT_ORT_TEST_DYLIB"),
-    ) else {
+    let (Some(dir), Some(runtime)) = (input("RK_EMBED_GEMMA2_E40_DIR"), input("RK_ORT_TEST_DYLIB"))
+    else {
         eprintln!("E40 bundle or ONNX Runtime not provided; skipped");
         return;
     };

@@ -27,7 +27,7 @@ pub struct CapturedOutput {
 }
 
 impl CapturedOutput {
-    fn push(&mut self, chunk: &[u8], max_bytes: usize) {
+    pub(crate) fn push(&mut self, chunk: &[u8], max_bytes: usize) {
         self.total_bytes = self.total_bytes.saturating_add(chunk.len() as u64);
         let room = max_bytes.saturating_sub(self.bytes.len());
         let keep = room.min(chunk.len());

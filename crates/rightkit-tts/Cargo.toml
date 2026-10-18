@@ -41,7 +41,7 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 rightkit-onnx = { version = "0.2.5", path = "../rightkit-onnx", default-features = false, optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
 rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript", optional = true }
-qts = { package = "rightkit-tts-qwen", version = "0.2.6", path = "../rightkit-tts-qwen", optional = true }
+qts = { package = "rightkit-tts-qwen", version = "0.2.7", path = "../rightkit-tts-qwen", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }

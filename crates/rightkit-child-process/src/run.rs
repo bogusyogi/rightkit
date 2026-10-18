@@ -1,13 +1,13 @@
 //! One call that runs a program to completion with a deadline, bounded output capture, and no
 //! console window on Windows: the shape of the hand-rolled timeout loops that apps wrote around
-//! [`OwnedCommand`](crate::OwnedCommand) and [`OutputCapture`](crate::OutputCapture).
+//! [`OwnedCommand`](crate::OwnedCommand) and [`NativeOutputCapture`](crate::NativeOutputCapture).
 //!
 //! The child is owned: it runs in its own process group (or session on Unix) inside a Job
 //! Object on Windows, and when the deadline passes its whole tree is terminated, not only the
 //! leader. Stdin is null. Output beyond each cap is drained and discarded, so a chatty child
 //! never blocks on a full pipe, and [`CapturedOutput::truncated`] says when that happened.
 
-use crate::{CapturedOutput, OutputCapture, OwnedCommand};
+use crate::{CapturedOutput, NativeOutputCapture, OwnedCommand};
 use std::{
     ffi::OsStr,
     io,
@@ -72,8 +72,8 @@ pub struct RunOutput {
 }
 
 /// Runs `program` with `args` to completion or until `options.timeout`, then returns its status
-/// and bounded output. Fails only when the program cannot be started; a non-zero exit is a
-/// normal `Ok` with `status` set, so the caller decides what it means.
+/// and bounded output. Fails when the program or native output capture cannot start, or
+/// lifecycle waiting fails. A non-zero exit is a normal `Ok` with `status` set.
 pub fn run<I, S>(program: impl AsRef<OsStr>, args: I, options: &RunOptions) -> io::Result<RunOutput>
 where
     I: IntoIterator<Item = S>,
@@ -94,10 +94,12 @@ where
     let mut child = command.spawn()?;
     let mut stdout = child
         .take_stdout()
-        .map(|pipe| OutputCapture::capture(pipe, options.stdout_cap));
+        .map(|pipe| NativeOutputCapture::stdout(pipe, options.stdout_cap))
+        .transpose()?;
     let mut stderr = child
         .take_stderr()
-        .map(|pipe| OutputCapture::capture(pipe, options.stderr_cap));
+        .map(|pipe| NativeOutputCapture::stderr(pipe, options.stderr_cap))
+        .transpose()?;
     // The command runs to completion within the deadline (`Exited`, no signal sent); only at
     // the deadline is the tree killed and the outcome `Terminated`.
     let (status, timed_out) = match child.wait_then_kill(options.timeout)? {

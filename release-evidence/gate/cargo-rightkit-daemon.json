@@ -2,54 +2,70 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-daemon",
-  "version": "0.2.3",
-  "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
-  "artifactSha256": "654016e0cda8f4919831e7ebf5002fd9318acd4f3d24729d9ad4c02b84f83346",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "version": "0.2.7",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "61bcc8eeec14f5d0d43e11953d4d9e21dcbd835174ecfab6d105def903bbdb10",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "18b29202b4db2103c29e60ae6f0dff2de5e5ca40",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default",
         "--features test-mode"
       ],
-      "artifactSha256": "654016e0cda8f4919831e7ebf5002fd9318acd4f3d24729d9ad4c02b84f83346",
-      "command": "cargo test -p rightkit-daemon --no-fail-fast -- --show-output && cargo test -p rightkit-daemon --features test-mode --no-fail-fast -- --show-output && cargo clippy -p rightkit-daemon --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-daemon && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "61bcc8eeec14f5d0d43e11953d4d9e21dcbd835174ecfab6d105def903bbdb10",
+      "command": "cargo fmt -p rightkit-daemon --check && cargo test -p rightkit-daemon --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-daemon --message-format=json-render-diagnostics --features test-mode --no-fail-fast -- --show-output && cargo clippy -p rightkit-daemon --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-daemon --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-daemon && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-15T14:27:04.813Z",
-      "passed": 239,
+      "timestamp": "2026-10-18T04:11:29.538Z",
+      "passed": 290,
       "failed": 0,
       "skipped": 0,
-      "ignored": 4,
-      "allowIgnored": true,
+      "ignored": 0,
+      "allowIgnored": false,
       "requireAssets": "1",
       "assetGated": false,
       "steps": [
         {
-          "command": "cargo test -p rightkit-daemon --no-fail-fast -- --show-output",
-          "ok": true,
-          "executed": 113,
-          "failed": 0,
-          "ignored": 2,
-          "skipped": 0,
-          "binaries": 10
+          "command": "scanCrateForSecrets crates/rightkit-daemon",
+          "ok": true
         },
         {
-          "command": "cargo test -p rightkit-daemon --features test-mode --no-fail-fast -- --show-output",
-          "ok": true,
-          "executed": 126,
-          "failed": 0,
-          "ignored": 2,
-          "skipped": 0,
-          "binaries": 10
+          "command": "cargo fmt -p rightkit-daemon --check",
+          "ok": true
         },
         {
-          "command": "cargo clippy -p rightkit-daemon --no-deps --all-targets -- -D warnings",
+          "command": "cargo test -p rightkit-daemon --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 140,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 13
+        },
+        {
+          "command": "cargo test -p rightkit-daemon --message-format=json-render-diagnostics --features test-mode --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 150,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 13
+        },
+        {
+          "command": "cargo clippy -p rightkit-daemon --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-daemon --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-daemon",
           "ok": true
         }
       ]

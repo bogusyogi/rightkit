@@ -110,16 +110,31 @@ pub(crate) fn configure(
 }
 
 /// Creation flags of the detached fallback used when the caller's job denies breakaway:
-/// `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` plus the priority class. No
-/// `CREATE_BREAKAWAY_FROM_JOB`, and no `CREATE_NO_WINDOW` (a detached process has no console, and
-/// the two console flags must not be combined).
-pub(crate) fn in_job_detached_flags(priority: ProcessPriority) -> PROCESS_CREATION_FLAGS {
-    DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | priority_class(priority)
+/// `CREATE_NEW_PROCESS_GROUP` plus the priority class and one console flag. No
+/// `CREATE_BREAKAWAY_FROM_JOB`. A hidden child gets `CREATE_NO_WINDOW` (its own windowless
+/// console, so console programs such as powershell.exe keep working with piped stdio) instead of
+/// `DETACHED_PROCESS`; the two must not be combined because `CREATE_NO_WINDOW` is ignored when
+/// `DETACHED_PROCESS` is present (Microsoft "Process Creation Flags"). A visible child keeps
+/// `DETACHED_PROCESS`.
+pub(crate) fn in_job_detached_flags(
+    hidden: bool,
+    priority: ProcessPriority,
+) -> PROCESS_CREATION_FLAGS {
+    let console = if hidden {
+        CREATE_NO_WINDOW
+    } else {
+        DETACHED_PROCESS
+    };
+    console | CREATE_NEW_PROCESS_GROUP | priority_class(priority)
 }
 
 /// Replaces the command's creation flags with the in-job detached fallback.
-pub(crate) fn configure_in_job_detached(command: &mut Command, priority: ProcessPriority) {
-    command.creation_flags(in_job_detached_flags(priority).0);
+pub(crate) fn configure_in_job_detached(
+    command: &mut Command,
+    hidden: bool,
+    priority: ProcessPriority,
+) {
+    command.creation_flags(in_job_detached_flags(hidden, priority).0);
 }
 
 /// Whether a failed breakaway launch was refused by the caller's job object
@@ -154,15 +169,17 @@ mod tests {
     }
 
     #[test]
-    fn the_in_job_detached_fallback_has_no_breakaway_and_no_window_flag() {
-        let flags = bits(in_job_detached_flags(ProcessPriority::Normal));
-        assert_eq!(flags, bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP));
+    fn the_in_job_detached_fallback_has_no_breakaway_and_one_console_flag() {
+        let flags = bits(in_job_detached_flags(true, ProcessPriority::Normal));
+        assert_eq!(flags, bits(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
         assert_eq!(flags & bits(CREATE_BREAKAWAY_FROM_JOB), 0);
-        assert_eq!(flags & bits(CREATE_NO_WINDOW), 0);
-        let idle = bits(in_job_detached_flags(ProcessPriority::Idle));
+        assert_eq!(flags & bits(DETACHED_PROCESS), 0);
+        let visible = bits(in_job_detached_flags(false, ProcessPriority::Normal));
+        assert_eq!(visible, bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP));
+        let idle = bits(in_job_detached_flags(true, ProcessPriority::Idle));
         assert_eq!(
             idle,
-            bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | IDLE_PRIORITY_CLASS)
+            bits(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | IDLE_PRIORITY_CLASS)
         );
     }
 

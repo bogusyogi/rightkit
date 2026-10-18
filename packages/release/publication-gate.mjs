@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { digestBytes, readVerifiedArtifact } from "./publication-artifacts.mjs";
 
 export const GATE_SCHEMA = 1;
+export const MAX_CARGO_JOBS = 64;
 export const REQUIRED_HOSTS = Object.freeze(["darwin", "win32"]);
 // Swift packages (RightKitSwift) are Apple-only; Windows cannot run them.
 export const requiredHosts = (kind) => (kind === "swift" ? Object.freeze(["darwin"]) : REQUIRED_HOSTS);
@@ -131,6 +132,7 @@ function invalidRunFields(run, evidence, tree) {
   if (!text(run.timestamp)) bad.push("timestamp");
   if (!(Number.isInteger(run.passed) && run.passed > 0)) bad.push("passed (must be > 0)");
   if (run.failed !== 0) bad.push("failed (must be 0)");
+  if (run.jobs !== undefined && !(Number.isInteger(run.jobs) && run.jobs >= 1 && run.jobs <= MAX_CARGO_JOBS)) bad.push(`jobs (must be an integer from 1 to ${MAX_CARGO_JOBS})`);
   if (run.batch !== undefined) bad.push(...batchReceiptProblems(run.batch, evidence, tree ?? null).map((problem) => `batch: ${problem}`));
   return bad;
 }

@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-app-settings",
+  "version": "0.2.3",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "0aa20105459d4cf5836bf10db5f3aab93dd3df95e67ec84301738410e00ee6f0",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "0aa20105459d4cf5836bf10db5f3aab93dd3df95e67ec84301738410e00ee6f0",
+      "command": "cargo test -p rightkit-app-settings --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-app-settings --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-app-settings --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-app-settings && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:03:56.670Z",
+      "passed": 127,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-app-settings --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 127,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 15
+        },
+        {
+          "command": "cargo clippy -p rightkit-app-settings --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-app-settings --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 //! Vendor CLI discovery: find a launchable executable on `PATH` the way the platform starts
-//! it, and probe its version and sign-in with bounded, non-interactive runs. Std only.
+//! it, and probe its version and sign-in with bounded, non-interactive runs owned by `rightkit-child-process`.
 //!
 //! [`detect`] caches one snapshot per vendor for the life of the process. Setting
 //! [`DISABLE_VENDOR_CLIS_ENV`] reports every vendor as not installed, for isolated hosts that
@@ -7,12 +7,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
-#[cfg(not(feature = "session"))]
-use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
-#[cfg(not(feature = "session"))]
-use std::time::Instant;
 
 /// Environment variable that disables every vendor CLI probe when set to anything but an empty
 /// value or `0`. The name is chosen for this port (CodeRight's host uses
@@ -21,13 +17,6 @@ pub const DISABLE_VENDOR_CLIS_ENV: &str = "RIGHTKIT_DISABLE_VENDOR_CLIS";
 
 /// Timeout [`detect`] gives each probe.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
-
-#[cfg(not(feature = "session"))]
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// Windows `CREATE_NO_WINDOW`, so a probe never flashes a console.
-#[cfg(all(windows, not(feature = "session")))]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The vendor CLIs this crate can drive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,12 +112,10 @@ pub const PROBE_OUTPUT_CAP: usize = 64 * 1024;
 /// Run `program` with `args`, stdin closed and output captured. The child is killed when it
 /// outlives `timeout`. `None` when it cannot start, times out, or cannot be waited on.
 ///
-/// Stdout and stderr drain concurrently, each capped at [`PROBE_OUTPUT_CAP`]. With the
-/// `session` feature the deadline terminates the whole process tree through
-/// `rightkit_child_process::run`, and a descendant that keeps a pipe open cannot extend the
-/// call. Without that feature only the direct child is killed, and the call stops waiting
-/// for pipes at the deadline plus a short drain window.
-#[cfg(feature = "session")]
+/// Stdout and stderr drain concurrently, each capped at [`PROBE_OUTPUT_CAP`]. The
+/// deadline terminates the whole process tree through `rightkit_child_process::run`. Native
+/// output readers are cancelled & joined after a short drain window, including when a
+/// descendant retains a pipe. This guarantee applies with every feature configuration.
 pub fn run_bounded(program: &Path, args: &[&str], timeout: Duration) -> Option<Output> {
     let options = rightkit_child_process::RunOptions::new(timeout)
         .stdout_cap(PROBE_OUTPUT_CAP)
@@ -142,86 +129,6 @@ pub fn run_bounded(program: &Path, args: &[&str], timeout: Duration) -> Option<O
         stdout: run.stdout.bytes,
         stderr: run.stderr.bytes,
     })
-}
-
-/// Run `program` with `args`, stdin closed and output captured. See the `session`-feature
-/// variant for the tree-kill guarantee this build lacks.
-#[cfg(not(feature = "session"))]
-pub fn run_bounded(program: &Path, args: &[&str], timeout: Duration) -> Option<Output> {
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    let mut child = command.spawn().ok()?;
-    let stdout = child.stdout.take().and_then(spawn_drain);
-    let stderr = child.stderr.take().and_then(spawn_drain);
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Ok(None) => std::thread::sleep(POLL_INTERVAL),
-            Err(_) => {
-                let _ = child.kill();
-                return None;
-            }
-        }
-    };
-    Some(Output {
-        status,
-        stdout: collect_drain(stdout),
-        stderr: collect_drain(stderr),
-    })
-}
-
-/// Drain one pipe on its own thread, keeping at most [`PROBE_OUTPUT_CAP`] bytes. The result
-/// arrives on the channel when the pipe reaches end of stream.
-#[cfg(not(feature = "session"))]
-fn spawn_drain<R: std::io::Read + Send + 'static>(
-    mut pipe: R,
-) -> Option<std::sync::mpsc::Receiver<Vec<u8>>> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name("rightkit-agents-probe-drain".into())
-        .spawn(move || {
-            let mut kept = Vec::new();
-            let mut buffer = [0u8; 8 * 1024];
-            loop {
-                match pipe.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => {
-                        let room = PROBE_OUTPUT_CAP.saturating_sub(kept.len());
-                        kept.extend_from_slice(&buffer[..count.min(room)]);
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(_) => break,
-                }
-            }
-            let _ = sender.send(kept);
-        })
-        .ok()?;
-    Some(receiver)
-}
-
-/// Wait a bounded time for a drained pipe; a pipe still held open by a descendant yields
-/// nothing rather than blocking the probe.
-#[cfg(not(feature = "session"))]
-fn collect_drain(drain: Option<std::sync::mpsc::Receiver<Vec<u8>>>) -> Vec<u8> {
-    const DRAIN_WAIT: Duration = Duration::from_secs(2);
-    drain
-        .and_then(|receiver| receiver.recv_timeout(DRAIN_WAIT).ok())
-        .unwrap_or_default()
 }
 
 /// The first line of a `--version` reply, trimmed, if it is not empty.

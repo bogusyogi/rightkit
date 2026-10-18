@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -568,28 +568,24 @@ fn no_answer() -> PermissionDecision {
     }
 }
 
-/// Ask the host for a decision and fail closed. Blocking and runtime-agnostic: the responder
-/// runs on its own thread. With no responder, or when no answer arrives within `timeout`
-/// (use [`DEFAULT_PERMISSION_TIMEOUT`]), the decision is a denial. A late answer is dropped.
-pub fn answer_can_use_tool<F>(
+/// Wait for the host's answer to this request and fail closed. No thread is spawned.
+/// The host creates one answer channel per request, dispatches `request` itself, and owns
+/// the producer's cancellation & cleanup. Passing a receiver does not transfer producer
+/// lifecycle ownership into this crate. Do not reuse an answer channel for other requests.
+///
+/// No receiver, timeout (use [`DEFAULT_PERMISSION_TIMEOUT`]) or disconnect yields denial.
+/// The receiver is consumed, so a late producer send fails after this call returns. Hosts
+/// must still cancel/join their own pending work; a failed send does not stop that work.
+pub fn answer_can_use_tool(
     request: &CanUseTool,
-    responder: Option<F>,
+    answer: Option<Receiver<PermissionAnswer>>,
     timeout: Duration,
-) -> PermissionDecision
-where
-    F: FnOnce(CanUseTool) -> PermissionAnswer + Send + 'static,
-{
-    let Some(responder) = responder else {
+) -> PermissionDecision {
+    let Some(answer) = answer else {
         return no_answer();
     };
-    let original_input = request.input.clone();
-    let owned = request.clone();
-    let (sender, receiver) = channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(responder(owned));
-    });
-    match receiver.recv_timeout(timeout) {
-        Ok(answer) => PermissionDecision::from_answer(answer, &original_input),
+    match answer.recv_timeout(timeout) {
+        Ok(answer) => PermissionDecision::from_answer(answer, &request.input),
         Err(_) => no_answer(),
     }
 }

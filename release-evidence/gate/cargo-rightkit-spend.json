@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-spend",
+  "version": "0.1.1",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "7604b3a7ef84057f923da6ba1790955493711cae033417a72b6c245c78bb09c8",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "runs": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64"
+      },
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "7604b3a7ef84057f923da6ba1790955493711cae033417a72b6c245c78bb09c8",
+      "command": "cargo fmt -p rightkit-spend --check && cargo test -p rightkit-spend --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-spend --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-spend --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-spend && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:29:37.992Z",
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-spend",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-spend --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-spend --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 35,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-spend --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-spend --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-spend",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

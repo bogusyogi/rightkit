@@ -2,27 +2,51 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-db",
-  "version": "0.3.2",
-  "commit": "8e1235b3c344b4f0348a4d4c96f3a0ff7abf134c",
-  "artifactSha256": "14468922a816b997dc6e9723ef36d860291fcec50e4ad902029c9502ec012451",
-  "artifactBasis": "cargo package rightkit-db-0.3.2.crate",
+  "version": "0.4.3",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "844fc4ea5c7b4d23d54aecbf0620aa7604fb0b0c342233cdc2e7f46f40fb57c0",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "8e1235b3c344b4f0348a4d4c96f3a0ff7abf134c",
-      "command": "right-release publish cargo --crate rightkit-db --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
-        "default"
+        "--features bundled,statement-cache"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T21:39:44Z",
-      "passed": 28,
-      "failed": 0
+      "artifactSha256": "844fc4ea5c7b4d23d54aecbf0620aa7604fb0b0c342233cdc2e7f46f40fb57c0",
+      "command": "cargo test -p rightkit-db --message-format=json-render-diagnostics --features bundled,statement-cache --no-fail-fast -- --show-output && cargo clippy -p rightkit-db --message-format=json-render-diagnostics --no-deps --all-targets --features bundled,statement-cache -- -D warnings && cargo check -p rightkit-db --message-format=json-render-diagnostics --all-targets --features bundled,statement-cache,hooks && cargo package --locked --no-verify -p rightkit-db && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:59:58.024Z",
+      "passed": 126,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-db --message-format=json-render-diagnostics --features bundled,statement-cache --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 126,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 16
+        },
+        {
+          "command": "cargo clippy -p rightkit-db --message-format=json-render-diagnostics --no-deps --all-targets --features bundled,statement-cache -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-db --message-format=json-render-diagnostics --all-targets --features bundled,statement-cache,hooks",
+          "ok": true
+        }
+      ]
     }
   ]
 }

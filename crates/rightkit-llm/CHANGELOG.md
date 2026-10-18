@@ -2,6 +2,8 @@
 
 ## 0.3.0 (2026-10-17)
 
+- **Breaking:** public route-health registry retains at most 256 routes & 32 KiB of route-name bytes. Outcome records & state reads refresh LRU order; new routes evict oldest observations. Evicted routes read as `Healthy` until reporting again; oversized names are ignored. `snapshot` lists currently retained routes. Owned `RouteHealth` state & independent `FailoverChain` breakers are unchanged.
+
 - Request-level response schema (Orthic-Labs/rightkit#584): `SchemaConstraint`, `ChatRequest::with_response_schema`, `ChatRequest::check_schema`, `ChatResponse::schema_output`. OpenAI-compatible routes send `response_format` (`json_schema`); Anthropic sends a synthetic forced tool. Combining a schema with `tools` or `force_tool` is `LlmError::InvalidRequest`.
 - Public circuit breaker (Orthic-Labs/rightkit#659): module `breaker` (`CircuitBreaker`, `BreakerConfig`, `Phase`, `Outcome`).
 - Public route health (Orthic-Labs/rightkit#660): module `health` (`RouteHealth`, `HealthPolicy`, `HealthState`, process registry `record_success`, `record_failure`, `state`, `snapshot`).

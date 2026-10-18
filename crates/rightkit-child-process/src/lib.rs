@@ -11,6 +11,8 @@ mod identity;
 mod identity_tests;
 mod launch;
 pub mod login_shell;
+#[cfg(any(unix, windows))]
+mod native_capture;
 mod no_window;
 mod owned;
 mod power;
@@ -45,6 +47,8 @@ pub use foreign::{
 pub use foreign::{resume_session, signal_session, suspend_session};
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use launch::{launch_app, open_url};
+#[cfg(any(unix, windows))]
+pub use native_capture::NativeOutputCapture;
 pub use no_window::{command_std, NoWindow, CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW};
 pub use owned::{
     AdoptedProcess, BreakawayDenied, JobAssignmentFailure, JobAssignmentMode, OwnedChild,

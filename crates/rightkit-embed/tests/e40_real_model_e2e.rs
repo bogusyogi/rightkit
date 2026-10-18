@@ -5,9 +5,9 @@
 //! Ignored by default: it needs a DirectML-capable GPU and loads five graphs. Run with
 //! `cargo test -p rightkit-embed --test e40_real_model_e2e -- --ignored --nocapture`.
 //!
-//! Needs `RIGHTKIT_EMBED_GEMMA2_E40_DIR` (the `embeddinggemma2-e40-dml` store entry: the five
+//! Needs `RK_EMBED_GEMMA2_E40_DIR` (the `embeddinggemma2-e40-dml` store entry: the five
 //! `model_<len>.onnx` graphs, `model.onnx_data`, `embed_tokens.f16.npy` and `tokenizer.json`) and
-//! `RIGHTKIT_ORT_TEST_DYLIB` (an ONNX Runtime DirectML build), from the environment or the
+//! `RK_ORT_TEST_DYLIB` (an ONNX Runtime DirectML build), from the environment or the
 //! gitignored `tests/inputs.local.json`. Without them the tests report a skip.
 
 #![cfg(all(windows, feature = "inference", feature = "vector"))]
@@ -26,7 +26,7 @@ fn input(key: &str) -> Option<std::path::PathBuf> {
 }
 
 fn inputs() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-    let found = input("RIGHTKIT_EMBED_GEMMA2_E40_DIR").zip(input("RIGHTKIT_ORT_TEST_DYLIB"));
+    let found = input("RK_EMBED_GEMMA2_E40_DIR").zip(input("RK_ORT_TEST_DYLIB"));
     if found.is_none() {
         eprintln!("E40 bundle or ONNX Runtime not provided; E40 real-model gate skipped");
     }

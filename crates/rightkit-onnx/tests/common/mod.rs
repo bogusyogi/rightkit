@@ -37,7 +37,8 @@ const MACOS_RUNTIME: &str = "genright/.cache/devin-completion-20261006/batch5/vo
 /// The approved 1.24.4 file: `RIGHTKIT_ORT_TEST_DYLIB` when it names a file, else the cache.
 #[cfg(target_os = "macos")]
 fn find_real_runtime() -> Option<PathBuf> {
-    std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+    std::env::var_os("RK_ORT_TEST_DYLIB")
+        .or_else(|| std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB"))
         .map(PathBuf::from)
         .filter(|p| p.is_file())
         .or_else(|| workspace_asset(MACOS_RUNTIME).filter(|p| p.is_file()))
@@ -140,7 +141,8 @@ const WINDOWS_RUNTIME_DIR: &str = "heardright/tauri-app-next/src-tauri/resources
 /// first, else the HeardRight staging folder (the broker does not forward the variable).
 #[cfg(windows)]
 fn find_real_runtime_dir() -> Option<PathBuf> {
-    std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR")
+    std::env::var_os("RK_ORT_TEST_DLL_DIR")
+        .or_else(|| std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR"))
         .map(PathBuf::from)
         .into_iter()
         .chain(workspace_asset(WINDOWS_RUNTIME_DIR))
@@ -171,7 +173,8 @@ pub fn windows_runtime_record() -> rightkit_ffmpeg::native::NativeRecord {
 /// `RIGHTKIT_ORT_TEST_DLL_DIR` first, else the HeardRight staging folder.
 #[cfg(windows)]
 pub fn runtime_file_or_skip() -> Option<PathBuf> {
-    let found = std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR")
+    let found = std::env::var_os("RK_ORT_TEST_DLL_DIR")
+        .or_else(|| std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR"))
         .map(PathBuf::from)
         .into_iter()
         .chain(workspace_asset(WINDOWS_RUNTIME_DIR))

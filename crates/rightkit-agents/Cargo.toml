@@ -16,10 +16,10 @@ default = []
 claude = []
 codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
-session = ["claude", "codex", "dep:rightkit-child-process"]
+session = ["claude", "codex"]
 
 [dependencies]
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
+rightkit-child-process = { version = "0.5.1", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 

@@ -2,27 +2,63 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-search",
-  "version": "0.2.0",
-  "commit": "409ce3115af4159dc574c4df18c6334a8bf608b7",
-  "artifactSha256": "1ae438f6b9828c7bee686c12e2ee04ae2cb08bea5dbec0ee8b7c97961751cf25",
-  "artifactBasis": "cargo package rightkit-search-0.2.0.crate",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "version": "0.4.0",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "d11b3509f8ee5852e3ec3f98dc1e77009c093d8e1331ee8d53e0942cbe5edf35",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "409ce3115af4159dc574c4df18c6334a8bf608b7",
-      "command": "right-release publish cargo --crate rightkit-search --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T19:49:36Z",
-      "passed": 10,
-      "failed": 0
+      "artifactSha256": "d11b3509f8ee5852e3ec3f98dc1e77009c093d8e1331ee8d53e0942cbe5edf35",
+      "command": "cargo fmt -p rightkit-search --check && cargo test -p rightkit-search --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-search --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-search --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-search && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:25:40.535Z",
+      "passed": 83,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-search",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-search --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-search --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 83,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 11
+        },
+        {
+          "command": "cargo clippy -p rightkit-search --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-search --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-search",
+          "ok": true
+        }
+      ]
     }
   ]
 }

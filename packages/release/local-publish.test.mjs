@@ -97,6 +97,21 @@ test('refuses when a unit test command fails, and publishes nothing', async () =
   assert.equal(fs.existsSync(path.join(root, 'release-evidence')), false);
 });
 
+test('failed gate output preserves stdout test names before long stderr', async () => {
+  const root = workspace({ kind: 'cargo' });
+  const marker = 'test peer::tests::cross_user_socket_is_rejected ... FAILED';
+  const stderr = Array.from({ length: 50 }, (_, i) => `stderr line ${i}`).join('\n');
+  const h = harness(root, 'cargo', { run: (command, args) => (args[0] === 'test'
+    ? { status: 101, stdout: `${marker}\ntest result: FAILED. 1 passed; 1 failed; 0 ignored`, stderr }
+    : { status: 0, stdout: '', stderr: '' }) });
+  await assert.rejects(h.run(), (error) => error instanceof LocalPublishError
+    && error.message.includes(`stdout:\n${marker}`)
+    && error.message.includes('stderr:\nstderr line 0')
+    && error.message.includes('stderr line 49'));
+  assert.deepEqual(h.published, []);
+  assert.equal(fs.existsSync(path.join(root, 'release-evidence')), false);
+});
+
 test('refuses when no test executed, or a skip outside an asset-gated unit', async () => {
   const root = workspace();
   const quiet = harness(root, 'npm', { run: (command, args) => { if (args.includes('--pack-destination')) throw new Error('must not pack'); return { status: 0, stdout: '', stderr: '' }; } });
@@ -190,7 +205,7 @@ test('cargo: the same gate and publish flow run on the evidence it wrote', async
     'test -p rightkit-demo --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output',
     'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
     'package --locked --no-verify -p rightkit-demo',
-    'metadata --format-version 1 --no-deps',
+    'metadata --offline --format-version 1 --no-deps',
   ]);
   const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
   assert.equal(evidence.artifactSha256, crypto.createHash('sha256').update('crate-bytes').digest('hex'));
@@ -200,6 +215,7 @@ test('cargo: the same gate and publish flow run on the evidence it wrote', async
   assert.equal(call.dryRun, false);
   assert.equal(call.trustEvidenceSteps, true);
   assert.equal(call.verifyOnPublish, true);
+  assert.equal(call.offlineReadOnly, true);
   assert.deepEqual(h.published.find((entry) => entry.recorded).recorded, { registry: 'cargo', name: 'rightkit-demo', version: '1.2.3' });
 });
 
@@ -595,4 +611,34 @@ test('Windows qualification verifies package, exports durable bytes and evidence
   const commandCount = h.calls.length;
   await refused(runLocalPublish('cargo', argv, h.deps), /bundle already exists/);
   assert.equal(h.calls.length, commandCount);
+});
+
+test('single-crate qualify-only with --jobs: cargo gets --jobs after the subcommand, evidence records jobs, recorded steps stay canonical', async () => {
+  const root = workspace({ kind: 'cargo' });
+  const h = harness(root, 'cargo', { platform: 'win32', arch: 'x64' });
+  const bundle = path.join(root, 'qualified');
+  const result = await runLocalPublish('cargo', ['--local', '--crate', 'rightkit-demo', '--workspace', root, '--qualify-only', '--bundle', bundle, '--jobs', '3'], h.deps);
+  for (const sub of ['test', 'clippy', 'check', 'package']) {
+    const calls = h.calls.filter(({ command, args }) => command === 'cargo' && args[0] === sub);
+    assert.ok(calls.length > 0, sub);
+    for (const { args } of calls) assert.deepEqual(args.slice(1, 3), ['--jobs', '3']);
+  }
+  for (const sub of ['fmt', 'metadata']) for (const { args } of h.calls.filter(({ command, args: a }) => command === 'cargo' && a[0] === sub)) assert.equal(args.includes('--jobs'), false);
+  const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
+  assert.equal(evidence.runs[0].jobs, 3);
+  assert.ok(evidence.runs[0].steps.every((step) => !step.command.includes('--jobs')));
+  assert.ok(evidence.runs[0].steps.some((step) => step.command === 'cargo package --locked -p rightkit-demo'));
+  assert.equal(provenGateSteps(evidence).tests, true);
+  assert.equal(provenGateSteps(evidence).clippy, true);
+  const bad = structuredClone(evidence); bad.runs[0].jobs = 99;
+  const gate = checkPublicationGate({ kind: 'cargo', name: 'rightkit-demo', version: '1.2.3', packagePath: root, evidencePath: 'x', git: (args) => (args[0] === 'rev-parse' ? HEAD : ''), readFile: () => JSON.stringify(bad) });
+  assert.ok(gate.missing.some((line) => /jobs \(must be an integer from 1 to 64\)/.test(line)));
+});
+
+
+test('jobs bounds preserve qualification-only scope', () => {
+  const argv = ['--local', '--crate', 'rightkit-demo', '--qualify-only', '--bundle', 'out'];
+  for (const bad of ['0', '-1', '65', '2.5', 'x', '', '1e1']) assert.throws(() => parseLocalPublishArgs('cargo', [...argv, '--jobs', bad]), /--jobs must be/);
+  assert.throws(() => parseLocalPublishArgs('cargo', ['--local', '--crate', 'rightkit-demo', '--jobs', '4']), /--jobs requires --qualify-only/);
+  assert.equal(parseLocalPublishArgs('cargo', [...argv, '--jobs', '12']).jobs, 12);
 });

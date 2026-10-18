@@ -12,7 +12,7 @@ fn model_dir() -> std::path::PathBuf {
 }
 
 fn runtime_path() -> std::path::PathBuf {
-    std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+    std::env::var_os("RK_ORT_TEST_DYLIB")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| RUNTIME.into())
 }

@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-ffmpeg",
+  "version": "0.2.9",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "8f811e7775313080e925b9477455f05c2cceedb6abca3d311154f86570465ea0",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "8f811e7775313080e925b9477455f05c2cceedb6abca3d311154f86570465ea0",
+      "command": "cargo test -p rightkit-ffmpeg --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-ffmpeg --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-ffmpeg --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-ffmpeg && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T03:10:53.439Z",
+      "passed": 157,
+      "failed": 0,
+      "skipped": 1,
+      "ignored": 1,
+      "allowIgnored": true,
+      "requireAssets": "0",
+      "assetGated": true,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-ffmpeg --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 157,
+          "failed": 0,
+          "ignored": 1,
+          "skipped": 1,
+          "binaries": 13
+        },
+        {
+          "command": "cargo clippy -p rightkit-ffmpeg --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-ffmpeg --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

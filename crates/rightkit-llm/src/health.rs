@@ -9,10 +9,14 @@
 //!
 //! The registry is process-wide and keyed by route name: [`record_success`],
 //! [`record_failure`], [`state`] and [`snapshot`]. A route that has never reported is
-//! `Healthy`. [`RouteHealth`] is the per-route state machine on its own, for callers that keep
-//! their own state.
+//! `Healthy`. It retains at most 256 routes and 32 KiB of route-name bytes. Recording an
+//! outcome or reading a route's state makes it most recently used; [`snapshot`] does not.
+//! New entries evict least recently used routes until both limits fit. An evicted route is
+//! `Healthy` until it reports again; a name longer than 32 KiB is never retained. Snapshots
+//! contain only retained routes. [`RouteHealth`] is the lossless per-route state machine for
+//! callers that keep their own state. This registry does not own the independent breakers
+//! inside [`crate::failover::FailoverChain`].
 
-use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -127,19 +131,104 @@ pub struct RouteSnapshot {
     pub consecutive_failures: u32,
 }
 
-static REGISTRY: Mutex<BTreeMap<String, RouteHealth>> = Mutex::new(BTreeMap::new());
+// Owned-layout design budget, not an RSS measurement: 64 KiB, matching the existing
+// CLI stderr/default tool-result cap (provider/cli.rs, tools.rs). Reserve half
+// for names and half for fixed slots. 256 slots exceed ten times the 23 bundled
+// catalogue model rows; this is a cardinality policy, not observed route usage.
+const MAX_ROUTES: usize = 256;
+const MAX_ROUTE_NAME_BYTES: usize = 32 * 1024;
+const MAX_REGISTRY_INLINE_BYTES: usize = 32 * 1024;
 
-fn with_registry<T>(f: impl FnOnce(&mut BTreeMap<String, RouteHealth>) -> T) -> T {
+struct RegistryEntry {
+    // Box<str> retains precisely len bytes, without String capacity overhang.
+    route: Box<str>,
+    health: RouteHealth,
+}
+
+struct Registry {
+    // Packed oldest to newest: moving a slot updates LRU order without a counter
+    // that can wrap, a second allocation, or a duplicate copy of a route name.
+    entries: [Option<RegistryEntry>; MAX_ROUTES],
+    len: usize,
+    name_bytes: usize,
+}
+
+// Includes the mutex and array layout. Allocator bookkeeping is not an RSS claim;
+// there are at most MAX_ROUTES owned heap allocations, each an exact Box<str>.
+const _: () = assert!(std::mem::size_of::<Mutex<Registry>>() <= MAX_REGISTRY_INLINE_BYTES);
+
+impl Registry {
+    const fn new() -> Self {
+        Self {
+            entries: [const { None }; MAX_ROUTES],
+            len: 0,
+            name_bytes: 0,
+        }
+    }
+
+    fn route_mut(&mut self, route: &str, insert: bool) -> Option<&mut RouteHealth> {
+        if let Some(index) = self.entries[..self.len].iter().position(|entry| {
+            entry
+                .as_ref()
+                .is_some_and(|entry| entry.route.as_ref() == route)
+        }) {
+            self.entries[index..self.len].rotate_left(1);
+        } else {
+            if !insert || route.len() > MAX_ROUTE_NAME_BYTES {
+                return None;
+            }
+            while self.len == MAX_ROUTES || self.name_bytes > MAX_ROUTE_NAME_BYTES - route.len() {
+                let oldest = self.entries[0].take().expect("nonempty registry");
+                self.name_bytes -= oldest.route.len();
+                self.entries[..self.len].rotate_left(1);
+                self.len -= 1;
+            }
+            self.entries[self.len] = Some(RegistryEntry {
+                route: route.into(),
+                health: RouteHealth::new(HealthPolicy::default()),
+            });
+            self.len += 1;
+            self.name_bytes += route.len();
+        }
+        self.entries[self.len - 1]
+            .as_mut()
+            .map(|entry| &mut entry.health)
+    }
+
+    fn state_at(&mut self, route: &str, now: Instant) -> HealthState {
+        self.route_mut(route, false)
+            .map_or(HealthState::Healthy, |health| health.state(now))
+    }
+
+    fn snapshot(&self, now: Instant) -> Vec<RouteSnapshot> {
+        let mut rows: Vec<_> = self.entries[..self.len]
+            .iter()
+            .filter_map(Option::as_ref)
+            .map(|entry| RouteSnapshot {
+                route: entry.route.to_string(),
+                state: entry.health.state(now),
+                consecutive_failures: entry.health.consecutive_failures(),
+            })
+            .collect();
+        rows.sort_unstable_by(|left, right| left.route.cmp(&right.route));
+        rows
+    }
+}
+
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry::new());
+
+fn with_registry<T>(f: impl FnOnce(&mut Registry) -> T) -> T {
     let mut g = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut g)
 }
 
-/// Record a success for `route` in the process registry.
+/// Record a success for `route` in the bounded process registry.
+/// Oversized names are ignored; inserting a new route may evict older observations.
 pub fn record_success(route: &str) {
     with_registry(|r| {
-        r.entry(route.to_owned())
-            .or_insert_with(|| RouteHealth::new(HealthPolicy::default()))
-            .record_success();
+        if let Some(health) = r.route_mut(route, true) {
+            health.record_success();
+        }
     });
 }
 
@@ -149,11 +238,12 @@ pub fn record_failure(route: &str) {
 }
 
 /// Record a failure for `route` at `at`. Used by tests and by callers with their own clock.
+/// Oversized names are ignored; inserting a new route may evict older observations.
 pub fn record_failure_at(route: &str, at: Instant) {
     with_registry(|r| {
-        r.entry(route.to_owned())
-            .or_insert_with(|| RouteHealth::new(HealthPolicy::default()))
-            .record_failure(at);
+        if let Some(health) = r.route_mut(route, true) {
+            health.record_failure(at);
+        }
     });
 }
 
@@ -164,21 +254,14 @@ pub fn state(route: &str) -> HealthState {
 
 /// The state of `route` at `now`.
 pub fn state_at(route: &str, now: Instant) -> HealthState {
-    with_registry(|r| r.get(route).map_or(HealthState::Healthy, |h| h.state(now)))
+    with_registry(|r| r.state_at(route, now))
 }
 
-/// Every route that has reported, sorted by name, with its state now.
+/// Currently retained routes, sorted by name, with their state now.
+/// Does not change recency. Evicted and oversized names are absent.
 pub fn snapshot() -> Vec<RouteSnapshot> {
     let now = Instant::now();
-    with_registry(|r| {
-        r.iter()
-            .map(|(route, h)| RouteSnapshot {
-                route: route.clone(),
-                state: h.state(now),
-                consecutive_failures: h.consecutive_failures(),
-            })
-            .collect()
-    })
+    with_registry(|r| r.snapshot(now))
 }
 
 #[cfg(test)]
@@ -232,5 +315,128 @@ mod tests {
             .any(|s| s.route == name && s.state == HealthState::Failed));
         record_success(name);
         assert_eq!(state_at(name, t0), HealthState::Healthy);
+    }
+
+    #[test]
+    fn registry_churn_caps_slots_and_keeps_recent_failure_history() {
+        let mut registry = Registry::new();
+        let now = Instant::now();
+        for i in 0..MAX_ROUTES {
+            registry
+                .route_mut(&format!("route-{i:04}"), true)
+                .unwrap()
+                .record_failure(now);
+        }
+        for _ in 0..4 {
+            registry
+                .route_mut("route-0000", true)
+                .unwrap()
+                .record_failure(now);
+        }
+        // A read also refreshes recency. All other original entries can be evicted.
+        for i in MAX_ROUTES..MAX_ROUTES * 4 {
+            assert_eq!(registry.state_at("route-0000", now), HealthState::Failed);
+            registry
+                .route_mut(&format!("route-{i:04}"), true)
+                .unwrap()
+                .record_success();
+            assert_eq!(registry.len, MAX_ROUTES);
+            assert!(registry.name_bytes <= MAX_ROUTE_NAME_BYTES);
+        }
+        assert_eq!(registry.state_at("route-0001", now), HealthState::Healthy);
+        assert_eq!(registry.state_at("route-0000", now), HealthState::Failed);
+        assert_eq!(
+            registry
+                .route_mut("route-0000", false)
+                .unwrap()
+                .consecutive_failures(),
+            5
+        );
+    }
+
+    #[test]
+    fn registry_byte_pressure_evicts_oldest_and_bounds_exact_boxed_names() {
+        let mut registry = Registry::new();
+        let now = Instant::now();
+        let first = "a".repeat(MAX_ROUTE_NAME_BYTES / 2);
+        let second = "b".repeat(MAX_ROUTE_NAME_BYTES / 2);
+        registry
+            .route_mut(&first, true)
+            .unwrap()
+            .record_failure(now);
+        registry
+            .route_mut(&second, true)
+            .unwrap()
+            .record_failure(now);
+        assert_eq!(registry.name_bytes, MAX_ROUTE_NAME_BYTES);
+        registry.route_mut("new", true).unwrap().record_success();
+        let rows = registry.snapshot(now);
+        assert!(!rows.iter().any(|row| row.route == first));
+        assert!(rows.iter().any(|row| row.route == second));
+        assert_eq!(registry.len, 2);
+        assert_eq!(registry.name_bytes, MAX_ROUTE_NAME_BYTES / 2 + 3);
+        assert_eq!(
+            registry.name_bytes,
+            registry
+                .entries
+                .iter()
+                .flatten()
+                .map(|entry| entry.route.len())
+                .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn registry_rejects_oversized_name_without_evicting_or_allocating_an_entry() {
+        let mut registry = Registry::new();
+        let now = Instant::now();
+        let exact = "x".repeat(MAX_ROUTE_NAME_BYTES);
+        registry
+            .route_mut(&exact, true)
+            .unwrap()
+            .record_failure(now);
+        let oversized = "x".repeat(MAX_ROUTE_NAME_BYTES + 1);
+        assert!(registry.route_mut(&oversized, true).is_none());
+        assert_eq!(registry.state_at(&oversized, now), HealthState::Healthy);
+        assert_eq!(registry.len, 1);
+        assert_eq!(registry.name_bytes, MAX_ROUTE_NAME_BYTES);
+        assert_eq!(registry.snapshot(now)[0].route, exact);
+    }
+
+    #[test]
+    fn registry_snapshot_is_sorted_does_not_refresh_recency_and_eviction_resets_state() {
+        let mut registry = Registry::new();
+        let now = Instant::now();
+        for _ in 0..5 {
+            registry
+                .route_mut("oldest", true)
+                .unwrap()
+                .record_failure(now);
+        }
+        for i in 1..MAX_ROUTES {
+            registry
+                .route_mut(&format!("a-{i:04}"), true)
+                .unwrap()
+                .record_success();
+        }
+        let rows = registry.snapshot(now);
+        assert!(rows.windows(2).all(|pair| pair[0].route < pair[1].route));
+        registry.route_mut("newest", true).unwrap().record_success();
+        assert_eq!(registry.state_at("oldest", now), HealthState::Healthy);
+        assert!(!registry
+            .snapshot(now)
+            .iter()
+            .any(|row| row.route == "oldest"));
+        registry
+            .route_mut("oldest", true)
+            .unwrap()
+            .record_failure(now);
+        assert_eq!(
+            registry
+                .route_mut("oldest", false)
+                .unwrap()
+                .consecutive_failures(),
+            1
+        );
     }
 }

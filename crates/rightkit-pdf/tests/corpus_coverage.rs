@@ -3,7 +3,7 @@
 //! Re-encoding coverage, measured on a real corpus (test-only, `#[ignore]` - run explicitly):
 //!
 //! ```sh
-//! RIGHTKIT_PDF_CORPUS_DIR=/Volumes/D/claude/viewright/.qa-corpus \
+//! RK_PDF_CORPUS_DIR=/Volumes/D/claude/viewright/.qa-corpus \
 //!   rightkit cargo test -p rightkit-pdf --test corpus_coverage -- --ignored --nocapture
 //! ```
 //!
@@ -280,7 +280,7 @@ fn measure(bytes: &[u8], save_as: Option<&std::path::Path>) -> Row {
 }
 
 fn corpus_files() -> Vec<PathBuf> {
-    let dir = std::env::var("RIGHTKIT_PDF_CORPUS_DIR")
+    let dir = std::env::var("RK_PDF_CORPUS_DIR")
         .unwrap_or_else(|_| "/Volumes/D/claude/viewright/.qa-corpus".into());
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("corpus dir {dir}: {e}"))
@@ -311,12 +311,10 @@ fn corpus_replace_source_text_coverage() {
             println!("{name} | unreadable");
             continue;
         };
-        let save_as = Some(
-            std::env::var("RIGHTKIT_PDF_EDITED_DIR").unwrap_or_else(|_| {
-                // The wrapper may not pass the environment through; ViewRight looks here.
-                "/Volumes/D/claude/tasks/handoffs/2026-10-11/pdf-0.2.1-edited".into()
-            }),
-        )
+        let save_as = Some(std::env::var("RK_PDF_EDITED_DIR").unwrap_or_else(|_| {
+            // The wrapper may not pass the environment through; ViewRight looks here.
+            "/Volumes/D/claude/tasks/handoffs/2026-10-11/pdf-0.2.1-edited".into()
+        }))
         .and_then(|dir| {
             let stem = name.trim_end_matches(".pdf");
             ["gpt3", "bert", "attention", "bitcoin", "irs-1040"]
@@ -393,7 +391,7 @@ fn corpus_replace_source_text_coverage() {
 #[ignore]
 fn corpus_uscis_i9_every_page_graph_parses() {
     // Ledger #93: `/Contents` is an indirect reference to an array of streams.
-    let dir = std::env::var("RIGHTKIT_PDF_CORPUS_DIR")
+    let dir = std::env::var("RK_PDF_CORPUS_DIR")
         .unwrap_or_else(|_| "/Volumes/D/claude/viewright/.qa-corpus".into());
     let bytes = std::fs::read(PathBuf::from(dir).join("uscis-i9.pdf")).expect("uscis-i9.pdf");
     for page in 1..=4 {
@@ -409,7 +407,7 @@ fn corpus_uscis_i9_every_page_graph_parses() {
 /// Real LaTeX lines whose word gaps are `TJ` adjustments, not space glyphs. The island text must
 /// carry the spaces, a one-word rotation must read back exactly, and no other glyph may move.
 fn latex_line_case(file: &str, phrase: &str) {
-    let dir = std::env::var("RIGHTKIT_PDF_CORPUS_DIR")
+    let dir = std::env::var("RK_PDF_CORPUS_DIR")
         .unwrap_or_else(|_| "/Volumes/D/claude/viewright/.qa-corpus".into());
     let bytes = std::fs::read(PathBuf::from(dir).join(file)).expect(file);
     let graph = page_graph_from_bytes(&bytes, 1).expect("graph");

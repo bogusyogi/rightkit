@@ -647,6 +647,7 @@ mod tests {
         assert!(plan_deny_read_paths(&secrets).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn plan_refuses_a_symlink_that_resolves_to_the_filesystem_root() {
         let dir = scratch("plan-root-alias");

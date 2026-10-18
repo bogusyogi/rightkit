@@ -21,8 +21,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { runCargoAsync, runCargoSync, spawnCollect } from "./managed-cargo.mjs";
 import { localBuildGranted, LOCAL_BUILD_FILE } from "./execution-policy.mjs";
-import { GATE_SCHEMA, defaultEvidencePath, enforcePublicationGate, publishGatedTarball } from "./publication-gate.mjs";
-import { runCargoPublish, scanCrateForSecrets } from "./publish-cargo.mjs";
+import { GATE_SCHEMA, MAX_CARGO_JOBS, defaultEvidencePath, enforcePublicationGate, publishGatedTarball } from "./publication-gate.mjs";
+import { runCargoPublish, runCargoReadOnly, scanCrateForSecrets } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished, stageSourceVersions } from "./rightkit-sync.mjs";
@@ -44,6 +44,11 @@ const refuse = (message) => { throw new LocalPublishError(message); };
 export const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const CRATE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const JOBS_SUBCOMMANDS = new Set(["test", "clippy", "check", "package"]);
+export function withCargoJobs(args, jobs) {
+  return jobs !== undefined && JOBS_SUBCOMMANDS.has(args[0])
+    ? [args[0], "--jobs", String(jobs), ...args.slice(1)] : args;
+}
 
 const crateList = (text, what) => {
   const names = String(text ?? "").split(",").map((name) => name.trim()).filter(Boolean);
@@ -108,7 +113,7 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   const flag = kind === "npm" ? "--package" : "--crate";
   const batchFlags = kind === "cargo" ? ", --crates <a,b,c>, --crates-file <file>, --concurrency <n>, --allow-ignored-units <a,b>" : "";
   let unit; let workspace; let local = false; let allowIgnored = false;
-  let qualifyOnly = false; let bundle;
+  let qualifyOnly = false; let bundle; let jobsText;
   let crates; let cratesFile; let concurrency = DEFAULT_CONCURRENCY; let allowIgnoredUnits = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -123,6 +128,7 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
     else if (kind === "cargo" && arg === "--crates-file") cratesFile = argv[++i];
     else if (kind === "cargo" && arg === "--concurrency") concurrency = Number(argv[++i]);
     else if (kind === "cargo" && arg === "--allow-ignored-units") allowIgnoredUnits = crateList(argv[++i], "--allow-ignored-units");
+    else if (kind === "cargo" && arg === "--jobs") jobsText = argv[++i] ?? "";
     else refuse(`unknown publish ${kind} --local option: ${arg} (accepted: ${flag} <name>${batchFlags}, --workspace <dir>, --allow-ignored, --local)`);
   }
   if (!local) refuse("--local is required");
@@ -132,6 +138,12 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   if (qualifyOnly && !String(bundle ?? "").trim()) refuse("--qualify-only requires --bundle <new-directory>");
   if (bundle !== undefined && !qualifyOnly) refuse("--bundle requires --qualify-only");
   const bundleDir = bundle === undefined ? undefined : path.resolve(cwd, bundle);
+  let jobs;
+  if (jobsText !== undefined) {
+    if (!/^[0-9]+$/.test(jobsText) || Number(jobsText) < 1 || Number(jobsText) > MAX_CARGO_JOBS) refuse(`--jobs must be an integer from 1 to ${MAX_CARGO_JOBS}`);
+    if (!qualifyOnly) refuse("--jobs requires --qualify-only");
+    jobs = Number(jobsText);
+  }
   if (kind === "cargo" && (crates !== undefined || cratesFile !== undefined)) {
     if (unit !== undefined) refuse("--crate cannot be combined with --crates or --crates-file");
     if (crates !== undefined && cratesFile !== undefined) refuse("use --crates or --crates-file, not both");
@@ -143,7 +155,7 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   }
   if (kind === "npm" && !/^@rightkit\/[a-z0-9-]+$/.test(unit ?? "")) refuse("publish npm --local requires --package @rightkit/<name>");
   if (kind === "cargo" && !CRATE_NAME.test(unit ?? "")) refuse("publish cargo --local requires --crate <name> (or --crates / --crates-file)");
-  return { kind, unit, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: undefined, ...(qualifyOnly ? { qualifyOnly, bundleDir } : {}) };
+  return { kind, unit, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: undefined, ...(qualifyOnly ? { qualifyOnly, bundleDir } : {}), ...(jobs === undefined ? {} : { jobs }) };
 }
 
 function defaultGit(args, cwd) {
@@ -370,11 +382,11 @@ async function publishUnit(parsed, deps, batch) {
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
     log(`[right-release] ${plan.id}: ${commandText}`);
-    const result = await run(step.command, step.args, { cwd: workspaceRoot, env });
+    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: workspaceRoot, env });
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
-      refuse(`${plan.id} step failed (${result.error?.message ?? `exit ${result.status}`}): ${commandText}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+      refuse(`${plan.id} step failed (${result.error?.message ?? `exit ${result.status}`}): ${commandText}\nstdout:\n${result.stdout ?? ""}\nstderr:\n${result.stderr ?? ""}`);
     }
     row.ok = true;
     if (row.isTest) {
@@ -418,14 +430,19 @@ async function publishUnit(parsed, deps, batch) {
       // its evidence leaves this host, so the publishing host can reuse that exact archive's proof.
       const packageArgs = ["package", "--locked", ...(parsed.qualifyOnly ? [] : ["--no-verify"]), "-p", unit];
       packCommands.push(`cargo ${packageArgs.join(" ")}`);
-      const packed = await run("cargo", packageArgs, { cwd: workspaceRoot, env });
+      const packed = await run("cargo", withCargoJobs(packageArgs, parsed.jobs), { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
       if (parsed.qualifyOnly) steps.push({ command: `cargo ${packageArgs.join(" ")}`, ok: true });
-      packCommands.push("cargo metadata --format-version 1 --no-deps");
-      const meta = await run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
+      const metadataArgs = ["metadata", "--offline", "--format-version", "1", "--no-deps"];
+      const meta = await runCargoReadOnly(metadataArgs, { cwd: workspaceRoot, env }, (_command, args, settings) => run("cargo", args, settings),
+        (failed) => log(`[right-release] offline Cargo metadata missed cache; retrying online once\n${failed.stdout ?? ""}${failed.stderr ? `\n${failed.stderr}` : ""}`));
+      const actualMetadataArgs = meta.usedOfflineFallback ? metadataArgs.filter((arg) => arg !== "--offline") : metadataArgs;
+      packCommands.push(`cargo ${actualMetadataArgs.join(" ")}`);
       let targetDir;
       try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
-      if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) refuse("cannot read the Cargo target directory");
+      if (meta.error || meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) {
+        refuse(`cannot read the Cargo target directory\n${tail(`${meta.error?.message ?? ""}\n${meta.stdout ?? ""}\n${meta.stderr ?? ""}`)}`);
+      }
       artifactFile = path.join(targetDir, "package", `${unit}-${version}.crate`);
       if (!fs.existsSync(artifactFile)) refuse(`cargo package did not produce ${artifactFile}`);
     }
@@ -443,6 +460,7 @@ async function publishUnit(parsed, deps, batch) {
         passed: verdict.executed, failed: 0, skipped: verdict.skipped, ignored: verdict.ignored, allowIgnored: ignoredAllowed,
         ...(configReason ? { allowIgnoredReason: configReason } : {}),
         requireAssets: env.RIGHTKIT_REQUIRE_ASSETS, assetGated: isAssetGated,
+        ...(parsed.jobs === undefined ? {} : { jobs: parsed.jobs }),
         ...(batch ? { batch: structuredClone(batch.receipt) } : {}),
         steps: steps.map(({ command, ok, executed, failed, ignored, skipped, binaries }) => ({ command, ok, ...(executed === undefined ? {} : { executed, failed, ignored, skipped, binaries }) })),
       }],
@@ -474,7 +492,7 @@ async function publishUnit(parsed, deps, batch) {
       // and clippy, so the publisher does not repeat them; verifyOnPublish: Cargo's verify build runs in the
       // publish itself. Package contents, the runtime budget, the archive hash and the readback always run.
       const execute = deps.cargoExecute ?? (batch ? batchCargoExecute(unit) : undefined);
-      const published = await (deps.runCargoPublish ?? runCargoPublish)({ crate: unit, dryRun: false, allowDirty: false, workspaceRoot, evidence: evidencePath, trustEvidenceSteps: true, verifyOnPublish: true }, execute, deps.cargoDeps ?? {});
+      const published = await (deps.runCargoPublish ?? runCargoPublish)({ crate: unit, dryRun: false, allowDirty: false, workspaceRoot, evidence: evidencePath, trustEvidenceSteps: true, verifyOnPublish: true, offlineReadOnly: true }, execute, deps.cargoDeps ?? {});
       await withVersionsLock(() => (deps.recordPublished ?? recordPublished)({ registry: "cargo", name: published.name, version: published.version }));
     }
     log(`[right-release] published ${unit}@${version}`);

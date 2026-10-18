@@ -11,7 +11,7 @@ with poppler `pdftotext` on a pinned corpus and reports two scores per file:
 ## Run
 
 Through the RightKit wrapper, package `rightkit-pdf`, feature `extract`, test target `extract_quality`, with
-`--ignored --nocapture`. Set `RIGHTKIT_PDFTOTEXT` to the `pdftotext` binary, or leave it unset to use PATH.
+`--ignored --nocapture`. Set `RK_PDFTOTEXT` to the `pdftotext` binary, or leave it unset to use PATH.
 
 A missing `pdftotext` is a **failure**, not a pass. Set `RIGHTKIT_PDF_QUALITY_ALLOW_SKIP=1` to turn it into a loudly
 printed skip. The scoring functions have ordinary tests that need no oracle and run with the `extract` feature.
@@ -27,7 +27,7 @@ the harness with `RIGHTKIT_PDF_QUALITY_CORPUS=<dir>`.
 ## Baseline
 
 `baseline.json` holds per-file scores. It is **not yet recorded** (`"recorded": false`): recording needs a run with
-poppler, which has not been done. Record with `RIGHTKIT_PDF_QUALITY_RECORD=<new-baseline.json>`, review, and copy it
+poppler, which has not been done. Record with `RK_PDF_QUALITY_RECORD=<new-baseline.json>`, review, and copy it
 over `baseline.json`. Later runs fail a file whose F1 or order score falls more than `tolerance` under its baseline.
 
 ## Decision rule for column-aware ordering

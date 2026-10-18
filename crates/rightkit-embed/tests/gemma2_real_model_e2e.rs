@@ -3,7 +3,7 @@
 //!
 //! Needs `RIGHTKIT_EMBED_GEMMA2_DIR` (the text-only Q4 bundle, e.g. the hosted
 //! `build-inputs/coderight/embed-model/embeddinggemma2-q4-b64acc4/`) and
-//! `RIGHTKIT_ORT_TEST_DYLIB` (ONNX Runtime >= 1.20 for GatherBlockQuantized).
+//! `RK_ORT_TEST_DYLIB` (ONNX Runtime >= 1.20 for GatherBlockQuantized).
 //! Without both it reports a skip.
 
 #![cfg(all(feature = "inference", feature = "vector"))]
@@ -23,7 +23,7 @@ fn input(key: &str) -> Option<std::path::PathBuf> {
 fn inputs() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     Some((
         input("RIGHTKIT_EMBED_GEMMA2_DIR")?,
-        input("RIGHTKIT_ORT_TEST_DYLIB")?,
+        input("RK_ORT_TEST_DYLIB")?,
     ))
 }
 

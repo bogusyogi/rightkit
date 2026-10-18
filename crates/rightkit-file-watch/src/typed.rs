@@ -67,7 +67,8 @@ pub enum WatchEvent {
 /// a mate, then become Delete/Create. Tracker IDs take precedence; untracked
 /// halves pair only when adjacent, as on ReadDirectoryChangesW.
 pub struct TypedWatcher {
-    watcher: Option<RecommendedWatcher>,
+    /// Legacy backend guard, dropped before joining its translator.
+    watcher: Option<LegacyBackend>,
     thread: Option<thread::JoinHandle<()>>,
     source: Source,
     /// Platform backend started by [`TypedWatcher::watch_with`]; dropped before the queue closes.
@@ -151,17 +152,14 @@ impl TypedWatcher {
             paths: vec![path.to_path_buf()],
         })?;
         let (raw_tx, raw_rx) = mpsc::channel();
-        let mut watcher = notify::recommended_watcher(move |result| {
-            let _ = raw_tx.send(result);
-        })?;
-        watcher.watch(&root, RecursiveMode::Recursive)?;
+        let (watcher, watched_file) = arm_legacy(&root, raw_tx)?;
         let (tx, rx) = mpsc::channel();
         let counters = Arc::new(Counters::default());
         let worker = counters.clone();
         let thread = thread::Builder::new()
             .name("rightkit-watch-typed".into())
             .spawn(move || {
-                run_translated(raw_rx, |record| {
+                run_translated(raw_rx, watched_file, |record| {
                     // Count before sending so the caller never sees received > queued.
                     worker.queued.fetch_add(1, Ordering::Relaxed);
                     match record.event {
@@ -190,14 +188,16 @@ impl TypedWatcher {
 
     /// Starts a recursive stream with the opt-in features of [`TypedOptions`]: a bounded queue,
     /// path exclusions, directory granularity and, on macOS, a native FSEvents backend that can
-    /// resume from a [`WatchCursor`]. Every other constructor keeps its notify behaviour.
+    /// resume from a [`WatchCursor`]. Both constructors use the same event translator.
     ///
     /// `WatchBackend::Native` on a host without a native backend is an error, never a fallback.
     /// Keep the returned watcher alive; dropping it stops the backend.
     pub fn watch_with(path: impl AsRef<Path>, options: TypedOptions) -> Result<Self, WatchError> {
         let started = native::start(path.as_ref(), options)?;
         Ok(Self {
-            watcher: started.watcher,
+            watcher: started
+                .watcher
+                .map(|watcher| LegacyBackend::Notify { _watcher: watcher }),
             thread: started.thread,
             source: Source::Bounded {
                 queue: started.queue,
@@ -347,6 +347,46 @@ impl Drop for TypedWatcher {
             let _ = thread.join();
         }
     }
+}
+
+/// Keeps each concrete backend's ownership and auto-traits; dropping it disarms its watch.
+enum LegacyBackend {
+    Notify {
+        _watcher: RecommendedWatcher,
+    },
+    #[cfg(windows)]
+    Native {
+        _watcher: native::windows::DirWatcher,
+    },
+}
+
+/// Owns the legacy unbounded stream's backend. Windows uses the event-driven reader already
+/// shared by directory watches; other hosts and native arm failures keep notify. A file watch
+/// follows notify's Windows contract: watch its parent non-recursively and filter exact paths.
+fn arm_legacy(
+    root: &Path,
+    tx: mpsc::Sender<notify::Result<Event>>,
+) -> Result<(LegacyBackend, Option<PathBuf>), WatchError> {
+    #[cfg(windows)]
+    {
+        let file = root.is_file().then(|| root.to_path_buf());
+        let directory = if file.is_some() {
+            root.parent().unwrap_or(root)
+        } else {
+            root
+        };
+        match native::windows::DirWatcher::start(directory, file.is_none(), tx.clone()) {
+            Ok(watcher) => return Ok((LegacyBackend::Native { _watcher: watcher }, file)),
+            Err(error) => {
+                tracing::debug!(%error, path = %root.display(), "native typed watch unavailable; using notify");
+            }
+        }
+    }
+    let mut watcher = notify::recommended_watcher(move |result| {
+        let _ = tx.send(result);
+    })?;
+    watcher.watch(root, RecursiveMode::Recursive)?;
+    Ok((LegacyBackend::Notify { _watcher: watcher }, None))
 }
 
 const RENAME_WAIT: Duration = Duration::from_millis(250);
@@ -567,11 +607,12 @@ impl Translator {
 
 #[cfg(test)]
 fn run(rx: mpsc::Receiver<notify::Result<Event>>, tx: mpsc::Sender<WatchEvent>) {
-    run_translated(rx, |record| tx.send(record.event).is_ok());
+    run_translated(rx, None, |record| tx.send(record.event).is_ok());
 }
 
 fn run_translated(
     rx: mpsc::Receiver<notify::Result<Event>>,
+    watched_file: Option<PathBuf>,
     mut send: impl FnMut(WatchEventRecord) -> bool,
 ) {
     let mut translator = Translator::default();
@@ -581,7 +622,30 @@ fn run_translated(
             None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
         let events = match result {
-            Ok(result) => translator.translate_records(result, Instant::now()),
+            Ok(mut result) => {
+                let relevant = if let Some(file) = &watched_file {
+                    match &mut result {
+                        Ok(event) => {
+                            // Filter before pairing rename halves, as notify does for file watches.
+                            // A pathless overflow still invalidates this file's watch history.
+                            event.paths.retain(|path| path == file);
+                            !event.paths.is_empty() || event.need_rescan()
+                        }
+                        Err(error) => {
+                            error.paths = vec![file.clone()];
+                            true
+                        }
+                    }
+                } else {
+                    true
+                };
+                if relevant {
+                    translator.translate_records(result, Instant::now())
+                } else {
+                    // Sibling traffic must not postpone expiry of this file's pending rename.
+                    translator.expire_records(Instant::now())
+                }
+            }
             Err(RecvTimeoutError::Timeout) => translator.expire_records(Instant::now()),
             Err(RecvTimeoutError::Disconnected) => {
                 for event in translator.flush_records() {
@@ -618,6 +682,64 @@ mod tests {
             from: from.into(),
             to: to.into(),
         }
+    }
+
+    #[test]
+    fn native_file_filter_preserves_rename_boundaries_errors_and_overflow() {
+        let file = PathBuf::from("target");
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(half(RenameMode::From, "target", None))).unwrap();
+        tx.send(Ok(half(RenameMode::To, "sibling", None))).unwrap();
+        tx.send(Ok(
+            Event::new(EventKind::Create(CreateKind::Any)).add_path("noise".into())
+        ))
+        .unwrap();
+        tx.send(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)))
+            .unwrap();
+        tx.send(Err(
+            notify::Error::generic("reader failed").add_path("parent".into())
+        ))
+        .unwrap();
+        drop(tx);
+        let mut records = Vec::new();
+        run_translated(rx, Some(file.clone()), |record| {
+            records.push(record);
+            true
+        });
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].event, WatchEvent::Delete(file.clone()));
+        assert_eq!(
+            records[0].raw_kind,
+            Some(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+        );
+        assert_eq!(records[1].event, WatchEvent::Overflow);
+        assert!(
+            matches!(&records[2].event, WatchEvent::Error(WatchError::Backend { paths, .. }) if paths == &[file])
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn legacy_native_file_watch_filters_siblings_and_joins_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("target.txt");
+        std::fs::write(&file, b"before").unwrap();
+        let file = file.canonicalize().unwrap();
+        let watch = TypedWatcher::watch(&file).unwrap();
+        std::fs::write(dir.path().join("sibling.txt"), b"ignore").unwrap();
+        std::fs::write(&file, b"after").unwrap();
+        let event = watch
+            .recv_timeout(Duration::from_secs(10))
+            .expect("file modification");
+        match event {
+            WatchEvent::Create(path) | WatchEvent::Modify(path) | WatchEvent::Delete(path) => {
+                assert_eq!(path, file, "file watch leaked a sibling event");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+        let began = Instant::now();
+        drop(watch);
+        assert!(began.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

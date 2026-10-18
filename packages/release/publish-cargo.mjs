@@ -47,6 +47,35 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
   };
 }
 
+const OFFLINE_CACHE_MISS = /(?:attempting to make an HTTP request, but --offline was specified|as a reminder, you're using offline mode(?: \(--offline\))?)/i;
+const OFFLINE_READ_ONLY_COMMANDS = new Set(["metadata", "package"]);
+
+/** Retry only a Cargo offline cache miss for metadata/package inspection, once with normal network access. */
+export async function runCargoReadOnly(args, settings, execute, onOfflineFailure = () => {}) {
+  const subcommand = args[0];
+  if (!OFFLINE_READ_ONLY_COMMANDS.has(subcommand) || !args.includes("--offline")) {
+    return execute("cargo", args, settings);
+  }
+  const first = await execute("cargo", args, settings);
+  if (!first.error && first.status === 0) return first;
+  const diagnostic = `${first.stdout ?? ""}\n${first.stderr ?? ""}`;
+  if (!OFFLINE_CACHE_MISS.test(diagnostic)) return first;
+  onOfflineFailure(first);
+  const retryArgs = args.filter((arg) => arg !== "--offline");
+  const retry = await execute("cargo", retryArgs, settings);
+  if (!retry.error && retry.status === 0) return { ...retry, usedOfflineFallback: true };
+  const labeled = (result) => String(result ?? "");
+  const stdout = `[offline attempt]\n${labeled(first.stdout)}\n[online retry]\n${labeled(retry.stdout)}`;
+  const stderr = `[offline attempt]\n${labeled(first.stderr)}\n[online retry]\n${labeled(retry.stderr)}`;
+  return {
+    ...retry,
+    stdout,
+    stderr,
+    ...(retry.error ? { error: new Error(`${retry.error.message}\n${stdout}\n${stderr}`) } : {}),
+    offlineFallbackFailed: true,
+  };
+}
+
 // A committed ci/runtime-budget-deferred.json names crates whose runtime-budget refusal is deferred by an
 // explicit decision (who, when, why). The refusal is still printed; a listed crate publishes with the
 // deferral logged. Returns the logged reason, or null when the crate is not listed.
@@ -69,9 +98,10 @@ const PROVEN_STEP = Object.freeze({ "secret scan": "secretScan", format: "fmt", 
  * the upload, instead of in a dry-run and not at all in the publish. `packageVerified` is set only after
  * explicit evidence reuse proves a successful standalone package verification; hash checking stays mandatory.
  */
-export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false, proven = {}, verifyOnPublish = false, packageVerified = false }) {
+export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false, proven = {}, verifyOnPublish = false, packageVerified = false, offlineReadOnly = false }) {
+  const offline = offlineReadOnly ? ["--offline"] : [];
   const dryRunArgs = ["publish", "--dry-run", "-p", crate];
-  const packageArgs = ["package", "--list", "-p", crate];
+  const packageArgs = ["package", "--list", ...offline, "-p", crate];
   if (allowDirty) dryRunArgs.push("--allow-dirty");
   if (allowDirty) packageArgs.push("--allow-dirty");
   const verifyHere = verifyOnPublish && !dryRun;
@@ -89,8 +119,8 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   if (!dryRun) plan.push(
     // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
     // explicitly to bind target/package/<name>-<version>.crate to evidence before Cargo uploads.
-    { label: "package archive", command: "cargo", args: ["package", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
-    { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
+    { label: "package archive", command: "cargo", args: ["package", ...offline, "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
+    { label: "package location", command: "cargo", args: ["metadata", ...offline, "--format-version", "1", "--no-deps"], capture: true },
     { label: "archive hash check", internal: "verify-archive" },
     { label: "registry publish", command: "cargo", args: verifyHere ? ["publish", "--locked", "-p", crate] : ["publish", ...(packageVerified ? ["--locked"] : []), "--no-verify", "-p", crate] },
     { label: "registry readback", internal: "registry-readback" },
@@ -171,7 +201,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     }
   }
   const plan = buildCargoPublishPlan({ ...options, crateDir, proven,
-    verifyOnPublish: !reuseEvidence && options.verifyOnPublish === true, packageVerified: reuseEvidence });
+    verifyOnPublish: !reuseEvidence && options.verifyOnPublish === true, packageVerified: reuseEvidence, offlineReadOnly: options.offlineReadOnly === true });
   for (const [label, key] of Object.entries(PROVEN_STEP)) {
     if (proven[key] === true) process.stdout.write(`[right-release] cargo ${label}: proven by the gate evidence for this commit, not repeated\n`);
   }
@@ -215,21 +245,38 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     }
     if (step.label === "registry publish") assertArtifactUnchanged(artifact);
     // `execute` may be synchronous (the default) or async (the batch publisher overlaps uploads).
-    const result = await execute(step.command, step.args, {
+    const isReadOnlyInspection = ["package contents", "package archive", "package location"].includes(step.label);
+    const settings = {
       cwd: options.workspaceRoot,
       encoding: "utf8",
       windowsHide: true,
-      stdio: step.capture ? "pipe" : "inherit",
-    });
-    if (result.error) throw result.error;
+      stdio: step.capture || (options.offlineReadOnly === true && isReadOnlyInspection) ? "pipe" : "inherit",
+    };
+    const result = options.offlineReadOnly === true && isReadOnlyInspection
+      ? await runCargoReadOnly(step.args, settings, execute, (failed) => {
+        process.stderr.write(`[right-release] offline Cargo inspection missed cache; retrying online once\n${failed.stdout ?? ""}${failed.stderr ? `\n${failed.stderr}` : ""}`);
+      })
+      : await execute(step.command, step.args, settings);
+    if (result.error) {
+      if (result.offlineFallbackFailed) throw new Error(`${step.label} failed: ${result.error.message}`);
+      throw result.error;
+    }
     if (result.status !== 0) {
-      if (step.capture && result.stderr) process.stderr.write(result.stderr);
-      throw new Error(`${step.label} failed with exit code ${result.status}`);
+      if (result.offlineFallbackFailed || step.label === "package archive") {
+        if (result.stdout) process.stdout.write(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
+      } else if (step.capture && result.stderr) process.stderr.write(result.stderr);
+      const fallback = result.offlineFallbackFailed ? `\n${result.stdout ?? ""}\n${result.stderr ?? ""}` : "";
+      throw new Error(`${step.label} failed with exit code ${result.status}${fallback}`);
     }
     if (step.label === "package location") {
+      if (result.stderr) process.stderr.write(result.stderr);
       const metadata = JSON.parse(result.stdout);
       if (typeof metadata.target_directory !== "string" || !path.isAbsolute(metadata.target_directory)) throw new Error("invalid Cargo package target directory");
       targetDir = metadata.target_directory;
+    } else if (step.label === "package archive") {
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
     } else if (step.capture) {
       if (result.stderr) process.stderr.write(result.stderr);
       const files = String(result.stdout ?? "").split(/\r?\n/).filter(Boolean);

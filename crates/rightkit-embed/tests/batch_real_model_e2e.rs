@@ -1,7 +1,7 @@
 //! Real-model batching, provider and fingerprint checks.
 //!
 //! Needs `RIGHTKIT_EMBED_GEMMA2_DIR` (or `RIGHTKIT_EMBED_MODEL_DIR` for the
-//! original EmbeddingGemma bundle) and `RIGHTKIT_ORT_TEST_DYLIB`, from the
+//! original EmbeddingGemma bundle) and `RK_ORT_TEST_DYLIB`, from the
 //! environment or the gitignored `tests/inputs.local.json`. Without them the
 //! test reports a skip.
 //!
@@ -25,7 +25,7 @@ fn input(key: &str) -> Option<std::path::PathBuf> {
 
 fn inputs() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let dir = input("RIGHTKIT_EMBED_GEMMA2_DIR").or_else(|| input("RIGHTKIT_EMBED_MODEL_DIR"))?;
-    Some((dir, input("RIGHTKIT_ORT_TEST_DYLIB")?))
+    Some((dir, input("RK_ORT_TEST_DYLIB")?))
 }
 
 const TEXTS: [&str; 7] = [

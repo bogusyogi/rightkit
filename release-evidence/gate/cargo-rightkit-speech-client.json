@@ -2,26 +2,26 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-speech-client",
-  "version": "0.3.5",
-  "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
-  "artifactSha256": "058fc18e003ce2daa2864c17936c42f5a9ebb4772cf9f4e03041d71d1b95193a",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "version": "0.3.6",
+  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+  "artifactSha256": "bf9cf9927a53c7b667e36dda634d2f1bd87b2717952660f8b13afb602341fece",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "f430c408ee3f3d0e0642fce408c87240b9308d01",
+      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
       "features": [
         "default"
       ],
-      "artifactSha256": "058fc18e003ce2daa2864c17936c42f5a9ebb4772cf9f4e03041d71d1b95193a",
-      "command": "cargo test -p rightkit-speech-client --no-fail-fast -- --show-output && cargo clippy -p rightkit-speech-client --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-speech-client && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "bf9cf9927a53c7b667e36dda634d2f1bd87b2717952660f8b13afb602341fece",
+      "command": "cargo fmt -p rightkit-speech-client --check && cargo test -p rightkit-speech-client --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-speech-client --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-speech-client --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-speech-client && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T18:10:32.041Z",
-      "passed": 53,
+      "timestamp": "2026-10-18T03:28:17.764Z",
+      "passed": 35,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -30,16 +30,32 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "cargo test -p rightkit-speech-client --no-fail-fast -- --show-output",
+          "command": "scanCrateForSecrets crates/rightkit-speech-client",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-speech-client --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-speech-client --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 53,
+          "executed": 35,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 7
+          "binaries": 8
         },
         {
-          "command": "cargo clippy -p rightkit-speech-client --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-speech-client --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-speech-client --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-speech-client",
           "ok": true
         }
       ]

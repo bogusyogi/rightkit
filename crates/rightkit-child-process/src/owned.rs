@@ -387,7 +387,7 @@ impl OwnedCommand {
     /// Windows first asks to break away from the caller's job object
     /// (`CREATE_BREAKAWAY_FROM_JOB`). If the caller's job denies breakaway
     /// (`ERROR_ACCESS_DENIED`), the launch is retried once without it, as
-    /// `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` with the same stdio and handle
+    /// `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` (`DETACHED_PROCESS` if `show_window`) with the same stdio and handle
     /// allowlist (an ordinary spawn without an allowlist still inherits what std inherits).
     /// The child is then detached from the console and process group but stays inside the
     /// caller's job, so the job's limits (including kill-on-close) still reach it. Check
@@ -547,6 +547,7 @@ impl OwnedCommand {
                     {
                         crate::process_windows::configure_in_job_detached(
                             &mut self.command,
+                            self.windows_hidden,
                             self.process_priority,
                         );
                         (PlatformChild::from(self.command.spawn()?), true)
