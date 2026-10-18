@@ -409,8 +409,14 @@ try {
     let sourceRoots;
     if (opts.platform === "ios") {
       const repoTop = git(root, ["rev-parse", "--show-toplevel"]);
-      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
+      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios, nativeAssembly: config.nativeAssembly }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
       sourceRoots = [...new Set([...swiftSide, ...localCrateDirsFromTree(treeText, repoTop)])].sort();
+      // A prepare step can stage sources from anywhere (a web bundle, a generated resource) into the app; its working directory must be
+      // inside the scanned roots, or the release fails instead of shipping what the scan never saw. Add the directory to ownershipScope.
+      for (const step of config.targets?.ios?.iosPackage?.prepare ?? []) {
+        const cwd = path.resolve(root, step?.cwd ?? ".");
+        if (!sourceRoots.some((dir) => cwd === dir || cwd.startsWith(dir + path.sep))) throw new Error(`source switch inventory: targets.ios.iosPackage.prepare runs in ${path.relative(repoTop, cwd) || "."}, outside the iOS scan roots (${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}); list that directory in targets.ios.ownershipScope`);
+      }
       console.log(`right-release: source switch scan (ios): ${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}`);
     }
     assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, sourceRoots, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
