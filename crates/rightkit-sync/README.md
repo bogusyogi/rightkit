@@ -77,11 +77,11 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/converge
 
 Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
 
-- Resident memory ceiling: undeclared.
+- Resident memory ceiling: 1024.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 100,000 records or more.
-- Required hosts: macOS and Windows.
+- Required hosts: macOS only (Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run).
 - Status exposure: `SyncEngine::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: not yet measured.
+- Measured: darwin/arm64 (Mac18,5), rightkit-sync 0.2.2 at 5ab2baa539bc, 100,000 records (zone of 100000 Note records over MemoryBackend: full pull, 100 passes of 100 remote + 100 local edits, then 30 s idle), synthetic, `rustright cargo test -p rightkit-sync --profile dev --bench budget -- 100000 100 100 30`, 2026-10-18, evidence fa724e41ea92: resident memory 645.2 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).

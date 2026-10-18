@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "crate": "rightkit-sync",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "ceilings": {
     "residentMemoryBytes": 1073741824,
     "idleCpuPercent": 1,
@@ -29,6 +31,34 @@
     ],
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.2.2",
+      "commit": "5ab2baa539bc9084c8ec31abaae72215123546b7",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "zone of 100000 Note records over MemoryBackend: full pull, 100 passes of 100 remote + 100 local edits, then 30 s idle",
+        "unit": "records",
+        "count": 100000
+      },
+      "command": "rustright cargo test -p rightkit-sync --profile dev --bench budget -- 100000 100 100 30",
+      "observed": {
+        "residentMemoryBytes": 676511744,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.2.2-synthetic.txt",
+        "sha256": "fa724e41ea92b69292790ad68a36021cbaf5ed0cf3234b517aa422ebdc6108ba"
+      }
+    }
+  ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources). Memory profile: the ledger is held once in memory plus one encoded copy (the rollback source) that each save replaces; there is no per-mutation whole-ledger clone. The 0.1.1 evidence figures (728 MB macOS, 208 MB Windows for a 100,000-record zone) predate that change; the per-pass local item listing (LocalStore::all) is the remaining O(records) term."
 }

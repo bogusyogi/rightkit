@@ -1,0 +1,26 @@
+rustright: request 145e2c36-e137-4111-9434-c9f03dc795c6
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling rightkit-sync v0.2.2 (/Volumes/D/claude/rightkit/crates/rightkit-sync)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.15s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/debug/deps/budget-0022fe6d240bad30)
+seeded 100000 remote records in 100.1ms
+engine built: resident   114.2 MB  footprint   109.5 MB
+initial pull: 100000 records in 0.76 s
+after initial pull: resident   368.7 MB  footprint   250.5 MB
+after steady passes: resident   645.2 MB  footprint   708.7 MB
+steady passes: records=100000 passes=100 edits_per_side=100 initial_pull_s=0.76 pass_ms_mean=702.5 pass_ms_max=970.9 passes_per_s=0.08 records_moved_per_s=15.2 cpu_s=1288.50 cpu_percent=98.0 ledger_json_mb=7.78 remote_versions=100000 pending_uploads_max=0 failed_passes=0 not_synced_passes=0 wall_s=1315.2
+RESULT pending_uploads_after_idle=0 records
+RESULT warm_resident_bytes=676511744 bytes
+RESULT idle_resident_bytes=545701888 bytes
+RESULT resident_memory_bytes=676511744 bytes
+RESULT footprint_bytes=743113808 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 records in the ledger after bidirectional passes, engine idle between passes
+RESULT scope=synthetic
+RESULT budget crate=rightkit-sync version=0.2.2 resident_bytes=676511744 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=records scale_count=100000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 1/11987
