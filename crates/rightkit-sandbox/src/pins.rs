@@ -521,7 +521,9 @@ mod tests {
             Some(2),
             "a repeated root in one call counts once"
         );
-        assert!(pinned_read_roots().contains(&std::fs::canonicalize(&root).unwrap()));
+        // Pinned roots are spelled without the Windows `\\?\` verbatim prefix.
+        let canonical = crate::deny_read::strip_verbatim(std::fs::canonicalize(&root).unwrap());
+        assert!(pinned_read_roots().contains(&canonical));
         drop(first);
         assert_eq!(users(&key), Some(1));
         drop(second);

@@ -316,10 +316,30 @@ fn normalize_glob_text(pattern: &str) -> String {
     }
 }
 
+/// The length of a leading Windows verbatim prefix (`\\?\`, `//?/` once normalized, including
+/// `\\?\UNC\`), whose `?` is part of the path spelling and never a wildcard. Zero elsewhere and on
+/// other platforms.
+fn verbatim_prefix_len(normalized: &str) -> usize {
+    if cfg!(windows) && normalized.starts_with("//?/") {
+        4
+    } else {
+        0
+    }
+}
+
+/// Whether `pattern` holds a wildcard outside a leading verbatim prefix.
+fn has_wildcard(pattern: &str) -> bool {
+    let normalized = normalize_glob_text(pattern);
+    normalized[verbatim_prefix_len(&normalized)..].contains(['*', '?'])
+}
+
 fn tokenize(pattern: &str) -> Vec<Tok> {
-    let chars: Vec<char> = normalize_glob_text(pattern).chars().collect();
+    let normalized = normalize_glob_text(pattern);
+    let chars: Vec<char> = normalized.chars().collect();
     let mut tokens = Vec::new();
-    let mut i = 0;
+    // The verbatim prefix is ASCII, so its byte length is its char length.
+    let mut i = verbatim_prefix_len(&normalized);
+    tokens.extend(chars[..i].iter().map(|&c| Tok::Lit(c)));
     while i < chars.len() {
         match chars[i] {
             '*' => {
@@ -441,15 +461,21 @@ pub(crate) fn glob_to_deny_regex(pattern: &str) -> String {
 /// The literal directory a glob starts from: every leading segment with no wildcard.
 pub(crate) fn glob_literal_prefix(pattern: &str) -> PathBuf {
     let normalized = normalize_glob_text(pattern);
+    let verbatim = verbatim_prefix_len(&normalized);
+    // A verbatim path is not normalized by Windows, so its separators must be `\`.
+    let separator = if verbatim > 0 { '\\' } else { '/' };
     let mut prefix = String::new();
-    for (index, segment) in normalized.split('/').enumerate() {
+    for (index, segment) in normalized[verbatim..].split('/').enumerate() {
         if segment.contains(['*', '?']) {
             break;
         }
         if index > 0 {
-            prefix.push('/');
+            prefix.push(separator);
         }
         prefix.push_str(segment);
+    }
+    if verbatim > 0 {
+        return PathBuf::from(format!("\\\\?\\{prefix}"));
     }
     if prefix.is_empty() {
         prefix.push('/');
@@ -466,7 +492,7 @@ pub(crate) fn expand_glob(pattern: &str, limit: usize) -> io::Result<Vec<PathBuf
     let mut visited = 0usize;
     let mut stack = vec![glob_literal_prefix(pattern)];
     // A glob with no wildcard names one path.
-    if !pattern.contains(['*', '?']) {
+    if !has_wildcard(pattern) {
         let path = PathBuf::from(pattern);
         return Ok(if path.exists() { vec![path] } else { found });
     }
@@ -505,7 +531,77 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rk-deny-read-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::canonicalize(&dir).unwrap()
+        // The spelling callers get from `vet`/policy paths: no `\\?\` prefix. The verbatim
+        // spelling has its own test below.
+        strip_verbatim(std::fs::canonicalize(&dir).unwrap())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_prefix_is_literal_in_prefix_and_matching() {
+        // String-only: drive and UNC verbatim spellings keep `\\?\` literal and `\` separators.
+        assert_eq!(
+            glob_literal_prefix(r"\\?\D:\data\keys\*.pem"),
+            PathBuf::from(r"\\?\D:\data\keys")
+        );
+        assert_eq!(
+            glob_literal_prefix(r"\\?\UNC\server\share\keys\**\*.pem"),
+            PathBuf::from(r"\\?\UNC\server\share\keys")
+        );
+        assert!(!has_wildcard(r"\\?\D:\data\keys\a.pem"));
+        assert!(!has_wildcard(r"\\?\UNC\server\share\a.pem"));
+        assert!(has_wildcard(r"\\?\D:\data\?.pem"));
+        assert!(glob_matches(r"\\?\D:\data\*.pem", r"\\?\D:\data\a.pem"));
+        assert!(glob_matches(
+            r"\\?\UNC\server\share\**\*.pem",
+            r"\\?\UNC\server\share\x\a.pem"
+        ));
+        // The prefix's `?` matches only a literal `?`, not any character.
+        assert!(!glob_matches(r"\\?\D:\data\*.pem", r"\\x\D:\data\a.pem"));
+        // A `?` after the prefix is still a one-character wildcard.
+        assert!(glob_matches(r"\\?\D:\data\?.pem", r"\\?\D:\data\a.pem"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn expand_glob_treats_a_verbatim_prefix_as_literal() {
+        // `canonicalize` spells `\\?\D:\...`; its `?` must not become a wildcard, which would
+        // move the walk to the drive root and trip the entry limit.
+        let dir = std::fs::canonicalize(scratch("verbatim")).unwrap();
+        assert!(dir.to_string_lossy().starts_with("\\\\?\\"));
+        std::fs::create_dir_all(dir.join("keys").join("inner")).unwrap();
+        std::fs::write(dir.join("keys").join("a.pem"), "x").unwrap();
+        std::fs::write(dir.join("keys").join("inner").join("b.pem"), "x").unwrap();
+        std::fs::write(dir.join("keys").join("c.txt"), "x").unwrap();
+        for i in 0..20 {
+            std::fs::write(dir.join(format!("f{i}.txt")), "x").unwrap();
+        }
+        let root = dir.display().to_string();
+        assert_eq!(
+            glob_literal_prefix(&format!("{root}\\keys\\*.pem")),
+            dir.join("keys")
+        );
+        let mut found = expand_glob(&format!("{root}\\keys\\**\\*.pem"), 100).unwrap();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                dir.join("keys").join("a.pem"),
+                dir.join("keys").join("inner").join("b.pem")
+            ]
+        );
+        // 20 files plus `keys`: the limit still applies, now to the right directory.
+        assert!(expand_glob(&format!("{root}\\*.pem"), 5).is_err());
+        assert!(expand_glob(&format!("{root}\\*.pem"), 100)
+            .unwrap()
+            .is_empty());
+        // No wildcard after the prefix: one literal path.
+        let single = dir.join("keys").join("c.txt");
+        assert_eq!(
+            expand_glob(&single.to_string_lossy(), 10).unwrap(),
+            vec![single]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

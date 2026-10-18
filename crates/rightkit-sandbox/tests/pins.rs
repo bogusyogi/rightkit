@@ -12,6 +12,17 @@ fn scratch(name: &str) -> PathBuf {
     fs::canonicalize(&dir).unwrap()
 }
 
+/// `path` canonicalized and spelled as `pin_read_roots` reports it: without the Windows `\\?\`
+/// verbatim prefix (a `\\?\UNC\` path keeps it).
+fn reported(path: &std::path::Path) -> PathBuf {
+    let canonical = fs::canonicalize(path).unwrap();
+    let text = canonical.to_string_lossy().into_owned();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with(r"UNC\") => PathBuf::from(rest),
+        _ => canonical,
+    }
+}
+
 #[test]
 fn pins_are_shared_counted_and_released_with_the_last_handle_or_all_at_once() {
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Expanded));
@@ -46,7 +57,7 @@ fn pins_are_shared_counted_and_released_with_the_last_handle_or_all_at_once() {
     let third = sandbox
         .pin_read_roots(std::slice::from_ref(&python))
         .expect("pin after a drop");
-    assert_eq!(third.roots(), [fs::canonicalize(&python).unwrap()]);
+    assert_eq!(third.roots(), [reported(&python)]);
 
     // Everything goes at once; earlier handles are inert and their drop releases nothing twice.
     assert_eq!(PinHandle::release_all(), 2, "python and node were pinned");
