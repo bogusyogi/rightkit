@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-overlay",
+  "version": "0.1.2",
+  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+  "artifactSha256": "f367ffb99a891d2c1b7630b6e0959f374acf60b88a58fcd485234bbcca3f80bd",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "f367ffb99a891d2c1b7630b6e0959f374acf60b88a58fcd485234bbcca3f80bd",
+      "command": "cargo test -p rightkit-overlay --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-overlay --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-overlay --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-overlay && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:49:40.007Z",
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-overlay --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 22,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-overlay --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-overlay --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

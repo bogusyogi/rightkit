@@ -1,7 +1,7 @@
 //! Modular install: opt individual shell modules out, or install only the state the broker, stream,
 //! recovery, frameless and clipboard commands need.
 //!
-//! ```ignore
+//! ```text
 //! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
 //!     .shell(rightkit_tauri_shell::Shell::builder("viewright").app_name("ViewRight").build())
 //!     .without(Module::Presence)

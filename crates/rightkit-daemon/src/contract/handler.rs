@@ -74,7 +74,7 @@ impl CallContext {
     /// [`peer`](Self::peer), so an app gates an owner-only method with RightKit code instead of
     /// its own process inspection:
     ///
-    /// ```ignore
+    /// ```text
     /// let owner = HostExpectation::executable(app_exe);
     /// if cx.verify_peer_executable(&owner).is_err() {
     ///     return Err(ServiceError::new(ERROR_FORBIDDEN, "owner only"));

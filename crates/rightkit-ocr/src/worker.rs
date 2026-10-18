@@ -11,7 +11,7 @@
 //! [`WorkerCommand::run_observed`] when the host wants parent-side lifecycle events
 //! (child pid, wait, response, exit, timeout) and a [`RunRecord`] for diagnostics.
 //!
-//! ```rust,ignore
+//! ```text
 //! let cmd = WorkerCommand::current_exe(DEFAULT_WORKER_ARG)?;
 //! let log = |event: WorkerEvent| tracing::info!(?event, "ocr_worker");
 //! match cmd.run_observed(&png, &log) {

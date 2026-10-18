@@ -182,7 +182,7 @@ impl JobStore {
     /// inserted, changed or deleted meanwhile is returned at most once, and a cursor stays valid
     /// after the row it was cut from is deleted.
     ///
-    /// ```ignore
+    /// ```text
     /// let mut after = None;
     /// loop {
     ///     let page = store.list_page(&filter, after.as_ref())?;

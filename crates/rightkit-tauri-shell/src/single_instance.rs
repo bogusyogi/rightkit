@@ -350,7 +350,7 @@ impl SingleInstance {
     /// own claims. This is how an app that still registers `tauri-plugin-single-instance` makes one
     /// `destroy()` call release both claims:
     ///
-    /// ```ignore
+    /// ```text
     /// let handle = app.handle().clone();
     /// SingleInstance::on_destroy(move || tauri_plugin_single_instance::destroy(&handle));
     /// // relaunch-for-update:

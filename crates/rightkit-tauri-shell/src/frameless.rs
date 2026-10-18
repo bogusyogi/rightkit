@@ -36,7 +36,7 @@ pub fn style<'a>(
 /// A plain library type: it needs neither the shell plugin nor the managed `ShellState`. An app that
 /// keeps its own lifecycle manages one itself and forwards window events to it:
 ///
-/// ```ignore
+/// ```text
 /// app.manage(rightkit_tauri_shell::frameless::TrafficLights::default());
 /// // in `on_window_event`:
 /// if let Some(t) = app.try_state::<TrafficLights>() { t.handle_window_event(&webview, event); }

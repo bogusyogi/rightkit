@@ -2,27 +2,67 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-http",
-  "version": "0.2.4",
-  "commit": "83a7047b3c9603cd7d03d7265fa7602d4e6f8e7c",
-  "artifactSha256": "6ca84322ac21fd3c326fa02d33ee123901a09cc2db9da99b2b42d2588e73cf19",
-  "artifactBasis": "cargo package rightkit-http-0.2.4.crate",
+  "version": "0.3.5",
+  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+  "artifactSha256": "3c599474e8e95a0e57c990323f29d4c5b9df63fc774ecac18d28c2e8e776b903",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "83a7047b3c9603cd7d03d7265fa7602d4e6f8e7c",
-      "command": "right-release publish cargo --crate rightkit-http --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
       "features": [
-        "default"
+        "--all-features",
+        "--features async",
+        "--features gzip,untrusted"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T11:24:14Z",
-      "passed": 25,
-      "failed": 0
+      "artifactSha256": "3c599474e8e95a0e57c990323f29d4c5b9df63fc774ecac18d28c2e8e776b903",
+      "command": "cargo test -p rightkit-http --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-http --message-format=json-render-diagnostics --features async --no-fail-fast -- --show-output && cargo test -p rightkit-http --message-format=json-render-diagnostics --features gzip,untrusted --no-fail-fast -- --show-output && cargo clippy -p rightkit-http --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-http && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:53:08.657Z",
+      "passed": 848,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-http --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 306,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 27
+        },
+        {
+          "command": "cargo test -p rightkit-http --message-format=json-render-diagnostics --features async --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 299,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 27
+        },
+        {
+          "command": "cargo test -p rightkit-http --message-format=json-render-diagnostics --features gzip,untrusted --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 243,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 27
+        },
+        {
+          "command": "cargo clippy -p rightkit-http --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

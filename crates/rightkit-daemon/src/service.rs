@@ -1,7 +1,7 @@
 //! `Service::builder()`: one [`Handler`] and one [`MethodTable`], hosted on the local transport
 //! and, with the `remote` feature, offered to signed devices as `POST /v1/call/{method}`.
 //!
-//! ```ignore
+//! ```text
 //! let service = Service::builder()
 //!     .methods(MethodTable::new().method("echo", MethodPolicy::local(["app"]).and_remote(["venture"])))
 //!     .handler(Arc::new(MyHandler))

@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-contracts",
+  "version": "0.1.7",
+  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+  "artifactSha256": "a589e4277dbfe05e5aeb9f36d14ae81ce6a966416d0be78bd73bb59cdb88803a",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "a589e4277dbfe05e5aeb9f36d14ae81ce6a966416d0be78bd73bb59cdb88803a",
+      "command": "cargo test -p rightkit-contracts --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-contracts --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-contracts --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-contracts && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:47:11.570Z",
+      "passed": 42,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-contracts --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 42,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 7
+        },
+        {
+          "command": "cargo clippy -p rightkit-contracts --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-contracts --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

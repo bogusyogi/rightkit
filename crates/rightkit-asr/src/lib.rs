@@ -15,15 +15,22 @@
 //!
 //! ## Quick Start
 //!
-//! ```ignore
+//! ```no_run
+//! # #[cfg(feature = "whisper-tokenizers")]
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use rightkit_asr::{Parakeet, Transcriber, TimestampMode};
+//! # let audio = vec![0.0_f32; 16_000];
+//! # let sample_rate = 16_000;
+//! # let channels = 1;
 //!
 //! // Load the model
-//! let mut parakeet = Parakeet::from_pretrained(".")?;
+//! let mut parakeet = Parakeet::from_pretrained(".", None)?;
 //!
 //! // Transcribe audio samples (see examples/raw.rs for audio loading)
 //! let result = parakeet.transcribe_samples(audio, sample_rate, channels, Some(TimestampMode::Words))?;
 //! println!("Transcription: {}", result.text);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Model Requirements

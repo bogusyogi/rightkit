@@ -59,7 +59,7 @@ pub enum Edit {
 /// Implementations own cross-process exclusion: `patch` must run its edit while no other writer
 /// can commit. A SQLCipher-backed implementation would look like this (illustrative, not compiled):
 ///
-/// ```rust,ignore
+/// ```text
 /// impl SettingsBackend for SqlCipherSettings {
 ///     fn load(&self) -> Result<Option<Stored>, Error> {
 ///         // SELECT key, value FROM settings; map rows into `values`; version/namespace from a meta row

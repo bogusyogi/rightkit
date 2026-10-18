@@ -5,7 +5,7 @@
 //! the window-to-engine seam. Layout is NOT part of the shell (the sidebar/titlebar layout lives
 //! in `@rightkit/react-shell`, optional and replaceable); this crate is the behaviour underneath.
 //!
-//! ```ignore
+//! ```text
 //! tauri::Builder::default()
 //!     .plugin(rightkit_tauri_shell::Shell::builder("myapp").app_name("MyApp").tray(spec).build().plugin())
 //!     .invoke_handler(rightkit_tauri_shell::handler![my_app_command])

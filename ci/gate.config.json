@@ -71,6 +71,9 @@
         ]
       ]
     },
+    "rightkit-license": {
+      "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)"
+    },
     "rightkit-child-process": {
       "alsoSerial": true,
       "allowIgnored": "tests/handle_inheritance.rs::inheritance_child is #[ignore] on purpose: it is the re-exec helper body that assert_inheritance spawns with --ignored, not a test of its own (1 ignored per run, 2 with alsoSerial); the tests that spawn it run and assert"

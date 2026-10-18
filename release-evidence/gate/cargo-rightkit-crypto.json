@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-crypto",
+  "version": "0.1.0",
+  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+  "artifactSha256": "7f03e9add5dd65ce4c468c9e8784133f1f7ed42aefd3e0c24463ca14aa35fdc3",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "runs": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64"
+      },
+      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "7f03e9add5dd65ce4c468c9e8784133f1f7ed42aefd3e0c24463ca14aa35fdc3",
+      "command": "cargo fmt -p rightkit-crypto --check && cargo test -p rightkit-crypto --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-crypto --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-crypto --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-crypto && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:34:44.203Z",
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "scanCrateForSecrets crates/rightkit-crypto",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-crypto --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-crypto --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 2
+        },
+        {
+          "command": "cargo clippy -p rightkit-crypto --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-crypto --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-crypto",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

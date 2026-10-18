@@ -3,12 +3,18 @@
 //! The editing half of this crate changes existing files; this module creates one from
 //! nothing, for print, slideshow and book exports that place a JPEG on every page.
 //!
-//! ```rust,ignore
+//! ```no_run
+//! use rightkit_pdf::write::Document;
+//! # let srgb_profile_bytes = std::fs::read("sRGB.icc")?;
+//! # let jpeg_bytes = std::fs::read("page.jpg")?;
+//! # let path = std::path::Path::new("output.pdf");
 //! let mut doc = Document::new("1.4")?;
 //! let srgb = doc.add_icc_profile(srgb_profile_bytes, 3)?;
 //! doc.add_jpeg_page(595.0, 842.0, jpeg_bytes, Some(srgb))?;
 //! let pdf: Vec<u8> = doc.finish();
+//! # #[cfg(feature = "edit")]
 //! doc.write_to(path)?; // feature `edit`: rightkit-fs atomic replace
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! ## What is written

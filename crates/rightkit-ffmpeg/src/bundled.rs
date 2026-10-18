@@ -39,10 +39,17 @@ fn only(path: &Path) -> ResolutionRequest {
 /// Verify the bundled `ffmpeg` at `path` against the embedded catalog's approved `variant`
 /// row for this host, and return the handle. `timeout` bounds the `-version` probe.
 ///
-/// ```ignore
+/// ```no_run
+/// use rightkit_ffmpeg::{
+///     verify_bundled_ffmpeg, verify_bundled_ffprobe,
+///     DECODE_APPLE_VARIANT, EXPORT_ASS_ZIMG_VARIANT,
+/// };
+/// use std::time::Duration;
+/// # let bundle = std::path::Path::new("/path/to/app/binaries");
 /// let ffmpeg = verify_bundled_ffmpeg(&bundle.join("ffmpeg"), EXPORT_ASS_ZIMG_VARIANT, Duration::from_secs(10))?;
 /// let ffprobe = verify_bundled_ffprobe(&bundle.join("ffprobe"), DECODE_APPLE_VARIANT, Duration::from_secs(10))?;
 /// // pass `&ffmpeg` / `&ffprobe` to run_checked, probe_media, decode_pcm_f32, ...
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn verify_bundled_ffmpeg(
     path: &Path,

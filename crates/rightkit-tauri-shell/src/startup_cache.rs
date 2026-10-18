@@ -91,9 +91,12 @@ pub fn ensure_http_cache_dir(identifier: &str) -> io::Result<CacheDirOutcome> {
 /// [`ensure_http_cache_dir`] with a caller-supplied cache root, so the repaired directory is exactly
 /// the one the app's Tauri resolves:
 ///
-/// ```ignore
-/// ensure_http_cache_dir_with(identifier, dirs::cache_dir)?;
+/// ```no_run
+/// use rightkit_tauri_shell::startup_cache::{ensure_http_cache_dir_with, user_cache_root};
+/// # let identifier = "com.example.myapp";
+/// ensure_http_cache_dir_with(identifier, user_cache_root)?;
 /// // or, once an AppHandle exists: || app.path().cache_dir().ok()
+/// # Ok::<(), std::io::Error>(())
 /// ```
 ///
 /// `root` returns `None` when it cannot resolve a cache directory (reported as `NotFound`). The

@@ -4,7 +4,7 @@
 //! strategies), and §9.4 (the `compose_pdf_preview` Tauri command). Implements the frozen
 //! cross-lane seam (`docs/PDF-EDITOR-DISPATCH.md`):
 //!
-//! ```ignore
+//! ```text
 //! pub fn compose_candidate(
 //!     source: &[u8],
 //!     commands: &[PdfEditCommand],

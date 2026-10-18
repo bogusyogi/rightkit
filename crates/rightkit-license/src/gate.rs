@@ -38,7 +38,7 @@
 //! unlicensed run; it is not offline cryptographic enforcement (use [`crate::EngineEntitlements`]
 //! with a signed token where that is required). Messages carry no token, key or response body.
 //!
-//! ```ignore
+//! ```text
 //! let source = SubjectEntitlementSource::new(config, provider).with_store(shared_cache);
 //! let gate = EngineGate::new(source, Enforcement::Enforce);
 //! let outcome = gate.check();

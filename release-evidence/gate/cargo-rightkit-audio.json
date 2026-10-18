@@ -2,43 +2,60 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-audio",
-  "version": "0.2.3",
-  "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
-  "artifactSha256": "74bdddf12b4e729abed45b0577d0cf974a376fe914153f9eda6cfdddd8450882",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "version": "0.3.1",
+  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+  "artifactSha256": "a12fe207f9654b9b46fbf050f2a66f802a08bd1ae976c568b34d7c0f4eb3d3f1",
+  "hostPolicy": "win32-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
   "runs": [
     {
       "host": {
-        "os": "darwin",
-        "arch": "arm64"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "7338e0c4f0558847680d8e8b4be226f37d06dea7",
+      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
       "features": [
         "default"
       ],
-      "artifactSha256": "74bdddf12b4e729abed45b0577d0cf974a376fe914153f9eda6cfdddd8450882",
-      "command": "cargo test -p rightkit-audio --no-fail-fast -- --show-output && cargo clippy -p rightkit-audio --no-deps --all-targets -- -D warnings && cargo package --locked -p rightkit-audio && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "a12fe207f9654b9b46fbf050f2a66f802a08bd1ae976c568b34d7c0f4eb3d3f1",
+      "command": "cargo fmt -p rightkit-audio --check && cargo test -p rightkit-audio --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-audio --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-audio --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-audio && cargo metadata --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-14T17:01:36.341Z",
-      "passed": 4,
+      "timestamp": "2026-10-18T02:32:59.968Z",
+      "passed": 19,
       "failed": 0,
       "skipped": 1,
       "ignored": 0,
+      "allowIgnored": false,
       "requireAssets": "0",
       "assetGated": true,
       "steps": [
         {
-          "command": "cargo test -p rightkit-audio --no-fail-fast -- --show-output",
+          "command": "scanCrateForSecrets crates/rightkit-audio",
+          "ok": true
+        },
+        {
+          "command": "cargo fmt -p rightkit-audio --check",
+          "ok": true
+        },
+        {
+          "command": "cargo test -p rightkit-audio --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 4,
+          "executed": 19,
           "failed": 0,
           "ignored": 0,
           "skipped": 1,
           "binaries": 3
         },
         {
-          "command": "cargo clippy -p rightkit-audio --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-audio --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
+          "ok": true
+        },
+        {
+          "command": "cargo check -p rightkit-audio --message-format=json-render-diagnostics --all-targets --all-features",
+          "ok": true
+        },
+        {
+          "command": "cargo package --locked -p rightkit-audio",
           "ok": true
         }
       ]

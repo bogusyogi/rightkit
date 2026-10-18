@@ -161,9 +161,13 @@ impl DiarizationConfig {
 /// Speaker segment with start/end as sample offsets at 16 kHz, and speaker ID.
 ///
 ///
-/// ```rust,ignore
+/// ```
+/// use rightkit_asr::sortformer::SpeakerSegment;
+/// # let seg = SpeakerSegment { start: 16_000, end: 32_000, speaker_id: 0 };
 /// let secs = seg.start as f64 / 16_000.0;
-/// let nanos = seg.start as u64 * 1_000_000_000 / 16_000;
+/// let nanos = seg.start * 1_000_000_000 / 16_000;
+/// # assert_eq!(secs, 1.0);
+/// # assert_eq!(nanos, 1_000_000_000);
 /// ```
 #[derive(Debug, Clone)]
 pub struct SpeakerSegment {

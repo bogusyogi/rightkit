@@ -6,7 +6,7 @@
 //! `PdfEditCommand`/`ComposedCandidate` types the frozen composer signature depends on
 //! (`docs/PDF-EDITOR-DISPATCH.md`, "Frozen cross-lane seams"):
 //!
-//! ```ignore
+//! ```text
 //! pub fn compose_candidate(
 //!     source: &[u8],
 //!     commands: &[PdfEditCommand],
