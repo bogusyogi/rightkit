@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-tauri-shell",
-  "version": "0.3.2",
-  "commit": "ce5463017c5daee72f968546351e98f5573a61e9",
-  "artifactSha256": "e4fd16c44deb22f6ed7f4f4eaa555bcf607163277f314e18fc4a7c1b668169f7",
+  "version": "0.3.3",
+  "commit": "1128327bf9c822b4ba9c66862cbec09dcb656dc3",
+  "artifactSha256": "989da8075213a63e44433173b27348283063d8ac10b0e6a26b7411e0d7c2c000",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "ce5463017c5daee72f968546351e98f5573a61e9",
+      "commit": "1128327bf9c822b4ba9c66862cbec09dcb656dc3",
       "features": [
         "default"
       ],
-      "artifactSha256": "e4fd16c44deb22f6ed7f4f4eaa555bcf607163277f314e18fc4a7c1b668169f7",
+      "artifactSha256": "989da8075213a63e44433173b27348283063d8ac10b0e6a26b7411e0d7c2c000",
       "command": "cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,content-devtools && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,dev-inspect && cargo package --locked --no-verify -p rightkit-tauri-shell && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T06:45:58.972Z",
+      "timestamp": "2026-10-18T08:54:44.473Z",
       "passed": 291,
       "failed": 0,
       "skipped": 0,

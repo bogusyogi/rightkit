@@ -72,7 +72,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
 - Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
 - Run one build per app per host, dev profile & incremental, from the primary checkout; never cold/non-dev. Build locally first via RustRight; CI for signed releases & overflow (rustright#96).
-- Track Adrian's requests as GitHub issues in the owning repo, check your open issues every turn & close only with evidence (`docs/rules/issue-workflow.md`).
+- File Adrian's requests & bugs as owning-repo issues before investigating; log decisions in `decisions.md` with the issue link (`docs/rules/issue-workflow.md`).
 - Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
 - Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
 - Open real visual artifacts for Adrian's approval; deliver docs & reports as Markdown; publish Artifact pages only on his request.
