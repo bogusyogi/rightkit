@@ -399,6 +399,21 @@ fn read_full(f: &mut File, buf: &mut [u8]) -> io::Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    /// flock (Unix `File::try_lock`) belongs to the open file description, which a child forked by another test in
+    /// this binary shares until it execs (child-process spawns with pre_exec take the fork path on macOS). A lock
+    /// released by drop can therefore read as held for that instant: re-acquire with a short bound. Not a release bug:
+    /// the guard's drop closes our descriptor; the lock ends when the last shared copy closes (#788).
+    fn eventually<T, E>(mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) if std::time::Instant::now() >= deadline => return Err(e),
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+    }
+
     use super::*;
 
     fn suite() -> (tempfile::TempDir, Suite) {
@@ -577,7 +592,7 @@ mod tests {
             a.migrate_from(Path::new("rel")),
             Err(AppRootError::PathEscape(_))
         ));
-        let _held = a.lock_writer().unwrap();
+        let _held = eventually(|| a.lock_writer()).unwrap();
         assert!(matches!(
             a.migrate_from(&old),
             Err(AppRootError::WriterBusy(_))

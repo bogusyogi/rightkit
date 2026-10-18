@@ -804,6 +804,21 @@ pub fn poll_until(wait: Duration, mut ready: impl FnMut() -> bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// flock (Unix `File::try_lock`) belongs to the open file description, which a child forked by another test in
+    /// this binary shares until it execs (child-process spawns with pre_exec take the fork path on macOS). A lock
+    /// released by drop can therefore read as held for that instant: re-acquire with a short bound. Not a release bug:
+    /// the guard's drop closes our descriptor; the lock ends when the last shared copy closes (#788).
+    fn eventually<T, E>(mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) if std::time::Instant::now() >= deadline => return Err(e),
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+    }
+
     use super::*;
     use std::fs;
 
@@ -958,6 +973,6 @@ mod tests {
             Err(SpawnClaimError::AlreadyHeld(_))
         ));
         drop(c);
-        assert!(SpawnClaim::acquire(&s, "demo").is_ok());
+        assert!(eventually(|| SpawnClaim::acquire(&s, "demo")).is_ok());
     }
 }
