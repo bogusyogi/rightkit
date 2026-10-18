@@ -133,7 +133,7 @@ async function putPart(op, bytes, { fetchImpl, sleep, retry, partTimeoutMs, now 
  * Returns { buildUploadId, fileId, parts, resumed }.
  */
 export async function uploadIpaToAppStoreConnect({
-  client, appId, marketingVersion, buildNumber, source, fileName, journal, fetchImpl = globalThis.fetch,
+  client, appId, marketingVersion, buildNumber, source, fileName, journal, exportWindow, fetchImpl = globalThis.fetch,
   pollIntervalMs = 20_000, timeoutMs = 30 * 60_000, partTimeoutMs = 30 * 60_000, retry = RETRY_DEFAULTS, now = () => Date.now(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), monotonic = () => performance.now(), log = () => {},
 }) {
@@ -152,9 +152,25 @@ export async function uploadIpaToAppStoreConnect({
   const mine = (item) => journalled.find((entry) => entry.buildUploadId === text(item.id) && entry.appId === identity.appId && entry.version === identity.version && entry.build === identity.build);
   // Only a record this vault created, for these very bytes, may be adopted. Anything else with the same version and build is another
   // binary's (a second Mac, a fresh vault, a manual upload): our bytes never go into it and its result is never reported as ours.
+  // Xcode's own `-exportArchive` (method app-store-connect) registers an empty build upload for the archive's version and build,
+  // even with destination export. That record is this build's: adopt it only while it is still AWAITING_UPLOAD with no file, was
+  // created inside the sealed build's own window (exportWindow, from the sealed receipt's builtAt), and matches version and build.
+  const fromOwnExport = async (item) => {
+    if (!exportWindow || stateOf(item) !== "AWAITING_UPLOAD") return false;
+    const created = Date.parse(text(item.attributes?.createdDate));
+    const notBefore = Date.parse(text(exportWindow.notBefore)), notAfter = Date.parse(text(exportWindow.notAfter));
+    if (![created, notBefore, notAfter].every(Number.isFinite) || created < notBefore || created > notAfter) return false;
+    return (await client.getAll(`/v1/buildUploads/${encodeURIComponent(text(item.id))}/buildUploadFiles`)).length === 0;
+  };
   for (const item of existing) {
-    const entry = mine(item);
+    let entry = mine(item);
     if (stateOf(item) === "FAILED" && !entry) continue;
+    if (!entry && await fromOwnExport(item)) {
+      entry = { buildUploadId: text(item.id), buildUploadFileId: null, ...identity, adoptedFromExport: true };
+      journal.record(entry);
+      journalled.push(entry);
+      log(`adopting build upload ${text(item.id)}: Xcode's export registered it for this build (${marketingVersion} ${buildNumber}) and it holds no file`);
+    }
     if (!entry) fail("IOS_BUILD_UPLOAD_FOREIGN", `App Store Connect holds build upload ${text(item.id)} (${stateOf(item) || "unknown state"}) for ${marketingVersion} (${buildNumber}) that this machine did not create for this IPA; it is not adopted and nothing is sent into it; build again with a new build number`);
     if (entry.ipaSha256 !== identity.ipaSha256) fail("IOS_BUILD_UPLOAD_FOREIGN", `build upload ${text(item.id)} for ${marketingVersion} (${buildNumber}) was journalled for a different IPA (${text(entry.ipaSha256).slice(0, 12)}..., this one is ${identity.ipaSha256.slice(0, 12)}...); it is not adopted; build again with a new build number`);
   }

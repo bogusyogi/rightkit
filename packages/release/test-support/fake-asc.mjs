@@ -44,7 +44,7 @@ export function fakeAsc({ builds, groups, assigned = {}, externalState = "READY_
       return reply(200, { data: apps.filter((app) => app.bundleId.startsWith(wanted)).map((app) => ({ id: app.id, type: "apps", attributes: { bundleId: app.bundleId } })) });
     }
     if (/^\/v1\/apps\/\d+\/buildUploads$/.test(parsed.pathname) && method === "GET") {
-      return reply(200, { data: (upload.existing ?? []).map((item) => ({ id: item.id, type: "buildUploads", attributes: { cfBundleShortVersionString: item.marketing ?? APP_MARKETING, cfBundleVersion: item.build ?? APP_BUILD, platform: "IOS", state: { state: item.state } } })) });
+      return reply(200, { data: (upload.existing ?? []).map((item) => ({ id: item.id, type: "buildUploads", attributes: { cfBundleShortVersionString: item.marketing ?? APP_MARKETING, cfBundleVersion: item.build ?? APP_BUILD, platform: "IOS", state: { state: item.state }, ...(item.createdDate ? { createdDate: item.createdDate } : {}) } })) });
     }
     const filesList = /^\/v1\/buildUploads\/([^/]+)\/buildUploadFiles$/.exec(parsed.pathname);
     if (filesList && method === "GET") {

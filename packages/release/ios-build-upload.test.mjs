@@ -234,3 +234,25 @@ test("a journal is required", async () => {
   const t = setup({}, {});
   await coded("IOS_BUILD_UPLOAD_CONFIG", uploadIpaToAppStoreConnect({ client: createAscClient({ tokenProvider: { get: () => "j" }, fetchImpl: t.fake.fetchImpl }), appId: "6806854037", marketingVersion: "1", buildNumber: "2", source: t.source, fileName: "A.ipa" }));
 });
+
+// ---- Xcode's export registers an empty build upload for the archive's version and build ------------------------------------
+test("the empty record Xcode's export registered during this build is adopted; outside the build window or holding a file it is foreign", async () => {
+  const window = { notBefore: "2026-10-18T09:00:00Z", notAfter: "2026-10-18T09:30:00Z" };
+  const adopted = setup({ upload: { existing: [{ id: "bx1", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:29:42Z", files: [] }] } }, { options: { exportWindow: window } });
+  await adopted.run();
+  assert.ok(adopted.fake.puts.length > 0, "bytes go into the adopted record");
+  assert.ok(adopted.journal.read().some((entry) => entry.buildUploadId === "bx1" && entry.ipaSha256 === IDENTITY.ipaSha256));
+  assert.ok(!api(adopted.fake).includes("POST /v1/buildUploads"), "no second record is created");
+
+  const late = setup({ upload: { existing: [{ id: "bx2", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:31:00Z", files: [] }] } }, { options: { exportWindow: window } });
+  await coded("IOS_BUILD_UPLOAD_FOREIGN", late.run());
+  assert.equal(late.fake.puts.length, 0);
+
+  const withFile = setup({ upload: { existing: [{ id: "bx3", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:10:00Z", files: [{ id: "bf3", fileName: "A.ipa", fileSize: 10 }] }] } }, { options: { exportWindow: window } });
+  await coded("IOS_BUILD_UPLOAD_FOREIGN", withFile.run());
+  assert.equal(withFile.fake.puts.length, 0);
+
+  const noWindow = setup({ upload: { existing: [{ id: "bx4", state: "AWAITING_UPLOAD", createdDate: "2026-10-18T09:10:00Z", files: [] }] } });
+  await coded("IOS_BUILD_UPLOAD_FOREIGN", noWindow.run());
+  assert.equal(noWindow.fake.puts.length, 0);
+});
