@@ -251,7 +251,7 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   };
 }
 
-const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "distribution", "ownershipScope", "recipe"]);
+const IOS_TARGET_KEYS = new Set(["signed", "signingContract", "iosPackage", "artifacts", "hardening", "hardeningAllowances", "qaControlScan", "publishBlocked", "distribution", "ownershipScope", "cargoManifest", "cargoTarget", "recipe"]);
 
 /**
  * `targets.ios.iosPackage` (bogusyogi/rightkit#349) is validated strictly and kept as `recipe: { kind: "iosPackage", spec }`.
@@ -272,6 +272,9 @@ export function expandIosPackageTarget(target, { appRoot: _appRoot } = {}) {
     }
   }
   if (target.ownershipScope !== undefined && (!Array.isArray(target.ownershipScope) || target.ownershipScope.some((entry) => typeof entry !== "string" || !entry.trim()))) fail("targets.ios.ownershipScope must be an array of repository-relative directory strings");
+  // The Rust the app links (for the feature-closure scan): an app-relative Cargo.toml and its iPhone triple.
+  if (target.cargoManifest !== undefined && (typeof target.cargoManifest !== "string" || !target.cargoManifest.endsWith("Cargo.toml"))) fail("targets.ios.cargoManifest must be an app-relative path to a Cargo.toml");
+  if (target.cargoTarget !== undefined && !/^aarch64-apple-ios(-sim)?$/.test(target.cargoTarget)) fail("targets.ios.cargoTarget must be aarch64-apple-ios or aarch64-apple-ios-sim");
   if (target.signed !== true) fail("targets.ios must declare signed: true");
   if (target.signingContract !== undefined && target.signingContract !== IOS_SIGNING_CONTRACT) fail(`targets.ios.iosPackage signs with Xcode automatic signing; signingContract must be ${IOS_SIGNING_CONTRACT}, got ${target.signingContract}`);
   let spec;

@@ -390,7 +390,8 @@ try {
       cargoManifest: target.cargoManifest,
       rust: config.releaseSwitches?.rust,
       features: config.releaseSwitches?.features ?? [],
-      triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
+      // iOS ships one device triple; "all" is refused by the build broker and would pull in desktop-only targets.
+      triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? (opts.platform === "ios" ? "aarch64-apple-ios" : undefined),
       commandTexts: closureCommands,
     });
     if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
