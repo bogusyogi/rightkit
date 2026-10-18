@@ -91,6 +91,8 @@ RESULT budget crate=<name> version=<semver> resident_bytes=<int> idle_cpu_percen
 
 All ten fields are required and `scale_unit` must equal `requiredScale.unit`. The existing benches print other `RESULT` tags (`rss_footprint_mb`, `cpu_percent`) and none prints wake-ups or disk operations per second yet; each bench needs this line added.
 
+**Delta basis (wake-ups).** A whole-process wake-up rate on a desktop host is mostly host and window-server activity the crate does not own. A crate may declare `"ceilingBasis": { "wakeupsPerSecond": "delta-over-bare" }` with a positive `"deltaCeilings": { "wakeupsPerSecond": N }` (declared together or not at all; `wakeupsPerSecond` is the only figure that can use it). Its synthetic bench then measures the crate's workload and a bare runtime loop back to back in separate processes and appends `bare_wakeups_per_s=<n> wakeups_delta_per_s=<n>` to the `RESULT budget` line (both or neither; the delta may be negative). The record carries `baseline: { wakeupsPerSecond }` and `delta: { wakeupsPerSecond }` beside `observed`, and the gate compares `observed - baseline`, which it computes itself, to `deltaCeilings`; the reported delta must agree with it (to 0.002) and with the stored evidence, and the baseline is mandatory for a measurement of the published version. `ceilings.wakeupsPerSecond` stays the whole-process ceiling and still governs `real` and `installed` measurements, `requireInstalled` adoption and the classes file an app is checked against, so an app is never compared to a delta ceiling. Only `synthetic` measurements use the delta; measurements of other versions are history and are not re-gated.
+
 The publish gate refuses when any of these holds:
 
 | Refusal | Why |
@@ -108,6 +110,8 @@ The publish gate refuses when any of these holds:
 | a measurement without evidence, with the evidence file missing, outside `runtime-budget.evidence/`, with a different sha256, or whose `RESULT budget` line differs from the record (crate, version, figures, scale) | figures must come from stored raw output |
 | `residentMemoryBytes` observed as exactly 0 | implausible for a running process |
 | an observed value above its ceiling in any measurement of the published version | the crate is over budget; a failing run is not hidden by a passing one |
+| delta basis: a synthetic measurement of the published version without `baseline`/`delta`, with a `delta` that differs from `observed - baseline`, with `baseline`/`delta` the evidence does not carry, or whose `observed - baseline` is above `deltaCeilings` | the crate is gated on what it owns; the gate recomputes the delta and never trusts a reported one |
+| `ceilingBasis` naming an unknown figure or basis, a delta figure without a positive `deltaCeilings` entry, or a `deltaCeilings` entry without the basis | the declaration is explicit and closed |
 | a required host has no measurement that is fresh, within all ceilings and at `requiredScale` | see hosts and freshness below |
 | `hostPolicy` in the file disagrees with the release evidence `hostPolicy` (the authority) | one source of truth for darwin-only |
 | README `## Runtime budget` missing or different from what the JSON generates | the human view cannot disagree with the artifact |

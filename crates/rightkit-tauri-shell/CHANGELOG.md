@@ -2,6 +2,7 @@
 
 ## 0.4.0 — unpublished staging
 
+- Runtime budget: the wake-up gate is the watchdog's cost over a bare Wry loop measured in the same bench run (`ceilingBasis` delta-over-bare, 4/s), not the whole-process rate, which host and WindowServer activity move by 2x within a day (#789). The bench runs bare and watchdog in separate, interleaved child processes and reports the median pair; the whole-process figure stays as recorded evidence.
 - Engine errors are structured, window-state saves preserve generation order, and QA controls stay excluded from release builds.
 - BREAKING: `EnginePolicy::default()` now denies every engine method (it allowed all). List methods with `allow_methods`, or opt in with `allow_any_method()`. `ShellBuilder::engine(spec)` is removed; use `engine_with_policy(spec, policy)`.
 

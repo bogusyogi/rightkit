@@ -34,8 +34,8 @@ const COMMIT = "a".repeat(40);
 const CEILINGS = { residentMemoryBytes: 536870912, idleCpuPercent: 2, wakeupsPerSecond: 10, diskOpsPerSecond: 5 };
 const OBSERVED = { residentMemoryBytes: 100000000, idleCpuPercent: 0.5, wakeupsPerSecond: 3, diskOpsPerSecond: 1 };
 const SCALE = { unit: "entries", minCount: 1000000, source: "benches/budget.rs:12" };
-const resultLine = (observed, { crate = "rightkit-fsindex", version = "0.2.0", unit = "entries", count = 1000000 } = {}) =>
-  `RESULT budget crate=${crate} version=${version} resident_bytes=${observed.residentMemoryBytes} idle_cpu_percent=${observed.idleCpuPercent} wakeups_per_s=${observed.wakeupsPerSecond} disk_ops_per_s=${observed.diskOpsPerSecond} scale_unit=${unit} scale_count=${count}`;
+const resultLine = (observed, { crate = "rightkit-fsindex", version = "0.2.0", unit = "entries", count = 1000000, bare, delta } = {}) =>
+  `RESULT budget crate=${crate} version=${version} resident_bytes=${observed.residentMemoryBytes} idle_cpu_percent=${observed.idleCpuPercent} wakeups_per_s=${observed.wakeupsPerSecond} disk_ops_per_s=${observed.diskOpsPerSecond} scale_unit=${unit} scale_count=${count}${bare === undefined ? "" : ` bare_wakeups_per_s=${bare} wakeups_delta_per_s=${delta}`}`;
 const measurement = (osName, over = {}) => ({
   host: { os: osName, arch: osName === "darwin" ? "arm64" : "x64", model: "test host" },
   crateVersion: "0.2.0", commit: COMMIT, date: "2026-10-11", scope: "synthetic",
@@ -63,7 +63,7 @@ function crate(t, { budget = budgetFor(), readme = "render", file = true, manife
     budget.measurements = (budget.measurements ?? []).map((m, i) => {
       if (!m || typeof m !== "object" || !m.observed || m.evidence) return m;
       const rel = `runtime-budget.evidence/${i}-${m.host?.os}.txt`;
-      const raw = `noise\n${resultLine(m.observed, { crate: budget.crate, version: m.crateVersion, unit: m.dataScale?.unit, count: m.dataScale?.count })}\n`;
+      const raw = `noise\n${resultLine(m.observed, { crate: budget.crate, version: m.crateVersion, unit: m.dataScale?.unit, count: m.dataScale?.count, bare: m.baseline?.wakeupsPerSecond, delta: m.delta?.wakeupsPerSecond })}\n`;
       mkdirSync(path.join(dir, "runtime-budget.evidence"), { recursive: true });
       writeFileSync(path.join(dir, rel), raw);
       return { ...m, evidence: { file: rel, sha256: crypto.createHash("sha256").update(raw).digest("hex") } };
@@ -301,6 +301,112 @@ test("adoption needs a fresh in-ceiling installed-app measurement on top of the 
   assert.deepEqual(evaluate(withApp(), { requireInstalled: true, app: "HeardRight" }), { ok: true, problems: [] });
   refused(evaluate(withApp(), { requireInstalled: true, app: "CutRight" }), /no installed-app measurement for version 0\.2\.0 in CutRight/);
   refused(evaluate(withApp(), { requireInstalled: true }, freshGit({ diff: { status: 0, stdout: "src/a.rs" } })), /stale/);
+});
+
+// ---------------------------------------------------------------- delta basis (wake-ups over a bare baseline)
+
+// The fixture CEILINGS give wakeupsPerSecond a whole-process ceiling of 10; the delta ceiling is 4.
+const DELTA_BASIS = { ceilingBasis: { wakeupsPerSecond: "delta-over-bare" }, deltaCeilings: { wakeupsPerSecond: 4 } };
+const round3 = (n) => Number(n.toFixed(3));
+const withBare = (raw, bare, reported = round3(raw - bare)) => ({ observed: { ...OBSERVED, wakeupsPerSecond: raw }, baseline: { wakeupsPerSecond: bare }, delta: { wakeupsPerSecond: reported } });
+const deltaBudget = (over = {}, parts = withBare(10.4, 9.5)) => budgetFor({ ...DELTA_BASIS, measurements: [measurement("darwin", parts), measurement("win32", parts)], ...over });
+
+test("delta basis: a watchdog delta inside the budget passes even when the whole-process rate is above the whole-process ceiling", (t) => {
+  // 10.4/s whole process is over the 10/s ceiling, but only 0.9/s of it is the crate's.
+  assert.deepEqual(evaluate(crate(t, { budget: deltaBudget() })), { ok: true, problems: [] });
+  // Exactly the delta ceiling passes.
+  assert.deepEqual(evaluate(crate(t, { budget: deltaBudget({}, withBare(13.5, 9.5)) })), { ok: true, problems: [] });
+  // Exactly the ceiling where the float subtraction overshoots (8.002 - 4.002 = 4.000000000000001) still passes.
+  assert.deepEqual(evaluate(crate(t, { budget: deltaBudget({}, withBare(8.002, 4.002)) })), { ok: true, problems: [] });
+  // A quiet crate below its baseline by run-to-run noise passes.
+  assert.deepEqual(evaluate(crate(t, { budget: deltaBudget({}, withBare(9.2, 9.5)) })), { ok: true, problems: [] });
+});
+
+test("delta basis: a baseline far above its own watchdog run is a mismatched pair and is refused", (t) => {
+  refused(evaluate(crate(t, { budget: deltaBudget({}, withBare(10, 50)) })), /bare baseline 50 is more than 2 wake-ups\/s above observed 10: a mismatched pair/);
+});
+
+test("delta basis: a planted extra 100 ms timer (+10/s over bare) fails, on a quiet host and on a busy one", (t) => {
+  for (const [raw, bare] of [[11.1, 1.1], [19.9, 9.9]]) {
+    const result = evaluate(crate(t, { budget: deltaBudget({}, withBare(raw, bare)) }));
+    refused(result, new RegExp(`exceeds the wake-ups delta ceiling over the bare baseline: ${raw} - ${bare} = 10 > 4`));
+    refused(result, /no macOS measurement within all ceilings/);
+  }
+  // Just over the delta ceiling fails.
+  refused(evaluate(crate(t, { budget: deltaBudget({}, withBare(13.6, 9.5)) })), /= 4\.1 > 4/);
+});
+
+test("delta basis: a measurement of the published version without a baseline is refused, history without one stays valid", (t) => {
+  const noBaseline = { observed: { ...OBSERVED, wakeupsPerSecond: 3 } };
+  refused(evaluate(crate(t, { budget: deltaBudget({}, noBaseline) })), /measurement\[0\] on darwin\/arm64 has no bare baseline for wake-ups/);
+  refused(evaluate(crate(t, { budget: deltaBudget({}, noBaseline) })), /no macOS measurement within all ceilings/);
+  // A record of another version needs no baseline: it is history, not the gate.
+  const history = measurement("darwin", { crateVersion: "0.1.9", observed: { ...OBSERVED, wakeupsPerSecond: 99 } });
+  const parts = withBare(10.4, 9.5);
+  assert.deepEqual(evaluate(crate(t, { budget: deltaBudget({ measurements: [history, measurement("darwin", parts), measurement("win32", parts)] }) })), { ok: true, problems: [] });
+  // A baseline without its delta (or the reverse) is malformed.
+  refused(evaluate(crate(t, { budget: deltaBudget({}, { observed: { ...OBSERVED }, baseline: { wakeupsPerSecond: 9.5 } }), evidence: "skip" })), /baseline and delta must be recorded together/);
+});
+
+test("delta basis: the gate computes raw minus bare itself, so a reported delta that disagrees is refused", (t) => {
+  // The record and its evidence both claim a 0.1/s delta, but 19.9 - 9.5 is 10.4.
+  const lie = deltaBudget({}, withBare(19.9, 9.5, 0.1));
+  refused(evaluate(crate(t, { budget: lie })), /evidence wakeups_delta_per_s 0\.1 disagrees with wakeups_per_s 19\.9 minus bare_wakeups_per_s 9\.5/);
+  // The record alone lying about the delta (evidence honest) is refused as a record/evidence mismatch.
+  const dir = crate(t, { budget: deltaBudget() });
+  const written = JSON.parse(readFileSync(path.join(dir, "runtime-budget.json"), "utf8"));
+  written.measurements[0].delta.wakeupsPerSecond = 0.1;
+  writeFileSync(path.join(dir, "runtime-budget.json"), JSON.stringify(written));
+  writeFileSync(path.join(dir, "README.md"), `## Runtime budget\n\n${renderRuntimeBudgetBody(written).join("\n")}\n`);
+  refused(evaluate(dir), /evidence wakeups_delta_per_s 0\.9 != recorded delta 0\.1/);
+  // Evidence that carries a baseline the record omits is refused too.
+  delete written.measurements[1].baseline;
+  delete written.measurements[1].delta;
+  writeFileSync(path.join(dir, "runtime-budget.json"), JSON.stringify(written));
+  writeFileSync(path.join(dir, "README.md"), `## Runtime budget\n\n${renderRuntimeBudgetBody(written).join("\n")}\n`);
+  refused(evaluate(dir), /measurement\[1\] evidence bare_wakeups_per_s 9\.5 != recorded baseline undefined/);
+});
+
+test("delta basis: the declaration is explicit and closed", (t) => {
+  refused(evaluate(crate(t, { budget: deltaBudget({ deltaCeilings: undefined }) })), /deltaCeilings\.wakeupsPerSecond must be a positive number/);
+  refused(evaluate(crate(t, { budget: deltaBudget({ deltaCeilings: { wakeupsPerSecond: 0 } }) })), /deltaCeilings\.wakeupsPerSecond must be a positive number/);
+  refused(evaluate(crate(t, { budget: deltaBudget({ ceilingBasis: { wakeupsPerSecond: "relative" } }) })), /ceilingBasis\.wakeupsPerSecond must be "delta-over-bare"/);
+  refused(evaluate(crate(t, { budget: deltaBudget({ ceilingBasis: { residentMemoryBytes: "delta-over-bare" } }) })), /ceilingBasis\.residentMemoryBytes is not a figure that can use a delta basis/);
+  refused(evaluate(crate(t, { budget: deltaBudget({ ceilingBasis: [] }) })), /ceilingBasis must be an object/);
+  // A delta ceiling without the basis would be dead text.
+  refused(evaluate(crate(t, { budget: budgetFor({ deltaCeilings: { wakeupsPerSecond: 4 } }) })), /deltaCeilings\.wakeupsPerSecond is declared but ceilingBasis\.wakeupsPerSecond is not delta-over-bare/);
+  // The whole-process ceiling is still required beside the delta ceiling.
+  refused(evaluate(crate(t, { budget: deltaBudget({ ceilings: { ...CEILINGS, wakeupsPerSecond: null } }) })), /ceiling wakeupsPerSecond is undeclared/);
+});
+
+test("delta basis: other scopes keep the whole-process ceiling, so an installed app is never held to a delta", (t) => {
+  const installed = (observed) => measurement("darwin", { scope: "installed", app: { name: "HeardRight", version: "1.2.3" }, observed: { ...OBSERVED, ...observed } });
+  const parts = withBare(10.4, 9.5);
+  const run = (installedRecord) => evaluate(crate(t, { budget: deltaBudget({ measurements: [installedRecord, measurement("darwin", parts), measurement("win32", parts)] }) }), { requireInstalled: true, app: "HeardRight" });
+  // 11/s in the installed app: a whole-process figure over the unchanged 10/s ceiling, refused.
+  refused(run(installed({ wakeupsPerSecond: 11 })), /measurement\[0\] on darwin\/arm64 exceeds the wake-ups ceiling: observed 11 > 10/);
+  refused(run(installed({ wakeupsPerSecond: 11 })), /no fresh installed-app measurement within all ceilings/);
+  // Within the whole-process ceiling passes with no baseline at all.
+  assert.deepEqual(run(installed({ wakeupsPerSecond: 9 })), { ok: true, problems: [] });
+});
+
+test("delta basis: bench output with the baseline pair parses, one of the pair alone does not", () => {
+  const line = resultLine(OBSERVED, { bare: 9.486, delta: 0.899 });
+  assert.equal(parseBudgetResult(line).value.bareWakeupsPerSecond, 9.486);
+  assert.equal(parseBudgetResult(line).value.wakeupsDeltaPerSecond, 0.899);
+  assert.equal(parseBudgetResult(resultLine(OBSERVED, { bare: 9.5, delta: -0.3 })).value.wakeupsDeltaPerSecond, -0.3, "noise can make the delta negative");
+  assert.equal(parseBudgetResult(resultLine(OBSERVED)).value.bareWakeupsPerSecond, undefined);
+  assert.match(parseBudgetResult(`${resultLine(OBSERVED)} bare_wakeups_per_s=9`).problems.join(), /must appear together/);
+  assert.match(parseBudgetResult(resultLine(OBSERVED, { bare: -1, delta: 1 })).problems.join(), /bare_wakeups_per_s must be a non-negative number/);
+  assert.match(parseBudgetResult(resultLine(OBSERVED, { bare: "x", delta: 1 })).problems.join(), /bare_wakeups_per_s must be a non-negative number/);
+});
+
+test("delta basis: the README states the whole-process ceiling, the delta gate and each baseline", () => {
+  const body = renderRuntimeBudgetBody(deltaBudget()).join("\n");
+  assert.match(body, /Wake-ups ceiling \(whole process; installed and real measurements\): 10 per second\./);
+  assert.match(body, /Wake-ups gate \(synthetic bench\): at most 4 per second over a bare runtime loop/);
+  assert.match(body, /bare baseline wake-ups 9\.5 per second, delta 0\.9 per second/);
+  assert.match(renderRuntimeBudgetBody(budgetFor()).join("\n"), /- Wake-ups ceiling: 10 per second\./);
 });
 
 // ---------------------------------------------------------------- membership (fail closed)
@@ -618,6 +724,28 @@ test("record writes host, HEAD, evidence file and hash itself, and the gate then
   refused(evaluateRuntimeBudget({ crate: crateName, crateDir: r.svc, version: "0.2.0" }), /stale: crate or workspace dependency changed/);
 });
 
+test("record keeps the bare baseline and delta beside the raw figures, and requires them for a delta-basis crate", (t) => {
+  const r = repo(t);
+  r.put("crates/svc/runtime-budget.json", JSON.stringify({ schema: 1, crate: "svc", ...DELTA_BASIS, measurements: [] }));
+  git(r.root, "add", "-A"); git(r.root, "commit", "-q", "-m", "budget file");
+  const out = path.join(r.root, "delta-out.txt");
+  const base = { crateDir: r.svc, resultFile: out, scope: "synthetic", command: "c", description: "d" };
+  const deps = { host: { os: "darwin", arch: "arm64" } };
+  const observed = { ...OBSERVED, wakeupsPerSecond: 10.4 };
+  writeFileSync(out, `${resultLine(observed, { crate: "svc", version: "0.2.0" })}\n`);
+  assert.throws(() => recordMeasurement(base, deps), /needs bare_wakeups_per_s and wakeups_delta_per_s/);
+  writeFileSync(out, `${resultLine(observed, { crate: "svc", version: "0.2.0", bare: 9.5, delta: 0.1 })}\n`);
+  assert.throws(() => recordMeasurement(base, deps), /wakeups_delta_per_s disagrees with wakeups_per_s minus bare_wakeups_per_s/);
+  writeFileSync(out, `${resultLine(observed, { crate: "svc", version: "0.2.0", bare: 9.5, delta: 0.9 })}\n`);
+  const record = recordMeasurement(base, deps);
+  assert.equal(record.observed.wakeupsPerSecond, 10.4, "the raw whole-process figure stays the observed value");
+  assert.deepEqual(record.baseline, { wakeupsPerSecond: 9.5 });
+  assert.deepEqual(record.delta, { wakeupsPerSecond: 0.9 });
+  // A scope that is not gated on the delta does not need the pair.
+  writeFileSync(out, `${resultLine(observed, { crate: "svc", version: "0.2.0" })}\n`);
+  assert.equal(recordMeasurement({ ...base, scope: "real" }, deps).baseline, undefined);
+});
+
 test("record refuses output for another crate or version, bad flags, a missing line, and uncommitted code", (t) => {
   const r = repo(t);
   r.put("crates/svc/runtime-budget.json", JSON.stringify({ schema: 1, crate: "svc", measurements: [] }));
@@ -832,6 +960,20 @@ test("runtime-budget-classes.json is exactly what the crates' manifests generate
   writeFileSync(path.join(dir, "a/runtime-budget.json"), JSON.stringify(budgetFor({ requiredScale: { unit: "sessions", minCount: 2, source: "x" } })));
   writeFileSync(path.join(dir, "b/Cargo.toml"), declared("pure").replace("rightkit-new", "b"));
   assert.deepEqual(heldResourceClasses(dir), { a: { ceilings: CEILINGS, requiredScale: { unit: "sessions", minCount: 2 } } });
+});
+
+test("app qualification is unchanged by a delta basis: the classes ship the whole-process ceilings and an app figure over them is refused", (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rightkit-classes-delta-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(path.join(dir, "a"), { recursive: true });
+  writeFileSync(path.join(dir, "a/Cargo.toml"), resourceToml(entry()).replace("rightkit-held", "a"));
+  writeFileSync(path.join(dir, "a/runtime-budget.json"), JSON.stringify(budgetFor({ ...DELTA_BASIS, requiredScale: { unit: "sessions", minCount: 2, source: "x" } })));
+  const classes = heldResourceClasses(dir);
+  assert.deepEqual(classes, { a: { ceilings: CEILINGS, requiredScale: { unit: "sessions", minCount: 2 } } });
+  assert.doesNotMatch(JSON.stringify(classes), /delta/i);
+  // The app's installed whole-process rate is held to the whole-process ceiling (10/s), as before.
+  assert.match(appCheck(appFixture(t, { records: [appRecord({ observed: { ...OBSERVED, wakeupsPerSecond: 11 } })] })).detail, /exceeds wakeupsPerSecond/);
+  assert.equal(appCheck(appFixture(t, { records: [appRecord({ observed: { ...OBSERVED, wakeupsPerSecond: 9.9 } })] })).status, "ok");
 });
 
 // ---------------------------------------------------------------- filled examples against the real crates

@@ -352,7 +352,8 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 
 - Resident memory ceiling: 119.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
-- Wake-ups ceiling: 10.2 per second.
+- Wake-ups ceiling (whole process; installed and real measurements): 10.2 per second.
+- Wake-ups gate (synthetic bench): at most 4 per second over a bare runtime loop measured in the same bench run.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 1 watchdogs or more.
 - Required hosts: macOS only (Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run).

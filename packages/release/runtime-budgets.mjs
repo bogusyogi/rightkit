@@ -18,6 +18,8 @@
 //     "hostPolicyReason": "no Windows backend",
 //     "ceilings": { "residentMemoryBytes": N, "idleCpuPercent": N, "wakeupsPerSecond": N, "diskOpsPerSecond": N },  // null = undeclared, refused
 //     "ceilingSources": { "residentMemoryBytes": "path:line" },
+//     "ceilingBasis": { "wakeupsPerSecond": "delta-over-bare" },   // optional; see "Delta basis" below
+//     "deltaCeilings": { "wakeupsPerSecond": N },                  // required for, and only for, a figure with a delta basis
 //     "requiredScale": { "unit": "entries", "minCount": 1000000, "source": "path:line" },  // null = undeclared, refused
 //     "status": { "api": "Index::status()", "file": "src/index.rs", "exposes": ["residentMemoryBytes", ...] },
 //     "measurements": [ {
@@ -32,8 +34,20 @@
 // Measurements are written by `node runtime-budgets.mjs record`, never typed: the raw bench output is
 // stored under runtime-budget.evidence/, and the gate re-parses it and compares every value.
 //
+// Delta basis. A whole-process wake-up rate on a desktop host is dominated by host and window-server
+// activity the crate does not own. A crate may declare `ceilingBasis.wakeupsPerSecond = "delta-over-bare"`:
+// its synthetic bench then measures the crate's workload and a bare runtime loop back to back (separate
+// processes), and the gate compares (wake-ups - bare wake-ups), computed here from the two raw figures,
+// to `deltaCeilings.wakeupsPerSecond`. A synthetic measurement of that crate must carry `baseline` and
+// `delta` (`{ wakeupsPerSecond }`); one without a baseline is refused, and a reported delta that differs
+// from raw minus bare is refused (the gate never trusts it). `ceilings.wakeupsPerSecond` stays the
+// whole-process ceiling and keeps governing every other scope (real, installed) and app adoption, so an
+// installed app is never compared to a delta ceiling and nothing weakens for apps. Measurements of
+// other versions are history and are not re-gated, so they need no baseline.
+//
 // Bench output the `record` command accepts (exactly one such line in the file):
 //   RESULT budget crate=<name> version=<semver> resident_bytes=<int> idle_cpu_percent=<n> wakeups_per_s=<n> disk_ops_per_s=<n> scale_unit=<word> scale_count=<int>
+// optionally followed by `bare_wakeups_per_s=<n> wakeups_delta_per_s=<n>` (both or neither; delta may be negative).
 //
 // Check objects use the preflight shape ({ name, status, detail, fix }) so formatPreflight() in
 // preflight.mjs prints them as `[FAIL] runtime-budget: ...`.
@@ -83,6 +97,14 @@ const HOSTS = Object.freeze({ darwin: "macOS", win32: "Windows" });
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const SCOPES = Object.freeze(["synthetic", "real", "installed"]);
+// Figures that may be gated as a delta over a bare-runtime baseline, and the only scope that carries one.
+export const CEILING_BASIS_DELTA = "delta-over-bare";
+export const DELTA_FIGURES = Object.freeze(["wakeupsPerSecond"]);
+const DELTA_SCOPE = "synthetic";
+// Each rate is printed to 3 decimals, so raw - bare and the printed delta may differ by rounding only.
+const DELTA_TOLERANCE = 0.002;
+// A baseline more than this far above its own watchdog run is a mismatched or corrupt pair, not a quiet crate.
+const DELTA_FLOOR = -2;
 
 // Long-lived work a crate must declare. Each id must be named in `continuous_reason` for a `continuous = false`
 // crate; for a held-resource crate every file that matches must be listed in `resources`.
@@ -184,7 +206,10 @@ export function renderRuntimeBudgetBody(budget) {
   out.push("");
   out.push(`- Resident memory ceiling: ${figure("residentMemoryBytes", budget.ceilings?.residentMemoryBytes)}.`);
   out.push(`- CPU ceiling (idle, steady state): ${figure("idleCpuPercent", budget.ceilings?.idleCpuPercent)}.`);
-  out.push(`- Wake-ups ceiling: ${figure("wakeupsPerSecond", budget.ceilings?.wakeupsPerSecond)}.`);
+  if (budget.ceilingBasis?.wakeupsPerSecond === CEILING_BASIS_DELTA) {
+    out.push(`- Wake-ups ceiling (whole process; installed and real measurements): ${figure("wakeupsPerSecond", budget.ceilings?.wakeupsPerSecond)}.`);
+    out.push(`- Wake-ups gate (synthetic bench): at most ${figure("wakeupsPerSecond", budget.deltaCeilings?.wakeupsPerSecond)} over a bare runtime loop measured in the same bench run.`);
+  } else out.push(`- Wake-ups ceiling: ${figure("wakeupsPerSecond", budget.ceilings?.wakeupsPerSecond)}.`);
   out.push(`- Disk operations ceiling: ${figure("diskOpsPerSecond", budget.ceilings?.diskOpsPerSecond)}.`);
   const rs = budget.requiredScale;
   out.push(rs && rs.unit && Number.isFinite(rs.minCount) ? `- Required scale: ${count(rs.minCount)} ${rs.unit} or more.` : "- Required scale: undeclared.");
@@ -201,7 +226,9 @@ export function renderRuntimeBudgetBody(budget) {
     const scale = `${count(m.dataScale?.count)} ${m.dataScale?.unit} (${m.dataScale?.description})`;
     const app = m.scope === "installed" && m.app ? `, app ${m.app.name} ${m.app.version}` : "";
     const observed = BUDGET_FIGURES.map((k) => `${FIGURE_LABEL[k]} ${m.observed?.[k] === undefined || m.observed?.[k] === null ? "n/a (not measurable on this host)" : FORMAT[k](m.observed[k])}`).join(", ");
-    out.push(`- Measured: ${host}, ${budget.crate} ${m.crateVersion} at ${String(m.commit).slice(0, 12)}, ${scale}, ${m.scope}${app}, \`${m.command}\`, ${m.date}, evidence ${String(m.evidence?.sha256 ?? "none").slice(0, 12)}: ${observed}.`);
+    const bare = isNumber(m.baseline?.wakeupsPerSecond) && isNumber(m.delta?.wakeupsPerSecond)
+      ? `; bare baseline wake-ups ${FORMAT.wakeupsPerSecond(m.baseline.wakeupsPerSecond)}, delta ${FORMAT.wakeupsPerSecond(m.delta.wakeupsPerSecond)}` : "";
+    out.push(`- Measured: ${host}, ${budget.crate} ${m.crateVersion} at ${String(m.commit).slice(0, 12)}, ${scale}, ${m.scope}${app}, \`${m.command}\`, ${m.date}, evidence ${String(m.evidence?.sha256 ?? "none").slice(0, 12)}: ${observed}${bare}.`);
   }
   return out;
 }
@@ -298,6 +325,8 @@ export const HOST_UNAVAILABLE_FIGURES = Object.freeze({ darwin: Object.freeze(["
 export const figureUnavailableOn = (os, key) => (HOST_UNAVAILABLE_FIGURES[os] ?? []).includes(key);
 const RESULT_NUMBERS = Object.freeze({ resident_bytes: "residentMemoryBytes", idle_cpu_percent: "idleCpuPercent", wakeups_per_s: "wakeupsPerSecond", disk_ops_per_s: "diskOpsPerSecond", scale_count: "scaleCount" });
 const RESULT_WORDS = Object.freeze(["crate", "version", "scale_unit"]);
+// Optional pair emitted by a delta-basis bench: the bare-runtime wake-up rate and the bench's own reported delta.
+const RESULT_DELTA = Object.freeze({ bare_wakeups_per_s: "bareWakeupsPerSecond", wakeups_delta_per_s: "wakeupsDeltaPerSecond" });
 
 /** Parses the one `RESULT budget ...` line of a bench's raw output. */
 export function parseBudgetResult(text) {
@@ -309,7 +338,7 @@ export function parseBudgetResult(text) {
     const eq = token.indexOf("=");
     const key = eq > 0 ? token.slice(0, eq) : token;
     const value = eq > 0 ? token.slice(eq + 1) : "";
-    if (!(key in RESULT_NUMBERS) && !RESULT_WORDS.includes(key)) problems.push(`unknown field ${key}`);
+    if (!(key in RESULT_NUMBERS) && !(key in RESULT_DELTA) && !RESULT_WORDS.includes(key)) problems.push(`unknown field ${key}`);
     else if (key in fields) problems.push(`duplicate field ${key}`);
     else fields[key] = value;
   }
@@ -320,6 +349,14 @@ export function parseBudgetResult(text) {
     if (fields[key] === "unavailable" && name !== "residentMemoryBytes" && name !== "scaleCount") value[name] = null;
     else if (fields[key] === undefined || fields[key] === "" || !Number.isFinite(n) || n < 0) problems.push(`field ${key} must be a non-negative number`);
     else value[name] = n;
+  }
+  const present = Object.keys(RESULT_DELTA).filter((key) => key in fields);
+  if (present.length === 1) problems.push(`fields ${Object.keys(RESULT_DELTA).join(" and ")} must appear together`);
+  for (const key of present) {
+    const n = Number(fields[key]);
+    // The delta is a difference and may be negative; the bare rate is a rate and may not.
+    if (fields[key] === "" || !Number.isFinite(n) || (key === "bare_wakeups_per_s" && n < 0)) problems.push(`field ${key} must be a ${key === "bare_wakeups_per_s" ? "non-negative " : ""}number`);
+    else value[RESULT_DELTA[key]] = n;
   }
   return problems.length ? { ok: false, problems } : { ok: true, problems: [], value };
 }
@@ -344,6 +381,14 @@ function checkEvidence(m, index, budget, crateDir, { exists, readFile }) {
   if (v.version !== m.crateVersion) problems.push(`evidence version ${v.version} != recorded ${m.crateVersion}`);
   for (const key of BUDGET_FIGURES) if (v[key] !== m.observed[key]) problems.push(`evidence ${key} ${v[key]} != recorded ${m.observed[key]}`);
   if (v.scale_unit !== m.dataScale.unit || v.scaleCount !== m.dataScale.count) problems.push("evidence data scale differs from the record");
+  // The baseline and delta belong to the record exactly when the raw output carries them.
+  const recordedBare = m.baseline?.wakeupsPerSecond;
+  const recordedDelta = m.delta?.wakeupsPerSecond;
+  if (v.bareWakeupsPerSecond !== recordedBare) problems.push(`evidence bare_wakeups_per_s ${v.bareWakeupsPerSecond} != recorded baseline ${recordedBare}`);
+  if (v.wakeupsDeltaPerSecond !== recordedDelta) problems.push(`evidence wakeups_delta_per_s ${v.wakeupsDeltaPerSecond} != recorded delta ${recordedDelta}`);
+  if (v.bareWakeupsPerSecond !== undefined && !(isNumber(v.wakeupsPerSecond) && Math.abs(v.wakeupsPerSecond - v.bareWakeupsPerSecond - v.wakeupsDeltaPerSecond) <= DELTA_TOLERANCE)) {
+    problems.push(`evidence wakeups_delta_per_s ${v.wakeupsDeltaPerSecond} disagrees with wakeups_per_s ${v.wakeupsPerSecond} minus bare_wakeups_per_s ${v.bareWakeupsPerSecond}`);
+  }
   return problems.map((p) => `${at} ${p}`);
 }
 
@@ -424,8 +469,18 @@ function validateMeasurement(m, index) {
   if (isNumber(m.observed?.residentMemoryBytes) && m.observed.residentMemoryBytes === 0) {
     problems.push(`${at} observed.residentMemoryBytes of 0 is implausible for a running process`);
   }
+  // Optional bare-runtime baseline and reported delta: shape only here; the gate recomputes the delta.
+  for (const [field, signed] of [["baseline", false], ["delta", true]]) {
+    if (m[field] === undefined) continue;
+    const ok = m[field] && typeof m[field] === "object" && Object.keys(m[field]).every((key) => DELTA_FIGURES.includes(key) && isNumber(m[field][key]) && (signed || m[field][key] >= 0));
+    if (!ok) problems.push(`${at} ${field} must map ${DELTA_FIGURES.join(", ")} to ${signed ? "numbers" : "non-negative numbers"}`);
+  }
+  if ((m.baseline === undefined) !== (m.delta === undefined)) problems.push(`${at} baseline and delta must be recorded together`);
   return problems;
 }
+
+/** Figures of `budget` gated as a delta over the bare baseline (validated separately; unknown bases never match). */
+const deltaFiguresOf = (budget) => DELTA_FIGURES.filter((key) => budget.ceilingBasis?.[key] === CEILING_BASIS_DELTA);
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -478,6 +533,24 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
     else ceilings[key] = value;
   }
 
+  // Ceiling basis: an explicit, closed declaration. A delta figure needs its own positive delta ceiling,
+  // and a delta ceiling without the basis would be dead text, so both directions are refused.
+  const basis = budget.ceilingBasis;
+  if (basis !== undefined && (!basis || typeof basis !== "object" || Array.isArray(basis))) problems.push("ceilingBasis must be an object");
+  else for (const [key, value] of Object.entries(basis ?? {})) {
+    if (!DELTA_FIGURES.includes(key)) problems.push(`ceilingBasis.${key} is not a figure that can use a delta basis (${DELTA_FIGURES.join(", ")})`);
+    else if (value !== CEILING_BASIS_DELTA) problems.push(`ceilingBasis.${key} must be "${CEILING_BASIS_DELTA}"`);
+  }
+  const deltaFigures = deltaFiguresOf(budget);
+  const deltaCeilings = {};
+  for (const key of DELTA_FIGURES) {
+    const value = budget.deltaCeilings?.[key];
+    if (deltaFigures.includes(key)) {
+      if (!isNumber(value) || value <= 0) problems.push(`deltaCeilings.${key} must be a positive number (ceilingBasis.${key} is ${CEILING_BASIS_DELTA})`);
+      else deltaCeilings[key] = value;
+    } else if (value !== undefined) problems.push(`deltaCeilings.${key} is declared but ceilingBasis.${key} is not ${CEILING_BASIS_DELTA}`);
+  }
+
   // Required scale: the unit and minimum the crate's measurement must reach.
   const scale = budget.requiredScale;
   let requiredScale = null;
@@ -513,14 +586,35 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
   if (valid.length && nonEmpty(version) && counted.length === 0) {
     problems.push(`no measurement for version ${version} (recorded: ${[...new Set(valid.map(({ m }) => m.crateVersion))].join(", ")})`);
   }
+  // Why a measurement fails one figure, or null. A delta-basis figure of a synthetic measurement is gated on
+  // observed - baseline, recomputed here; the reported delta must agree and the baseline must exist. Every
+  // other scope (real, installed) keeps the whole-process ceiling, so an app is never held to a delta.
+  const usesDelta = (m, key) => deltaFigures.includes(key) && m.scope === DELTA_SCOPE;
+  const figureFailure = (m, key) => {
+    if (usesDelta(m, key)) {
+      const raw = m.observed[key];
+      const bare = m.baseline?.[key];
+      const reported = m.delta?.[key];
+      if (deltaCeilings[key] === undefined) return null; // the declaration problem is already reported
+      if (!isNumber(raw)) return `${FIGURE_LABEL[key]} is not measurable here but the ${FIGURE_LABEL[key]} ceiling is a delta over a bare baseline`;
+      if (!isNumber(bare) || !isNumber(reported)) return `has no bare baseline for ${FIGURE_LABEL[key]} (ceilingBasis.${key} is ${CEILING_BASIS_DELTA}; re-run the bench and record it again)`;
+      const delta = Number((raw - bare).toFixed(3)); // the bench prints 3 decimals; compare at that precision
+      if (Math.abs(delta - reported) > DELTA_TOLERANCE) return `reported ${FIGURE_LABEL[key]} delta ${reported} disagrees with observed ${raw} minus baseline ${bare}`;
+      if (delta < DELTA_FLOOR) return `bare baseline ${bare} is more than ${-DELTA_FLOOR} ${FIGURE_LABEL[key]}/s above observed ${raw}: a mismatched pair; re-run the bench`;
+      return delta > deltaCeilings[key] ? `exceeds the ${FIGURE_LABEL[key]} delta ceiling over the bare baseline: ${raw} - ${bare} = ${delta} > ${deltaCeilings[key]}` : null;
+    }
+    if (ceilings[key] !== undefined && m.observed[key] !== null && m.observed[key] > ceilings[key]) {
+      return `exceeds the ${FIGURE_LABEL[key]} ceiling: observed ${m.observed[key]} > ${ceilings[key]}`;
+    }
+    return null;
+  };
   for (const { m, index } of counted) {
     for (const key of BUDGET_FIGURES) {
-      if (ceilings[key] !== undefined && m.observed[key] !== null && m.observed[key] > ceilings[key]) {
-        problems.push(`measurement[${index}] on ${m.host.os}/${m.host.arch} exceeds the ${FIGURE_LABEL[key]} ceiling: observed ${m.observed[key]} > ${ceilings[key]}`);
-      }
+      const failure = figureFailure(m, key);
+      if (failure) problems.push(`measurement[${index}] on ${m.host.os}/${m.host.arch} ${failure}`);
     }
   }
-  const withinCeilings = (m) => BUDGET_FIGURES.every((key) => ceilings[key] !== undefined && (m.observed[key] === null ? figureUnavailableOn(m.host?.os, key) : m.observed[key] <= ceilings[key]));
+  const withinCeilings = (m) => BUDGET_FIGURES.every((key) => ceilings[key] !== undefined && (usesDelta(m, key) ? deltaCeilings[key] !== undefined && figureFailure(m, key) === null : m.observed[key] === null ? figureUnavailableOn(m.host?.os, key) : m.observed[key] <= ceilings[key]));
   const atScale = (m) => requiredScale !== null && m.dataScale.unit === requiredScale.unit && m.dataScale.count >= requiredScale.minCount;
   const staleness = new Map();
   const stale = (m) => {
@@ -841,6 +935,13 @@ export function recordMeasurement({ crateDir, resultFile, scope, command, descri
   if (stale) throw new Error(`refusing to record: ${stale} (commit the code under test, then re-run the bench)`);
   const file = path.join(crateDir, RUNTIME_BUDGET_FILE);
   const budget = JSON.parse(fs.readFileSync(file, "utf8"));
+  const hasBaseline = v.bareWakeupsPerSecond !== undefined;
+  if (scope === DELTA_SCOPE && !hasBaseline && deltaFiguresOf(budget).length) {
+    throw new Error(`bench output rejected: ${RUNTIME_BUDGET_FILE} gates ${deltaFiguresOf(budget).join(", ")} as ${CEILING_BASIS_DELTA}, so the RESULT line needs bare_wakeups_per_s and wakeups_delta_per_s`);
+  }
+  if (hasBaseline && !(isNumber(v.wakeupsPerSecond) && Math.abs(v.wakeupsPerSecond - v.bareWakeupsPerSecond - v.wakeupsDeltaPerSecond) <= DELTA_TOLERANCE)) {
+    throw new Error("bench output rejected: wakeups_delta_per_s disagrees with wakeups_per_s minus bare_wakeups_per_s");
+  }
   const evidenceName = `${host.os}-${host.arch}-${pkg.version}-${scope}${scope === "installed" ? `-${app.name}` : ""}.txt`.replace(/[^\w.-]/g, "_");
   const evidenceRel = `${RUNTIME_BUDGET_EVIDENCE_DIR}/${evidenceName}`;
   fs.mkdirSync(path.join(crateDir, RUNTIME_BUDGET_EVIDENCE_DIR), { recursive: true });
@@ -851,6 +952,7 @@ export function recordMeasurement({ crateDir, resultFile, scope, command, descri
     dataScale: { description, unit: v.scale_unit, count: v.scaleCount },
     command,
     observed: Object.fromEntries(BUDGET_FIGURES.map((key) => [key, v[key]])),
+    ...(hasBaseline ? { baseline: { wakeupsPerSecond: v.bareWakeupsPerSecond }, delta: { wakeupsPerSecond: v.wakeupsDeltaPerSecond } } : {}),
     evidence: { file: evidenceRel, sha256: sha256Of(raw) },
   };
   const same = (m) => m.host?.os === host.os && m.host?.arch === host.arch && m.crateVersion === pkg.version && m.scope === scope && (m.app?.name ?? null) === (app?.name ?? null);
