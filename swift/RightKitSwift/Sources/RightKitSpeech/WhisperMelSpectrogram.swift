@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Accelerate
 import Foundation
 
@@ -134,3 +135,4 @@ enum WhisperMelSpectrogram {
         }
     }
 }
+#endif

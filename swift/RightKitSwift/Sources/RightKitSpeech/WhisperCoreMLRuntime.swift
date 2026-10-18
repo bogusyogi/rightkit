@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import CoreML
 import Foundation
 
@@ -416,3 +417,4 @@ extension WhisperCoreMLRuntime: WhisperWindowStages {
         try tokenizer.decode(tokens)
     }
 }
+#endif

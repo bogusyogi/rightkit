@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 public enum AudioConditioning {
@@ -57,3 +58,4 @@ public enum AudioConditioning {
         abs(sample) <= 0.99 ? sample : min(max(tanh(sample), -0.99), 0.99)
     }
 }
+#endif

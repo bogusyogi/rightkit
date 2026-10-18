@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// Scheduled Static-15 incremental decode: 16 kHz audio is cut into disjoint ~15 s windows at the
@@ -317,3 +318,4 @@ public final class IncrementalStatic15Trigger: @unchecked Sendable {
         return true
     }
 }
+#endif

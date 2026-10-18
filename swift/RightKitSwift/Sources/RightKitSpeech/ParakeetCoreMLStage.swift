@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import CoreML
 import Foundation
 
@@ -131,3 +132,4 @@ struct ParakeetCoreMLStage {
         }
     }
 }
+#endif

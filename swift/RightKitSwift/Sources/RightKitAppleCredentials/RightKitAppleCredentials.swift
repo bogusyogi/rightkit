@@ -15,6 +15,9 @@ public enum AppleCredentialError: Error, LocalizedError, Equatable, Sendable {
     case invalidAccount
     case invalidValue
     case unavailable(String)
+    /// The raw `errSecMissingEntitlement` (-34018): the process lacks the Keychain access-group entitlement.
+    /// Exposed separately so the app words its own message.
+    case missingEntitlement
     case keychainStatus(Int32)
 
     public var errorDescription: String? {
@@ -22,6 +25,7 @@ public enum AppleCredentialError: Error, LocalizedError, Equatable, Sendable {
         case .invalidAccount: return "Credential account is invalid."
         case .invalidValue: return "Credential value is empty."
         case let .unavailable(detail): return detail
+        case .missingEntitlement: return "The Keychain access-group entitlement is missing."
         case let .keychainStatus(status): return "Keychain operation failed (status \(status))."
         }
     }
@@ -35,6 +39,24 @@ public protocol AppleCredentialBackend: AnyObject, Sendable {
     func exists(service: String, account: String, scope: AppleCredentialScope) -> Result<Bool, AppleCredentialError>
     func write(_ data: Data, service: String, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError>
     func delete(service: String, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError>
+    /// Account names (no data) stored in `service` for one scope. Default: unavailable.
+    func accounts(service: String, scope: AppleCredentialScope) -> Result<[String], AppleCredentialError>
+    /// Synced read that also finds a synchronizable item whose sync attribute cache has not settled
+    /// (`kSecAttrSynchronizableAny` in the Keychain backend). Must never return a device-only item.
+    /// Default: the plain `.synced` read.
+    func readBroadSynced(service: String, account: String) -> Result<Data?, AppleCredentialError>
+    /// Passive status probe of `service`. Default: ``status()``.
+    func status(service: String) -> Result<String?, AppleCredentialError>
+}
+
+public extension AppleCredentialBackend {
+    func accounts(service: String, scope: AppleCredentialScope) -> Result<[String], AppleCredentialError> {
+        .failure(.unavailable("This credential backend cannot enumerate accounts."))
+    }
+    func readBroadSynced(service: String, account: String) -> Result<Data?, AppleCredentialError> {
+        read(service: service, account: account, scope: .synced)
+    }
+    func status(service: String) -> Result<String?, AppleCredentialError> { status() }
 }
 
 /// Deterministic backend for unit tests in an isolated in-memory namespace.
@@ -70,6 +92,17 @@ public final class InMemoryAppleCredentialBackend: AppleCredentialBackend, @unch
         lock.lock(); values.removeValue(forKey: key(service, account, scope)); lock.unlock()
         return .success(())
     }
+
+    public func accounts(service: String, scope: AppleCredentialScope) -> Result<[String], AppleCredentialError> {
+        let prefix = "\(service)\u{1f}"
+        let suffix = "\u{1f}\(scope.rawValue)"
+        lock.lock(); defer { lock.unlock() }
+        let names = values.keys.compactMap { k -> String? in
+            guard k.hasPrefix(prefix), k.hasSuffix(suffix), k.count > prefix.count + suffix.count else { return nil }
+            return String(k.dropFirst(prefix.count).dropLast(suffix.count))
+        }
+        return .success(names.sorted())
+    }
 }
 
 /// Per-app Keychain storage, used in-process by the owning app. There is deliberately no
@@ -81,28 +114,43 @@ public final class AppleCredentialStore: Sendable {
     private let backend: AppleCredentialBackend
     public let service: String
     public let accessGroup: String?
+    private let accountValidator: (@Sendable (String) -> Bool)?
 
+    /// Accepts any non-empty account of at most 1024 UTF-8 bytes without control characters, such as
+    /// `daemon-token:<url>`. Pass as `accountValidator` to lift the default `[A-Za-z0-9._-]` restriction.
+    public static let arbitraryAccounts: @Sendable (String) -> Bool = { account in
+        !account.isEmpty && account.utf8.count <= 1024 && account.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7f }
+    }
+
+    /// - Parameter accountValidator: replaces the default account rule (`[A-Za-z0-9._-]`, at most 200 bytes).
+    ///   An empty account is always invalid. Use ``arbitraryAccounts`` for URL-shaped accounts.
     public init(
         service: String = AppleCredentialStore.defaultService,
         accessGroup: String? = nil,
-        backend: AppleCredentialBackend? = nil
+        backend: AppleCredentialBackend? = nil,
+        accountValidator: (@Sendable (String) -> Bool)? = nil
     ) {
         self.service = service
         self.accessGroup = accessGroup
+        self.accountValidator = accountValidator
         self.backend = backend ?? SecurityAppleCredentialBackend(accessGroup: accessGroup)
     }
 
+    /// Passive probe of this store's own `service`. A missing access-group entitlement is returned as
+    /// ``AppleCredentialError/missingEntitlement`` so the app can word its own message.
     public func status() -> Result<(ready: Bool, detail: String?), AppleCredentialError> {
-        switch backend.status() {
+        switch backend.status(service: service) {
         case let .success(detail): return .success((detail == nil, detail))
         case let .failure(error): return .failure(error)
         }
     }
 
     /// Reads data only on explicit request. `exists` below is the passive path.
-    public func read(_ account: String, scope: AppleCredentialScope) -> Result<String?, AppleCredentialError> {
-        guard Self.validAccount(account) else { return .failure(.invalidAccount) }
-        switch backend.read(service: service, account: account, scope: scope) {
+    /// - Parameter broadSynced: for `.synced` only, opt in to the broad synchronizable lookup that finds an
+    ///   item whose sync attribute cache has not settled (right after another device minted it). It still
+    ///   never returns a device-only item. Ignored for `.device`.
+    public func read(_ account: String, scope: AppleCredentialScope, broadSynced: Bool = false) -> Result<String?, AppleCredentialError> {
+        switch readData(account, scope: scope, broadSynced: broadSynced) {
         case let .success(data):
             guard let data else { return .success(nil) }
             return .success(String(data: data, encoding: .utf8))
@@ -110,14 +158,39 @@ public final class AppleCredentialStore: Sendable {
         }
     }
 
+    /// Raw bytes exactly as stored: no decoding, no trimming. See ``read(_:scope:broadSynced:)``.
+    public func readData(_ account: String, scope: AppleCredentialScope, broadSynced: Bool = false) -> Result<Data?, AppleCredentialError> {
+        guard validAccount(account) else { return .failure(.invalidAccount) }
+        if broadSynced && scope == .synced { return backend.readBroadSynced(service: service, account: account) }
+        return backend.read(service: service, account: account, scope: scope)
+    }
+
+    /// Raw bytes written exactly as given: no trimming or re-encoding. Empty data is `invalidValue`.
+    public func writeData(_ data: Data, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError> {
+        guard validAccount(account) else { return .failure(.invalidAccount) }
+        guard !data.isEmpty else { return .failure(.invalidValue) }
+        return backend.write(data, service: service, account: account, scope: scope)
+    }
+
+    /// Deletes one scope's copy only (`deleteEverywhere` removes both). Absent items succeed.
+    public func delete(_ account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError> {
+        guard validAccount(account) else { return .failure(.invalidAccount) }
+        return backend.delete(service: service, account: account, scope: scope)
+    }
+
+    /// Account names (no data) held in this store's service for `scope`, sorted. Reads no secret bytes.
+    public func accounts(scope: AppleCredentialScope) -> Result<[String], AppleCredentialError> {
+        backend.accounts(service: service, scope: scope)
+    }
+
     /// Presence check never asks Keychain for secret bytes and never prompts.
     public func exists(_ account: String, scope: AppleCredentialScope) -> Result<Bool, AppleCredentialError> {
-        guard Self.validAccount(account) else { return .failure(.invalidAccount) }
+        guard validAccount(account) else { return .failure(.invalidAccount) }
         return backend.exists(service: service, account: account, scope: scope)
     }
 
     public func write(_ value: String, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError> {
-        guard Self.validAccount(account) else { return .failure(.invalidAccount) }
+        guard validAccount(account) else { return .failure(.invalidAccount) }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .failure(.invalidValue) }
         return backend.write(Data(trimmed.utf8), service: service, account: account, scope: scope)
@@ -125,7 +198,7 @@ public final class AppleCredentialStore: Sendable {
 
     /// Explicit user deletion removes both copies. Callers must not use this for a sync toggle.
     public func deleteEverywhere(_ account: String) -> Result<Void, AppleCredentialError> {
-        guard Self.validAccount(account) else { return .failure(.invalidAccount) }
+        guard validAccount(account) else { return .failure(.invalidAccount) }
         for scope in AppleCredentialScope.allCases {
             if case let .failure(error) = backend.delete(service: service, account: account, scope: scope) {
                 return .failure(error)
@@ -147,7 +220,12 @@ public final class AppleCredentialStore: Sendable {
         }
     }
 
-    private static func validAccount(_ account: String) -> Bool {
+    private func validAccount(_ account: String) -> Bool {
+        if let accountValidator { return !account.isEmpty && accountValidator(account) }
+        return Self.defaultValidAccount(account)
+    }
+
+    private static func defaultValidAccount(_ account: String) -> Bool {
         guard !account.isEmpty, account.utf8.count <= 200 else { return false }
         return account.unicodeScalars.allSatisfy { scalar in
             (scalar.value >= 48 && scalar.value <= 57) ||
@@ -241,14 +319,23 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         scope == .synced ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     }
 
-    public func status() -> Result<String?, AppleCredentialError> {
-        var query = base(AppleCredentialStore.defaultService, "status")
+    static func error(forStatus status: OSStatus) -> AppleCredentialError {
+        status == errSecMissingEntitlement ? .missingEntitlement : .keychainStatus(status)
+    }
+
+    public func status() -> Result<String?, AppleCredentialError> { status(service: AppleCredentialStore.defaultService) }
+
+    /// Passive probe of `service` (account `status`, either scope). A missing entitlement is a failure
+    /// (``AppleCredentialError/missingEntitlement``); any other unusable status is a detail string.
+    public func status(service: String) -> Result<String?, AppleCredentialError> {
+        var query = base(service, "status")
         query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecReturnData as String] = false
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecSuccess || status == errSecItemNotFound { return .success(nil) }
+        if status == errSecMissingEntitlement { return .failure(.missingEntitlement) }
         return .success(SecCopyErrorMessageString(status, nil) as String? ?? "Keychain unavailable.")
     }
 
@@ -259,7 +346,7 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return .success(nil) }
-        guard status == errSecSuccess else { return .failure(.keychainStatus(status)) }
+        guard status == errSecSuccess else { return .failure(Self.error(forStatus: status)) }
         return .success(result as? Data)
     }
 
@@ -271,7 +358,7 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecSuccess { return .success(true) }
         if status == errSecItemNotFound { return .success(false) }
-        return .failure(.keychainStatus(status))
+        return .failure(Self.error(forStatus: status))
     }
 
     func probeQuery(_ service: String, _ account: String, _ scope: AppleCredentialScope?) -> [String: Any] {
@@ -306,9 +393,9 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         if status == errSecSuccess { return .success(()) }
         if status == errSecDuplicateItem {
             let update = SecItemUpdate(scoped(service, account, scope) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-            return update == errSecSuccess ? .success(()) : .failure(.keychainStatus(update))
+            return update == errSecSuccess ? .success(()) : .failure(Self.error(forStatus: update))
         }
-        return .failure(.keychainStatus(status))
+        return .failure(Self.error(forStatus: status))
     }
 
     /// Legacy, intentionally broad lookup (either scope, no isolation). Never used by the scoped
@@ -321,14 +408,55 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return .success(nil) }
-        guard status == errSecSuccess else { return .failure(.keychainStatus(status)) }
+        guard status == errSecSuccess else { return .failure(Self.error(forStatus: status)) }
         return .success(result as? Data)
+    }
+
+    /// Broad synced read: `kSecAttrSynchronizableAny` so an item whose sync attribute cache has not settled
+    /// is still found, then only a row whose `kSecAttrSynchronizable` is true is accepted. A same-account
+    /// device-only item can therefore never be returned for a synced read.
+    public func readBroadSynced(service: String, account: String) -> Result<Data?, AppleCredentialError> {
+        var query = base(service, account)
+        query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        query[kSecReturnData as String] = true
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .success(nil) }
+        guard status == errSecSuccess else { return .failure(Self.error(forStatus: status)) }
+        guard let rows = result as? [[String: Any]] else { return .failure(.keychainStatus(errSecDecode)) }
+        for row in rows where Self.isSynchronizable(row[kSecAttrSynchronizable as String]) {
+            if let data = row[kSecValueData as String] as? Data { return .success(data) }
+        }
+        return .success(nil)
+    }
+
+    static func isSynchronizable(_ value: Any?) -> Bool {
+        if let flag = value as? Bool { return flag }
+        if let number = value as? NSNumber { return number.boolValue }
+        return false
+    }
+
+    /// Attributes-only enumeration of account names for one scope; no secret bytes are requested.
+    public func accounts(service: String, scope: AppleCredentialScope) -> Result<[String], AppleCredentialError> {
+        var query = base(service, "")
+        query.removeValue(forKey: kSecAttrAccount as String)
+        query[kSecAttrSynchronizable as String] = scope == .synced
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .success([]) }
+        guard status == errSecSuccess else { return .failure(Self.error(forStatus: status)) }
+        guard let rows = result as? [[String: Any]] else { return .failure(.keychainStatus(errSecDecode)) }
+        return .success(rows.compactMap { $0[kSecAttrAccount as String] as? String }.sorted())
     }
 
     public func delete(service: String, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError> {
         let query = scoped(service, account, scope)
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound ? .success(()) : .failure(.keychainStatus(status))
+        return status == errSecSuccess || status == errSecItemNotFound ? .success(()) : .failure(Self.error(forStatus: status))
     }
 
     func deletionQuery(_ service: String, _ account: String, _ scope: CredentialDeletionScope) -> [String: Any] {

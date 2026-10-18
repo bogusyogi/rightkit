@@ -1,0 +1,43 @@
+[package]
+name = "rightkit-engine-native"
+version = "0.1.0"
+description = "Static library that carries rightkit-job-queue's C ABI (ffi feature) for a Swift host, plus one engine-install function"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+
+[lib]
+name = "rightkit_engine_native"
+crate-type = ["staticlib"]
+
+[dependencies]
+# Pinned exactly: the header in ../Sources/CRightKitEngine is transcribed from this version's ffi.rs.
+rightkit-job-queue = { version = "=0.3.2", default-features = false, features = ["ffi"] }
+# HostFactory::connect_service names rightkit_daemon's types; job-queue 0.3.1 pulls the same 0.2 line.
+rightkit-daemon = "0.2"
+
+# Its own workspace: never part of an app's or the engine's cargo graph.
+[workspace]
+
+[profile.release]
+# The ABI contains panics with catch_unwind, which needs unwinding.
+panic = "unwind"
+# Symbols stay: the archive is linked by name.
+strip = "none"
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+strip = "none"
+debug-assertions = true
+overflow-checks = true
+lto = "off"
+panic = "unwind"
+incremental = true
+codegen-units = 256
+rpath = false
+
+# Dependencies: non-incremental so sccache can cache them across apps.
+[profile.dev.package."*"]
+incremental = false
+codegen-units = 16

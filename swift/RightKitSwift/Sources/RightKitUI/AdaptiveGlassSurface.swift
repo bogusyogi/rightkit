@@ -77,7 +77,7 @@ private struct RightKitAdaptiveGlassModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, watchOS 26.0, *) {
             let mode = RightKitGlassSurfacePolicy.renderingMode(
                 supportsNativeGlass: true,
                 reduceTransparency: reduceTransparency,
@@ -133,7 +133,7 @@ private struct RightKitAdaptiveGlassModifier: ViewModifier {
         }
     }
 
-    @available(iOS 26.0, macOS 26.0, *)
+    @available(iOS 26.0, macOS 26.0, watchOS 26.0, *)
     private var nativeGlass: Glass {
         switch glassStyle {
         case .regular: .regular

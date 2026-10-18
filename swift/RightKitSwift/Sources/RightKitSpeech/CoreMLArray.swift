@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Accelerate
 import CoreML
 import Foundation
@@ -303,3 +304,4 @@ enum ParakeetCoreMLArray {
         return try MLMultiArray(shape: shape.map { NSNumber(value: $0) }, dataType: dataType)
     }
 }
+#endif

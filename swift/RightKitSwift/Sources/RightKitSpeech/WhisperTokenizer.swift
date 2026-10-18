@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 
@@ -81,3 +82,4 @@ struct WhisperTokenizer {
         return result
     }
 }
+#endif

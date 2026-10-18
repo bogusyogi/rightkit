@@ -280,8 +280,8 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
 
     /// The shared Keychain store (RightKitCredentials); `service` is the namespace, the account the key.
     /// Honours no guard variable: licence identity must never silently move to memory.
-    private func secrets() throws -> SecretsStore {
-        try SecretsStore(namespace: service, environment: [:], backend: KeychainSecretsBackend())
+    private func secrets(accessibility: SecretsAccessibility = .afterFirstUnlockThisDeviceOnly) throws -> SecretsStore {
+        try SecretsStore(namespace: service, environment: [:], backend: KeychainSecretsBackend(accessibility: accessibility))
     }
 
     private static func map(_ error: Error) -> Error {
@@ -357,13 +357,67 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         }
     }
 
-    func deviceIDLocked(account: String, store: SecretsStore) throws -> String {
+    /// What ``requireDeviceID(account:options:)`` does when the stored id is empty or not UTF-8.
+    public enum CorruptDeviceIDPolicy: Sendable, Equatable {
+        /// Throw ``LicenseError/corruptDeviceID``; nothing is rewritten (licence verification fails closed).
+        case failClosed
+        /// Replace the id in place with a fresh one (seeded when a seed is given) and keep going.
+        case reseed
+    }
+
+    /// Options for ``requireDeviceID(account:options:)``.
+    public struct DeviceIDOptions: Sendable {
+        /// Supplies the id of a NEW install (e.g. `identifierForVendor`); nil or empty falls back to a random UUID.
+        /// It is called only when no id exists yet, or to re-seed a corrupt one.
+        public var seed: (@Sendable () -> String?)?
+        /// Accessibility class of a newly written id.
+        public var accessibility: SecretsAccessibility
+        /// Rewrite the accessibility of an existing id on read. Off by default here: an existing item is
+        /// never rewritten unless the caller asks. (The plain ``requireDeviceID(account:)`` keeps its
+        /// historical rewrite to `afterFirstUnlockThisDeviceOnly`.)
+        public var reapplyAccessibilityOnRead: Bool
+        public var onCorrupt: CorruptDeviceIDPolicy
+
+        public init(
+            seed: (@Sendable () -> String?)? = nil,
+            accessibility: SecretsAccessibility = .afterFirstUnlockThisDeviceOnly,
+            reapplyAccessibilityOnRead: Bool = false,
+            onCorrupt: CorruptDeviceIDPolicy = .failClosed
+        ) {
+            self.seed = seed; self.accessibility = accessibility
+            self.reapplyAccessibilityOnRead = reapplyAccessibilityOnRead; self.onCorrupt = onCorrupt
+        }
+    }
+
+    /// ``requireDeviceID(account:)`` with caller-chosen seed, accessibility class and corrupt-id policy
+    /// (rightkit#702). With the defaults it differs from the plain form only in that it does not rewrite
+    /// the accessibility of an existing item. Same throwing contract as the plain form; with
+    /// ``CorruptDeviceIDPolicy/reseed`` a corrupt id is replaced instead of throwing.
+    public func requireDeviceID(account: String = "device-id", options: DeviceIDOptions) throws -> String {
+        try Self.lock.withLock {
+            do {
+                let store = try secrets(accessibility: options.accessibility)
+                do {
+                    return try deviceIDLocked(account: account, store: store, seed: options.seed, reapply: options.reapplyAccessibilityOnRead)
+                } catch LicenseError.corruptDeviceID where options.onCorrupt == .reseed {
+                    if CorruptDeviceIDState.shared.claimReport() {
+                        Self.log.error("stored license device id is corrupt; re-seeding it")
+                    }
+                    return try replaceCorruptDeviceIDLocked(account: account, store: store, seed: options.seed)
+                }
+            } catch { throw Self.map(error) }
+        }
+    }
+
+    func deviceIDLocked(
+        account: String, store: SecretsStore, seed: (@Sendable () -> String?)? = nil, reapply: Bool = true
+    ) throws -> String {
         if let data = try store.get(account) {
             let value = try Self.deviceIDText(data)
-            _ = try? store.reapplyAccessibility(account)
+            if reapply { _ = try? store.reapplyAccessibility(account) }
             return value
         }
-        let value = UUID().uuidString
+        let value = Self.freshDeviceID(seed)
         if try store.setIfAbsent(account, string: value) { return value }
         // Lost a cross-process race: the winner's id is the identity.
         guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
@@ -371,12 +425,17 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     }
 
     /// Replaces a corrupt stored id: delete it, then a create-only write of a fresh id. Runs under the lock.
-    func replaceCorruptDeviceIDLocked(account: String, store: SecretsStore) throws -> String {
+    func replaceCorruptDeviceIDLocked(account: String, store: SecretsStore, seed: (@Sendable () -> String?)? = nil) throws -> String {
         try store.delete(account)
-        let value = UUID().uuidString
+        let value = Self.freshDeviceID(seed)
         if try store.setIfAbsent(account, string: value) { return value }
         guard let winner = try store.get(account) else { throw SecretsError.keychain(errSecItemNotFound) }
         return try Self.deviceIDText(winner)
+    }
+
+    private static func freshDeviceID(_ seed: (@Sendable () -> String?)?) -> String {
+        if let seeded = seed?()?.trimmingCharacters(in: .whitespacesAndNewlines), !seeded.isEmpty { return seeded }
+        return UUID().uuidString
     }
 
     private static func deviceIDText(_ data: Data) throws -> String {
@@ -505,7 +564,10 @@ public struct LicenseClientConfiguration: Sendable {
     /// components. For ``LicenseLeasePathStyle/siblingOfBase`` it equals the standardized form of
     /// the original `baseURL.appendingPathComponent("../pro/<app>/devices/lease/...")`, except that
     /// it is sent without the `..` segment on the wire.
-    func leaseURL(_ suffix: [String]) -> URL {
+    func leaseURL(_ suffix: [String]) -> URL { devicesURL(["lease"] + suffix) }
+
+    /// `.../pro/<app>/devices/<suffix>` under the same path rule as ``leaseURL(_:)``.
+    func devicesURL(_ suffix: [String]) -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) ?? URLComponents()
         let prefix: [String]
         switch leasePathStyle {
@@ -514,10 +576,19 @@ public struct LicenseClientConfiguration: Sendable {
         case let .originRooted(apiPrefix):
             prefix = apiPrefix.split(separator: "/").map(String.init)
         }
-        components.path = "/" + (prefix + ["pro", app, "devices", "lease"] + suffix).joined(separator: "/")
+        components.path = "/" + (prefix + ["pro", app, "devices"] + suffix).joined(separator: "/")
         components.fragment = nil
         return components.url ?? baseURL
     }
+}
+
+/// A short-lived, single-use code that pairs a Windows desktop to an already-leased Apple device.
+public struct WindowsLinkCode: Codable, Equatable, Sendable {
+    public var code: String
+    /// ISO-8601 expiry as sent by the server.
+    public var expiresAt: String
+
+    public init(code: String, expiresAt: String) { self.code = code; self.expiresAt = expiresAt }
 }
 
 public extension LicenseActivationClient {
@@ -661,6 +732,26 @@ public struct LicenseActivationClient: Sendable {
         _ = try await post(url: configuration.leaseURL(["remove"]), payload: payload) as LicenseServerResponse
     }
 
+    /// One-time code a Windows desktop redeems to obtain its own lease from this already-entitled device
+    /// (`POST /v1/pro/<app>/devices/windows-link/request`). Sends `activationToken`, `leaseId` and the
+    /// device-id hash (never the raw id). Nothing is stored.
+    public func requestWindowsLinkCode(activationToken: String, leaseId: String, deviceId: String) async throws -> WindowsLinkCode {
+        guard !activationToken.isEmpty, !leaseId.isEmpty else { throw LicenseError.transport("Activate Pro on this device first.") }
+        let payload = ["activationToken": activationToken, "leaseId": leaseId, "deviceIdHash": Self.deviceIDHash(deviceId)]
+        let code: WindowsLinkCode = try await post(url: configuration.devicesURL(["windows-link", "request"]), payload: payload)
+        guard !code.code.isEmpty else { throw LicenseError.invalidResponse }
+        return code
+    }
+
+    /// ``requestWindowsLinkCode(activationToken:leaseId:deviceId:)`` for the stored lease record.
+    /// Throws when no lease-bound activation is stored.
+    public func requestWindowsLinkCode() async throws -> WindowsLinkCode {
+        guard let record = await store.load(), let token = record.activationToken, let leaseId = record.leaseId else {
+            throw LicenseError.transport("Activate Pro on this device first.")
+        }
+        return try await requestWindowsLinkCode(activationToken: token, leaseId: leaseId, deviceId: record.deviceId)
+    }
+
     /// Adds `appKey` to a lease body unless the configuration opted out.
     private func leaseBody(_ fields: [String: String]) -> [String: String] {
         guard configuration.includeAppKeyInLeaseBody else { return fields }
@@ -680,8 +771,8 @@ public struct LicenseActivationClient: Sendable {
     /// (`macos` -> computer pool, `ios`/`ipados` -> mobile pool), so a Mac must not claim `ios`.
     /// `UIDevice` is main-actor state, so the idiom is read by hopping to the main actor instead of
     /// touching it from this nonisolated client.
-    static func platform() async -> String {
-        #if canImport(UIKit)
+    public static func platform() async -> String {
+        #if canImport(UIKit) && !os(watchOS)
         return await mainActorPlatform()
         #elseif os(macOS)
         return LeasePlatform.wireValue(.mac)
@@ -690,7 +781,7 @@ public struct LicenseActivationClient: Sendable {
         #endif
     }
 
-    #if canImport(UIKit)
+    #if canImport(UIKit) && !os(watchOS)
     @MainActor private static func mainActorPlatform() -> String {
         switch UIDevice.current.userInterfaceIdiom {
         case .pad: LeasePlatform.wireValue(.pad)

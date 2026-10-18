@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// Contextual biasing for the beam decode. Parity port of macOS's
@@ -137,3 +138,4 @@ struct ASRVocabularyBias {
         return ids
     }
 }
+#endif

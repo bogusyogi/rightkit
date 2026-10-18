@@ -3,6 +3,14 @@ import Foundation
 import CoreGraphics
 #endif
 
+/// A display identifier. On macOS it is `CGDirectDisplayID`; elsewhere a plain `UInt32` with the same
+/// width, so the pure display-plan code compiles on every platform.
+#if os(macOS)
+public typealias RightKitOverlayDisplayID = CGDirectDisplayID
+#else
+public typealias RightKitOverlayDisplayID = UInt32
+#endif
+
 /// The overlay surface a host presents. Raw values are the persisted/wire identifiers and never
 /// change; the case names are product-neutral. The product-named spellings remain as deprecated
 /// aliases so existing call sites keep compiling.
@@ -203,11 +211,11 @@ public struct RightKitOverlayHitRegions: Sendable, Equatable {
 
 /// A display as the overlay layer sees it.
 public struct RightKitOverlayDisplay: Sendable, Equatable {
-    public let id: CGDirectDisplayID
+    public let id: RightKitOverlayDisplayID
     public let frame: CGRect
     public let visibleFrame: CGRect
 
-    public init(id: CGDirectDisplayID, frame: CGRect, visibleFrame: CGRect) {
+    public init(id: RightKitOverlayDisplayID, frame: CGRect, visibleFrame: CGRect) {
         self.id = id; self.frame = frame; self.visibleFrame = visibleFrame
     }
 }
@@ -216,8 +224,8 @@ public enum RightKitOverlayDisplays {
     /// What to create and tear down to go from the displays you have a surface on (`current`) to
     /// the ones you want one on (`desired`). `hasDuplicates` reports a repeated id in `desired`;
     /// the sets ignore the repeat, and what to do about it stays with the host.
-    public static func plan(current: Set<CGDirectDisplayID>, desired: [CGDirectDisplayID])
-        -> (add: Set<CGDirectDisplayID>, remove: Set<CGDirectDisplayID>, hasDuplicates: Bool) {
+    public static func plan(current: Set<RightKitOverlayDisplayID>, desired: [RightKitOverlayDisplayID])
+        -> (add: Set<RightKitOverlayDisplayID>, remove: Set<RightKitOverlayDisplayID>, hasDuplicates: Bool) {
         let wanted = Set(desired)
         return (wanted.subtracting(current), current.subtracting(wanted), wanted.count != desired.count)
     }
@@ -229,11 +237,11 @@ extension RightKitOverlayDisplays {
     /// order they were asked for and without repeats**; `remove` lists the surfaces that are no longer
     /// wanted, **sorted ascending by display id**. `hasDuplicates` reports a repeated id in `desired`.
     /// `current` may be a set, an array or any sequence (a repeated id counts once).
-    public static func orderedPlan(current: some Sequence<CGDirectDisplayID>, desired: [CGDirectDisplayID])
-        -> (add: [CGDirectDisplayID], remove: [CGDirectDisplayID], hasDuplicates: Bool) {
+    public static func orderedPlan(current: some Sequence<RightKitOverlayDisplayID>, desired: [RightKitOverlayDisplayID])
+        -> (add: [RightKitOverlayDisplayID], remove: [RightKitOverlayDisplayID], hasDuplicates: Bool) {
         let have = Set(current)
-        var seen = Set<CGDirectDisplayID>()
-        var add: [CGDirectDisplayID] = []
+        var seen = Set<RightKitOverlayDisplayID>()
+        var add: [RightKitOverlayDisplayID] = []
         for id in desired where seen.insert(id).inserted && !have.contains(id) { add.append(id) }
         let remove = have.subtracting(seen).sorted()
         return (add, remove, seen.count != desired.count)
@@ -296,6 +304,47 @@ extension RightKitOverlayFullScreen {
     public static func visibleFrameCoversScreen(frame: CGRect, visibleFrame: CGRect) -> Bool {
         abs(visibleFrame.width - frame.width) <= 1 && abs(visibleFrame.height - frame.height) <= 1
     }
+
+    /// A window as the geometry rule sees it: owner pid, window layer, CoreGraphics bounds.
+    public typealias WindowInfo = (pid: pid_t, layer: Int, bounds: CGRect)
+
+    /// What the main thread knows about the full-screen question, so the blocking window-list call
+    /// (``onScreenWindows()``, a WindowServer round trip) can run on any other thread. Build it on the
+    /// main actor with ``context(on:ignoringBundleIDs:geometryIgnoring:visibleFrameIgnoring:)``, then
+    /// call ``evaluate(_:windows:)`` anywhere.
+    public struct Context: Sendable, Equatable {
+        /// The screen in CoreGraphics coordinates (origin top left of the primary screen).
+        public var screenBounds: CGRect
+        public var frontmostPID: pid_t
+        public var safeAreaTopInset: CGFloat
+        /// Whether the window-geometry rule applies to the frontmost app. When false, no window
+        /// list is needed for that rule.
+        public var appliesGeometryRule: Bool
+        /// The visible-frame fallback already answers yes (menu bar autohidden): no window list is
+        /// needed at all when this is true.
+        public var visibleFrameCoversScreen: Bool
+
+        public init(screenBounds: CGRect, frontmostPID: pid_t, safeAreaTopInset: CGFloat = 0,
+                    appliesGeometryRule: Bool = true, visibleFrameCoversScreen: Bool = false) {
+            self.screenBounds = screenBounds
+            self.frontmostPID = frontmostPID
+            self.safeAreaTopInset = safeAreaTopInset
+            self.appliesGeometryRule = appliesGeometryRule
+            self.visibleFrameCoversScreen = visibleFrameCoversScreen
+        }
+
+        /// True when the answer is already known without reading the window list.
+        public var needsWindowList: Bool { !visibleFrameCoversScreen && appliesGeometryRule }
+    }
+
+    /// Pure second half of the split: the full-screen answer for `context` and a window list read
+    /// on any thread. Matches the one-call ``frontmostAppIsFullScreen(on:ignoringBundleIDs:)``.
+    public static func evaluate(_ context: Context, windows: [WindowInfo]) -> Bool {
+        if context.visibleFrameCoversScreen { return true }
+        guard context.appliesGeometryRule else { return false }
+        return isFullScreen(screenBounds: context.screenBounds, frontmostPID: context.frontmostPID,
+                            windows: windows, safeAreaTopInset: context.safeAreaTopInset)
+    }
 }
 
 #if os(macOS)
@@ -322,6 +371,12 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
     /// what the panel has always done; a host whose panel mirrors an `NSPanel` default of `true`
     /// sets it here.
     public var hidesOnDeactivate: Bool
+    /// The panel's style mask, applied at creation (AppKit ties the non-activating behaviour to the
+    /// window's creation-time tags, so it cannot be changed later through this configuration).
+    /// Defaults to ``standardStyleMask`` (`.borderless` + `.nonactivatingPanel`: the app is never
+    /// activated). Drop `.nonactivatingPanel` for a panel that activates the app when it becomes key
+    /// (an unlock or text-entry panel). Combine with `canBecomeKey: true`.
+    public var styleMask: NSWindow.StyleMask
 
     public init(
         level: NSWindow.Level = .statusBar,
@@ -335,7 +390,8 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
         animationBehavior: NSWindow.AnimationBehavior = .default,
         startsClickThrough: Bool = false,
         hitRegionOrigin: RightKitOverlayCoordinateOrigin = .lowerLeft,
-        hidesOnDeactivate: Bool = false
+        hidesOnDeactivate: Bool = false,
+        styleMask: NSWindow.StyleMask = RightKitOverlayPanelConfiguration.standardStyleMask
     ) {
         self.level = level
         self.collectionBehavior = collectionBehavior
@@ -349,7 +405,11 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
         self.startsClickThrough = startsClickThrough
         self.hitRegionOrigin = hitRegionOrigin
         self.hidesOnDeactivate = hidesOnDeactivate
+        self.styleMask = styleMask
     }
+
+    /// `.borderless` + `.nonactivatingPanel`, the style the panel has always used.
+    public static let standardStyleMask: NSWindow.StyleMask = [.borderless, .nonactivatingPanel]
 
     /// Exactly what `RightKitOverlayPanel(contentRect:kind:level:)` builds: a pill joins all
     /// spaces stationary, a notch also joins full-screen spaces; interactive, never key.
@@ -368,7 +428,8 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
 ///
 /// The class is `open` so a host can subclass it (for its own window overrides, such as a custom
 /// `constrainFrameRect` or `accessibilityRole`) and keep the configuration, hit-region and click-through
-/// machinery. ``canBecomeKey`` and ``canBecomeMain`` stay `final`: the configuration owns them. The event
+/// machinery. ``canBecomeKey`` is `open` and answers ``allowsKey`` (seeded from the configuration, settable at
+/// runtime); ``canBecomeMain`` stays `final` and false. The event
 /// overrides (`sendEvent`, the mouse handlers, `resignKey`) are `open`; an override must call `super` or
 /// the filter and unhandled-mouse hooks stop working.
 @MainActor
@@ -376,11 +437,18 @@ open class RightKitOverlayPanel: NSPanel {
     public let overlayKind: RightKitOverlayKind
     public let configuration: RightKitOverlayPanelConfiguration
 
+    /// Whether the panel may become key right now. Starts as `configuration.canBecomeKey` and may be
+    /// changed at any time (a clipboard strip that takes the keyboard only while its text field is
+    /// being edited). Turning it off while the panel is key does not resign key by itself; call
+    /// `resignKey()` through AppKit (`orderOut`, or make another window key) if the host needs that.
+    public var allowsKey: Bool
+
     public init(contentRect: NSRect, kind: RightKitOverlayKind = .pill, configuration: RightKitOverlayPanelConfiguration) {
         overlayKind = kind
         self.configuration = configuration
         hitRegionOrigin = configuration.hitRegionOrigin
-        super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        allowsKey = configuration.canBecomeKey
+        super.init(contentRect: contentRect, styleMask: configuration.styleMask, backing: .buffered, defer: false)
         // `isFloatingPanel` rewrites `level` (floating or normal), so it goes first and the
         // configured level is applied after it.
         isFloatingPanel = configuration.isFloatingPanel
@@ -425,8 +493,8 @@ open class RightKitOverlayPanel: NSPanel {
     /// event loop (`nextEvent(matching:)`) from inside the call, as a window-level `mouseDown`
     /// override can. Return true when the event was handled; false lets it continue up the chain.
     ///
-    /// A subclass may override the mouse handlers, but not ``canBecomeKey``, which the configuration
-    /// owns; this hook is the way in that needs no subclass.
+    /// A subclass may override the mouse handlers and ``canBecomeKey``; this hook is the way in
+    /// that needs no subclass.
     public var unhandledMouseEvent: (@MainActor (NSEvent) -> Bool)?
 
     /// Called after the panel resigns key (for hide-on-resign launchers).
@@ -500,14 +568,16 @@ open class RightKitOverlayPanel: NSPanel {
         onResignKey?()
     }
 
-    public final override var canBecomeKey: Bool { configuration.canBecomeKey }
+    /// Answers ``allowsKey``. `open`: a subclass may override it (call `super` to keep the runtime
+    /// flag, or replace the rule entirely).
+    open override var canBecomeKey: Bool { allowsKey }
     public final override var canBecomeMain: Bool { false }
 
     public func showWithoutActivating() {
         orderFrontRegardless()
     }
 
-    /// Orders the panel front and makes it key. Needs `configuration.canBecomeKey`; without it the
+    /// Orders the panel front and makes it key. Needs ``allowsKey``; without it the
     /// panel is ordered front and simply does not become key. The panel is non-activating, so the
     /// application stays as it was.
     public func showAsKey() {
@@ -679,36 +749,56 @@ extension RightKitOverlayFullScreen {
         geometryIgnoring: Set<String>,
         visibleFrameIgnoring: Set<String>
     ) -> Bool {
-        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return false }
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+        guard let ctx = context(on: screen, ignoringBundleIDs: ignoringBundleIDs,
+                                geometryIgnoring: geometryIgnoring, visibleFrameIgnoring: visibleFrameIgnoring)
+        else { return false }
+        return evaluate(ctx, windows: ctx.needsWindowList ? onScreenWindows() : [])
+    }
+
+    /// Main-actor half of the off-main split: reads `NSScreen` and `NSWorkspace` facts only (no
+    /// WindowServer window list). Nil means "not full screen" (no screen, or no frontmost app).
+    /// The ignore sets mean what they do in ``rulesToApply(frontmostBundleID:ignoringBundleIDs:geometryIgnoring:visibleFrameIgnoring:)``;
+    /// an app in `ignoringBundleIDs` (the host itself, for one) yields a context that answers false.
+    /// Pass the result to ``evaluate(_:windows:)`` together with ``onScreenWindows()`` run elsewhere.
+    @MainActor
+    public static func context(
+        on screen: NSScreen?,
+        ignoringBundleIDs: Set<String> = [],
+        geometryIgnoring: Set<String> = [],
+        visibleFrameIgnoring: Set<String> = []
+    ) -> Context? {
+        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return nil }
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
         let rules = rulesToApply(frontmostBundleID: frontApp.bundleIdentifier, ignoringBundleIDs: ignoringBundleIDs,
                                  geometryIgnoring: geometryIgnoring, visibleFrameIgnoring: visibleFrameIgnoring)
+        // NSScreen uses AppKit coordinates (origin bottom left of the primary screen);
+        // CoreGraphics window bounds use origin top left of the primary screen.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let cgScreenBounds = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
+                                    width: screen.frame.width, height: screen.frame.height)
+        return Context(
+            screenBounds: cgScreenBounds,
+            frontmostPID: frontApp.processIdentifier,
+            safeAreaTopInset: screen.safeAreaInsets.top,
+            appliesGeometryRule: rules.geometry,
+            visibleFrameCoversScreen: rules.visibleFrame
+                && visibleFrameCoversScreen(frame: screen.frame, visibleFrame: screen.visibleFrame))
+    }
 
-        if rules.geometry {
-            // NSScreen uses AppKit coordinates (origin bottom left of the primary screen);
-            // CoreGraphics window bounds use origin top left of the primary screen.
-            let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-            let cgScreenBounds = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
-                                        width: screen.frame.width, height: screen.frame.height)
-
-            if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] {
-                var windows: [(pid: pid_t, layer: Int, bounds: CGRect)] = []
-                for info in infoList {
-                    guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                          let layer = info[kCGWindowLayer as String] as? Int,
-                          let dict = info[kCGWindowBounds as String] as? NSDictionary,
-                          let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
-                    windows.append((pid: pid, layer: layer, bounds: bounds))
-                }
-                if isFullScreen(screenBounds: cgScreenBounds, frontmostPID: frontApp.processIdentifier,
-                                windows: windows, safeAreaTopInset: screen.safeAreaInsets.top) {
-                    return true
-                }
-            }
+    /// Second half of the split's input: the on-screen windows. A blocking WindowServer call that
+    /// is safe on any thread; call it off the main thread.
+    public static func onScreenWindows() -> [WindowInfo] {
+        var windows: [WindowInfo] = []
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return windows }
+        for info in infoList {
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = info[kCGWindowLayer as String] as? Int,
+                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
+            windows.append((pid: pid, layer: layer, bounds: bounds))
         }
-
-        return rules.visibleFrame && visibleFrameCoversScreen(frame: screen.frame, visibleFrame: screen.visibleFrame)
+        return windows
     }
 }
 #endif

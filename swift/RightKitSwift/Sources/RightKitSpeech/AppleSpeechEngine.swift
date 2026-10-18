@@ -1,3 +1,4 @@
+#if canImport(Speech) // Speech is unavailable on watchOS; RightKitAudio carries the watch recorder
 import AVFoundation
 import Foundation
 import Speech
@@ -80,3 +81,4 @@ public struct AppleSpeechEngine: SpeechTranscribing {
         }
     }
 }
+#endif

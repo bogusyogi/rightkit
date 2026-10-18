@@ -43,3 +43,21 @@ private let rules = ActivityLifecycleRules<Phase>(
     let newer = fence.advance()
     #expect(!fence.isCurrent(old) && fence.isCurrent(newer))
 }
+
+@Test func keyedFencesAreIndependentPerKey() {
+    var fences = KeyedLifecycleFence<String>()
+    let a1 = fences.advance("bot-a")
+    let b1 = fences.advance("bot-b")
+    #expect(fences.isCurrent("bot-a", a1) && fences.isCurrent("bot-b", b1))
+    let a2 = fences.advance("bot-a")
+    #expect(!fences.isCurrent("bot-a", a1), "a newer start supersedes the older one for its own key")
+    #expect(fences.isCurrent("bot-a", a2))
+    #expect(fences.isCurrent("bot-b", b1), "another key's token is untouched")
+    fences.invalidate("bot-b")
+    #expect(!fences.isCurrent("bot-b", b1), "end invalidates in-flight work for that key only")
+    #expect(!fences.isCurrent("never-used", 1))
+}
+
+// KeyedLiveActivityHost (start/update/end/endAll/endForeignOrphans) drives ActivityKit, which needs
+// an iOS device or simulator with Live Activities enabled; it has no macOS-runnable test. The
+// per-key sequencing it relies on is covered by `keyedFencesAreIndependentPerKey` above.

@@ -46,6 +46,8 @@ public struct RightKitAppRoot: Sendable {
     public let root: URL
     /// Protection applied to files written through this root (iOS only; macOS ignores it).
     public let fileProtection: FileProtectionType
+    /// `realpath` of `root`, the string every containment check compares against.
+    private let realRoot: String
 
     /// - Parameters:
     ///   - accessGroup: App Group id. When given, its container is the base and a missing container
@@ -78,31 +80,36 @@ public struct RightKitAppRoot: Sendable {
         try Self.makeDirs(dir, fileManager: fileManager)
         self.name = app
         self.root = dir.resolvingSymlinksInPath()
+        self.realRoot = RKContainment.realPath(self.root.path) ?? self.root.path
+        self.fileProtection = fileProtection
+    }
+
+    /// An app whose data folder is exactly `root`, with no `Orthic Labs/<App>` appended. For an app
+    /// that keeps state somewhere it already owns (Pulse: Application Support/Pulse). `root` is
+    /// created (0700) if absent, symlinks resolved. All path, atomic-write and verified-copy rules of
+    /// the standard initializer apply under it.
+    public init(
+        root: URL,
+        name: String,
+        fileProtection: FileProtectionType = .completeUntilFirstUserAuthentication,
+        fileManager: FileManager = .default
+    ) throws {
+        guard Self.isValidAppName(name) else { throw RightKitFSError.invalidName(name) }
+        guard root.isFileURL else { throw RightKitFSError.pathEscape(root.absoluteString) }
+        try Self.makeDirs(root, fileManager: fileManager)
+        self.name = name
+        self.root = root.resolvingSymlinksInPath()
+        self.realRoot = RKContainment.realPath(self.root.path) ?? self.root.path
         self.fileProtection = fileProtection
     }
 
     // MARK: Paths
 
     /// Resolve `rel` under the root without creating anything. Rejects empty, absolute, `..`, NUL,
-    /// and any path whose existing prefix is a symlink resolving outside the root.
+    /// and any path whose existing prefix is a symlink resolving outside the root (a dangling or
+    /// looping link is refused too, never treated as absent).
     public func path(_ rel: String) throws -> URL {
-        let bad = RightKitFSError.pathEscape(rel)
-        guard !rel.isEmpty, !rel.hasPrefix("/"), !rel.contains("\0") else { throw bad }
-        let parts = rel.split(separator: "/", omittingEmptySubsequences: true)
-        guard !parts.isEmpty, !parts.contains("..") else { throw bad }
-        var url = root
-        for p in parts where p != "." { url.appendPathComponent(String(p)) }
-        // Walk to the deepest existing ancestor and require its real path to stay inside the root.
-        var probe = url
-        while !FileManager.default.fileExists(atPath: probe.path)
-            && (try? probe.checkResourceIsReachable()) == nil
-            && !isSymlink(probe) {
-            probe.deleteLastPathComponent()
-            if probe.path.count < root.path.count { throw bad }
-        }
-        let real = probe.resolvingSymlinksInPath().path
-        guard real == root.path || real.hasPrefix(root.path + "/") else { throw bad }
-        return url
+        try RKContainment.resolve(root: root, realRoot: realRoot, rel: rel, allowRoot: false)
     }
 
     /// A private directory at `<root>/<rel>`, created if absent, re-checked after creation.
@@ -122,20 +129,19 @@ public struct RightKitAppRoot: Sendable {
         let dest = try path(rel)
         try Self.makeDirs(dest.deletingLastPathComponent(), fileManager: .default)
         _ = try path(rel)
-        let temp = try stageTemp(beside: dest)
-        do {
-            try writeAndSync(data, to: temp)
-            try publish(temp, to: dest)
-        } catch {
-            try? FileManager.default.removeItem(at: temp)
-            throw error
-        }
+        try files.writeFile(data, to: dest)
     }
 
     /// Copy the file at `src` (outside or inside the root) to `rel`, verifying the destination's
     /// SHA-256 against the source's (and `expectedSHA256` when given) before publishing.
     @discardableResult
     public func copyVerified(from src: URL, to rel: String, expectedSHA256: String? = nil) throws -> String {
+        // `replace: true` always yields a digest.
+        try copyVerifiedImpl(from: src, to: rel, expectedSHA256: expectedSHA256, replace: true) ?? ""
+    }
+
+    /// `nil` only when `replace` is false and the destination appeared first (nothing was changed).
+    private func copyVerifiedImpl(from src: URL, to rel: String, expectedSHA256: String?, replace: Bool) throws -> String? {
         var st = stat()
         guard lstat(src.path, &st) == 0 else { throw RightKitFSError.io(path: src.path, errno: errno) }
         if (st.st_mode & S_IFMT) == S_IFLNK { throw RightKitFSError.symlink(src.path) }
@@ -143,18 +149,21 @@ public struct RightKitAppRoot: Sendable {
         let dest = try path(rel)
         try Self.makeDirs(dest.deletingLastPathComponent(), fileManager: .default)
         _ = try path(rel)
-        let digest = try Self.sha256(of: src)
+        let digest = try RKFiles.sha256(of: src)
         if let e = expectedSHA256, e.lowercased() != digest {
             throw RightKitFSError.digestMismatch(path: src.path, expected: e.lowercased(), actual: digest)
         }
-        let temp = try stageTemp(beside: dest)
+        let temp = try files.stageTemp(beside: dest)
         do {
             try FileManager.default.copyItem(at: src, to: temp)
-            let written = try Self.sha256(of: temp)
+            let written = try RKFiles.sha256(of: temp)
             guard written == digest else { throw RightKitFSError.verifyFailed(dest.path) }
-            try harden(temp)
-            try fsyncFile(at: temp)
-            try publish(temp, to: dest)
+            try files.harden(temp)
+            try files.fsyncFile(at: temp)
+            guard try files.publish(temp, to: dest, replace: replace) else {
+                try? FileManager.default.removeItem(at: temp)
+                return nil
+            }
         } catch {
             try? FileManager.default.removeItem(at: temp)
             throw error
@@ -183,103 +192,98 @@ public struct RightKitAppRoot: Sendable {
         }
         var line = record
         line.append(0x0A)
-        try Self.writeAll(fd, line, path: dest.path)
+        try RKFiles.writeAll(fd, line, path: dest.path)
         guard fcntl(fd, F_FULLFSYNC) == 0 || fsync(fd) == 0 else {
             throw RightKitFSError.io(path: dest.path, errno: errno)
         }
-        try? harden(dest)
+        try? files.harden(dest)
+    }
+
+    // MARK: Read, exists, remove, list
+
+    /// The bytes of the regular file at `rel`, or `nil` when it does not exist. A symlink at the
+    /// final name is refused (`symlink`), as is anything that is not a regular file.
+    public func readData(_ rel: String) throws -> Data? {
+        try RKFiles.readData(at: try path(rel))
+    }
+
+    /// True when something exists at `rel` inside the root. A path that would escape is `false`.
+    public func exists(_ rel: String) -> Bool {
+        guard let u = try? path(rel) else { return false }
+        var st = stat()
+        return lstat(u.path, &st) == 0
+    }
+
+    /// Delete the file (or directory tree) at `rel`. An absent path is success. A final-name symlink
+    /// is removed as the link itself, never its target, and only when it resolves inside the root.
+    public func remove(_ rel: String) throws {
+        let u = try path(rel)
+        var st = stat()
+        guard lstat(u.path, &st) == 0 else {
+            if errno == ENOENT { return }
+            throw RightKitFSError.io(path: u.path, errno: errno)
+        }
+        do { try FileManager.default.removeItem(at: u) } catch {
+            throw RightKitFSError.io(path: u.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
+        }
+    }
+
+    /// Names (not paths) directly inside the directory `dir`, sorted; `""` or `"."` lists the root.
+    /// Internal temp files of an in-flight atomic write are not listed. An absent directory is `[]`.
+    public func list(_ dir: String = "") throws -> [String] {
+        let u = try RKContainment.resolve(root: root, realRoot: realRoot, rel: dir, allowRoot: true)
+        var st = stat()
+        guard lstat(u.path, &st) == 0 || stat(u.path, &st) == 0 else {
+            if errno == ENOENT { return [] }
+            throw RightKitFSError.io(path: u.path, errno: errno)
+        }
+        do {
+            return try FileManager.default.contentsOfDirectory(atPath: u.path)
+                .filter { !($0.hasPrefix(".") && $0.hasSuffix(".rk-tmp")) }
+                .sorted()
+        } catch {
+            throw RightKitFSError.io(path: u.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
+        }
+    }
+
+    // MARK: One-shot legacy migration
+
+    /// Move the file at `legacy` to `rel`. Does nothing and returns `false` when the destination
+    /// already exists or the legacy file is absent. Otherwise the file is copied beside the
+    /// destination, its SHA-256 compared with the source's, published only if the destination is
+    /// still free (no overwrite, even against a racing process), re-read and re-verified, and only
+    /// then is the source deleted. Any failure leaves the source in place. Returns `true` when the
+    /// file was migrated. A source that is a symlink or not a regular file throws.
+    @discardableResult
+    public func migrate(from legacy: URL, to rel: String) throws -> Bool {
+        let dest = try path(rel)
+        var st = stat()
+        if lstat(dest.path, &st) == 0 { return false }
+        guard lstat(legacy.path, &st) == 0 else {
+            if errno == ENOENT { return false }
+            throw RightKitFSError.io(path: legacy.path, errno: errno)
+        }
+        guard (st.st_mode & S_IFMT) != S_IFLNK else { throw RightKitFSError.symlink(legacy.path) }
+        guard (st.st_mode & S_IFMT) == S_IFREG else { throw RightKitFSError.notAFile(legacy.path) }
+        guard try copyVerifiedImpl(from: legacy, to: rel, expectedSHA256: nil, replace: false) != nil else {
+            return false
+        }
+        let digest = try RKFiles.sha256(of: legacy)
+        guard try RKFiles.sha256(of: dest) == digest else { throw RightKitFSError.verifyFailed(dest.path) }
+        do { try FileManager.default.removeItem(at: legacy) } catch {
+            throw RightKitFSError.io(path: legacy.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
+        }
+        return true
     }
 
     // MARK: Internals
 
-    private func isSymlink(_ u: URL) -> Bool {
-        var st = stat()
-        return lstat(u.path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFLNK
-    }
-
-    private func stageTemp(beside dest: URL) throws -> URL {
-        if isSymlink(dest) { throw RightKitFSError.symlink(dest.path) }
-        var st = stat()
-        if lstat(dest.path, &st) == 0, (st.st_mode & S_IFMT) != S_IFREG {
-            throw RightKitFSError.notAFile(dest.path)
-        }
-        return dest.deletingLastPathComponent()
-            .appendingPathComponent(".\(dest.lastPathComponent).\(UUID().uuidString).rk-tmp")
-    }
-
-    private func writeAndSync(_ data: Data, to temp: URL) throws {
-        let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw RightKitFSError.io(path: temp.path, errno: errno) }
-        defer { close(fd) }
-        try Self.writeAll(fd, data, path: temp.path)
-        guard fcntl(fd, F_FULLFSYNC) == 0 || fsync(fd) == 0 else {
-            throw RightKitFSError.io(path: temp.path, errno: errno)
-        }
-        try harden(temp)
-    }
-
-    private func fsyncFile(at url: URL) throws {
-        let fd = open(url.path, O_RDONLY)
-        guard fd >= 0 else { throw RightKitFSError.io(path: url.path, errno: errno) }
-        defer { close(fd) }
-        guard fcntl(fd, F_FULLFSYNC) == 0 || fsync(fd) == 0 else {
-            throw RightKitFSError.io(path: url.path, errno: errno)
-        }
-    }
-
-    private func harden(_ url: URL) throws {
-        chmod(url.path, 0o600)
-        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
-        try? FileManager.default.setAttributes([.protectionKey: fileProtection], ofItemAtPath: url.path)
-        #endif
-    }
-
-    private func publish(_ temp: URL, to dest: URL) throws {
-        let fm = FileManager.default
-        do {
-            if fm.fileExists(atPath: dest.path) {
-                _ = try fm.replaceItemAt(dest, withItemAt: temp)
-            } else {
-                try fm.moveItem(at: temp, to: dest)
-            }
-        } catch {
-            throw RightKitFSError.io(path: dest.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
-        }
-        let dirFD = open(dest.deletingLastPathComponent().path, O_RDONLY)
-        if dirFD >= 0 { _ = fsync(dirFD); close(dirFD) }
-    }
+    private var files: RKFiles { RKFiles(fileProtection: fileProtection) }
 
     private static func makeDirs(_ url: URL, fileManager: FileManager) throws {
-        do {
-            try fileManager.createDirectory(
-                at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        } catch {
-            throw RightKitFSError.io(path: url.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
-        }
-    }
-
-    private static func writeAll(_ fd: Int32, _ data: Data, path: String) throws {
-        try data.withUnsafeBytes { raw in
-            var off = 0
-            while off < raw.count {
-                let n = write(fd, raw.baseAddress! + off, raw.count - off)
-                if n < 0 {
-                    if errno == EINTR { continue }
-                    throw RightKitFSError.io(path: path, errno: errno)
-                }
-                off += n
-            }
-        }
+        try RKFiles.makeDirs(url, fileManager: fileManager)
     }
 
     /// Lowercase hex SHA-256 of a file, streamed.
-    public static func sha256(of url: URL) throws -> String {
-        guard let h = try? FileHandle(forReadingFrom: url) else {
-            throw RightKitFSError.io(path: url.path, errno: errno)
-        }
-        defer { try? h.close() }
-        var hasher = SHA256()
-        while let chunk = try? h.read(upToCount: 64 * 1024), !chunk.isEmpty { hasher.update(data: chunk) }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
+    public static func sha256(of url: URL) throws -> String { try RKFiles.sha256(of: url) }
 }

@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// Canonical ASR conditioning boundary. Products bind this to their canonical implementation
@@ -45,3 +46,4 @@ struct ASRConditioner: Sendable {
         alreadyConditioned ? samples : try condition(samples)
     }
 }
+#endif

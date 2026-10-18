@@ -222,6 +222,7 @@ final class AppleCredentialTests: XCTestCase {
     }
 
     private func skipUnavailableKeychain(_ error: AppleCredentialError) throws {
+        if error == .missingEntitlement { throw XCTSkip("Test host lacks the Keychain entitlement: \(error)") }
         if case let .keychainStatus(status) = error,
            [errSecMissingEntitlement, errSecNotAvailable, errSecInteractionNotAllowed].contains(status) {
             throw XCTSkip("Test host cannot access Keychain: \(error)")

@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// Every failure RightKitSpeech reports. One type, so callers `catch` a single error and switch on
@@ -54,3 +55,4 @@ public enum SpeechError: Error, LocalizedError, Equatable, Sendable {
         }
     }
 }
+#endif

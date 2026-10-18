@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 // Pure beam-search scoring core for the Parakeet TDT/RNN-T decode. Parity
@@ -195,3 +196,4 @@ func parakeetRnntStep(
         return next
     }
 }
+#endif

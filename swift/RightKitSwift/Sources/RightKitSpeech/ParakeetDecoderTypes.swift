@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import AVFoundation
 import CoreML
 import Foundation
@@ -29,3 +30,4 @@ func parakeetCarryPredictorCache(
     guard enabled, childHitCount == parentHitCount else { return nil }
     return predictor
 }
+#endif

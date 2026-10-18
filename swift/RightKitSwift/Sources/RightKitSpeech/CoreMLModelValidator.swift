@@ -1,36 +1,71 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import CoreML
 import Foundation
 
-struct CoreMLValidationReport {
-    let stages: [String]
-    let pipeline: ParakeetPipelineConfig
-    let vocabSize: Int
-    let validatedAt: Date
+/// Result of validating a Parakeet model directory: every stage loaded, `pipeline.json` and `vocab.txt` parsed.
+public struct CoreMLValidationReport: Sendable {
+    public let stages: [String]
+    public let pipeline: ParakeetPipelineConfig
+    public let vocabSize: Int
+    public let validatedAt: Date
+
+    public init(stages: [String], pipeline: ParakeetPipelineConfig, vocabSize: Int, validatedAt: Date) {
+        self.stages = stages
+        self.pipeline = pipeline
+        self.vocabSize = vocabSize
+        self.validatedAt = validatedAt
+    }
 }
 
-struct CoreMLArtifactValidationReport {
-    let backend: String
-    let stages: [String]
-    let validatedAt: Date
+/// Result of validating a non-Parakeet Core ML artifact (for example Whisper): its required files exist
+/// and its required stages load.
+public struct CoreMLArtifactValidationReport: Sendable {
+    public let backend: String
+    public let stages: [String]
+    public let validatedAt: Date
+
+    public init(backend: String, stages: [String], validatedAt: Date) {
+        self.backend = backend
+        self.stages = stages
+        self.validatedAt = validatedAt
+    }
 }
 
-struct ParakeetPipelineConfig {
-    let isTDT: Bool
-    let nMel: Int
-    let windowSec: Double
-    let melFrames: Int
-    let encFrames: Int
-    let encoderWidth: Int
-    let predLayers: Int
-    let predHidden: Int
-    let blankID: Int
-    let durations: [Int]
+/// The parsed `pipeline.json` of a Parakeet model directory.
+public struct ParakeetPipelineConfig: Sendable, Equatable {
+    public let isTDT: Bool
+    public let nMel: Int
+    public let windowSec: Double
+    public let melFrames: Int
+    public let encFrames: Int
+    public let encoderWidth: Int
+    public let predLayers: Int
+    public let predHidden: Int
+    public let blankID: Int
+    public let durations: [Int]
 
-    var windowSamples: Int {
+    public init(
+        isTDT: Bool, nMel: Int, windowSec: Double, melFrames: Int, encFrames: Int, encoderWidth: Int,
+        predLayers: Int, predHidden: Int, blankID: Int, durations: [Int]
+    ) {
+        self.isTDT = isTDT
+        self.nMel = nMel
+        self.windowSec = windowSec
+        self.melFrames = melFrames
+        self.encFrames = encFrames
+        self.encoderWidth = encoderWidth
+        self.predLayers = predLayers
+        self.predHidden = predHidden
+        self.blankID = blankID
+        self.durations = durations
+    }
+
+    public var windowSamples: Int {
         Int(windowSec * 16_000)
     }
 
-    static func load(from modelDirectory: URL) throws -> ParakeetPipelineConfig {
+    /// Reads and validates `pipeline.json` from `modelDirectory`. Missing keys take the Parakeet TDT defaults.
+    public static func load(from modelDirectory: URL) throws -> ParakeetPipelineConfig {
         let url = modelDirectory.appendingPathComponent("pipeline.json")
         let data = try Data(contentsOf: url)
         let object = try JSONSerialization.jsonObject(with: data)
@@ -83,10 +118,16 @@ struct ParakeetPipelineConfig {
     }
 }
 
-struct ParakeetVocabulary {
-    let pieces: [String]
+/// The parsed `vocab.txt` of a Parakeet model directory: one piece per line, id = line index.
+public struct ParakeetVocabulary: Sendable, Equatable {
+    public let pieces: [String]
 
-    static func load(from modelDirectory: URL, blankID: Int) throws -> ParakeetVocabulary {
+    public init(pieces: [String]) {
+        self.pieces = pieces
+    }
+
+    /// Reads `vocab.txt` and checks `blankID` lies inside it.
+    public static func load(from modelDirectory: URL, blankID: Int) throws -> ParakeetVocabulary {
         let text = try String(contentsOf: modelDirectory.appendingPathComponent("vocab.txt"), encoding: .utf8)
         let pieces = text
             .split(whereSeparator: \.isNewline)
@@ -105,13 +146,40 @@ struct ParakeetVocabulary {
     }
 }
 
-struct CoreMLModelValidator {
-    static let readyMarkerName = "coreml-ready.json"
+/// Validates an installed Core ML model directory and writes the `coreml-ready.json` marker.
+///
+/// Validation loads each stage the way production does: `.mlpackage` stages are compiled first, and every
+/// stage loads with `.cpuAndNeuralEngine` (`.all` can route through the GPU and start an ANE compile that
+/// never finalizes). Loading is blocking and slow on first use; call it off the main actor.
+public struct CoreMLModelValidator: Sendable {
+    /// File written into a model directory once every stage has loaded.
+    public static let readyMarkerName = "coreml-ready.json"
     private static let stageNames = ["MelSpectrogram", "AudioEncoder", "TextDecoder", "Joint"]
 
+    public init() {}
+
+    /// Validates a Parakeet directory (`pipeline.json`, `vocab.txt`, the four stages) and writes the ready marker.
+    public func validateInstalledModel(at modelDirectory: URL) throws -> CoreMLValidationReport {
+        try validateInstalledModel(at: modelDirectory, loadModel: Self.loadModel)
+    }
+
+    /// Validates any installed artifact: `requiredFiles` exist and `requiredStageNames` load. When the
+    /// files include `pipeline.json` and `vocab.txt` it validates as a Parakeet model. Writes the ready marker.
+    public func validateInstalledArtifact(
+        backend: String,
+        requiredFiles: [String],
+        requiredStageNames: [String],
+        at modelDirectory: URL
+    ) throws -> CoreMLArtifactValidationReport {
+        try validateInstalledArtifact(
+            backend: backend, requiredFiles: requiredFiles, requiredStageNames: requiredStageNames,
+            at: modelDirectory, loadModel: Self.loadModel)
+    }
+
+    /// Test seam: the stage loader is injectable.
     func validateInstalledModel(
         at modelDirectory: URL,
-        loadModel: (URL) throws -> Void = CoreMLModelValidator.loadModel
+        loadModel: (URL) throws -> Void
     ) throws -> CoreMLValidationReport {
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("pipeline.json").path) else {
             throw SpeechError.missingFile("pipeline.json")
@@ -145,7 +213,7 @@ struct CoreMLModelValidator {
         requiredFiles: [String],
         requiredStageNames: [String],
         at modelDirectory: URL,
-        loadModel: (URL) throws -> Void = CoreMLModelValidator.loadModel
+        loadModel: (URL) throws -> Void
     ) throws -> CoreMLArtifactValidationReport {
         if requiredFiles.contains("pipeline.json"), requiredFiles.contains("vocab.txt") {
             let report = try validateInstalledModel(at: modelDirectory, loadModel: loadModel)
@@ -178,11 +246,13 @@ struct CoreMLModelValidator {
         return report
     }
 
-    static func hasReadyMarker(at modelDirectory: URL) -> Bool {
+    /// True when the ready marker exists (a previous validation passed).
+    public static func hasReadyMarker(at modelDirectory: URL) -> Bool {
         FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent(readyMarkerName).path)
     }
 
-    static func stageURL(for stage: String, in modelDirectory: URL) throws -> URL {
+    /// The compiled `<stage>.mlmodelc` if present, else `<stage>.mlpackage`; throws `SpeechError.missingStage`.
+    public static func stageURL(for stage: String, in modelDirectory: URL) throws -> URL {
         let compiled = modelDirectory.appendingPathComponent("\(stage).mlmodelc", isDirectory: true)
         if FileManager.default.fileExists(atPath: compiled.path) {
             return compiled
@@ -237,4 +307,4 @@ struct CoreMLModelValidator {
         try data.write(to: modelDirectory.appendingPathComponent(readyMarkerName), options: [.atomic])
     }
 }
-
+#endif

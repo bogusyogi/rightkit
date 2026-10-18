@@ -1,3 +1,4 @@
+#if canImport(Speech) // Speech is unavailable on watchOS; RightKitAudio carries the watch recorder
 import Foundation
 import Speech
 
@@ -5,6 +6,10 @@ import Speech
 /// audio to Apple's servers unless the request requires on-device recognition, and a request that
 /// requires it cannot run on a recognizer that lacks the model. So the policy fails closed: a
 /// recognizer without on-device support is never used, and every request is forced on-device.
+///
+/// `allowsNetwork` is the explicit product opt-in (``LiveDictationSession`` `onDeviceOnly: false`): a
+/// locale with no on-device model may then use a network-capable recognizer. A recognizer that does have
+/// the model is still forced on-device.
 enum LegacySpeechPolicy {
     static func unsupportedError(for locale: Locale?) -> SpeechError {
         .engineUnavailable("on-device speech recognition is unavailable for \(locale?.identifier ?? "this language")")
@@ -15,20 +20,27 @@ enum LegacySpeechPolicy {
     static func select<Recognizer>(
         from candidates: [Recognizer],
         locale: Locale? = nil,
+        allowsNetwork: Bool = false,
         isAvailable: (Recognizer) -> Bool,
         supportsOnDevice: (Recognizer) -> Bool
     ) throws -> Recognizer {
-        guard let match = candidates.first(where: { isAvailable($0) && supportsOnDevice($0) }) else {
-            throw unsupportedError(for: locale)
-        }
-        return match
+        if let local = candidates.first(where: { isAvailable($0) && supportsOnDevice($0) }) { return local }
+        if allowsNetwork, let remote = candidates.first(where: { isAvailable($0) }) { return remote }
+        throw unsupportedError(for: locale)
     }
 
     /// Forces on-device recognition; throws before any recognition task exists when the recognizer
     /// cannot honor it.
-    static func configure(_ request: SFSpeechRecognitionRequest, supportsOnDevice: Bool, locale: Locale? = nil) throws {
-        guard supportsOnDevice else { throw unsupportedError(for: locale) }
-        request.requiresOnDeviceRecognition = true
+    static func configure(
+        _ request: SFSpeechRecognitionRequest, supportsOnDevice: Bool, locale: Locale? = nil, allowsNetwork: Bool = false
+    ) throws {
+        if supportsOnDevice {
+            request.requiresOnDeviceRecognition = true
+        } else if allowsNetwork {
+            request.requiresOnDeviceRecognition = false
+        } else {
+            throw unsupportedError(for: locale)
+        }
     }
 }
 
@@ -94,3 +106,4 @@ final class CancellableRecognition: @unchecked Sendable {
         pending?.resume(throwing: CancellationError())
     }
 }
+#endif

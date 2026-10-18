@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 public enum VoiceActivityEvent: Equatable, Sendable {
@@ -68,3 +69,4 @@ public final class VoiceActivityDetector: @unchecked Sendable {
         lock.unlock()
     }
 }
+#endif

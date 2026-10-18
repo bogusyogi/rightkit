@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import AVFoundation
 import CoreML
 import Foundation
@@ -52,3 +53,4 @@ extension ParakeetCoreMLRuntime {
         return samples
     }
 }
+#endif

@@ -90,3 +90,29 @@ public struct LifecycleFence: Sendable {
     }
     public func isCurrent(_ token: UInt64) -> Bool { token == generation }
 }
+
+/// One `LifecycleFence` per key, for hosts that run several activities of one type at once (one per
+/// bot or session). Advancing a key never invalidates tokens of another key. Pure value logic, so it
+/// runs in unit tests and extensions alike.
+public struct KeyedLifecycleFence<Key: Hashable & Sendable>: Sendable {
+    private var fences: [Key: LifecycleFence] = [:]
+    public init() {}
+
+    /// Advance `key`'s fence and return the new token.
+    public mutating func advance(_ key: Key) -> UInt64 {
+        var fence = fences[key] ?? LifecycleFence()
+        let token = fence.advance()
+        fences[key] = fence
+        return token
+    }
+
+    /// True when `token` is the latest one issued for `key`. An unknown key has no current token.
+    public func isCurrent(_ key: Key, _ token: UInt64) -> Bool {
+        guard let fence = fences[key] else { return false }
+        return fence.isCurrent(token)
+    }
+
+    /// Invalidate every outstanding token of `key` without forgetting that it was used, so a stale
+    /// token from before the end can never match a later start's token.
+    public mutating func invalidate(_ key: Key) { _ = advance(key) }
+}

@@ -103,7 +103,20 @@ public struct RightKitAXElement: @unchecked Sendable, Hashable {
         return list.map(RightKitAXElement.init)
     }
 
+    /// An integer attribute (for example `AXNumberOfCharacters`). A boolean or non-numeric value is nil.
+    public func int(_ attribute: String) -> Int? {
+        guard let v = try? value(attribute), CFGetTypeID(v) == CFNumberGetTypeID() else { return nil }
+        return (v as? NSNumber)?.intValue
+    }
+
+    /// A `CFRange` attribute (for example `AXSelectedTextRange`, `AXVisibleCharacterRange`).
+    public func range(_ attribute: String) -> CFRange? {
+        guard let v = try? value(attribute) else { return nil }
+        return Self.range(from: v)
+    }
+
     public var role: String? { string(kAXRoleAttribute) }
+    public var children: [RightKitAXElement] { elements(kAXChildrenAttribute) }
     public var subrole: String? { string(kAXSubroleAttribute) }
     public var title: String? { string(kAXTitleAttribute) }
     public var windows: [RightKitAXElement] { elements(kAXWindowsAttribute) }
@@ -124,6 +137,59 @@ public struct RightKitAXElement: @unchecked Sendable, Hashable {
         guard let v = try? value(attribute), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
         var out = zero
         return AXValueGetValue(v as! AXValue, type, &out) ? out : nil
+    }
+
+    /// Whether the attribute can be written. False when the attribute is unsupported, the element is
+    /// invalid, or the call fails (including no Accessibility trust).
+    public func isSettable(_ attribute: String) -> Bool {
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(raw, attribute as CFString, &settable) == .success else { return false }
+        return settable.boolValue
+    }
+
+    /// Reads a parameterized attribute (`AXUIElementCopyParameterizedAttributeValue`). `parameter` is
+    /// the CF value the attribute expects (an `AXValue` for ranges, points and so on). Nil on any failure.
+    public func parameterized(_ attribute: String, _ parameter: AnyObject) -> AnyObject? {
+        var out: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(raw, attribute as CFString, parameter, &out) == .success else {
+            return nil
+        }
+        return out
+    }
+
+    /// Screen bounds (global top-left-origin space) of a character range in a text element, through
+    /// `AXBoundsForRange`. Nil when the element does not support it or the range is not valid.
+    public func boundsForRange(_ range: CFRange) -> CGRect? {
+        guard let parameter = Self.axValue(range: range),
+              let result = parameterized(kAXBoundsForRangeParameterizedAttribute, parameter),
+              CFGetTypeID(result) == AXValueGetTypeID() else { return nil }
+        return Self.rect(from: result)
+    }
+
+    // MARK: AXValue conversion
+
+    /// Wraps a `CFRange` in an `AXValue` (nil only if Core Foundation refuses it).
+    static func axValue(range: CFRange) -> AXValue? {
+        var r = range
+        return AXValueCreate(.cfRange, &r)
+    }
+
+    /// Unwraps an `AXValue` holding a `CFRange`; nil for any other type of value.
+    static func range(from value: AnyObject) -> CFRange? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let v = value as! AXValue
+        guard AXValueGetType(v) == .cfRange else { return nil }
+        var out = CFRange(location: 0, length: 0)
+        return AXValueGetValue(v, .cfRange, &out) ? out : nil
+    }
+
+    /// Unwraps an `AXValue` holding a `CGRect`; nil for any other type of value.
+    static func rect(from value: AnyObject) -> CGRect? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let v = value as! AXValue
+        guard AXValueGetType(v) == .cgRect else { return nil }
+        var out = CGRect.zero
+        return AXValueGetValue(v, .cgRect, &out) ? out : nil
     }
 
     public func actions() -> [String] {

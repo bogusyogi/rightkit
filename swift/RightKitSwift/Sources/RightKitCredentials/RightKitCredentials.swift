@@ -46,6 +46,27 @@ public protocol SecretsBackend: Sendable {
     func delete(namespace: String, key: String) throws -> Bool
     /// Update-only rewrite of the accessibility attribute. `false` when the item is absent.
     func reapplyAccessibility(namespace: String, key: String) throws -> Bool
+    /// Account names (no data) stored in `namespace`, in no particular order. Includes rotation markers;
+    /// ``SecretsStore/keys(prefix:)`` hides them. The default implementation throws, so existing
+    /// third-party conformers keep compiling.
+    func list(namespace: String) throws -> [String]
+    /// Create-only write that also stores a small non-secret `tag` beside the value.
+    func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool
+    /// Update-only rewrite of the value and the non-secret `tag`.
+    func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool
+    /// The non-secret tag stored with the item, read without the secret value. `nil` when the item has no tag or is absent.
+    func tag(namespace: String, key: String) throws -> String?
+}
+
+public extension SecretsBackend {
+    func list(namespace: String) throws -> [String] { throw SecretsError.invalid("backend does not support listing") }
+    func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        throw SecretsError.invalid("backend does not support tags")
+    }
+    func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        throw SecretsError.invalid("backend does not support tags")
+    }
+    func tag(namespace: String, key: String) throws -> String? { throw SecretsError.invalid("backend does not support tags") }
 }
 
 public struct KeychainSecretsBackend: SecretsBackend {
@@ -89,6 +110,7 @@ public struct KeychainSecretsBackend: SecretsBackend {
         #if os(macOS)
         var legacy = legacyIdentity(namespace: namespace, key: key)
         legacy[kSecReturnData as String] = true
+        legacy[kSecReturnAttributes as String] = true
         legacy[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         let found = SecItemCopyMatching(legacy as CFDictionary, &item)
@@ -97,9 +119,12 @@ public struct KeychainSecretsBackend: SecretsBackend {
         case errSecSuccess: break
         default: throw SecretsError.keychain(found)
         }
-        guard let data = item as? Data else { throw SecretsError.keychain(errSecDecode) }
+        guard let row = item as? [String: Any], let data = row[kSecValueData as String] as? Data else {
+            throw SecretsError.keychain(errSecDecode)
+        }
         var copy = identity(namespace: namespace, key: key)
         copy[kSecValueData as String] = data
+        if let generic = row[kSecAttrGeneric as String] as? Data { copy[kSecAttrGeneric as String] = generic }
         copy[kSecAttrAccessible as String] = accessibility.attribute
         let added = SecItemAdd(copy as CFDictionary, nil)
         guard added == errSecSuccess || added == errSecDuplicateItem else { throw SecretsError.keychain(added) }
@@ -171,12 +196,88 @@ public struct KeychainSecretsBackend: SecretsBackend {
         default: throw SecretsError.keychain(status)
         }
     }
+
+    public func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
+        var item = identity(namespace: namespace, key: key)
+        item[kSecValueData as String] = value
+        item[kSecAttrGeneric as String] = Data(tag.utf8)
+        item[kSecAttrAccessible as String] = accessibility.attribute
+        let status = SecItemAdd(item as CFDictionary, nil)
+        switch status {
+        case errSecSuccess: return true
+        case errSecDuplicateItem: return false
+        default: throw SecretsError.keychain(status)
+        }
+    }
+
+    public func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
+        let attrs: [String: Any] = [
+            kSecValueData as String: value,
+            kSecAttrGeneric as String: Data(tag.utf8),
+            kSecAttrAccessible as String: accessibility.attribute,
+        ]
+        let status = SecItemUpdate(identity(namespace: namespace, key: key) as CFDictionary, attrs as CFDictionary)
+        switch status {
+        case errSecSuccess: return true
+        case errSecItemNotFound: return false
+        default: throw SecretsError.keychain(status)
+        }
+    }
+
+    /// Reads `kSecAttrGeneric` through an attributes-only query, so the secret value is never fetched.
+    public func tag(namespace: String, key: String) throws -> String? {
+        try migrateLegacy(namespace: namespace, key: key)
+        var q = identity(namespace: namespace, key: key)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            guard let row = item as? [String: Any] else { throw SecretsError.keychain(errSecDecode) }
+            guard let generic = row[kSecAttrGeneric as String] as? Data else { return nil }
+            return String(data: generic, encoding: .utf8)
+        case errSecItemNotFound: return nil
+        default: throw SecretsError.keychain(status)
+        }
+    }
+
+    /// Attributes-only enumeration of the account names in `namespace` (no secret bytes are read). On
+    /// macOS the legacy file keychain is listed too, so items not yet migrated by a per-key operation appear.
+    public func list(namespace: String) throws -> [String] {
+        var names = try listAccounts(identity(namespace: namespace, key: ""), namespace: namespace)
+        #if os(macOS)
+        var legacy = identity(namespace: namespace, key: "")
+        legacy.removeValue(forKey: kSecUseDataProtectionKeychain as String)
+        names.formUnion(try listAccounts(legacy, namespace: namespace))
+        #endif
+        return names.sorted()
+    }
+
+    private func listAccounts(_ base: [String: Any], namespace: String) throws -> Set<String> {
+        var q = base
+        q.removeValue(forKey: kSecAttrAccount as String)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitAll
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        switch status {
+        case errSecItemNotFound: return []
+        case errSecSuccess:
+            guard let rows = item as? [[String: Any]] else { throw SecretsError.keychain(errSecDecode) }
+            return Set(rows.compactMap { $0[kSecAttrAccount as String] as? String })
+        default: throw SecretsError.keychain(status)
+        }
+    }
 }
 
 /// In-memory backend: tests and the guard `.memory` mode. Never persists.
 public final class MemorySecretsBackend: SecretsBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: Data] = [:]
+    private var tags: [String: String] = [:]
     public init() {}
     /// Shared by every store whose guard trips in `.memory` mode, like the Rust process-wide backend.
     public static let processWide = MemorySecretsBackend()
@@ -196,10 +297,27 @@ public final class MemorySecretsBackend: SecretsBackend, @unchecked Sendable {
         }
     }
     public func delete(namespace: String, key: String) throws -> Bool {
-        lock.withLock { values.removeValue(forKey: k(namespace, key)) != nil }
+        lock.withLock { tags.removeValue(forKey: k(namespace, key)); return values.removeValue(forKey: k(namespace, key)) != nil }
     }
     public func reapplyAccessibility(namespace: String, key: String) throws -> Bool {
         lock.withLock { values[k(namespace, key)] != nil }
+    }
+    public func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        lock.withLock {
+            if values[k(namespace, key)] != nil { return false }
+            values[k(namespace, key)] = value; tags[k(namespace, key)] = tag; return true
+        }
+    }
+    public func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
+        lock.withLock {
+            guard values[k(namespace, key)] != nil else { return false }
+            values[k(namespace, key)] = value; tags[k(namespace, key)] = tag; return true
+        }
+    }
+    public func tag(namespace: String, key: String) throws -> String? { lock.withLock { tags[k(namespace, key)] } }
+    public func list(namespace: String) throws -> [String] {
+        let prefix = "\(namespace)\u{1f}"
+        return lock.withLock { values.keys.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }.sorted() }
     }
 }
 
@@ -210,6 +328,10 @@ private struct DeniedBackend: SecretsBackend {
     func update(_ value: Data, namespace: String, key: String) throws -> Bool { throw SecretsError.guarded(variable) }
     func delete(namespace: String, key: String) throws -> Bool { throw SecretsError.guarded(variable) }
     func reapplyAccessibility(namespace: String, key: String) throws -> Bool { throw SecretsError.guarded(variable) }
+    func list(namespace: String) throws -> [String] { throw SecretsError.guarded(variable) }
+    func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool { throw SecretsError.guarded(variable) }
+    func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool { throw SecretsError.guarded(variable) }
+    func tag(namespace: String, key: String) throws -> String? { throw SecretsError.guarded(variable) }
 }
 
 /// Universal guard variable honoured by every app, like the Rust owner.
@@ -286,6 +408,38 @@ public struct SecretsStore: Sendable {
     }
 
     public func setString(_ key: String, _ value: String) throws { try set(key, Data(value.utf8)) }
+
+    /// Create or overwrite, storing a small non-secret `tag` (Keychain `kSecAttrGeneric`) beside the value.
+    /// Read it back without the value through ``tag(_:)``. Overwriting with the untagged ``set(_:_:)``
+    /// leaves an existing tag unchanged.
+    public func set(_ key: String, _ value: Data, tag: String) throws {
+        try check(key)
+        guard !value.isEmpty else { throw SecretsError.invalid("value is empty") }
+        for _ in 0..<3 {
+            if try backend.update(value, namespace: namespace, key: key, tag: tag) { return }
+            if try backend.add(value, namespace: namespace, key: key, tag: tag) { return }
+        }
+        throw SecretsError.keychain(errSecDuplicateItem)
+    }
+
+    public func setString(_ key: String, _ value: String, tag: String) throws { try set(key, Data(value.utf8), tag: tag) }
+
+    /// The non-secret tag stored with `key`, read without the secret value; `nil` when absent or untagged.
+    public func tag(_ key: String) throws -> String? {
+        try check(key); return try backend.tag(namespace: namespace, key: key)
+    }
+
+    /// The keys (account names, never values) stored in this namespace, sorted, optionally only those
+    /// starting with `prefix`. Pending-rotation markers are not listed.
+    public func keys(prefix: String? = nil) throws -> [String] {
+        try backend.list(namespace: namespace)
+            .filter { name in
+                guard !name.hasSuffix(secretsRotationPendingSuffix) else { return false }
+                guard let prefix else { return true }
+                return name.hasPrefix(prefix)
+            }
+            .sorted()
+    }
 
     /// Removes the item; returns whether it existed.
     @discardableResult

@@ -1,0 +1,1167 @@
+{
+  "apisNotCovered": {
+    "hint": "Any SwiftUI API not listed under a block is not proven. See docs/pulse-notch-demand-map.md for the notch's SwiftUI APIs that no delivered block covers.",
+    "see": "docs/pulse-notch-demand-map.md"
+  },
+  "blocks": [
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "frame",
+            "stroke"
+          ],
+          "types": [
+            "Color",
+            "RoundedRectangle"
+          ]
+        },
+        "fromManifest": [
+          "InsettableShape",
+          "InsettableShape.strokeBorder",
+          "Rectangle",
+          "RoundedRectangle",
+          "RoundedRectangle.cornerRadius",
+          "RoundedRectangle.cornerSize",
+          "Shape",
+          "Shape.fill",
+          "Shape.stroke"
+        ]
+      },
+      "block": "swiftui.shapes.fill-stroke",
+      "cases": [
+        "pilot-delivery-five-v1/text-shape-image/rounded-stroke-host-v1/continuous-geometry-delivery-v2",
+        "pilot-delivery-five-v1/text-shape-image/rounded-stroke-host-v1/gen-frac-r6-s2-45x25",
+        "pilot-delivery-five-v1/text-shape-image/rounded-stroke-host-v1/gen-large-r40-s8",
+        "pilot-delivery-five-v1/text-shape-image/rounded-stroke-host-v1/gen-small-r4-s1",
+        "pilot-delivery-five-v1/text-shape-image/rounded-stroke-host-v1/gen-wide-r12-s3"
+      ],
+      "casesPassingDecidingGate": "5/5",
+      "caveats": [
+        "Continuous stroke",
+        "4 gen variants share the verdict"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 1,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "edge-aa<=32 (max 17); 15/15 pairs"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "foregroundStyle",
+            "frame",
+            "resizable",
+            "scaledToFit"
+          ],
+          "types": [
+            "Image"
+          ]
+        },
+        "fromManifest": [
+          "Image",
+          "Image.bundle",
+          "Image.systemName"
+        ]
+      },
+      "block": "swiftui.image",
+      "cases": [
+        "pilot-delivery-five-v1/text-shape-image/image-system-star-fill-gen-120x60",
+        "pilot-delivery-five-v1/text-shape-image/image-system-star-fill-gen-16pt",
+        "pilot-delivery-five-v1/text-shape-image/image-system-star-fill-gen-48pt",
+        "pilot-delivery-five-v1/text-shape-image/image-system-star-fill-v10"
+      ],
+      "casesPassingDecidingGate": "4/4",
+      "caveats": [
+        "48 pt uses a measured ink override (not evidence of generalisation)"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 2,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "image gate 12/12 (frame, ink bbox, tint); glyph shape reported (638 / 253 / 1692 / 1187 px)"
+      },
+      "windowsDifferences": [
+        "Segoe Fluent substitute glyph"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "fill",
+            "frame",
+            "overlay"
+          ],
+          "types": [
+            "Circle",
+            "Color",
+            "Rectangle",
+            "Text",
+            "ZStack"
+          ]
+        },
+        "fromManifest": [
+          "View.overlay",
+          "ZStack",
+          "ZStack.alignment"
+        ]
+      },
+      "block": "swiftui.stack-overlay",
+      "cases": [
+        "pilot-delivery-five-v1/stack-layout/stack-overlay-centered-execution-v9"
+      ],
+      "casesPassingDecidingGate": "1/1",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 3,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "edge-aa<=32 outside the named `+` glyph region"
+      },
+      "windowsDifferences": [
+        "decision 2 (Segoe UI vs SF)"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "custom",
+            "font",
+            "frame",
+            "lineLimit"
+          ],
+          "types": [
+            "Text"
+          ]
+        },
+        "fromManifest": [
+          "Font",
+          "Font.custom",
+          "Text",
+          "Text.font",
+          "Text.verbatim"
+        ]
+      },
+      "block": "swiftui.text.bundled-font",
+      "cases": [
+        "pilot-delivery-five-v1/text-shape-image/bundled-font-readiness-v6-line-limit-host"
+      ],
+      "casesPassingDecidingGate": "1/1",
+      "caveats": [
+        "Tinos via ABI 0.7 font registration"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 4,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "text gate 3/3 (exact outside glyph region, ink bbox within 1 px)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "frame",
+            "map",
+            "max",
+            "minX",
+            "place",
+            "reduce"
+          ],
+          "types": [
+            "Color",
+            "ForEach",
+            "Layout",
+            "ProposedViewSize",
+            "SwiftRightRuntime"
+          ]
+        },
+        "fromManifest": [
+          "Layout",
+          "Layout.Cache",
+          "Layout.makeCache",
+          "Layout.placeSubviews",
+          "Layout.sizeThatFits",
+          "Layout.updateCache",
+          "LayoutSubview",
+          "LayoutSubview.place",
+          "LayoutSubview.sizeThatFits"
+        ]
+      },
+      "block": "swiftui.custom-layout",
+      "cases": [
+        "pilot-delivery-five-v1/stack-layout/custom-layout-host-v2/light-centered-execution-v4",
+        "pilot-delivery-five-v1/stack-layout/custom-layout-host-v2/rtl-original-execution-v1"
+      ],
+      "casesPassingDecidingGate": "2/2",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered",
+      "statusDocBlock": 5,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 6/6 (LTR and RTL)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "defaultScrollAnchor",
+            "environment",
+            "fill",
+            "frame"
+          ],
+          "types": [
+            "Color",
+            "ForEach",
+            "HStack",
+            "Rectangle",
+            "ScrollView",
+            "Text",
+            "VStack",
+            "ZStack"
+          ]
+        },
+        "fromManifest": [
+          "ScrollView",
+          "ScrollView.content",
+          "ScrollView.showsIndicators"
+        ]
+      },
+      "block": "swiftui.scroll-view",
+      "cases": [
+        "blocks-6-10/scroll-view/horizontal-axis-v1",
+        "blocks-6-10/scroll-view/vertical-bottom-anchor-v1",
+        "blocks-6-10/scroll-view/vertical-offset0-v1",
+        "blocks-6-10/scroll-view/vertical-text-rows-v1"
+      ],
+      "casesPassingDecidingGate": "4/4",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 6,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 9/12, exact-with-exclusions 3/12 (row-text glyph region)"
+      },
+      "windowsDifferences": [
+        "Mac side is an offscreen NSHostingView (ImageRenderer renders ScrollView blank)"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "labelsHidden",
+            "toggleStyle"
+          ],
+          "types": [
+            "Toggle"
+          ]
+        },
+        "fromManifest": [
+          "Toggle",
+          "Toggle.A4",
+          "Toggle.isOn"
+        ]
+      },
+      "block": "swiftui.toggle",
+      "cases": [
+        "blocks-6-10/swiftui.toggle/checkbox-labelled-on-v1",
+        "blocks-6-10/swiftui.toggle/checkbox-off-v1",
+        "blocks-6-10/swiftui.toggle/checkbox-on-v1",
+        "blocks-6-10/swiftui.toggle/switch-labelled-on-v1",
+        "blocks-6-10/swiftui.toggle/switch-off-v1",
+        "blocks-6-10/swiftui.toggle/switch-on-v1"
+      ],
+      "casesPassingDecidingGate": "6/6",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 7,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "edge-aa<=32 12/12 (max 18); labelled cases 6/6 by control gate"
+      },
+      "windowsDifferences": [
+        "labelled cases: pixel verdict fail by design (label width Segoe vs SF, -16 px on the switch)"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "disabled",
+            "fill",
+            "foregroundStyle",
+            "frame",
+            "labelsHidden",
+            "toggleStyle"
+          ],
+          "types": [
+            "Button",
+            "Circle",
+            "Color",
+            "RoundedRectangle",
+            "Text",
+            "Toggle",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "View.disabled"
+        ]
+      },
+      "block": "swiftui.disabled",
+      "cases": [
+        "blocks-6-10/swiftui.disabled/button-disabled-v1",
+        "blocks-6-10/swiftui.disabled/button-enabled-v1",
+        "blocks-6-10/swiftui.disabled/checkbox-off-disabled-v1",
+        "blocks-6-10/swiftui.disabled/checkbox-on-disabled-v1",
+        "blocks-6-10/swiftui.disabled/plain-disabled-v1",
+        "blocks-6-10/swiftui.disabled/plain-enabled-v1",
+        "blocks-6-10/swiftui.disabled/toggle-off-disabled-v1",
+        "blocks-6-10/swiftui.disabled/toggle-on-disabled-v1",
+        "blocks-6-10/swiftui.text/foreground-colour-v1"
+      ],
+      "casesPassingDecidingGate": "9/9",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 8,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "edge-aa<=32 18, exact-with-exclusions 3; button gate 6/6 (enabled, disabled); text-colour gate on `plain-*` and `foreground-colour`"
+      },
+      "windowsDifferences": [
+        "Button is 8 px narrower by design (label advance)",
+        "Button artwork light only"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "fill",
+            "frame",
+            "overlay",
+            "padding"
+          ],
+          "types": [
+            "Color",
+            "EdgeInsets",
+            "HStack",
+            "Rectangle",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "View.frame",
+          "View.padding"
+        ]
+      },
+      "block": "swiftui.padding-frame",
+      "cases": [
+        "blocks-6-10/padding-frame/flexible-frame-v1",
+        "blocks-6-10/padding-frame/frame-alignment-rtl-v1",
+        "blocks-6-10/padding-frame/frame-alignment-v1",
+        "blocks-6-10/padding-frame/nested-fractional-v1",
+        "blocks-6-10/padding-frame/padding-edges-v1"
+      ],
+      "casesPassingDecidingGate": "5/5",
+      "caveats": [
+        "fractional `Color` edges"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 9,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 9/15, edge-aa<=32 6/15 (max 31)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "fill",
+            "frame",
+            "onPreferenceChange",
+            "preference"
+          ],
+          "types": [
+            "Color",
+            "PreferenceKey",
+            "Rectangle",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "PreferenceKey",
+          "PreferenceKey.ExpressibleByNilLiteral",
+          "PreferenceKey.Value",
+          "PreferenceKey.defaultValue",
+          "PreferenceKey.reduce"
+        ]
+      },
+      "block": "swiftui.preference-key",
+      "cases": [
+        "blocks-6-10/preference-key/nil-default-first-wins-v1",
+        "blocks-6-10/preference-key/reduce-max-sum-v1"
+      ],
+      "casesPassingDecidingGate": "2/2",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered",
+      "statusDocBlock": 10,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 6/6"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "buttonStyle",
+            "disabled",
+            "fill",
+            "foregroundStyle",
+            "frame",
+            "keyboardShortcut"
+          ],
+          "types": [
+            "Button",
+            "Color",
+            "ForEach",
+            "HStack",
+            "Rectangle",
+            "Text",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "BorderedButtonStyle",
+          "BorderedProminentButtonStyle",
+          "BorderlessButtonStyle",
+          "Button",
+          "Button.A4",
+          "Button.action",
+          "Button.role",
+          "ButtonRole",
+          "ButtonRole.destructive",
+          "ButtonStyle",
+          "DefaultButtonStyle",
+          "KeyboardShortcut",
+          "KeyboardShortcut.cancelAction",
+          "KeyboardShortcut.defaultAction",
+          "PlainButtonStyle",
+          "PrimitiveButtonStyle.A0",
+          "View.buttonStyle",
+          "View.keyboardShortcut"
+        ]
+      },
+      "block": "swiftui.button",
+      "cases": [
+        "blocks-11-16/swiftui.button/bordered-v1",
+        "blocks-11-16/swiftui.button/borderless-disabled-v1",
+        "blocks-11-16/swiftui.button/borderless-red-v1",
+        "blocks-11-16/swiftui.button/borderless-v1",
+        "blocks-11-16/swiftui.button/click-disabled-v1",
+        "blocks-11-16/swiftui.button/click-increments-v1",
+        "blocks-11-16/swiftui.button/click-prominent-v1",
+        "blocks-11-16/swiftui.button/click-twice-v1",
+        "blocks-11-16/swiftui.button/default-action-v1",
+        "blocks-11-16/swiftui.button/destructive-v1",
+        "blocks-11-16/swiftui.button/plain-disabled-v1",
+        "blocks-11-16/swiftui.button/plain-v1",
+        "blocks-11-16/swiftui.button/prominent-disabled-v1",
+        "blocks-11-16/swiftui.button/prominent-v1",
+        "blocks-11-16/swiftui.button/return-default-action-v1",
+        "blocks-11-16/swiftui.button/view-label-bordered-v1",
+        "blocks-11-16/swiftui.button/view-label-borderless-v1",
+        "blocks-11-16/swiftui.button/view-label-plain-v1",
+        "blocks-11-16/swiftui.button/view-label-prominent-v1"
+      ],
+      "casesPassingDecidingGate": "19/19",
+      "caveats": [
+        "pressed/focused states unmeasured"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 11,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "20 x 19 cases: button gate or text-colour gate or semantic (click/Return) 19/19 pass; pixels exact 2 cases, edge-aa<=32 2 cases"
+      },
+      "windowsDifferences": [
+        "bordered/prominent are 7-8 px narrower (label advance)",
+        "every Button style is measured in light only"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "animation",
+            "append",
+            "constant",
+            "easeIn",
+            "fill",
+            "frame",
+            "labelsHidden",
+            "linear",
+            "map",
+            "toggleStyle",
+            "transaction"
+          ],
+          "types": [
+            "Binding",
+            "Color",
+            "ForEach",
+            "HStack",
+            "Rectangle",
+            "Text",
+            "Toggle",
+            "Transaction",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "Binding",
+          "Binding.animation",
+          "Binding.constant",
+          "Binding.projectedValue",
+          "Binding.transaction",
+          "Binding.wrappedValue",
+          "State",
+          "State.projectedValue"
+        ]
+      },
+      "block": "swiftui.binding",
+      "cases": [
+        "blocks-6-10/swiftui.binding/constant-v1",
+        "blocks-6-10/swiftui.binding/derived-click-v1",
+        "blocks-6-10/swiftui.binding/derived-toggle-v1",
+        "blocks-6-10/swiftui.binding/setter-transaction-v1"
+      ],
+      "casesPassingDecidingGate": "4/4",
+      "caveats": [
+        "`derived-toggle` text glyph region excluded"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 12,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 1, edge-aa<=32 2 (+ text exclusion), click semantic 20/20"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "frame",
+            "onSubmit",
+            "padding",
+            "textFieldStyle"
+          ],
+          "types": [
+            "Text",
+            "TextField",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "SubmitTriggers",
+          "SubmitTriggers.text",
+          "TextField",
+          "TextFieldStyle",
+          "TextFieldStyle.A0",
+          "View.onSubmit",
+          "View.textFieldStyle"
+        ]
+      },
+      "block": "swiftui.textfield",
+      "cases": [
+        "blocks-6-10/swiftui.textfield/automatic-style-v1",
+        "blocks-6-10/swiftui.textfield/filled-truncated-v1",
+        "blocks-6-10/swiftui.textfield/placeholder-v1",
+        "blocks-6-10/swiftui.textfield/plain-v1",
+        "blocks-6-10/swiftui.textfield/prompt-v1",
+        "blocks-6-10/swiftui.textfield/submit-v1"
+      ],
+      "casesPassingDecidingGate": "6/6",
+      "caveats": [
+        "NOT-DELIVERED pending the current fix: TextField text-origin/caret repair and text-origin gate (docs/sr1-decisions.md decision 12, closing an Oracle finding); blocks 13-15 are being rerun. The earlier semantic-only result (120/120) is superseded."
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "in-progress",
+      "statusDocBlock": 13,
+      "statusFromSources": "delivered-with-caveats",
+      "statusReason": "NOT-DELIVERED pending the current fix: TextField text-origin/caret repair and text-origin gate (docs/sr1-decisions.md decision 12, closing an Oracle finding); blocks 13-15 are being rerun. The earlier semantic-only result (120/120) is superseded.",
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "semantic 120/120 (6 cases)"
+      },
+      "windowsDifferences": [
+        "Windows focus ring not drawn",
+        "real IME/TSF deferred to hardware"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "focused",
+            "frame",
+            "padding",
+            "textFieldStyle"
+          ],
+          "types": [
+            "Button",
+            "Hashable",
+            "Text",
+            "TextField",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "FocusState",
+          "FocusState.Binding",
+          "FocusState.projectedValue",
+          "FocusState.wrappedValue",
+          "View.focused"
+        ]
+      },
+      "block": "swiftui.focus-state",
+      "cases": [
+        "blocks-6-10/swiftui.focus-state/bool-form-v1",
+        "blocks-6-10/swiftui.focus-state/programmatic-v1",
+        "blocks-6-10/swiftui.focus-state/shift-tab-v1",
+        "blocks-6-10/swiftui.focus-state/tab-order-v1"
+      ],
+      "casesPassingDecidingGate": "4/4",
+      "caveats": [
+        "Inherits the swiftui.textfield fix: its cases drive TextField and are also gated by the text-origin gate; not delivered until blocks 13-15 are rerun.",
+        "gated through `@FocusState` text and `HOST_FIELD` log"
+      ],
+      "inherits": "swiftui.textfield",
+      "stage": "58df259c5-4c63f440",
+      "status": "in-progress",
+      "statusDocBlock": 14,
+      "statusFromSources": "delivered-with-caveats",
+      "statusReason": "Inherits the swiftui.textfield fix: its cases drive TextField and are also gated by the text-origin gate; not delivered until blocks 13-15 are rerun.",
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "semantic 80/80 (4 cases)"
+      },
+      "windowsDifferences": [
+        "UIA keyboard focus is false in the Sandbox"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "frame",
+            "padding",
+            "textFieldStyle"
+          ],
+          "types": [
+            "Text",
+            "TextField",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "TextField"
+        ]
+      },
+      "block": "swiftui.ime-marked-text",
+      "cases": [
+        "blocks-6-10/swiftui.ime-marked-text/ime-cancel-v1",
+        "blocks-6-10/swiftui.ime-marked-text/ime-commit-v1",
+        "blocks-6-10/swiftui.ime-marked-text/ime-composing-v1",
+        "blocks-6-10/swiftui.ime-marked-text/ime-recompose-v1"
+      ],
+      "casesPassingDecidingGate": "4/4",
+      "caveats": [
+        "Inherits the swiftui.textfield fix: its cases drive TextField and are also gated by the text-origin gate; not delivered until blocks 13-15 are rerun.",
+        "posted WM_IME messages only"
+      ],
+      "inherits": "swiftui.textfield",
+      "stage": "58df259c5-4c63f440",
+      "status": "in-progress",
+      "statusDocBlock": 15,
+      "statusFromSources": "delivered-with-caveats",
+      "statusReason": "Inherits the swiftui.textfield fix: its cases drive TextField and are also gated by the text-origin gate; not delivered until blocks 13-15 are rerun.",
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "semantic 80/80 (4 cases)"
+      },
+      "windowsDifferences": [
+        "real composition needs hardware"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "fill",
+            "frame",
+            "listStyle",
+            "move",
+            "onDelete",
+            "onMove",
+            "remove",
+            "tag"
+          ],
+          "types": [
+            "Color",
+            "ForEach",
+            "List",
+            "Rectangle",
+            "Text"
+          ]
+        },
+        "fromManifest": [
+          "DynamicViewContent.onDelete",
+          "DynamicViewContent.onMove",
+          "ForEach",
+          "ForEach.id",
+          "List",
+          "List.Never",
+          "List.selection",
+          "View.listStyle"
+        ]
+      },
+      "block": "swiftui.list",
+      "cases": [
+        "blocks-11-16/swiftui.list/arrow-keys-v1",
+        "blocks-11-16/swiftui.list/arrow-up-v1",
+        "blocks-11-16/swiftui.list/click-selects-v1",
+        "blocks-11-16/swiftui.list/delete-key-v1",
+        "blocks-11-16/swiftui.list/five-rows-v1",
+        "blocks-11-16/swiftui.list/onmove-down-v1",
+        "blocks-11-16/swiftui.list/onmove-up-v1",
+        "blocks-11-16/swiftui.list/plain-arrow-keys-v1",
+        "blocks-11-16/swiftui.list/plain-selected-v1",
+        "blocks-11-16/swiftui.list/plain-v1",
+        "blocks-11-16/swiftui.list/selection-initial-v1",
+        "blocks-11-16/swiftui.list/variable-rows-selected-v1",
+        "blocks-11-16/swiftui.list/variable-rows-v1"
+      ],
+      "casesPassingDecidingGate": "13/13",
+      "caveats": [
+        "label glyph regions excluded (decision 2)"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 16,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "list gate 13/13 cases (rows, text, order, selection, frame within 1 px, label ink); pixels exact 1, exact-with-exclusions 5, edge-aa<=32 7"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "alert",
+            "confirmationDialog",
+            "fill",
+            "frame",
+            "onAppear",
+            "padding"
+          ],
+          "types": [
+            "Button",
+            "Color",
+            "Rectangle",
+            "Text",
+            "TextField",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "ButtonRole",
+          "ButtonRole.cancel",
+          "ButtonRole.destructive",
+          "View.alert",
+          "View.confirmationDialog"
+        ]
+      },
+      "block": "swiftui.alert",
+      "cases": [
+        "blocks-17-20/swiftui.alert/auto-cancel-v1",
+        "blocks-17-20/swiftui.alert/confirm-cancel-v1",
+        "blocks-17-20/swiftui.alert/confirm-delete-v1",
+        "blocks-17-20/swiftui.alert/confirm-escape-v1",
+        "blocks-17-20/swiftui.alert/default-enter-v1",
+        "blocks-17-20/swiftui.alert/focus-restore-v1",
+        "blocks-17-20/swiftui.alert/no-actions-v1",
+        "blocks-17-20/swiftui.alert/ok-v1",
+        "blocks-17-20/swiftui.alert/three-buttons-v1"
+      ],
+      "casesPassingDecidingGate": "9/9",
+      "caveats": [
+        "pixels of the main window reported, never gate"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 17,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "semantic 180/180 (9 cases: open phase TaskDialog vs Mac alert record, final phase)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "animation",
+            "at",
+            "easeIn",
+            "easeInOut",
+            "frame",
+            "linear",
+            "onAppear",
+            "wrap"
+          ],
+          "types": [
+            "Color",
+            "FactoryAnim",
+            "FactoryClock",
+            "HStack",
+            "Transaction",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "Animation",
+          "Animation.default",
+          "Animation.easeIn",
+          "Animation.easeInOut",
+          "Animation.easeOut",
+          "Animation.linear",
+          "AnimationCompletionCriteria.logicallyComplete",
+          "AnimationCompletionCriteria.removed",
+          "Transaction.disablesAnimations",
+          "View.animation",
+          "withAnimation.",
+          "withAnimation.completionCriteria",
+          "withTransaction."
+        ]
+      },
+      "block": "swiftui.animation",
+      "cases": [
+        "blocks-6-10/swiftui.animation/animation-value-v1",
+        "blocks-6-10/swiftui.animation/completion-v1",
+        "blocks-6-10/swiftui.animation/default-spring-v1",
+        "blocks-6-10/swiftui.animation/disables-animations-v1",
+        "blocks-6-10/swiftui.animation/easeinout-samples-v1",
+        "blocks-6-10/swiftui.animation/interrupt-40-v1",
+        "blocks-6-10/swiftui.animation/linear-width-v1"
+      ],
+      "casesPassingDecidingGate": "7/7",
+      "caveats": [
+        "spring cases use the named 2 px extent tolerance",
+        "one explicit transaction per flush"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 18,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "clock gate 7/7 cases (780 pairs ok)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "at",
+            "easeInOut",
+            "foregroundStyle",
+            "frame",
+            "linear",
+            "move",
+            "onAppear",
+            "opacity",
+            "transition",
+            "wrap"
+          ],
+          "types": [
+            "Color",
+            "FactoryAnim",
+            "FactoryClock",
+            "Text",
+            "VStack"
+          ]
+        },
+        "fromManifest": [
+          "AnyTransition",
+          "AnyTransition.move",
+          "AnyTransition.opacity",
+          "View.opacity",
+          "View.transition"
+        ]
+      },
+      "block": "swiftui.opacity-transition",
+      "cases": [
+        "blocks-6-10/swiftui.opacity-transition/insertion-fade-v1",
+        "blocks-6-10/swiftui.opacity-transition/move-leading-v1",
+        "blocks-6-10/swiftui.opacity-transition/opacity-animated-v1",
+        "blocks-6-10/swiftui.opacity-transition/opacity-static-v1",
+        "blocks-6-10/swiftui.opacity-transition/opacity-text-v1",
+        "blocks-6-10/swiftui.opacity-transition/removal-fade-v1",
+        "blocks-6-10/swiftui.opacity-transition/removal-move-v1"
+      ],
+      "casesPassingDecidingGate": "7/7",
+      "caveats": [
+        "Image fade excluded",
+        "no `.scale`/custom Transition"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 19,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "clock gate / exact: 640/640 pairs (exact 620, text-exclusion 20)"
+      },
+      "windowsDifferences": []
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "disabled",
+            "environment",
+            "fill",
+            "foregroundStyle",
+            "frame",
+            "labelsHidden",
+            "padding",
+            "preferredColorScheme",
+            "toggleStyle"
+          ],
+          "types": [
+            "Color",
+            "Environment",
+            "HStack",
+            "Rectangle",
+            "Text",
+            "Toggle",
+            "VStack",
+            "ZStack"
+          ]
+        },
+        "fromManifest": [
+          "BackgroundStyle",
+          "Color.accent",
+          "Color.primary",
+          "Color.secondary",
+          "ColorScheme",
+          "ColorScheme.dark",
+          "ColorScheme.light",
+          "EnvironmentValues.colorScheme",
+          "ShapeStyle.A0",
+          "View.preferredColorScheme"
+        ]
+      },
+      "block": "swiftui.color-scheme",
+      "cases": [
+        "blocks-17-20/swiftui.color-scheme/checkbox-off-dark-disabled-v1",
+        "blocks-17-20/swiftui.color-scheme/checkbox-off-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/checkbox-on-dark-disabled-v1",
+        "blocks-17-20/swiftui.color-scheme/checkbox-on-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/environment-read-v1",
+        "blocks-17-20/swiftui.color-scheme/preferred-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/semantic-colours-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/switch-off-dark-disabled-v1",
+        "blocks-17-20/swiftui.color-scheme/switch-off-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/switch-on-dark-disabled-v1",
+        "blocks-17-20/swiftui.color-scheme/switch-on-dark-v1",
+        "blocks-17-20/swiftui.color-scheme/text-dark-v1"
+      ],
+      "casesPassingDecidingGate": "12/12",
+      "caveats": [],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": 20,
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 60 (3 cases), edge-aa<=32 160 (8 cases, haze <= 3), text-colour gate 20/20"
+      },
+      "windowsDifferences": [
+        "Toggle artwork measured at scale 2.5 only"
+      ]
+    },
+    {
+      "apis": {
+        "fromCaseSources": {
+          "modifiersAndMembers": [
+            "environment",
+            "frame",
+            "overlay",
+            "padding"
+          ],
+          "types": [
+            "Color",
+            "ForEach",
+            "HStack",
+            "VStack",
+            "ZStack"
+          ]
+        },
+        "fromManifest": []
+      },
+      "block": "cross-cutting.pixel-ties",
+      "cases": [
+        "blocks-6-10/pixel-ties/centered-origin-v1",
+        "blocks-6-10/pixel-ties/layout-v1",
+        "blocks-6-10/pixel-ties/ruler-v1"
+      ],
+      "casesPassingDecidingGate": "3/3",
+      "caveats": [
+        "half-pixel tie rule `3353d63f`",
+        "hosts centre through the runtime"
+      ],
+      "stage": "58df259c5-4c63f440",
+      "status": "delivered-with-caveats",
+      "statusDocBlock": "pixel-ties",
+      "verdict": {
+        "date": "2026-10-14",
+        "runDates": [
+          "2026-10-14"
+        ],
+        "source": "docs/sr1-status.md table + factory/pipeline/consolidation/consolidation-table.json",
+        "text": "exact 9/9 (ruler, centered-origin, layout)"
+      },
+      "windowsDifferences": []
+    }
+  ],
+  "generator": "factory/tools/proven-controls/generate.py",
+  "knownGapsAll": "SliceApp's own backend does not use `ResolvedNodePainter`; 41 symbol sizes use measured ink overrides; hairline strokes below 1.5 px and scales 1.25 and 1.5 are untested; Button artwork and button styles are light only; real Microsoft IME, TSF and Narrator are deferred to hardware; the Windows default text colour is 0x1f1f1f against the Mac's 0x272727 (within the colour gate).",
+  "schema": 1,
+  "sources": [
+    "factory/pipeline/consolidation/consolidation-table.json",
+    "factory/registry/manifest.json",
+    "docs/sr1-status.md",
+    "factory/pipeline/consolidation/results.jsonl",
+    "Witness.swift of each case"
+  ],
+  "statusDate": "2026-10-14",
+  "statusValues": [
+    "delivered",
+    "delivered-with-caveats",
+    "not-delivered",
+    "in-progress"
+  ]
+}

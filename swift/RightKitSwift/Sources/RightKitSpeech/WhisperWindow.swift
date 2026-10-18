@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// One decoded Whisper static window.
@@ -166,3 +167,4 @@ final class PredictionExecutor: Sendable {
         return try result.get()
     }
 }
+#endif

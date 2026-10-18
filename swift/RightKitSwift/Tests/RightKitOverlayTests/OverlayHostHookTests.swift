@@ -146,7 +146,7 @@ final class OverlayHostHookTests: XCTestCase {
         panel.sendEvent(try XCTUnwrap(event(.leftMouseDown, in: panel)))
         XCTAssertEqual(order, ["filter", "hook", "filter"])
 
-        XCTAssertFalse(panel.canBecomeKey, "configuration still owns canBecomeKey")
+        XCTAssertFalse(panel.canBecomeKey, "configuration seeds canBecomeKey")
         XCTAssertFalse(panel.canBecomeMain)
         var config = RightKitOverlayPanelConfiguration.standard(kind: .pill)
         config.canBecomeKey = true

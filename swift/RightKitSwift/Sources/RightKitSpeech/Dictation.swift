@@ -1,3 +1,4 @@
+#if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
 /// Pure composer-dictation rules (CodeRight `Dictation`). Audio capture lives in
@@ -37,3 +38,4 @@ public enum Dictation {
         locale.identifier.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 }
+#endif
