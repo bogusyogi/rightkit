@@ -108,12 +108,15 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   const flag = kind === "npm" ? "--package" : "--crate";
   const batchFlags = kind === "cargo" ? ", --crates <a,b,c>, --crates-file <file>, --concurrency <n>, --allow-ignored-units <a,b>" : "";
   let unit; let workspace; let local = false; let allowIgnored = false;
+  let qualifyOnly = false; let bundle;
   let crates; let cratesFile; let concurrency = DEFAULT_CONCURRENCY; let allowIgnoredUnits = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--local") local = true;
     else if (arg === flag) unit = argv[++i];
     else if (arg === "--workspace") workspace = argv[++i];
+    else if (kind === "cargo" && arg === "--qualify-only") qualifyOnly = true;
+    else if (kind === "cargo" && arg === "--bundle") bundle = argv[++i];
     // Same meaning as publish.yml's allow_ignored: this unit may have ignored tests; the count is recorded.
     else if (arg === "--allow-ignored") allowIgnored = true;
     else if (kind === "cargo" && arg === "--crates") crates = crateList(argv[++i], "--crates");
@@ -125,6 +128,10 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   if (!local) refuse("--local is required");
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > MAX_CONCURRENCY) refuse(`--concurrency must be an integer from 1 to ${MAX_CONCURRENCY}`);
   const workspaceRoot = path.resolve(workspace ?? cwd);
+  if (qualifyOnly && (crates !== undefined || cratesFile !== undefined)) refuse("--qualify-only currently requires one --crate");
+  if (qualifyOnly && !String(bundle ?? "").trim()) refuse("--qualify-only requires --bundle <new-directory>");
+  if (bundle !== undefined && !qualifyOnly) refuse("--bundle requires --qualify-only");
+  const bundleDir = bundle === undefined ? undefined : path.resolve(cwd, bundle);
   if (kind === "cargo" && (crates !== undefined || cratesFile !== undefined)) {
     if (unit !== undefined) refuse("--crate cannot be combined with --crates or --crates-file");
     if (crates !== undefined && cratesFile !== undefined) refuse("use --crates or --crates-file, not both");
@@ -136,7 +143,7 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
   }
   if (kind === "npm" && !/^@rightkit\/[a-z0-9-]+$/.test(unit ?? "")) refuse("publish npm --local requires --package @rightkit/<name>");
   if (kind === "cargo" && !CRATE_NAME.test(unit ?? "")) refuse("publish cargo --local requires --crate <name> (or --crates / --crates-file)");
-  return { kind, unit, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: undefined };
+  return { kind, unit, allowIgnored, allowIgnoredUnits, workspaceRoot, concurrency, batch: undefined, ...(qualifyOnly ? { qualifyOnly, bundleDir } : {}) };
 }
 
 function defaultGit(args, cwd) {
@@ -234,14 +241,15 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   const gateHost = platform === "win32" ? "windows" : "macos";
   if (entry.os && !entry.os.includes(gateHost)) refuse(`${unit} is restricted to ${entry.os.join(", ")} by ci/gate.config.json; it cannot be qualified on this ${platform === "win32" ? "Windows host" : "Mac"}`);
   const featureSets = entry.featureSets ?? [[]];
+  // Stream Cargo artifact records to the broker; libtest summaries remain plain text for ResultScanner.
   const steps = [];
   for (const features of featureSets) {
-    steps.push({ command: "cargo", args: ["test", "-p", unit, ...features, "--no-fail-fast", "--", "--show-output"], test: true });
-    if (entry.alsoSerial) steps.push({ command: "cargo", args: ["test", "-p", unit, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], test: true });
+    steps.push({ command: "cargo", args: ["test", "-p", unit, "--message-format=json-render-diagnostics", ...features, "--no-fail-fast", "--", "--show-output"], test: true });
+    if (entry.alsoSerial) steps.push({ command: "cargo", args: ["test", "-p", unit, "--message-format=json-render-diagnostics", ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], test: true });
   }
   // Batch mode lints the whole batch once (batchClippyInvocations) and records it as a batch receipt.
-  if (!batch) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
-  for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--all-targets", ...features], test: false });
+  if (!batch) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
+  for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
   return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), steps };
 }
 
@@ -265,7 +273,7 @@ export function batchClippyInvocations(layer, { featuresOf = () => [], assetGate
   }
   return [...groups.values()].map(({ crates, features, assetGated }) => ({
     crates, assetGated,
-    args: ["clippy", ...crates.flatMap((unit) => ["-p", unit]), "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
+    args: ["clippy", ...crates.flatMap((unit) => ["-p", unit]), "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
   }));
 }
 
@@ -310,6 +318,7 @@ async function publishUnit(parsed, deps, batch) {
 
   // 1. Preconditions, fail closed.
   const platform = assertLocalHost(deps, workspaceRoot, kind);
+  if (parsed.qualifyOnly && fs.existsSync(parsed.bundleDir)) refuse(`qualification bundle already exists: ${parsed.bundleDir}`);
   const dir = kind === "npm" ? `packages/${unit.slice("@rightkit/".length)}` : `crates/${unit}`;
   const unitPath = path.join(workspaceRoot, dir);
   if (!fs.existsSync(unitPath)) refuse(`unit directory not found: ${unitPath}`);
@@ -333,7 +342,7 @@ async function publishUnit(parsed, deps, batch) {
     const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
     if (tree !== batch.tree) refuse(`${unit}: HEAD tree ${tree} differs from the batch tree ${batch.tree}`);
   }
-  const dirty = git(["status", "--porcelain", "--", dir], workspaceRoot);
+  const dirty = git(["status", "--porcelain", "--", dir, ...(parsed.qualifyOnly ? ["Cargo.toml", "Cargo.lock"] : [])], workspaceRoot);
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
   if (dirty !== "") refuse(`tree is not clean for ${dir}; commit first:\n${dirty}`);
   if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
@@ -345,6 +354,11 @@ async function publishUnit(parsed, deps, batch) {
   const gatedSection = assetGated[kind === "npm" ? "npm" : "crates"] ?? {};
   const isAssetGated = Object.hasOwn(gatedSection, unit);
   const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch), platform });
+  if (parsed.qualifyOnly) {
+    const violations = (deps.scanSecrets ?? scanCrateForSecrets)(unitPath);
+    if (violations.length) refuse(`qualification secret scan rejected: ${violations.join(", ")}`);
+    plan.steps.unshift({ command: "cargo", args: ["fmt", "-p", unit, "--check"], test: false });
+  }
   const modules = await (deps.loadWorkspaceModules ?? defaultLoadWorkspaceModules)(workspaceRoot);
   const { ResultScanner, TEST_COMMAND, judgeUnit } = modules.results;
   const env = testEnv(deps, isAssetGated);
@@ -352,7 +366,7 @@ async function publishUnit(parsed, deps, batch) {
   // written reason in ci/gate.config.json (rust.<crate>.allowIgnored). The count stays in the evidence.
   const configReason = kind === "cargo" && typeof gateConfig?.rust?.[unit]?.allowIgnored === "string" ? gateConfig.rust[unit].allowIgnored.trim() : "";
   const ignoredAllowed = Boolean(allowIgnored || parsed.allowIgnoredUnits?.includes(unit) || configReason);
-  const steps = [];
+  const steps = parsed.qualifyOnly ? [{ command: `scanCrateForSecrets ${dir}`, ok: true }] : [];
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
     log(`[right-release] ${plan.id}: ${commandText}`);
@@ -400,11 +414,13 @@ async function publishUnit(parsed, deps, batch) {
       const checked = modules.checkNpmTarball({ file: artifactFile, name: unit, version, dir, spawn: deps.spawnSync ?? spawnSync });
       if (checked.problems.length) refuse(`${unit}: packed tarball refused:\n  - ${checked.problems.join("\n  - ")}`);
     } else {
-      // The archive is hashed here; Cargo's verify build runs once, in the real `cargo publish` (before any
-      // upload), instead of here and again in a registry dry-run (see runCargoPublish verifyOnPublish).
-      packCommands.push(`cargo package --locked --no-verify -p ${unit}`);
-      const packed = await run("cargo", ["package", "--locked", "--no-verify", "-p", unit], { cwd: workspaceRoot, env });
+      // A combined publish verifies once in `cargo publish`; detached qualification verifies here before
+      // its evidence leaves this host, so the publishing host can reuse that exact archive's proof.
+      const packageArgs = ["package", "--locked", ...(parsed.qualifyOnly ? [] : ["--no-verify"]), "-p", unit];
+      packCommands.push(`cargo ${packageArgs.join(" ")}`);
+      const packed = await run("cargo", packageArgs, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
+      if (parsed.qualifyOnly) steps.push({ command: `cargo ${packageArgs.join(" ")}`, ok: true });
       packCommands.push("cargo metadata --format-version 1 --no-deps");
       const meta = await run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
       let targetDir;
@@ -437,6 +453,18 @@ async function publishUnit(parsed, deps, batch) {
     log(`[right-release] wrote ${evidencePath} (artifact sha256 ${artifactSha256})`);
     const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath };
     (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { write: (line) => log(line.replace(/\n$/, "")) });
+
+    if (parsed.qualifyOnly) {
+      // Keep bytes and their normal gate evidence together outside the checkout. Never overwrite a bundle.
+      fs.mkdirSync(parsed.bundleDir, { recursive: false });
+      const bundledArtifact = path.join(parsed.bundleDir, path.basename(artifactFile));
+      const bundledEvidence = path.join(parsed.bundleDir, "gate.json");
+      fs.copyFileSync(artifactFile, bundledArtifact, fs.constants.COPYFILE_EXCL);
+      if (sha256(fs.readFileSync(bundledArtifact)) !== artifactSha256) refuse("qualification archive changed while copying");
+      fs.copyFileSync(evidencePath, bundledEvidence, fs.constants.COPYFILE_EXCL);
+      log(`[right-release] qualified ${unit}@${version}; bundle ${parsed.bundleDir}; publish cargo --crate ${unit} --from-evidence ${bundledEvidence}`);
+      return { kind, name: unit, version, commit: head, artifactSha256, evidencePath: bundledEvidence, artifactFile: bundledArtifact, qualifiedOnly: true };
+    }
 
     // 5. The EXISTING publish path.
     if (kind === "npm") {

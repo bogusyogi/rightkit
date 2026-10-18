@@ -110,7 +110,7 @@ fn spawn_marked(marker: &str) -> TestChild {
     thread::spawn(move || {
         let mut ready = [0];
         let result = stdout.read_exact(&mut ready).and_then(|()| {
-            if ready == [b'R'] {
+            if ready == *b"R" {
                 Ok(())
             } else {
                 Err(io::Error::other("unexpected child readiness byte"))

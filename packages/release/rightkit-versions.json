@@ -489,7 +489,7 @@
       "rightkit-ffmpeg": "0.2.6",
       "rightkit-file-watch": "0.4.0",
       "rightkit-framed-sidecar": "0.2.0",
-      "rightkit-fs": "0.4.1",
+      "rightkit-fs": "0.4.3",
       "rightkit-fsindex": "0.3.0",
       "rightkit-hooks": "0.1.0",
       "rightkit-hotkeys": "0.1.1",

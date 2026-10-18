@@ -2,8 +2,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { enforcePublicationGate, defaultEvidencePath, provenGateSteps } from "./publication-gate.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
+import { spawnSync } from "./background-process.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
@@ -23,7 +24,7 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
   const crate = valueAfter(argv, "--crate");
   if (!crate) throw new Error("publish cargo requires --crate <name>");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(crate)) throw new Error(`invalid crate name: ${crate}`);
-  const allowed = new Set(["--crate", "--workspace", "--dry-run", "--allow-dirty", "--evidence"]);
+  const allowed = new Set(["--crate", "--workspace", "--dry-run", "--allow-dirty", "--evidence", "--from-evidence"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith("--")) continue;
@@ -33,12 +34,16 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
   const dryRun = argv.includes("--dry-run");
   const allowDirty = argv.includes("--allow-dirty");
   if (allowDirty && !dryRun) throw new Error("--allow-dirty is only valid with --dry-run");
+  const fromEvidence = valueAfter(argv, "--from-evidence");
+  if (argv.includes("--from-evidence") && (!fromEvidence || fromEvidence.startsWith("--"))) throw new Error("--from-evidence requires a gate evidence file");
+  if (fromEvidence && (dryRun || allowDirty || argv.includes("--evidence"))) throw new Error("--from-evidence cannot be combined with --dry-run, --allow-dirty or --evidence");
   return {
     crate,
     dryRun,
     allowDirty,
     workspaceRoot: path.resolve(valueAfter(argv, "--workspace") ?? cwd),
-    evidence: valueAfter(argv, "--evidence"),
+    evidence: fromEvidence ?? valueAfter(argv, "--evidence"),
+    ...(fromEvidence ? { fromEvidence: true } : {}),
   };
 }
 
@@ -61,9 +66,10 @@ const PROVEN_STEP = Object.freeze({ "secret scan": "secretScan", format: "fmt", 
  * already proves for this exact commit; the runtime budget, package contents, archive hash and registry steps
  * are never skippable. `verifyOnPublish` (real publish only) drops the separate registry dry-run and lets the
  * real `cargo publish` run Cargo's own verify build (no `--no-verify`), so the package compiles once, before
- * the upload, instead of in a dry-run and not at all in the publish.
+ * the upload, instead of in a dry-run and not at all in the publish. `packageVerified` is set only after
+ * explicit evidence reuse proves a successful standalone package verification; hash checking stays mandatory.
  */
-export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false, proven = {}, verifyOnPublish = false }) {
+export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = false, proven = {}, verifyOnPublish = false, packageVerified = false }) {
   const dryRunArgs = ["publish", "--dry-run", "-p", crate];
   const packageArgs = ["package", "--list", "-p", crate];
   if (allowDirty) dryRunArgs.push("--allow-dirty");
@@ -78,7 +84,7 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
     { label: "tests", command: "cargo", args: ["test", "-p", crate, "--", "--test-threads=1"] },
     { label: "clippy", command: "cargo", args: ["clippy", "-p", crate, "--all-targets", "--", "-D", "warnings"] },
     { label: "package contents", command: "cargo", args: packageArgs, capture: true },
-    ...(verifyHere ? [] : [{ label: "registry dry-run", command: "cargo", args: dryRunArgs }]),
+    ...((verifyHere || packageVerified) ? [] : [{ label: "registry dry-run", command: "cargo", args: dryRunArgs }]),
   ].filter((step) => !(PROVEN_STEP[step.label] && proven[PROVEN_STEP[step.label]] === true));
   if (!dryRun) plan.push(
     // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
@@ -86,7 +92,7 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
     { label: "package archive", command: "cargo", args: ["package", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
     { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
     { label: "archive hash check", internal: "verify-archive" },
-    { label: "registry publish", command: "cargo", args: verifyHere ? ["publish", "--locked", "-p", crate] : ["publish", "--no-verify", "-p", crate] },
+    { label: "registry publish", command: "cargo", args: verifyHere ? ["publish", "--locked", "-p", crate] : ["publish", ...(packageVerified ? ["--locked"] : []), "--no-verify", "-p", crate] },
     { label: "registry readback", internal: "registry-readback" },
   );
   return plan;
@@ -130,11 +136,42 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   };
   const gate = (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { dryRun: options.dryRun });
   const expectedSha256 = gate.evidence?.artifactSha256;
-  // Only the local publisher (local-publish.mjs) sets `trustEvidenceSteps`: it ran the tests and clippy for this
-  // exact commit itself and wrote them into the evidence the gate above just validated. A plain publish proves
-  // nothing in advance, so `proven` stays empty and every step runs.
-  const proven = options.trustEvidenceSteps === true && !options.dryRun ? provenGateSteps(gate.evidence) : {};
-  const plan = buildCargoPublishPlan({ ...options, crateDir, proven, verifyOnPublish: options.verifyOnPublish === true });
+  // Explicit evidence reuse enters through the same gate: current commit, version, clean source, host runs
+  // and artifact digest must match. Windows evidence keeps its actual win32 host policy on the Mac.
+  const reuseEvidence = options.fromEvidence === true;
+  if (reuseEvidence && (options.dryRun || options.allowDirty || !options.evidence)) throw new Error("--from-evidence requires a real publish, clean source and explicit evidence");
+  const proven = (reuseEvidence || options.trustEvidenceSteps === true) && !options.dryRun ? provenGateSteps(gate.evidence) : {};
+  if (reuseEvidence && (proven.tests !== true || proven.clippy !== true)) throw new Error("--from-evidence requires gate-proven tests and clippy for this crate and commit");
+  if (reuseEvidence) {
+    const status = (deps.workspaceStatus ?? ((workspaceRoot) => spawnSync("git", ["status", "--porcelain", "--", "Cargo.toml", "Cargo.lock"], { cwd: workspaceRoot, encoding: "utf8", windowsHide: true })))(options.workspaceRoot);
+    if (status.error || status.status !== 0 || String(status.stdout ?? "").trim()) throw new Error("--from-evidence requires clean workspace Cargo.toml and Cargo.lock");
+    const proofHost = singleHostOfPolicy(gate.evidence) ?? "darwin";
+    const runs = gate.evidence.runs.filter((run) => run?.host?.os === proofHost);
+    const command = `cargo package --locked -p ${options.crate}`;
+    if (!runs.length || !runs.every((run) => run.steps?.some((step) => step.ok === true && step.command === command))) {
+      throw new Error("--from-evidence requires a verified cargo package --locked receipt for this artifact");
+    }
+    // Load the shared planner after module initialization: local-publish itself imports this publisher.
+    // Validate the complete current qualification matrix, not merely one passing test and lint command.
+    const { localTestPlan } = await import("./local-publish.mjs");
+    let config;
+    try { config = JSON.parse(fs.readFileSync(path.join(options.workspaceRoot, "ci", "gate.config.json"), "utf8")); }
+    catch { throw new Error("--from-evidence cannot read current ci/gate.config.json"); }
+    for (const run of runs) {
+      if (!Array.isArray(run.steps) || run.steps.some((step) => step?.ok !== true || (step.failed ?? 0) !== 0)) {
+        throw new Error("--from-evidence refuses an unsuccessful qualification step");
+      }
+      const expected = localTestPlan({ kind: "cargo", unit: options.crate, dir: `crates/${options.crate}`, config, batch: Boolean(run.batch), platform: proofHost });
+      for (const step of expected.steps) {
+        const text = `${step.command} ${step.args.join(" ")}`;
+        if (!run.steps.some((row) => row.command === text && row.ok === true && (!step.test || (row.executed > 0 && row.failed === 0)))) {
+          throw new Error(`--from-evidence missing configured qualification step: ${text}`);
+        }
+      }
+    }
+  }
+  const plan = buildCargoPublishPlan({ ...options, crateDir, proven,
+    verifyOnPublish: !reuseEvidence && options.verifyOnPublish === true, packageVerified: reuseEvidence });
   for (const [label, key] of Object.entries(PROVEN_STEP)) {
     if (proven[key] === true) process.stdout.write(`[right-release] cargo ${label}: proven by the gate evidence for this commit, not repeated\n`);
   }

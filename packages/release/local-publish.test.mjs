@@ -110,11 +110,11 @@ test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clipp
   const config = { rust: { 'rightkit-demo': { featureSets: [['--all-features'], ['--features', 'async']], alsoSerial: true } } };
   const plan = localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config });
   assert.deepEqual(plan.steps.map((s) => s.args.join(' ')), [
-    'test -p rightkit-demo --all-features --no-fail-fast -- --show-output',
-    'test -p rightkit-demo --all-features --no-fail-fast -- --test-threads=1 --show-output',
-    'test -p rightkit-demo --features async --no-fail-fast -- --show-output',
-    'test -p rightkit-demo --features async --no-fail-fast -- --test-threads=1 --show-output',
-    'clippy -p rightkit-demo --no-deps --all-targets --all-features -- -D warnings',
+    'test -p rightkit-demo --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output',
+    'test -p rightkit-demo --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output',
+    'test -p rightkit-demo --message-format=json-render-diagnostics --features async --no-fail-fast -- --show-output',
+    'test -p rightkit-demo --message-format=json-render-diagnostics --features async --no-fail-fast -- --test-threads=1 --show-output',
+    'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
   ]);
   assert.deepEqual(plan.featureLabels, ['--all-features', '--features async']);
   assert.throws(() => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'x', config: { rust: { 'rightkit-demo': { os: ['windows'] } } } }), /restricted to windows/);
@@ -123,8 +123,8 @@ test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clipp
 
 test('the plan compiles every feature: --all-features by default, explicit sets for exclusive features, none when already tested', () => {
   const plan = (entry) => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config: { rust: { 'rightkit-demo': entry } } }).steps.map((s) => s.args.join(' ')).filter((a) => a.startsWith('check'));
-  assert.deepEqual(plan({}), ['check -p rightkit-demo --all-targets --all-features']);
-  assert.deepEqual(plan({ checkFeatureSets: [['--features', 'a'], ['--features', 'b']] }), ['check -p rightkit-demo --all-targets --features a', 'check -p rightkit-demo --all-targets --features b']);
+  assert.deepEqual(plan({}), ['check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --all-features']);
+  assert.deepEqual(plan({ checkFeatureSets: [['--features', 'a'], ['--features', 'b']] }), ['check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --features a', 'check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --features b']);
   assert.deepEqual(plan({ featureSets: [['--all-features']] }), []);
 });
 
@@ -187,8 +187,8 @@ test('cargo: the same gate and publish flow run on the evidence it wrote', async
   const h = harness(root, 'cargo');
   const result = await h.run();
   assert.deepEqual(h.calls.map((c) => c.args.join(' ')), [
-    'test -p rightkit-demo --all-features --no-fail-fast -- --show-output',
-    'clippy -p rightkit-demo --no-deps --all-targets --all-features -- -D warnings',
+    'test -p rightkit-demo --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output',
+    'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
     'package --locked --no-verify -p rightkit-demo',
     'metadata --format-version 1 --no-deps',
   ]);
@@ -258,14 +258,14 @@ test('clippy for a batch keeps every per-crate flag: shared -p list for default 
   const features = { 'rightkit-a': [], 'rightkit-b': ['--all-features'], 'rightkit-c': ['--features', 'x'], 'rightkit-d': ['--features', 'x'], 'rightkit-e': [] };
   const invocations = batchClippyInvocations(Object.keys(features), { featuresOf: (unit) => features[unit], assetGatedOf: (unit) => unit === 'rightkit-e' });
   assert.deepEqual(invocations.map((i) => i.args.join(' ')), [
-    'clippy -p rightkit-a --no-deps --all-targets -- -D warnings',
-    'clippy -p rightkit-b --no-deps --all-targets --all-features -- -D warnings',
-    'clippy -p rightkit-c --no-deps --all-targets --features x -- -D warnings',
-    'clippy -p rightkit-d --no-deps --all-targets --features x -- -D warnings',
-    'clippy -p rightkit-e --no-deps --all-targets -- -D warnings',
+    'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+    'clippy -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
+    'clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
+    'clippy -p rightkit-d --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
+    'clippy -p rightkit-e --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
   ]);
   const shared = batchClippyInvocations(['rightkit-a', 'rightkit-f'], {});
-  assert.deepEqual(shared.map((i) => i.args.join(' ')), ['clippy -p rightkit-a -p rightkit-f --no-deps --all-targets -- -D warnings']);
+  assert.deepEqual(shared.map((i) => i.args.join(' ')), ['clippy -p rightkit-a -p rightkit-f --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings']);
   assert.deepEqual(localTestPlan({ kind: 'cargo', unit: 'rightkit-a', dir: 'crates/rightkit-a', config: {}, batch: true }).steps.map((s) => s.args[0]), ['test', 'check']);
 });
 
@@ -326,13 +326,13 @@ test('batch: fmt, clippy and the secret scan run once before any publish; every 
   assert.equal(h.calls[0], 'cargo fmt --all --check');
   assert.equal(h.calls.filter((c) => c.includes(' fmt ')).length, 1);
   assert.deepEqual(h.calls.filter((c) => c.includes(' clippy ')), [
-    'cargo clippy -p rightkit-a -p rightkit-b --no-deps --all-targets -- -D warnings',
-    'cargo clippy -p rightkit-c --no-deps --all-targets -- -D warnings',
+    'cargo clippy -p rightkit-a -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+    'cargo clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
   ]);
   assert.ok(h.logs.findIndex((line) => /batch layer 1\/2/.test(line)) > h.logs.findIndex((line) => /batch secret-scan/.test(line)));
   for (const name of NAMES) {
     assert.equal(h.calls.filter((c) => c.startsWith(`cargo test -p ${name} `)).length, 1);
-    assert.equal(h.calls.filter((c) => c === `cargo check -p ${name} --all-targets --all-features`).length, 1);
+    assert.equal(h.calls.filter((c) => c === `cargo check -p ${name} --message-format=json-render-diagnostics --all-targets --all-features`).length, 1);
     assert.equal(h.calls.filter((c) => c.startsWith('cargo package') && c.includes(`-p ${name}`)).length, 1);
     const evidence = JSON.parse(fs.readFileSync(evidencePathOf(h.root, name), 'utf8'));
     const run = evidence.runs[0];
@@ -543,4 +543,56 @@ test('win32 batch: win32-only evidence per crate with the batch receipt, gate ac
   const restricted = batchHarness(NAMES, { over: { platform: 'win32' }, gateConfig: { rust: { 'rightkit-b': { os: ['macos'] } } } });
   await refused(restricted.run(), /rightkit-b is restricted to macos.*this Windows host/);
   assert.deepEqual(restricted.calls, []);
+});
+
+
+test('Cargo JSON compiler artifacts preserve libtest counts, failures and skip evidence', () => {
+  const scanner = new results.ResultScanner();
+  const artifact = JSON.stringify({ reason: 'compiler-artifact', package_id: 'rightkit-demo 1.2.3', filenames: ['/scratch/target/debug/deps/demo'], executable: '/scratch/target/debug/deps/demo', fresh: true });
+  scanner.push(`${artifact}\n${JSON.stringify({ reason: 'build-finished', success: true })}\ntest result: ok. 7 passed; 0 failed; 1 ignored;`);
+  scanner.push(' 0 measured; 0 filtered out\n[fixture] SKIP unavailable asset\n');
+  assert.deepEqual(scanner.finish(), { executed: 7, failed: 0, ignored: 1, skipped: 1, binaries: 1 });
+  const failure = new results.ResultScanner();
+  failure.push(`${artifact}\ntest result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n`);
+  assert.equal(failure.finish().failed, 1);
+});
+
+test('structured output remains a Cargo option before libtest or clippy arguments', () => {
+  const plan = localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config: { rust: { 'rightkit-demo': { alsoSerial: true } } } });
+  for (const step of plan.steps) {
+    const index = step.args.indexOf('--message-format=json-render-diagnostics');
+    assert.ok(index > 0);
+    const separator = step.args.indexOf('--');
+    assert.ok(separator < 0 || index < separator);
+    assert.equal(step.args.filter((arg) => arg.startsWith('--message-format')).length, 1);
+  }
+});
+
+test('qualification-only requires an explicit new bundle and one cargo crate', () => {
+  const base = ['--local', '--crate', 'rightkit-demo', '--qualify-only'];
+  assert.throws(() => parseLocalPublishArgs('cargo', base), /requires --bundle/);
+  assert.throws(() => parseLocalPublishArgs('cargo', ['--local', '--crates', 'rightkit-demo', '--qualify-only', '--bundle', 'out']), /requires one --crate/);
+  assert.throws(() => parseLocalPublishArgs('cargo', ['--local', '--crate', 'rightkit-demo', '--bundle', 'out']), /requires --qualify-only/);
+  const parsed = parseLocalPublishArgs('cargo', [...base, '--bundle', 'out'], '/scratch');
+  assert.equal(parsed.qualifyOnly, true);
+  assert.equal(parsed.bundleDir, path.resolve('/scratch', 'out'));
+});
+
+test('Windows qualification verifies package, exports durable bytes and evidence, and uploads nothing', async () => {
+  const root = workspace({ kind: 'cargo' });
+  const h = harness(root, 'cargo', { platform: 'win32', arch: 'x64' });
+  const bundle = path.join(root, 'qualified');
+  const argv = ['--local', '--crate', 'rightkit-demo', '--workspace', root, '--qualify-only', '--bundle', bundle];
+  const result = await runLocalPublish('cargo', argv, h.deps);
+  assert.equal(result.qualifiedOnly, true);
+  assert.equal(fs.readFileSync(result.artifactFile, 'utf8'), 'crate-bytes');
+  const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
+  assert.equal(evidence.hostPolicy, 'win32-only');
+  assert.equal(evidence.runs[0].host.os, 'win32');
+  assert.ok(evidence.runs[0].steps.some((step) => step.ok && step.command === 'cargo package --locked -p rightkit-demo'));
+  assert.ok(h.calls.some(({ args }) => args.join(' ') === 'package --locked -p rightkit-demo'));
+  assert.equal(h.published.length, 0);
+  const commandCount = h.calls.length;
+  await refused(runLocalPublish('cargo', argv, h.deps), /bundle already exists/);
+  assert.equal(h.calls.length, commandCount);
 });

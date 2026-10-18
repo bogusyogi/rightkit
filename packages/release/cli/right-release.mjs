@@ -252,6 +252,10 @@ Commands:
   publish cargo --crate <name> --local               (.rightkit-local-build.json), on the Mac or Windows: runs the unit's CI tests, packs,
                                                       writes darwin-only (Mac) or win32-only (Windows) evidence, then the same
                                                       publication gate and publisher; refuses without the grant
+  publish cargo --crate <name> --local --qualify-only --bundle <new-dir>
+                                                      Verify on source host; export crate bytes & gate evidence without uploading
+  publish cargo --crate <name> --from-evidence <gate.json>
+                                                      Reuse exact HEAD/artifact proof on upload host; recheck archive hash & registry bytes
   publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
                                                       Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]

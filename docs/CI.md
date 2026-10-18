@@ -108,6 +108,16 @@ evidence. No test or evidence step can be skipped. Windows publishes with the cr
 `~/.cargo/credentials.toml` (no token is passed, read or logged), so the Mac and the Dell can publish different crates of a
 batch in parallel.
 
+**Qualify on one host, publish from another (cargo).** Run
+`right-release publish cargo --crate <name> --local --qualify-only --bundle <new-bundle-dir>` on source host.
+This single-crate command runs configured tests, feature checks, clippy, formatting, secret scan &
+`cargo package --locked` verification, then exports `.crate` bytes & `gate.json` without uploading.
+Transfer that bundle to upload host at identical HEAD, then run
+`right-release publish cargo --crate <name> --from-evidence <copied-bundle-dir>/gate.json`.
+Upload host validates exact HEAD, version, complete configured qualification & artifact proof, reusing source host's
+recorded host policy. It repacks without recompiling & refuses any archive hash mismatch before publishing with its
+own Cargo credential. Runtime-budget, package-content, secret-scan & registry-readback checks remain enforced.
+
 **Signed helper.** An npm run that names `@rightkit/release` first runs the `sign-swap` job (`xcode-27`, `environment: release`):
 it builds `rightkit-swap` with no secret in scope, then installs the Developer ID identity from `APPLE_CERTIFICATE_BASE64`,
 `APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` and `vars.APPLE_DEVELOPER_ID`, signs and verifies it, and records its sha256.

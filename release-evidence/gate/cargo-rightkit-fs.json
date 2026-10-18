@@ -2,27 +2,56 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-fs",
-  "version": "0.3.3",
-  "commit": "255b3cf41a3c62cbeee8f52654c67b7335e853a2",
-  "artifactSha256": "b4c2822f001b358c402c4d2804071eeb71b9fbacf0bd2bb24b22bcf1eec4d246",
-  "artifactBasis": "cargo package rightkit-fs-0.3.3.crate",
+  "version": "0.4.3",
+  "commit": "049cfed8c5c3a0ecd922d474dca07153f65cdb6e",
+  "artifactSha256": "cbcfbcc92a12ccbd38ed67b825d5ca54e925b9b5bc9ab96cce807ca76415ecf0",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "255b3cf41a3c62cbeee8f52654c67b7335e853a2",
-      "command": "right-release publish cargo --crate rightkit-fs --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "commit": "049cfed8c5c3a0ecd922d474dca07153f65cdb6e",
       "features": [
-        "default"
+        "--all-features"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-09T13:17:12Z",
-      "passed": 42,
-      "failed": 0
+      "artifactSha256": "cbcfbcc92a12ccbd38ed67b825d5ca54e925b9b5bc9ab96cce807ca76415ecf0",
+      "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-fs --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-fs --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-fs && cargo metadata --format-version 1 --no-deps",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-18T02:16:13.977Z",
+      "passed": 914,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 457,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 36
+        },
+        {
+          "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --test-threads=1 --show-output",
+          "ok": true,
+          "executed": 457,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 36
+        },
+        {
+          "command": "cargo clippy -p rightkit-fs --no-deps --all-targets --all-features -- -D warnings",
+          "ok": true
+        }
+      ]
     }
   ]
 }

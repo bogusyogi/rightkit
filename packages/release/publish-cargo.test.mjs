@@ -12,6 +12,7 @@ import {
 } from "./publish-cargo.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { checkPublicationGate } from "./publication-gate.mjs";
+import { localTestPlan } from "./local-publish.mjs";
 
 test("cargo publish requires a safe explicit crate name", () => {
   assert.throws(() => parseCargoPublishArgs([]), /--crate/);
@@ -291,4 +292,112 @@ test("an async execute is awaited", async (t) => {
   await runCargoPublish(fx.options, execute, fx.deps);
   assert.ok(seen.includes("publish"));
   assert.deepEqual(fx.events, ["package", "hash check", "publish", "readback"]);
+});
+
+test('from-evidence is explicit and refuses ambiguous or dry-run options', () => {
+  const base = ['--crate', 'rightkit-fixture', '--from-evidence'];
+  assert.throws(() => parseCargoPublishArgs(base), /requires a gate evidence file/);
+  assert.throws(() => parseCargoPublishArgs([...base, '--dry-run']), /requires a gate evidence file/);
+  assert.throws(() => parseCargoPublishArgs([...base, 'gate.json', '--dry-run']), /cannot be combined/);
+  assert.throws(() => parseCargoPublishArgs([...base, 'gate.json', '--evidence', 'other.json']), /cannot be combined/);
+  const parsed = parseCargoPublishArgs([...base, 'gate.json']);
+  assert.equal(parsed.evidence, 'gate.json');
+  assert.equal(parsed.fromEvidence, true);
+});
+
+function qualifiedFixture(t) {
+  const fx = fixture(t);
+  const commit = 'a'.repeat(40);
+  mkdirSync(path.join(fx.root, 'ci'), { recursive: true });
+  writeFileSync(path.join(fx.root, 'ci', 'gate.config.json'), '{}');
+  const planned = localTestPlan({ kind: 'cargo', unit: fx.name, dir: `crates/${fx.name}`, config: {}, platform: 'win32' });
+  const evidence = {
+    schema: 1, kind: 'cargo', name: fx.name, version: fx.version, commit,
+    artifactSha256: fx.evidence.artifactSha256, hostPolicy: 'win32-only', hostPolicyReason: 'local-build grant',
+    runs: [{ host: { os: 'win32', arch: 'x64' }, commit, artifactSha256: fx.evidence.artifactSha256,
+      features: ['default'], command: 'qualification', operator: 'agent', timestamp: '2026-10-18T00:00:00Z', passed: 3, failed: 0,
+      steps: [
+        ...planned.steps.map((step) => ({ command: `${step.command} ${step.args.join(' ')}`, ok: true, ...(step.test ? { executed: 3, failed: 0 } : {}) })),
+        { command: `cargo package --locked -p ${fx.name}`, ok: true },
+      ],
+    }],
+  };
+  const file = path.join(fx.root, 'gate.json');
+  const save = () => writeFileSync(file, JSON.stringify(evidence));
+  save();
+  const commands = [];
+  const execute = (_command, args) => {
+    commands.push(args);
+    return { status: 0, stdout: args[0] === 'metadata' ? JSON.stringify({ target_directory: path.join(fx.root, 'generated-target') }) : args.includes('--list') ? 'Cargo.toml\nsrc/lib.rs\n' : '' };
+  };
+  const deps = { ...fx.deps, workspaceStatus: () => ({ status: 0, stdout: '' }), enforceGate: (options) => {
+    const result = checkPublicationGate({ ...options, git: (args) => args[0] === 'rev-parse' ? commit : '' });
+    if (!result.ok) throw new Error(`publication gate not satisfied: ${result.missing.join('; ')}`);
+    return result;
+  } };
+  return { ...fx, evidence, save, commands, execute, deps, options: { ...fx.options, evidence: file, fromEvidence: true } };
+}
+
+test('Windows qualification can publish with no repeated tests, clippy or compile; locked archive hash remains enforced', async (t) => {
+  const fx = qualifiedFixture(t);
+  await runCargoPublish(fx.options, fx.execute, fx.deps);
+  assert.equal(fx.commands.some((args) => ['test', 'clippy', 'check', 'build'].includes(args[0])), false);
+  assert.equal(fx.commands.some((args) => args.includes('--dry-run')), false);
+  assert.deepEqual(fx.commands.find((args) => args[0] === 'publish'), ['publish', '--locked', '--no-verify', '-p', fx.name]);
+  assert.ok(fx.commands.some((args) => args[0] === 'package' && args.includes('--no-verify')));
+});
+
+test('from-evidence refuses unverified packaging before any command', async (t) => {
+  const fx = qualifiedFixture(t);
+  fx.evidence.runs[0].steps.pop(); fx.save();
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires a verified cargo package/);
+  assert.equal(fx.commands.length, 0);
+});
+
+test('from-evidence refuses changed commit or version before any command', async (t) => {
+  const fx = qualifiedFixture(t);
+  fx.evidence.commit = 'b'.repeat(40); fx.save();
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /current HEAD/);
+  fx.evidence.commit = 'a'.repeat(40); fx.evidence.version = '9.9.9'; fx.save();
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /evidence version/);
+  assert.equal(fx.commands.length, 0);
+});
+
+test('from-evidence refuses differing local archive bytes before upload', async (t) => {
+  const fx = qualifiedFixture(t);
+  writeFileSync(fx.crateFile, 'different cross-host archive');
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), { code: 'PUBLICATION_HASH_MISMATCH' });
+  assert.equal(fx.commands.some((args) => args[0] === 'publish'), false);
+});
+
+
+test('from-evidence refuses dirty workspace manifests before any command', async (t) => {
+  const fx = qualifiedFixture(t);
+  fx.deps.workspaceStatus = () => ({ status: 0, stdout: ' M Cargo.toml\n' });
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean workspace/);
+  assert.equal(fx.commands.length, 0);
+});
+
+
+test('from-evidence refuses missing configured feature, serial or all-feature checks', async (t) => {
+  const fx = qualifiedFixture(t);
+  const entry = { featureSets: [[], ['--features', 'async']], alsoSerial: true };
+  writeFileSync(path.join(fx.root, 'ci', 'gate.config.json'), JSON.stringify({ rust: { [fx.name]: entry } }));
+  const planned = localTestPlan({ kind: 'cargo', unit: fx.name, dir: `crates/${fx.name}`, config: { rust: { [fx.name]: entry } }, platform: 'win32' });
+  const complete = [
+    ...planned.steps.map((step) => ({ command: `${step.command} ${step.args.join(' ')}`, ok: true, ...(step.test ? { executed: 3, failed: 0 } : {}) })),
+    { command: `cargo package --locked -p ${fx.name}`, ok: true },
+  ];
+  for (const absent of complete.filter((row) => /--features async|--test-threads=1|^cargo check/.test(row.command))) {
+    fx.evidence.runs[0].steps = complete.filter((row) => row !== absent); fx.save();
+    await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /missing configured qualification step/);
+  }
+  assert.equal(fx.commands.length, 0);
+});
+
+test('from-evidence refuses any failed recorded step even beside complete passing evidence', async (t) => {
+  const fx = qualifiedFixture(t);
+  fx.evidence.runs[0].steps.push({ command: 'cargo check --features broken', ok: false }); fx.save();
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /unsuccessful qualification step/);
+  assert.equal(fx.commands.length, 0);
 });
