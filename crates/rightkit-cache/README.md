@@ -101,7 +101,7 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 100,000 entries or more.
-- Required hosts: macOS and Windows.
+- Required hosts: macOS only (Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run).
 - Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-cache 0.2.1 at 4dfad124c7c1, 100,000 entries (synthetic bench at the declared requiredScale (crates/rightkit-cache/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-cache --bench budget`, 2026-10-17, evidence 0746b235b0f2: resident memory 28.5 MiB, idle CPU 0.104%, wake-ups 0.133 per second, disk operations 0 operations per second.
 - Measured: darwin/arm64 (Mac18,5), rightkit-cache 0.2.1 at 160b2d847306, 100,000 entries (synthetic bench at the declared requiredScale (crates/rightkit-cache/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-cache --bench budget`, 2026-10-17, evidence 9ac3297180b9: resident memory 45.2 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).

@@ -314,7 +314,7 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 4.064 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 50,000 files or more.
-- Required hosts: macOS and Windows.
+- Required hosts: macOS only (Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run).
 - Status exposure: `TypedWatcher::status()` in `src/typed.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: darwin/arm64 (Mac18,5), rightkit-file-watch 0.4.1 at a0de6304c28a, 50,400 files (50400 watched files; 400 modifications per second for 60 seconds; idle 30 seconds), synthetic, `rustright cargo test -p rightkit-file-watch --profile dev --bench budget --jobs 12 -- 50000 60 30`, 2026-10-18, evidence 56d238971b62: resident memory 7.8 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
 - Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-file-watch 0.4.1 at a1c00a3f6163, 50,400 files (synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs): 50,000 files plus a 400-file churn pool, 60 s churn, 30 s idle, Windows 11 dev profile, measured at a937654d), synthetic, `rustright cargo test -p rightkit-file-watch --profile dev --bench budget --jobs 20 -- 50000 60 30`, 2026-10-18, evidence fe114462c99e: resident memory 5.1 MiB, idle CPU 0.052%, wake-ups 2.032 per second, disk operations 0 operations per second.
