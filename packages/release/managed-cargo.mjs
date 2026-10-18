@@ -18,6 +18,14 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
     const client = path.posix.join(env.HOME || homedir(), 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
     if (exists(client)) return client;
   }
+  // RustRight's own install on Windows (2026-10-18 cutover): the runtime moved out of the control root to
+  // <drive>\.rustright\runtime, beside the control root's drive, and runtime-current was retired.
+  if (platform === 'win32') {
+    for (const root of roots) {
+      const client = path.win32.join(path.win32.parse(root).root, '.rustright', 'runtime', 'rustright.exe');
+      if (exists(client)) return client;
+    }
+  }
   return undefined;
 }
 
