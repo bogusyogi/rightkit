@@ -1,7 +1,9 @@
-use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend};
+#[cfg(any(test, debug_assertions))]
+use crate::backend::MemoryBackend;
+use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, Namespace};
-use crate::rotation::{lock_file_name, RotationLock};
+use crate::rotation::{lock_file_name, FileHold, RotationLock};
 use crate::secret::Secret;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -53,8 +55,9 @@ pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardMode {
     /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
-    /// Volatile: values vanish on exit. A test capability only: builds with debug assertions
-    /// honour it; a release build never selects it, whether the guard was tripped by the
+    /// Volatile: values vanish on exit. A test capability only: the in-memory store
+    /// (`MemoryBackend`) is compiled only with debug assertions or under `cfg(test)`, so builds
+    /// with debug assertions honour it; a release build contains no such store and never selects it, whether the guard was tripped by the
     /// environment or forced from code with [`Config::guard_when`], and behaves as
     /// [`GuardMode::Deny`] instead (see `effective_guard_mode`).
     Memory,
@@ -188,6 +191,9 @@ pub struct Store {
     timeout: Duration,
     guard: Option<(String, GuardMode)>,
     rotation_lock_dir: Option<PathBuf>,
+    /// Set only on the bound store of one rotation invocation (`RotationHeld::bind`): every
+    /// mutation's worker thread keeps this cross-process lock until its backend call returns.
+    rotation_hold: Option<FileHold>,
 }
 
 struct Denied(String);
@@ -380,9 +386,18 @@ impl Store {
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
             Some(name) => match effective_guard_mode(cfg.guard_mode, !cfg!(debug_assertions)) {
+                #[cfg(any(test, debug_assertions))]
                 GuardMode::Memory => (
                     MemoryBackend::process_wide(),
                     Some((name, GuardMode::Memory)),
+                ),
+                // The volatile store is not compiled into a release build: the mode resolves to
+                // Deny there (`effective_guard_mode` already maps it, this arm only completes
+                // the match).
+                #[cfg(not(any(test, debug_assertions)))]
+                GuardMode::Memory => (
+                    Arc::new(Denied(name.clone())),
+                    Some((name, GuardMode::Deny)),
                 ),
                 GuardMode::Deny => (
                     Arc::new(Denied(name.clone())),
@@ -398,6 +413,7 @@ impl Store {
             timeout,
             guard,
             rotation_lock_dir: cfg.rotation_lock_dir,
+            rotation_hold: None,
         }
     }
 
@@ -436,6 +452,15 @@ impl Store {
     pub fn with_rotation_lock_dir(&self, dir: impl Into<PathBuf>) -> Store {
         Store {
             rotation_lock_dir: Some(dir.into()),
+            ..self.clone()
+        }
+    }
+
+    /// Same store whose mutations keep `hold` (the rotation lock file) until their backend call
+    /// returns, even when the caller times out first.
+    pub(crate) fn with_rotation_hold(&self, hold: Option<FileHold>) -> Store {
+        Store {
+            rotation_hold: hold,
             ..self.clone()
         }
     }
@@ -480,10 +505,13 @@ impl Store {
                         reason: "must be an absolute path".into(),
                     });
                 }
-                // Named by the backend's own store identity (not the per-allocation fallback
-                // used for the in-process table), so every process derives the same file.
+                // Named by the canonical native store identity and credential identity ONLY,
+                // never by `Backend::name` (a diagnostic label that differs between backends
+                // reaching one keychain, for example the default and an explicit file), and not
+                // by the per-allocation fallback of the in-process table. Every alias of one
+                // native credential, in any process, therefore derives the same file.
                 let identity = backend.exclusion_identity().unwrap_or_default();
-                Some(dir.join(lock_file_name(backend.name(), &identity, &credential)))
+                Some(dir.join(lock_file_name(&identity, &credential)))
             }
             None if backend.durable() => {
                 return Err(Error::Unavailable(
@@ -553,12 +581,20 @@ impl Store {
             (self.backend.clone(), None)
         };
         let ticket = permit.as_ref().map(TargetPermit::ticket);
+        // A mutation inside a rotation carries the cross-process lock into its worker: a call
+        // that times out is still running, and the rotation must stay exclusive until it ends.
+        let hold = if mutation {
+            self.rotation_hold.clone()
+        } else {
+            None
+        };
         let (ns, acct, mode) = (self.ns.clone(), account.to_string(), self.mode);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let result = f(backend, ns, acct, mode);
             // Released before the result is sent, so a caller that has its answer can retry at once.
             drop(permit);
+            drop(hold);
             let _ = tx.send(result);
         });
         // An abandoned thread stays blocked in the OS call until a prompt is dismissed, then exits.

@@ -263,7 +263,8 @@ fn run(args: &[String]) -> rightkit_credentials::Result<serde_json::Value> {
     }
 }
 
-#[cfg(test)]
+// `MemoryBackend` is compiled only with debug assertions.
+#[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
     use rightkit_credentials::{GuardMode, MemoryBackend};

@@ -18,7 +18,7 @@ use std::{
 mod platform;
 #[cfg(windows)]
 #[path = "native_capture/windows.rs"]
-mod platform;
+pub(crate) mod platform;
 
 const CHUNK: usize = 8 * 1024;
 const IDLE_WAIT: Duration = Duration::from_millis(20);

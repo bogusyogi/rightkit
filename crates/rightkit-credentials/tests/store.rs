@@ -1,5 +1,9 @@
 //! Store behaviour on every platform (memory backend and guards) and a real Windows Credential
 //! Manager round trip under a unique, cleaned-up test namespace.
+//!
+//! `MemoryBackend` exists only with debug assertions, so this suite is a debug-profile suite; the
+//! release-profile guard behaviour is in `guard_release.rs`.
+#![cfg(debug_assertions)]
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -2005,6 +2009,19 @@ impl Backend for SharedDurable {
 }
 
 /// A separate `Store` over the shared durable store: one "process".
+/// A temp dir closed to group and others. `tempfile` may create it with the umask's default mode
+/// (0755 on macOS), which the rotation lock correctly refuses as not private, so the test owner
+/// sets 0700 itself, as a real caller must for its lock directory.
+fn private_tempdir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    dir
+}
+
 fn process_over(backend: &Arc<SharedDurable>, ns: &Namespace, lock_dir: &std::path::Path) -> Store {
     Store::open(
         Config::new(ns.clone())
@@ -2032,7 +2049,7 @@ fn value_of(store: &Store, account: &str) -> Option<String> {
 
 #[test]
 fn stale_commit_after_another_process_aborts_and_rebegins_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_tempdir();
     let backend = Arc::new(SharedDurable(MemoryBackend::new()));
     let ns = Namespace::new("dev.rightkit.secrets.test.rotation-stale-commit").unwrap();
     let process_a = process_over(&backend, &ns, dir.path());
@@ -2077,7 +2094,7 @@ fn stale_commit_after_another_process_aborts_and_rebegins_is_refused() {
 
 #[test]
 fn stale_commit_is_refused_when_the_rotation_was_only_aborted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_tempdir();
     let backend = Arc::new(SharedDurable(MemoryBackend::new()));
     let ns = Namespace::new("dev.rightkit.secrets.test.rotation-stale-aborted").unwrap();
     let process_a = process_over(&backend, &ns, dir.path());
@@ -2093,7 +2110,7 @@ fn stale_commit_is_refused_when_the_rotation_was_only_aborted() {
 
 #[test]
 fn own_commit_of_and_abort_of_work_and_a_stale_abort_keeps_the_newer_marker() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_tempdir();
     let backend = Arc::new(SharedDurable(MemoryBackend::new()));
     let ns = Namespace::new("dev.rightkit.secrets.test.rotation-of").unwrap();
     let process_a = process_over(&backend, &ns, dir.path());
@@ -2179,7 +2196,7 @@ fn a_durable_store_refuses_to_rotate_without_a_lock_directory_but_still_reads() 
     ));
     assert_eq!(value_of(&bare, "db").as_deref(), Some("old"));
     // With a directory set after the fact, the same store rotates.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_tempdir();
     let with_dir = bare.with_rotation_lock_dir(dir.path());
     assert!(with_dir.begin_rotation("db", &new).unwrap());
     assert!(with_dir.commit_rotation_of("db", &new).unwrap());
@@ -2199,24 +2216,5 @@ fn an_env_memory_guard_still_swaps_in_memory_in_debug_builds() {
     assert!(store.guard_active());
     store.set_str("x", "v").unwrap();
     assert_eq!(store.get("x").unwrap().unwrap().expose_str().unwrap(), "v");
-    std::env::remove_var(&guard);
-}
-
-#[cfg(not(debug_assertions))]
-#[test]
-fn an_env_memory_guard_denies_instead_of_using_volatile_memory_in_release_builds() {
-    let guard = format!("RK_SECRETS_TEST_MEMORY_REL_{}", std::process::id());
-    std::env::set_var(&guard, "1");
-    let store = Store::open(
-        Config::new(Namespace::new("dev.rightkit.secrets.test.guard-memory-rel").unwrap())
-            .guard_env(&guard)
-            .guard_mode(GuardMode::Memory),
-    );
-    assert!(store.guard_active());
-    assert!(matches!(store.get("x"), Err(Error::Guarded { .. })));
-    assert!(matches!(
-        store.set_str("x", "v"),
-        Err(Error::Guarded { .. })
-    ));
     std::env::remove_var(&guard);
 }

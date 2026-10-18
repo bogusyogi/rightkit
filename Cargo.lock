@@ -6832,7 +6832,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "keyring-core",

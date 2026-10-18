@@ -293,3 +293,85 @@ describe("useSettings load races (per-run cancellation and load order)", () => {
     expect(m.loads).toHaveLength(3);
   });
 });
+
+describe("useSettings load against a completed write", () => {
+  /** Loads and patches are deferreds the test settles by hand; patch calls record the revision they were given. */
+  function manualWriteBackend() {
+    const loads: ReturnType<typeof deferred<SettingsSnapshot>>[] = [];
+    const patches: ReturnType<typeof deferred<SettingsSnapshot>>[] = [];
+    const patchRevisions: (number | undefined)[] = [];
+    const backend: SettingsBackend = {
+      load: () => {
+        const d = deferred<SettingsSnapshot>();
+        loads.push(d);
+        return d.promise;
+      },
+      patch: (_p, expected) => {
+        patchRevisions.push(expected);
+        const d = deferred<SettingsSnapshot>();
+        patches.push(d);
+        return d.promise;
+      },
+    };
+    return { backend, loads, patches, patchRevisions };
+  }
+
+  it("a load started before a write that resolves after the write completes does not restore the old value or revision", async () => {
+    const m = manualWriteBackend();
+    const { result } = renderHook(() => useSettings(m.backend, { initial: { values: { theme: "light" }, revision: 1 } }));
+    await act(async () => {});
+    expect(m.loads).toHaveLength(1); // the mount-time load is still open
+    let write!: Promise<void>;
+    act(() => {
+      write = result.current.set("theme", "dark");
+    });
+    await act(async () => {});
+    expect(m.patches).toHaveLength(1);
+    await act(async () => {
+      m.patches[0]!.resolve({ values: { theme: "dark" }, revision: 2 });
+      await write;
+    });
+    expect(result.current.saving).toBe(false);
+    expect(result.current.values).toEqual({ theme: "dark" });
+    await act(async () => {
+      m.loads[0]!.resolve({ values: { theme: "light" }, revision: 1 }); // answers with the state from before the write
+    });
+    expect(result.current.values).toEqual({ theme: "dark" });
+    expect(result.current.error).toBeNull();
+    // The old load did not roll the revision back: the next write is made against the patched revision.
+    let next!: Promise<void>;
+    act(() => {
+      next = result.current.set("size", 2);
+    });
+    await act(async () => {});
+    expect(m.patchRevisions).toEqual([1, 2]);
+    await act(async () => {
+      m.patches[1]!.resolve({ values: { theme: "dark", size: 2 }, revision: 3 });
+      await next;
+    });
+    expect(result.current.values).toEqual({ theme: "dark", size: 2 });
+  });
+
+  it("a load started before a write that rejects after the write completes shows no error and keeps the written value", async () => {
+    const m = manualWriteBackend();
+    const { result } = renderHook(() => useSettings(m.backend));
+    await act(async () => {});
+    expect(result.current.loaded).toBe(false);
+    let write!: Promise<void>;
+    act(() => {
+      write = result.current.set("theme", "dark");
+    });
+    await act(async () => {});
+    await act(async () => {
+      m.patches[0]!.resolve({ values: { theme: "dark" }, revision: 2 });
+      await write;
+    });
+    await act(async () => {
+      m.loads[0]!.reject(new Error("old load failed"));
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.values).toEqual({ theme: "dark" });
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.saving).toBe(false);
+  });
+});

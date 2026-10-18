@@ -43,7 +43,7 @@ required-features = ["bindgen"]
 uniffi = "0.32"
 jni = "0.22.4"
 thiserror = "2"
-rightkit-credentials = { version = "0.2.2", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.3.0", path = "../rightkit-credentials" }
 rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
 
 [package.metadata.rightkit]

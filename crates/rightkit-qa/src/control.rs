@@ -1954,7 +1954,7 @@ mod launch_path_tests {
         assert!(!bundle
             .with_file_name("control-test-app.app.previous")
             .exists());
-        // A different build replaces the bundle in place and keeps exactly one `.previous`.
+        // A different build replaces the bundle in place and keeps no `.previous` copy (D1, #771).
         fs::write(&spec.binary, "second build").unwrap();
         let next = stage_bundle(&spec, &ws, "0123456789abcdef").unwrap();
         assert_eq!(next, bundle);
@@ -1962,11 +1962,9 @@ mod launch_path_tests {
             fs::read(bundle.join("Contents/MacOS/control-test-app")).unwrap(),
             b"second build"
         );
-        let previous = bundle.with_file_name("control-test-app.app.previous");
-        assert_eq!(
-            fs::read(previous.join("Contents/MacOS/control-test-app")).unwrap(),
-            b"fixture binary"
-        );
+        assert!(!bundle
+            .with_file_name("control-test-app.app.previous")
+            .exists());
         fs::write(&spec.binary, "fixture binary").unwrap();
         let bundle = stage_bundle(&spec, &ws, id).unwrap();
         assert_eq!(

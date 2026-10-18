@@ -316,6 +316,15 @@ unsafe extern "system" {
     fn CancelIoEx(handle: RawHandle, overlapped: *mut Overlapped) -> i32;
 }
 
+/// Cancel every pending I/O on `handle` issued by any thread (`CancelIoEx` with no OVERLAPPED).
+///
+/// # Safety
+/// `handle` must be an open handle for the whole call.
+pub(crate) unsafe fn cancel_all_io(handle: RawHandle) -> i32 {
+    // SAFETY: the caller guarantees `handle` is open; a null OVERLAPPED means "all requests".
+    unsafe { CancelIoEx(handle, std::ptr::null_mut()) }
+}
+
 #[link(name = "ntdll")]
 unsafe extern "system" {
     fn NtQueryInformationFile(

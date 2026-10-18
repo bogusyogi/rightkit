@@ -3,7 +3,7 @@
 ## 0.6.1 — unpublished staging
 
 - Makes theme peer optional for React-only core consumers.
-- `useSettings`: each effect run now cancels its own load, load failure and subscription callback, and a load that is no longer the newest is discarded, so a StrictMode replay or an out-of-order reply can no longer overwrite newer values or show a stale error.
+- `useSettings`: each effect run now cancels its own load, load failure and subscription callback, and a load that is no longer the newest (or that predates a completed write) is discarded, so a StrictMode replay, an out-of-order reply, or a load that settles after a completed write can no longer overwrite newer values, roll back the revision or show a stale error.
 
 ## 0.6.0 (2026-10-17)
 

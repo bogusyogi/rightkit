@@ -31,6 +31,14 @@
 //!
 //! Waiting for either layer is bounded by the store timeout and ends in [`Error::InProgress`].
 //!
+//! A backend call that times out keeps running on its worker thread and may still write the
+//! primary or the marker. The lock file is therefore owned by the workers as well as by the
+//! invocation: each mutation's worker holds a clone of it and releases it only when the backend
+//! call returns (`RotationHeld::bind`). While an abandoned write is in flight, another process
+//! (or thread) cannot take the lock to abort, re-begin or commit and is refused with
+//! [`Error::InProgress`] after the store timeout; in this process `rotation_ready` also sees the
+//! abandoned call's target permit.
+//!
 //! ## Generation check
 //!
 //! The lock makes each invocation atomic; it cannot tell that the rotation a caller began was
@@ -106,9 +114,10 @@ fn fnv1a(seed: u64, parts: &[&str]) -> u64 {
     hash
 }
 
-/// The lock file name for one credential of one store.
-pub(crate) fn lock_file_name(backend: &str, store: &str, credential: &str) -> String {
-    let parts = [backend, store, credential];
+/// The lock file name for one native credential: derived from the canonical store identity
+/// and credential identity only (never the backend's diagnostic name).
+pub(crate) fn lock_file_name(store: &str, credential: &str) -> String {
+    let parts = [store, credential];
     format!(
         "rotation-{:016x}{:016x}.lock",
         fnv1a(0xcbf2_9ce4_8422_2325, &parts),
@@ -124,9 +133,15 @@ pub(crate) struct RotationLock {
     timeout: Duration,
 }
 
-/// Held for one begin, commit or abort; both layers release on drop.
+/// The open, locked lock file. Shared (`Arc`) so a mutation's worker thread can keep the
+/// cross-process lock after the invocation that took it has returned (see
+/// [`RotationHeld::bind`]); the OS lock is released when the last clone drops.
+pub(crate) type FileHold = Arc<File>;
+
+/// Held for one begin, commit or abort; both layers release on drop, except that the lock file
+/// stays held while a worker thread of this invocation is still inside a backend call.
 pub(crate) struct RotationHeld<'a> {
-    _file: Option<File>,
+    file: Option<FileHold>,
     _local: MutexGuard<'a, ()>,
 }
 
@@ -153,13 +168,26 @@ impl RotationLock {
             Err(TryLockError::Poisoned(_)) => Err(unavailable("rotation lock poisoned")),
         })?;
         let file = match &self.file {
-            Some(path) => Some(lock_file(path, deadline)?),
+            Some(path) => Some(Arc::new(lock_file(path, deadline)?)),
             None => None,
         };
         Ok(RotationHeld {
-            _file: file,
+            file,
             _local: local,
         })
+    }
+}
+
+impl RotationHeld<'_> {
+    /// `store` with this invocation's cross-process lock attached to its mutations. A timed-out
+    /// backend call cannot be cancelled: its worker thread keeps running and may still write
+    /// the primary or the marker after the caller has its `Error::Timeout`. Each mutation's
+    /// worker therefore owns a clone of the lock file and releases it only when the backend
+    /// call returns, so no other process can take the rotation lock (abort, re-begin, commit)
+    /// while an abandoned write is still in flight. Use the returned store for every call
+    /// of the invocation.
+    pub(crate) fn bind(&self, store: Store) -> Store {
+        store.with_rotation_hold(self.file.clone())
     }
 }
 
@@ -277,7 +305,8 @@ impl Store {
             });
         }
         let (store, lock) = self.rotation_store(account)?;
-        let _held = lock.acquire()?;
+        let held = lock.acquire()?;
+        let store = held.bind(store);
         store.rotation_ready(account)?;
         store.add_if_absent(&marker(account), new)
     }
@@ -296,7 +325,8 @@ impl Store {
     /// [`Store::commit_rotation_of`]. Use this one for recovery after a restart.
     pub fn commit_rotation(&self, account: &str) -> Result<bool> {
         let (store, lock) = self.rotation_store(account)?;
-        let _held = lock.acquire()?;
+        let held = lock.acquire()?;
+        let store = held.bind(store);
         commit_locked(&store, account, None)
     }
 
@@ -308,7 +338,8 @@ impl Store {
     /// untouched. Same lock as [`Store::commit_rotation`].
     pub fn commit_rotation_of(&self, account: &str, expected: &Secret) -> Result<bool> {
         let (store, lock) = self.rotation_store(account)?;
-        let _held = lock.acquire()?;
+        let held = lock.acquire()?;
+        let store = held.bind(store);
         commit_locked(&store, account, Some(expected))
     }
 
@@ -317,7 +348,8 @@ impl Store {
     /// use [`Store::abort_rotation_of`].
     pub fn abort_rotation(&self, account: &str) -> Result<bool> {
         let (store, lock) = self.rotation_store(account)?;
-        let _held = lock.acquire()?;
+        let held = lock.acquire()?;
+        let store = held.bind(store);
         store.rotation_ready(account)?;
         store.delete(&marker(account))
     }
@@ -327,7 +359,8 @@ impl Store {
     /// "nothing pending". `Ok(true)` when this call removed the marker.
     pub fn abort_rotation_of(&self, account: &str, expected: &Secret) -> Result<bool> {
         let (store, lock) = self.rotation_store(account)?;
-        let _held = lock.acquire()?;
+        let held = lock.acquire()?;
+        let store = held.bind(store);
         store.rotation_ready(account)?;
         match store.pending_rotation(account)? {
             Some(pending) if pending.ct_eq(expected) => remove_marker(&store, account, &pending),
@@ -345,9 +378,22 @@ mod tests {
         RotationLock::new(Arc::new(Mutex::new(())), Some(path.to_path_buf()), timeout)
     }
 
+    /// A temp dir closed to group and others. `tempfile` may create it with the umask's default mode
+    /// (0755 on macOS), which the rotation lock correctly refuses as not private, so the test owner
+    /// sets 0700 itself, as a real caller must for its lock directory.
+    fn private_tempdir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        dir
+    }
+
     #[test]
     fn the_lock_file_excludes_a_holder_with_another_local_mutex_and_releases_on_drop() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_tempdir();
         let path = dir.path().join("rotation-test.lock");
         let first = lock_over(&path, Duration::from_millis(100));
         let second = lock_over(&path, Duration::from_millis(100));
@@ -369,7 +415,7 @@ mod tests {
 
     #[test]
     fn the_local_mutex_wait_is_bounded_too() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_tempdir();
         let path = dir.path().join("rotation-test.lock");
         let lock = lock_over(&path, Duration::from_millis(50));
         let _held = lock.acquire().unwrap();
@@ -381,21 +427,18 @@ mod tests {
 
     #[test]
     fn lock_file_names_are_stable_distinct_per_credential_and_unambiguous() {
-        let a = lock_file_name("keychain", "store-1", "svc/db");
-        assert_eq!(a, lock_file_name("keychain", "store-1", "svc/db"));
-        assert_ne!(a, lock_file_name("keychain", "store-2", "svc/db"));
-        assert_ne!(a, lock_file_name("keychain", "store-1", "svc/other"));
-        assert_ne!(
-            lock_file_name("ab", "c", "d"),
-            lock_file_name("a", "bc", "d")
-        );
+        let a = lock_file_name("store-1", "svc/db");
+        assert_eq!(a, lock_file_name("store-1", "svc/db"));
+        assert_ne!(a, lock_file_name("store-2", "svc/db"));
+        assert_ne!(a, lock_file_name("store-1", "svc/other"));
+        assert_ne!(lock_file_name("ab", "c"), lock_file_name("a", "bc"));
         assert!(a.starts_with("rotation-") && a.ends_with(".lock"));
         assert_eq!(a.len(), "rotation-".len() + 32 + ".lock".len());
     }
 
     #[test]
     fn a_missing_lock_directory_is_created_private() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_tempdir();
         let path = dir
             .path()
             .join("nested")

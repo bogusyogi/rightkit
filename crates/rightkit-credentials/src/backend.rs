@@ -1,8 +1,11 @@
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, windows_credential_identity, Namespace};
 use crate::secret::Secret;
+#[cfg(any(test, debug_assertions))]
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
+#[cfg(any(test, debug_assertions))]
+use std::sync::{Mutex, OnceLock};
 
 /// Whether the OS may show an authorization prompt for this call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -77,8 +80,8 @@ pub trait Backend: Send + Sync + 'static {
     /// Whether a value this backend accepts survives the process. Defaults to `false`
     /// (fail closed): migration deletes its source only after the copy is in a backend that
     /// says `true`, because copying into process memory and then deleting the persistent copy
-    /// would lose the secret on exit. The OS backends return `true`; [`MemoryBackend`] returns
-    /// `false` (see [`MemoryBackend::simulating_durable`] for tests).
+    /// would lose the secret on exit. The OS backends return `true`; `MemoryBackend` (debug and test
+    /// builds only) returns `false`, or `true` through `MemoryBackend::simulating_durable`.
     fn durable(&self) -> bool {
         false
     }
@@ -117,12 +120,18 @@ pub trait Backend: Send + Sync + 'static {
 }
 
 /// In-process store (guard mode, tests). Never touches the OS.
+///
+/// A test and development capability: it is compiled only with debug assertions or under
+/// `cfg(test)`, so a release build contains no volatile store that could be swapped in for the
+/// durable OS store (values would vanish on exit and strand encrypted data).
+#[cfg(any(test, debug_assertions))]
 #[derive(Default)]
 pub struct MemoryBackend {
     map: Mutex<HashMap<(String, String), Secret>>,
     simulate_durable: bool,
 }
 
+#[cfg(any(test, debug_assertions))]
 impl MemoryBackend {
     pub fn new() -> Self {
         Self::default()
@@ -148,6 +157,7 @@ impl MemoryBackend {
     }
 }
 
+#[cfg(any(test, debug_assertions))]
 impl Backend for MemoryBackend {
     fn name(&self) -> &'static str {
         "memory"

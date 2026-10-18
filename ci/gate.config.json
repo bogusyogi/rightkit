@@ -125,7 +125,7 @@
         ],
         [
           "--features",
-          "engine,dev-inspect"
+          "engine,dev-overrides,qa-probes"
         ]
       ]
     },

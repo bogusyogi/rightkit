@@ -17,7 +17,7 @@ use std::{
         mpsc, Arc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// How long to wait for a pipe to end after the child has exited, before returning what was
@@ -29,8 +29,17 @@ const DRAIN_WAIT: Duration = Duration::from_secs(2);
 /// that outlived the tree (a grandchild that kept stdin and does not read it).
 const STDIN_WAIT: Duration = Duration::from_millis(500);
 
-/// How long a cancelled writer gets to report before it is detached.
-const STDIN_CANCEL_WAIT: Duration = Duration::from_secs(1);
+/// How long a cancelled writer gets to report; the cancel is repeated every [`CANCEL_RETRY`]
+/// within it. Past this `run` fails with `TimedOut` rather than leave the writer running.
+const STDIN_CANCEL_WAIT: Duration = Duration::from_secs(2);
+
+/// Pause between repeated cancels.
+const CANCEL_RETRY: Duration = Duration::from_millis(25);
+
+/// Most bytes a Windows writer hands to one blocking write, so cancellation is also checked
+/// between chunks.
+#[cfg(windows)]
+const WRITE_CHUNK: usize = 64 * 1024;
 
 /// How often a Unix writer waiting for pipe space re-checks its cancel flag.
 #[cfg(unix)]
@@ -95,8 +104,10 @@ pub struct RunOutput {
 /// a normal early exit, not an error, and the child's status/output are returned as usual.
 /// Any other stdin write failure is returned as `Err` after the tree is down. A process that
 /// outlived the tree and still holds stdin without reading it cannot hold `run` past its
-/// deadline: once the tree is down the writer gets a short grace, then it is cancelled (Unix)
-/// or detached (Windows) and the result is returned.
+/// deadline: once the tree is down the writer gets a short grace, then it is cancelled (Unix:
+/// non-blocking write end; Windows: `CancelIoEx`) and joined, so no writer thread and no open
+/// write end outlive the call. A writer that cannot be stopped within its bound makes the call
+/// fail with `TimedOut` instead of being left running.
 pub fn run_with_stdin<I, S>(
     program: impl AsRef<OsStr>,
     args: I,
@@ -194,50 +205,136 @@ where
     })
 }
 
-/// The thread that feeds `input` to the child's stdin, with a bounded, cancellable shutdown.
+/// State shared between the thread running [`run_inner`] and the stdin writer thread.
+struct WriterState {
+    cancel: AtomicBool,
+    /// Windows: the parent's write handle while the writer may have a write pending on it. The
+    /// writer clears it (under this lock) before it drops the pipe, so a cancel that sees
+    /// `Some` always acts on an open handle.
+    #[cfg(windows)]
+    handle: std::sync::Mutex<Option<usize>>,
+}
+
+impl WriterState {
+    fn new() -> Self {
+        Self {
+            cancel: AtomicBool::new(false),
+            #[cfg(windows)]
+            handle: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+    }
+
+    /// Asks the writer to stop. Safe to repeat, and it must be: a cancel that lands between two
+    /// writes finds nothing pending, so the caller repeats it until the writer reports.
+    fn cancel(&self) {
+        self.cancel.store(true, Ordering::Release);
+        #[cfg(windows)]
+        {
+            let held = self
+                .handle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(raw) = *held {
+                // SAFETY: `raw` is the writer's still-open pipe handle (it is cleared under
+                // this lock before the pipe is dropped). CancelIoEx with no OVERLAPPED cancels
+                // every pending operation on that handle, which is only the writer's write.
+                unsafe { crate::native_capture::platform::cancel_all_io(raw as _) };
+            }
+        }
+    }
+}
+
+/// Counts writer threads between spawn and the end of their closure, so tests can prove that
+/// none is left once `run` returns.
+#[cfg(test)]
+static LIVE_WRITERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+struct LiveWriter;
+
+#[cfg(test)]
+impl LiveWriter {
+    fn start() -> Self {
+        LIVE_WRITERS.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for LiveWriter {
+    fn drop(&mut self) {
+        LIVE_WRITERS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The thread that feeds `input` to the child's stdin. It owns the parent's write end, and its
+/// shutdown is bounded and verified: when [`finish`](Self::finish) or `Drop` returns `Ok`, the
+/// thread has ended and the write end is closed.
 struct StdinWriter {
-    cancel: Arc<AtomicBool>,
+    state: Arc<WriterState>,
     done: mpsc::Receiver<io::Result<()>>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl StdinWriter {
     fn spawn(stdin: ChildStdin, bytes: Vec<u8>) -> io::Result<Self> {
-        let cancel = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(WriterState::new());
         let (sender, done) = mpsc::channel();
-        let flag = Arc::clone(&cancel);
+        let shared = Arc::clone(&state);
+        #[cfg(test)]
+        let live = LiveWriter::start();
         let handle = std::thread::Builder::new()
             .name("rightkit-run-stdin".into())
             .spawn(move || {
+                #[cfg(test)]
+                let _live = live;
                 let mut stdin = stdin;
-                let result = write_input(&mut stdin, &bytes, &flag);
-                // Dropping the pipe is the EOF, and releases the descriptor even when the
-                // result below is never read.
+                let result = write_input(&mut stdin, &bytes, &shared);
+                // Dropping the pipe is the EOF, and closes the write end before the result
+                // below is reported.
                 drop(stdin);
                 let _ = sender.send(result);
             })?;
         Ok(Self {
-            cancel,
+            state,
             done,
             handle: Some(handle),
         })
     }
 
-    /// Waits [`STDIN_WAIT`] for the writer to end by itself, then cancels it and waits
-    /// [`STDIN_CANCEL_WAIT`] more. A writer that still has not ended (Windows, where a blocking
-    /// write cannot be interrupted from here) is detached: it ends, and closes its pipe, when
-    /// the last reader of that pipe goes away.
+    /// Waits [`STDIN_WAIT`] for the writer to end by itself, then cancels it (repeatedly, for
+    /// up to [`STDIN_CANCEL_WAIT`]) and joins it. A writer that cannot be stopped within that
+    /// bound is an error, never left running: `run` fails closed instead of returning while
+    /// input could still be delivered.
     fn finish(mut self) -> io::Result<()> {
         let result = match self.done.recv_timeout(STDIN_WAIT) {
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.cancel.store(true, Ordering::Release);
-                self.done.recv_timeout(STDIN_CANCEL_WAIT)
-            }
+            Err(mpsc::RecvTimeoutError::Timeout) => self.cancel_and_wait(),
             other => other,
         };
+        self.settle(result)
+    }
+
+    /// Cancels until the writer reports or [`STDIN_CANCEL_WAIT`] passes.
+    fn cancel_and_wait(&self) -> Result<io::Result<()>, mpsc::RecvTimeoutError> {
+        let deadline = Instant::now() + STDIN_CANCEL_WAIT;
+        loop {
+            self.state.cancel();
+            match self.done.recv_timeout(CANCEL_RETRY) {
+                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {}
+                other => return other,
+            }
+        }
+    }
+
+    fn settle(&mut self, result: Result<io::Result<()>, mpsc::RecvTimeoutError>) -> io::Result<()> {
+        let handle = self.handle.take();
         match result {
             Ok(result) => {
-                if let Some(handle) = self.handle.take() {
+                if let Some(handle) = handle {
                     let _ = handle.join();
                 }
                 match result {
@@ -246,11 +343,17 @@ impl StdinWriter {
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Detached: dropping the handle leaves the thread running.
-                self.handle.take();
-                Ok(())
+                // The cancel flag stays set, so the thread writes nothing more once it wakes,
+                // but it has not ended: say so rather than pretend.
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "the stdin writer did not stop within its cancellation bound",
+                ))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if let Some(handle) = handle {
+                    let _ = handle.join();
+                }
                 Err(io::Error::other("the stdin writer thread panicked"))
             }
         }
@@ -259,34 +362,34 @@ impl StdinWriter {
 
 impl Drop for StdinWriter {
     fn drop(&mut self) {
-        // Reached without `finish` on an early error return; a cancelled Unix writer ends
-        // within one poll interval, so nothing is joined here.
-        self.cancel.store(true, Ordering::Release);
+        // Reached without `finish` (an early `?` return in `run_inner`): stop the writer with
+        // the same bound. The result is irrelevant; the run is already failing.
+        if self.handle.is_some() {
+            let result = self.cancel_and_wait();
+            let _ = self.settle(result);
+        }
     }
 }
 
-/// Writes all of `bytes`, or stops early (returning `Ok`) once `cancel` is set. Unix puts the
-/// parent's write end in non-blocking mode and polls, so a pipe whose reader never reads cannot
-/// pin the thread; the flag is checked at least every [`WRITE_POLL`].
+/// Writes all of `bytes`, or stops early (returning `Ok`) once the state is cancelled. Unix puts
+/// the parent's write end in non-blocking mode and polls, so a pipe whose reader never reads
+/// cannot pin the thread; the flag is checked at least every [`WRITE_POLL`]. If the mode cannot
+/// be switched the write fails closed: a blocking write could not be cancelled.
 #[cfg(unix)]
-fn write_input(stdin: &mut ChildStdin, bytes: &[u8], cancel: &AtomicBool) -> io::Result<()> {
+fn write_input(stdin: &mut ChildStdin, bytes: &[u8], state: &WriterState) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let fd = stdin.as_raw_fd();
     // SAFETY: fcntl on a descriptor `stdin` owns for the whole call. O_NONBLOCK is a property of
     // this open file description (the write end only); the child's read end is unaffected.
-    let nonblocking = unsafe {
+    unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
-        flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
-    };
-    if !nonblocking {
-        // Could not switch modes: the blocking write still ends when the pipe breaks, and the
-        // caller detaches it if it does not.
-        use std::io::Write;
-        return stdin.write_all(bytes);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+            return Err(io::Error::last_os_error());
+        }
     }
     let mut written = 0;
     while written < bytes.len() {
-        if cancel.load(Ordering::Acquire) {
+        if state.cancelled() {
             return Ok(());
         }
         let rest = &bytes[written..];
@@ -315,18 +418,61 @@ fn write_input(stdin: &mut ChildStdin, bytes: &[u8], cancel: &AtomicBool) -> io:
     Ok(())
 }
 
-/// Windows: the job holds the whole tree (so the tree kill also frees the pipe), and a blocking
-/// write cannot be cancelled from another thread without the raw handle, so cancellation here
-/// is the detach in [`StdinWriter::finish`].
-#[cfg(not(unix))]
-fn write_input(stdin: &mut ChildStdin, bytes: &[u8], _cancel: &AtomicBool) -> io::Result<()> {
-    use std::io::Write;
-    stdin.write_all(bytes)
+/// Windows: writes in chunks, checking the state between chunks, and publishes the pipe handle
+/// so [`WriterState::cancel`] can abort a write that is blocked on a reader that never reads
+/// (`CancelIoEx`). An error caused by that cancel is a normal stop, not a failure.
+#[cfg(windows)]
+fn write_input(stdin: &mut ChildStdin, bytes: &[u8], state: &WriterState) -> io::Result<()> {
+    use std::{io::Write, os::windows::io::AsRawHandle};
+    let publish = |value: Option<usize>| {
+        *state
+            .handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = value;
+    };
+    publish(Some(stdin.as_raw_handle() as usize));
+    let mut result = Ok(());
+    for chunk in bytes.chunks(WRITE_CHUNK) {
+        if state.cancelled() {
+            break;
+        }
+        if let Err(error) = stdin.write_all(chunk) {
+            result = Err(error);
+            break;
+        }
+    }
+    // Taking the lock waits out any cancel in progress; after this the handle may be closed.
+    publish(None);
+    match result {
+        Err(_) if state.cancelled() => Ok(()),
+        other => other,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    /// The writer-thread counter is process-wide, so tests that start a writer run one at a
+    /// time and can assert it returns to zero.
+    static WRITER_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        WRITER_TESTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Owns a child for the test and kills it on drop.
+    struct KillOnDrop(std::process::Child);
+
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 
     #[test]
     fn defaults_hide_the_window_and_cap_both_streams() {
@@ -370,6 +516,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn stdin_input_reaches_the_child_and_early_exit_is_not_an_error() {
+        let _serial = serial();
         let options = RunOptions::new(Duration::from_secs(10));
         let output = run_with_stdin("sh", ["-c", "cat"], b"hello", &options).unwrap();
         assert!(output.status.success());
@@ -379,6 +526,56 @@ mod tests {
         let big = vec![b'x'; 1 << 20];
         let output = run_with_stdin("sh", ["-c", "exit 7"], &big, &options).unwrap();
         assert_eq!(output.status.code(), Some(7));
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+    }
+
+    /// A reader that stays alive and never reads (the shape of a grandchild that kept stdin
+    /// past the tree kill) cannot pin the writer: `finish` cancels it, joins it and has closed
+    /// the write end, within its bound. Runs on Unix and Windows.
+    #[test]
+    fn a_reader_that_never_reads_cannot_pin_the_writer() {
+        let _serial = serial();
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = std::process::Command::new("sleep");
+            command.arg("30");
+            command
+        };
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = std::process::Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        };
+        let mut child = KillOnDrop(
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let stdin = child.0.stdin.take().unwrap();
+        let writer = StdinWriter::spawn(stdin, vec![b'x'; 2 << 20]).unwrap();
+        // Let it fill the pipe and block.
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 1, "the writer should be blocked");
+        let started = std::time::Instant::now();
+        writer.finish().unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+        assert!(
+            elapsed < STDIN_WAIT + STDIN_CANCEL_WAIT + Duration::from_secs(3),
+            "finish took {elapsed:?}"
+        );
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "the reader must have stayed alive throughout"
+        );
     }
 
     /// Records the pid of the setsid grandchild in a file and kills it on drop, so a failed
@@ -403,6 +600,13 @@ mod tests {
             (pid > 1).then_some(pid)
         }
 
+        /// Where the `reads` grandchild records how many bytes it read before EOF.
+        fn count_path(&self) -> std::path::PathBuf {
+            let mut path = self.0.clone().into_os_string();
+            path.push(".count");
+            path.into()
+        }
+
         fn alive(&self) -> bool {
             // SAFETY: signal 0 only checks existence.
             self.pid()
@@ -418,20 +622,22 @@ mod tests {
                 unsafe { libc::kill(pid, libc::SIGKILL) };
             }
             let _ = std::fs::remove_file(&self.0);
+            let _ = std::fs::remove_file(self.count_path());
         }
     }
 
     /// Shell fixture: starts a grandchild in a new session (so neither the group kill nor the
     /// tree kill reaches it) that keeps this shell's stdin open and never reads it, waits for
-    /// it to record its pid, then runs `tail`. `$1` is the pid file. Exits 99 when the host has
+    /// it to record its pid, then runs `tail`. The grandchild runs `body` (`exec sleep 30` to
+    /// hold stdin unread, or a delayed read-to-EOF that proves the write end was closed). `$1` is the pid file. Exits 99 when the host has
     /// neither `setsid` nor `perl` to leave the session.
     #[cfg(unix)]
-    fn holder_script(tail: &str) -> String {
+    fn holder_script(body: &str, tail: &str) -> String {
         format!(
             "if command -v setsid >/dev/null 2>&1; then \
-               setsid sh -c 'echo $$ > \"$1\"; exec sleep 30' sh \"$1\" <&0 >/dev/null 2>&1 & \
+               setsid sh -c 'echo $$ > \"$1\"; {body}' sh \"$1\" <&0 >/dev/null 2>&1 & \
              elif command -v perl >/dev/null 2>&1; then \
-               perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' sh -c 'echo $$ > \"$1\"; exec sleep 30' sh \"$1\" <&0 >/dev/null 2>&1 & \
+               perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' sh -c 'echo $$ > \"$1\"; {body}' sh \"$1\" <&0 >/dev/null 2>&1 & \
              else exit 99; fi; \
              i=0; while [ ! -s \"$1\" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; {tail}"
         )
@@ -440,8 +646,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_session_escaped_stdin_holder_does_not_hold_run_past_its_exit() {
+        let _serial = serial();
         let holder = Grandchild::new("exit");
-        let script = holder_script("exit 0");
+        // After `run` has returned, the grandchild reads stdin to EOF and records how much it
+        // got. A writer left running (or a write end left open) would deliver all 2 MiB, or
+        // leave it blocked; a closed write end leaves only what was already in the pipe.
+        let script = holder_script("sleep 2; wc -c > \"$1.count\"; exec sleep 30", "exit 0");
         let big = vec![b'x'; 2 << 20];
         let options = RunOptions::new(Duration::from_secs(10));
         let started = std::time::Instant::now();
@@ -465,14 +675,38 @@ mod tests {
         assert!(output.status.success(), "{:?}", output.status);
         // Exit is immediate; the writer gets STDIN_WAIT + STDIN_CANCEL_WAIT at most.
         assert!(elapsed < Duration::from_secs(6), "run took {elapsed:?}");
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let received = loop {
+            if let Some(count) = std::fs::read_to_string(holder.count_path())
+                .ok()
+                .and_then(|text| text.trim().parse::<usize>().ok())
+            {
+                break count;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the grandchild never reached EOF: the write end is still open"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(
+            received < big.len() / 2,
+            "{received} bytes reached the grandchild after run returned"
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn a_session_escaped_stdin_holder_does_not_hold_run_past_its_timeout() {
+        let _serial = serial();
         let holder = Grandchild::new("timeout");
         // The leader blocks past the deadline, so the tree kill (not an exit) ends it.
-        let script = holder_script("sleep 30");
+        let script = holder_script("exec sleep 30", "sleep 30");
         let big = vec![b'x'; 2 << 20];
         let timeout = Duration::from_secs(1);
         let options = RunOptions::new(timeout);
@@ -497,6 +731,11 @@ mod tests {
         assert!(
             elapsed < timeout + Duration::from_secs(6),
             "run took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
         );
     }
 

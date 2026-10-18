@@ -132,6 +132,12 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
           if (!isCurrent(g)) return;
           g.revision = snap.revision;
           setValues(snap.values);
+          // The write's snapshot is newer than any load still in flight: invalidate those, or a slow load that
+          // settles after the write drains (pending is 0 again) would restore the pre-write values and revision.
+          // Not done at patch start or on failure: a load that settles while a write is pending (or after a failed
+          // one) is handled by the reloadSkipped path / holds the unchanged stored state.
+          g.loadSeq += 1;
+          setLoaded(true);
         } catch (e) {
           if (!isCurrent(g)) return;
           setValues((cur) => {

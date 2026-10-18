@@ -3,7 +3,7 @@
 //! * macOS Keychain / Windows Credential Manager / Linux Secret Service behind one [`Store`], per-app [`Namespace`].
 //! * Passive [`Store::exists`]: never requests secret bytes, never prompts.
 //! * Explicit [`Interaction`]: runtime calls are non-interactive; only a user action opts in.
-//! * Test/dev guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) swap in memory or deny.
+//! * Test/dev guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) swap in memory (debug and test builds only; a release build denies) or deny.
 //! * [`Store::get_or_create_key`] provisions DB keys; [`migrate_between`] and friends move
 //!   legacy items. [`Secret`] never prints.
 //! * Android: an AES-GCM key in `AndroidKeyStore` encrypts each secret and only the ciphertext is
@@ -31,9 +31,9 @@ pub mod macos;
 #[cfg(windows)]
 mod windows;
 
-pub use backend::{
-    system_backend, Backend, ConditionalDelete, Interaction, MemoryBackend, UnavailableBackend,
-};
+#[cfg(any(test, debug_assertions))]
+pub use backend::MemoryBackend;
+pub use backend::{system_backend, Backend, ConditionalDelete, Interaction, UnavailableBackend};
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,
