@@ -426,7 +426,9 @@ try {
     let sourceRoots;
     if (opts.platform === "ios") {
       const repoTop = git(root, ["rev-parse", "--show-toplevel"]);
-      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios, nativeAssembly: config.nativeAssembly }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
+      // Swift side only: the Rust side is the resolved cargo graph below. The ownership scope also folds in the whole
+      // nativeAssembly workspace, which would scan crates (desktop tools, the TUI) the iPhone never links.
+      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
       sourceRoots = [...new Set([...swiftSide, ...localCrateDirsFromTree(treeText, repoTop)])].sort();
       // A prepare step can stage sources from anywhere (a web bundle, a generated resource) into the app; its working directory must be
       // inside the scanned roots, or the release fails instead of shipping what the scan never saw. Add the directory to ownershipScope.

@@ -28,3 +28,11 @@ test("a DEBUG-only Swift test switch is accepted as swift:DEBUG", () => {
   const missing = sourceSwitchFindings({ sourceRoot: app(), inventoryText: inventory([{ name: "APP_UI_QA", class: "S1", channel: "env" }]) });
   assert.equal(missing[0].rule, "not-compiled-out");
 });
+
+test("env! of a Cargo-set name is not a switch; any other compile-time name still is", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rk-switch-cargo-"));
+  mkdirSync(path.join(root, "src"));
+  writeFileSync(path.join(root, "src", "lib.rs"), 'const V: &str = env!("CARGO_PKG_VERSION");\nconst D: &str = env!("CARGO_MANIFEST_DIR");\nconst O: Option<&str> = option_env!("OUT_DIR");\nconst F: Option<&str> = option_env!("APP_BUILD_FLAVOR");\n');
+  const findings = sourceSwitchFindings({ sourceRoot: root, inventoryText: inventory([]) });
+  assert.deepEqual(findings.map((f) => f.reason.match(/`([A-Z_]+)`/)[1]), ["APP_BUILD_FLAVOR"]);
+});

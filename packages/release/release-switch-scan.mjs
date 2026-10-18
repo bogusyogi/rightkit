@@ -253,10 +253,13 @@ const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", ".git", "t
 const skipDir = (name) => SKIP_DIRS.has(name.toLowerCase()) || /(?:^|[a-z0-9])(?:UI)?Tests$/.test(name);
 const TEST_FILE = /(\.test\.|\.spec\.|_tests?\.rs$|^tests?\.rs$)/;
 
+const CARGO_COMPILE_TIME = /\b(?:option_)?env!\(\s*"([^"]+)"/g;
+// Variables Cargo sets for every build script and crate compilation (the Cargo book, "Environment variables Cargo sets for crates").
+const CARGO_SET = /^(CARGO|CARGO_(PKG_[A-Z_]+|MANIFEST_DIR|MANIFEST_PATH|CRATE_NAME|BIN_NAME|BIN_EXE_[A-Za-z0-9_-]+|PRIMARY_PACKAGE|TARGET_TMPDIR|RUSTC_CURRENT_DIR)|OUT_DIR)$/;
 // Reads of a literal name; group 1 is the name.
 const LITERAL_READS = [
   /\b(?:std::)?env::var(?:_os)?\(\s*"([^"]+)"\s*\)/g,
-  /\b(?:option_)?env!\(\s*"([^"]+)"/g,
+  CARGO_COMPILE_TIME,
   /\bgetenv\(\s*"([^"]+)"\s*\)/g,
   /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
   /process\.env\[\s*["']([^"']+)["']\s*\]/g,
@@ -321,6 +324,9 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
       for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
         const name = m[1];
         if (JS_BUILTINS.has(name) && /\.(ts|tsx|js|mjs|cjs|jsx|vue|svelte)$/.test(file)) continue;
+        // `env!`/`option_env!` of a name Cargo itself sets at compile time (CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, ...) is
+        // not a switch: no caller can choose it. Any other compile-time name is still a read the builder could set.
+        if (pattern === CARGO_COMPILE_TIME && CARGO_SET.test(name)) continue;
         reads.add(name);
         if (!registered.has(name)) findings.push({ layer: "inventory", rule: "unregistered-read", file: `${rel}:${lineOf(text, m.index)}`, reason: `unregistered-read: \`${name}\` is read here but is not listed in ${inventoryLabel}` });
       }
