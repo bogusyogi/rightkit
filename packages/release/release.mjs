@@ -11,7 +11,7 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
 import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
-import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, isNativeIosTarget, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { declaredCargoManifest, hasDefaultTauriManifest, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import {
   canonicalPackageIdentity,
@@ -197,7 +197,11 @@ validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.b
 // One standard dev profile and panic = "unwind" in every app (templates/cargo-profiles.toml).
 assertCargoProfileContract(root, config.app ?? path.basename(root));
 // RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
-assertQaAdoption({ appRoot: root, app: config.app });
+// A native iOS app (no src-tauri) may pass on its repository's QA lane; RightKit has no iOS QA lane yet (warning recorded).
+{
+  const inheritRepoLane = opts.platform === "ios" && isNativeIosTarget({ appRoot: root, target: config.targets?.ios });
+  assertQaAdoption({ appRoot: root, app: config.app, inheritRepoLane, repoRoot: inheritRepoLane ? git(root, ["rev-parse", "--show-toplevel"]) : undefined });
+}
 let target = config.targets?.[opts.platform];
 // Declarative winPackage / macPackage (#345) expand to the same hook shape every gate below already checks.
 try { target = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }

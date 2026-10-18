@@ -45,3 +45,26 @@ test("does not impose native QA on an app before its config lands", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-release-no-qa-"));
   assert.deepEqual(validateQaBackdoorContract(root, {}), []);
 });
+
+test("a native iOS app passes on its repository's QA lane only when asked to, and a repository with no QA is still refused", async () => {
+  const { evaluateQaAdoption } = await import("./qa-contract.mjs");
+  const fsMod = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const repo = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rk-qa-ios-"));
+  const ios = pathMod.join(repo, "apps", "app-ios");
+  const desktop = pathMod.join(repo, "apps", "app-desktop");
+  fsMod.mkdirSync(ios, { recursive: true });
+  fsMod.mkdirSync(desktop, { recursive: true });
+  const deps = { versions: { cargo: {}, npm: {} } };
+  const without = evaluateQaAdoption({ appRoot: ios, repoRoot: repo, app: "app-ios", inheritRepoLane: true }, deps);
+  assert.equal(without.refusals.length, 1, "no QA anywhere in the repository is refused");
+  fsMod.writeFileSync(pathMod.join(desktop, "package.json"), JSON.stringify({ devDependencies: { "@rightkit/qa": "0.6.4" } }));
+  const inherited = evaluateQaAdoption({ appRoot: ios, repoRoot: repo, app: "app-ios", inheritRepoLane: true }, deps);
+  assert.deepEqual(inherited.refusals, []);
+  assert.match(inherited.lane[0], /repository QA lane: @rightkit\/qa \(apps\/app-desktop\/package.json\)/);
+  assert.match(inherited.warnings.join("\n"), /native iOS app with no QA lane of its own/);
+  const notAsked = evaluateQaAdoption({ appRoot: ios, repoRoot: repo, app: "app-ios" }, deps);
+  assert.equal(notAsked.refusals.length, 1, "other platforms never inherit");
+  fsMod.rmSync(repo, { recursive: true, force: true });
+});
