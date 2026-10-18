@@ -1,0 +1,22 @@
+rustright: request 238d8972-9573-4dca-b98d-ad7a42002409
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling rightkit-cache v0.2.2 (/Volumes/D/claude/rightkit/crates/rightkit-cache)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.53s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/debug/deps/budget-54036842d856744f)
+warm-up: 100000 puts in 20.8 s, 100000 gets in 11.6 s (65536 hits), resident entries 65536, bytes 33554432, evictions 34464, resident 48.0 MiB (before open 5.9 MiB)
+RESULT cache_entries=65536 entries
+RESULT cache_evictions=34464 entries
+RESULT warm_resident_bytes=50364416 bytes
+RESULT idle_resident_bytes=50380800 bytes
+RESULT resident_memory_bytes=50380800 bytes
+RESULT footprint_bytes=47694304 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 512-byte entries put and read through a 32 MiB cap, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-cache version=0.2.2 resident_bytes=50380800 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=entries scale_count=100000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 2/11052

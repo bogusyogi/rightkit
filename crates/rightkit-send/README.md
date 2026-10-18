@@ -72,9 +72,9 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 
 - Resident memory ceiling: 15.0 MiB.
 - CPU ceiling (idle, steady state): 1%.
-- Wake-ups ceiling: undeclared.
+- Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 50 devices or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `Service::status()` in `src/lib.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: not yet measured.
+- Measured: darwin/arm64 (Mac18,5), rightkit-send 0.2.0 at a0de6304c28a, 50 devices (50 discovered devices; service idle for 30 seconds), synthetic, `rustright cargo test -p rightkit-send --profile dev --bench budget --jobs 12 -- 50 30`, 2026-10-18, evidence 12fb890b2283: resident memory 8.4 MiB, idle CPU 0.012%, wake-ups 0.199 per second, disk operations n/a (not measurable on this host).

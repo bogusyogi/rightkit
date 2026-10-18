@@ -64,24 +64,24 @@
         "model": "Mac18,5"
       },
       "crateVersion": "0.4.1",
-      "commit": "eda0e95308182776d52056b3c3c785c60c06072d",
-      "date": "2026-10-17",
+      "commit": "a0de6304c28a4aa3c82cc543dd5653535404eb36",
+      "date": "2026-10-18",
       "scope": "synthetic",
       "dataScale": {
-        "description": "synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs)",
+        "description": "50400 watched files; 400 modifications per second for 60 seconds; idle 30 seconds",
         "unit": "files",
         "count": 50400
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-file-watch --bench budget",
+      "command": "rustright cargo test -p rightkit-file-watch --profile dev --bench budget --jobs 12 -- 50000 60 30",
       "observed": {
-        "residentMemoryBytes": 6897664,
+        "residentMemoryBytes": 8175616,
         "idleCpuPercent": 0,
         "wakeupsPerSecond": 0.033,
         "diskOpsPerSecond": null
       },
       "evidence": {
         "file": "runtime-budget.evidence/darwin-arm64-0.4.1-synthetic.txt",
-        "sha256": "c0361c30f44297dfd2e3d6fd06916a5f61539a6b751fd2687b6013bf924da78b"
+        "sha256": "56d238971b626c3fb1ae1ed0c0bb80bf071bddfee5742eb91b96bffedc245aed"
       }
     }
   ],

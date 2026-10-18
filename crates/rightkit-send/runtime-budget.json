@@ -29,6 +29,34 @@
     ],
     "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
   },
-  "measurements": [],
+  "measurements": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.2.0",
+      "commit": "a0de6304c28a4aa3c82cc543dd5653535404eb36",
+      "date": "2026-10-18",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "50 discovered devices; service idle for 30 seconds",
+        "unit": "devices",
+        "count": 50
+      },
+      "command": "rustright cargo test -p rightkit-send --profile dev --bench budget --jobs 12 -- 50 30",
+      "observed": {
+        "residentMemoryBytes": 8798208,
+        "idleCpuPercent": 0.012,
+        "wakeupsPerSecond": 0.199,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.2.0-synthetic.txt",
+        "sha256": "12fb890b22838d398714058a4a44826b91ac41c7619903a94cb196a504dceac4"
+      }
+    }
+  ],
   "notes": "Ceilings come from the stated sources. Historical macOS 0.1.0 evidence measured 15.3 wake-ups per second while the acceptor polled at 50 ms and liveness at 100 ms; those loops were replaced by blocking accept and a 20-second stop-aware wait. Historical evidence remains under runtime-budget.evidence/. The 1 per second idle target is unproven at 0.2.0: native-host measurement must include the declared 50-device scale and its liveness probes before publication."
 }

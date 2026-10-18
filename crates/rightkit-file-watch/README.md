@@ -316,4 +316,5 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required scale: 50,000 files or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `TypedWatcher::status()` in `src/typed.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: not yet measured.
+- Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-file-watch 0.4.1 at 97ac0e4e9afc, 50,400 files (synthetic bench at the declared requiredScale (crates/rightkit-file-watch/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-file-watch --bench budget`, 2026-10-17, evidence 35c33bd9f055: resident memory 5.2 MiB, idle CPU 0.052%, wake-ups 10.385 per second, disk operations 0 operations per second.
+- Measured: darwin/arm64 (Mac18,5), rightkit-file-watch 0.4.1 at a0de6304c28a, 50,400 files (50400 watched files; 400 modifications per second for 60 seconds; idle 30 seconds), synthetic, `rustright cargo test -p rightkit-file-watch --profile dev --bench budget --jobs 12 -- 50000 60 30`, 2026-10-18, evidence 56d238971b62: resident memory 7.8 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).

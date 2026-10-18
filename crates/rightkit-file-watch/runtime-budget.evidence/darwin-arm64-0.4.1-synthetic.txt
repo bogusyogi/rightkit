@@ -1,21 +1,26 @@
-rustright managed-agent: request 441c81cd-d8b6-415d-b280-6909ef77fd48
+rustright: request 11bc1f95-b1bb-4dbb-bb26-45be39a57b4f
 [rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling notify-types v2.1.0
+   Compiling fsevent-sys v4.1.0
+   Compiling tempfile v3.27.0
+   Compiling tokio v1.53.3
+   Compiling notify v8.2.0
    Compiling rightkit-file-watch v0.4.1 (/Volumes/D/claude/rightkit/crates/rightkit-file-watch)
-    Finished `release-iterate` profile [optimized] target(s) in 2.05s
-     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-79166969ce2599d2)
-built 50400 files (400 churned) in 11.6s
-before watch: resident     5.1 MB  footprint     1.9 MB  cpu 2.73 s
-watch started (recursive, idle 2 s): resident     6.6 MB  footprint     2.4 MB  cpu 2.73 s
-watch start: 6.4 ms
-after churn (watch on): resident     6.6 MB  footprint     2.9 MB  cpu 9.94 s
-after quiet period: resident     6.6 MB  footprint     2.9 MB  cpu 9.94 s
-churn window: files=50400 churn_ops_per_s=400 churn_s=60 wall_s=126.4 cpu_s=7.21 cpu_percent=5.7 records_queued_per_s=430.0 records_received_per_s=430.0 queue_depth_max=0 queue_depth_end=0 overflow_total=0 error_total=0 start_ms=6.4 watch_drained=54367 quiet_overflow=false
-churn window rates (include the bench's own file writes): wakeups_per_s=171.5 disk_ops_per_s=n/a
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.47s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/debug/deps/budget-53971ad4e7ed6a50)
+built 50400 files (400 churned) in 2.9s
+before watch: resident     6.2 MB  footprint     1.9 MB  cpu 2.16 s
+watch started (recursive, idle 2 s): resident     7.2 MB  footprint     2.4 MB  cpu 2.16 s
+watch start: 198.4 ms
+after churn (watch on): resident     7.8 MB  footprint     3.0 MB  cpu 4.32 s
+after quiet period: resident     7.8 MB  footprint     3.0 MB  cpu 4.32 s
+churn window: files=50400 churn_ops_per_s=400 churn_s=60 wall_s=59.2 cpu_s=2.16 cpu_percent=3.7 records_queued_per_s=1236.1 records_received_per_s=1236.1 queue_depth_max=1 queue_depth_end=0 overflow_total=0 error_total=0 start_ms=198.4 watch_drained=73212 quiet_overflow=false
+churn window rates (include the bench's own file writes): wakeups_per_s=10.7 disk_ops_per_s=n/a
 RESULT queue_depth_after_idle=0 records
-RESULT warm_resident_bytes=6897664 bytes
-RESULT idle_resident_bytes=6389760 bytes
-RESULT resident_memory_bytes=6897664 bytes
-RESULT footprint_bytes=3064264 bytes
+RESULT warm_resident_bytes=8175616 bytes
+RESULT idle_resident_bytes=8175616 bytes
+RESULT resident_memory_bytes=8175616 bytes
+RESULT footprint_bytes=3146160 bytes
 RESULT idle_window_seconds=30.1 seconds
 RESULT idle_cpu_percent=0.000 percent
 RESULT wakeups_per_second=0.033 per_second
@@ -24,5 +29,5 @@ RESULT disk_read_bytes_per_second=0.000 bytes_per_second
 RESULT disk_write_bytes_per_second=0.000 bytes_per_second
 RESULT scale=50400 files watched recursively after 400 modify ops/s churn, then idle
 RESULT scope=synthetic
-RESULT budget crate=rightkit-file-watch version=0.4.1 resident_bytes=6897664 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=files scale_count=50400
-[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 2/621
+RESULT budget crate=rightkit-file-watch version=0.4.1 resident_bytes=8175616 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=files scale_count=50400
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 7/11059
