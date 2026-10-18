@@ -469,8 +469,9 @@ export function assertNoReleaseSwitches(input, label = "release") {
 export function localCrateDirsFromTree(treeText, root) {
   const dirs = new Set();
   const base = path.resolve(root);
-  for (const m of String(treeText ?? "").matchAll(/ v\S+ \(([^)]+)\)/g)) {
-    if (!path.isAbsolute(m[1])) continue; // `(*)` and `(proc-macro)` are cargo tree markers, not paths
+  // `name v1 (/abs/path)` and `name v1 (proc-macro) (/abs/path)`; a bare `(*)` or `(proc-macro)` is a marker, not a path.
+  for (const m of String(treeText ?? "").matchAll(/ v\S+(?: \(proc-macro\))? \(([^)]+)\)/g)) {
+    if (!path.isAbsolute(m[1])) continue;
     const dir = path.resolve(m[1]);
     if (dir === base || dir.startsWith(base + path.sep)) dirs.add(dir);
   }

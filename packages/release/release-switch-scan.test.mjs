@@ -411,10 +411,10 @@ test("sourceRoots narrows the source walk to what a target compiles; local crate
     const inventoryText = JSON.stringify({ schema: 1, app: "x", switches: [], dynamicReads: [] });
     const whole = sourceSwitchFindings({ sourceRoot: root, inventoryText }).map((f) => f.reason);
     assert.ok(whole.some((r) => r.includes("DESKTOP_ONLY")) && whole.some((r) => r.includes("PHONE_ONLY")));
-    const tree = `phone v0.1.0 (${join(root, "phone")})\n├── serde v1.0.0\n├── phone v0.1.0 (*)\n├── derive v1.0.0 (proc-macro)\n└── outside v0.1.0 (${join(tmpdir(), "elsewhere")})\n`;
+    const tree = `phone v0.1.0 (${join(root, "phone")})\n├── serde v1.0.0\n├── phone v0.1.0 (*)\n├── derive v1.0.0 (proc-macro)\n├── local_derive v0.1.0 (proc-macro) (${join(root, "derive")})\n└── outside v0.1.0 (${join(tmpdir(), "elsewhere")})\n`;
     const dirs = localCrateDirsFromTree(tree, root);
-    assert.deepEqual(dirs, [join(root, "phone")]);
-    const scoped = sourceSwitchFindings({ sourceRoot: root, sourceRoots: dirs, inventoryText });
+    assert.deepEqual(dirs, [join(root, "derive"), join(root, "phone")], "a local proc-macro crate is kept");
+    const scoped = sourceSwitchFindings({ sourceRoot: root, sourceRoots: dirs.filter((dir) => dir.endsWith("phone")), inventoryText });
     assert.deepEqual(scoped.map((f) => f.file), [join("phone", "a.rs") + ":1"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
