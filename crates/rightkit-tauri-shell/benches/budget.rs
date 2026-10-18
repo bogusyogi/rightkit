@@ -8,7 +8,7 @@
 //! The figures are the process's: the shell's two watchdog threads plus the Tauri/Wry event loop. The
 //! webview and its helper processes are separate processes and are not in these figures.
 //!
-//! Run: `rightkit cargo bench -p rightkit-tauri-shell --bench budget`
+//! Run: `rustright cargo test -p rightkit-tauri-shell --profile release-iterate --bench budget -- 30`
 //! Optional: `-- <idle_seconds>` (default 30).
 //! Diagnostic only: `-- --diagnostic <bare|heartbeat-1s|heartbeat-2s|full> [idle_seconds]`.
 //! Diagnostic modes retain the native app, 5 s warm-up and process observation window, but never

@@ -19,6 +19,8 @@
 //! wait on one `Bell`: a mutex and two condition variables, the same on every platform. The two
 //! threads are kept apart on purpose: the heartbeat thread holds the `AppHandle`, the watchdog
 //! thread never does in callback-only mode, so a call that blocks on app state cannot delay a report.
+//! These estimates count waits in these two worker threads only; they exclude main-thread
+//! dispatch and native runtime activity. They do not bound process_usage() wake-up counters.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
