@@ -298,7 +298,7 @@ function* walkSource(root) {
 function lineOf(text, index) { let n = 1; for (let i = 0; i < index; i += 1) if (text.charCodeAt(i) === 10) n += 1; return n; }
 
 // inventoryText: contents of switches.json. Returns findings only.
-export function sourceSwitchFindings({ sourceRoot, inventoryText, inventoryLabel = "switches.json", extraDeny = [] }) {
+export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, inventoryLabel = "switches.json", extraDeny = [] }) {
   const { doc, issues } = parseInventory(inventoryText, inventoryLabel);
   const findings = [...issues];
   if (!doc || !Array.isArray(doc.switches)) return findings;
@@ -306,7 +306,9 @@ export function sourceSwitchFindings({ sourceRoot, inventoryText, inventoryLabel
   const dynamicAllowed = new Set((doc.dynamicReads ?? []).map((d) => path.normalize(d.file)));
   const reads = new Set();
   const denyFlags = [...REGISTRY.denyNames, ...extraDeny.map((n) => ({ name: typeof n === "string" ? n : n.name }))].map((d) => d.name).filter((n) => n.startsWith("-"));
-  for (const file of walkSource(sourceRoot)) {
+  // `sourceRoots` (absolute directories) narrows the walk to what a target compiles; paths stay relative to `sourceRoot`.
+  const walkRoots = Array.isArray(sourceRoots) && sourceRoots.length ? sourceRoots : [sourceRoot];
+  for (const file of walkRoots.flatMap((walkRoot) => [...walkSource(walkRoot)])) {
     let text;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const rel = path.relative(sourceRoot, file);
@@ -432,7 +434,7 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, devtools } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, devtools } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
@@ -443,7 +445,7 @@ export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, inv
     }
     for (const argv of commands) findings.push(...commandSwitchFindings(argv, { allowDevtools: devtools?.mode === "content-only" }));
   }
-  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, inventoryText, extraDeny: appForbid }));
+  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, extraDeny: appForbid }));
   let receipt = { files: [], binaries: 0 };
   if (binaryPaths.length) {
     const scanned = scanSwitchPaths(binaryPaths, { denyMap });
@@ -461,4 +463,15 @@ export function assertNoReleaseSwitches(input, label = "release") {
     + `${findings.length} finding(s):\n${findings.map((f) => `- ${f.file}: ${f.reason}`).join("\n")}\n`
     + "Build release and update tiers without the `test-mode` feature, and register every environment read in the app's switches.json.",
   );
+}
+
+/** Local (path) packages in a `cargo tree` text under `root`: the directories of crates a target actually compiles. */
+export function localCrateDirsFromTree(treeText, root) {
+  const dirs = new Set();
+  const base = path.resolve(root);
+  for (const m of String(treeText ?? "").matchAll(/ v\S+ \(([^)]+)\)/g)) {
+    const dir = path.resolve(m[1]);
+    if (dir === base || dir.startsWith(base + path.sep)) dirs.add(dir);
+  }
+  return [...dirs].sort();
 }

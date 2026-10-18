@@ -48,7 +48,8 @@ import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
-import { assertNoReleaseSwitches, commandTokens, resolveFeatureClosure } from "./release-switch-scan.mjs";
+import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure } from "./release-switch-scan.mjs";
+import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
@@ -403,7 +404,16 @@ try {
   // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
   const closureInput = { treeText, devtools: devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, commands: closureCommands.map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
-    assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
+    // iOS: only what the iPhone app compiles — the Xcode project and its local packages, plus the local crates in the
+    // resolved aarch64-apple-ios cargo graph (feature-aware, unlike the ownership closure). Other targets walk the app root.
+    let sourceRoots;
+    if (opts.platform === "ios") {
+      const repoTop = git(root, ["rev-parse", "--show-toplevel"]);
+      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
+      sourceRoots = [...new Set([...swiftSide, ...localCrateDirsFromTree(treeText, repoTop)])].sort();
+      console.log(`right-release: source switch scan (ios): ${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}`);
+    }
+    assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, sourceRoots, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
   } else if (treeText != null || closureInput.commands.length) {
     assertNoReleaseSwitches({ ...closureInput, appForbid: config.releaseSwitches?.forbid ?? [] }, "feature closure");
   }

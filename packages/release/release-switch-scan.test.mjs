@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, inventoryDenyNames, parseInventory, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -399,4 +399,22 @@ test("combined release gate preserves content-only allowance while refusing tran
   const bad = releaseSwitchFindings({ treeText: `${treeText}\nrightkit-qa feature "control"`, commands, devtools: { mode: "content-only" } });
   assert.equal(bad.findings.length, 1);
   assert.match(bad.findings[0].reason, /rightkit-qa/);
+});
+
+test("sourceRoots narrows the source walk to what a target compiles; local crates come from the resolved cargo tree", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-switch-roots-"));
+  try {
+    mkdirSync(join(root, "phone"), { recursive: true });
+    mkdirSync(join(root, "desktop"), { recursive: true });
+    writeFileSync(join(root, "phone", "a.rs"), 'fn f() { let _ = std::env::var("PHONE_ONLY"); }\n');
+    writeFileSync(join(root, "desktop", "b.rs"), 'fn g() { let _ = std::env::var("DESKTOP_ONLY"); }\n');
+    const inventoryText = JSON.stringify({ schema: 1, app: "x", switches: [], dynamicReads: [] });
+    const whole = sourceSwitchFindings({ sourceRoot: root, inventoryText }).map((f) => f.reason);
+    assert.ok(whole.some((r) => r.includes("DESKTOP_ONLY")) && whole.some((r) => r.includes("PHONE_ONLY")));
+    const tree = `phone v0.1.0 (${join(root, "phone")})\n├── serde v1.0.0\n└── outside v0.1.0 (${join(tmpdir(), "elsewhere")})\n`;
+    const dirs = localCrateDirsFromTree(tree, root);
+    assert.deepEqual(dirs, [join(root, "phone")]);
+    const scoped = sourceSwitchFindings({ sourceRoot: root, sourceRoots: dirs, inventoryText });
+    assert.deepEqual(scoped.map((f) => f.file), [join("phone", "a.rs") + ":1"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
