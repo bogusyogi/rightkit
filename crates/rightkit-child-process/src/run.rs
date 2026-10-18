@@ -30,7 +30,8 @@ const DRAIN_WAIT: Duration = Duration::from_secs(2);
 const STDIN_WAIT: Duration = Duration::from_millis(500);
 
 /// How long a cancelled writer gets to report; the cancel is repeated every [`CANCEL_RETRY`]
-/// within it. Past this `run` fails with `TimedOut` rather than leave the writer running.
+/// within it. Past this `run` stops waiting and fails: with `TimedOut`, or with the earlier
+/// error on an early return. See [`run_with_stdin`] for what may remain on Windows.
 const STDIN_CANCEL_WAIT: Duration = Duration::from_secs(2);
 
 /// Pause between repeated cancels.
@@ -105,13 +106,20 @@ pub struct RunOutput {
 /// Any other stdin write failure is returned as `Err` after the tree is down. A process that
 /// outlived the tree and still holds stdin without reading it cannot hold `run` past its
 /// deadline: once the tree is down the writer gets a short grace, then it is cancelled (Unix:
-/// non-blocking write end; Windows: `CancelIoEx`) and joined. Every `Ok` return, and every
-/// `Err` other than `TimedOut`, leaves no writer thread and no open write end behind. A
-/// writer that cannot be stopped within its bound makes the call fail with
-/// `ErrorKind::TimedOut`; then the parent has closed the write end on Unix (the thread, if
-/// still alive, can deliver nothing and ends on its next step), while on Windows the writer
-/// thread may still be alive and blocked in a write, owning the write end, with its cancel flag
-/// set (a pending `CancelIoEx` failing to abort a write is not expected).
+/// non-blocking write end; Windows: `CancelIoEx`) and joined.
+///
+/// What a return guarantees about the writer:
+/// - Every `Ok` return: the writer thread has been joined and the write end is closed.
+/// - A writer that cannot be stopped within its bound makes the call fail with
+///   `ErrorKind::TimedOut`.
+/// - Any other `Err` (an early failure, such as output capture or waiting on the child) still
+///   cancels the writer with the same bound before returning, but reports that original error,
+///   not the cleanup outcome.
+/// - Unix, every return: the parent has closed the write end, so a writer thread that is
+///   still alive can deliver nothing more and ends on its next step.
+/// - Windows, after `TimedOut` or an early `Err`: a writer that did not stop within the bound
+///   may still be alive and blocked in a write, owning the write end, with its cancel flag set.
+///   This needs a pending `CancelIoEx` that fails to abort the write, which is not expected.
 pub fn run_with_stdin<I, S>(
     program: impl AsRef<OsStr>,
     args: I,
@@ -163,9 +171,9 @@ where
         command.windows_visible();
     }
     let mut child = command.spawn()?;
-    // Written concurrently with the output drains below; the writer owns stdin and drops it
-    // at the end, which is the EOF. Spawn failure returns before any wait is armed. The guard
-    // cancels the writer if an early `?` return skips `finish`.
+    // Written concurrently with the output drains below; closing stdin when the writer is done
+    // is the EOF. Spawn failure returns before any wait is armed. If an early `?` return skips
+    // `finish`, `StdinWriter`'s `Drop` cancels the writer with the same bound.
     let writer = match (input, child.take_stdin()) {
         (Some(bytes), Some(stdin)) => Some(StdinWriter::spawn(stdin, bytes)?),
         _ => None,
@@ -348,8 +356,9 @@ impl StdinWriter {
 
     /// Waits [`STDIN_WAIT`] for the writer to end by itself, then cancels it (repeatedly, for
     /// up to [`STDIN_CANCEL_WAIT`]) and joins it. A writer that cannot be stopped within that
-    /// bound is an error, never left running: `run` fails closed instead of returning while
-    /// input could still be delivered.
+    /// bound is an error: `run` fails with `TimedOut` instead of returning success. On Unix the
+    /// write end is closed first, so nothing more is delivered; on Windows the thread may remain
+    /// (see `settle`).
     fn finish(mut self) -> io::Result<()> {
         let result = match self.done.recv_timeout(STDIN_WAIT) {
             Err(mpsc::RecvTimeoutError::Timeout) => self.cancel_and_wait(),
@@ -409,7 +418,9 @@ impl StdinWriter {
 impl Drop for StdinWriter {
     fn drop(&mut self) {
         // Reached without `finish` (an early `?` return in `run_inner`): stop the writer with
-        // the same bound. The result is irrelevant; the run is already failing.
+        // the same bound. The cleanup result is discarded and the caller gets the original
+        // error. A cleanup timeout leaves exactly what `settle` describes: on Unix the write end
+        // is closed; on Windows the writer may still be blocked in a write.
         if self.handle.is_some() {
             let result = self.cancel_and_wait();
             let _ = self.settle(result);
@@ -643,6 +654,62 @@ mod tests {
             child.0.try_wait().unwrap().is_none(),
             "the reader must have stayed alive throughout"
         );
+    }
+
+    /// The cancellation-timeout branch, forced deterministically: a writer thread that never
+    /// reports. `finish` fails with `TimedOut` within its bound and leaves the cancel flag set,
+    /// and the parent has closed the write end itself, so the reader sees EOF although the
+    /// writer thread is still alive.
+    #[cfg(unix)]
+    #[test]
+    fn a_writer_that_never_reports_times_out_and_the_parent_closes_the_write_end() {
+        let _serial = serial();
+        let mut child = KillOnDrop(
+            std::process::Command::new("cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let state = Arc::new(WriterState::new());
+        *state.pipe() = Some(child.0.stdin.take().unwrap());
+        // The sender stays here, so the writer neither reports nor disconnects.
+        let (_sender, done) = mpsc::channel::<io::Result<()>>();
+        let (release, parked) = mpsc::channel::<()>();
+        let stuck = std::thread::spawn(move || {
+            let _ = parked.recv();
+        });
+        let writer = StdinWriter {
+            state: Arc::clone(&state),
+            done,
+            handle: Some(stuck),
+        };
+        let started = Instant::now();
+        let error = writer.finish().unwrap_err();
+        let elapsed = started.elapsed();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            elapsed >= STDIN_WAIT + STDIN_CANCEL_WAIT
+                && elapsed < STDIN_WAIT + STDIN_CANCEL_WAIT + Duration::from_secs(3),
+            "finish took {elapsed:?}"
+        );
+        assert!(state.cancelled(), "the cancel flag must stay set");
+        assert!(
+            state.pipe().is_none(),
+            "the parent must have closed the write end"
+        );
+        // The write end is closed, so `cat` reads EOF and exits by itself.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "the reader never saw EOF");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(status.success());
+        let _ = release.send(());
     }
 
     /// Records the pid of the setsid grandchild in a file and kills it on drop, so a failed
