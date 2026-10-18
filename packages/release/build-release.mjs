@@ -5,7 +5,6 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
-  mkdtempSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -18,7 +17,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -175,7 +173,7 @@ try {
   // turn an already-built, signed installer into a needless full rebuild.
   if (!resumeFrom) {
     assertCleanSource({
-      status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+      status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { trim: false }), // untrimmed: a leading space is the first record's X column (#782)
       commandId: "right-release build",
     });
   }
@@ -210,7 +208,7 @@ try {
   const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
   const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput }) : collectToolVersions(config.packageManager ?? "pnpm");
+  const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput }) : collectToolVersions(config.packageManager ?? "pnpm", appRoot);
   const inputHashes = hashInputs(requiredInputs);
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : platform === "android" ? "android" : platform === "ios" ? "ios" : "mac";
@@ -692,21 +690,20 @@ function hardeningScanTargets(target) {
   return target?.hardening ?? target?.artifacts ?? [];
 }
 
-function collectToolVersions(packageManager) {
-  const probeDir = mkdtempSync(path.join(tmpdir(), "right-release-tool-probe-"));
-  try {
-    const rustcVerbose = commandOutputAt("rustc", ["-vV"], probeDir);
-    return {
-      node: process.version,
-      packageManager: `${packageManager} ${commandOutput(packageManager, ["--version"])}`,
-      cargo: commandOutputAt("cargo", ["--version"], probeDir),
-      rustc: rustcVerbose,
-      rustHost: rustcVerbose.match(/^host:\s*(.+)$/m)?.[1] ?? "unknown",
-      sccache: commandExists("sccache") ? commandOutput("sccache", ["--version"]) : null,
-    };
-  } finally {
-    rmSync(probeDir, { recursive: true, force: true });
-  }
+// Probes run with cwd = the app root (bogusyogi/rightkit#783): on an agent host `cargo` is the
+// RustRight shim, which refuses any cwd outside a primary checkout, so a $TMPDIR probe dir failed
+// with RK_NOT_PRIMARY_CHECKOUT before the first build step. The app root also makes rustc report
+// the toolchain the app's rust-toolchain.toml selects, which is the one the build uses.
+function collectToolVersions(packageManager, probeDir = process.cwd()) {
+  const rustcVerbose = commandOutputAt("rustc", ["-vV"], probeDir);
+  return {
+    node: process.version,
+    packageManager: `${packageManager} ${commandOutput(packageManager, ["--version"])}`,
+    cargo: commandOutputAt("cargo", ["--version"], probeDir),
+    rustc: rustcVerbose,
+    rustHost: rustcVerbose.match(/^host:\s*(.+)$/m)?.[1] ?? "unknown",
+    sccache: commandExists("sccache") ? commandOutput("sccache", ["--version"]) : null,
+  };
 }
 
 async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null, { livenessOwnerTimeoutMs = null } = {}) {
@@ -866,14 +863,14 @@ function commandOutput(cmd, runArgs) {
   }
 }
 
-function git(cwd, runArgs) {
-  return commandOutputAt("git", runArgs, cwd);
+function git(cwd, runArgs, { trim = true } = {}) {
+  return commandOutputAt("git", runArgs, cwd, { trim });
 }
 
-function commandOutputAt(cmd, runArgs, cwd) {
+function commandOutputAt(cmd, runArgs, cwd, { trim = true } = {}) {
   const result = spawnSync(cmd, runArgs, { cwd, encoding: "utf8", windowsHide: true });
   if (result.status !== 0) fail(`${cmd} ${runArgs.join(" ")} failed: ${(result.stderr ?? "").trim()}`);
-  return result.stdout.trim();
+  return trim ? result.stdout.trim() : result.stdout;
 }
 
 function runChecked(cmd, runArgs, cwd, env = process.env) {

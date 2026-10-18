@@ -44,3 +44,10 @@ test("committed-checkout clean check ignores the lock file only", async () => {
   assert.equal(assertCommittedCheckoutClean("/repo", { runner: runner("?? .right-release/locks/mac.lock.json\0?? .right-release/locks/win.lock.json\0") }), true);
   assert.throws(() => assertCommittedCheckoutClean("/repo", { runner: runner("?? .right-release/locks/mac.lock.json\0?? stray.txt\0") }), /changes/);
 });
+
+test("assertCleanSource keeps the first character of the first path even when the status was trimmed (#782)", () => {
+  assert.throws(
+    () => assertCleanSource({ status: "M core/src/agent/device.rs\0 M core/src/devicelink/mod.rs\0", commandId: "right-release build" }),
+    (error) => /- core\/src\/agent\/device\.rs/.test(error.message) && !/- ore\/src/.test(error.message),
+  );
+});

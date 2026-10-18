@@ -30,11 +30,18 @@ export function stripOwnLockRecords(status) {
   return kept.length ? `${kept.join("\0")}\0` : "";
 }
 
+/** Path of one porcelain v1 record ("XY path"). Tolerates a record whose leading status column was
+ * trimmed away by a caller ("M path"), so the first path never loses its first character (#782). */
+function porcelainPath(entry) {
+  const m = /^([ MADRCU?!]{2} |[MADRCU?!] )/.exec(entry);
+  return m ? entry.slice(m[0].length) : entry;
+}
+
 export function assertCleanSource({ status, commandId = "release" }) {
   if (typeof status !== "string") throw new Error("release source status is required");
   status = stripOwnLockRecords(status);
   if (status.length !== 0) {
-    const files = status.split("\0").filter(Boolean).map((entry) => entry.slice(3)).slice(0, 10);
+    const files = status.split("\0").filter(Boolean).map(porcelainPath).slice(0, 10);
     throw new Error(`${commandId} requires a clean working tree; commit or stash first:\n${files.map((file) => `- ${file}`).join("\n")}`);
   }
 }
