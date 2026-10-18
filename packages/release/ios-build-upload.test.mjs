@@ -162,9 +162,12 @@ test("only Apple's upload hosts are accepted: look-alike hosts, http, URL creden
   const op = (url, extra = {}) => ({ method: "PUT", url, offset: 0, length: 10, requestHeaders: [], ...extra });
   const ok = (url) => assert.doesNotThrow(() => assertUploadOperation(op(url), { now: NOW }), url);
   const bad = (url, extra) => assert.throws(() => assertUploadOperation(op(url, extra), { now: NOW }), (error) => error.code === "IOS_BUILD_UPLOAD_INVALID", url);
-  assert.deepEqual([...UPLOAD_HOST_SUFFIXES], ["blobstore.apple.com"]);
+  assert.deepEqual([...UPLOAD_HOST_SUFFIXES], ["blobstore.apple.com", "object-storage.apple.com"]);
   ok("https://store-030.blobstore.apple.com/p?Expires=9999999999");
   ok("https://blobstore.apple.com/p");
+  ok("https://northamerica-1.object-storage.apple.com/p");
+  bad("https://object-storage.apple.com.evil.com/p");
+  bad("https://evilobject-storage.apple.com/p");
   for (const url of ["https://evil.example.com/p", "https://blobstore.apple.com.evil.com/p", "https://evilblobstore.apple.com/p", "https://apple.com/p", "https://store.apple.com/p", "http://store-030.blobstore.apple.com/p", "https://user:pw@store-030.blobstore.apple.com/p", "not a url"]) bad(url);
   bad("https://store-030.blobstore.apple.com/p", { method: "POST" });
   const host = setup({ upload: { opHost: "evil.example.com" } });

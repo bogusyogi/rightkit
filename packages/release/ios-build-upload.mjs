@@ -19,7 +19,8 @@
 // the .../tutorials/data/... json): send exactly the bytes offset..offset+length with the operation's requestHeaders and NO JWT; the URL
 // carries an `Expires` unix timestamp; a part that fails may be resent any time before the commit; after an expiry delete the reservation
 // and start over. The page names no fixed host set; its sample is store-030.blobstore.apple.com, so only *.blobstore.apple.com is
-// accepted here (UPLOAD_HOST_SUFFIXES) and anything else fails closed, naming the host.
+// accepted here (UPLOAD_HOST_SUFFIXES) and anything else fails closed, naming the host. Live run 2026-10-19 (Pulse 0.1.0 2026101803): Apple
+// handed out northamerica-1.object-storage.apple.com operations, so *.object-storage.apple.com is accepted too.
 // Not stated by the reference and so unverified without a live run: that `hash` is lowercase hex, the exact StateDetail error fields,
 // and the `limit` query on the buildUploads list.
 //
@@ -31,7 +32,7 @@ import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { verifyArtifactFile } from "./publication-artifacts.mjs";
 import { RETRY_DEFAULTS, TestFlightError, parseRetryAfter, retryDelayMs, retryableStatus } from "./ios-testflight.mjs";
 
-export const UPLOAD_HOST_SUFFIXES = Object.freeze(["blobstore.apple.com"]);
+export const UPLOAD_HOST_SUFFIXES = Object.freeze(["blobstore.apple.com", "object-storage.apple.com"]);
 const FORBIDDEN_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const EXPIRY_MARGIN_MS = 60_000;
