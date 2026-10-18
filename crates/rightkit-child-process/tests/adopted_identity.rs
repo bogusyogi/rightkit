@@ -258,8 +258,10 @@ mod descendants {
         assert!(
             report.refused.is_empty() && report.survivors.is_empty() && report.failed.is_empty()
         );
+        // A stopped sleeper is a zombie until the shell reaps it, and a zombie still verifies
+        // as `Same` (see `foreign`), so liveness is the deterministic check, not `verify`.
         for child in &found {
-            assert_ne!(child.verify().unwrap(), IdentityCheck::Same);
+            assert!(!child.is_running().unwrap(), "{child:?} still running");
         }
         // With its sleepers gone the shell's `wait` returns and it exits by itself.
         shell.wait().unwrap();
