@@ -350,20 +350,22 @@ fn recurring_backup_progress_cannot_extend_the_operation_deadline() {
         fn step(&mut self, remaining: i32) -> bool {
             assert!(remaining > 0, "fixture must still be making progress");
             self.calls += 1;
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(25));
             true
         }
     }
     let dir = tempfile::tempdir().unwrap();
     let options = DbOptions::new(dir.path().join("source.sqlite"));
     let conn = options.open_writer().unwrap();
-    // Many more pages than several 512-page steps, without wall-clock write races.
-    conn.execute_batch("CREATE TABLE t(v BLOB); INSERT INTO t VALUES(zeroblob(33554432));")
+    // About 32 steps of 512 pages at 25 ms each (~800 ms) against a 500 ms deadline: the deadline
+    // must cut the backup short, with room for several progress calls even when the first step
+    // is slow under load (a 150 ms deadline let one slow first step use it all up).
+    conn.execute_batch("CREATE TABLE t(v BLOB); INSERT INTO t VALUES(zeroblob(67108864));")
         .unwrap();
     let target = dir.path().join("backup.sqlite");
     std::fs::write(&target, b"previous backup").unwrap();
     let mut bounded = DbOptions::new(&options.path);
-    bounded.busy_timeout = Duration::from_millis(150);
+    bounded.busy_timeout = Duration::from_millis(500);
     let mut progress = SlowProgress { calls: 0 };
     let result = online_backup_to(&bounded, &conn, &target, Some(&mut progress));
     assert!(matches!(result, Err(DbError::Backup(message)) if message.contains("timeout")));
