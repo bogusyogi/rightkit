@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "crate": "rightkit-qa",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "ceilings": {
     "residentMemoryBytes": 47185920,
     "idleCpuPercent": 1,
@@ -82,6 +84,33 @@
       "evidence": {
         "file": "runtime-budget.evidence/darwin-arm64-0.6.4-synthetic.txt",
         "sha256": "a4f153ff71ec95d1d2f0d7d87648507d143200e4b234927e459e3cffaaf58ad3"
+      }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.7.1",
+      "commit": "fa003289a62c81ccf5b320deadc25abda83420ab",
+      "date": "2026-10-19",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "one --stdio engine sidecar, 10000 echo commands, 30 s idle window (synthetic bench)",
+        "unit": "commands",
+        "count": 10000
+      },
+      "command": "rustright cargo test -p rightkit-qa --profile dev --bench budget -- 10000 30",
+      "observed": {
+        "residentMemoryBytes": 14958592,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.7.1-synthetic.txt",
+        "sha256": "613ff8b29e24407d5ea34ecda9fd295e797f96bf39b88277e79e65cc01188838"
       }
     }
   ],
