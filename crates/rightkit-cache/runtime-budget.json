@@ -139,6 +139,33 @@
         "file": "runtime-budget.evidence/win32-x64-0.2.2-synthetic.txt",
         "sha256": "af411bfe5dd0ef12f3afc867b56370fa1eb38db2fb3f4875b2e9b3be363715f0"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.2.3",
+      "commit": "9d3471acedf33710d19339d27e894024cdd5756d",
+      "date": "2026-10-19",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "100000 cache entries, 30 s idle window (synthetic bench)",
+        "unit": "entries",
+        "count": 100000
+      },
+      "command": "rustright cargo test -p rightkit-cache --profile dev --bench budget --jobs 12 -- 100000 30",
+      "observed": {
+        "residentMemoryBytes": 56360960,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.2.3-synthetic.txt",
+        "sha256": "bf2d9f17a4e6fb1a805f40410bc1a76de508e6cb993dc06cd2657db3ca6d3a12"
+      }
     }
   ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below."
