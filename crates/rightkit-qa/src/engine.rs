@@ -136,7 +136,40 @@ impl EngineTarget {
         Ok(())
     }
 
-    fn env_for(
+    /// Bind this target to one scenario's test-mode root: `RIGHTKIT_UNDER_TEST=1` and
+    /// `RIGHTKIT_QA_DATA_DIR=<scenario_dir>`. They go last and replace any earlier value of the same
+    /// variable, so the ordinary config env cannot unbind them. A step's own `env` is applied after
+    /// this by [`EngineTarget::env_for`] and still wins, so a scenario can set or override either
+    /// variable to test a refusal. The scenario directory carries the runner binding
+    /// ([`crate::workspace::QaWorkspace::scenario_dir`]); the binding is not proof of the runner.
+    ///
+    /// A target that opted into [`EngineTarget::allow_no_data_dir_for_refusal_probe`] is left alone:
+    /// the probe asserts the engine's own refusal to run without a data directory, and a bound
+    /// test-mode root would hand it one.
+    pub(crate) fn bind_test_mode(&mut self, scenario_dir: &Path) {
+        if self.allow_no_data_dir_for_refusal_probe {
+            return;
+        }
+        let same = |a: &str, b: &str| {
+            if cfg!(windows) {
+                a.eq_ignore_ascii_case(b)
+            } else {
+                a == b
+            }
+        };
+        self.env
+            .retain(|(k, _)| !same(k, "RIGHTKIT_UNDER_TEST") && !same(k, "RIGHTKIT_QA_DATA_DIR"));
+        self.env.push(("RIGHTKIT_UNDER_TEST".into(), "1".into()));
+        self.env.push((
+            "RIGHTKIT_QA_DATA_DIR".into(),
+            scenario_dir.to_string_lossy().into(),
+        ));
+    }
+
+    /// The environment of one launch: the target's env (with a scenario's test-mode binding), the
+    /// data-dir variable, then the caller's own pairs, which win. `cli`, `start_sidecar` and the
+    /// launch guard all read it from here.
+    pub(crate) fn env_for(
         &self,
         data_dir: Option<&Path>,
         extra: &[(String, String)],

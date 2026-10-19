@@ -685,6 +685,42 @@ fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Write the runner binding of one per-scenario directory under a home, through the same
+/// whole-file write as the home's own binding. The identity (`app`, `runRoot`, `runId`) is copied
+/// from the home's existing binding, never made up here; `scenario` is added as extra runner
+/// metadata. A home without a readable binding is refused.
+///
+/// This is bookkeeping a test-mode app can find at the root it is told to use. It does not
+/// authenticate the runner: rightkit-fs checks only that the binding's `app` equals the app's id.
+pub(crate) fn write_scenario_binding(home: &Path, dir: &Path, scenario: &str) -> Result<()> {
+    let home_binding = read_binding(home).ok_or_else(|| {
+        crate::util::Error(format!(
+            "{}: no readable runner binding; a scenario directory is bound only from its home's binding",
+            home.display()
+        ))
+    })?;
+    let field = |key: &str| {
+        home_binding
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                crate::util::Error(format!(
+                    "{}: runner binding has no `{key}` to bind a scenario directory to",
+                    home.display()
+                ))
+            })
+    };
+    write_whole(
+        &dir.join(BINDING_FILE),
+        &serde_json::to_vec(&serde_json::json!({
+            "app": field("app")?, "runRoot": field("runRoot")?, "runId": field("runId")?,
+            "scenario": scenario,
+        }))?,
+    )
+}
+
 /// `(pid, started_at_ms)` recorded in a home.
 fn read_home_marker(home: &Path) -> Option<(u32, u128)> {
     let v: serde_json::Value =

@@ -264,7 +264,11 @@ impl QaWorkspace {
         }
         Ok(())
     }
-    /// A fresh per-scenario directory inside the isolated data dir.
+    /// A fresh per-scenario directory inside the isolated data dir. It is private to the user, like
+    /// a home, and carries a runner binding (`.rightkit-app.json`) with the home's `app`, `runRoot`
+    /// and `runId` plus the scenario `name`, so a test-capable app can be given it as its bound
+    /// root. The binding is bookkeeping, not proof of the runner: rightkit-fs checks only that its
+    /// `app` equals the app's id.
     pub fn scenario_dir(&self, name: &str) -> Result<PathBuf> {
         let safe: String = name
             .chars()
@@ -277,7 +281,9 @@ impl QaWorkspace {
             })
             .collect();
         let dir = self.data_dir.join(format!("{safe}-{}", &new_id()[..8]));
-        fs::create_dir_all(&dir)?;
+        rightkit_fs::private::ensure_private_dir(&dir)
+            .map_err(|e| crate::util::Error(format!("cannot create private scenario dir: {e}")))?;
+        storage::write_scenario_binding(&self.home, &dir, name)?;
         Ok(dir)
     }
 }
@@ -1083,6 +1089,38 @@ mod tests {
         // With the holder gone the home can be removed.
         crate::util::sleep_ms(300);
         assert!(fs::remove_dir_all(&ws.home).is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A scenario directory is bound only from the home's own binding; a home without one is
+    /// refused rather than given an invented identity.
+    #[test]
+    fn scenario_dir_binds_from_the_home_binding_and_never_invents_one() {
+        use rightkit_fs::test_mode::BINDING_FILE;
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-scn-{}", new_id()));
+        let ws = create(&root, Some("scn1"), "scnapp").unwrap();
+        let dir = ws.scenario_dir("a b/c").unwrap();
+        assert!(dir.starts_with(&ws.data_dir));
+        let home: serde_json::Value =
+            serde_json::from_slice(&fs::read(ws.home.join(BINDING_FILE)).unwrap()).unwrap();
+        let bound: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.join(BINDING_FILE)).unwrap()).unwrap();
+        assert_eq!(
+            bound,
+            serde_json::json!({
+                "app": home["app"], "runRoot": home["runRoot"], "runId": home["runId"],
+                "scenario": "a b/c",
+            })
+        );
+        // Without the home's binding there is no identity to copy.
+        let saved = fs::read(ws.home.join(BINDING_FILE)).unwrap();
+        fs::remove_file(ws.home.join(BINDING_FILE)).unwrap();
+        let e = ws.scenario_dir("late").unwrap_err();
+        assert!(e.0.contains("no readable runner binding"), "{e}");
+        fs::write(ws.home.join(BINDING_FILE), saved).unwrap();
+        let report = dispose(&ws, false, 1, 0);
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert!(!ws.home.exists());
         let _ = fs::remove_dir_all(root);
     }
 }

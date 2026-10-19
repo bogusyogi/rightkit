@@ -94,6 +94,8 @@ export interface LegalGateDocument {
 }
 
 export interface LegalGateProps {
+  /** Window-sized by default; use `contained` when the host sizes the gate surface. */
+  layout?: "window" | "contained";
   /** Optional host tokens; see LegalGateTheme. */
   theme?: LegalGateTheme;
   appName: string;
@@ -288,6 +290,7 @@ function ensureWordmarkFont(url: string): void {
 }
 
 export function LegalGate({
+  layout = "window",
   theme: themeProp,
   appName,
   trustLine,
@@ -360,7 +363,7 @@ export function LegalGate({
     ...(theme.bg === undefined ? {} : { background: theme.bg }),
     ...(themeProp?.text === undefined ? {} : { color: theme.text }),
     fontFamily: theme.fontBody,
-    minHeight: "100vh",
+    ...(layout === "window" ? { minHeight: "100vh" } : {}),
     width: "100%",
     display: "flex",
     flexDirection: "column",

@@ -3,8 +3,30 @@
 //! volatile content (per-turn memory, timestamps) must not. Key strings are
 //! byte-compatible with the donor so existing provider slots keep hitting.
 
-/// FNV-1a 64 over the UTF-8 bytes. Used for cache-slot names, not for security.
+/// Standard FNV-1a 64 (offset basis 14695981039346656037, prime 1099511628211) over the UTF-8
+/// bytes. Interoperable with other FNV-1a 64 implementations; not for security.
+pub fn fnv1a_64(s: &str) -> u64 {
+    let mut h: u64 = 14695981039346656037;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    h
+}
+
+/// NON-STANDARD FNV-1a 64 variant: its offset basis is 1469598103934665603 (the standard basis with
+/// its last digit missing), so it matches no other FNV-1a implementation. Kept unchanged because
+/// existing cache-slot names and persisted keys were derived from it. New code uses [`fnv1a_64`].
+#[deprecated(
+    since = "0.2.3",
+    note = "non-standard offset basis; use fnv1a_64 for new keys, keep this only for keys already persisted with it"
+)]
 pub fn fnv1a(s: &str) -> u64 {
+    legacy_fnv1a(s)
+}
+
+/// The cache-slot hash behind every key this module builds; byte-compatible with the donor.
+fn legacy_fnv1a(s: &str) -> u64 {
     let mut h: u64 = 1469598103934665603;
     for b in s.as_bytes() {
         h ^= *b as u64;
@@ -32,7 +54,7 @@ pub enum CacheStatus {
 fn slot_key(kind: &str, identity: &str, day: &str) -> String {
     format!(
         "cache:prompt:{kind}:{:016x}",
-        fnv1a(&format!("{identity}\n__day__:{day}"))
+        legacy_fnv1a(&format!("{identity}\n__day__:{day}"))
     )
 }
 
@@ -107,12 +129,12 @@ impl CacheTracker {
 
     /// Observe a system prompt + stable prefix.
     pub fn observe_prefix(&mut self, system_prompt: &str, stable_prefix: &str) -> CacheStatus {
-        self.step(fnv1a(&format!("{system_prompt}\n{stable_prefix}")))
+        self.step(legacy_fnv1a(&format!("{system_prompt}\n{stable_prefix}")))
     }
 
     /// Observe a stable-tier key; volatile content is deliberately not an argument.
     pub fn observe_stable(&mut self, stable: &StableCacheKey) -> CacheStatus {
-        self.step(fnv1a(&stable.compute()))
+        self.step(legacy_fnv1a(&stable.compute()))
     }
 
     /// Observe a stable tier plus a tool-schema digest; a `Break` is attributed to
@@ -127,7 +149,7 @@ impl CacheTracker {
             Some(d) => format!("{component}\n__tools__:{d}"),
             None => component.clone(),
         };
-        let status = self.step(fnv1a(&combined));
+        let status = self.step(legacy_fnv1a(&combined));
         let reason = (status == CacheStatus::Break).then(|| {
             if self.last_tools.as_deref() != tool_digest {
                 "tool-defs-changed"
@@ -146,5 +168,27 @@ impl CacheTracker {
 
 /// `cache:prompt:<fnv1a(system_prompt)>` for system-prompt-only keys.
 pub fn system_prompt_only_cache_key(system_prompt: &str) -> String {
-    format!("cache:prompt:{:016x}", fnv1a(system_prompt))
+    format!("cache:prompt:{:016x}", legacy_fnv1a(system_prompt))
+}
+
+#[cfg(test)]
+mod fnv_tests {
+    use super::*;
+
+    // Reference vectors from the FNV test suite (FNV-1a, 64-bit).
+    #[test]
+    fn fnv1a_64_matches_the_reference_vectors() {
+        assert_eq!(fnv1a_64(""), 0xcbf29ce484222325);
+        assert_eq!(fnv1a_64("a"), 0xaf63dc4c8601ec8c);
+        assert_eq!(fnv1a_64("foobar"), 0x85944171f73967e8);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn the_legacy_variant_is_unchanged_and_differs_from_the_standard() {
+        // Pinned so existing persisted keys keep their values.
+        let legacy = fnv1a("");
+        assert_eq!(legacy, 1469598103934665603);
+        assert_ne!(legacy, fnv1a_64(""));
+    }
 }

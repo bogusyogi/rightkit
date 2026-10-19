@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 — unpublished staging
+
+- Fixed: every engine scenario that started a test-capable app engine or daemon failed at step 1 with "test mode refused (activation-without-root)". The scenario's engine target now carries `RIGHTKIT_UNDER_TEST=1` and `RIGHTKIT_QA_DATA_DIR=<scenario dir>` (set in `Ctx::new`, after the config `env`, so the cli, the sidecar and custom steps that clone `ctx.engine.env` all get them). `QaWorkspace::scenario_dir` now creates the directory private to the user (as homes are) and writes the runner binding `.rightkit-app.json` into it through the same atomic write as a home's, with `app`, `runRoot` and `runId` copied from the home's binding plus `scenario`; a home with no readable binding is an error. The binding is bookkeeping, not proof of the runner: rightkit-fs checks only that its `app` equals the app's id. A step's own `env` is still applied last and can set or override either variable to test a refusal; a refusal-probe target (`allow_no_data_dir_for_refusal_probe`) is left unbound. `EngineTarget::env_for` is now `pub(crate)`, and new `pub(crate)` `EngineTarget::bind_test_mode` and `storage::write_scenario_binding`. UI launches, home cleanup and sweeps are unchanged. Tests: `scenario::tests::each_scenario_gets_a_bound_private_root_and_its_engine_env_names_it`, `scenario::tests::negative_test_overrides_and_refusals_survive_the_binding`, `workspace::tests::scenario_dir_binds_from_the_home_binding_and_never_invents_one`. Not built or run locally.
+
 ## 0.7.0 — unpublished staging
 
 - QA homes are private and bounded, and cleanup handles legacy homes safely. Requires rightkit-fs 0.4.4 for private roots and test-mode.

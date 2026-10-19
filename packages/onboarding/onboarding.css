@@ -1,5 +1,6 @@
 /* @rightkit/onboarding — uses app-shell tokens and legal-ui's locked light gate. */
 .rk-onboarding { position: relative; min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--rk-plane, #fffcf5); color: var(--rk-ink, #231f1a); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.rk-onboarding--contained { min-height: 0; }
 .rk-onboarding *, .rk-onboarding *::before, .rk-onboarding *::after { box-sizing: border-box; }
 .rk-onboarding__rail { display: flex; flex-direction: column; gap: 22px; padding: 28px 14px; background: var(--rk-chrome, #eee9df); border-right: .5px solid var(--rk-hairline, rgba(35,31,26,.11)); }
 .rk-onboarding__brand { padding: 0 10px; font-size: 19px; font-weight: 650; letter-spacing: -.02em; }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2 — unpublished staging
+
+- Adds `layout="contained"` to let a host size onboarding content; default `window` preserves viewport sizing.
+
 ## 0.6.1 — unpublished staging
 
 - Repairs onboarding continuation and persistence behavior.

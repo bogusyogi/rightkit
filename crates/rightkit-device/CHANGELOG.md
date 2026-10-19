@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — unpublished staging
+
+- Fix: the `rightkit-license` floor is now `0.2.2`. 0.3.0 declared `0.2.0`, but `src/lib.rs` imports `RevokedIds` and `verify_token_any_device`, which first shipped in 0.2.2. A lock that holds 0.2.0 or 0.2.1 failed with E0432. Cause: the workspace path dependency and a newer lock satisfied the import, and `cargo package --locked` proves only the selected resolution, not the lowest version the manifest permits. No public API change.
+
 ## 0.3.0 — unpublished staging
 
 - BREAKING (D23): `AuthorizationDenial` gains variants, so exhaustive matches outside the crate need a new arm; published as a minor bump, not a patch.

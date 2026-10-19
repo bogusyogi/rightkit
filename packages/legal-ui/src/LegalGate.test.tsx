@@ -38,6 +38,14 @@ function baseProps(overrides: Partial<LegalGateProps> = {}): LegalGateProps {
 }
 
 describe("LegalGate", () => {
+  it("keeps viewport sizing by default and allows host-contained sizing", () => {
+    const { container, rerender } = render(<LegalGate {...baseProps()} />);
+    const root = container.querySelector(".rk-legal-gate") as HTMLElement;
+    expect(root.style.minHeight).toBe("100vh");
+    rerender(<LegalGate {...baseProps()} layout="contained" />);
+    expect(root.style.minHeight).toBe("");
+  });
+
   it("opens bundled documents through onOpen instead of a new window", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();

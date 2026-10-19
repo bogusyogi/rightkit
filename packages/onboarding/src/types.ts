@@ -190,6 +190,8 @@ export interface LegalStepConfig extends Omit<LegalGateProps, "variant" | "onAgr
 export type LegalMode = "gate" | "notice" | "none";
 
 export interface OnboardingProps {
+  /** Window-sized by default; use `contained` when the host sizes the setup surface. */
+  layout?: "window" | "contained";
   settings: SettingsBackend;
   /** Required when `legalMode` is `gate` (default). Optional for `notice` (the documents shown) and `none`. */
   legal?: LegalStepConfig;

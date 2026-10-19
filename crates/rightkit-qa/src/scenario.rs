@@ -320,13 +320,19 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     pub fn new(
         cfg: &'a QaConfig,
-        engine: Option<EngineTarget>,
+        mut engine: Option<EngineTarget>,
         ui_binary: Option<PathBuf>,
         ws: &'a QaWorkspace,
         tracker: &'a Tracker,
         scenario: &str,
     ) -> Result<Self> {
         let data_dir = ws.scenario_dir(scenario)?;
+        // This scenario's copy of the engine target carries the test-mode pair after the ordinary
+        // config env, so the cli, the sidecar and any custom step that clones `ctx.engine.env` all
+        // hand the engine the bound scenario directory (rightkit-fs checks the binding at the root).
+        if let Some(e) = engine.as_mut() {
+            e.bind_test_mode(&data_dir);
+        }
         let log_dir = ws
             .evidence_dir
             .join(data_dir.file_name().unwrap_or_default());
@@ -1580,5 +1586,199 @@ screenshot = true
         );
         assert!(std::fs::metadata(&expanded).unwrap().is_file());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The last value a launch environment gives `key` (the launch guard and `Command` both let a
+    /// later pair win).
+    fn last_env(env: &[(String, String)], key: &str) -> Option<String> {
+        env.iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    }
+
+    /// Every scenario gets its own private directory with a runner binding for the run, and the
+    /// engine target of that scenario carries the test-mode pair pointing at it. The cli and the
+    /// sidecar read the launch environment from `EngineTarget::env_for`; a custom step that clones
+    /// `ctx.engine.env` reads the same pairs.
+    #[test]
+    fn each_scenario_gets_a_bound_private_root_and_its_engine_env_names_it() {
+        use rightkit_fs::test_mode::{decide, Decision, Request, BINDING_FILE};
+        let root = std::env::temp_dir().join(format!("rkqa-bind-ws-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse("app = \"bindtest\"\n", &root.join("rightkit-qa.toml")).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "bindtest").unwrap();
+        let tracker = Tracker::new();
+        let target = EngineTarget::new(root.join("engine")).with_data_dir_env("BINDTEST_DATA");
+        let protected = vec![root.join("real-user-data")];
+        let home_binding: Value =
+            serde_json::from_slice(&std::fs::read(ws.home.join(BINDING_FILE)).unwrap()).unwrap();
+
+        let mut first = Ctx::new(&cfg, Some(target.clone()), None, &ws, &tracker, "alpha").unwrap();
+        let second = Ctx::new(&cfg, Some(target.clone()), None, &ws, &tracker, "beta").unwrap();
+        assert_ne!(first.data_dir, second.data_dir, "two scenarios, two roots");
+        for (ctx, name) in [(&first, "alpha"), (&second, "beta")] {
+            assert!(ctx.data_dir.starts_with(&ws.data_dir));
+            let binding: Value =
+                serde_json::from_slice(&std::fs::read(ctx.data_dir.join(BINDING_FILE)).unwrap())
+                    .unwrap();
+            assert_eq!(binding["app"], "bindtest");
+            assert_eq!(binding["runRoot"], home_binding["runRoot"]);
+            assert_eq!(binding["runId"], json!(ws.run_id));
+            assert_eq!(binding["scenario"], name);
+            // The same decision a test-capable app makes accepts the scenario root.
+            let request = Request {
+                app_id: "bindtest",
+                activated: true,
+                root: Some(&ctx.data_dir),
+                protected_paths: &protected,
+            };
+            let Decision::Test(validated) = decide(&request).unwrap() else {
+                panic!("a bound scenario root must activate test mode")
+            };
+            assert_eq!(
+                validated.path(),
+                std::fs::canonicalize(&ctx.data_dir).unwrap()
+            );
+            // cli and sidecar launch environment.
+            let dir = ctx.data_dir.to_string_lossy().into_owned();
+            let env = ctx
+                .engine
+                .as_ref()
+                .unwrap()
+                .env_for(Some(&ctx.data_dir), &[]);
+            assert_eq!(last_env(&env, "RIGHTKIT_UNDER_TEST").as_deref(), Some("1"));
+            assert_eq!(
+                last_env(&env, "RIGHTKIT_QA_DATA_DIR").as_deref(),
+                Some(dir.as_str())
+            );
+            // The app's own data-dir variable behaves as before.
+            assert_eq!(
+                last_env(&env, "BINDTEST_DATA").as_deref(),
+                Some(dir.as_str())
+            );
+        }
+        // A custom step that clones the engine env (a daemon step, for one) gets the pair.
+        first.handlers.register("engine_env", |ctx, _| {
+            Ok(json!(ctx.engine.as_ref().unwrap().env.clone()))
+        });
+        let env = run_step(&mut first, &bare_step("engine_env", json!({}))).unwrap();
+        let env: Vec<(String, String)> = serde_json::from_value(env).unwrap();
+        assert_eq!(last_env(&env, "RIGHTKIT_UNDER_TEST").as_deref(), Some("1"));
+        let first_dir = first.data_dir.to_string_lossy().into_owned();
+        assert_eq!(
+            last_env(&env, "RIGHTKIT_QA_DATA_DIR").as_deref(),
+            Some(first_dir.as_str())
+        );
+        let (a, b) = (first.data_dir.clone(), second.data_dir.clone());
+        drop(first);
+        drop(second);
+        // Cleanup is unchanged: the home goes, and the scenario directories with it. A scenario
+        // directory is not a home, so only the home passes the ownership test.
+        assert!(!crate::storage::is_owned_home(&a));
+        let report = crate::workspace::dispose(&ws, false, 1, 0);
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert!(!ws.home.exists() && !a.exists() && !b.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The refusals stay reachable: the config env cannot unbind the pair, a step's own `env` can
+    /// still set or override it, a refusal-probe target is left unbound, and the decision still
+    /// refuses a half pair, a root with no binding and a binding for another app.
+    #[test]
+    fn negative_test_overrides_and_refusals_survive_the_binding() {
+        use rightkit_fs::test_mode::{decide, Refusal, Request, BINDING_FILE};
+        let root = std::env::temp_dir().join(format!("rkqa-bind-neg-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse("app = \"negtest\"\n", &root.join("rightkit-qa.toml")).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "negtest").unwrap();
+        let tracker = Tracker::new();
+        let mut target = EngineTarget::new(root.join("engine")).with_data_dir_env("NEGTEST_DATA");
+        // Config-level values come before the binding and cannot unbind it.
+        target.env.push(("RIGHTKIT_UNDER_TEST".into(), "0".into()));
+        target
+            .env
+            .push(("RIGHTKIT_QA_DATA_DIR".into(), "elsewhere".into()));
+        let ctx = Ctx::new(&cfg, Some(target.clone()), None, &ws, &tracker, "neg").unwrap();
+        let engine = ctx.engine.as_ref().unwrap();
+        assert_eq!(
+            engine
+                .env
+                .iter()
+                .filter(|(k, _)| k == "RIGHTKIT_UNDER_TEST" || k == "RIGHTKIT_QA_DATA_DIR")
+                .count(),
+            2,
+            "each variable appears once: {:?}",
+            engine.env
+        );
+        assert_eq!(
+            last_env(&engine.env, "RIGHTKIT_UNDER_TEST").as_deref(),
+            Some("1")
+        );
+        // A step's `env` (CliOptions::env) is applied after the binding and wins.
+        let dir = Some(ctx.data_dir.as_path());
+        let step_env = vec![
+            ("RIGHTKIT_UNDER_TEST".to_string(), "0".to_string()),
+            ("RIGHTKIT_QA_DATA_DIR".to_string(), "".to_string()),
+        ];
+        let env = engine.env_for(dir, &step_env);
+        assert_eq!(last_env(&env, "RIGHTKIT_UNDER_TEST").as_deref(), Some("0"));
+        assert_eq!(last_env(&env, "RIGHTKIT_QA_DATA_DIR").as_deref(), Some(""));
+        // The refusal-probe target keeps its config env untouched.
+        let probe = target.clone().allow_no_data_dir_for_refusal_probe();
+        let probed = Ctx::new(&cfg, Some(probe), None, &ws, &tracker, "probe").unwrap();
+        assert_eq!(
+            last_env(&probed.engine.as_ref().unwrap().env, "RIGHTKIT_UNDER_TEST").as_deref(),
+            Some("0")
+        );
+        // The app-side decision: halves alone, no binding, another app's binding.
+        let protected = vec![root.join("real-user-data")];
+        let bound = Request {
+            app_id: "negtest",
+            activated: true,
+            root: Some(&ctx.data_dir),
+            protected_paths: &protected,
+        };
+        assert!(decide(&bound).is_ok());
+        assert_eq!(
+            decide(&Request {
+                activated: false,
+                ..bound.clone()
+            }),
+            Err(Refusal::RootWithoutActivation)
+        );
+        assert_eq!(
+            decide(&Request {
+                root: None,
+                ..bound.clone()
+            }),
+            Err(Refusal::ActivationWithoutRoot)
+        );
+        // A private directory with no binding: the shape of the old failure.
+        let unbound = ws.home.join("unbound");
+        rightkit_fs::private::ensure_private_dir(&unbound).unwrap();
+        assert_eq!(
+            decide(&Request {
+                root: Some(&unbound),
+                ..bound.clone()
+            }),
+            Err(Refusal::RootNotCreatedByRunner)
+        );
+        assert_eq!(
+            decide(&Request {
+                app_id: "other",
+                ..bound.clone()
+            }),
+            Err(Refusal::BindingAppMismatch)
+        );
+        // Rewriting the binding's `app` is enough to change the verdict: the check is app-id
+        // equality, not proof of who wrote the file.
+        let path = ctx.data_dir.join(BINDING_FILE);
+        std::fs::write(&path, r#"{"app":"other"}"#).unwrap();
+        assert_eq!(decide(&bound), Err(Refusal::BindingAppMismatch));
+        drop(ctx);
+        drop(probed);
+        let _ = crate::workspace::dispose(&ws, false, 3, 10);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

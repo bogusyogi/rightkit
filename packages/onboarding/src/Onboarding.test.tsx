@@ -42,6 +42,18 @@ async function agree(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("Back after acceptance", () => {
+  it("keeps window layout by default and propagates contained layout through the legal gate", async () => {
+    const settings = memorySettings();
+    const { container, rerender } = render(<Onboarding settings={settings.backend} legal={legal} onComplete={vi.fn()} />);
+    const gate = await screen.findByTestId("onboarding-legal");
+    expect(gate).not.toHaveClass("rk-onboarding--contained");
+    expect((container.querySelector(".rk-legal-gate") as HTMLElement).style.minHeight).toBe("100vh");
+
+    rerender(<Onboarding settings={settings.backend} legal={legal} layout="contained" onComplete={vi.fn()} />);
+    expect(await screen.findByTestId("onboarding-legal")).toHaveClass("rk-onboarding--contained");
+    expect((container.querySelector(".rk-legal-gate") as HTMLElement).style.minHeight).toBe("");
+  });
+
   it("is disabled on the first step after the agreement and never renders a blank Agreement step", async () => {
     setup(accepted(), { steps: [{ id: "a", label: "A", title: "Step A", render: () => <p>A body</p> }, { id: "b", label: "B", title: "Step B", render: () => <p>B body</p> }] });
     await screen.findByText("A body");

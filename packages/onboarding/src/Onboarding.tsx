@@ -103,7 +103,7 @@ function NoticeList({ documents }: { documents: readonly LegalGateDocument[] }) 
   return <ul className="rk-onboarding__notices">{documents.map((d) => <li key={d.title}>{d.onOpen ? <button type="button" onClick={d.onOpen}>{d.title}</button> : d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}</li>)}</ul>;
 }
 
-export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
+export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
   if (legalMode === "gate" && !legal) throw new Error("Onboarding: `legal` is required when legalMode is \"gate\"");
   const L: OnboardingLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const gated = legalMode === "gate";
@@ -212,14 +212,15 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     }
     await markAndMove(index + 1, { completed: active.id });
   };
-  if (error && !state) return <div className={cx("rk-onboarding", className)}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
-  if (state && !active) return <main className={cx("rk-onboarding", className)} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(() => onComplete(resultOf(activeState.completed, activeState.skippedSteps ?? [])))}>{L.finish}</Button></main>;
-  if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">{L.loading}</p></div>;
+  const rootClass = cx("rk-onboarding", layout === "contained" && "rk-onboarding--contained", className);
+  if (error && !state) return <div className={rootClass}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
+  if (state && !active) return <main className={rootClass} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(() => onComplete(resultOf(activeState.completed, activeState.skippedSteps ?? [])))}>{L.finish}</Button></main>;
+  if (!state || !active) return <div className={rootClass} aria-busy="true"><p className="rk-onboarding__muted">{L.loading}</p></div>;
   if (needsGate) {
-    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">{L.loading}</p></div>;
+    if (!gateCleared) return <div className={rootClass} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">{L.loading}</p></div>;
     if (!legal) return null;
     const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
-    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
+    return <div className={cx("rk-onboarding rk-onboarding--legal", layout === "contained" && "rk-onboarding--contained", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} layout={layout} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
       const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? requiredDocumentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
       if (legalReceipt) {
         try { await legalReceipt.write(legalAcceptance); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
@@ -230,7 +231,7 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     }} /></div>;
   }
   const body: ReactNode = active.render(context);
-  return <main className={cx("rk-onboarding", className)} data-testid="onboarding" data-step-id={active.id}>
+  return <main className={rootClass} data-testid="onboarding" data-step-id={active.id}>
     <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
     <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{appName ?? legal?.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={(gated && i === 0 && builtins.length > 1) || continuing} onClick={() => { if (!continuing && i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
     <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p>{active.title ? <h1>{active.title}</h1> : null}{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving || continuing} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>{L.skip}</Button> : null}{active.skippable ? <Button variant="ghost" disabled={saving || continuing} onClick={() => void markAndMove(index + 1, { skipped: active.id })}>{L.skipStep}</Button> : null}<span className="rk-onboarding__hint">{!canContinue && active.blockedHint ? active.blockedHint : null}</span><Button variant="secondary" disabled={index <= lead || saving || continuing} onClick={() => void save({ currentStep: index - 1 })}>{L.back}</Button><Button variant="primary" disabled={saving || continuing || !canContinue} onClick={() => void advance()}>{active.continueLabel ?? (index === builtins.length - 1 ? L.finish : L.continue)}</Button></footer></section>

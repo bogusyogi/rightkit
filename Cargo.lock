@@ -6773,7 +6773,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6899,7 +6899,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
@@ -7284,7 +7284,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "getrandom 0.4.3",
  "png 0.18.1",
