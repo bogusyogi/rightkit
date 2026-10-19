@@ -1,0 +1,10 @@
+{
+  "package": "rightkit-qa",
+  "version": "0.7.1",
+  "metadata_url": "https://index.crates.io/ri/gh/rightkit-qa",
+  "archive_url": "https://static.crates.io/crates/rightkit-qa/rightkit-qa-0.7.1.crate",
+  "integrity_algorithm": "sha256",
+  "integrity_verified": "dfc649079275c505dabef3e2edf291d33d37d5fb1cc08d5c5586e32d4d3e8dc7",
+  "sha256": "dfc649079275c505dabef3e2edf291d33d37d5fb1cc08d5c5586e32d4d3e8dc7",
+  "extracted": "D:\\scratch\\rk-spec-adjudication-20261020\\rightkit-qa-0.7.1"
+}

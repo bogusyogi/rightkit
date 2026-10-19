@@ -1,0 +1,10 @@
+{
+  "package": "@rightkit/onboarding",
+  "version": "0.6.2",
+  "metadata_url": "https://registry.npmjs.org/@rightkit%2fonboarding/0.6.2",
+  "archive_url": "https://registry.npmjs.org/@rightkit/onboarding/-/onboarding-0.6.2.tgz",
+  "integrity_algorithm": "sha512",
+  "integrity_verified": "koBEp6YD9iwXiaSG979U0gch7surq2GKuEbCeVMmkKIMIIpIppsURW33EUwch5RHoZgjKEBf9Y0V1bz220o8zw==",
+  "sha256": "736dd2d60d7e7ff3cc1299b101243d9d3dd9915d2df95ddda8c6a37f73ccafd0",
+  "extracted": "D:\\scratch\\rk-spec-adjudication-20261020\\rightkit-onboarding-0.6.2"
+}
