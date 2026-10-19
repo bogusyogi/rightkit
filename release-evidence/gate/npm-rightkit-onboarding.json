@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/onboarding",
-  "version": "0.6.0",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "b15d572113cc4ea42ec9f105ba7ccd758f1be23186fae62be4121566eae311f4",
+  "version": "0.6.1",
+  "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
+  "artifactSha256": "e954458408dc0c3ff591bdfa487056b76895c02d62ab73b251e65b542181e948",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
       "features": [
         "default"
       ],
-      "artifactSha256": "b15d572113cc4ea42ec9f105ba7ccd758f1be23186fae62be4121566eae311f4",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/onboarding run test && pnpm --dir packages/onboarding pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-KIWDV7",
+      "artifactSha256": "e954458408dc0c3ff591bdfa487056b76895c02d62ab73b251e65b542181e948",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/onboarding run test && pnpm --dir packages/onboarding pack --pack-destination /Volumes/D/scratch/rk-publish-mac/tmp/rk-local-publish-3d19a7",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:37:49.331Z",
-      "passed": 58,
+      "timestamp": "2026-10-19T00:18:30.389Z",
+      "passed": 62,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/onboarding run test",
           "ok": true,
-          "executed": 58,
+          "executed": 62,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

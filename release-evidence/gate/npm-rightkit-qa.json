@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/qa",
-  "version": "0.5.0",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "1105da6a6fa137369df5b24856522fc41b73e709e65d3eb6bce896660653c668",
+  "version": "0.5.1",
+  "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
+  "artifactSha256": "c7e4fb3491c0062d4e514d88835b78fdc4a67a60eb4b53de6c6a43fb9157f16e",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
       "features": [
         "default"
       ],
-      "artifactSha256": "1105da6a6fa137369df5b24856522fc41b73e709e65d3eb6bce896660653c668",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/qa run test && pnpm --dir packages/qa pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-L5AbxU",
+      "artifactSha256": "c7e4fb3491c0062d4e514d88835b78fdc4a67a60eb4b53de6c6a43fb9157f16e",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/qa run test && pnpm --dir packages/qa pack --pack-destination /Volumes/D/scratch/rk-publish-mac/tmp/rk-local-publish-mfaH6b",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:21:47.588Z",
+      "timestamp": "2026-10-19T00:19:52.904Z",
       "passed": 257,
       "failed": 0,
       "skipped": 5,

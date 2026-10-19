@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/logs",
+  "version": "0.1.5",
+  "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
+  "artifactSha256": "502f8869773892bab44cd87c35bc1f43bc488cb9c3e8e37a971ab74178513853",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
+      "features": [
+        "default"
+      ],
+      "artifactSha256": "502f8869773892bab44cd87c35bc1f43bc488cb9c3e8e37a971ab74178513853",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/logs run test && pnpm --dir packages/logs pack --pack-destination /Volumes/D/scratch/rk-publish-mac/tmp/rk-local-publish-N1lBgg",
+      "operator": "agent (local-build grant)",
+      "timestamp": "2026-10-19T00:12:32.188Z",
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "ignored": 0,
+      "allowIgnored": false,
+      "requireAssets": "1",
+      "assetGated": false,
+      "steps": [
+        {
+          "command": "pnpm -r --workspace-concurrency=1 run build",
+          "ok": true
+        },
+        {
+          "command": "pnpm --dir packages/logs run test",
+          "ok": true,
+          "executed": 24,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 0
+        }
+      ]
+    }
+  ]
+}

@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/legal",
-  "version": "0.6.0",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "12d0a5474ec5fdc323ffbd14b71a29c733d659902fef421e21a464e3d6bd545f",
+  "version": "0.6.1",
+  "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
+  "artifactSha256": "6a311de093c9601b7230b94b44889de7b8ca47bfdcc9c83e84375a3f6abf12bc",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "997957824daad5c0e9a77033364d03e2d1a28c67",
       "features": [
         "default"
       ],
-      "artifactSha256": "12d0a5474ec5fdc323ffbd14b71a29c733d659902fef421e21a464e3d6bd545f",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/legal run test && pnpm --dir packages/legal pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-EKlD2U",
+      "artifactSha256": "6a311de093c9601b7230b94b44889de7b8ca47bfdcc9c83e84375a3f6abf12bc",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/legal run test && pnpm --dir packages/legal pack --pack-destination /Volumes/D/scratch/rk-publish-mac/tmp/rk-local-publish-LEeRE7",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:24:17.464Z",
-      "passed": 45,
+      "timestamp": "2026-10-19T00:09:45.134Z",
+      "passed": 57,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/legal run test",
           "ok": true,
-          "executed": 45,
+          "executed": 57,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
