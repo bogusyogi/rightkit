@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3 — unpublished staging
+
+- Added: `run_command(OwnedCommand, input, &RunOptions)` — the bounded runner for a caller-configured command (env, cwd); `run`/`run_with_stdin` delegate to it unchanged (CutRight gap 6).
+- Added: `run_streaming` — live raw stdout chunks and CR-aware stderr lines on the caller's thread, cancel predicate, timeout, bounded tails, bounded tree kill and reap (ScrapeRight G6).
+- Fixed: `run`, `run_with_stdin`, `run_command` and `run_streaming` no longer return `Ok` with incomplete output when a pipe read or shutdown fails. After the reader threads are joined, each capture's stored error (`NativeOutputCapture::take_error`) is taken and returned as an `io::Error` that keeps the original `ErrorKind` and names the stream (`stdout capture failed, output is incomplete: ...`). Both streams are always taken before returning. No new error type or variant.
+- Fixed: the bounded runners now deliver stdin and capture stdout/stderr for a configured command on the native Windows spawn path (`inherit_handles_only` with an explicit or automatic `WindowsSpawnConfig`). They used to replace only `std::process::Command`'s stdio, so an allowlisted spawn followed the config instead (default config: input dropped, empty captures), and their own `command_mut` call cleared an automatic config. One crate-private request (`OwnedCommand::pipe_stdio`) is now applied inside `spawn` to the std `Command` and to the native config together, after every caller edit, so a later `command_mut` cannot undo it. Environment, working directory, raw arguments and the job, token and handle-allowlist settings are unchanged. No API change.
+
 ## 0.5.2
 
 Issue bogusyogi/rightkit#480. The `process_table` tests pass on macOS arm64; Windows is verified on the Dell before publication.

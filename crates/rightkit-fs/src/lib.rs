@@ -105,10 +105,11 @@ pub use atomic::atomic_write_with_digest;
 #[cfg(feature = "fs")]
 pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_reporting, atomic_write_with,
-    atomic_write_with_options, durable_sync, durable_sync_with, publication_durability,
-    publish_file, publish_file_first_free, publish_file_with, rename_exclusive,
+    atomic_write_with_access_denied_retry, atomic_write_with_options, durable_sync,
+    durable_sync_with, publication_durability, publish_file, publish_file_first_free,
+    publish_file_with, publish_file_with_access_denied_retry, rename_exclusive,
     rename_exclusive_reporting, sweep_stale_temps, sweep_stale_temps_report, try_sync_dir,
-    AtomicOptions, AtomicWriteOptions, AtomicWriter, ExclusiveMethod, Privacy,
+    AccessDeniedRetry, AtomicOptions, AtomicWriteOptions, AtomicWriter, ExclusiveMethod, Privacy,
     PublicationDurability, ReplaceMode, RetryPolicy, SweepReport, SyncLevel, SyncPolicy,
     TempWriter, WriteReport,
 };
@@ -149,7 +150,9 @@ pub use private::{
     write_private_executable, write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
-pub use publish_dir::{publish_dir, DirPublishMethod, PublishedDir};
+pub use publish_dir::{
+    publish_dir, publish_dir_with, DirPublishMethod, DirPublishPolicy, PublishedDir,
+};
 #[cfg(feature = "fs")]
 pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
 #[cfg(feature = "fs")]

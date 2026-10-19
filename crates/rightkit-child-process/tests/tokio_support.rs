@@ -3,6 +3,7 @@
 #![cfg(feature = "tokio")]
 
 use rightkit_child_process::{tokio_support, NoWindow, TerminationOptions};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 #[test]

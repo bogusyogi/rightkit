@@ -6,12 +6,20 @@
 //! Object on Windows, and when the deadline passes its whole tree is terminated, not only the
 //! leader. Stdin is null. Output beyond each cap is drained and discarded, so a chatty child
 //! never blocks on a full pipe, and [`CapturedOutput::truncated`] says when that happened.
+//!
+//! [`run_command`] is the same runner for a command the caller configured (environment, working
+//! directory), and [`run_streaming`] is the variant that shows output while it runs, with a cancel
+//! predicate and tail-only retention.
+
+mod streaming;
+
+pub use streaming::{run_streaming, StreamOptions, StreamOutput};
 
 use crate::{CapturedOutput, NativeOutputCapture, OwnedCommand};
 use std::{
     ffi::OsStr,
     io,
-    process::{ChildStdin, ExitStatus, Stdio},
+    process::{ChildStdin, ExitStatus},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
@@ -155,16 +163,60 @@ where
     S: AsRef<OsStr>,
 {
     let mut command = OwnedCommand::new(program);
-    command
-        .command_mut()
-        .args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.command_mut().args(args);
+    run_owned(command, input, options)
+}
+
+/// [`run`] / [`run_with_stdin`] for a command the caller configured: its program, arguments,
+/// environment (including a cleared or allow-listed one), working directory and any other
+/// [`OwnedCommand`] setting are used as given. The crate sets stdin, stdout and stderr (pipes;
+/// stdin is null when `input` is `None`) and the window mode from `options.no_window`, replacing
+/// whatever the caller set for those, including the stdio of an explicit or automatic
+/// `WindowsSpawnConfig` on a Windows `inherit_handles_only` command (its environment, raw
+/// arguments and security settings are kept). If a capture's pipe read fails the call returns
+/// that error instead of an `Ok` with partial output.
+///
+/// `input` of `Some(bytes)` is written to the child's stdin on its own thread while output is
+/// drained concurrently, so input larger than a pipe buffer cannot deadlock against a chatty
+/// child; the writer closes stdin when done, delivering EOF (`Some(&[])` delivers EOF at once).
+/// A child that exits before consuming the input closes the pipe: that broken-pipe outcome is
+/// a normal early exit, not an error, and the child's status/output are returned as usual.
+/// Any other stdin write failure is returned as `Err` after the tree is down. A process that
+/// outlived the tree and still holds stdin without reading it cannot hold the call past its
+/// deadline: once the tree is down the writer gets a short grace, then it is cancelled (Unix:
+/// non-blocking write end; Windows: `CancelIoEx`) and joined.
+///
+/// What a return guarantees about the writer:
+/// - Every `Ok` return: the writer thread has been joined and the write end is closed.
+/// - A writer that cannot be stopped within its bound makes the call fail with
+///   `ErrorKind::TimedOut`.
+/// - Any other `Err` (an early failure, such as output capture or waiting on the child) still
+///   cancels the writer with the same bound before returning, but reports that original error,
+///   not the cleanup outcome.
+/// - Unix, every return: the parent has closed the write end, so a writer thread that is
+///   still alive can deliver nothing more and ends on its next step.
+/// - Windows, after `TimedOut` or an early `Err`: a writer that did not stop within the bound
+///   may still be alive and blocked in a write, owning the write end, with its cancel flag set.
+///   This needs a pending `CancelIoEx` that fails to abort the write, which is not expected.
+///
+/// Everything else (the deadline, the tree kill, the output caps, what `Err` means before the
+/// program starts) is as documented on [`run`], which delegates here.
+pub fn run_command(
+    command: OwnedCommand,
+    input: Option<&[u8]>,
+    options: &RunOptions,
+) -> io::Result<RunOutput> {
+    run_owned(command, input.map(<[u8]>::to_vec), options)
+}
+
+fn run_owned(
+    mut command: OwnedCommand,
+    input: Option<Vec<u8>>,
+    options: &RunOptions,
+) -> io::Result<RunOutput> {
+    // Recorded, not applied to `Command` here: `spawn` applies it to the std `Command` and to a
+    // native Windows spawn config alike, after every caller edit.
+    command.pipe_stdio(input.is_some());
     if options.no_window {
         command.windows_hide();
     } else {
@@ -192,12 +244,12 @@ where
         crate::WaitOutcome::Exited(status) => (status, false),
         crate::WaitOutcome::Terminated(status) => (status, true),
     };
-    let stdout = stdout
+    let stdout_output = stdout
         .as_mut()
         .map_or_else(CapturedOutput::default, |capture| {
             capture.finish_within(DRAIN_WAIT)
         });
-    let stderr = stderr
+    let stderr_output = stderr
         .as_mut()
         .map_or_else(CapturedOutput::default, |capture| {
             capture.finish_within(DRAIN_WAIT)
@@ -206,15 +258,37 @@ where
     // job) may still hold the read end of stdin without reading, so the writer is not
     // guaranteed to end on its own. Wait a bounded time, then cancel it; never join unbounded.
     // BrokenPipe is the child leaving early, not a failure of this run.
-    if let Some(writer) = writer {
-        writer.finish()?;
-    }
+    let writer_result = writer.map(StdinWriter::finish).transpose();
+    // Both readers are joined, so a read or shutdown failure they stored is final. Taken for
+    // both streams before any return, so neither is left behind.
+    let stdout_failure = capture_failure("stdout", stdout.as_ref());
+    let stderr_failure = capture_failure("stderr", stderr.as_ref());
+    stdout_failure?;
+    stderr_failure?;
+    writer_result?;
     Ok(RunOutput {
         status,
         timed_out,
-        stdout,
-        stderr,
+        stdout: stdout_output,
+        stderr: stderr_output,
     })
+}
+
+/// Turns a stored failure of a joined capture into the call's error: its output is incomplete,
+/// so returning `Ok` would pass partial bytes off as the child's whole output. The error keeps
+/// its [`io::ErrorKind`] and names the stream. Call only after the capture has been joined
+/// (`finish_within` / `cancel`).
+pub(crate) fn capture_failure(
+    stream: &str,
+    capture: Option<&NativeOutputCapture>,
+) -> io::Result<()> {
+    match capture.and_then(NativeOutputCapture::take_error) {
+        Some(error) => Err(io::Error::new(
+            error.kind(),
+            format!("{stream} capture failed, output is incomplete: {error}"),
+        )),
+        None => Ok(()),
+    }
 }
 
 /// State shared between the thread running [`run_inner`] and the stdin writer thread.
@@ -530,6 +604,7 @@ fn write_input(stdin: &mut ChildStdin, bytes: &[u8], state: &WriterState) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Stdio;
     use std::sync::atomic::Ordering::SeqCst;
 
     /// The writer-thread counter is process-wide, so tests that start a writer run one at a
@@ -880,5 +955,513 @@ mod tests {
         let output = run("sh", ["-c", "head -c 100000 /dev/zero"], &options).unwrap();
         assert_eq!(output.stdout.bytes.len(), 4);
         assert!(output.stdout.truncated);
+    }
+
+    /// `sh -c script sh args...` (the first argument is `$1`).
+    #[cfg(unix)]
+    fn sh(script: &str, args: &[&str]) -> OwnedCommand {
+        let mut command = OwnedCommand::new("sh");
+        command.command_mut().args(["-c", script, "sh"]).args(args);
+        command
+    }
+
+    /// A program that outlives any test deadline.
+    #[cfg(unix)]
+    fn sleeper() -> OwnedCommand {
+        let mut command = OwnedCommand::new("sleep");
+        command.command_mut().arg("30");
+        command
+    }
+
+    #[cfg(windows)]
+    fn sleeper() -> OwnedCommand {
+        let mut command = OwnedCommand::new("ping");
+        command.command_mut().args(["-n", "30", "127.0.0.1"]);
+        command
+    }
+
+    /// Runs `command` through `run_streaming`, collecting what the callbacks saw. With
+    /// `cancel_on_first_chunk` the predicate turns true once the first stdout chunk arrived.
+    fn stream(
+        command: OwnedCommand,
+        options: &StreamOptions,
+        cancel_on_first_chunk: bool,
+    ) -> (StreamOutput, Vec<u8>, Vec<String>) {
+        let flag = std::cell::Cell::new(false);
+        let mut chunks = Vec::new();
+        let mut lines = Vec::new();
+        let output = run_streaming(
+            command,
+            options,
+            &|| flag.get(),
+            &mut |chunk: &[u8]| {
+                chunks.extend_from_slice(chunk);
+                if cancel_on_first_chunk {
+                    flag.set(true);
+                }
+            },
+            &mut |line: &str| lines.push(line.to_owned()),
+        )
+        .unwrap();
+        (output, chunks, lines)
+    }
+
+    #[test]
+    fn run_command_passes_a_caller_set_env_var_to_the_child() {
+        #[cfg(unix)]
+        let mut command = sh("printf %s \"$RK_RUN_COMMAND_VAR\"", &[]);
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = OwnedCommand::new("cmd");
+            command
+                .command_mut()
+                .args(["/C", "echo %RK_RUN_COMMAND_VAR%"]);
+            command
+        };
+        command
+            .command_mut()
+            .env("RK_RUN_COMMAND_VAR", "from-the-caller");
+        let output = run_command(command, None, &RunOptions::new(Duration::from_secs(20))).unwrap();
+        assert!(output.status.success());
+        assert!(!output.timed_out);
+        assert!(
+            String::from_utf8_lossy(&output.stdout.bytes).contains("from-the-caller"),
+            "{:?}",
+            output.stdout
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_command_with_input_reaches_the_child() {
+        let _serial = serial();
+        let options = RunOptions::new(Duration::from_secs(10));
+        let output = run_command(sh("cat", &[]), Some(b"hello"), &options).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.bytes, b"hello".to_vec());
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_escaped_stdin_holder_does_not_hold_run_command_past_its_timeout() {
+        let _serial = serial();
+        let holder = Grandchild::new("command-timeout");
+        let script = holder_script("exec sleep 30", "sleep 30");
+        let big = vec![b'x'; 2 << 20];
+        let timeout = Duration::from_secs(1);
+        let options = RunOptions::new(timeout);
+        let started = std::time::Instant::now();
+        let output = run_command(
+            sh(script.as_str(), &[holder.0.to_str().unwrap()]),
+            Some(&big),
+            &options,
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+        if !holder.alive() && !output.timed_out {
+            eprintln!("skipped: no setsid or perl to leave the session");
+            return;
+        }
+        assert!(
+            holder.alive(),
+            "the fixture's grandchild must still hold stdin"
+        );
+        assert!(output.timed_out);
+        assert!(
+            elapsed < timeout + Duration::from_secs(6),
+            "run_command took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_streaming_forwards_stdout_chunks_in_order_including_cr() {
+        let command = sh(
+            "printf 'a\\r'; sleep 0.1; printf 'b\\r'; sleep 0.1; printf 'c\\n'",
+            &[],
+        );
+        let (output, chunks, lines) = stream(command, &StreamOptions::new(), false);
+        assert!(output.status.success());
+        assert!(!output.cancelled && !output.timed_out);
+        assert_eq!(chunks, b"a\rb\rc\n".to_vec());
+        assert_eq!(output.stdout_tail, b"a\rb\rc\n".to_vec());
+        assert!(lines.is_empty());
+        assert_eq!(output.stderr_tail, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_streaming_splits_stderr_lines_on_cr_and_lf() {
+        let command = sh("printf 'x\\ry\\nz\\r\\nw' >&2; exit 3", &[]);
+        let (output, chunks, lines) = stream(command, &StreamOptions::new(), false);
+        assert_eq!(output.status.code(), Some(3));
+        assert!(chunks.is_empty());
+        assert_eq!(lines, ["x", "y", "z", "w"]);
+        assert_eq!(output.stderr_tail, "x\ny\nz\nw");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_streaming_tails_keep_the_last_bytes() {
+        let command = sh(
+            "head -c 100000 /dev/zero | tr '\\0' 'x'; printf END; \
+             printf 'l1\\nl2\\nl3\\nl4\\n' >&2",
+            &[],
+        );
+        let options = StreamOptions::new().stdout_tail_cap(10).stderr_tail_cap(6);
+        let (output, chunks, lines) = stream(command, &options, false);
+        assert!(output.status.success());
+        // The callbacks saw everything; only the tails are cut.
+        assert_eq!(chunks.len(), 100_003);
+        assert_eq!(lines, ["l1", "l2", "l3", "l4"]);
+        assert_eq!(output.stdout_tail, b"xxxxxxxEND".to_vec());
+        assert_eq!(output.stderr_tail, "l3\nl4");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_streaming_cancel_after_the_first_chunk_kills_the_tree_and_a_grandchild() {
+        let _serial = serial();
+        let holder = Grandchild::new("stream-cancel");
+        // The grandchild shares the leader's group and both pipes; it records its pid before
+        // the first byte is written.
+        let command = sh(
+            "sleep 30 & echo $! > \"$1\"; printf go; sleep 30",
+            &[holder.0.to_str().unwrap()],
+        );
+        let options = StreamOptions::new().poll(Duration::from_millis(50));
+        let started = Instant::now();
+        let (output, chunks, _lines) = stream(command, &options, true);
+        let elapsed = started.elapsed();
+        assert!(output.cancelled);
+        assert!(!output.timed_out);
+        assert!(!output.status.success());
+        assert_eq!(chunks, b"go".to_vec());
+        assert_eq!(output.stdout_tail, b"go".to_vec());
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "cancel took {elapsed:?} to take effect"
+        );
+        assert!(holder.pid().is_some(), "the grandchild never started");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while holder.alive() {
+            assert!(
+                Instant::now() < deadline,
+                "the grandchild survived the kill"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn run_streaming_cancel_before_any_output_ends_the_call() {
+        let started = Instant::now();
+        let output = run_streaming(
+            sleeper(),
+            &StreamOptions::new(),
+            &|| true,
+            &mut |_chunk: &[u8]| {},
+            &mut |_line: &str| {},
+        )
+        .unwrap();
+        assert!(output.cancelled);
+        assert!(!output.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(8));
+    }
+
+    #[test]
+    fn run_streaming_timeout_sets_timed_out() {
+        let options = StreamOptions::new().timeout(Duration::from_millis(300));
+        let started = Instant::now();
+        let (output, _chunks, lines) = stream(sleeper(), &options, false);
+        let elapsed = started.elapsed();
+        assert!(output.timed_out);
+        assert!(!output.cancelled);
+        assert!(lines.is_empty());
+        assert!(elapsed >= Duration::from_millis(300), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(8), "{elapsed:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_streaming_with_input_round_trips_more_than_a_pipe_buffer() {
+        let _serial = serial();
+        let big = vec![b'x'; 1 << 20];
+        let options = StreamOptions::new()
+            .timeout(Duration::from_secs(30))
+            .input(big.clone());
+        let (output, chunks, _lines) = stream(sh("cat", &[]), &options, false);
+        assert!(output.status.success());
+        assert!(!output.timed_out);
+        assert_eq!(chunks, big);
+        assert_eq!(output.stdout_tail.len(), 64 * 1024);
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+        // A child that never reads its input is a normal early exit.
+        let options = StreamOptions::new().input(big);
+        let (output, _chunks, _lines) = stream(sh("exit 7", &[]), &options, false);
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_escaped_stdin_holder_does_not_hold_run_streaming_past_its_timeout() {
+        let _serial = serial();
+        let holder = Grandchild::new("stream-timeout");
+        let script = holder_script("exec sleep 30", "sleep 30");
+        let timeout = Duration::from_secs(1);
+        let options = StreamOptions::new()
+            .timeout(timeout)
+            .input(vec![b'x'; 2 << 20]);
+        let started = Instant::now();
+        let (output, _chunks, _lines) = stream(
+            sh(script.as_str(), &[holder.0.to_str().unwrap()]),
+            &options,
+            false,
+        );
+        let elapsed = started.elapsed();
+        if !holder.alive() && !output.timed_out {
+            eprintln!("skipped: no setsid or perl to leave the session");
+            return;
+        }
+        assert!(
+            holder.alive(),
+            "the fixture's grandchild must still hold stdin"
+        );
+        assert!(output.timed_out);
+        assert!(
+            elapsed < timeout + Duration::from_secs(8),
+            "run_streaming took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+    }
+
+    // ---- Capture failures surface as errors (not an Ok with partial output). ----
+
+    /// A child that writes one line to each of stdout and stderr.
+    fn noisy() -> OwnedCommand {
+        #[cfg(unix)]
+        {
+            sh("printf out; printf err >&2", &[])
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let mut command = OwnedCommand::new("cmd");
+            command.command_mut().raw_arg("/C echo out & echo err 1>&2");
+            command
+        }
+    }
+
+    #[test]
+    fn a_capture_read_error_is_an_error_from_run_command() {
+        use crate::native_capture::{inject_read_fault, Stream};
+        let options = RunOptions::new(Duration::from_secs(20));
+        for (stream, name) in [(Stream::Stdout, "stdout"), (Stream::Stderr, "stderr")] {
+            inject_read_fault(stream, io::ErrorKind::PermissionDenied);
+            let error = run_command(noisy(), None, &options)
+                .expect_err("a stored capture error must not become an Ok with partial output");
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+            assert!(error.to_string().contains(name), "{error}");
+        }
+        // Control: with nothing armed the same command is a plain Ok.
+        let output = run_command(noisy(), None, &options).unwrap();
+        assert!(output.status.success());
+        assert!(!output.stdout.bytes.is_empty() && !output.stderr.bytes.is_empty());
+    }
+
+    #[test]
+    fn a_capture_read_error_is_an_error_from_run_streaming() {
+        use crate::native_capture::{inject_read_fault, Stream};
+        let options = StreamOptions::new().timeout(Duration::from_secs(20));
+        for (stream, name) in [(Stream::Stdout, "stdout"), (Stream::Stderr, "stderr")] {
+            inject_read_fault(stream, io::ErrorKind::PermissionDenied);
+            let error = run_streaming(noisy(), &options, &|| false, &mut |_| {}, &mut |_| {})
+                .expect_err("a stored capture error must not become an Ok with partial output");
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+            assert!(error.to_string().contains(name), "{error}");
+        }
+        let output = run_streaming(noisy(), &options, &|| false, &mut |_| {}, &mut |_| {}).unwrap();
+        assert!(output.status.success());
+    }
+
+    // ---- One piped-stdio setup for both spawn paths. ----
+
+    /// `command_mut` after the runners' stdio request cannot undo it: the request is applied at
+    /// spawn, after every caller edit.
+    #[test]
+    fn command_mut_after_the_piped_setup_does_not_lose_it() {
+        let mut command = sleeper();
+        command.pipe_stdio(true);
+        command
+            .command_mut()
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        assert!(child.take_stdin().is_some(), "stdin must stay piped");
+        assert!(child.take_stdout().is_some(), "stdout must stay piped");
+        assert!(child.take_stderr().is_some(), "stderr must stay piped");
+    }
+
+    /// Windows: the same, on the native spawn path, where an explicit config (here with every
+    /// stream null) is what drives stdio and `command_mut` runs after it was set.
+    #[cfg(windows)]
+    #[test]
+    fn command_mut_after_an_explicit_config_does_not_lose_the_piped_setup() {
+        use crate::{WindowsSpawnConfig, WindowsStdio};
+        let mut command = sleeper();
+        command
+            .inherit_handles_only([])
+            .windows_spawn_config(WindowsSpawnConfig {
+                stdin: WindowsStdio::Null,
+                stdout: WindowsStdio::Null,
+                stderr: WindowsStdio::Null,
+                ..Default::default()
+            });
+        command.pipe_stdio(true);
+        command
+            .command_mut()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        assert!(child.take_stdin().is_some(), "stdin must stay piped");
+        assert!(child.take_stdout().is_some(), "stdout must stay piped");
+        assert!(child.take_stderr().is_some(), "stderr must stay piped");
+    }
+
+    /// Windows: the automatic config of `OwnedCommand::new` survives the runners' stdio request
+    /// (it used to be cleared by their `command_mut`, failing an allowlisted spawn).
+    #[cfg(windows)]
+    #[test]
+    fn the_piped_setup_keeps_the_automatic_windows_config() {
+        let mut command = OwnedCommand::new("sort");
+        command.inherit_handles_only([]);
+        command.pipe_stdio(true);
+        let mut child = command.spawn().unwrap();
+        assert!(child.take_stdin().is_some(), "stdin must be piped");
+        assert!(child.take_stdout().is_some(), "stdout must be piped");
+        assert!(child.take_stderr().is_some(), "stderr must be piped");
+    }
+
+    /// `cmd /C findstr . & echo err 1>&2`: copies stdin to stdout, then writes `err` to stderr.
+    #[cfg(windows)]
+    fn echo_stdin_and_report_on_stderr() -> OwnedCommand {
+        use std::os::windows::process::CommandExt;
+        let mut command = OwnedCommand::new("cmd");
+        command
+            .command_mut()
+            .raw_arg("/C findstr . & echo err 1>&2");
+        command
+    }
+
+    /// Explicit configs an allowlisted command may carry: the default (all inherited) and one
+    /// with every stream null. The runners must replace the stdio of both.
+    #[cfg(windows)]
+    fn explicit_configs() -> Vec<crate::WindowsSpawnConfig> {
+        use crate::{WindowsSpawnConfig, WindowsStdio};
+        vec![
+            WindowsSpawnConfig::default(),
+            WindowsSpawnConfig {
+                stdin: WindowsStdio::Null,
+                stdout: WindowsStdio::Null,
+                stderr: WindowsStdio::Null,
+                ..Default::default()
+            },
+        ]
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_configured_windows_command_gets_stdin_and_captures_both_streams_through_run_command() {
+        let _serial = serial();
+        for config in explicit_configs() {
+            let mut command = echo_stdin_and_report_on_stderr();
+            command
+                .inherit_handles_only([])
+                .windows_spawn_config(config);
+            let output = run_command(
+                command,
+                Some(b"hello\r\n"),
+                &RunOptions::new(Duration::from_secs(30)),
+            )
+            .unwrap();
+            assert!(!output.timed_out);
+            let stdout = String::from_utf8_lossy(&output.stdout.bytes).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr.bytes).into_owned();
+            assert!(
+                stdout.contains("hello"),
+                "stdin was not delivered: {stdout:?}"
+            );
+            assert!(
+                stderr.contains("err"),
+                "stderr was not captured: {stderr:?}"
+            );
+            assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_configured_windows_command_gets_stdin_and_captures_both_streams_through_run_streaming() {
+        let _serial = serial();
+        for config in explicit_configs() {
+            let mut command = echo_stdin_and_report_on_stderr();
+            command
+                .inherit_handles_only([])
+                .windows_spawn_config(config);
+            let options = StreamOptions::new()
+                .timeout(Duration::from_secs(30))
+                .input(b"hello\r\n".to_vec());
+            let (output, chunks, lines) = stream(command, &options, false);
+            assert!(!output.timed_out);
+            let stdout = String::from_utf8_lossy(&chunks).into_owned();
+            assert!(
+                stdout.contains("hello"),
+                "stdin was not delivered: {stdout:?}"
+            );
+            assert!(
+                lines.iter().any(|line| line.contains("err")),
+                "stderr was not captured: {lines:?}"
+            );
+            assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+        }
+    }
+
+    /// An automatic config (a `new()` command never touched through `command_mut`) used to be
+    /// cleared by the runner's own `command_mut`, failing the allowlisted spawn.
+    #[cfg(windows)]
+    #[test]
+    fn an_allowlisted_new_command_with_the_automatic_config_runs_through_both_runners() {
+        let _serial = serial();
+        let sorted = |bytes: &[u8]| String::from_utf8_lossy(bytes).replace("\r\n", "\n");
+        let mut command = OwnedCommand::new("sort");
+        command.inherit_handles_only([]);
+        let output = run_command(
+            command,
+            Some(b"b\r\na\r\n"),
+            &RunOptions::new(Duration::from_secs(30)),
+        )
+        .unwrap();
+        assert_eq!(sorted(&output.stdout.bytes), "a\nb\n");
+
+        let mut command = OwnedCommand::new("sort");
+        command.inherit_handles_only([]);
+        let options = StreamOptions::new()
+            .timeout(Duration::from_secs(30))
+            .input(b"b\r\na\r\n".to_vec());
+        let (_output, chunks, _lines) = stream(command, &options, false);
+        assert_eq!(sorted(&chunks), "a\nb\n");
     }
 }

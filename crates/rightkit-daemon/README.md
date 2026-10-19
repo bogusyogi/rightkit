@@ -203,6 +203,15 @@ An application route that needs no device signature (a provider webhook, a callb
 
 `Daemon::list_devices` (every device, revoked ones marked, `linked` while a link is open, never the key), device roles (`role:<name>` scopes granted at enrolment; `Caller::role`, `CallContext::role`, and `MethodPolicy::remote(["role:operator"])` to gate a method), and an event cursor for live screens (`Daemon::events_since`, `wait_events`; every event now carries a `seq`). See the 0.2.7 changelog for what issue #306 asks for that is not built.
 
+## App-root migration (`AppRoot::migrate_from`)
+
+`AppRoot::migrate_from(src)` copies an old data root into the app root, verifies every byte and writes the marker `.rightkit-migrated.json` last. It is strict: a symlink or special file in `src` returns `UnsupportedSource`. `migrate_from_with(src, MigrateOptions)` opts in:
+
+* `preserve_links(true)` copies each symlink as a link and never follows it. A relative link that stays inside the tree keeps its text; one that leaves the tree is rewritten to an absolute path to its original target; an absolute or dangling link is copied as it is. If the destination cannot create a link (Windows without the symlink privilege or Developer Mode) the call fails with a retryable `AppRootError::Io` that carries a typed `LinkNotCreated { link, target, resolved, reason }`, read with `err.link_not_created()` (`err.is_retryable()` is true for it), before any marker is written; the old tree stays usable and the app decides whether to start from it. `optional_links(|path| ...)` lets the caller mark links that may be omitted instead; they are reported as `omitted_optional_links`.
+* `skip_ephemeral_specials(true)` skips sockets and FIFOs (never opened) and reports them. Devices and other specials still refuse.
+
+`migrate_from_with` returns a `MigrationReport`: `outcome()` (the same `MigrationOutcome` that `migrate_from` returns), `migrated_links()`, `skipped_specials()`, `omitted_optional_links()` and `complete()`. The marker records the same lists. The old tree is never modified.
+
 ## Threat model
 
 **Defended against:** another local user (or a service running as one) connecting to the endpoint to call the service; another local user squatting on the endpoint name or path so a client sends its `hello` and requests to an impostor; a remote client (Windows pipes reject remote clients); a server that tries to impersonate the calling user through the pipe (clients open with `SECURITY_IDENTIFICATION`); connection floods growing the host without bound (Windows: `max_pipe_instances`).

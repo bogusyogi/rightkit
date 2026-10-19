@@ -515,7 +515,7 @@ mod tests {
         let root = tmp("child-junction");
         let outside = tmp("child-junction-outside");
         bound(&root, "viewright");
-        let validated = validate_root("viewright", &root, &[outside.clone()]).unwrap();
+        let validated = validate_root("viewright", &root, std::slice::from_ref(&outside)).unwrap();
         let junction = root.join("data");
         fs::create_dir(&junction).unwrap();
         let target = fs::canonicalize(&outside)

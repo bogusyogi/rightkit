@@ -5,7 +5,7 @@ use std::{
     ffi::OsStr,
     io,
     num::NonZeroU32,
-    process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
+    process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex, MutexGuard},
     thread,
     time::{Duration, Instant, SystemTime},
@@ -146,7 +146,17 @@ pub struct OwnedCommand {
     windows_spawn_config: Option<crate::WindowsSpawnConfig>,
     #[cfg(windows)]
     windows_spawn_config_auto: bool,
+    // Set by `pipe_stdio` (the `run` family). Applied at spawn to BOTH launch paths, after every
+    // caller edit, so a later `command_mut` cannot undo it.
+    run_stdio: Option<RunStdio>,
     env_cleared: bool,
+}
+
+/// The piped stdio contract of the bounded runners: stdout and stderr are always piped, stdin
+/// is piped when the caller has input to write and null otherwise.
+#[derive(Clone, Copy, Debug)]
+struct RunStdio {
+    stdin_piped: bool,
 }
 #[cfg(windows)]
 type CallerJob = Option<std::os::windows::io::OwnedHandle>;
@@ -189,8 +199,19 @@ impl OwnedCommand {
             windows_spawn_config: None,
             #[cfg(windows)]
             windows_spawn_config_auto: false,
+            run_stdio: None,
             env_cleared: false,
         }
+    }
+    /// Crate-private: the one place that decides the stdio of a bounded run. It records the
+    /// request instead of editing `Command` now, and `spawn` applies it to the std `Command`
+    /// and, for an allowlisted Windows spawn, to the native [`WindowsSpawnConfig`] (explicit or
+    /// auto) in one step. It deliberately does not call [`command_mut`](Self::command_mut), which
+    /// would clear an auto config. Environment, working directory, raw arguments and every
+    /// security setting are left as the caller configured them.
+    pub(crate) fn pipe_stdio(&mut self, stdin_piped: bool) -> &mut Self {
+        self.run_stdio = Some(RunStdio { stdin_piped });
+        self
     }
     pub fn command_mut(&mut self) -> &mut Command {
         #[cfg(windows)]
@@ -214,7 +235,9 @@ impl OwnedCommand {
     }
     /// Supply opaque stdio/environment/raw-arg settings for native allowlisted spawns.
     /// Required after from_command/command_mut when inherit_handles_only is set.
-    /// Ordinary std spawns ignore it; fresh new() Commands have known defaults.
+    /// Ordinary std spawns ignore it; fresh new() Commands have known defaults. The bounded
+    /// runners (`run`, `run_command`, `run_streaming`) replace its stdin, stdout and stderr with
+    /// the pipes they capture, whether the config is explicit or automatic, and keep the rest.
     #[cfg(windows)]
     pub fn windows_spawn_config(&mut self, config: crate::WindowsSpawnConfig) -> &mut Self {
         self.windows_spawn_config = Some(config);
@@ -438,6 +461,28 @@ impl OwnedCommand {
                 io::ErrorKind::InvalidInput,
                 "kill_on_parent_exit cannot combine with a detached launch",
             ));
+        }
+        if let Some(RunStdio { stdin_piped }) = self.run_stdio {
+            // Applied here, after every caller edit, to both launch paths: the std spawn reads
+            // the `Command`, an allowlisted Windows spawn reads only the config.
+            self.command
+                .stdin(if stdin_piped {
+                    Stdio::piped()
+                } else {
+                    Stdio::null()
+                })
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            #[cfg(windows)]
+            if let Some(config) = self.windows_spawn_config.as_mut() {
+                config.stdin = if stdin_piped {
+                    crate::WindowsStdio::Piped
+                } else {
+                    crate::WindowsStdio::Null
+                };
+                config.stdout = crate::WindowsStdio::Piped;
+                config.stderr = crate::WindowsStdio::Piped;
+            }
         }
         #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
         if self.kill_on_parent_exit {
@@ -910,6 +955,21 @@ impl OwnedChild {
             }
             self.terminate_tree().map(WaitOutcome::Terminated)
         }
+    }
+    /// Waits up to `timeout` for the leader to exit, without a signal. When it has, brings the
+    /// rest of the tree down before reaping (the exited branch of
+    /// [`wait_then_kill`](Self::wait_then_kill): Unix kills the group while the unreaped leader
+    /// still pins its id, Windows terminates the retained job) and returns the leader's own
+    /// status. `None` when it is still running. Lets a caller poll for exit between other work.
+    pub(crate) fn wait_exit_then_sweep(
+        &mut self,
+        timeout: Duration,
+    ) -> io::Result<Option<ExitStatus>> {
+        if self.handle.wait_exited_timeout(timeout)? {
+            self.force_kill(1)?;
+            return self.wait().map(Some);
+        }
+        Ok(None)
     }
     /// Immediate forced termination, preserving the existing default.
     /// Windows: the retained job is signalled even after the parent was reaped.

@@ -88,8 +88,9 @@ pub use private::{
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.
 pub use app_root::{
-    valid_app_name, AppRoot, AppRootError, MigrationOutcome, WriterLock, MAX_APP_NAME_LEN,
-    MIGRATION_MARKER,
+    valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
+    MigrationOutcome, MigrationReport, OmittedLink, SkippedSpecial, SpecialKind, WriterLock,
+    MAX_APP_NAME_LEN, MIGRATION_MARKER,
 };
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};

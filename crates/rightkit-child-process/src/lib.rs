@@ -65,7 +65,10 @@ pub use restart::{
     ConsecutiveFailures, Generation, RestartMode, RestartOutcome, RestartPermit, RestartPolicy,
     RestartTracker,
 };
-pub use run::{run, run_with_stdin, RunOptions, RunOutput};
+pub use run::{
+    run, run_command, run_streaming, run_with_stdin, RunOptions, RunOutput, StreamOptions,
+    StreamOutput,
+};
 #[cfg(windows)]
 pub use spawn_windows::{with_windows_spawn_lock, WindowsChild, WindowsSpawnConfig, WindowsStdio};
 pub use stall::{

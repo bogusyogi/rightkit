@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -26,6 +26,11 @@ required-features = ["fs"]
 name = "e2e"
 path = "tests/e2e.rs"
 required-features = ["json"]
+
+[[test]]
+name = "publish_dir_policy"
+path = "tests/publish_dir_policy.rs"
+required-features = ["fs"]
 
 [[test]]
 name = "clone"

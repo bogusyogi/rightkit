@@ -242,6 +242,12 @@ in which that could happen. The rule that replaces it:
 - `run(program, args, &RunOptions)` runs a program to completion with a deadline (the tree is
   terminated at the deadline), bounded stdout and stderr capture, and no window on Windows by
   default. It returns the status, `timed_out`, and both `CapturedOutput`s.
+- `run_command(OwnedCommand, input, &RunOptions)` is `run` / `run_with_stdin` for a command the
+  caller configured (environment, working directory); the same bounded stdin writer and tree kill
+  apply. `run_streaming(cmd, &StreamOptions, cancel, on_stdout, on_stderr_line)` shows output while
+  the child runs: raw stdout chunks and CR-aware stderr lines arrive on the caller's thread, a cancel
+  predicate and a timeout end the whole tree with a bounded kill and reap, and only the last bytes
+  of each stream are kept (`StreamOutput`).
 - `open_url(url)` opens a URL with its scheme's handler (`file:` is refused). `launch_app(id)`
   launches an app by macOS bundle identifier or Windows AppUserModelID. Both hand off to a
   detached desktop launcher, as `reveal` does.

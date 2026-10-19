@@ -173,7 +173,8 @@ pub enum ReplaceMode {
     /// for) does not block the writer. A reader that opened it WITHOUT delete sharing does: the
     /// write fails with `ERROR_ACCESS_DENIED` (5), the old file intact and the temp file removed
     /// (observed by a consumer's test on Windows 11, not by a test in this crate). That is not a
-    /// sharing violation, so `retry_sharing_violation` does not retry it. The default mode.
+    /// sharing violation, so `retry_sharing_violation` does not retry it; a caller that wants a
+    /// bounded retry of that case opts in explicitly with [`AccessDeniedRetry`]. The default mode.
     ///
     /// What a durable write guarantees when it returns `Ok`, per platform:
     ///
@@ -235,6 +236,11 @@ pub enum ReplaceMode {
 /// Only Windows sharing and lock violations (`ERROR_SHARING_VIOLATION` 32 and
 /// `ERROR_LOCK_VIOLATION` 33) are retried. Other platforms never report them, so the policy is
 /// inert there.
+///
+/// `ERROR_ACCESS_DENIED` (5) is never retried through this policy, because it is also what a real
+/// permission failure returns. A caller that knows a reader may hold the destination without
+/// delete sharing can opt in separately with [`AccessDeniedRetry`], on the entry points listed
+/// there; the default stays 32/33 only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetryPolicy {
     /// Retries after the first attempt. Zero means one attempt and no retry.
@@ -310,6 +316,52 @@ impl RetryPolicy {
     }
 }
 
+/// An explicit, bounded opt-in to retry Windows `ERROR_ACCESS_DENIED` (5) in the publish step, in
+/// addition to the sharing (32) and lock (33) violations.
+///
+/// The case it exists for: a reader holds the destination open without `FILE_SHARE_DELETE`, so the
+/// replace fails with error 5 although nothing about the caller's rights is wrong
+/// ([`ReplaceMode::Rename`]). Error 5 is also what a real ACL denial returns, so it is never
+/// retried unless the caller passes this value to one of the entry points that honour it:
+///
+/// * [`atomic_write_with_access_denied_retry`]
+/// * [`publish_file_with_access_denied_retry`]
+/// * [`AtomicWriter::create_with_access_denied_retry`] (and so every commit variant of that writer)
+///
+/// Every other entry point (`atomic_write_with_options`, `publish_file_with`,
+/// `AtomicWriter::create_with`, `publish_file_first_free`, the verified-copy, clone, lease, state
+/// and `publish_dir` paths) keeps the 32/33-only default and ignores this type.
+///
+/// Semantics, all fixed:
+///
+/// * Only the publish (replace) call is retried; nothing is re-written and no other step runs
+///   again.
+/// * The bound is the wrapped [`RetryPolicy`]: `attempts` retries after the first attempt, `delay`
+///   before each. It **replaces** `AtomicWriteOptions::retry_sharing_violation` for that write, so
+///   32, 33 and 5 all share one budget.
+/// * After the bound the original final error is returned unchanged (`FsError::Io` carrying the
+///   OS error 5), so a true ACL denial still fails, only later by `attempts * delay`.
+/// * No access check is weakened: no ACL or attribute is modified and the replace is issued with
+///   the same API, flags and open mode on every try.
+/// * Windows only. Elsewhere error 5 is not a Windows code, so the opt-in is inert and the write
+///   behaves as `retry_sharing_violation` would.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccessDeniedRetry {
+    policy: RetryPolicy,
+}
+
+impl AccessDeniedRetry {
+    /// Retry error 5 (and 32/33) up to `policy.attempts` times, pausing `policy.delay` before each.
+    pub fn new(policy: RetryPolicy) -> Self {
+        Self { policy }
+    }
+
+    /// The bound this opt-in applies.
+    pub fn policy(&self) -> RetryPolicy {
+        self.policy
+    }
+}
+
 /// Atomically replace `path` with `bytes`.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     atomic_write_with(path, AtomicOptions::default(), |f| f.write_all(bytes))
@@ -337,6 +389,21 @@ pub fn atomic_write_with_options(
     fill: impl FnOnce(&mut File) -> std::io::Result<()>,
 ) -> Result<()> {
     let mut writer = AtomicWriter::create_with(path, options)?;
+    fill(writer.file_mut()).map_err(|e| FsError::io(writer.temp_path(), e))?;
+    writer.commit()
+}
+
+/// [`atomic_write_with_options`] with an explicit [`AccessDeniedRetry`] opt-in: the publish step
+/// also retries Windows `ERROR_ACCESS_DENIED` (5), bounded by `retry`, which replaces
+/// `options.retry_sharing_violation` for this write. The original error is returned after the
+/// bound. See [`AccessDeniedRetry`] for the exact semantics.
+pub fn atomic_write_with_access_denied_retry(
+    path: &Path,
+    options: AtomicWriteOptions,
+    retry: AccessDeniedRetry,
+    fill: impl FnOnce(&mut File) -> std::io::Result<()>,
+) -> Result<()> {
+    let mut writer = AtomicWriter::create_with_access_denied_retry(path, options, retry)?;
     fill(writer.file_mut()).map_err(|e| FsError::io(writer.temp_path(), e))?;
     writer.commit()
 }
@@ -426,7 +493,20 @@ pub fn publish_file(from: &Path, to: &Path) -> Result<()> {
 /// it; apply them before publishing if needed. `to` must not be shaped like a temp name this
 /// crate generates ([`FsError::BadName`]).
 pub fn publish_file_with(from: &Path, to: &Path, options: AtomicWriteOptions) -> Result<()> {
-    publish_file_impl(from, to, options, true)
+    publish_file_impl(from, to, options, None, true)
+}
+
+/// [`publish_file_with`] with an explicit [`AccessDeniedRetry`] opt-in: the replace step also
+/// retries Windows `ERROR_ACCESS_DENIED` (5), bounded by `retry`, which replaces
+/// `options.retry_sharing_violation` for this call. The original error is returned after the
+/// bound, with `from` untouched. See [`AccessDeniedRetry`] for the exact semantics.
+pub fn publish_file_with_access_denied_retry(
+    from: &Path,
+    to: &Path,
+    options: AtomicWriteOptions,
+    retry: AccessDeniedRetry,
+) -> Result<()> {
+    publish_file_impl(from, to, options, Some(retry), true)
 }
 
 /// Publish the finished file `from` at the first of `candidates` that is free, without rewriting
@@ -463,7 +543,7 @@ pub fn publish_file_first_free(
     };
     let mut sync_source = true;
     for candidate in candidates {
-        match publish_file_impl(from, candidate, options, sync_source) {
+        match publish_file_impl(from, candidate, options, None, sync_source) {
             Ok(()) => return Ok(candidate.clone()),
             Err(FsError::AlreadyExists(_)) => {
                 // The first attempt synced the source before it reached the replace.
@@ -479,6 +559,7 @@ fn publish_file_impl(
     from: &Path,
     to: &Path,
     options: AtomicWriteOptions,
+    access_denied: Option<AccessDeniedRetry>,
     sync_source: bool,
 ) -> Result<()> {
     if let Some(name) = to.file_name() {
@@ -506,7 +587,7 @@ fn publish_file_impl(
         let file = open.open(from).map_err(|e| FsError::io(from, e))?;
         durable_sync_with(&file, SyncPolicy::Fallback).map_err(|e| FsError::io(from, e))?;
     }
-    let published = publish(from, to, options)?;
+    let published = publish(from, to, options, access_denied)?;
     let dir_sync = if options.durable {
         let (to_dir, from_dir) = (parent_of(to), parent_of(from));
         let mut result = try_sync_dir(&to_dir);
@@ -752,6 +833,8 @@ pub struct AtomicWriter {
     temp: PathBuf,
     target: PathBuf,
     options: AtomicWriteOptions,
+    /// The opt-in to retry error 5 in the publish step; `None` is the 32/33-only default.
+    access_denied: Option<AccessDeniedRetry>,
 }
 
 impl AtomicWriter {
@@ -765,6 +848,26 @@ impl AtomicWriter {
     /// (`.<name>.rktmp-<pid>-<n>-<attempt>`) is refused with [`FsError::BadName`]: a sweep would
     /// delete it as an orphan.
     pub fn create_with(target: &Path, options: AtomicWriteOptions) -> Result<Self> {
+        Self::create_inner(target, options, None)
+    }
+
+    /// [`AtomicWriter::create_with`] with an explicit [`AccessDeniedRetry`] opt-in: every commit
+    /// of this writer retries Windows `ERROR_ACCESS_DENIED` (5) in the publish step, bounded by
+    /// `retry`, which replaces `options.retry_sharing_violation` for this writer. The original
+    /// error is returned after the bound. See [`AccessDeniedRetry`] for the exact semantics.
+    pub fn create_with_access_denied_retry(
+        target: &Path,
+        options: AtomicWriteOptions,
+        retry: AccessDeniedRetry,
+    ) -> Result<Self> {
+        Self::create_inner(target, options, Some(retry))
+    }
+
+    fn create_inner(
+        target: &Path,
+        options: AtomicWriteOptions,
+        access_denied: Option<AccessDeniedRetry>,
+    ) -> Result<Self> {
         let name = target
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -825,6 +928,7 @@ impl AtomicWriter {
                         temp,
                         target: target.to_path_buf(),
                         options,
+                        access_denied,
                     });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
@@ -1013,7 +1117,7 @@ impl AtomicWriter {
         check(&self.temp).map_err(|e| FsError::io(&self.temp, e))?;
 
         // The one step that publishes. An error here means nothing was published.
-        let published = publish(&self.temp, &self.target, self.options)?;
+        let published = publish(&self.temp, &self.target, self.options, self.access_denied)?;
 
         // Published from here on. The required directory sync runs whatever else failed, so a
         // later error is never reported before the durability work is done.
@@ -1516,20 +1620,27 @@ struct Published {
 ///
 /// A private write needs no step on the destination: every publish moves the temp file, so its
 /// owner-only mode or DACL is the published file's from the instant it has its name.
-fn publish(temp: &Path, target: &Path, options: AtomicWriteOptions) -> Result<Published> {
-    let cleanup = retry_with(
-        options.retry_sharing_violation,
-        is_sharing_violation,
-        || replace_step(temp, target, options),
-    )
-    .map_err(|e| {
-        if options.replace == ReplaceMode::NoReplace
-            && e.kind() == std::io::ErrorKind::AlreadyExists
-        {
-            return FsError::AlreadyExists(target.to_path_buf());
-        }
-        FsError::io(target, e)
-    })?;
+fn publish(
+    temp: &Path,
+    target: &Path,
+    options: AtomicWriteOptions,
+    access_denied: Option<AccessDeniedRetry>,
+) -> Result<Published> {
+    // Opted in: 5, 32 and 33 share the one bound the caller gave. Default: 32/33 only.
+    let (policy, classify): (Option<RetryPolicy>, fn(&std::io::Error) -> bool) = match access_denied
+    {
+        Some(retry) => (Some(retry.policy()), is_sharing_or_access_denied),
+        None => (options.retry_sharing_violation, is_sharing_violation),
+    };
+    let cleanup =
+        retry_with(policy, classify, || replace_step(temp, target, options)).map_err(|e| {
+            if options.replace == ReplaceMode::NoReplace
+                && e.kind() == std::io::ErrorKind::AlreadyExists
+            {
+                return FsError::AlreadyExists(target.to_path_buf());
+            }
+            FsError::io(target, e)
+        })?;
     Ok(Published { cleanup })
 }
 
@@ -1570,17 +1681,32 @@ fn retry_with<T>(
 }
 
 /// `ERROR_SHARING_VIOLATION` (32) or `ERROR_LOCK_VIOLATION` (33) on Windows. Never true
-/// elsewhere. `ERROR_ACCESS_DENIED` (5) is deliberately not counted: it is also what a real
-/// permission failure returns, so it is never retried, including when its cause is a reader
-/// holding the destination without delete sharing.
-#[cfg(windows)]
+/// elsewhere. `ERROR_ACCESS_DENIED` (5) is deliberately not counted here: it is also what a real
+/// permission failure returns, so this default classifier never retries it, including when its
+/// cause is a reader holding the destination without delete sharing. A caller that wants that case
+/// retried opts in with `AccessDeniedRetry`, which switches the publish step to
+/// `is_sharing_or_access_denied`.
 fn is_sharing_violation(error: &std::io::Error) -> bool {
-    matches!(error.raw_os_error(), Some(32) | Some(33))
+    transient_publish_error(cfg!(windows), error.raw_os_error(), false)
 }
 
-#[cfg(not(windows))]
-fn is_sharing_violation(_error: &std::io::Error) -> bool {
-    false
+/// `is_sharing_violation` plus `ERROR_ACCESS_DENIED` (5) on Windows. Used only when the caller
+/// opted in with `AccessDeniedRetry`; the retry bound is the caller's, and the final error is
+/// returned unchanged, so a true ACL denial still fails.
+fn is_sharing_or_access_denied(error: &std::io::Error) -> bool {
+    transient_publish_error(cfg!(windows), error.raw_os_error(), true)
+}
+
+/// The classifier behind both, with the platform explicit so it is testable everywhere: on
+/// Windows 32 and 33 are transient, and 5 only when `include_access_denied`; on any other
+/// platform nothing is (the codes are Windows codes).
+fn transient_publish_error(windows: bool, raw: Option<i32>, include_access_denied: bool) -> bool {
+    windows
+        && match raw {
+            Some(32) | Some(33) => true,
+            Some(5) => include_access_denied,
+            _ => false,
+        }
 }
 
 /// The platform call a replace uses. Reported to the `testing` hook.
@@ -2582,6 +2708,245 @@ mod retry_tests {
         });
         assert!(result.is_err());
         assert_eq!(calls.get(), 1);
+    }
+}
+
+#[cfg(test)]
+mod access_denied_retry_tests {
+    use super::{
+        is_sharing_or_access_denied, is_sharing_violation, retry_with, transient_publish_error,
+        AccessDeniedRetry, RetryPolicy,
+    };
+    use std::cell::Cell;
+    use std::io;
+    use std::time::Duration;
+
+    #[test]
+    fn default_classifier_never_counts_error_5() {
+        for windows in [true, false] {
+            assert!(!transient_publish_error(windows, Some(5), false));
+        }
+    }
+
+    #[test]
+    fn opted_in_classifier_counts_error_5_only_on_windows() {
+        assert!(transient_publish_error(true, Some(5), true));
+        assert!(!transient_publish_error(false, Some(5), true));
+    }
+
+    #[test]
+    fn sharing_and_lock_violations_are_unchanged() {
+        for include in [false, true] {
+            assert!(transient_publish_error(true, Some(32), include));
+            assert!(transient_publish_error(true, Some(33), include));
+            assert!(!transient_publish_error(false, Some(32), include));
+            assert!(!transient_publish_error(false, Some(33), include));
+        }
+    }
+
+    #[test]
+    fn other_errors_are_never_transient() {
+        for include in [false, true] {
+            for raw in [
+                None,
+                Some(0),
+                Some(2),
+                Some(3),
+                Some(31),
+                Some(34),
+                Some(87),
+            ] {
+                assert!(!transient_publish_error(true, raw, include), "{raw:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_real_classifiers_follow_the_platform() {
+        let denied = io::Error::from_raw_os_error(5);
+        assert!(!is_sharing_violation(&denied), "default never retries 5");
+        assert_eq!(is_sharing_or_access_denied(&denied), cfg!(windows));
+        let sharing = io::Error::from_raw_os_error(32);
+        assert_eq!(is_sharing_violation(&sharing), cfg!(windows));
+        assert_eq!(is_sharing_or_access_denied(&sharing), cfg!(windows));
+    }
+
+    #[test]
+    fn the_opt_in_carries_its_bound() {
+        let policy = RetryPolicy::new(4, Duration::from_millis(7));
+        assert_eq!(AccessDeniedRetry::new(policy).policy(), policy);
+    }
+
+    // The loop logic with the Windows classifiers injected, so it runs on every OS.
+    fn windows_default(e: &io::Error) -> bool {
+        transient_publish_error(true, e.raw_os_error(), false)
+    }
+    fn windows_opted_in(e: &io::Error) -> bool {
+        transient_publish_error(true, e.raw_os_error(), true)
+    }
+
+    #[test]
+    fn error_5_is_retried_up_to_the_bound_then_succeeds_when_opted_in() {
+        let calls = Cell::new(0);
+        let policy = Some(RetryPolicy::new(3, Duration::ZERO));
+        let result = retry_with(policy, windows_opted_in, || {
+            calls.set(calls.get() + 1);
+            if calls.get() <= 3 {
+                Err(io::Error::from_raw_os_error(5))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(calls.get(), 4, "one attempt plus three retries");
+    }
+
+    #[test]
+    fn error_5_returns_the_original_error_after_the_bound_when_opted_in() {
+        let calls = Cell::new(0);
+        let policy = Some(RetryPolicy::new(2, Duration::ZERO));
+        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from_raw_os_error(5))
+        });
+        assert_eq!(calls.get(), 3, "one attempt plus two retries, no more");
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.raw_os_error(),
+            Some(5),
+            "the original error, unchanged"
+        );
+    }
+
+    #[test]
+    fn error_5_is_not_retried_by_default() {
+        let calls = Cell::new(0);
+        let policy = Some(RetryPolicy::new(5, Duration::ZERO));
+        let result: io::Result<()> = retry_with(policy, windows_default, || {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from_raw_os_error(5))
+        });
+        assert_eq!(calls.get(), 1, "default policy: one attempt, no retry of 5");
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(5));
+    }
+
+    #[test]
+    fn default_still_retries_32_and_33_within_the_bound() {
+        for code in [32, 33] {
+            let calls = Cell::new(0);
+            let policy = Some(RetryPolicy::new(2, Duration::ZERO));
+            let result: io::Result<()> = retry_with(policy, windows_default, || {
+                calls.set(calls.get() + 1);
+                Err(io::Error::from_raw_os_error(code))
+            });
+            assert_eq!(calls.get(), 3);
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(code));
+        }
+    }
+
+    #[test]
+    fn opted_in_retries_a_mixed_run_of_5_and_32_on_one_budget() {
+        let calls = Cell::new(0);
+        let policy = Some(RetryPolicy::new(2, Duration::ZERO));
+        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from_raw_os_error(if calls.get() == 1 {
+                5
+            } else {
+                32
+            }))
+        });
+        assert_eq!(calls.get(), 3, "5 and 32 draw on the same two retries");
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(32));
+    }
+
+    #[test]
+    fn a_non_transient_error_after_a_5_ends_the_retries() {
+        let calls = Cell::new(0);
+        let policy = Some(RetryPolicy::new(5, Duration::ZERO));
+        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from_raw_os_error(if calls.get() == 1 {
+                5
+            } else {
+                2
+            }))
+        });
+        assert_eq!(calls.get(), 2);
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(2));
+    }
+
+    #[cfg(windows)]
+    mod held_destination {
+        use super::super::{
+            atomic_write_with_access_denied_retry, atomic_write_with_options, AccessDeniedRetry,
+            AtomicWriteOptions, RetryPolicy,
+        };
+        use crate::FsError;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::time::Duration;
+
+        /// Opens `path` for reading with read and write sharing but NOT delete sharing, the
+        /// reader that makes a replace fail with error 5.
+        fn hold_without_delete_share(path: &std::path::Path) -> std::fs::File {
+            OpenOptions::new()
+                .read(true)
+                .share_mode(0x1 | 0x2) // FILE_SHARE_READ | FILE_SHARE_WRITE
+                .open(path)
+                .unwrap()
+        }
+
+        fn is_denied(error: &FsError) -> bool {
+            matches!(error, FsError::Io { source, .. } if source.raw_os_error() == Some(5))
+        }
+
+        #[test]
+        fn opt_in_waits_out_a_reader_and_default_does_not() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("held.txt");
+            std::fs::write(&target, b"old").unwrap();
+
+            // Default: error 5 is returned at once, the old content intact.
+            let holder = hold_without_delete_share(&target);
+            let default_policy = AtomicWriteOptions {
+                retry_sharing_violation: Some(RetryPolicy::new(3, Duration::from_millis(5))),
+                ..AtomicWriteOptions::default()
+            };
+            let error = atomic_write_with_options(&target, default_policy, |f| f.write_all(b"new"))
+                .unwrap_err();
+            assert!(is_denied(&error), "{error:?}");
+            assert_eq!(std::fs::read(&target).unwrap(), b"old");
+
+            // Opted in, reader never leaves: the original error 5 comes back after the bound.
+            let retry = AccessDeniedRetry::new(RetryPolicy::new(3, Duration::from_millis(5)));
+            let error = atomic_write_with_access_denied_retry(
+                &target,
+                AtomicWriteOptions::default(),
+                retry,
+                |f| f.write_all(b"new"),
+            )
+            .unwrap_err();
+            assert!(is_denied(&error), "{error:?}");
+            assert_eq!(std::fs::read(&target).unwrap(), b"old");
+
+            // Opted in, reader leaves during the retries: the write lands.
+            let release = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(60));
+                drop(holder);
+            });
+            let patient = AccessDeniedRetry::new(RetryPolicy::new(200, Duration::from_millis(10)));
+            atomic_write_with_access_denied_retry(
+                &target,
+                AtomicWriteOptions::default(),
+                patient,
+                |f| f.write_all(b"new"),
+            )
+            .unwrap();
+            release.join().unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        }
     }
 }
 

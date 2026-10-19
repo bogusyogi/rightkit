@@ -33,6 +33,25 @@ struct State {
 
 type Shared = (Mutex<State>, Condvar);
 
+/// Which of a child's pipes a capture reads. Names the stream for the test seam only.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// Test seam: make the next capture of `stream` that the calling thread starts fail its first
+/// read with `kind`, which the reader stores exactly as it stores a real read failure.
+#[cfg(test)]
+pub(crate) fn inject_read_fault(stream: Stream, kind: io::ErrorKind) {
+    test_fault::arm(stream, kind);
+}
+
+/// Receives each chunk the reader thread reads, on that thread, together with the capture's
+/// stop flag. A sink that can wait (a full channel) must give up once the flag is set, so a
+/// join never waits on it. Only [`crate::run_streaming`] installs one.
+pub(crate) type ChunkSink = Box<dyn FnMut(&[u8], &AtomicBool) + Send + 'static>;
+
 struct Done(Arc<Shared>);
 
 impl Drop for Done {
@@ -66,16 +85,38 @@ impl NativeOutputCapture {
     /// Own & drain a child's stdout. Errors before spawning a reader if the pipe cannot
     /// support cancellable native I/O or the operating system cannot start the reader thread.
     pub fn stdout(pipe: ChildStdout, max_bytes: usize) -> io::Result<Self> {
-        Self::start(platform::stdout(pipe), max_bytes)
+        Self::start(platform::stdout(pipe), max_bytes, None, Stream::Stdout)
     }
 
     /// Own & drain a child's stderr, with the same guarantees as [`stdout`](Self::stdout).
     pub fn stderr(pipe: ChildStderr, max_bytes: usize) -> io::Result<Self> {
-        Self::start(platform::stderr(pipe), max_bytes)
+        Self::start(platform::stderr(pipe), max_bytes, None, Stream::Stderr)
     }
 
-    fn start(pipe: File, max_bytes: usize) -> io::Result<Self> {
+    /// Like [`stdout`](Self::stdout), but every chunk is also handed to `sink` on the reader
+    /// thread and nothing is retained.
+    pub(crate) fn stdout_streaming(pipe: ChildStdout, sink: ChunkSink) -> io::Result<Self> {
+        Self::start(platform::stdout(pipe), 0, Some(sink), Stream::Stdout)
+    }
+
+    /// The stderr counterpart of [`stdout_streaming`](Self::stdout_streaming).
+    pub(crate) fn stderr_streaming(pipe: ChildStderr, sink: ChunkSink) -> io::Result<Self> {
+        Self::start(platform::stderr(pipe), 0, Some(sink), Stream::Stderr)
+    }
+
+    fn start(
+        pipe: File,
+        max_bytes: usize,
+        mut sink: Option<ChunkSink>,
+        stream: Stream,
+    ) -> io::Result<Self> {
         let prepared = platform::prepare(pipe)?;
+        // Test seam: taken here, on the thread that starts the capture, so a fault armed by one
+        // test can only reach a capture that same test starts (see `inject_read_fault`).
+        #[cfg(test)]
+        let mut fault = test_fault::take(stream);
+        #[cfg(not(test))]
+        let _ = stream;
         let shared: Arc<Shared> = Arc::default();
         let stop = Arc::new(AtomicBool::new(false));
         let state = Arc::clone(&shared);
@@ -87,17 +128,29 @@ impl NativeOutputCapture {
                 let mut pipe = platform::reader(prepared);
                 let mut buffer = [0; CHUNK];
                 while !cancelled.load(Ordering::Acquire) {
-                    match platform::read(&mut pipe, &mut buffer) {
+                    #[cfg(test)]
+                    let read = match fault.take() {
+                        Some(kind) => Err(io::Error::new(kind, "injected pipe read failure")),
+                        None => platform::read(&mut pipe, &mut buffer),
+                    };
+                    #[cfg(not(test))]
+                    let read = platform::read(&mut pipe, &mut buffer);
+                    match read {
                         Ok(0) => {
                             state.0.lock().unwrap_or_else(|e| e.into_inner()).eof = true;
                             break;
                         }
-                        Ok(count) => state
-                            .0
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .output
-                            .push(&buffer[..count], max_bytes),
+                        Ok(count) => {
+                            if let Some(sink) = sink.as_mut() {
+                                sink(&buffer[..count], &cancelled);
+                            }
+                            state
+                                .0
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .output
+                                .push(&buffer[..count], max_bytes);
+                        }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                             thread::park_timeout(IDLE_WAIT);
                         }
@@ -191,5 +244,34 @@ impl NativeOutputCapture {
 impl Drop for NativeOutputCapture {
     fn drop(&mut self) {
         self.stop_and_join();
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_fault {
+    use super::Stream;
+    use std::{cell::Cell, io};
+
+    thread_local! {
+        // Thread-local, not global: `start` runs on the thread that called `run`, so parallel
+        // tests cannot take each other's fault.
+        static ARMED: Cell<[Option<io::ErrorKind>; 2]> = const { Cell::new([None, None]) };
+    }
+
+    pub(crate) fn arm(stream: Stream, kind: io::ErrorKind) {
+        ARMED.with(|armed| {
+            let mut slots = armed.get();
+            slots[stream as usize] = Some(kind);
+            armed.set(slots);
+        });
+    }
+
+    pub(super) fn take(stream: Stream) -> Option<io::ErrorKind> {
+        ARMED.with(|armed| {
+            let mut slots = armed.get();
+            let kind = slots[stream as usize].take();
+            armed.set(slots);
+            kind
+        })
     }
 }
