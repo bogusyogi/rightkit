@@ -282,11 +282,15 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 1 operations per second.
 - Required scale: 10,000 commands or more.
-- Required hosts: macOS and Windows. Windows 0.7.1 is not yet measured, so the publish refusal stays deferred (`ci/runtime-budget-deferred.json`, rightkit#808).
+- Required hosts: macOS and Windows.
 - Status exposure: `Sidecar::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-qa 0.6.4 at 21bc142d718f, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence b3f5d51148d1: resident memory 11.6 MiB, idle CPU 0.052%, wake-ups 1.565 per second, disk operations 0 operations per second.
 - Measured: darwin/arm64 (Mac18,5), rightkit-qa 0.6.4 at 9ba23463a5d0, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence a4f153ff71ec: resident memory 13.9 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
 - Measured: darwin/arm64 (Mac18,5), rightkit-qa 0.7.1 at fa003289a62c, 10,000 commands (one --stdio engine sidecar, 10000 echo commands, 30 s idle window (synthetic bench)), synthetic, `rustright cargo test -p rightkit-qa --profile dev --bench budget -- 10000 30`, 2026-10-19, evidence 613ff8b29e24: resident memory 14.3 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
+
+## Runtime budget status
+
+Windows 0.7.1 is not yet measured, so the publish refusal for rightkit-qa stays deferred (`ci/runtime-budget-deferred.json`, rightkit#808).
 
 ## QA root limits
 
