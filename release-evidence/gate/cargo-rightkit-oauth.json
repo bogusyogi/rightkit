@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-oauth",
-  "version": "0.8.0",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "9030b784b3ad8c3ff4d138985bbab71e3eb7c08d113854b9bbd8987212e124c3",
+  "version": "0.9.0",
+  "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
+  "artifactSha256": "205cac4c5e1e7913903ddf88503ae1b47f5366a524a9756b31b8ad935b9592b8",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
       "features": [
         "default"
       ],
-      "artifactSha256": "9030b784b3ad8c3ff4d138985bbab71e3eb7c08d113854b9bbd8987212e124c3",
-      "command": "cargo test -p rightkit-oauth --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-oauth --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-oauth --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-oauth && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "205cac4c5e1e7913903ddf88503ae1b47f5366a524a9756b31b8ad935b9592b8",
+      "command": "cargo test -p rightkit-oauth --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-oauth --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-oauth --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-oauth && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:48:23.686Z",
+      "timestamp": "2026-10-18T21:25:08.282Z",
       "passed": 62,
       "failed": 0,
       "skipped": 0,

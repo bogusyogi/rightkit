@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-automation",
-  "version": "0.4.4",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "7e085fe32c9c1568ffcb625aad31859072737f2835ccc9e2bb2ef55960258634",
+  "version": "0.5.0",
+  "commit": "b40195f49973f6099acc61900d15375cc638251c",
+  "artifactSha256": "c3e29ff5a2a915c8eba88a12bc1253128d315dde7bd7a34735e9faad6bfcbcd2",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "b40195f49973f6099acc61900d15375cc638251c",
       "features": [
         "default"
       ],
-      "artifactSha256": "7e085fe32c9c1568ffcb625aad31859072737f2835ccc9e2bb2ef55960258634",
-      "command": "cargo test -p rightkit-automation --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-automation --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-automation --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-automation && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "c3e29ff5a2a915c8eba88a12bc1253128d315dde7bd7a34735e9faad6bfcbcd2",
+      "command": "cargo test -p rightkit-automation --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-automation --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-automation --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-automation && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:50:53.245Z",
+      "timestamp": "2026-10-18T22:28:59.839Z",
       "passed": 173,
       "failed": 0,
       "skipped": 1,

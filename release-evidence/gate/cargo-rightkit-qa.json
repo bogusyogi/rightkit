@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-qa",
-  "version": "0.6.0",
-  "commit": "dc6250a3c381d277f413fcfa86c9cdfcc8686993",
-  "artifactSha256": "7dfe6443e77655c2e7c75901352dd47975759bf5e2eab524353781d6f531ee6b",
+  "version": "0.7.0",
+  "commit": "b40195f49973f6099acc61900d15375cc638251c",
+  "artifactSha256": "bb4c7f00a03e412cc82ecd032fe16fc4c955eb5a8ca0f6ca4ccbe66f1f1a3b7b",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,37 +13,37 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "dc6250a3c381d277f413fcfa86c9cdfcc8686993",
+      "commit": "b40195f49973f6099acc61900d15375cc638251c",
       "features": [
         "default"
       ],
-      "artifactSha256": "7dfe6443e77655c2e7c75901352dd47975759bf5e2eab524353781d6f531ee6b",
-      "command": "cargo test -p rightkit-qa --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa --no-deps --all-targets -- -D warnings && cargo check -p rightkit-qa --all-targets --features control,wv2-0_38 && cargo package --locked -p rightkit-qa && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "bb4c7f00a03e412cc82ecd032fe16fc4c955eb5a8ca0f6ca4ccbe66f1f1a3b7b",
+      "command": "cargo test -p rightkit-qa --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-qa --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-qa --message-format=json-render-diagnostics --all-targets --features control,wv2-0_38 && cargo package --locked --no-verify -p rightkit-qa && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-16T01:16:45.798Z",
-      "passed": 183,
+      "timestamp": "2026-10-18T22:44:52.909Z",
+      "passed": 283,
       "failed": 0,
-      "skipped": 4,
+      "skipped": 5,
       "ignored": 0,
-      "allowIgnored": true,
+      "allowIgnored": false,
       "requireAssets": "0",
       "assetGated": true,
       "steps": [
         {
-          "command": "cargo test -p rightkit-qa --no-fail-fast -- --show-output",
+          "command": "cargo test -p rightkit-qa --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 183,
+          "executed": 283,
           "failed": 0,
           "ignored": 0,
-          "skipped": 4,
-          "binaries": 7
+          "skipped": 5,
+          "binaries": 9
         },
         {
-          "command": "cargo clippy -p rightkit-qa --no-deps --all-targets -- -D warnings",
+          "command": "cargo clippy -p rightkit-qa --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
           "ok": true
         },
         {
-          "command": "cargo check -p rightkit-qa --all-targets --features control,wv2-0_38",
+          "command": "cargo check -p rightkit-qa --message-format=json-render-diagnostics --all-targets --features control,wv2-0_38",
           "ok": true
         }
       ]

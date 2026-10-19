@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-tauri-shell",
-  "version": "0.3.3",
-  "commit": "1128327bf9c822b4ba9c66862cbec09dcb656dc3",
-  "artifactSha256": "989da8075213a63e44433173b27348283063d8ac10b0e6a26b7411e0d7c2c000",
+  "version": "0.4.0",
+  "commit": "1737db9eb215c7983928fb4f71e1c93713f750d4",
+  "artifactSha256": "93685f3a9eb354a9a55db48342674ca3b04510b4b0548be9cda40613d6c4c3a0",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,16 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1128327bf9c822b4ba9c66862cbec09dcb656dc3",
+      "commit": "1737db9eb215c7983928fb4f71e1c93713f750d4",
       "features": [
-        "default"
+        "default",
+        "--features engine"
       ],
-      "artifactSha256": "989da8075213a63e44433173b27348283063d8ac10b0e6a26b7411e0d7c2c000",
-      "command": "cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,content-devtools && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,dev-inspect && cargo package --locked --no-verify -p rightkit-tauri-shell && cargo metadata --offline --format-version 1 --no-deps",
+      "artifactSha256": "93685f3a9eb354a9a55db48342674ca3b04510b4b0548be9cda40613d6c4c3a0",
+      "command": "cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --features engine --no-fail-fast -- --show-output && cargo clippy -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,content-devtools && cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,dev-overrides,qa-probes && cargo package --locked --no-verify -p rightkit-tauri-shell && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T08:54:44.473Z",
-      "passed": 291,
+      "timestamp": "2026-10-19T00:00:53.731Z",
+      "passed": 603,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,7 +33,16 @@
         {
           "command": "cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 291,
+          "executed": 296,
+          "failed": 0,
+          "ignored": 0,
+          "skipped": 0,
+          "binaries": 25
+        },
+        {
+          "command": "cargo test -p rightkit-tauri-shell --message-format=json-render-diagnostics --features engine --no-fail-fast -- --show-output",
+          "ok": true,
+          "executed": 307,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -47,7 +57,7 @@
           "ok": true
         },
         {
-          "command": "cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,dev-inspect",
+          "command": "cargo check -p rightkit-tauri-shell --message-format=json-render-diagnostics --all-targets --features engine,dev-overrides,qa-probes",
           "ok": true
         }
       ]

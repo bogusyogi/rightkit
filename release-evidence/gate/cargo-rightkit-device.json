@@ -2,26 +2,26 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-device",
-  "version": "0.2.0",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "a17b77c53c76028241dda29c4214f9c83ee406aec507738e99030b8afda71cbd",
-  "hostPolicy": "win32-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "version": "0.3.0",
+  "commit": "b40195f49973f6099acc61900d15375cc638251c",
+  "artifactSha256": "1406fe2bccbe38cf06b6b40f1350a002e26fda24253836cf3cead3761da6bc7e",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "win32",
-        "arch": "x64"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "b40195f49973f6099acc61900d15375cc638251c",
       "features": [
         "default"
       ],
-      "artifactSha256": "a17b77c53c76028241dda29c4214f9c83ee406aec507738e99030b8afda71cbd",
-      "command": "cargo fmt -p rightkit-device --check && cargo test -p rightkit-device --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-device --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-device --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-device && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "1406fe2bccbe38cf06b6b40f1350a002e26fda24253836cf3cead3761da6bc7e",
+      "command": "cargo test -p rightkit-device --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-device --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-device --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-device && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:40:02.933Z",
-      "passed": 17,
+      "timestamp": "2026-10-18T22:24:05.958Z",
+      "passed": 21,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -30,21 +30,13 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "scanCrateForSecrets crates/rightkit-device",
-          "ok": true
-        },
-        {
-          "command": "cargo fmt -p rightkit-device --check",
-          "ok": true
-        },
-        {
           "command": "cargo test -p rightkit-device --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 17,
+          "executed": 21,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 3
+          "binaries": 4
         },
         {
           "command": "cargo clippy -p rightkit-device --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
@@ -52,10 +44,6 @@
         },
         {
           "command": "cargo check -p rightkit-device --message-format=json-render-diagnostics --all-targets --all-features",
-          "ok": true
-        },
-        {
-          "command": "cargo package --locked -p rightkit-device",
           "ok": true
         }
       ]

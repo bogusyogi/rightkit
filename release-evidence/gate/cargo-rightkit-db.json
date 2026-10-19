@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-db",
-  "version": "0.4.3",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "844fc4ea5c7b4d23d54aecbf0620aa7604fb0b0c342233cdc2e7f46f40fb57c0",
+  "version": "0.5.0",
+  "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
+  "artifactSha256": "7916249992b73700f0575c42de9acc69297d6c612a80827334f3cfae15534970",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
       "features": [
         "--features bundled,statement-cache"
       ],
-      "artifactSha256": "844fc4ea5c7b4d23d54aecbf0620aa7604fb0b0c342233cdc2e7f46f40fb57c0",
-      "command": "cargo test -p rightkit-db --message-format=json-render-diagnostics --features bundled,statement-cache --no-fail-fast -- --show-output && cargo clippy -p rightkit-db --message-format=json-render-diagnostics --no-deps --all-targets --features bundled,statement-cache -- -D warnings && cargo check -p rightkit-db --message-format=json-render-diagnostics --all-targets --features bundled,statement-cache,hooks && cargo package --locked --no-verify -p rightkit-db && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "7916249992b73700f0575c42de9acc69297d6c612a80827334f3cfae15534970",
+      "command": "cargo test -p rightkit-db --message-format=json-render-diagnostics --features bundled,statement-cache --no-fail-fast -- --show-output && cargo clippy -p rightkit-db --message-format=json-render-diagnostics --no-deps --all-targets --features bundled,statement-cache -- -D warnings && cargo check -p rightkit-db --message-format=json-render-diagnostics --all-targets --features bundled,statement-cache,hooks && cargo package --locked --no-verify -p rightkit-db && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T02:59:58.024Z",
-      "passed": 126,
+      "timestamp": "2026-10-18T21:19:21.279Z",
+      "passed": 134,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,7 +32,7 @@
         {
           "command": "cargo test -p rightkit-db --message-format=json-render-diagnostics --features bundled,statement-cache --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 126,
+          "executed": 134,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

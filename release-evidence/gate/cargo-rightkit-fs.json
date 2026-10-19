@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-fs",
-  "version": "0.4.3",
-  "commit": "049cfed8c5c3a0ecd922d474dca07153f65cdb6e",
-  "artifactSha256": "cbcfbcc92a12ccbd38ed67b825d5ca54e925b9b5bc9ab96cce807ca76415ecf0",
+  "version": "0.4.4",
+  "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
+  "artifactSha256": "32e10ada6eb1323be113c4a7ee181a877cf3a1698bf66e1d278362e439f0501a",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "049cfed8c5c3a0ecd922d474dca07153f65cdb6e",
+      "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
       "features": [
         "--all-features"
       ],
-      "artifactSha256": "cbcfbcc92a12ccbd38ed67b825d5ca54e925b9b5bc9ab96cce807ca76415ecf0",
-      "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-fs --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-fs --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-fs && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "32e10ada6eb1323be113c4a7ee181a877cf3a1698bf66e1d278362e439f0501a",
+      "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-fs --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-fs && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T02:16:13.977Z",
-      "passed": 914,
+      "timestamp": "2026-10-18T21:08:56.507Z",
+      "passed": 1052,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -30,25 +30,25 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --show-output",
+          "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 457,
+          "executed": 526,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 36
+          "binaries": 39
         },
         {
-          "command": "cargo test -p rightkit-fs --all-features --no-fail-fast -- --test-threads=1 --show-output",
+          "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 457,
+          "executed": 526,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 36
+          "binaries": 39
         },
         {
-          "command": "cargo clippy -p rightkit-fs --no-deps --all-targets --all-features -- -D warnings",
+          "command": "cargo clippy -p rightkit-fs --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings",
           "ok": true
         }
       ]

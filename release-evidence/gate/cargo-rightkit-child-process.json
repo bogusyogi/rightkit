@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-child-process",
-  "version": "0.5.0",
-  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
-  "artifactSha256": "a687858e83006b5565464d64e5ca8e48e5ecb47b86dfc10598909a838e741df4",
+  "version": "0.5.2",
+  "commit": "27ca118026f2c4d3f7f2fc6791cccd92f8988bf8",
+  "artifactSha256": "2193f2767dda78bcc1b4b2525ebe9aea40810c6bfab7418c285066feaddf350f",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+      "commit": "27ca118026f2c4d3f7f2fc6791cccd92f8988bf8",
       "features": [
         "default"
       ],
-      "artifactSha256": "a687858e83006b5565464d64e5ca8e48e5ecb47b86dfc10598909a838e741df4",
-      "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-child-process --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-child-process --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-child-process && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "2193f2767dda78bcc1b4b2525ebe9aea40810c6bfab7418c285066feaddf350f",
+      "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-child-process --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-child-process --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-child-process && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T02:45:45.969Z",
-      "passed": 398,
+      "timestamp": "2026-10-18T20:59:36.066Z",
+      "passed": 444,
       "failed": 0,
       "skipped": 0,
       "ignored": 2,
@@ -33,20 +33,20 @@
         {
           "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 199,
+          "executed": 222,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,
-          "binaries": 21
+          "binaries": 22
         },
         {
           "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 199,
+          "executed": 222,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,
-          "binaries": 21
+          "binaries": 22
         },
         {
           "command": "cargo clippy -p rightkit-child-process --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",

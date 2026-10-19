@@ -2,18 +2,18 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-job-queue",
-  "version": "0.3.2",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "74219774c8a750d8a8e145dc9d004714fbd60127754bb16248b1a746e0436dfa",
-  "hostPolicy": "win32-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "version": "0.4.0",
+  "commit": "b40195f49973f6099acc61900d15375cc638251c",
+  "artifactSha256": "5e71596bd4a30679e06dc4f9219b95ebc2c387ae4898abf3875bd7bd4d7d8ee0",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "win32",
-        "arch": "x64"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "b40195f49973f6099acc61900d15375cc638251c",
       "features": [
         "--all-features",
         "--no-default-features",
@@ -21,11 +21,11 @@
         "--no-default-features --features supervisor",
         "--no-default-features --features service"
       ],
-      "artifactSha256": "74219774c8a750d8a8e145dc9d004714fbd60127754bb16248b1a746e0436dfa",
-      "command": "cargo fmt -p rightkit-job-queue --check && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-job-queue --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked -p rightkit-job-queue && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "5e71596bd4a30679e06dc4f9219b95ebc2c387ae4898abf3875bd7bd4d7d8ee0",
+      "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --test-threads=1 --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --show-output && cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-job-queue --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-job-queue && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:06:31.547Z",
-      "passed": 1680,
+      "timestamp": "2026-10-18T22:43:13.220Z",
+      "passed": 1768,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -34,17 +34,9 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "scanCrateForSecrets crates/rightkit-job-queue",
-          "ok": true
-        },
-        {
-          "command": "cargo fmt -p rightkit-job-queue --check",
-          "ok": true
-        },
-        {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 307,
+          "executed": 326,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -53,7 +45,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 307,
+          "executed": 326,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -80,7 +72,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 232,
+          "executed": 241,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -89,7 +81,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features contract --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 232,
+          "executed": 241,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -98,7 +90,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 57,
+          "executed": 64,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -107,7 +99,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features supervisor --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 57,
+          "executed": 64,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -116,7 +108,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 236,
+          "executed": 245,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -125,7 +117,7 @@
         {
           "command": "cargo test -p rightkit-job-queue --message-format=json-render-diagnostics --no-default-features --features service --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 236,
+          "executed": 245,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -133,10 +125,6 @@
         },
         {
           "command": "cargo clippy -p rightkit-job-queue --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings",
-          "ok": true
-        },
-        {
-          "command": "cargo package --locked -p rightkit-job-queue",
           "ok": true
         }
       ]

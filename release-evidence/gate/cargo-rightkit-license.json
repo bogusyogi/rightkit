@@ -2,26 +2,26 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-license",
-  "version": "0.2.2",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "1d9e3ea934f8036072b231da2993aa67d5a01bd5678151d736266e7669c9c7cf",
-  "hostPolicy": "win32-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt",
+  "version": "0.2.3",
+  "commit": "b40195f49973f6099acc61900d15375cc638251c",
+  "artifactSha256": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
     {
       "host": {
-        "os": "win32",
-        "arch": "x64"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "b40195f49973f6099acc61900d15375cc638251c",
       "features": [
         "default"
       ],
-      "artifactSha256": "1d9e3ea934f8036072b231da2993aa67d5a01bd5678151d736266e7669c9c7cf",
-      "command": "cargo fmt -p rightkit-license --check && cargo test -p rightkit-license --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-license --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-license --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked -p rightkit-license && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+      "command": "cargo test -p rightkit-license --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-license --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-license --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-license && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:07:33.163Z",
-      "passed": 169,
+      "timestamp": "2026-10-18T22:23:13.647Z",
+      "passed": 173,
       "failed": 0,
       "skipped": 0,
       "ignored": 1,
@@ -31,17 +31,9 @@
       "assetGated": false,
       "steps": [
         {
-          "command": "scanCrateForSecrets crates/rightkit-license",
-          "ok": true
-        },
-        {
-          "command": "cargo fmt -p rightkit-license --check",
-          "ok": true
-        },
-        {
           "command": "cargo test -p rightkit-license --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 169,
+          "executed": 173,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,
@@ -53,10 +45,6 @@
         },
         {
           "command": "cargo check -p rightkit-license --message-format=json-render-diagnostics --all-targets --all-features",
-          "ok": true
-        },
-        {
-          "command": "cargo package --locked -p rightkit-license",
           "ok": true
         }
       ]

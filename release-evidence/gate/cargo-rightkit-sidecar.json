@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-sidecar",
-  "version": "0.2.1",
-  "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
-  "artifactSha256": "4287df6335c082671d3a66846ac34c73221a8ec68e43669d5e2b7a4672e2e669",
+  "version": "0.3.0",
+  "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
+  "artifactSha256": "b9f3646e8bf0c6828f3476502ab83e92ecab1d299e3fe0a4995c6a85a8f8e956",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "1edd2851a6f92b84c2eef3a640e94870da7da985",
+      "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
       "features": [
         "default"
       ],
-      "artifactSha256": "4287df6335c082671d3a66846ac34c73221a8ec68e43669d5e2b7a4672e2e669",
-      "command": "cargo test -p rightkit-sidecar --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-sidecar --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-sidecar --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-sidecar && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "b9f3646e8bf0c6828f3476502ab83e92ecab1d299e3fe0a4995c6a85a8f8e956",
+      "command": "cargo test -p rightkit-sidecar --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-sidecar --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-sidecar --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-sidecar && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T02:48:37.057Z",
-      "passed": 90,
+      "timestamp": "2026-10-18T21:14:04.880Z",
+      "passed": 91,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,7 +32,7 @@
         {
           "command": "cargo test -p rightkit-sidecar --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 90,
+          "executed": 91,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,

@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-logs",
-  "version": "0.3.2",
-  "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
-  "artifactSha256": "c31a5eb98b60e0ff2ed0b9bf1d3a7e1891cd7bb942bb8d337cbd5f937132faa7",
+  "version": "0.3.3",
+  "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
+  "artifactSha256": "a139ea912d11274725892ef5e27add5f5207d30e6874e22bf2ff78babdc3ee7f",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "92693ac5d7ce52571754b36324a2999425aad1ec",
+      "commit": "bdefd0f0772b68194527cbab7bfd2bbeeec86d43",
       "features": [
         "default"
       ],
-      "artifactSha256": "c31a5eb98b60e0ff2ed0b9bf1d3a7e1891cd7bb942bb8d337cbd5f937132faa7",
-      "command": "cargo test -p rightkit-logs --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-logs --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-logs --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-logs && cargo metadata --format-version 1 --no-deps",
+      "artifactSha256": "a139ea912d11274725892ef5e27add5f5207d30e6874e22bf2ff78babdc3ee7f",
+      "command": "cargo test -p rightkit-logs --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo clippy -p rightkit-logs --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-logs --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-logs && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T03:01:15.955Z",
-      "passed": 105,
+      "timestamp": "2026-10-18T22:19:47.771Z",
+      "passed": 118,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,11 +32,11 @@
         {
           "command": "cargo test -p rightkit-logs --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 105,
+          "executed": 118,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
-          "binaries": 13
+          "binaries": 16
         },
         {
           "command": "cargo clippy -p rightkit-logs --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings",
