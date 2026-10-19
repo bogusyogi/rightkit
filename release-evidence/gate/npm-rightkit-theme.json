@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/theme",
-  "version": "0.3.0",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "1b152815da40260d346312da6931709979136be01ce5241c6b9aeeb4691cac4c",
+  "version": "0.3.1",
+  "commit": "0594adfa4dba9478af0652ad422f19a15c5b7d44",
+  "artifactSha256": "2b9afda70483b17c73afd7e746c7aa7c74fe79e60417c63ce9c343003861f6f2",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "0594adfa4dba9478af0652ad422f19a15c5b7d44",
       "features": [
         "default"
       ],
-      "artifactSha256": "1b152815da40260d346312da6931709979136be01ce5241c6b9aeeb4691cac4c",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/theme run test && pnpm --dir packages/theme pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-18vE7U",
+      "artifactSha256": "2b9afda70483b17c73afd7e746c7aa7c74fe79e60417c63ce9c343003861f6f2",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/theme run test && pnpm --dir packages/theme pack --pack-destination /Volumes/E/scratch/rk-publish-mac/tmp/rk-local-publish-XDGgOD",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:36:31.642Z",
-      "passed": 34,
+      "timestamp": "2026-10-19T00:30:16.782Z",
+      "passed": 38,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/theme run test",
           "ok": true,
-          "executed": 34,
+          "executed": 38,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
