@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/settings-ui",
-  "version": "0.6.0",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "3a326ee02f855f1cb3d9777488ddf5f1b015cd14a0af8b2cf5c9c514bfa57883",
+  "version": "0.6.1",
+  "commit": "eed4d1fe0180e9f04d85b92d5b36741d553e488e",
+  "artifactSha256": "9414c4271472ccb5239ddc9e1a55a3f04bcab5e85e5776c823641cca904b1838",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "eed4d1fe0180e9f04d85b92d5b36741d553e488e",
       "features": [
         "default"
       ],
-      "artifactSha256": "3a326ee02f855f1cb3d9777488ddf5f1b015cd14a0af8b2cf5c9c514bfa57883",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/settings-ui run test && pnpm --dir packages/settings-ui pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-1GASDL",
+      "artifactSha256": "9414c4271472ccb5239ddc9e1a55a3f04bcab5e85e5776c823641cca904b1838",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/settings-ui run test && pnpm --dir packages/settings-ui pack --pack-destination /Volumes/E/scratch/rk-publish-mac/tmp/rk-local-publish-a6FAeI",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:40:59.754Z",
-      "passed": 254,
+      "timestamp": "2026-10-19T00:37:06.767Z",
+      "passed": 264,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -36,7 +36,7 @@
         {
           "command": "pnpm --dir packages/settings-ui run test",
           "ok": true,
-          "executed": 254,
+          "executed": 264,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
