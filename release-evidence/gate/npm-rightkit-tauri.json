@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/tauri",
-  "version": "0.2.2",
-  "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
-  "artifactSha256": "ea28c9193a1562170339ab4a916876ee07b884b3e4f39bdc4d6bb787e7402f0d",
+  "version": "0.2.3",
+  "commit": "3651b282531ac816fe87feddd1877fbed33f5d26",
+  "artifactSha256": "df481534ed1b60e4c51888f579e323a5e50668e0eac7fe067ec770230c0a5882",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "034fa9f985bd71ac69a88235ab77368f7615d993",
+      "commit": "3651b282531ac816fe87feddd1877fbed33f5d26",
       "features": [
         "default"
       ],
-      "artifactSha256": "ea28c9193a1562170339ab4a916876ee07b884b3e4f39bdc4d6bb787e7402f0d",
-      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/tauri run test && pnpm --dir packages/tauri pack --pack-destination /Volumes/D/.build-home/adrdsouza/tmp/rk-local-publish-c2hE6B",
+      "artifactSha256": "df481534ed1b60e4c51888f579e323a5e50668e0eac7fe067ec770230c0a5882",
+      "command": "pnpm -r --workspace-concurrency=1 run build && pnpm --dir packages/tauri run test && pnpm --dir packages/tauri pack --pack-destination /Volumes/E/scratch/rk-publish-mac/tmp/rk-local-publish-Ca1IJc",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-17T22:39:15.555Z",
+      "timestamp": "2026-10-19T00:38:34.518Z",
       "passed": 14,
       "failed": 0,
       "skipped": 0,

@@ -599,7 +599,7 @@
       "@rightkit/release": "0.4.0",
       "@rightkit/settings-ui": "0.6.1",
       "@rightkit/shell": "0.1.1",
-      "@rightkit/tauri": "0.2.2",
+      "@rightkit/tauri": "0.2.3",
       "@rightkit/tauri-shell": "0.1.1",
       "@rightkit/theme": "0.3.1",
       "@rightkit/updates": "0.2.5"
