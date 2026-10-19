@@ -4,6 +4,8 @@
 
 - Raises rightkit-daemon to 0.3.0 and rightkit-qa to 0.7.0 for current dependency APIs.
 
+- Tests: suite-touching tests run in a child process with an isolated RIGHTKIT_SUITE_ROOT (the real-root guard is unchanged).
+
 ## 0.4.4 (2026-10-17)
 
 - **New: `suite::archive::install_tar_gz_expecting(archive, dest_root, expected_wrapper, installed_name)`** (Orthic-Labs/rightkit#455). Same atomic install as `install_tar_gz`, but the archive's single top-level directory must be named exactly `expected_wrapper`; another name or a second top-level entry is refused before installation, leaving the previous install untouched and no staging directory behind. `install_tar_gz` is unchanged and shares the implementation. Additive; version not bumped here. Tests: `tests/install_tar_gz_expecting.rs`. Not compiled when written.

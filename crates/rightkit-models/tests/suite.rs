@@ -18,6 +18,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod common;
+use common::isolated;
+
 /// Loopback-capable client for the local mock server. Production clients refuse
 /// loopback; this test client allows exactly 127.0.0.1.
 fn http() -> rightkit_models::http::ModelHttp {
@@ -316,249 +319,296 @@ fn read(path: &Path) -> Vec<u8> {
 
 #[test]
 fn gated_archive_install_uses_grant_writes_manifest_and_registers_ref() {
-    let lay = layout();
-    let archive = tar_gz(
-        "wrap",
-        &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
-    );
-    let mut cfg = Config::new(vec![("/m/model.tar.gz", archive.clone())]);
-    cfg.gated = true;
-    let server = serve(cfg);
-    let url = leak(format!("{}/m/model.tar.gz", server.base));
-    let spec = archive_spec("arch-model", Some(url), &archive, true);
+    isolated(
+        "gated_archive_install_uses_grant_writes_manifest_and_registers_ref",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let mut cfg = Config::new(vec![("/m/model.tar.gz", archive.clone())]);
+            cfg.gated = true;
+            let server = serve(cfg);
+            let url = leak(format!("{}/m/model.tar.gz", server.base));
+            let spec = archive_spec("arch-model", Some(url), &archive, true);
 
-    let grant = GrantConfig {
-        worker_base: server.base.clone(),
-        model: "demo".into(),
-        platform: "macos".into(),
-        device_id: "device-0123456789abcdef".into(),
-    };
-    let store = ModelStore::at_models_root(&lay.models, "heardright").with_http_client(http());
-    let mut events = Vec::new();
-    let status = store
-        .ensure(&spec, Some(&grant), &|| false, |p| {
-            events.push(format!("{p:?}"))
-        })
-        .unwrap();
+            let grant = GrantConfig {
+                worker_base: server.base.clone(),
+                model: "demo".into(),
+                platform: "macos".into(),
+                device_id: "device-0123456789abcdef".into(),
+            };
+            let store =
+                ModelStore::at_models_root(&lay.models, "heardright").with_http_client(http());
+            let mut events = Vec::new();
+            let status = store
+                .ensure(&spec, Some(&grant), &|| false, |p| {
+                    events.push(format!("{p:?}"))
+                })
+                .unwrap();
 
-    assert_eq!(status.state, EntryState::Ready);
-    let dir = lay.models.join("arch-model");
-    assert_eq!(read(&dir.join("weights.bin")), WEIGHTS);
-    assert_eq!(read(&dir.join("sub/vocab.txt")), VOCAB);
-    // Shared on-disk contract: manifest.json carries the TRUSTED pins.
-    let m = manifest::read_manifest(&dir).unwrap().unwrap();
-    assert_eq!(m.id, "arch-model");
-    assert_eq!(m.version, spec.version);
-    assert_eq!(
-        m.files
-            .iter()
-            .find(|f| f.path == "weights.bin")
-            .unwrap()
-            .sha256
-            .as_deref(),
-        Some(sha(WEIGHTS).as_str())
-    );
-    // refs/<app>.json written in the contract's JSON shape.
-    let ref_json: serde_json::Value =
-        serde_json::from_slice(&read(&lay.models.join("refs/heardright.json"))).unwrap();
-    assert_eq!(ref_json["app"], "heardright");
-    assert_eq!(ref_json["models"], serde_json::json!(["arch-model"]));
-    // The grant request carried the device/model/platform; the bytes request carried the bearer.
-    assert_eq!(
-        server.requests("POST grant"),
-        vec!["POST grant device=device-0123456789abcdef model=demo platform=macos"]
-    );
-    assert!(server.requests("GET /m/model.tar.gz")[0].ends_with("auth=Bearer tok1"));
-    assert!(
-        events.iter().any(|e| e.starts_with("Download")),
-        "{events:?}"
-    );
-    // Scratch is gone.
-    assert!(!lay.models.join(".incoming").exists());
+            assert_eq!(status.state, EntryState::Ready);
+            let dir = lay.models.join("arch-model");
+            assert_eq!(read(&dir.join("weights.bin")), WEIGHTS);
+            assert_eq!(read(&dir.join("sub/vocab.txt")), VOCAB);
+            // Shared on-disk contract: manifest.json carries the TRUSTED pins.
+            let m = manifest::read_manifest(&dir).unwrap().unwrap();
+            assert_eq!(m.id, "arch-model");
+            assert_eq!(m.version, spec.version);
+            assert_eq!(
+                m.files
+                    .iter()
+                    .find(|f| f.path == "weights.bin")
+                    .unwrap()
+                    .sha256
+                    .as_deref(),
+                Some(sha(WEIGHTS).as_str())
+            );
+            // refs/<app>.json written in the contract's JSON shape.
+            let ref_json: serde_json::Value =
+                serde_json::from_slice(&read(&lay.models.join("refs/heardright.json"))).unwrap();
+            assert_eq!(ref_json["app"], "heardright");
+            assert_eq!(ref_json["models"], serde_json::json!(["arch-model"]));
+            // The grant request carried the device/model/platform; the bytes request carried the bearer.
+            assert_eq!(
+                server.requests("POST grant"),
+                vec!["POST grant device=device-0123456789abcdef model=demo platform=macos"]
+            );
+            assert!(server.requests("GET /m/model.tar.gz")[0].ends_with("auth=Bearer tok1"));
+            assert!(
+                events.iter().any(|e| e.starts_with("Download")),
+                "{events:?}"
+            );
+            // Scratch is gone.
+            assert!(!lay.models.join(".incoming").exists());
 
-    // Second ensure is verify-only: no new network traffic at all.
-    let before = server.log.lock().unwrap().len();
-    store
-        .ensure(&spec, Some(&grant), &|| false, |_| {})
-        .unwrap();
-    assert_eq!(server.log.lock().unwrap().len(), before);
+            // Second ensure is verify-only: no new network traffic at all.
+            let before = server.log.lock().unwrap().len();
+            store
+                .ensure(&spec, Some(&grant), &|| false, |_| {})
+                .unwrap();
+            assert_eq!(server.log.lock().unwrap().len(), before);
+        },
+    );
 }
 
 #[test]
 fn rejected_grant_is_refreshed_once_and_download_proceeds() {
-    let lay = layout();
-    let archive = tar_gz(
-        "wrap",
-        &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
-    );
-    let mut cfg = Config::new(vec![("/m/r.tar.gz", archive.clone())]);
-    cfg.gated = true;
-    cfg.revoke_first_token = true;
-    let server = serve(cfg);
-    let url = leak(format!("{}/m/r.tar.gz", server.base));
-    let spec = archive_spec("refresh-model", Some(url), &archive, true);
-    let grant = GrantConfig {
-        worker_base: server.base.clone(),
-        model: "demo".into(),
-        platform: "windows".into(),
-        device_id: "device-0123456789abcdef".into(),
-    };
+    isolated(
+        "rejected_grant_is_refreshed_once_and_download_proceeds",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let mut cfg = Config::new(vec![("/m/r.tar.gz", archive.clone())]);
+            cfg.gated = true;
+            cfg.revoke_first_token = true;
+            let server = serve(cfg);
+            let url = leak(format!("{}/m/r.tar.gz", server.base));
+            let spec = archive_spec("refresh-model", Some(url), &archive, true);
+            let grant = GrantConfig {
+                worker_base: server.base.clone(),
+                model: "demo".into(),
+                platform: "windows".into(),
+                device_id: "device-0123456789abcdef".into(),
+            };
 
-    let store = ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
-    store
-        .ensure(&spec, Some(&grant), &|| false, |_| {})
-        .unwrap();
+            let store =
+                ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
+            store
+                .ensure(&spec, Some(&grant), &|| false, |_| {})
+                .unwrap();
 
-    assert_eq!(
-        server.grants.load(Ordering::SeqCst),
-        2,
-        "one initial grant + one refresh"
+            assert_eq!(
+                server.grants.load(Ordering::SeqCst),
+                2,
+                "one initial grant + one refresh"
+            );
+            let gets = server.requests("GET /m/r.tar.gz");
+            assert!(gets[0].ends_with("auth=Bearer tok1"), "{gets:?}");
+            assert!(
+                gets.last().unwrap().ends_with("auth=Bearer tok2"),
+                "{gets:?}"
+            );
+            assert_eq!(read(&lay.models.join("refresh-model/weights.bin")), WEIGHTS);
+        },
     );
-    let gets = server.requests("GET /m/r.tar.gz");
-    assert!(gets[0].ends_with("auth=Bearer tok1"), "{gets:?}");
-    assert!(
-        gets.last().unwrap().ends_with("auth=Bearer tok2"),
-        "{gets:?}"
-    );
-    assert_eq!(read(&lay.models.join("refresh-model/weights.bin")), WEIGHTS);
 }
 
 #[test]
 fn grant_scope_mismatch_and_expired_grants_never_download() {
-    for (mode, needle) in [
-        (GrantMode::WrongRoute, "scope"),
-        (GrantMode::Expired, "incomplete"),
-    ] {
-        let lay = layout();
-        let archive = tar_gz(
-            "wrap",
-            &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
-        );
-        let mut cfg = Config::new(vec![("/m/x.tar.gz", archive.clone())]);
-        cfg.gated = true;
-        cfg.grant_mode = mode;
-        let server = serve(cfg);
-        let url = leak(format!("{}/m/x.tar.gz", server.base));
-        let spec = archive_spec("scope-model", Some(url), &archive, true);
-        let grant = GrantConfig {
-            worker_base: server.base.clone(),
-            model: "demo".into(),
-            platform: "macos".into(),
-            device_id: "device-0123456789abcdef".into(),
-        };
-        let err = ModelStore::at_models_root(&lay.models, "a")
-            .with_http_client(http())
-            .ensure(&spec, Some(&grant), &|| false, |_| {})
-            .unwrap_err();
-        assert!(err.contains(needle), "{err}");
-        assert!(
-            server.requests("GET").is_empty(),
-            "no archive request without a valid grant"
-        );
-        assert!(!lay.models.join("scope-model").exists());
-    }
+    isolated(
+        "grant_scope_mismatch_and_expired_grants_never_download",
+        || {
+            for (mode, needle) in [
+                (GrantMode::WrongRoute, "scope"),
+                (GrantMode::Expired, "incomplete"),
+            ] {
+                let lay = layout();
+                let archive = tar_gz(
+                    "wrap",
+                    &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+                );
+                let mut cfg = Config::new(vec![("/m/x.tar.gz", archive.clone())]);
+                cfg.gated = true;
+                cfg.grant_mode = mode;
+                let server = serve(cfg);
+                let url = leak(format!("{}/m/x.tar.gz", server.base));
+                let spec = archive_spec("scope-model", Some(url), &archive, true);
+                let grant = GrantConfig {
+                    worker_base: server.base.clone(),
+                    model: "demo".into(),
+                    platform: "macos".into(),
+                    device_id: "device-0123456789abcdef".into(),
+                };
+                let err = ModelStore::at_models_root(&lay.models, "a")
+                    .with_http_client(http())
+                    .ensure(&spec, Some(&grant), &|| false, |_| {})
+                    .unwrap_err();
+                assert!(err.contains(needle), "{err}");
+                assert!(
+                    server.requests("GET").is_empty(),
+                    "no archive request without a valid grant"
+                );
+                assert!(!lay.models.join("scope-model").exists());
+            }
+        },
+    );
 }
 
 #[test]
 fn gated_download_without_device_id_or_token_fails_before_network() {
-    let lay = layout();
-    let archive = tar_gz(
-        "wrap",
-        &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+    isolated(
+        "gated_download_without_device_id_or_token_fails_before_network",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let server = serve(Config::new(vec![("/m/g.tar.gz", archive.clone())]));
+            let spec = archive_spec(
+                "gated-model",
+                Some(leak(format!("{}/m/g.tar.gz", server.base))),
+                &archive,
+                true,
+            );
+            let err = ModelStore::at_models_root(&lay.models, "a")
+                .with_http_client(http())
+                .ensure(&spec, None, &|| false, |_| {})
+                .unwrap_err();
+            assert!(err.contains("device id"), "{err}");
+            let err =
+                store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
+            assert!(err.contains("download token"), "{err}");
+            assert!(server.requests("GET").is_empty());
+        },
     );
-    let server = serve(Config::new(vec![("/m/g.tar.gz", archive.clone())]));
-    let spec = archive_spec(
-        "gated-model",
-        Some(leak(format!("{}/m/g.tar.gz", server.base))),
-        &archive,
-        true,
-    );
-    let err = ModelStore::at_models_root(&lay.models, "a")
-        .with_http_client(http())
-        .ensure(&spec, None, &|| false, |_| {})
-        .unwrap_err();
-    assert!(err.contains("device id"), "{err}");
-    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
-    assert!(err.contains("download token"), "{err}");
-    assert!(server.requests("GET").is_empty());
 }
 
 #[test]
 fn corrupted_archive_fails_integrity_and_leaves_no_entry() {
-    let lay = layout();
-    let good = tar_gz(
-        "wrap",
-        &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
-    );
-    let evil = tar_gz(
-        "wrap",
-        &[("weights.bin", b"EVIL"), ("sub/vocab.txt", VOCAB)],
-    );
-    let server = serve(Config::new(vec![("/m/e.tar.gz", evil)]));
-    let spec = archive_spec(
-        "evil-model",
-        Some(leak(format!("{}/m/e.tar.gz", server.base))),
-        &good,
-        false,
-    );
-    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
-    assert!(err.contains("integrity check"), "{err}");
-    assert!(!lay.models.join("evil-model").exists());
-    assert!(
-        !lay.models.join("refs/a.json").exists(),
-        "failed install must not register a ref"
+    isolated(
+        "corrupted_archive_fails_integrity_and_leaves_no_entry",
+        || {
+            let lay = layout();
+            let good = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let evil = tar_gz(
+                "wrap",
+                &[("weights.bin", b"EVIL"), ("sub/vocab.txt", VOCAB)],
+            );
+            let server = serve(Config::new(vec![("/m/e.tar.gz", evil)]));
+            let spec = archive_spec(
+                "evil-model",
+                Some(leak(format!("{}/m/e.tar.gz", server.base))),
+                &good,
+                false,
+            );
+            let err =
+                store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
+            assert!(err.contains("integrity check"), "{err}");
+            assert!(!lay.models.join("evil-model").exists());
+            assert!(
+                !lay.models.join("refs/a.json").exists(),
+                "failed install must not register a ref"
+            );
+        },
     );
 }
 
 #[test]
 fn interrupted_download_resumes_with_range_and_verifies() {
-    let lay = layout();
-    let archive = tar_gz(
-        "wrap",
-        &[("weights.bin", &[7u8; 4096]), ("sub/vocab.txt", VOCAB)],
-    );
-    let mut cfg = Config::new(vec![("/m/t.tar.gz", archive.clone())]);
-    cfg.truncate_first = vec!["/m/t.tar.gz".into()];
-    let server = serve(cfg);
-    let mut spec = archive_spec(
-        "resume-model",
-        Some(leak(format!("{}/m/t.tar.gz", server.base))),
-        &archive,
-        false,
-    );
-    spec.files = spec_files(&[("weights.bin", &[7u8; 4096]), ("sub/vocab.txt", VOCAB)]);
-    store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
-    let gets = server.requests("GET /m/t.tar.gz");
-    assert!(
-        gets.len() >= 2 && gets[0].contains("range=None") && gets[1].contains("range=Some("),
-        "{gets:?}"
-    );
-    assert_eq!(
-        read(&lay.models.join("resume-model/weights.bin")),
-        vec![7u8; 4096]
+    isolated(
+        "interrupted_download_resumes_with_range_and_verifies",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", &[7u8; 4096]), ("sub/vocab.txt", VOCAB)],
+            );
+            let mut cfg = Config::new(vec![("/m/t.tar.gz", archive.clone())]);
+            cfg.truncate_first = vec!["/m/t.tar.gz".into()];
+            let server = serve(cfg);
+            let mut spec = archive_spec(
+                "resume-model",
+                Some(leak(format!("{}/m/t.tar.gz", server.base))),
+                &archive,
+                false,
+            );
+            spec.files = spec_files(&[("weights.bin", &[7u8; 4096]), ("sub/vocab.txt", VOCAB)]);
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+            let gets = server.requests("GET /m/t.tar.gz");
+            assert!(
+                gets.len() >= 2
+                    && gets[0].contains("range=None")
+                    && gets[1].contains("range=Some("),
+                "{gets:?}"
+            );
+            assert_eq!(
+                read(&lay.models.join("resume-model/weights.bin")),
+                vec![7u8; 4096]
+            );
+        },
     );
 }
 
 #[test]
 fn cancelled_download_keeps_part_file_and_next_call_resumes() {
-    let lay = layout();
-    let big = vec![9u8; 300_000];
-    let archive = tar_gz("wrap", &[("weights.bin", &big), ("sub/vocab.txt", VOCAB)]);
-    let server = serve(Config::new(vec![("/m/c.tar.gz", archive.clone())]));
-    let mut spec = archive_spec(
-        "cancel-model",
-        Some(leak(format!("{}/m/c.tar.gz", server.base))),
-        &archive,
-        false,
-    );
-    spec.files = spec_files(&[("weights.bin", &big), ("sub/vocab.txt", VOCAB)]);
-    let err =
-        store::ensure_ready_cancellable(&http(), &lay.models, &spec, &opts("a"), &|| true, |_| {})
+    isolated(
+        "cancelled_download_keeps_part_file_and_next_call_resumes",
+        || {
+            let lay = layout();
+            let big = vec![9u8; 300_000];
+            let archive = tar_gz("wrap", &[("weights.bin", &big), ("sub/vocab.txt", VOCAB)]);
+            let server = serve(Config::new(vec![("/m/c.tar.gz", archive.clone())]));
+            let mut spec = archive_spec(
+                "cancel-model",
+                Some(leak(format!("{}/m/c.tar.gz", server.base))),
+                &archive,
+                false,
+            );
+            spec.files = spec_files(&[("weights.bin", &big), ("sub/vocab.txt", VOCAB)]);
+            let err = store::ensure_ready_cancellable(
+                &http(),
+                &lay.models,
+                &spec,
+                &opts("a"),
+                &|| true,
+                |_| {},
+            )
             .unwrap_err();
-    assert!(err.contains("cancelled"), "{err}");
-    assert!(!lay.models.join("cancel-model").exists());
-    store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
-    assert_eq!(read(&lay.models.join("cancel-model/weights.bin")), big);
+            assert!(err.contains("cancelled"), "{err}");
+            assert!(!lay.models.join("cancel-model").exists());
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+            assert_eq!(read(&lay.models.join("cancel-model/weights.bin")), big);
+        },
+    );
 }
 
 // ===================================================================
@@ -610,61 +660,71 @@ fn files_spec(base: &str, seed_pin: &[u8]) -> ModelSpec {
 
 #[test]
 fn files_source_downloads_seeds_and_repairs_only_drifted_files() {
-    let lay = layout();
-    let server = serve(Config::new(vec![
-        ("/f/weights.bin", WEIGHTS.to_vec()),
-        ("/f/vocab.txt", VOCAB.to_vec()),
-    ]));
-    let cfg_bytes: &[u8] = br#"{"k":1}"#;
-    let spec = files_spec(&server.base, cfg_bytes);
-    let seeds = tempfile::tempdir().unwrap();
-    fs::write(seeds.path().join("config.json"), cfg_bytes).unwrap();
-    let o = EnsureOptions {
-        seed_dir: Some(seeds.path()),
-        authorization: None,
-        app_id: "scraperight",
-    };
+    isolated(
+        "files_source_downloads_seeds_and_repairs_only_drifted_files",
+        || {
+            let lay = layout();
+            let server = serve(Config::new(vec![
+                ("/f/weights.bin", WEIGHTS.to_vec()),
+                ("/f/vocab.txt", VOCAB.to_vec()),
+            ]));
+            let cfg_bytes: &[u8] = br#"{"k":1}"#;
+            let spec = files_spec(&server.base, cfg_bytes);
+            let seeds = tempfile::tempdir().unwrap();
+            fs::write(seeds.path().join("config.json"), cfg_bytes).unwrap();
+            let o = EnsureOptions {
+                seed_dir: Some(seeds.path()),
+                authorization: None,
+                app_id: "scraperight",
+            };
 
-    store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
-    let dir = lay.models.join("files-model");
-    assert_eq!(read(&dir.join("config.json")), cfg_bytes);
-    assert_eq!(server.requests("GET").len(), 2);
+            store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
+            let dir = lay.models.join("files-model");
+            assert_eq!(read(&dir.join("config.json")), cfg_bytes);
+            assert_eq!(server.requests("GET").len(), 2);
 
-    // Same-size corruption of one file: Size passes, Full catches; repair refetches only it.
-    fs::write(dir.join("vocab.txt"), vec![b'X'; VOCAB.len()]).unwrap();
-    assert_eq!(
-        store::status_at(&lay.models, &spec, VerifyMode::Size).state,
-        EntryState::Ready
+            // Same-size corruption of one file: Size passes, Full catches; repair refetches only it.
+            fs::write(dir.join("vocab.txt"), vec![b'X'; VOCAB.len()]).unwrap();
+            assert_eq!(
+                store::status_at(&lay.models, &spec, VerifyMode::Size).state,
+                EntryState::Ready
+            );
+            let full = store::status_at(&lay.models, &spec, VerifyMode::Full);
+            assert_eq!(full.state, EntryState::Partial);
+            assert_eq!(full.needed, vec!["vocab.txt"]);
+            store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
+            assert_eq!(read(&dir.join("vocab.txt")), VOCAB);
+            let gets = server.requests("GET");
+            assert_eq!(gets.len(), 3, "{gets:?}");
+            assert!(gets[2].starts_with("GET /f/vocab.txt"));
+        },
     );
-    let full = store::status_at(&lay.models, &spec, VerifyMode::Full);
-    assert_eq!(full.state, EntryState::Partial);
-    assert_eq!(full.needed, vec!["vocab.txt"]);
-    store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
-    assert_eq!(read(&dir.join("vocab.txt")), VOCAB);
-    let gets = server.requests("GET");
-    assert_eq!(gets.len(), 3, "{gets:?}");
-    assert!(gets[2].starts_with("GET /f/vocab.txt"));
 }
 
 #[test]
 fn stale_bundled_seed_fails_its_pin_and_is_not_installed() {
-    let lay = layout();
-    let server = serve(Config::new(vec![
-        ("/f/weights.bin", WEIGHTS.to_vec()),
-        ("/f/vocab.txt", VOCAB.to_vec()),
-    ]));
-    let spec = files_spec(&server.base, br#"{"k":1}"#);
-    let seeds = tempfile::tempdir().unwrap();
-    fs::write(seeds.path().join("config.json"), br#"{"k":2}"#).unwrap();
-    let o = EnsureOptions {
-        seed_dir: Some(seeds.path()),
-        authorization: None,
-        app_id: "a",
-    };
-    let err = store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap_err();
-    assert!(err.contains("failed integrity check"), "{err}");
-    assert!(!lay.models.join("files-model/config.json").exists());
-    assert!(!lay.models.join("refs/a.json").exists());
+    isolated(
+        "stale_bundled_seed_fails_its_pin_and_is_not_installed",
+        || {
+            let lay = layout();
+            let server = serve(Config::new(vec![
+                ("/f/weights.bin", WEIGHTS.to_vec()),
+                ("/f/vocab.txt", VOCAB.to_vec()),
+            ]));
+            let spec = files_spec(&server.base, br#"{"k":1}"#);
+            let seeds = tempfile::tempdir().unwrap();
+            fs::write(seeds.path().join("config.json"), br#"{"k":2}"#).unwrap();
+            let o = EnsureOptions {
+                seed_dir: Some(seeds.path()),
+                authorization: None,
+                app_id: "a",
+            };
+            let err = store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap_err();
+            assert!(err.contains("failed integrity check"), "{err}");
+            assert!(!lay.models.join("files-model/config.json").exists());
+            assert!(!lay.models.join("refs/a.json").exists());
+        },
+    );
 }
 
 // ===================================================================
@@ -673,58 +733,65 @@ fn stale_bundled_seed_fails_its_pin_and_is_not_installed() {
 
 #[test]
 fn self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted() {
-    let lay = layout();
-    let spec = ModelSpec {
-        tier: rightkit_models::suite::catalog::ModelTier::Base,
-        entitlement: false,
-        id: "trust-model",
-        label: "t",
-        version: "pinned-rev",
-        size_hint_bytes: 0,
-        files: spec_files(&[("weights.bin", WEIGHTS)]),
-        source: SpecSource::Files(&[]),
-        legacy_dirs: &[],
-        retired_legacy_paths: &[],
-        retired_store_ids: &[],
-    };
-    let dir = lay.models.join("trust-model");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("weights.bin"), WEIGHTS).unwrap();
+    isolated(
+        "self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted",
+        || {
+            let lay = layout();
+            let spec = ModelSpec {
+                tier: rightkit_models::suite::catalog::ModelTier::Base,
+                entitlement: false,
+                id: "trust-model",
+                label: "t",
+                version: "pinned-rev",
+                size_hint_bytes: 0,
+                files: spec_files(&[("weights.bin", WEIGHTS)]),
+                source: SpecSource::Files(&[]),
+                legacy_dirs: &[],
+                retired_legacy_paths: &[],
+                retired_store_ids: &[],
+            };
+            let dir = lay.models.join("trust-model");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("weights.bin"), WEIGHTS).unwrap();
 
-    // No manifest at all: hand-placed copy is not trusted.
-    assert_eq!(
-        store::status_at(&lay.models, &spec, VerifyMode::Full).state,
-        EntryState::Partial
-    );
-    // A manifest claiming another revision: not trusted either.
-    let mut forged = spec.expected_manifest();
-    forged.version = "attacker-rev".into();
-    manifest::write_manifest(&dir, &forged).unwrap();
-    assert_eq!(
-        store::status_at(&lay.models, &spec, VerifyMode::Full).state,
-        EntryState::Partial
-    );
-    // A manifest that weakens the pins (no hash): not trusted.
-    let mut weak = spec.expected_manifest();
-    weak.files[0].sha256 = None;
-    manifest::write_manifest(&dir, &weak).unwrap();
-    assert_eq!(
-        store::status_at(&lay.models, &spec, VerifyMode::Full).state,
-        EntryState::Partial
-    );
+            // No manifest at all: hand-placed copy is not trusted.
+            assert_eq!(
+                store::status_at(&lay.models, &spec, VerifyMode::Full).state,
+                EntryState::Partial
+            );
+            // A manifest claiming another revision: not trusted either.
+            let mut forged = spec.expected_manifest();
+            forged.version = "attacker-rev".into();
+            manifest::write_manifest(&dir, &forged).unwrap();
+            assert_eq!(
+                store::status_at(&lay.models, &spec, VerifyMode::Full).state,
+                EntryState::Partial
+            );
+            // A manifest that weakens the pins (no hash): not trusted.
+            let mut weak = spec.expected_manifest();
+            weak.files[0].sha256 = None;
+            manifest::write_manifest(&dir, &weak).unwrap();
+            assert_eq!(
+                store::status_at(&lay.models, &spec, VerifyMode::Full).state,
+                EntryState::Partial
+            );
 
-    // ensure with no download endpoint adopts bytes that verify against the catalog pins.
-    let status = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
-    assert_eq!(status.state, EntryState::Ready);
-    assert_eq!(
-        manifest::read_manifest(&dir).unwrap().unwrap().version,
-        "pinned-rev"
-    );
+            // ensure with no download endpoint adopts bytes that verify against the catalog pins.
+            let status =
+                store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+            assert_eq!(status.state, EntryState::Ready);
+            assert_eq!(
+                manifest::read_manifest(&dir).unwrap().unwrap().version,
+                "pinned-rev"
+            );
 
-    // Different bytes + no endpoint: honest "unavailable", and the bad file is untouched.
-    fs::write(dir.join("weights.bin"), b"weights-byteZ").unwrap();
-    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
-    assert!(err.contains("no download endpoint"), "{err}");
+            // Different bytes + no endpoint: honest "unavailable", and the bad file is untouched.
+            fs::write(dir.join("weights.bin"), b"weights-byteZ").unwrap();
+            let err =
+                store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
+            assert!(err.contains("no download endpoint"), "{err}");
+        },
+    );
 }
 
 #[test]
@@ -778,57 +845,64 @@ fn installed_entry(lay: &Layout, id: &str) -> PathBuf {
 
 #[test]
 fn refs_are_per_app_gc_removes_only_unreferenced_unlocked_and_unprotected() {
-    let lay = layout();
-    for id in ["shared-a", "only-hr", "orphan", "kept", "locked"] {
-        installed_entry(&lay, id);
-    }
-    store::register_ref(&lay.models, "scraperight", "shared-a").unwrap();
-    store::register_ref(&lay.models, "heardright", "shared-a").unwrap();
-    store::register_ref(&lay.models, "heardright", "only-hr").unwrap();
+    isolated(
+        "refs_are_per_app_gc_removes_only_unreferenced_unlocked_and_unprotected",
+        || {
+            let lay = layout();
+            for id in ["shared-a", "only-hr", "orphan", "kept", "locked"] {
+                installed_entry(&lay, id);
+            }
+            store::register_ref(&lay.models, "scraperight", "shared-a").unwrap();
+            store::register_ref(&lay.models, "heardright", "shared-a").unwrap();
+            store::register_ref(&lay.models, "heardright", "only-hr").unwrap();
 
-    let held = rightkit_models::lock::try_lock(&lay.models.join("locked"), "installer")
-        .unwrap()
-        .unwrap();
-    let removed = store::prune_unref_entries(&lay.models, &["kept"]).unwrap();
-    let removed: BTreeSet<_> = removed.into_iter().collect();
-    assert_eq!(removed, BTreeSet::from(["orphan".to_string()]));
-    assert!(lay.models.join("kept").exists() && lay.models.join("locked").exists());
-    drop(held);
+            let held = rightkit_models::lock::try_lock(&lay.models.join("locked"), "installer")
+                .unwrap()
+                .unwrap();
+            let removed = store::prune_unref_entries(&lay.models, &["kept"]).unwrap();
+            let removed: BTreeSet<_> = removed.into_iter().collect();
+            assert_eq!(removed, BTreeSet::from(["orphan".to_string()]));
+            assert!(lay.models.join("kept").exists() && lay.models.join("locked").exists());
+            drop(held);
 
-    // Unregistering one app frees only models nobody else uses.
-    let freed = refs::unregister(&lay.models.join("refs"), "heardright").unwrap();
-    assert_eq!(freed, vec!["only-hr".to_string()]);
-    let removed = store::prune_unref_entries(&lay.models, &["kept"]).unwrap();
-    assert_eq!(
-        removed.into_iter().collect::<BTreeSet<_>>(),
-        BTreeSet::from(["locked".to_string(), "only-hr".to_string()])
-    );
-    assert!(
-        lay.models.join("shared-a/weights.bin").exists(),
-        "still referenced by scraperight"
+            // Unregistering one app frees only models nobody else uses.
+            let freed = refs::unregister(&lay.models.join("refs"), "heardright").unwrap();
+            assert_eq!(freed, vec!["only-hr".to_string()]);
+            let removed = store::prune_unref_entries(&lay.models, &["kept"]).unwrap();
+            assert_eq!(
+                removed.into_iter().collect::<BTreeSet<_>>(),
+                BTreeSet::from(["locked".to_string(), "only-hr".to_string()])
+            );
+            assert!(
+                lay.models.join("shared-a/weights.bin").exists(),
+                "still referenced by scraperight"
+            );
+        },
     );
 }
 
 #[test]
 fn corrupt_ref_file_blocks_deletion_and_unregister() {
-    let lay = layout();
-    installed_entry(&lay, "orphan");
-    store::register_ref(&lay.models, "good", "something").unwrap();
-    fs::write(lay.models.join("refs/bad.json"), b"{not json").unwrap();
-    assert!(store::prune_unref_entries(&lay.models, &[]).is_err());
-    assert!(lay.models.join("orphan").exists());
-    assert!(refs::unregister(&lay.models.join("refs"), "good").is_err());
-    assert!(
-        lay.models.join("refs/good.json").exists(),
-        "failed unregister must not change registry"
-    );
-    // A ref naming a path-escaping model id is rejected, not trusted.
-    fs::write(
-        lay.models.join("refs/bad.json"),
-        br#"{"app":"bad","models":["../x"]}"#,
-    )
-    .unwrap();
-    assert!(refs::referenced_ids_checked(&lay.models.join("refs")).is_err());
+    isolated("corrupt_ref_file_blocks_deletion_and_unregister", || {
+        let lay = layout();
+        installed_entry(&lay, "orphan");
+        store::register_ref(&lay.models, "good", "something").unwrap();
+        fs::write(lay.models.join("refs/bad.json"), b"{not json").unwrap();
+        assert!(store::prune_unref_entries(&lay.models, &[]).is_err());
+        assert!(lay.models.join("orphan").exists());
+        assert!(refs::unregister(&lay.models.join("refs"), "good").is_err());
+        assert!(
+            lay.models.join("refs/good.json").exists(),
+            "failed unregister must not change registry"
+        );
+        // A ref naming a path-escaping model id is rejected, not trusted.
+        fs::write(
+            lay.models.join("refs/bad.json"),
+            br#"{"app":"bad","models":["../x"]}"#,
+        )
+        .unwrap();
+        assert!(refs::referenced_ids_checked(&lay.models.join("refs")).is_err());
+    });
 }
 
 #[test]
@@ -852,61 +926,66 @@ fn concurrent_ref_writers_lose_no_registration() {
 
 #[test]
 fn runtime_lease_is_exclusive_defers_gc_and_signals_yield_request() {
-    let lay = layout();
-    installed_entry(&lay, "orphan");
-    let family = "family-x";
-    let held = lease::try_acquire_at_root(&lay.suite, family, "heardright")
-        .unwrap()
-        .expect("free");
-    assert_eq!(
-        lease::current_holder_at_root(&lay.suite, family)
-            .unwrap()
-            .app,
-        "heardright"
-    );
-    assert!(
-        lease::try_acquire_at_root(&lay.suite, family, "scraperight")
-            .unwrap()
-            .is_none()
-    );
+    isolated(
+        "runtime_lease_is_exclusive_defers_gc_and_signals_yield_request",
+        || {
+            let lay = layout();
+            installed_entry(&lay, "orphan");
+            let family = "family-x";
+            let held = lease::try_acquire_at_root(&lay.suite, family, "heardright")
+                .unwrap()
+                .expect("free");
+            assert_eq!(
+                lease::current_holder_at_root(&lay.suite, family)
+                    .unwrap()
+                    .app,
+                "heardright"
+            );
+            assert!(
+                lease::try_acquire_at_root(&lay.suite, family, "scraperight")
+                    .unwrap()
+                    .is_none()
+            );
 
-    // GC is conservative while ANY runtime family (even unknown) is held.
-    assert!(store::prune_unref_entries(&lay.models, &[])
-        .unwrap()
-        .is_empty());
-    assert!(lay.models.join("orphan").exists());
+            // GC is conservative while ANY runtime family (even unknown) is held.
+            assert!(store::prune_unref_entries(&lay.models, &[])
+                .unwrap()
+                .is_empty());
+            assert!(lay.models.join("orphan").exists());
 
-    // A waiter posts a yield request beside the lock so an idle holder can unload.
-    let lock_file = lay.suite.join("runtime/model-use/family-x.lock");
-    let yield_file = lease::yield_request_path(&lock_file);
-    let suite = lay.suite.clone();
-    let waiter = std::thread::spawn(move || {
-        lease::acquire_at_root(&suite, family, "cutright", &|_| {}, &|| false)
-            .map(drop)
-            .unwrap();
-    });
-    let mut seen = None;
-    for _ in 0..100 {
-        if let Ok(body) = fs::read_to_string(&yield_file) {
-            seen = Some(body);
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    let body: serde_json::Value =
-        serde_json::from_str(&seen.expect("yield request posted")).unwrap();
-    assert_eq!(body["app"], "cutright");
-    drop(held); // the holder yields
-    waiter.join().unwrap();
-    assert!(
-        !yield_file.exists(),
-        "request removed once the waiter acquired"
-    );
+            // A waiter posts a yield request beside the lock so an idle holder can unload.
+            let lock_file = lay.suite.join("runtime/model-use/family-x.lock");
+            let yield_file = lease::yield_request_path(&lock_file);
+            let suite = lay.suite.clone();
+            let waiter = std::thread::spawn(move || {
+                lease::acquire_at_root(&suite, family, "cutright", &|_| {}, &|| false)
+                    .map(drop)
+                    .unwrap();
+            });
+            let mut seen = None;
+            for _ in 0..100 {
+                if let Ok(body) = fs::read_to_string(&yield_file) {
+                    seen = Some(body);
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            let body: serde_json::Value =
+                serde_json::from_str(&seen.expect("yield request posted")).unwrap();
+            assert_eq!(body["app"], "cutright");
+            drop(held); // the holder yields
+            waiter.join().unwrap();
+            assert!(
+                !yield_file.exists(),
+                "request removed once the waiter acquired"
+            );
 
-    // Released: GC proceeds.
-    assert_eq!(
-        store::prune_unref_entries(&lay.models, &[]).unwrap(),
-        vec!["orphan".to_string()]
+            // Released: GC proceeds.
+            assert_eq!(
+                store::prune_unref_entries(&lay.models, &[]).unwrap(),
+                vec!["orphan".to_string()]
+            );
+        },
     );
 }
 
@@ -990,231 +1069,290 @@ fn is_link(p: &Path) -> bool {
 
 #[test]
 fn migration_moves_verified_copy_keeps_old_path_working_and_archives_journal() {
-    let m = mig();
-    let loaded = std::cell::RefCell::new(Vec::<PathBuf>::new());
-    let out = store::migrate_legacy_checked(
-        &m.new_models,
-        &mig_spec(),
-        &m.old_models,
-        "heardright",
-        &|d| {
-            loaded.borrow_mut().push(d.to_path_buf());
-            Ok(())
+    isolated(
+        "migration_moves_verified_copy_keeps_old_path_working_and_archives_journal",
+        || {
+            let m = mig();
+            let loaded = std::cell::RefCell::new(Vec::<PathBuf>::new());
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "heardright",
+                &|d| {
+                    loaded.borrow_mut().push(d.to_path_buf());
+                    Ok(())
+                },
+            );
+            assert!(out.errors.is_empty(), "{:?}", out.errors);
+            assert_eq!(out.migrated.len(), 1);
+            // Native load check ran against the PUBLISHED destination path.
+            assert_eq!(
+                loaded.borrow().as_slice(),
+                std::slice::from_ref(&m.destination)
+            );
+            assert_eq!(
+                store::status_at(&m.new_models, &mig_spec(), VerifyMode::Full).state,
+                EntryState::Ready
+            );
+            // Old path is an alias to the new payload, still readable by un-migrated app versions.
+            assert!(is_link(&m.source));
+            assert_eq!(read(&m.source.join("weights.bin")), b"data");
+            assert_eq!(
+                m.source.canonicalize().unwrap(),
+                m.destination.canonicalize().unwrap()
+            );
+            // Ref registered; journal archived under .migration/completed, none active.
+            assert!(m.new_models.join("refs/heardright.json").is_file());
+            assert!(!migration::journal_path(&m.new_models, "current").exists());
+            let completed: Vec<_> = fs::read_dir(m.new_models.join(".migration/completed"))
+                .unwrap()
+                .flatten()
+                .collect();
+            assert_eq!(completed.len(), 1);
+            let j: MigrationJournal = serde_json::from_slice(&read(&completed[0].path())).unwrap();
+            assert_eq!(j.phase, JournalPhase::Complete);
+
+            // Running again is idempotent (alias resolves to destination; ref re-registered).
+            let again = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "heardright",
+                &|_| Ok(()),
+            );
+            assert!(again.errors.is_empty(), "{:?}", again.errors);
         },
     );
-    assert!(out.errors.is_empty(), "{:?}", out.errors);
-    assert_eq!(out.migrated.len(), 1);
-    // Native load check ran against the PUBLISHED destination path.
-    assert_eq!(
-        loaded.borrow().as_slice(),
-        std::slice::from_ref(&m.destination)
-    );
-    assert_eq!(
-        store::status_at(&m.new_models, &mig_spec(), VerifyMode::Full).state,
-        EntryState::Ready
-    );
-    // Old path is an alias to the new payload, still readable by un-migrated app versions.
-    assert!(is_link(&m.source));
-    assert_eq!(read(&m.source.join("weights.bin")), b"data");
-    assert_eq!(
-        m.source.canonicalize().unwrap(),
-        m.destination.canonicalize().unwrap()
-    );
-    // Ref registered; journal archived under .migration/completed, none active.
-    assert!(m.new_models.join("refs/heardright.json").is_file());
-    assert!(!migration::journal_path(&m.new_models, "current").exists());
-    let completed: Vec<_> = fs::read_dir(m.new_models.join(".migration/completed"))
-        .unwrap()
-        .flatten()
-        .collect();
-    assert_eq!(completed.len(), 1);
-    let j: MigrationJournal = serde_json::from_slice(&read(&completed[0].path())).unwrap();
-    assert_eq!(j.phase, JournalPhase::Complete);
-
-    // Running again is idempotent (alias resolves to destination; ref re-registered).
-    let again = store::migrate_legacy_checked(
-        &m.new_models,
-        &mig_spec(),
-        &m.old_models,
-        "heardright",
-        &|_| Ok(()),
-    );
-    assert!(again.errors.is_empty(), "{:?}", again.errors);
 }
 
 #[test]
 fn failed_native_load_restores_source_and_removes_destination() {
-    let m = mig();
-    let out = store::migrate_legacy_checked(
-        &m.new_models,
-        &mig_spec(),
-        &m.old_models,
-        "heardright",
-        &|_| Err("cannot load".into()),
-    );
-    assert!(
-        out.errors.iter().any(|e| e.contains("load check failed")),
-        "{:?}",
-        out.errors
-    );
-    assert!(!is_link(&m.source) && read(&m.source.join("weights.bin")) == b"data");
-    assert!(store::resolve_ready_dir(&m.new_models, &mig_spec()).is_none());
-    assert!(!m.new_models.join("refs/heardright.json").exists());
-    assert!(
-        !migration::journal_path(&m.new_models, "current").exists(),
-        "rollback archived its journal"
+    isolated(
+        "failed_native_load_restores_source_and_removes_destination",
+        || {
+            let m = mig();
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "heardright",
+                &|_| Err("cannot load".into()),
+            );
+            assert!(
+                out.errors.iter().any(|e| e.contains("load check failed")),
+                "{:?}",
+                out.errors
+            );
+            assert!(!is_link(&m.source) && read(&m.source.join("weights.bin")) == b"data");
+            assert!(store::resolve_ready_dir(&m.new_models, &mig_spec()).is_none());
+            assert!(!m.new_models.join("refs/heardright.json").exists());
+            assert!(
+                !migration::journal_path(&m.new_models, "current").exists(),
+                "rollback archived its journal"
+            );
+        },
     );
 }
 
 #[test]
 fn unverified_or_wrong_variant_source_is_left_untouched() {
-    let m = mig();
-    fs::write(m.source.join("weights.bin"), b"DATA").unwrap(); // same size, wrong bytes
-    let out =
-        store::migrate_legacy_checked(&m.new_models, &mig_spec(), &m.old_models, "a", &|_| {
-            panic!("must not load")
-        });
-    assert!(out.migrated.is_empty() && out.errors.is_empty());
-    assert_eq!(out.skipped.len(), 1);
-    assert_eq!(read(&m.source.join("weights.bin")), b"DATA");
-    assert!(!m.destination.exists());
+    isolated(
+        "unverified_or_wrong_variant_source_is_left_untouched",
+        || {
+            let m = mig();
+            fs::write(m.source.join("weights.bin"), b"DATA").unwrap(); // same size, wrong bytes
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "a",
+                &|_| panic!("must not load"),
+            );
+            assert!(out.migrated.is_empty() && out.errors.is_empty());
+            assert_eq!(out.skipped.len(), 1);
+            assert_eq!(read(&m.source.join("weights.bin")), b"DATA");
+            assert!(!m.destination.exists());
+        },
+    );
 }
 
 #[test]
 fn migration_defers_while_runtime_lease_is_held_by_another_app() {
-    let m = mig();
-    let suite = m.new_models.parent().unwrap().to_path_buf();
-    let held = lease::try_acquire_at_root(&suite, "parakeet-tdt-v3", "scraperight")
-        .unwrap()
-        .unwrap();
-    let out = store::migrate_legacy_checked(
-        &m.new_models,
-        &mig_spec(),
-        &m.old_models,
-        "heardright",
-        &|_| panic!("deferred"),
+    isolated(
+        "migration_defers_while_runtime_lease_is_held_by_another_app",
+        || {
+            let m = mig();
+            let suite = m.new_models.parent().unwrap().to_path_buf();
+            let held = lease::try_acquire_at_root(&suite, "parakeet-tdt-v3", "scraperight")
+                .unwrap()
+                .unwrap();
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "heardright",
+                &|_| panic!("deferred"),
+            );
+            assert!(out.deferred && out.migrated.is_empty());
+            assert!(!is_link(&m.source) && !m.destination.exists());
+            drop(held);
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "heardright",
+                &|_| Ok(()),
+            );
+            assert_eq!(out.migrated.len(), 1, "{:?}", out.errors);
+        },
     );
-    assert!(out.deferred && out.migrated.is_empty());
-    assert!(!is_link(&m.source) && !m.destination.exists());
-    drop(held);
-    let out = store::migrate_legacy_checked(
-        &m.new_models,
-        &mig_spec(),
-        &m.old_models,
-        "heardright",
-        &|_| Ok(()),
-    );
-    assert_eq!(out.migrated.len(), 1, "{:?}", out.errors);
 }
 
 #[test]
 fn crash_recovery_restarts_early_phases_and_rolls_back_failed_late_phases() {
-    fn journal(m: &Mig, phase: JournalPhase) -> MigrationJournal {
-        MigrationJournal {
-            version: migration::JOURNAL_VERSION,
-            model_id: "current".into(),
-            source: m.source.clone(),
-            destination: m.destination.clone(),
-            staging: Some(m.new_models.join(".current.migration-stage")),
-            aside: Some(m.old_models.join("asr/.current.migration-aside")),
-            backup: None,
-            destination_created: false,
-            source_moved: false,
-            phase,
-        }
-    }
-    // Planned / SourceVerified / Staged: abandoned staging is discarded, migration completes.
-    for phase in [
-        JournalPhase::Planned,
-        JournalPhase::SourceVerified,
-        JournalPhase::Staged,
-    ] {
-        let m = mig();
-        let stage = m.new_models.join(".current.migration-stage");
-        fs::create_dir_all(&stage).unwrap();
-        fs::write(stage.join("partial.bin"), b"part").unwrap();
-        migration::write_journal(
-            &migration::journal_path(&m.new_models, "current"),
-            &journal(&m, phase),
-        )
-        .unwrap();
-        let out =
-            store::migrate_source_checked(&m.new_models, &mig_spec(), &m.source, "a", &|_| Ok(()));
-        assert!(out.errors.is_empty(), "{phase:?}: {:?}", out.errors);
-        assert!(
-            is_link(&m.source) && m.destination.join("weights.bin").exists(),
-            "{phase:?}"
-        );
-        assert!(!stage.exists(), "{phase:?}: stale staging removed");
-        assert!(!migration::journal_path(&m.new_models, "current").exists());
-    }
-    // DestinationVerified with a destination that no longer loads: source restored, journal archived.
-    let m = mig();
-    fs::create_dir_all(&m.destination).unwrap();
-    fs::write(m.destination.join("weights.bin"), b"data").unwrap();
-    fs::write(m.destination.join("vocab.txt"), b"test").unwrap();
-    manifest::write_manifest(&m.destination, &mig_spec().expected_manifest()).unwrap();
-    let mut j = journal(&m, JournalPhase::DestinationVerified);
-    j.destination_created = true;
-    migration::write_journal(&migration::journal_path(&m.new_models, "current"), &j).unwrap();
-    let out = store::migrate_source_checked(&m.new_models, &mig_spec(), &m.source, "a", &|_| {
-        Err("gpu says no".into())
-    });
-    assert!(
-        out.errors.iter().any(|e| e.contains("load check failed")),
-        "{:?}",
-        out.errors
-    );
-    assert_eq!(read(&m.source.join("weights.bin")), b"data");
-    assert!(!is_link(&m.source));
-    assert!(!migration::journal_path(&m.new_models, "current").exists());
+    isolated(
+        "crash_recovery_restarts_early_phases_and_rolls_back_failed_late_phases",
+        || {
+            fn journal(m: &Mig, phase: JournalPhase) -> MigrationJournal {
+                MigrationJournal {
+                    version: migration::JOURNAL_VERSION,
+                    model_id: "current".into(),
+                    source: m.source.clone(),
+                    destination: m.destination.clone(),
+                    staging: Some(m.new_models.join(".current.migration-stage")),
+                    aside: Some(m.old_models.join("asr/.current.migration-aside")),
+                    backup: None,
+                    destination_created: false,
+                    source_moved: false,
+                    phase,
+                }
+            }
+            // Planned / SourceVerified / Staged: abandoned staging is discarded, migration completes.
+            for phase in [
+                JournalPhase::Planned,
+                JournalPhase::SourceVerified,
+                JournalPhase::Staged,
+            ] {
+                let m = mig();
+                let stage = m.new_models.join(".current.migration-stage");
+                fs::create_dir_all(&stage).unwrap();
+                fs::write(stage.join("partial.bin"), b"part").unwrap();
+                migration::write_journal(
+                    &migration::journal_path(&m.new_models, "current"),
+                    &journal(&m, phase),
+                )
+                .unwrap();
+                let out = store::migrate_source_checked(
+                    &m.new_models,
+                    &mig_spec(),
+                    &m.source,
+                    "a",
+                    &|_| Ok(()),
+                );
+                assert!(out.errors.is_empty(), "{phase:?}: {:?}", out.errors);
+                assert!(
+                    is_link(&m.source) && m.destination.join("weights.bin").exists(),
+                    "{phase:?}"
+                );
+                assert!(!stage.exists(), "{phase:?}: stale staging removed");
+                assert!(!migration::journal_path(&m.new_models, "current").exists());
+            }
+            // DestinationVerified with a destination that no longer loads: source restored, journal archived.
+            let m = mig();
+            fs::create_dir_all(&m.destination).unwrap();
+            fs::write(m.destination.join("weights.bin"), b"data").unwrap();
+            fs::write(m.destination.join("vocab.txt"), b"test").unwrap();
+            manifest::write_manifest(&m.destination, &mig_spec().expected_manifest()).unwrap();
+            let mut j = journal(&m, JournalPhase::DestinationVerified);
+            j.destination_created = true;
+            migration::write_journal(&migration::journal_path(&m.new_models, "current"), &j)
+                .unwrap();
+            let out =
+                store::migrate_source_checked(&m.new_models, &mig_spec(), &m.source, "a", &|_| {
+                    Err("gpu says no".into())
+                });
+            assert!(
+                out.errors.iter().any(|e| e.contains("load check failed")),
+                "{:?}",
+                out.errors
+            );
+            assert_eq!(read(&m.source.join("weights.bin")), b"data");
+            assert!(!is_link(&m.source));
+            assert!(!migration::journal_path(&m.new_models, "current").exists());
 
-    // A journal whose identity does not match is refused rather than followed.
-    let m = mig();
-    let mut bad = journal(&m, JournalPhase::Planned);
-    bad.model_id = "someone-else".into();
-    migration::write_journal(&migration::journal_path(&m.new_models, "current"), &bad).unwrap();
-    let out =
-        store::migrate_source_checked(&m.new_models, &mig_spec(), &m.source, "a", &|_| Ok(()));
-    assert!(!out.errors.is_empty());
-    assert!(!is_link(&m.source) && read(&m.source.join("weights.bin")) == b"data");
+            // A journal whose identity does not match is refused rather than followed.
+            let m = mig();
+            let mut bad = journal(&m, JournalPhase::Planned);
+            bad.model_id = "someone-else".into();
+            migration::write_journal(&migration::journal_path(&m.new_models, "current"), &bad)
+                .unwrap();
+            let out =
+                store::migrate_source_checked(&m.new_models, &mig_spec(), &m.source, "a", &|_| {
+                    Ok(())
+                });
+            assert!(!out.errors.is_empty());
+            assert!(!is_link(&m.source) && read(&m.source.join("weights.bin")) == b"data");
+        },
+    );
 }
 
 #[test]
 fn distinct_extra_files_are_preserved_through_migration() {
-    let m = mig();
-    fs::write(m.source.join("user-notes.txt"), b"mine").unwrap();
-    let out =
-        store::migrate_legacy_checked(&m.new_models, &mig_spec(), &m.old_models, "a", &|_| Ok(()));
-    assert!(out.errors.is_empty(), "{:?}", out.errors);
-    assert_eq!(read(&m.destination.join("user-notes.txt")), b"mine");
-    assert_eq!(
-        read(&m.source.join("user-notes.txt")),
-        b"mine",
-        "alias still shows the extra file"
+    isolated(
+        "distinct_extra_files_are_preserved_through_migration",
+        || {
+            let m = mig();
+            fs::write(m.source.join("user-notes.txt"), b"mine").unwrap();
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &mig_spec(),
+                &m.old_models,
+                "a",
+                &|_| Ok(()),
+            );
+            assert!(out.errors.is_empty(), "{:?}", out.errors);
+            assert_eq!(read(&m.destination.join("user-notes.txt")), b"mine");
+            assert_eq!(
+                read(&m.source.join("user-notes.txt")),
+                b"mine",
+                "alias still shows the extra file"
+            );
+        },
     );
 }
 
 #[test]
 fn retired_legacy_dirs_are_removed_only_when_byte_identical() {
-    let m = mig();
-    let mut spec = mig_spec();
-    spec.retired_legacy_paths = &["asr/retired-same", "asr/retired-diff"];
-    for (name, extra) in [("retired-same", false), ("retired-diff", true)] {
-        let d = m.old_models.join("asr").join(name);
-        fs::create_dir_all(&d).unwrap();
-        fs::write(d.join("weights.bin"), b"data").unwrap();
-        fs::write(d.join("vocab.txt"), b"test").unwrap();
-        if extra {
-            fs::write(d.join("extra"), b"x").unwrap();
-        }
-    }
-    let out = store::migrate_legacy_checked(&m.new_models, &spec, &m.old_models, "a", &|_| Ok(()));
-    assert!(out.errors.is_empty(), "{:?}", out.errors);
-    // Identical retired copy folded into the store (alias); distinct one preserved verbatim.
-    assert!(is_link(&m.old_models.join("asr/retired-same")));
-    let diff = m.old_models.join("asr/retired-diff");
-    assert!(!is_link(&diff) && diff.join("extra").exists());
+    isolated(
+        "retired_legacy_dirs_are_removed_only_when_byte_identical",
+        || {
+            let m = mig();
+            let mut spec = mig_spec();
+            spec.retired_legacy_paths = &["asr/retired-same", "asr/retired-diff"];
+            for (name, extra) in [("retired-same", false), ("retired-diff", true)] {
+                let d = m.old_models.join("asr").join(name);
+                fs::create_dir_all(&d).unwrap();
+                fs::write(d.join("weights.bin"), b"data").unwrap();
+                fs::write(d.join("vocab.txt"), b"test").unwrap();
+                if extra {
+                    fs::write(d.join("extra"), b"x").unwrap();
+                }
+            }
+            let out = store::migrate_legacy_checked(
+                &m.new_models,
+                &spec,
+                &m.old_models,
+                "a",
+                &|_| Ok(()),
+            );
+            assert!(out.errors.is_empty(), "{:?}", out.errors);
+            // Identical retired copy folded into the store (alias); distinct one preserved verbatim.
+            assert!(is_link(&m.old_models.join("asr/retired-same")));
+            let diff = m.old_models.join("asr/retired-diff");
+            assert!(!is_link(&diff) && diff.join("extra").exists());
+        },
+    );
 }
 
 #[test]
@@ -1283,42 +1421,47 @@ fn root_ref_migration_merges_notes_maps_ids_and_unregister_spans_both_roots() {
 
 #[test]
 fn ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical() {
-    let lay = layout();
-    let archive = tar_gz(
-        "wrap",
-        &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
-    );
-    let server = serve(Config::new(vec![("/m/new.tar.gz", archive.clone())]));
-    let mut spec = archive_spec(
-        "new-id",
-        Some(leak(format!("{}/m/new.tar.gz", server.base))),
-        &archive,
-        false,
-    );
-    spec.retired_store_ids = &["old-same", "old-diff", "old-ref"];
-    for (id, bytes) in [
-        ("old-same", WEIGHTS),
-        ("old-diff", b"different-bytes".as_slice()),
-        ("old-ref", WEIGHTS),
-    ] {
-        let d = lay.models.join(id);
-        fs::create_dir_all(d.join("sub")).unwrap();
-        fs::write(d.join("weights.bin"), bytes).unwrap();
-        fs::write(d.join("sub/vocab.txt"), VOCAB).unwrap();
-    }
-    store::register_ref(&lay.models, "scraperight", "old-ref").unwrap();
-    store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
-    assert!(
-        !lay.models.join("old-same").exists(),
-        "identical + unreferenced: reclaimed"
-    );
-    assert!(
-        lay.models.join("old-diff").exists(),
-        "distinct payload preserved"
-    );
-    assert!(
-        lay.models.join("old-ref").exists(),
-        "still referenced by another app"
+    isolated(
+        "ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let server = serve(Config::new(vec![("/m/new.tar.gz", archive.clone())]));
+            let mut spec = archive_spec(
+                "new-id",
+                Some(leak(format!("{}/m/new.tar.gz", server.base))),
+                &archive,
+                false,
+            );
+            spec.retired_store_ids = &["old-same", "old-diff", "old-ref"];
+            for (id, bytes) in [
+                ("old-same", WEIGHTS),
+                ("old-diff", b"different-bytes".as_slice()),
+                ("old-ref", WEIGHTS),
+            ] {
+                let d = lay.models.join(id);
+                fs::create_dir_all(d.join("sub")).unwrap();
+                fs::write(d.join("weights.bin"), bytes).unwrap();
+                fs::write(d.join("sub/vocab.txt"), VOCAB).unwrap();
+            }
+            store::register_ref(&lay.models, "scraperight", "old-ref").unwrap();
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
+            assert!(
+                !lay.models.join("old-same").exists(),
+                "identical + unreferenced: reclaimed"
+            );
+            assert!(
+                lay.models.join("old-diff").exists(),
+                "distinct payload preserved"
+            );
+            assert!(
+                lay.models.join("old-ref").exists(),
+                "still referenced by another app"
+            );
+        },
     );
 }
 
@@ -1374,51 +1517,57 @@ fn discover_finds_peer_copy_only_when_every_pin_matches() {
 
 #[test]
 fn model_store_handle_resolves_registers_ref_and_accepts_verified_sibling() {
-    let lay = layout();
-    let spec = ModelSpec {
-        tier: rightkit_models::suite::catalog::ModelTier::Base,
-        entitlement: false,
-        id: "handle-model",
-        label: "h",
-        version: "h1",
-        size_hint_bytes: 0,
-        files: spec_files(&[("weights.bin", WEIGHTS)]),
-        source: SpecSource::Files(&[]),
-        legacy_dirs: &[],
-        retired_legacy_paths: &[],
-        retired_store_ids: &[],
-    };
-    let store = ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
-    assert!(store
-        .resolve(&spec, &[])
-        .unwrap_err()
-        .contains("not installed"));
-    let dir = installed_entry(&lay, "handle-model");
-    fs::write(dir.join("weights.bin"), WEIGHTS).unwrap();
-    assert!(
-        store
-            .resolve(&spec, &[])
-            .unwrap_err()
-            .contains("trusted revision"),
-        "no manifest = not trusted"
+    isolated(
+        "model_store_handle_resolves_registers_ref_and_accepts_verified_sibling",
+        || {
+            let lay = layout();
+            let spec = ModelSpec {
+                tier: rightkit_models::suite::catalog::ModelTier::Base,
+                entitlement: false,
+                id: "handle-model",
+                label: "h",
+                version: "h1",
+                size_hint_bytes: 0,
+                files: spec_files(&[("weights.bin", WEIGHTS)]),
+                source: SpecSource::Files(&[]),
+                legacy_dirs: &[],
+                retired_legacy_paths: &[],
+                retired_store_ids: &[],
+            };
+            let store =
+                ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
+            assert!(store
+                .resolve(&spec, &[])
+                .unwrap_err()
+                .contains("not installed"));
+            let dir = installed_entry(&lay, "handle-model");
+            fs::write(dir.join("weights.bin"), WEIGHTS).unwrap();
+            assert!(
+                store
+                    .resolve(&spec, &[])
+                    .unwrap_err()
+                    .contains("trusted revision"),
+                "no manifest = not trusted"
+            );
+            manifest::write_manifest(&dir, &spec.expected_manifest()).unwrap();
+            let resolved = store.resolve(&spec, &[]).unwrap();
+            assert_eq!(
+                (
+                    resolved.id.as_str(),
+                    resolved.revision.as_str(),
+                    resolved.dir.as_path()
+                ),
+                ("handle-model", "h1", dir.as_path())
+            );
+            assert!(
+                lay.models.join("refs/cutright.json").is_file(),
+                "resolve registers the ref so GC cannot reap it"
+            );
+            assert!(store::prune_unref_entries(&lay.models, &[])
+                .unwrap()
+                .is_empty());
+        },
     );
-    manifest::write_manifest(&dir, &spec.expected_manifest()).unwrap();
-    let resolved = store.resolve(&spec, &[]).unwrap();
-    assert_eq!(
-        (
-            resolved.id.as_str(),
-            resolved.revision.as_str(),
-            resolved.dir.as_path()
-        ),
-        ("handle-model", "h1", dir.as_path())
-    );
-    assert!(
-        lay.models.join("refs/cutright.json").is_file(),
-        "resolve registers the ref so GC cannot reap it"
-    );
-    assert!(store::prune_unref_entries(&lay.models, &[])
-        .unwrap()
-        .is_empty());
 }
 
 #[test]
@@ -1438,77 +1587,84 @@ fn device_id_is_random_stable_and_private_to_the_app_dir() {
 
 #[test]
 fn revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout() {
-    use rightkit_models::{FileSpec, InstallOptions, ModelSpec as RevSpec, RevisionSpec, Store};
-    let lay = layout();
-    let server = serve(Config::new(vec![("/r/w.bin", WEIGHTS.to_vec())]));
-    let file = |pinned: bool| FileSpec {
-        path: "w.bin".into(),
-        url: format!("{}/r/w.bin", server.base),
-        bytes: pinned.then_some(WEIGHTS.len() as u64),
-        sha256: pinned.then(|| sha(WEIGHTS)),
-        platforms: vec![],
-        extract: None,
-        installed_bytes: None,
-        installed_sha256: None,
-        shared: None,
-        mirrors: vec![],
-    };
-    let spec = |pinned| {
-        RevSpec::new(
-            "rev-model",
-            vec![RevisionSpec {
-                revision: "1".into(),
-                quant: None,
-                files: vec![file(pinned)],
-                requirements: Default::default(),
-                measured: vec![],
-            }],
-        )
-    };
-    let st = Store::new(&lay.models, "cutright")
-        .with_http_options(rightkit_models::http::ModelHttpOptions {
-            proxy: rightkit_models::http::ProxyMode::None,
-            ..Default::default()
-        })
-        .with_address_policy(
-            rightkit_http::AddressPolicy::public_web()
-                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
-        );
+    isolated(
+        "revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout",
+        || {
+            use rightkit_models::{
+                FileSpec, InstallOptions, ModelSpec as RevSpec, RevisionSpec, Store,
+            };
+            let lay = layout();
+            let server = serve(Config::new(vec![("/r/w.bin", WEIGHTS.to_vec())]));
+            let file = |pinned: bool| FileSpec {
+                path: "w.bin".into(),
+                url: format!("{}/r/w.bin", server.base),
+                bytes: pinned.then_some(WEIGHTS.len() as u64),
+                sha256: pinned.then(|| sha(WEIGHTS)),
+                platforms: vec![],
+                extract: None,
+                installed_bytes: None,
+                installed_sha256: None,
+                shared: None,
+                mirrors: vec![],
+            };
+            let spec = |pinned| {
+                RevSpec::new(
+                    "rev-model",
+                    vec![RevisionSpec {
+                        revision: "1".into(),
+                        quant: None,
+                        files: vec![file(pinned)],
+                        requirements: Default::default(),
+                        measured: vec![],
+                    }],
+                )
+            };
+            let st = Store::new(&lay.models, "cutright")
+                .with_http_options(rightkit_models::http::ModelHttpOptions {
+                    proxy: rightkit_models::http::ProxyMode::None,
+                    ..Default::default()
+                })
+                .with_address_policy(
+                    rightkit_http::AddressPolicy::public_web()
+                        .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+                );
 
-    // Trusted-catalog mode refuses unpinned files before any network traffic.
-    let strict = InstallOptions {
-        require_pinned: true,
-        ..Default::default()
-    };
-    let err = st.install(&spec(false), &strict, |_| {}).unwrap_err();
-    assert!(err.message.contains("pinned"), "{err}");
-    assert!(server.requests("GET").is_empty());
+            // Trusted-catalog mode refuses unpinned files before any network traffic.
+            let strict = InstallOptions {
+                require_pinned: true,
+                ..Default::default()
+            };
+            let err = st.install(&spec(false), &strict, |_| {}).unwrap_err();
+            assert!(err.message.contains("pinned"), "{err}");
+            assert!(server.requests("GET").is_empty());
 
-    st.install(&spec(true), &strict, |_| {}).unwrap();
-    assert_eq!(
-        read(&st.active_dir("rev-model").unwrap().join("w.bin")),
-        WEIGHTS
-    );
-    // The id "refs" can never be a model (it is the registry directory).
-    assert!(st.model_dir("refs").is_err());
+            st.install(&spec(true), &strict, |_| {}).unwrap();
+            assert_eq!(
+                read(&st.active_dir("rev-model").unwrap().join("w.bin")),
+                WEIGHTS
+            );
+            // The id "refs" can never be a model (it is the registry directory).
+            assert!(st.model_dir("refs").is_err());
 
-    st.register_app("heardright", "rev-model").unwrap();
-    installed_entry(&lay, "suite-orphan"); // flat-layout orphan next to it
-    assert!(
-        st.uninstall_unreferenced("rev-model").is_err(),
-        "referenced by heardright"
-    );
-    assert_eq!(
-        st.gc(&[]).unwrap(),
-        vec!["suite-orphan".to_string()],
-        "GC reaps the orphan, keeps the referenced revisioned model"
-    );
-    assert!(st.active_dir("rev-model").is_some());
+            st.register_app("heardright", "rev-model").unwrap();
+            installed_entry(&lay, "suite-orphan"); // flat-layout orphan next to it
+            assert!(
+                st.uninstall_unreferenced("rev-model").is_err(),
+                "referenced by heardright"
+            );
+            assert_eq!(
+                st.gc(&[]).unwrap(),
+                vec!["suite-orphan".to_string()],
+                "GC reaps the orphan, keeps the referenced revisioned model"
+            );
+            assert!(st.active_dir("rev-model").is_some());
 
-    assert_eq!(
-        st.unregister_app("heardright").unwrap(),
-        vec!["rev-model".to_string()]
+            assert_eq!(
+                st.unregister_app("heardright").unwrap(),
+                vec!["rev-model".to_string()]
+            );
+            st.uninstall_unreferenced("rev-model").unwrap();
+            assert!(!lay.models.join("rev-model").exists());
+        },
     );
-    st.uninstall_unreferenced("rev-model").unwrap();
-    assert!(!lay.models.join("rev-model").exists());
 }

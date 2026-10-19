@@ -14,6 +14,9 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+mod common;
+use common::isolated;
+
 const WEIGHTS: &[u8] = b"weights-bytes";
 
 /// One canned answer. `status == 0` closes the connection without writing a response.
@@ -171,50 +174,60 @@ fn try_call(
 
 #[test]
 fn a_raw_token_is_sent_as_the_bearer_and_the_model_installs() {
-    let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
-    let mock = serve(vec![reply(200, "", archive.clone())]);
-    let spec = gated_spec(
-        leak(format!("{}/m/model.tar.gz", mock.base)),
-        &archive,
-        true,
-    );
-    let root = tempfile::tempdir().unwrap();
+    isolated(
+        "a_raw_token_is_sent_as_the_bearer_and_the_model_installs",
+        || {
+            let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
+            let mock = serve(vec![reply(200, "", archive.clone())]);
+            let spec = gated_spec(
+                leak(format!("{}/m/model.tar.gz", mock.base)),
+                &archive,
+                true,
+            );
+            let root = tempfile::tempdir().unwrap();
 
-    let status = try_call(&store(root.path()), &spec, "tok-123").unwrap();
+            let status = try_call(&store(root.path()), &spec, "tok-123").unwrap();
 
-    assert_eq!(status.state, EntryState::Ready);
-    assert_eq!(
-        mock.seen.lock().unwrap().as_slice(),
-        &[Some("Bearer tok-123".to_string())]
+            assert_eq!(status.state, EntryState::Ready);
+            assert_eq!(
+                mock.seen.lock().unwrap().as_slice(),
+                &[Some("Bearer tok-123".to_string())]
+            );
+        },
     );
 }
 
 #[test]
 fn a_leading_bearer_prefix_and_surrounding_space_are_stripped_before_the_request() {
-    let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
-    for token in [
-        "Bearer tok-123",
-        "bearer tok-123",
-        "BEARER   tok-123",
-        "  Bearer tok-123  ",
-    ] {
-        let mock = serve(vec![reply(200, "", archive.clone())]);
-        let spec = gated_spec(
-            leak(format!("{}/m/model.tar.gz", mock.base)),
-            &archive,
-            true,
-        );
-        let root = tempfile::tempdir().unwrap();
+    isolated(
+        "a_leading_bearer_prefix_and_surrounding_space_are_stripped_before_the_request",
+        || {
+            let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
+            for token in [
+                "Bearer tok-123",
+                "bearer tok-123",
+                "BEARER   tok-123",
+                "  Bearer tok-123  ",
+            ] {
+                let mock = serve(vec![reply(200, "", archive.clone())]);
+                let spec = gated_spec(
+                    leak(format!("{}/m/model.tar.gz", mock.base)),
+                    &archive,
+                    true,
+                );
+                let root = tempfile::tempdir().unwrap();
 
-        let status = try_call(&store(root.path()), &spec, token).unwrap();
+                let status = try_call(&store(root.path()), &spec, token).unwrap();
 
-        assert_eq!(status.state, EntryState::Ready, "{token:?}");
-        assert_eq!(
-            mock.seen.lock().unwrap().as_slice(),
-            &[Some("Bearer tok-123".to_string())],
-            "{token:?} is sent once as a single bearer"
-        );
-    }
+                assert_eq!(status.state, EntryState::Ready, "{token:?}");
+                assert_eq!(
+                    mock.seen.lock().unwrap().as_slice(),
+                    &[Some("Bearer tok-123".to_string())],
+                    "{token:?} is sent once as a single bearer"
+                );
+            }
+        },
+    );
 }
 
 #[test]
@@ -272,128 +285,156 @@ fn a_model_that_is_not_entitlement_gated_is_an_invalid_request() {
 
 #[test]
 fn http_401_and_403_are_not_entitled_with_the_status() {
-    for status in [401u16, 403] {
-        let mock = serve(vec![reply(status, "", b"nope".to_vec())]);
-        let spec = spec_for(&mock);
-        let root = tempfile::tempdir().unwrap();
+    isolated("http_401_and_403_are_not_entitled_with_the_status", || {
+        for status in [401u16, 403] {
+            let mock = serve(vec![reply(status, "", b"nope".to_vec())]);
+            let spec = spec_for(&mock);
+            let root = tempfile::tempdir().unwrap();
 
-        let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-        match &err {
-            EntitlementError::NotEntitled {
-                status: got,
-                message,
-            } => {
-                assert_eq!(*got, status);
-                assert!(message.contains(&status.to_string()), "{message}");
+            let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+            match &err {
+                EntitlementError::NotEntitled {
+                    status: got,
+                    message,
+                } => {
+                    assert_eq!(*got, status);
+                    assert!(message.contains(&status.to_string()), "{message}");
+                }
+                other => panic!("{status}: expected NotEntitled, got {other:?}"),
             }
-            other => panic!("{status}: expected NotEntitled, got {other:?}"),
+            // Not retried: an authorization refusal is final.
+            assert_eq!(mock.seen.lock().unwrap().len(), 1);
         }
-        // Not retried: an authorization refusal is final.
-        assert_eq!(mock.seen.lock().unwrap().len(), 1);
-    }
+    });
 }
 
 #[test]
 fn other_http_statuses_are_refused_with_the_status() {
-    let mock = serve(vec![reply(404, "", b"gone".to_vec())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated("other_http_statuses_are_refused_with_the_status", || {
+        let mock = serve(vec![reply(404, "", b"gone".to_vec())]);
+        let spec = spec_for(&mock);
+        let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    assert!(
-        matches!(err, EntitlementError::Refused { status: 404, .. }),
-        "{err:?}"
-    );
+        let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+        assert!(
+            matches!(err, EntitlementError::Refused { status: 404, .. }),
+            "{err:?}"
+        );
+    });
 }
 
 #[test]
 fn a_persistent_server_error_is_refused_with_the_last_status() {
-    // 5xx is transient: the download retries, then reports the last status.
-    let mock = serve(vec![reply(503, "", b"busy".to_vec())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated(
+        "a_persistent_server_error_is_refused_with_the_last_status",
+        || {
+            // 5xx is transient: the download retries, then reports the last status.
+            let mock = serve(vec![reply(503, "", b"busy".to_vec())]);
+            let spec = spec_for(&mock);
+            let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    assert!(
-        matches!(err, EntitlementError::Refused { status: 503, .. }),
-        "{err:?}"
+            let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+            assert!(
+                matches!(err, EntitlementError::Refused { status: 503, .. }),
+                "{err:?}"
+            );
+        },
     );
 }
 
 #[test]
 fn http_429_is_rate_limited_with_the_retry_after_delay() {
-    let mock = serve(vec![reply(429, "Retry-After: 7\r\n", b"slow".to_vec())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated(
+        "http_429_is_rate_limited_with_the_retry_after_delay",
+        || {
+            let mock = serve(vec![reply(429, "Retry-After: 7\r\n", b"slow".to_vec())]);
+            let spec = spec_for(&mock);
+            let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    match &err {
-        EntitlementError::RateLimited(grant @ GrantError::RateLimited { .. }) => {
-            assert_eq!(grant.retry_after(), Some(Duration::from_secs(7)));
-        }
-        other => panic!("expected RateLimited, got {other:?}"),
-    }
-    assert!(err.to_string().contains("429"), "{err}");
+            let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+            match &err {
+                EntitlementError::RateLimited(grant @ GrantError::RateLimited { .. }) => {
+                    assert_eq!(grant.retry_after(), Some(Duration::from_secs(7)));
+                }
+                other => panic!("expected RateLimited, got {other:?}"),
+            }
+            assert!(err.to_string().contains("429"), "{err}");
+        },
+    );
 }
 
 #[test]
 fn http_429_without_retry_after_has_no_delay() {
-    let mock = serve(vec![reply(429, "", b"slow".to_vec())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated("http_429_without_retry_after_has_no_delay", || {
+        let mock = serve(vec![reply(429, "", b"slow".to_vec())]);
+        let spec = spec_for(&mock);
+        let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    assert!(
-        matches!(
-            &err,
-            EntitlementError::RateLimited(GrantError::RateLimited {
-                retry_after: None,
-                ..
-            })
-        ),
-        "{err:?}"
-    );
+        let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                EntitlementError::RateLimited(GrantError::RateLimited {
+                    retry_after: None,
+                    ..
+                })
+            ),
+            "{err:?}"
+        );
+    });
 }
 
 #[test]
 fn a_dropped_connection_is_a_transport_failure() {
-    let mock = serve(vec![reply(0, "", Vec::new())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated("a_dropped_connection_is_a_transport_failure", || {
+        let mock = serve(vec![reply(0, "", Vec::new())]);
+        let spec = spec_for(&mock);
+        let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    assert!(matches!(err, EntitlementError::Transport(_)), "{err:?}");
+        let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+        assert!(matches!(err, EntitlementError::Transport(_)), "{err:?}");
+    });
 }
 
 #[test]
 fn a_body_that_fails_verification_is_an_install_failure_not_a_refusal() {
-    // The server answers 200 with bytes that do not match the archive pin.
-    let mock = serve(vec![reply(200, "", b"not the archive".to_vec())]);
-    let spec = spec_for(&mock);
-    let root = tempfile::tempdir().unwrap();
+    isolated(
+        "a_body_that_fails_verification_is_an_install_failure_not_a_refusal",
+        || {
+            // The server answers 200 with bytes that do not match the archive pin.
+            let mock = serve(vec![reply(200, "", b"not the archive".to_vec())]);
+            let spec = spec_for(&mock);
+            let root = tempfile::tempdir().unwrap();
 
-    let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
-    assert!(matches!(err, EntitlementError::Install(_)), "{err:?}");
+            let err = try_call(&store(root.path()), &spec, "tok-123").unwrap_err();
+            assert!(matches!(err, EntitlementError::Install(_)), "{err:?}");
+        },
+    );
 }
 
 #[test]
 fn the_string_api_still_sends_the_header_value_unchanged() {
-    let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
-    let mock = serve(vec![reply(200, "", archive.clone())]);
-    let spec = gated_spec(
-        leak(format!("{}/m/model.tar.gz", mock.base)),
-        &archive,
-        true,
-    );
-    let root = tempfile::tempdir().unwrap();
+    isolated(
+        "the_string_api_still_sends_the_header_value_unchanged",
+        || {
+            let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
+            let mock = serve(vec![reply(200, "", archive.clone())]);
+            let spec = gated_spec(
+                leak(format!("{}/m/model.tar.gz", mock.base)),
+                &archive,
+                true,
+            );
+            let root = tempfile::tempdir().unwrap();
 
-    let status = store(root.path())
-        .ensure_entitled(&spec, "Bearer tok-456", &|| false, |_| {})
-        .unwrap();
+            let status = store(root.path())
+                .ensure_entitled(&spec, "Bearer tok-456", &|| false, |_| {})
+                .unwrap();
 
-    assert_eq!(status.state, EntryState::Ready);
-    assert_eq!(
-        mock.seen.lock().unwrap().as_slice(),
-        &[Some("Bearer tok-456".to_string())]
+            assert_eq!(status.state, EntryState::Ready);
+            assert_eq!(
+                mock.seen.lock().unwrap().as_slice(),
+                &[Some("Bearer tok-456".to_string())]
+            );
+        },
     );
 }
