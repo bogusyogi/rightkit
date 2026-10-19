@@ -1,8 +1,6 @@
 {
   "schema": 1,
   "crate": "rightkit-qa",
-  "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "ceilings": {
     "residentMemoryBytes": 47185920,
     "idleCpuPercent": 1,
