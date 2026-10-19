@@ -2,8 +2,8 @@
   "schema": 1,
   "source": {
     "table": "private-audits/TABLE1-MANDATORY.md:56-78 (M1-M23 requirement catalog)",
-    "versions": "private-audits/inventory/REQUIRED-VERSIONS.md (source versions at rightkit HEAD a15e62fd, registry readback 2026-10-13)",
-    "note": "min = required version (source version at P1.7 HEAD). registryMax = highest registry version at readback; where registryMax < min the required version is not yet published, so every consumer fails until it ships."
+    "versions": "registry readback 2026-10-19 after the mandatory-set publish (#790): min = registryMax = the live version",
+    "note": "min = registryMax = the required version: the live registry version of the published mandatory set (#790). Raise both with each mandatory-set publish."
   },
   "defaultProfile": "desktop",
   "defaultApps": [
@@ -37,18 +37,20 @@
         {
           "name": "rightkit-tauri-shell",
           "ecosystem": "cargo",
-          "min": "0.3.0"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         },
         {
           "name": "rightkit-device",
           "ecosystem": "cargo",
-          "min": "0.1.3"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         },
         {
           "name": "@rightkit/tauri",
           "ecosystem": "npm",
-          "min": "0.2.0",
-          "registryMax": "0.2.0"
+          "min": "0.2.3",
+          "registryMax": "0.2.3"
         }
       ]
     },
@@ -60,19 +62,20 @@
         {
           "name": "@rightkit/react-shell",
           "ecosystem": "npm",
-          "min": "0.6.4"
+          "min": "0.7.1",
+          "registryMax": "0.7.1"
         },
         {
           "name": "@rightkit/platform-ui",
           "ecosystem": "npm",
-          "min": "0.2.8",
-          "registryMax": "0.2.8"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         },
         {
           "name": "@rightkit/theme",
           "ecosystem": "npm",
-          "min": "0.2.3",
-          "registryMax": "0.2.3"
+          "min": "0.3.1",
+          "registryMax": "0.3.1"
         }
       ]
     },
@@ -84,12 +87,14 @@
         {
           "name": "rightkit-job-queue",
           "ecosystem": "cargo",
-          "min": "0.3.0"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         },
         {
           "name": "rightkit-child-process",
           "ecosystem": "cargo",
-          "min": "0.4.0"
+          "min": "0.5.2",
+          "registryMax": "0.5.2"
         }
       ]
     },
@@ -101,12 +106,14 @@
         {
           "name": "rightkit-job-queue",
           "ecosystem": "cargo",
-          "min": "0.3.0"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         },
         {
           "name": "rightkit-sidecar",
           "ecosystem": "cargo",
-          "min": "0.2.0"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         }
       ]
     },
@@ -118,7 +125,8 @@
         {
           "name": "rightkit-child-process",
           "ecosystem": "cargo",
-          "min": "0.4.0"
+          "min": "0.5.2",
+          "registryMax": "0.5.2"
         }
       ]
     },
@@ -130,7 +138,8 @@
         {
           "name": "rightkit-daemon",
           "ecosystem": "cargo",
-          "min": "0.2.0"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         }
       ]
     },
@@ -142,7 +151,8 @@
         {
           "name": "rightkit-daemon",
           "ecosystem": "cargo",
-          "min": "0.2.0"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         }
       ]
     },
@@ -154,8 +164,8 @@
         {
           "name": "rightkit-fs",
           "ecosystem": "cargo",
-          "min": "0.4.0",
-          "registryMax": "0.4.1"
+          "min": "0.4.4",
+          "registryMax": "0.4.4"
         }
       ]
     },
@@ -167,8 +177,8 @@
         {
           "name": "rightkit-db",
           "ecosystem": "cargo",
-          "min": "0.4.0",
-          "registryMax": "0.4.0"
+          "min": "0.5.0",
+          "registryMax": "0.5.0"
         }
       ]
     },
@@ -180,13 +190,14 @@
         {
           "name": "rightkit-app-settings",
           "ecosystem": "cargo",
-          "min": "0.2.0"
+          "min": "0.2.4",
+          "registryMax": "0.2.4"
         },
         {
           "name": "@rightkit/settings-ui",
           "ecosystem": "npm",
-          "min": "0.4.4",
-          "registryMax": "0.4.4"
+          "min": "0.6.1",
+          "registryMax": "0.6.1"
         }
       ]
     },
@@ -198,7 +209,8 @@
         {
           "name": "rightkit-credentials",
           "ecosystem": "cargo",
-          "min": "0.2.0"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         }
       ]
     },
@@ -210,19 +222,20 @@
         {
           "name": "rightkit-license",
           "ecosystem": "cargo",
-          "min": "0.2.0",
-          "registryMax": "0.2.0"
+          "min": "0.2.3",
+          "registryMax": "0.2.3"
         },
         {
           "name": "rightkit-device",
           "ecosystem": "cargo",
-          "min": "0.1.3"
+          "min": "0.3.0",
+          "registryMax": "0.3.0"
         },
         {
           "name": "@rightkit/license",
           "ecosystem": "npm",
-          "min": "0.2.0",
-          "registryMax": "0.2.0"
+          "min": "0.2.1",
+          "registryMax": "0.2.1"
         }
       ]
     },
@@ -234,8 +247,8 @@
         {
           "name": "rightkit-license",
           "ecosystem": "cargo",
-          "min": "0.2.0",
-          "registryMax": "0.2.0"
+          "min": "0.2.3",
+          "registryMax": "0.2.3"
         }
       ]
     },
@@ -247,20 +260,20 @@
         {
           "name": "@rightkit/legal",
           "ecosystem": "npm",
-          "min": "0.3.1",
-          "registryMax": "0.3.1"
+          "min": "0.6.1",
+          "registryMax": "0.6.1"
         },
         {
           "name": "@rightkit/legal-ui",
           "ecosystem": "npm",
-          "min": "0.2.2",
-          "registryMax": "0.2.2"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         },
         {
           "name": "@rightkit/onboarding",
           "ecosystem": "npm",
-          "min": "0.3.3",
-          "registryMax": "0.3.3"
+          "min": "0.6.1",
+          "registryMax": "0.6.1"
         }
       ]
     },
@@ -272,14 +285,14 @@
         {
           "name": "rightkit-logs",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.3.0"
+          "min": "0.3.3",
+          "registryMax": "0.3.3"
         },
         {
           "name": "@rightkit/logs",
           "ecosystem": "npm",
-          "min": "0.1.4",
-          "registryMax": "0.1.4"
+          "min": "0.1.5",
+          "registryMax": "0.1.5"
         }
       ]
     },
@@ -291,8 +304,8 @@
         {
           "name": "rightkit-crash",
           "ecosystem": "cargo",
-          "min": "0.2.2",
-          "registryMax": "0.3.0"
+          "min": "0.3.3",
+          "registryMax": "0.3.3"
         }
       ]
     },
@@ -304,8 +317,8 @@
         {
           "name": "rightkit-http",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.3.0"
+          "min": "0.3.6",
+          "registryMax": "0.3.6"
         }
       ]
     },
@@ -317,7 +330,8 @@
         {
           "name": "@rightkit/app-update",
           "ecosystem": "npm",
-          "min": "0.2.5"
+          "min": "0.4.0",
+          "registryMax": "0.4.0"
         }
       ]
     },
@@ -329,8 +343,8 @@
         {
           "name": "@rightkit/release",
           "ecosystem": "npm",
-          "min": "0.2.153",
-          "registryMax": "0.2.165",
+          "min": "0.4.0",
+          "registryMax": "0.4.0",
           "allowDev": true
         }
       ]
@@ -343,29 +357,22 @@
         {
           "name": "rightkit-qa",
           "ecosystem": "cargo",
-          "min": "0.2.16",
-          "registryMax": "0.6.1",
-          "allowDev": true
-        },
-        {
-          "name": "rightkit-qa-driver",
-          "ecosystem": "cargo",
-          "min": "0.3.0",
-          "note": "deprecated shim; the QA owner is rightkit-qa with the `control` feature (Ember #280)",
+          "min": "0.7.0",
+          "registryMax": "0.7.0",
           "allowDev": true
         },
         {
           "name": "@rightkit/qa",
           "ecosystem": "npm",
-          "min": "0.4.8",
-          "registryMax": "0.4.8",
+          "min": "0.5.1",
+          "registryMax": "0.5.1",
           "allowDev": true
         },
         {
           "name": "@rightkit/qa-chrome",
           "ecosystem": "npm",
-          "min": "0.1.6",
-          "registryMax": "0.1.6",
+          "min": "0.1.8",
+          "registryMax": "0.1.8",
           "allowDev": true
         }
       ]
@@ -378,8 +385,8 @@
         {
           "name": "rightkit-agent-tools",
           "ecosystem": "cargo",
-          "min": "0.1.2",
-          "registryMax": "0.1.4"
+          "min": "0.2.0",
+          "registryMax": "0.2.0"
         }
       ]
     }

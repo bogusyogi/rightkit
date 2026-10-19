@@ -9,6 +9,7 @@ const data = loadData();
 const tmp = () => mkdtempSync(path.join(tmpdir(), "rk-mandatory-"));
 const put = (root, rel, content) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), typeof content === "string" ? content : JSON.stringify(content, null, 2)); };
 const owners = (rows = data.rows) => [...new Map(rows.flatMap((r) => r.owners).map((o) => [`${o.ecosystem}:${o.name}`, o])).values()];
+const minOf = (name) => owners().find((o) => o.name === name).min;
 
 /** Known-good fixture: every desktop owner declared from the registry at exactly the required version. */
 function goodApp(root, { drop = [], version = {}, extraCargo = "", extraPackage = {}, devPackage = {} } = {}) {
@@ -76,7 +77,7 @@ test("known-bad: missing, below-required, path/patch overrides and dev-only are 
 test("QA/release owners may be dev-dependencies; other owners may not", () => {
   const root = tmp();
   try {
-    goodApp(root, { drop: ["@rightkit/release", "rightkit-http"], devPackage: { "@rightkit/release": "0.2.153" } });
+    goodApp(root, { drop: ["@rightkit/release", "rightkit-http"], devPackage: { "@rightkit/release": minOf("@rightkit/release") } });
     put(root, "dev/Cargo.toml", "[package]\nname=\"d\"\nversion=\"0.0.0\"\n[dev-dependencies]\nrightkit-http = \"0.3.0\"\n");
     const report = checkApp(root, { data });
     assert.equal(byOwner(report, "@rightkit/release").status, "ok");
@@ -88,7 +89,7 @@ test("workspace.dependencies resolve for members; rk-snapshot is not scanned", (
   const root = tmp();
   try {
     goodApp(root, { drop: ["rightkit-fs"] });
-    put(root, "Cargo.toml", "[workspace]\nmembers=[\"crates/a\"]\n[workspace.dependencies]\nrightkit-fs = \"=0.4.0\"\n");
+    put(root, "Cargo.toml", `[workspace]\nmembers=["crates/a"]\n[workspace.dependencies]\nrightkit-fs = "=${minOf("rightkit-fs")}"\n`);
     put(root, "crates/a/Cargo.toml", "[package]\nname=\"a\"\nversion=\"0.0.0\"\n[dependencies]\nrightkit-fs = { workspace = true }\n");
     put(root, "rk-snapshot/crates/rightkit-crash/Cargo.toml", "[package]\nname=\"rightkit-crash\"\nversion=\"0.2.1\"\n[dependencies]\nrightkit-fs=\"0.0.1\"\n");
     assert.equal(byOwner(checkApp(root, { data }), "rightkit-fs").status, "ok");
