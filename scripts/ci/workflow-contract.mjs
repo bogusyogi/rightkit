@@ -12,7 +12,18 @@ const ALLOWED_UPLOAD_ACTIONS = ["actions/checkout@", "actions/setup-node@", "act
 const ALLOWED_UPLOAD_RUN = ["node scripts/ci/upload.mjs run"];
 // Conditions are compared as exact strings (after trimming), never matched by pattern: an appended
 // `|| true`, a reordered operand or a different operator is a different condition.
-export const UPLOAD_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}";
+// pack, verify, seal-check and upload must run only while the workflow is NOT cancelled (`!cancelled()`, never
+// `always()`, which would continue a cancelled run) and only after each upstream job explicitly succeeded: a job whose
+// condition has a status function other than the implicit success() runs after skipped upstream jobs (sign-swap is
+// skipped for most runs), so a dropped result check is the dangerous case (it would let the job follow a failed or
+// skipped one). The count test keeps an empty plan from running anything.
+const RESULT_OK = (job) => `needs.${job}.result == 'success'`;
+const COUNT_TERM = "needs.plan.outputs.count != '0'";
+const SWAP_OK_OR_SKIPPED = "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')";
+export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
+export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
+export const SEAL_CHECK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${RESULT_OK("verify")} }}`;
+export const UPLOAD_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${RESULT_OK("verify")} && ${RESULT_OK("seal-check")} && ${COUNT_TERM} && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}`;
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
@@ -51,7 +62,6 @@ export const SIGN_SWAP_SECRETS = {
   APPLE_KEYCHAIN_PASSWORD: "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}",
 };
 export const SIGN_SWAP_ARTIFACT = "rightkit-swap-signed";
-export const PACK_IF = "${{ always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}";
 const PACK_SWAP_STEP_IF = "${{ needs.sign-swap.result == 'success' }}";
 // The licence gate (rightkit#264) lives in plan, which every later job needs, so nothing can pack or upload past a failure.
 export const DENY_IF = "${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}";
@@ -142,8 +152,9 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   for (const needed of ["guard", "plan", "pack"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
   for (const needed of ["verify", "pack", "plan"]) check(needsOf(sealCheck).includes(needed), `seal-check must need ${needed}`);
   for (const needed of ["guard", "plan", "pack", "verify", "seal-check"]) check(needsOf(upload).includes(needed), `upload must need ${needed}`);
-  for (const [jobName, job] of [["verify", verify], ["seal-check", sealCheck]]) {
-    check(job?.if === "${{ needs.plan.outputs.count != '0' }}", `${jobName} may be skipped only when the plan is empty`);
+  // verify and seal-check run after their needs succeeded (never skipped just because sign-swap was skipped) and only for a non-empty plan.
+  for (const [jobName, job, want] of [["verify", verify, VERIFY_IF], ["seal-check", sealCheck, SEAL_CHECK_IF]]) {
+    check(typeof job?.if === "string" && job.if.trim() === want, `${jobName}'s condition must be exactly ${want}`);
   }
   // pack runs after sign-swap succeeded or was skipped (a crates run, or a run without @rightkit/release), never after it failed.
   check(typeof pack?.if === "string" && pack.if.trim() === PACK_IF, `pack's condition must be exactly ${PACK_IF}`);
@@ -304,6 +315,36 @@ export function assertPublishWorkflow(text, name = "publish.yml") { return asser
 
 const edit = (fn) => (doc) => { fn(doc.jobs, doc); };
 const actionStep = (uses) => ({ name: "injected", uses });
+
+/** Remove one `&&` operand from a job's condition (the condition must change, or the mutation is void). */
+const withoutTerm = (condition, term) => {
+  const next = condition.includes(`${term} && `) ? condition.replace(`${term} && `, "") : condition.replace(` && ${term}`, "");
+  if (next === condition) throw new Error(`condition has no term ${term}`);
+  return next;
+};
+const CONDITION_JOBS = [
+  ["pack", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), COUNT_TERM, SWAP_OK_OR_SKIPPED]],
+  ["verify", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM]],
+  ["seal-check", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM, RESULT_OK("verify")]],
+  ["upload", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), RESULT_OK("verify"), RESULT_OK("seal-check"), COUNT_TERM, "needs.plan.outputs.dry_run == 'false'", "github.ref == 'refs/heads/main'"]],
+];
+/** One mutation per operand of verify's, seal-check's and upload's conditions, plus weakened result checks. */
+const CONDITION_MUTATIONS = [
+  ...CONDITION_JOBS.flatMap(([job, terms]) => terms.map((term) => [`${job} condition drops ${term}`, edit((j) => { j[job].if = withoutTerm(j[job].if, term); })])),
+  ...CONDITION_JOBS.flatMap(([job, terms]) => terms.filter((t) => /\.result == 'success'$/.test(t)).flatMap((term) => [
+    [`${job} accepts a skipped ${term.split(".")[1]} job`, edit((j) => { j[job].if = j[job].if.replace(term, `(${term} || ${term.replace("'success'", "'skipped'")})`); })],
+    [`${job} accepts a failed ${term.split(".")[1]} job`, edit((j) => { j[job].if = j[job].if.replace(term, term.replace("== 'success'", "!= 'cancelled'")); })],
+  ])),
+  // always() continues a cancelled workflow; only !cancelled() stops it. Each of the four conditions must use exactly that.
+  ...CONDITION_JOBS.map(([job]) => [`${job} condition uses always() instead of !cancelled()`, edit((j) => { j[job].if = j[job].if.replace("!cancelled()", "always()"); })]),
+  ...CONDITION_JOBS.map(([job]) => [`${job} condition uses success() instead of !cancelled()`, edit((j) => { j[job].if = j[job].if.replace("!cancelled()", "success()"); })]),
+  ["pack accepts a failed sign-swap job", edit((j) => { j.pack.if = j.pack.if.replace("needs.sign-swap.result == 'skipped'", "needs.sign-swap.result != 'cancelled'"); })],
+  ["pack has no condition", edit((j) => { delete j.pack.if; })],
+  ["verify has no condition", edit((j) => { delete j.verify.if; })],
+  ["seal-check has no condition", edit((j) => { delete j["seal-check"].if; })],
+  ["upload has no condition", edit((j) => { delete j.upload.if; })],
+  ["verify's condition is the old implicit-success count test", edit((j) => { j.verify.if = "${{ needs.plan.outputs.count != '0' }}"; })],
+];
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 export const MUTATIONS = [
@@ -482,6 +523,7 @@ export const MUTATIONS = [
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
   ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
+  ...CONDITION_MUTATIONS,
 ];
 
 /** Returns the names of mutations the contract failed to reject (empty when every one is caught). */

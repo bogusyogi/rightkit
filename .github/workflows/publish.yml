@@ -196,7 +196,7 @@ jobs:
 
   pack:
     needs: [guard, plan, sign-swap]
-    if: ${{ always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}
     runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
@@ -253,7 +253,7 @@ jobs:
 
   verify:
     needs: [guard, plan, pack]
-    if: ${{ needs.plan.outputs.count != '0' }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -353,7 +353,7 @@ jobs:
 
   seal-check:
     needs: [guard, plan, pack, verify]
-    if: ${{ needs.plan.outputs.count != '0' }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && needs.verify.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -401,7 +401,7 @@ jobs:
 
   upload:
     needs: [guard, plan, pack, verify, seal-check]
-    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.verify.result == 'success' && needs.seal-check.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 120

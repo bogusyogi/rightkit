@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
 import { APPROVED_ARTIFACTS_FILE, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
-import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, SPARSE_UPLOAD, UPLOAD_SCRIPT_MUTATIONS } from "./workflow-contract.mjs";
+import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, PACK_IF, SEAL_CHECK_IF, SPARSE_UPLOAD, UPLOAD_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -1047,6 +1047,62 @@ test("the real publish workflow holds the contract and every mutation is rejecte
   assert.deepEqual(proveMutations(doc), []);
   const names = MUTATIONS.map(([name]) => name);
   for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
+});
+
+test("pack, verify, seal-check and upload follow explicit upstream success and stop on cancellation; a skipped sign-swap no longer skips them, and every dropped operand is rejected", { skip: realWorkflowSkip }, () => {
+  const doc = realDoc();
+  assert.equal(doc.jobs.pack.if.trim(), PACK_IF);
+  assert.equal(doc.jobs.verify.if.trim(), VERIFY_IF);
+  assert.equal(doc.jobs["seal-check"].if.trim(), SEAL_CHECK_IF);
+  assert.equal(doc.jobs.upload.if.trim(), UPLOAD_IF);
+  for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.ok(gate.includes("!cancelled()") && !gate.includes("always()"), "a cancelled workflow must not continue, so never always()");
+  // A small evaluator for the `&&` chains these conditions use: `!cancelled()` is true unless the workflow was cancelled,
+  // `needs.<job>.result == 'success'` reads the upstream result, the sign-swap term accepts success or skipped, and the plan
+  // outputs and the ref are compared as written.
+  const evaluate = (condition, { results, count = "3", dryRun = "false", ref = "refs/heads/main", cancelled = false }) => condition.replace(/^\$\{\{\s*|\s*\}\}$/g, "").split(" && ").every((term) => {
+    if (term === "!cancelled()") return !cancelled;
+    if (term === "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')") return results["sign-swap"] === "success" || results["sign-swap"] === "skipped";
+    let m = /^needs\.([a-z-]+)\.result == 'success'$/.exec(term);
+    if (m) return results[m[1]] === "success";
+    if (term === "needs.plan.outputs.count != '0'") return count !== "0";
+    if (term === "needs.plan.outputs.dry_run == 'false'") return dryRun === "false";
+    if (term === "github.ref == 'refs/heads/main'") return ref === "refs/heads/main";
+    throw new Error(`the evaluator does not know ${term}`);
+  });
+  const ok = { guard: "success", plan: "success", pack: "success", verify: "success", "seal-check": "success", "sign-swap": "skipped" };
+  // the failure seen in run 39395402683: sign-swap skipped (no @rightkit/release), everything else green
+  assert.equal(evaluate(PACK_IF, { results: ok }), true);
+  assert.equal(evaluate(PACK_IF, { results: { ...ok, "sign-swap": "success" } }), true, "a succeeded sign-swap also allows pack");
+  assert.equal(evaluate(VERIFY_IF, { results: ok }), true);
+  assert.equal(evaluate(SEAL_CHECK_IF, { results: ok }), true);
+  assert.equal(evaluate(UPLOAD_IF, { results: ok }), true);
+  assert.equal(evaluate(UPLOAD_IF, { results: ok, dryRun: "true" }), false, "a dry run never uploads");
+  assert.equal(evaluate(UPLOAD_IF, { results: ok, ref: "refs/heads/x" }), false);
+  for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: ok, count: "0" }), false, "an empty plan runs nothing");
+  // A CANCELLED WORKFLOW whose every prior job result is still 'success' (cancel arrives between jobs): cancelled() is true, so
+  // none of pack, verify, seal-check or upload may start. This is its own case, separate from an upstream job result of 'cancelled'.
+  const allSuccess = { guard: "success", plan: "success", pack: "success", verify: "success", "seal-check": "success", "sign-swap": "success" };
+  for (const [name, gate] of [["pack", PACK_IF], ["verify", VERIFY_IF], ["seal-check", SEAL_CHECK_IF], ["upload", UPLOAD_IF]]) {
+    assert.equal(evaluate(gate, { results: allSuccess }), true, `${name} starts when nothing is cancelled`);
+    assert.equal(evaluate(gate, { results: allSuccess, cancelled: true }), false, `${name} must not start in a cancelled workflow even though every prior job succeeded`);
+    assert.equal(evaluate(gate, { results: ok, cancelled: true }), false, `${name} must not start in a cancelled workflow (sign-swap skipped)`);
+  }
+  // an upstream JOB result of failure, skipped or cancelled (workflow not cancelled)
+  for (const bad of ["failure", "skipped", "cancelled"]) {
+    for (const upstream of ["guard", "plan"]) for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, [upstream]: bad } }), false, `${upstream} ${bad}`);
+    for (const gate of [VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, pack: bad } }), false, `pack ${bad}`);
+    for (const gate of [SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, verify: bad } }), false, `verify ${bad}`);
+    assert.equal(evaluate(UPLOAD_IF, { results: { ...ok, "seal-check": bad } }), false, `seal-check ${bad}`);
+  }
+  for (const bad of ["failure", "cancelled"]) assert.equal(evaluate(PACK_IF, { results: { ...ok, "sign-swap": bad } }), false, `sign-swap ${bad} blocks pack`);
+  assert.ok(MUTATIONS.length >= 230);
+  const names = MUTATIONS.map(([name]) => name);
+  for (const required of ["pack condition uses always() instead of !cancelled()", "verify condition uses always() instead of !cancelled()", "seal-check condition uses always() instead of !cancelled()", "upload condition uses always() instead of !cancelled()", "pack condition drops !cancelled()", "verify condition drops !cancelled()", "seal-check condition drops !cancelled()", "upload condition drops !cancelled()", "verify condition drops needs.pack.result == 'success'", "seal-check condition drops needs.verify.result == 'success'", "upload condition drops needs.seal-check.result == 'success'", "upload condition drops needs.verify.result == 'success'", "upload accepts a skipped pack job", "pack accepts a failed sign-swap job", "pack has no condition", "verify has no condition"]) assert.ok(names.includes(required), required);
+  for (const [name, mutate] of MUTATIONS.filter(([n]) => /^(?:pack|verify|seal-check|upload) (?:condition (?:drops|uses)|accepts a (?:skipped|failed))/.test(n))) {
+    const copy = structuredClone(doc);
+    mutate(copy);
+    assert.throws(() => assertPublishDoc(copy), /condition must be exactly/, name);
+  }
 });
 
 test("seal-check and upload both check out the approved-artifacts list; pack builds only the planned closure", { skip: realWorkflowSkip }, () => {

@@ -1178,6 +1178,18 @@ test("publish.yml: named violations fail the contract with the property they bre
     ["upload runs even after failures", /upload's condition must be exactly/],
     ["upload no longer needs main", /upload's condition must be exactly/],
     ["seal-check reads a secret", /seal-check must not reference the secrets context in any form/],
+    ["verify may be skipped by a condition", /verify's condition must be exactly/],
+    ["pack condition uses always() instead of !cancelled()", /pack's condition must be exactly/],
+    ["pack condition drops !cancelled()", /pack's condition must be exactly/],
+    ["verify condition uses always() instead of !cancelled()", /verify's condition must be exactly/],
+    ["verify condition drops !cancelled()", /verify's condition must be exactly/],
+    ["verify condition drops needs.pack.result == 'success'", /verify's condition must be exactly/],
+    ["seal-check condition drops needs.verify.result == 'success'", /seal-check's condition must be exactly/],
+    ["seal-check condition uses always() instead of !cancelled()", /seal-check's condition must be exactly/],
+    ["upload condition uses always() instead of !cancelled()", /upload's condition must be exactly/],
+    ["upload condition drops !cancelled()", /upload's condition must be exactly/],
+    ["upload condition drops needs.seal-check.result == 'success'", /upload's condition must be exactly/],
+    ["upload accepts a skipped verify job", /upload's condition must be exactly/],
   ];
   const doc = parseYaml(publishWorkflowText());
   for (const [name, pattern] of expectations) {
