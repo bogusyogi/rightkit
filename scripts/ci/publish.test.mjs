@@ -764,7 +764,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
   const reviews = {
     "rightkit-db@0.5.1": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/db_candidate_review/39498324762/db-0.5.1" },
-    "@rightkit/tauri@0.3.0": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39502600992/tauri-0.3.0" },
+    "@rightkit/tauri@0.3.0": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39505901290/tauri-0.3.0" },
     "rightkit-logs@0.3.4": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39495922938/logs-0.3.4-runtime-39500183977" },
     "@rightkit/tauri-shell@0.1.2": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_view_foundation/39500169311/tauri-shell-0.1.2" },
     "@rightkit/license@0.3.0": foundation,
