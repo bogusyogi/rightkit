@@ -375,6 +375,12 @@ enum TransferError {
     TooLarge(String),
 }
 
+struct TransferPolicy<'a> {
+    cancelled: &'a dyn Fn() -> bool,
+    deadline: Option<Instant>,
+    max_bytes: Option<u64>,
+}
+
 fn write_response_body_with_progress(
     part: &Path,
     plan: ResponsePlan,
@@ -382,10 +388,13 @@ fn write_response_body_with_progress(
     digest: &mut Sha256Hasher,
     reader: &mut dyn Read,
     progress: &mut dyn FnMut(u64, u64),
-    cancelled: &dyn Fn() -> bool,
-    deadline: Option<Instant>,
-    max_bytes: Option<u64>,
+    policy: TransferPolicy<'_>,
 ) -> Result<u64, TransferError> {
+    let TransferPolicy {
+        cancelled,
+        deadline,
+        max_bytes,
+    } = policy;
     let (mut file, mut received, total) = match plan {
         ResponsePlan::Append { offset, total } => {
             let length = fs::metadata(part)
@@ -892,9 +901,11 @@ fn download_inner(
             &mut digest,
             &mut *reader,
             &mut progress,
-            request.cancelled,
-            budget.as_ref().map(|budget| budget.deadline),
-            max_bytes,
+            TransferPolicy {
+                cancelled: request.cancelled,
+                deadline: budget.as_ref().map(|budget| budget.deadline),
+                max_bytes,
+            },
         ) {
             Ok(received) => {
                 let got = match commit_staged(
@@ -1253,9 +1264,11 @@ mod cap_tests {
             &mut digest,
             &mut body,
             &mut |_, _| {},
-            &|| false,
-            None,
-            Some(5),
+            TransferPolicy {
+                cancelled: &|| false,
+                deadline: None,
+                max_bytes: Some(5),
+            },
         )
         .unwrap_err();
         assert!(matches!(err, TransferError::TooLarge(ref m) if m.starts_with(CAP_PREFIX)));
@@ -1277,9 +1290,11 @@ mod cap_tests {
             &mut digest,
             &mut body,
             &mut |_, _| {},
-            &|| false,
-            None,
-            Some(100_000),
+            TransferPolicy {
+                cancelled: &|| false,
+                deadline: None,
+                max_bytes: Some(100_000),
+            },
         )
         .unwrap_err();
         assert!(matches!(err, TransferError::TooLarge(_)));
@@ -1296,9 +1311,11 @@ mod cap_tests {
             &mut digest,
             &mut ok,
             &mut |_, _| {},
-            &|| false,
-            None,
-            Some(1000),
+            TransferPolicy {
+                cancelled: &|| false,
+                deadline: None,
+                max_bytes: Some(1000),
+            },
         )
         .unwrap();
         assert_eq!(n, 1000);
