@@ -41,7 +41,7 @@ describe('no spawn without a positive whole-millisecond timeout (spawnSync reads
     expect(options.timeout).toBe(1);
   });
 
-  it.skipIf(process.platform !== 'win32')('Windows scan & kill declare native imports in memory without a compiler child', () => {
+  if (process.platform === 'win32') it('Windows scan & kill declare native imports in memory without a compiler child', () => {
     spawned.calls.length = 0;
     probeProfileProcesses(path.join(scratch, 'p'), 1_000);
     killVerifiedProcesses([{ pid: 5, creation: '123' }], 1_000);

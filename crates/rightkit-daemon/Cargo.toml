@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -13,7 +13,7 @@ include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LIC
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-fs = { version = "0.4.6", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.6", path = "../rightkit-fs", default-features = false, features = ["fs", "transaction"] }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 # Private per-run child service (`private`): constant-time secret check and the secret itself.
 subtle = "2.6"

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { BENCH_ARGS, CRATE, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems } from "./runtime-qualify.mjs";
+import { BENCH_ARGS, CRATE, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems, cleanMeasurementEnvironment } from "./runtime-qualify.mjs";
 
 const sourceSha = "a".repeat(40);
 const run = { id: 123, repository: { full_name: "org/rightkit" }, head_repository: { full_name: "org/rightkit" }, path: ".github/workflows/publish.yml", head_branch: "main", event: "workflow_dispatch", status: "completed", run_attempt: 1, head_sha: sourceSha };
@@ -34,6 +34,14 @@ test("sealed unit binds exact candidate run, source SHA, bytes & size", () => {
 test("archive paths cannot escape extraction directory", () => {
   assert.deepEqual(safeArchiveMembers("rightkit-logs-0.3.4/src/lib.rs\n"), ["rightkit-logs-0.3.4/src/lib.rs"]);
   for (const name of ["../escape", "/root", "C:/root", "dir\\file", "dir/../file", "./file"]) assert.throws(() => safeArchiveMembers(name));
+});
+test("measurement launcher passes only explicit non-credential runner inputs", () => {
+  const clean = cleanMeasurementEnvironment({
+    PATH: "tool-path", GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", RUNTIME_SOURCE: "source", RUNTIME_PACKED: "packed", RUNTIME_OUT: "out",
+    PGPASSWORD: "inherited", GITHUB_TOKEN: "inherited", ACTIONS_ID_TOKEN_REQUEST_URL: "inherited", NODE_OPTIONS: "--require injected",
+    CARGO_HOME: "injected", CARGO_ENCODED_RUSTFLAGS: "injected", RUSTFLAGS: "injected", CUSTOM_FLAG: "injected",
+  });
+  assert.deepEqual(clean, { PATH: "tool-path", GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", RUNTIME_SOURCE: "source", RUNTIME_PACKED: "packed", RUNTIME_OUT: "out" });
 });
 test("Windows 1.394 wakeups cannot qualify against unchanged ceiling 1", () => {
   const budget = { ceilings: { residentMemoryBytes: 62914560, idleCpuPercent: 1, wakeupsPerSecond: 1, diskOpsPerSecond: 1 }, requiredScale: { unit: "lines", minCount: 200000 } };

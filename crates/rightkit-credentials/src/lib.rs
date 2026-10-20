@@ -9,6 +9,9 @@
 //! * Android: an AES-GCM key in `AndroidKeyStore` encrypts each secret and only the ciphertext is
 //!   kept in app-private storage ([`android`]); the JNI access is an injected `KeystoreBridge`.
 //! * `apple_helper` drives the synced-credentials Swift helper (RightKitAppleCredentials).
+//! * `os_auth` (feature `os-auth`): one blocking OS user-presence prompt (LocalAuthentication,
+//!   Windows Hello, an Android biometric bridge; typed `Unsupported` elsewhere). It gates a UI
+//!   action and returns no secret.
 
 mod backend;
 mod error;
@@ -24,10 +27,14 @@ mod store;
 
 pub mod android;
 pub mod apple_helper;
+#[cfg(feature = "db-adapter")]
+pub mod db_adapter;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(feature = "os-auth")]
+pub mod os_auth;
 #[cfg(windows)]
 mod windows;
 

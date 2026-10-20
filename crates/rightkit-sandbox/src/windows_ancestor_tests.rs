@@ -488,14 +488,18 @@ fn best_effort_denied_write_is_fatal_when_the_dacl_already_allows_the_container(
 #[test]
 fn best_effort_unreadable_dacl_after_denied_write_is_fatal() {
     let tree = TempChain::new();
-    let chain = tree.chain();
+    // Visit root before its child: moving the child keeps the earlier lease reachable for
+    // rollback. The normal deepest-first chain would try to rename root inside itself.
+    let mut chain = tree.chain();
+    chain.reverse();
     let (_, sid) = tree.profile();
     let before0 = aces(&chain[0]);
     let moved = chain[0].join("moved-away");
     let editor = |path: &Path, entries: &[Vec<u8>], revision: u8| {
         if path == chain[1].as_path() {
             // The directory vanishes under the lease: its DACL can no longer be read.
-            std::fs::rename(path, &moved)?;
+            std::fs::rename(path, &moved).expect("move the child outside its original path");
+            assert!(!path.exists(), "DACL read target must really be absent");
             Err(io::Error::from_raw_os_error(5))
         } else {
             write_dacl(path, entries, revision)

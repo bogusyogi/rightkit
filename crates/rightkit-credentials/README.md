@@ -16,6 +16,8 @@ On macOS, use `rightkit-credentials` 0.2.0 or newer. `rightkit-secrets` 0.1.3 an
 |---|---|---|---|
 | `settings-probe` | off | `rightkit-app-settings` | Enables the `rightkit-app-settings` presence adapter (`SecretProbe`). |
 | `isolated-test-keychain` | off | none | TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`, `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is no write path to an explicit keychain. Enable it only as `cargo test --features isolated-test-keychain` for `tests/e2e.rs`; never in a shipped build. The crate has no `default` feature, no other feature enables it, and no dependent in this repository names it; only `ci/gate.config.json` passes it, to `cargo test -p rightkit-credentials`. |
+| `os-auth` (0.4.0) | off | `objc2`, `block2`, `objc2-foundation` (macOS only), `windows` (Windows only); nothing on Linux or Android | Compiles `os_auth`: one blocking OS user-presence prompt (see "OS authentication"). It gates a UI action and returns no secret. |
+| `db-adapter` | off | `rightkit-db`, `sha2` | `db_adapter::CredentialsKeyStore` implements DB's `ProtectedKeyStore` over existing credential storage/rotation. Application must also enable its existing DB `sqlcipher` or `sqlcipher-system` provider; adapter selects neither. |
 
 ## Platform support
 
@@ -37,6 +39,29 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/store.rs
 // Open a Store for the app's Namespace, check presence passively,
 // and read or provision a key through get_or_create_key.
 ```
+
+## OS authentication
+
+Feature `os-auth`. `os_auth::{availability, authenticate, Request, Verified, OsAuthenticator, SystemAuthenticator, OsAuthError, Availability}`: one blocking prompt that asks the OS whether the device owner is present. It is the primitive an app-lock coordinator calls; the coordinator (lock state, PIN fallback, action policy) is the app's or the shell's, not this crate's.
+
+- macOS: `LocalAuthentication` `LAContext`, policy `deviceOwnerAuthentication` (Touch ID, Apple Watch or the account password), through the Objective-C runtime already used by other RightKit crates. Needs a session that can show the system sheet.
+- Windows: Windows Hello (`UserConsentVerifier`) only; there is no CredUI or password fallback. A user with no Hello method set up gets `Availability::NotEnrolled` and `OsAuthError::NotEnrolled` and nothing is shown (fail closed), so the app-lock coordinator must offer its own fallback or ask the person to set up Hello. An unpackaged desktop app passes its window with `Request::owner_window(hwnd)` so the dialog appears in front of it; without one, a non-packaged app gets an `Os` error (fail closed).
+- Android: install a `BiometricBridge` with `os_auth::install_biometric_bridge` (the `rightkit-android` bridge crate implements it over `BiometricPrompt`, `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`, no `CryptoObject`). Before that, `Availability::Unavailable` and `OsAuthError::Unavailable`.
+- Linux and other targets: `Availability::Unsupported` and `OsAuthError::Unsupported`.
+
+Rules the API enforces. `availability()` is passive and never prompts; only `authenticate` shows UI. The only success value is `Verified` (no public constructor, no serde, no secret); every other outcome is an `OsAuthError`, so a caller that treats `Err` as "stay locked" fails closed, and an unknown OS result code is an error, never a pass. `OsAuthError::is_user_decision()` is true only for `Cancelled`, `Failed` and `LockedOut`; a prompt the system or the app cancelled (`SystemCancelled`) is not the person's decision, so a caller counting failed attempts should not count it. A timeout cancels the prompt and a late OS success is discarded. One prompt per process at a time (`OsAuthError::Busy`). `RIGHTKIT_NO_KEYCHAIN` (and `Request::guard_env`) make every call `Guarded` without touching the OS. `ScriptedAuthenticator` (debug and test builds only, like `MemoryBackend`) stands in for the OS in coordinator tests through the `OsAuthenticator` trait.
+
+What it is not: a key release. A `Verified` proves one OS prompt succeeded in this process, nothing cryptographic; it does not unlock, read or bind any stored credential, and a caller that needs a secret released only after authentication needs a separate OS-bound key design. There is deliberately no renderer-facing getter or event here: a webview host exposes at most the app-lock state it owns.
+
+Calls block: run them off the UI thread. Not verified on real hardware (see CHANGELOG).
+
+## Encrypted database keys
+
+With `db-adapter`, construct `db_adapter::CredentialsKeyStore::new(store, primary_account, recovery_account, legacy_staging_accounts)`. `store` supplies existing namespace, interaction/guard policy & shared `rotation_lock_dir`; it is pinned once. Account slots must be distinct, including `<primary>.rotation-pending`; only explicitly mapped legacy accounts can be read/deleted through the adapter. Missing slots return `None`; malformed, denied or unavailable slots return classified errors. Pending revisions contain a digest, never plaintext key material.
+
+DB owns transitions, readback, recovery & decisions to retire viable keys. Adapter exposes only bounded `lock_rotation`, which returns an owned `ProtectedKeySession` containing all key-slot methods. Session can move threads; unrelated callers must acquire their own session & cannot borrow its authority. It owns credentials' existing canonical process/file fence through DB work; timed-out credential mutation workers retain its file hold. Authentication remains caller policy; an OS-auth result does not release a database key. Standalone qualification must pair `db-adapter` with `rightkit-db/sqlcipher` or `rightkit-db/sqlcipher-system`, matching application provider.
+
+Timeouts return `Unsettled`: a worker may still mutate storage. Factory admission & every session slot operation refuse while any mapped slot has an in-flight mutation; an old-primary read never proves settlement. Dropping a session cannot release a durable worker's file hold. DB retains viable keys & journal state until a later exclusive session can reconcile actual settled storage.
 
 ## Windows
 

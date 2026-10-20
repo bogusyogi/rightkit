@@ -19,6 +19,7 @@
 use std::sync::Arc;
 
 use crate::contract::{Handler, MethodTable, TableError};
+use crate::registration::{Registration, RegistrationError, TransportProfile};
 use crate::server::{host_with_options, HostError, HostOptions, Hosted, ServiceConfig};
 use crate::suite::Suite;
 
@@ -38,6 +39,8 @@ pub enum BuildError {
     Host(Box<HostError>),
     /// The remote daemon did not open its state.
     Io(std::io::Error),
+    /// A [`Registration`] was refused (see [`RegistrationError`]).
+    Registration(RegistrationError),
 }
 
 impl std::fmt::Display for BuildError {
@@ -48,6 +51,7 @@ impl std::fmt::Display for BuildError {
             BuildError::Table(e) => write!(f, "service builder: {e}"),
             BuildError::Host(e) => write!(f, "service builder: local host: {e}"),
             BuildError::Io(e) => write!(f, "service builder: remote state: {e}"),
+            BuildError::Registration(e) => write!(f, "service builder: {e}"),
         }
     }
 }
@@ -109,11 +113,37 @@ pub struct ServiceBuilder {
     table: Option<MethodTable>,
     handler: Option<Arc<dyn Handler>>,
     local: Option<LocalSpec>,
+    profile: Option<TransportProfile>,
     #[cfg(feature = "remote")]
     remote: Option<RemoteSpec>,
 }
 
 impl ServiceBuilder {
+    /// Declare the whole service as one [`Registration`] (identity, method descriptors and a
+    /// handler per method) and host it on the local transport. Replaces `methods`, `handler` and
+    /// `local`; the `remote` calls stay available only for a registration whose profile is
+    /// [`TransportProfile::LocalAndRemote`] (`start` refuses them otherwise). Opens no listener
+    /// beyond the current-user-only local endpoint.
+    pub fn register(
+        mut self,
+        suite: &Suite,
+        registration: Registration,
+        opts: HostOptions,
+    ) -> Result<Self, BuildError> {
+        let (identity, profile, table, handler) = registration
+            .into_parts()
+            .map_err(BuildError::Registration)?;
+        self.table = Some(table);
+        self.handler = Some(handler);
+        self.local = Some(LocalSpec {
+            suite: suite.clone(),
+            cfg: identity.to_config(),
+            opts,
+        });
+        self.profile = Some(profile);
+        Ok(self)
+    }
+
     /// The one source of method policy for every transport.
     pub fn methods(mut self, table: MethodTable) -> Self {
         self.table = Some(table);
@@ -164,6 +194,12 @@ impl ServiceBuilder {
         let has_remote = self.remote.is_some();
         #[cfg(not(feature = "remote"))]
         let has_remote = false;
+        // A local-only registration never gets a remote daemon, whichever order the calls came in.
+        if has_remote && self.profile == Some(TransportProfile::Local) {
+            return Err(BuildError::Registration(
+                RegistrationError::RemoteNotDeclared,
+            ));
+        }
         if self.local.is_none() && !has_remote {
             return Err(BuildError::NoTransport);
         }

@@ -229,6 +229,18 @@ An application route that needs no device signature (a provider webhook, a callb
 
 **Completion states.** `.rightkit-migration-state.json` (version 2) records `Ready`, `ReadyWithOmissions` or `Incomplete`; read it with `AppRoot::migration_state(src)`. `Incomplete` is written before the destination is first touched and stays after any interruption or failure: the old root stays the authority and a rerun finishes the copy. `ReadyWithOmissions` means every required entry is in place and only entries the caller declared disposable (optional links, skipped reparse points) are missing, each listed; a rerun retries the omitted links only. The old-shape marker `.rightkit-migrated.json` is written only for `Ready`, so a reader of an earlier version never takes an incomplete or partial destination for a finished move.
 
+## Root cutover (`RootCutover`)
+
+`RootCutover::new(app_root, old_root)` moves an app's data root with the writers stopped and the old root left complete. The app registers participants (`CutoverParticipant`: `prepare`, `quiesce`, `relocate`, `reopen`, `settle`; the database relocation of `rightkit-db` is one, wrapped by the app) and picks how files travel (`FsMove::Tree` or `FsMove::Companions`). The persisted record `.rightkit-root-cutover.json` selects the root: `copying` and `aborted` the old one, `switched` and `completed` the new one. Read it with `RootCutover::status` or `selected_root`, and run `recover()` at startup so a switched cutover finishes before any root is opened. Cleanup is separate (`retire_old_root`): identity-checked, and it only renames the old root aside or sends it to the trash. Detail and the protocol table are in the module docs.
+
+## Approvals (`approval`)
+
+A request is bound to one effect digest, decided by a principal an app-supplied `ApprovalVerifier` has proven (the coordinator never re-encodes signed bytes), claimed exactly once, and settled with an outcome; expiry, revocation, account scope, replay, audit before effect and `OutcomeUnknown` after a crash are enforced by `ApprovalCoordinator` over an `ApprovalStore`. Per-action policy is an `ApprovalProfile` (data). See the module docs for the state machine and the guarantees.
+
+## Service registration (`Registration`)
+
+`Service::builder().register(&suite, Registration::new(identity).method(descriptor, handler)?, HostOptions::new())?.start()?` hosts a service from one declaration: identity, method descriptors and a closure per method. It uses the local transport only (current-user-only socket or pipe); a `TransportProfile::Local` registration refuses remote-reachable methods and a remote daemon.
+
 ## Threat model
 
 **Defended against:** another local user (or a service running as one) connecting to the endpoint to call the service; another local user squatting on the endpoint name or path so a client sends its `hello` and requests to an impostor; a remote client (Windows pipes reject remote clients); a server that tries to impersonate the calling user through the pipe (clients open with `SECURITY_IDENTIFICATION`); connection floods growing the host without bound (Windows: `max_pipe_instances`).

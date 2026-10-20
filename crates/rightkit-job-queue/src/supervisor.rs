@@ -678,7 +678,11 @@ impl Shared {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());
         let g = self.lock();
-        self.emit(&g, format!("boot_stage {ms} gen {generation} {stage}"), None);
+        self.emit(
+            &g,
+            format!("boot_stage {ms} gen {generation} {stage}"),
+            None,
+        );
     }
     fn now(&self) -> Duration {
         self.epoch.elapsed()

@@ -2,7 +2,7 @@
 # toolchain with a cache of its own. Every pinned action here is the one the rendered ci.yml pinned before the
 # gate was sharded. The caller checks the repository out first (a local action is read from the checkout).
 name: rk-setup
-description: Node, pnpm install and optional Rust toolchain with a per-shard cache
+description: Node, optional pnpm install and Rust toolchain with per-shard caches
 inputs:
   node-version:
     description: Node version
@@ -19,6 +19,9 @@ inputs:
   derived-data:
     description: "Runner label to cache Xcode DerivedData under (Swift package jobs); empty disables it"
     default: ""
+  install-dependencies:
+    description: "true installs the frozen pnpm workspace dependencies"
+    default: "true"
 runs:
   using: composite
   steps:
@@ -27,12 +30,25 @@ runs:
         node-version: ${{ inputs.node-version }}
         package-manager-cache: false
     - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      if: ${{ inputs.install-dependencies == 'true' }}
       with:
         version: 11.24.0
+    - name: Locate pnpm store
+      id: pnpm-store
+      if: ${{ inputs.install-dependencies == 'true' }}
+      shell: bash
+      run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+    - name: Cache pnpm store
+      if: ${{ inputs.install-dependencies == 'true' }}
+      uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: ${{ runner.os }}-pnpm-11.24.0-${{ hashFiles('pnpm-lock.yaml') }}
     - run: pnpm install --frozen-lockfile
+      if: ${{ inputs.install-dependencies == 'true' }}
       shell: bash
     - name: Print pnpm-lock.yaml patch when the lockfile is stale
-      if: failure()
+      if: ${{ failure() && inputs.install-dependencies == 'true' }}
       shell: bash
       run: |
         if pnpm install --lockfile-only; then

@@ -38,7 +38,7 @@ mod transition;
 pub use error::LifecycleError;
 pub use keystore::{
     Key, KeySource, KeyStoreError, KeyStoreErrorKind, PendingKey, PendingRevision,
-    ProtectedKeyStore, RotationLock,
+    ProtectedKeySession, ProtectedKeyStore,
 };
 pub use relocate::{RelocationPlan, RelocationReport};
 pub use rotate::{

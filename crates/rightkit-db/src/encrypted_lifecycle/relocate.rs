@@ -31,7 +31,7 @@
 //! only, using the existing fs primitives (the SQLite backup API, atomic publish and file identity).
 
 use super::error::LifecycleError;
-use super::keystore::{Key, ProtectedKeyStore};
+use super::keystore::{Key, KeyStoreErrorKind, ProtectedKeyStore};
 use super::rotate::{make_primary, NoFaults};
 use super::store::{
     db_unavailable, establish, key_store_error, probe, remove_owned_copy, EncryptedStore,
@@ -148,20 +148,6 @@ impl EncryptedStore {
             Ok(key) => key,
             Err(error) => return not_relocated(error),
         };
-        if let Some(destination) = &plan.new_key_store {
-            match destination.read_primary() {
-                Ok(None) => {}
-                Ok(Some(existing)) if existing.as_str() == key.as_str() => {}
-                Ok(Some(_)) => {
-                    return not_relocated(LifecycleError::WrongDestinationKey {
-                        path: new_path,
-                        detail: "the destination key store already holds a different primary key"
-                            .into(),
-                    })
-                }
-                Err(error) => return not_relocated(key_store_error("destination primary", error)),
-            }
-        }
 
         if let Err(error) = self.drain(TransitionKind::Relocate, false) {
             return not_relocated(error);
@@ -195,13 +181,13 @@ impl EncryptedStore {
             &cfg.transition,
         )
         .map_err(Failure::plain)?;
-        let _rotation = cfg
+        let mut source_session = cfg
             .key_store
             .lock_rotation(cfg.transition.acquire_timeout)
             .map_err(|error| Failure::plain(key_store_error("rotation lock", error)))?;
         // The destination may have appeared between the first check and the guard.
         check_destination(&new_path).map_err(Failure::plain)?;
-        match cfg.key_store.read_primary() {
+        match source_session.read_primary() {
             Ok(Some(primary)) if primary.as_str() == key.as_str() => {}
             Ok(_) => {
                 return Err(Failure::plain(LifecycleError::KeyStoreMismatch {
@@ -209,6 +195,38 @@ impl EncryptedStore {
                 }))
             }
             Err(error) => return Err(Failure::plain(key_store_error("primary", error))),
+        }
+
+        // Reuse source authority only for the exact configured Arc. A separately configured
+        // destination must acquire its own bounded capability before any database copy.
+        let mut destination_session = match &plan.new_key_store {
+            Some(destination) if !Arc::ptr_eq(destination, &cfg.key_store) => Some(
+                destination
+                    .lock_rotation(cfg.transition.acquire_timeout)
+                    .map_err(|error| Failure::plain(key_store_error("destination rotation lock", error)))?,
+            ),
+            _ => None,
+        };
+        let destination = destination_session
+            .as_deref_mut()
+            .unwrap_or(&mut *source_session);
+        match destination.read_primary() {
+            Ok(None) => {}
+            Ok(Some(existing)) if existing.as_str() == key.as_str() => {}
+            Ok(Some(_)) => {
+                return Err(Failure::plain(LifecycleError::WrongDestinationKey {
+                    path: new_path.clone(),
+                    detail: "the destination key store already holds a different primary key".into(),
+                }))
+            }
+            Err(error) => return Err(Failure::plain(key_store_error("destination primary", error))),
+        }
+        match destination.read_pending() {
+            Ok(None) => {}
+            Ok(Some(_)) => return Err(Failure::plain(LifecycleError::Precondition(
+                "the destination key store has an unfinished pending key".into(),
+            ))),
+            Err(error) => return Err(Failure::plain(key_store_error("destination pending", error))),
         }
 
         let journal = Journal {
@@ -289,15 +307,17 @@ impl EncryptedStore {
 
         // Move the key to the destination key store and read it back.
         let mut key_store_residue = false;
-        if let Some(destination) = &plan.new_key_store {
+        if plan.new_key_store.is_some() {
             let already =
                 matches!(destination.read_primary(), Ok(Some(ref k)) if k.as_str() == key.as_str());
             if !already {
                 key_store_residue = true;
-                if let Err(reason) = make_primary(&**destination, key, None) {
+                if let Err(reason) = make_primary(destination, key, None) {
                     // Whatever was staged is ours: the destination's pending slot was not in use.
-                    if let Ok(Some(pending)) = destination.read_pending() {
-                        let _ = destination.discard_pending(&pending.revision);
+                    if reason.kind != KeyStoreErrorKind::Unsettled {
+                        if let Ok(Some(pending)) = destination.read_pending() {
+                            let _ = destination.discard_pending(&pending.revision);
+                        }
                     }
                     let mut failure = fail(
                         LifecycleError::KeyStoreMismatch {
@@ -307,8 +327,8 @@ impl EncryptedStore {
                         },
                         copy_key,
                     );
-                    failure.key_store_residue =
-                        destination.read_primary().is_ok_and(|slot| slot.is_some());
+                    failure.key_store_residue = reason.kind == KeyStoreErrorKind::Unsettled
+                        || destination.read_primary().is_ok_and(|slot| slot.is_some());
                     return Err(failure);
                 }
             }
@@ -318,19 +338,31 @@ impl EncryptedStore {
         activated.phase = "copied".to_string();
         let _ = transition.write_journal(&activated);
 
-        // Release the guards, then reopen at the new root from what key storage reads back.
-        drop(_rotation);
-        transition.settle();
         let mut new_cfg = cfg.clone();
         new_cfg.db.path = new_path.clone();
         if let Some(destination) = &plan.new_key_store {
             new_cfg.key_store = destination.clone();
         }
-        // The guards are released and the copy is verified: the journals have served their purpose.
-        // Removing them first keeps the reopen below from mistaking them for an interrupted
-        // relocation.
-        let _ = super::transition::remove_journal(&new_path);
-        let _ = super::transition::remove_journal(&old_path);
+        // Prove canonical destination storage reopens the copy while both sessions and guards
+        // remain held. Failure cleanup cannot race a destination credential mutation.
+        let readback = (|| -> Result<(), LifecycleError> {
+            let primary = destination
+                .read_primary()
+                .map_err(|error| key_store_error("destination primary", error))?
+                .ok_or(LifecycleError::KeyMissing)?;
+            let conn = new_cfg.keyed(&primary).open_existing_writer()?;
+            drop(conn);
+            Ok(())
+        })();
+        if let Err(error) = readback {
+            let mut failure = fail(error, copy_key);
+            failure.key_store_residue = key_store_residue;
+            return Err(failure);
+        }
+        let _ = transition.clear_journal();
+        drop(destination_session);
+        drop(source_session);
+        transition.settle();
         match establish(&new_cfg, &NoFaults) {
             Ok(established) => {
                 *crate::lock_recover(&self.cfg) = new_cfg.clone();
@@ -342,7 +374,29 @@ impl EncryptedStore {
                 })
             }
             Err(error) => {
-                let removed = remove_owned_copy(&new_path, Some(copy_key));
+                // Installation reacquires ordinary guards after settlement. If it fails, cleanup
+                // must reacquire the same exclusive credentials authority before removing copy.
+                let removed = (|| -> Result<bool, LifecycleError> {
+                    let cleanup_transition = StoreTransition::begin(
+                        TransitionKind::Relocate,
+                        &[old_path.as_path(), new_path.as_path()],
+                        &cfg.transition,
+                    )?;
+                    let source = cfg.key_store.lock_rotation(cfg.transition.acquire_timeout)
+                        .map_err(|error| key_store_error("rotation lock", error))?;
+                    let destination = match &plan.new_key_store {
+                        Some(destination) if !Arc::ptr_eq(destination, &cfg.key_store) => Some(
+                            destination.lock_rotation(cfg.transition.acquire_timeout)
+                                .map_err(|error| key_store_error("destination rotation lock", error))?,
+                        ),
+                        _ => None,
+                    };
+                    let removed = remove_owned_copy(&new_path, Some(copy_key));
+                    drop(destination);
+                    drop(source);
+                    cleanup_transition.settle();
+                    Ok(removed)
+                })().unwrap_or(false);
                 Err(Box::new(Failure {
                     error,
                     copy_retained: if removed || !new_path.exists() {

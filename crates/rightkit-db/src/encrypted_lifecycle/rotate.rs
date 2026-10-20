@@ -16,8 +16,9 @@
 //!    the old key opening it means nothing committed; neither is `Indeterminate`.
 //! 7. The caller's validation callback runs on the rekeyed store (a failure rolls the database back).
 //! 8. `Promoted`: the exact staged revision is promoted, then the primary slot is **read back**.
-//!    Whatever `promote_pending` returned, only the readback decides: primary equals the new key is
-//!    committed; primary still equals the old key is a verified noncommit and the database is
+//!    An unsettled mutation retains both keys and the journal without rollback. Once mutation
+//!    settlement is known, primary equals the new key is committed; primary still equals the old
+//!    key is a verified noncommit and the database is
 //!    rolled back to the old key (and read back); anything else is `Indeterminate`.
 //! 9. `Cleaned`: the pending key is discarded. After a final readback proves that the key storage
 //!    returns opens the database, the recovery slot is cleared (unless `retain_previous`) and the
@@ -37,7 +38,7 @@
 
 use super::error::LifecycleError;
 use super::keystore::{
-    Key, KeySource, KeyStoreError, PendingRevision, ProtectedKeyStore, RotationLock,
+    Key, KeySource, KeyStoreError, KeyStoreErrorKind, PendingRevision, ProtectedKeySession,
 };
 use super::store::{
     db_unavailable, file_present, is_plaintext_sqlite, key_store_error, probe, scan_candidates,
@@ -144,6 +145,9 @@ pub trait Faults: Send + Sync {
     fn before_readback(&self, db: &Path) {
         let _ = db;
     }
+
+    /// Runs while read-pool admission holds the live-state lock, before registry insertion.
+    fn before_pool_registration(&self) {}
 }
 
 pub(super) struct NoFaults;
@@ -483,9 +487,8 @@ fn rotate_inner(
     };
     let mut run = Run {
         cfg: &cfg,
-        ks: &*cfg.key_store,
+        ks: rotation,
         faults,
-        _rotation: rotation,
         tr: transition,
         path: cfg.db.effective_path(),
         old,
@@ -526,10 +529,9 @@ fn rotate_inner(
 
 struct Run<'a> {
     cfg: &'a EncryptedStoreConfig,
-    ks: &'a dyn ProtectedKeyStore,
+    // Owned session drops before `tr`, including interruption and rollback paths.
+    ks: Box<dyn ProtectedKeySession + Send + 'static>,
     faults: &'a dyn Faults,
-    // Declared before `tr`: the rotation lock is released before the guard.
-    _rotation: RotationLock,
     tr: StoreTransition,
     path: PathBuf,
     old: Key,
@@ -572,11 +574,19 @@ impl<'a> Run<'a> {
     /// Undo what was staged and end as `NotCommitted`. Only called while the primary key still
     /// opens the database, so every staged item is redundant.
     fn abort(&mut self, error: LifecycleError) -> End {
+        if matches!(&error, LifecycleError::KeyStore { source, .. }
+            if source.kind == KeyStoreErrorKind::Unsettled)
+        {
+            return self.indeterminate(format!("protected key mutation has not settled: {error}"));
+        }
         let mut left = Vec::new();
         if self.pending_ours {
             match self.ks.read_pending() {
                 Ok(Some(pending)) => {
                     if let Err(discard) = self.ks.discard_pending(&pending.revision) {
+                        if discard.kind == KeyStoreErrorKind::Unsettled {
+                            return self.indeterminate(format!("pending cleanup has not settled: {discard}"));
+                        }
                         left.push(format!("discard the staged key: {discard}"));
                     }
                 }
@@ -584,12 +594,16 @@ impl<'a> Run<'a> {
                 Err(read) => left.push(format!("read the staged key: {read}")),
             }
         }
-        if self.recovery_written {
+        // Failed pending cleanup cannot authorize removing the retained old key.
+        if self.recovery_written && left.is_empty() {
             let restored = match &self.prior_recovery {
                 Some(prior) => self.ks.write_recovery(prior),
                 None => self.ks.clear_recovery(),
             };
             if let Err(restore) = restored {
+                if restore.kind == KeyStoreErrorKind::Unsettled {
+                    return self.indeterminate(format!("recovery restoration has not settled: {restore}"));
+                }
                 left.push(format!("restore the recovery slot: {restore}"));
             }
         }
@@ -801,6 +815,11 @@ impl<'a> Run<'a> {
             return Ok(self.indeterminate("the staged revision was lost".into()));
         };
         let promoted = self.ks.promote_pending(&revision);
+        if let Err(error) = &promoted {
+            if error.kind == KeyStoreErrorKind::Unsettled {
+                return Ok(self.indeterminate(format!("promotion has not settled: {error}")));
+            }
+        }
         match self.ks.read_primary() {
             Ok(Some(primary)) if primary.as_str() == self.new.as_str() => {}
             Ok(Some(primary)) if primary.as_str() == self.old.as_str() => {
@@ -856,6 +875,9 @@ impl<'a> Run<'a> {
             Ok(None) => {}
             Ok(Some(pending)) => {
                 if let Err(error) = self.ks.discard_pending(&pending.revision) {
+                    if error.kind == KeyStoreErrorKind::Unsettled {
+                        return Ok(self.indeterminate(format!("pending cleanup has not settled: {error}")));
+                    }
                     self.cleanup
                         .push(format!("discard the pending key: {error}"));
                 }
@@ -867,6 +889,9 @@ impl<'a> Run<'a> {
         self.reached(Phase::Cleaned)?;
         if !self.retain {
             if let Err(error) = self.ks.clear_recovery() {
+                if error.kind == KeyStoreErrorKind::Unsettled {
+                    return Ok(self.indeterminate(format!("recovery cleanup has not settled: {error}")));
+                }
                 self.cleanup
                     .push(format!("clear the recovery slot: {error}"));
             }
@@ -946,24 +971,26 @@ fn abandon_relocation(
 /// Stage `key` (unless `staged` already names it) and promote it to primary; the primary slot's
 /// readback is the only success.
 pub(super) fn make_primary(
-    ks: &dyn ProtectedKeyStore,
+    ks: &mut dyn ProtectedKeySession,
     key: &Key,
     staged: Option<&PendingRevision>,
-) -> Result<(), String> {
+) -> Result<(), KeyStoreError> {
     let revision = match staged {
         Some(revision) => revision.clone(),
-        None => ks
-            .write_pending(key)
-            .map_err(|error| format!("stage the key: {error}"))?,
+        None => ks.write_pending(key)?,
     };
     let promoted = ks.promote_pending(&revision);
+    if let Err(error) = &promoted {
+        if error.kind == KeyStoreErrorKind::Unsettled {
+            return Err(error.clone());
+        }
+    }
     match ks.read_primary() {
         Ok(Some(primary)) if primary.as_str() == key.as_str() => Ok(()),
-        Ok(_) => Err(match promoted {
-            Err(error) => format!("promotion failed: {error}"),
-            Ok(()) => "promotion did not change the primary key".to_string(),
-        }),
-        Err(error) => Err(format!("the primary key could not be read back: {error}")),
+        Ok(_) => Err(promoted.err().unwrap_or_else(||
+            KeyStoreError::other("promotion did not change the primary key")
+        )),
+        Err(error) => Err(error),
     }
 }
 
@@ -987,10 +1014,10 @@ pub(super) fn recover_locked(
     faults: &dyn Faults,
 ) -> Result<RecoveryReport, LifecycleError> {
     let _ = faults;
-    let ks = &*cfg.key_store;
-    let _rotation = ks
+    let mut session = cfg.key_store
         .lock_rotation(cfg.transition.acquire_timeout)
         .map_err(|error| key_store_error("rotation lock", error))?;
+    let ks = &mut *session;
     let mut report = RecoveryReport::new();
 
     // An interrupted restore decides which file the keys must open, so it goes first.
@@ -1042,7 +1069,7 @@ pub(super) fn recover_locked(
         return Ok(report);
     }
 
-    let mut scan = scan_candidates(cfg, &path);
+    let mut scan = scan_candidates(cfg, &path, ks);
     let Some((source, key)) = scan.opened.take() else {
         report.outcome = RecoveryOutcome::Blocked(blocked_from_scan(scan));
         return Ok(report);
@@ -1058,7 +1085,7 @@ pub(super) fn recover_locked(
             if let PendingRead::Key(pending) = &slots.pending {
                 match make_primary(ks, &key, Some(&pending.revision)) {
                     Ok(()) => report.steps.push(RecoveryStep::PendingPromoted),
-                    Err(reason) => degraded = Some(reason),
+                    Err(reason) => degraded = Some(reason.to_string()),
                 }
             }
         }
@@ -1079,7 +1106,7 @@ pub(super) fn recover_locked(
                         },
                         _ => RecoveryStep::PrimaryRestoredFromRecovery,
                     }),
-                    Err(reason) => degraded = Some(reason),
+                    Err(reason) => degraded = Some(reason.to_string()),
                 }
             }
         }
@@ -1121,7 +1148,7 @@ pub(super) fn recover_locked(
         // A legacy staging item that holds the key which now opens the file goes only after
         // canonical storage and a reopen readback prove recovery stays possible without it. This
         // also retries a deletion that failed earlier. An item holding any other key is left alone.
-        if cfg.delete_legacy_after_migration {
+        if report.pending_cleanup.is_empty() && cfg.delete_legacy_after_migration {
             let holders: Vec<&String> = slots
                 .legacy
                 .iter()
@@ -1172,7 +1199,10 @@ pub(super) fn recover_locked(
                 && Phase::parse(&journal.phase).is_some_and(|phase| phase >= Phase::OldRetained)
         });
         let from_recovery = matches!(source, KeySource::Recovery);
-        if (rotation_settled || from_recovery) && matches!(slots.recovery, SlotRead::Key(_)) {
+        if report.pending_cleanup.is_empty()
+            && (rotation_settled || from_recovery)
+            && matches!(slots.recovery, SlotRead::Key(_))
+        {
             match ks.clear_recovery() {
                 Ok(()) => report.steps.push(RecoveryStep::RecoverySlotCleared),
                 Err(error) => report

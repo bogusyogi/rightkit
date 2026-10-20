@@ -22,6 +22,7 @@ import {
 } from './storage.js';
 import { createQaWorkspace, disposeQaWorkspace, withQaWorkspace } from './workspace.js';
 
+const linkDirectory = (target: string, link: string) => fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true }); });
 
@@ -119,14 +120,14 @@ describe('QA root hygiene', () => {
     expect(fs.existsSync(path.join(victim, 'h'))).toBe(true);
   });
 
-  it.skipIf(process.platform === 'win32')('never follows a symlink out of the root', () => {
+  it('never follows a symlink out of the root', () => {
     const { base, parent } = qaParent();
     const outside = path.join(base, 'outside');
     fs.mkdirSync(outside);
     fs.writeFileSync(path.join(outside, 'precious'), 'keep');
     const doomed = home(parent, 'doomed', 111, 1);
-    fs.symlinkSync(outside, path.join(doomed, 'link-out'));
-    fs.symlinkSync(outside, path.join(parent, 'link-home'));
+    linkDirectory(outside, path.join(doomed, 'link-out'));
+    linkDirectory(outside, path.join(parent, 'link-home'));
     cleanQaHomes({ parent, maxAgeMs: 0, isAlive: () => false });
     expect(fs.existsSync(doomed)).toBe(false);
     expect(fs.readFileSync(path.join(outside, 'precious'), 'utf8')).toBe('keep');
@@ -377,16 +378,16 @@ describe('QA root limits', () => {
       expect(report.retained.some((r) => r.path.endsWith('precious-data') && r.reason.includes('not a QA home name'))).toBe(true);
     });
 
-    it.skipIf(process.platform === 'win32')('skips a symlink named like a home and never follows one out of the root', () => {
+    it('skips a symlink named like a home and never follows one out of the root', () => {
       const { base, parent } = qaParent();
       const outside = path.join(base, 'outside');
       fs.mkdirSync(path.join(outside, 'sub'), { recursive: true });
       fs.writeFileSync(path.join(outside, 'sub', 'precious'), 'keep');
       ageTree(outside, 3 * hours);
       const link = path.join(parent, 'genright-0000000000000001');
-      fs.symlinkSync(outside, link);
+      linkDirectory(outside, link);
       const doomed = unmarkedHome(base, parent, 'genright', '2', { ownerPid: 111 });
-      fs.symlinkSync(outside, path.join(doomed, 'link-out'));
+      linkDirectory(outside, path.join(doomed, 'link-out'));
       // A zero window and a little slack: a link's own modification time cannot be aged here.
       const report = cleanQaHomes({ parent, maxAgeMs: 0, now: Date.now() + 1000, isAlive: () => false });
       expect(fs.existsSync(doomed), JSON.stringify(report)).toBe(false);

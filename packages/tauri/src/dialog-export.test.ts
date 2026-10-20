@@ -14,7 +14,11 @@ const vitestManifest = realpathSync(require.resolve('vitest/package.json'));
 const vitestRequire = createRequire(vitestManifest);
 const viteEntry = pathToFileURL(vitestRequire.resolve('vite')).href;
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const scratch = resolve(process.platform === 'win32' ? 'D:/scratch' : '/Volumes/D/scratch');
+const scratchRoot = process.env.GITHUB_ACTIONS === 'true'
+  ? process.env.RUNNER_TEMP
+  : process.platform === 'win32' ? 'D:/scratch' : '/Volumes/D/scratch';
+if (!scratchRoot) throw new Error('GitHub Actions dialog fixtures require RUNNER_TEMP');
+const scratch = resolve(scratchRoot);
 const fixtures: string[] = [];
 
 const PLUGIN_STUB_MARKER = 'RK_FIXTURE_PLUGIN_DIALOG_STUB';

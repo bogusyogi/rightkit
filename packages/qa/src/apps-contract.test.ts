@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { validateNativeQaContract } from './guard.js';
 import { cargoManifestIssues, commandFeatureIssues, parseCargoFeaturesAndDependencies } from '../../release/qa-build-features.mjs';
 
@@ -37,14 +37,12 @@ const apps = [
 ] as const;
 
 describe('core app release-backdoor guards', () => {
+  beforeAll(() => {
+    const missing = apps.filter((app) => !fs.existsSync(path.join(app.root, 'package.json'))).map((app) => app.name);
+    expect(missing, 'adoption-contract requires sibling CodeRight, HeardRight, ViewRight, MailRight and ScrapeRight checkouts').toEqual([]);
+  });
   for (const app of apps) {
-    // These guards read sibling app checkouts next to the RightKit repo; a clean
-    // clone (release publish) has none, so the guard is skipped there, not failed.
-    // The local publish gate sets RIGHTKIT_ISOLATED_CHECKOUT=1 for the same reason: a package
-    // publish is not blocked by a consumer's state. Each app's own release gate still enforces
-    // this contract (packages/release qa-contract.mjs / qa-control-scan.mjs).
-    const isolated = process.env.RIGHTKIT_ISOLATED_CHECKOUT === '1';
-    it.skipIf(isolated || !fs.existsSync(path.join(app.root, 'package.json')))(`${app.name} declares an isolated QA lane without enabling it in release scripts`, () => {
+    it(`${app.name} declares an isolated QA lane without enabling it in release scripts`, () => {
       const packageJson = JSON.parse(fs.readFileSync(path.join(app.root, 'package.json'), 'utf8')) as {
         scripts?: Record<string, string>;
         dependencies?: Record<string, string>;

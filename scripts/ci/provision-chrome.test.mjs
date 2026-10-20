@@ -22,8 +22,11 @@ function install(root, sha256) {
 
 test("needsChrome selects only units that drive Chrome", () => {
   assert.equal(needsChrome({ npm: { test: ["packages/qa"] }, rust: { test: [] } }), true);
+  assert.equal(needsChrome({ npm: { test: ["packages/qa-chrome"] }, rust: { test: [] } }), true);
+  assert.equal(needsChrome({ npm: { test: ["packages/settings-ui"] }, rust: { test: [] } }), true);
+  assert.equal(needsChrome({ npm: { test: ["packages/onboarding"] }, rust: { test: [] } }), true);
   assert.equal(needsChrome({ npm: { test: [] }, rust: { test: ["rightkit-browser"] } }), true);
-  assert.equal(needsChrome({ npm: { test: ["packages/ax"] }, rust: { test: ["rightkit-file-watch"] } }), false);
+  assert.equal(needsChrome({ npm: { test: ["packages/ax", "packages/legal-ui"] }, rust: { test: ["rightkit-file-watch"] } }), false);
   assert.equal(needsChrome({ npm: { test: [] }, rust: { test: [] } }), false);
 });
 

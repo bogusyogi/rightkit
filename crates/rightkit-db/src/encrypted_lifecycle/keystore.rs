@@ -5,8 +5,9 @@
 //! maps the methods to its rotation API (`begin_rotation`, `pending_rotation`,
 //! `commit_rotation_of`, `abort_rotation_of`) and its recovery and legacy accounts.
 //!
-//! The workflow never assumes a method is atomic. It reads state back after every write, including
-//! after an `Err`, and classifies what actually happened.
+//! The workflow never assumes a method is atomic. After a settled write it reads state back,
+//! including after an `Err`. `Unsettled` means the mutation can still run, so transient readback
+//! cannot authorize rollback or destruction of retained keys.
 
 use std::fmt;
 use std::time::Duration;
@@ -25,6 +26,9 @@ pub enum KeyStoreErrorKind {
     Unavailable,
     /// The stored item is malformed.
     Corrupt,
+    /// A mutation exceeded its bounded wait and may still change storage. Reads do not prove
+    /// settlement; retain all viable keys and journal state until a later exclusive session.
+    Unsettled,
     Other,
 }
 
@@ -78,32 +82,6 @@ impl fmt::Debug for PendingKey {
     }
 }
 
-/// Holds the key store's own rotation lock until dropped. The workflow takes it after the
-/// transition guard and before any database operation (guard, then rotation lock, then DB).
-pub struct RotationLock {
-    _guard: Option<Box<dyn Send>>,
-}
-
-impl RotationLock {
-    /// A store with no lock of its own (an in-memory test double).
-    pub fn none() -> Self {
-        Self { _guard: None }
-    }
-
-    /// Wrap the real lock guard; it is released when this value drops.
-    pub fn new<G: Send + 'static>(guard: G) -> Self {
-        Self {
-            _guard: Some(Box::new(guard)),
-        }
-    }
-}
-
-impl fmt::Debug for RotationLock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("RotationLock")
-    }
-}
-
 /// Where a key that opened the database came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeySource {
@@ -123,41 +101,48 @@ pub enum KeySource {
 /// not be read (denied, unavailable, corrupt); an unreadable slot is never reported as empty.
 /// Writes may fail after partially taking effect, so the workflow always reads back.
 pub trait ProtectedKeyStore: Send + Sync {
+    /// Acquire an owned, exclusive key session after the transition guard and before DB access.
+    /// All slot access must use this capability until readback and journal settlement finish.
+    fn lock_rotation(
+        &self,
+        timeout: Duration,
+    ) -> Result<Box<dyn ProtectedKeySession + Send + 'static>, KeyStoreError>;
+}
+
+/// Exclusive access to one database's protected slots. Moving this owned capability to another
+/// thread preserves its authority. It cannot be cloned. A mutation returning `Unsettled` must
+/// keep subsequent session acquisition and slot access excluded until its worker has settled,
+/// including after this session drops; transient reads cannot prove settlement.
+pub trait ProtectedKeySession: Send {
     /// The canonical key that opens the database.
-    fn read_primary(&self) -> Result<Option<Key>, KeyStoreError>;
+    fn read_primary(&mut self) -> Result<Option<Key>, KeyStoreError>;
 
     /// The staged key of an unfinished rotation, with its revision.
-    fn read_pending(&self) -> Result<Option<PendingKey>, KeyStoreError>;
+    fn read_pending(&mut self) -> Result<Option<PendingKey>, KeyStoreError>;
 
     /// Stage `key` as pending without touching the primary key; returns its revision.
-    fn write_pending(&self, key: &Key) -> Result<PendingRevision, KeyStoreError>;
+    fn write_pending(&mut self, key: &Key) -> Result<PendingRevision, KeyStoreError>;
 
     /// Make the exact pending `revision` the primary key. The credentials adapter writes the
     /// primary key first and cleans its pending marker after, so an `Err` does not mean the
     /// primary key is unchanged; the caller reads the primary slot back.
-    fn promote_pending(&self, revision: &PendingRevision) -> Result<(), KeyStoreError>;
+    fn promote_pending(&mut self, revision: &PendingRevision) -> Result<(), KeyStoreError>;
 
     /// Remove the pending key of that exact revision. It is never the primary key.
-    fn discard_pending(&self, revision: &PendingRevision) -> Result<(), KeyStoreError>;
+    fn discard_pending(&mut self, revision: &PendingRevision) -> Result<(), KeyStoreError>;
 
     /// Read a mapped legacy staging account (`alias` is the account name the app configured).
-    fn read_legacy_staging(&self, alias: &str) -> Result<Option<Key>, KeyStoreError>;
+    fn read_legacy_staging(&mut self, alias: &str) -> Result<Option<Key>, KeyStoreError>;
 
     /// Delete the legacy staging item. Called only after canonical storage and a database reopen
     /// readback prove recovery stays possible without it.
-    fn delete_legacy_staging(&self, alias: &str) -> Result<(), KeyStoreError>;
+    fn delete_legacy_staging(&mut self, alias: &str) -> Result<(), KeyStoreError>;
 
     /// The recovery slot: the previous key, kept durably while a rotation is unproven.
-    fn read_recovery(&self) -> Result<Option<Key>, KeyStoreError>;
+    fn read_recovery(&mut self) -> Result<Option<Key>, KeyStoreError>;
 
-    fn write_recovery(&self, key: &Key) -> Result<(), KeyStoreError>;
+    fn write_recovery(&mut self, key: &Key) -> Result<(), KeyStoreError>;
 
-    fn clear_recovery(&self) -> Result<(), KeyStoreError>;
+    fn clear_recovery(&mut self) -> Result<(), KeyStoreError>;
 
-    /// The key store's own cross-process rotation lock (credentials' rotation lock). The default
-    /// takes nothing, for a store that has none. Waits up to `timeout`, then fails.
-    fn lock_rotation(&self, timeout: Duration) -> Result<RotationLock, KeyStoreError> {
-        let _ = timeout;
-        Ok(RotationLock::none())
-    }
 }

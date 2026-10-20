@@ -175,7 +175,7 @@ test("required evidence freezes every Rust feature, serial, clippy & check comma
 test("required evidence includes npm build prerequisites, root & Swift command coverage", () => {
   const packages = [{ dir: "packages/p1", name: "@rightkit/p1", scripts: { test: "node --test" } }, { dir: "packages/p2", name: "@rightkit/p2", scripts: {} }];
   assert.deepEqual(requiredShardCommands("npm:packages/p1 npm:packages/p2", { packages }), [
-    { unit: "npm:build", command: "pnpm --workspace-concurrency=1 --filter @rightkit/p1... --filter @rightkit/p2... run build" },
+    { unit: "npm:build", command: "pnpm --workspace-concurrency=1 --if-present --filter @rightkit/p1... --filter @rightkit/p2... run build" },
     { unit: "npm:packages/p1", command: "pnpm --dir packages/p1 run test" },
   ]);
   assert.deepEqual(requiredShardCommands("root:scripts root:test:characterization swift:swift/root-manifest swift:swift/RightKitSwift", { swiftTests: ["swift/RightKitSwift"] }).map((row) => row.command), ["node --test scripts/**/*.test.mjs", "pnpm run test:characterization", "swift package describe --type json", "swift build", "swift test"]);

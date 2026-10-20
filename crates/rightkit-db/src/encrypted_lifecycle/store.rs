@@ -2,7 +2,7 @@
 //! restore, and the drain and resume that every transition uses.
 
 use super::error::LifecycleError;
-use super::keystore::{Key, KeySource, KeyStoreError, PendingKey, ProtectedKeyStore};
+use super::keystore::{Key, KeySource, KeyStoreError, PendingKey, ProtectedKeySession, ProtectedKeyStore};
 use super::rotate::{recover_with_guard, Faults, NoFaults, RecoveryOutcome};
 use super::transition::{
     acquire_shared, journal_exists, next_id, JournalState, RootIdentity, StoreTransition,
@@ -249,8 +249,7 @@ pub(super) struct Slots {
 }
 
 impl Slots {
-    pub(super) fn read(cfg: &EncryptedStoreConfig) -> Self {
-        let ks = &*cfg.key_store;
+    pub(super) fn read(cfg: &EncryptedStoreConfig, ks: &mut dyn ProtectedKeySession) -> Self {
         let primary = SlotRead::from_result(ks.read_primary());
         let pending = match ks.read_pending() {
             Ok(Some(pending)) => PendingRead::Key(pending),
@@ -332,8 +331,12 @@ pub(super) struct Scan {
     pub slots: Slots,
 }
 
-pub(super) fn scan_candidates(cfg: &EncryptedStoreConfig, path: &Path) -> Scan {
-    let slots = Slots::read(cfg);
+pub(super) fn scan_candidates(
+    cfg: &EncryptedStoreConfig,
+    path: &Path,
+    ks: &mut dyn ProtectedKeySession,
+) -> Scan {
+    let slots = Slots::read(cfg, ks);
     let candidates = slots.candidates();
     let count = candidates.len();
     let mut opened = None;
@@ -403,8 +406,11 @@ enum Selection {
     Recover,
 }
 
-fn select(cfg: &EncryptedStoreConfig, accept_unclean: bool) -> Result<Selection, LifecycleError> {
-    let ks = &*cfg.key_store;
+fn select(
+    cfg: &EncryptedStoreConfig,
+    accept_unclean: bool,
+    ks: &mut dyn ProtectedKeySession,
+) -> Result<Selection, LifecycleError> {
     let path = cfg.db.effective_path();
     let journal_present = journal_exists(&cfg.db.path);
     if journal_present && !accept_unclean {
@@ -468,7 +474,7 @@ fn select(cfg: &EncryptedStoreConfig, accept_unclean: bool) -> Result<Selection,
         return Ok(Selection::Recover);
     }
     // Recovery already ran and could not clean everything up: use the first key that opens.
-    let scan = scan_candidates(cfg, &path);
+    let scan = scan_candidates(cfg, &path, ks);
     match scan.opened {
         Some((source, key)) => Ok(Selection::Ready {
             key,
@@ -500,13 +506,18 @@ pub(super) fn establish(
     let mut accept_unclean = false;
     for _ in 0..3 {
         let guard = acquire_shared(&cfg.db.path, &cfg.transition)?;
-        match select(cfg, accept_unclean)? {
+        let mut session = cfg
+            .key_store
+            .lock_rotation(cfg.transition.acquire_timeout)
+            .map_err(|error| key_store_error("rotation lock", error))?;
+        match select(cfg, accept_unclean, &mut *session)? {
             Selection::Ready {
                 key,
                 source,
                 degraded,
             } => {
                 let writer = cfg.keyed(&key).open_writer()?;
+                drop(session);
                 return Ok(Established {
                     key,
                     source,
@@ -516,6 +527,7 @@ pub(super) fn establish(
                 });
             }
             Selection::Recover => {
+                drop(session);
                 drop(guard);
                 let report = recover_with_guard(cfg, faults)?;
                 if let RecoveryOutcome::Blocked(reason) = report.outcome {
@@ -719,19 +731,32 @@ impl EncryptedStore {
         capacity: usize,
         options: ReadPoolOptions,
     ) -> Result<ManagedPool, LifecycleError> {
+        self.read_pool_with_faults(capacity, options, &NoFaults)
+    }
+
+    /// Read-pool admission with the deterministic transition-interleaving test seam.
+    #[doc(hidden)]
+    pub fn read_pool_with_faults(
+        &self,
+        capacity: usize,
+        options: ReadPoolOptions,
+        faults: &dyn Faults,
+    ) -> Result<ManagedPool, LifecycleError> {
         let cfg = self.config();
-        let db = {
-            let live = lock_recover(&self.live);
-            live.ready()?;
-            cfg.keyed(&live.key)
-        };
+        // Admission and registry insertion are one critical section with drain's mode flip.
+        // Once drain can quiesce, every admitted connection is already in its pool registry.
+        let live = lock_recover(&self.live);
+        live.ready()?;
+        let db = cfg.keyed(&live.key);
         let pool = db.open_read_pool_with(capacity, options)?;
+        faults.before_pool_registration();
         let slot = Arc::new(PoolSlot {
             capacity,
             options,
             pool: Mutex::new(Some(pool)),
         });
         lock_recover(&self.pools).push(Arc::downgrade(&slot));
+        drop(live);
         Ok(ManagedPool { slot })
     }
 
@@ -895,7 +920,12 @@ impl EncryptedStore {
         let cfg = self.config();
         let live = lock_recover(&self.live);
         live.ready()?;
-        match cfg.key_store.read_primary() {
+        // `live.guard` already holds the transition guard; acquire slots before copying.
+        let mut session = cfg
+            .key_store
+            .lock_rotation(cfg.transition.acquire_timeout)
+            .map_err(|error| key_store_error("rotation lock", error))?;
+        match session.read_primary() {
             Ok(Some(primary)) if primary.as_str() == live.key.as_str() => {}
             Ok(_) => {
                 return Err(LifecycleError::KeyStoreMismatch {
@@ -926,22 +956,6 @@ impl EncryptedStore {
     ) -> Result<RestoreReceipt, LifecycleError> {
         let cfg = self.config();
         let key = self.current_key()?;
-        match probe(
-            &cfg.db,
-            replacement,
-            &key,
-            IntegrityCheck::Off,
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ) {
-            Probe::Opens => {}
-            Probe::KeyRejected => {
-                return Err(LifecycleError::WrongDestinationKey {
-                    path: replacement.to_path_buf(),
-                    detail: "the replacement does not open with the store's key".into(),
-                })
-            }
-            Probe::Other(error) => return Err(db_unavailable(replacement, error)),
-        }
         self.drain(TransitionKind::Restore, false)?;
         let outcome = self.restore_guarded(&cfg, &key, replacement, restore);
         // A failed resume leaves the store blocked with the reason; the restore's own result stands.
@@ -961,11 +975,11 @@ impl EncryptedStore {
             &[cfg.db.path.as_path()],
             &cfg.transition,
         )?;
-        let _rotation = cfg
+        let mut session = cfg
             .key_store
             .lock_rotation(cfg.transition.acquire_timeout)
             .map_err(|error| key_store_error("rotation lock", error))?;
-        match cfg.key_store.read_primary() {
+        match session.read_primary() {
             Ok(Some(primary)) if primary.as_str() == key.as_str() => {}
             Ok(_) => {
                 return Err(LifecycleError::KeyStoreMismatch {
@@ -973,6 +987,22 @@ impl EncryptedStore {
                 })
             }
             Err(error) => return Err(key_store_error("primary", error)),
+        }
+        match probe(
+            &cfg.db,
+            replacement,
+            &key,
+            IntegrityCheck::Off,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) {
+            Probe::Opens => {}
+            Probe::KeyRejected => {
+                return Err(LifecycleError::WrongDestinationKey {
+                    path: replacement.to_path_buf(),
+                    detail: "the replacement does not open with the store's key".into(),
+                })
+            }
+            Probe::Other(error) => return Err(db_unavailable(replacement, error)),
         }
         let journal = super::transition::Journal {
             kind: TransitionKind::Restore,
@@ -1020,6 +1050,7 @@ impl EncryptedStore {
         if finished {
             let _ = transition.clear_journal();
         }
+        drop(session);
         transition.settle();
         result.map_err(LifecycleError::from)
     }

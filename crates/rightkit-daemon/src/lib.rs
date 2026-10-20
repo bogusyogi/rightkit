@@ -45,6 +45,9 @@
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
 mod app_root;
+/// Approval workflow mechanics: request binding, verified decisions, one execution claim,
+/// audit before effect (PK07-4).
+pub mod approval;
 pub mod chunk;
 mod client;
 pub mod contract;
@@ -62,11 +65,13 @@ pub mod mode;
 mod peer;
 pub mod private;
 mod record;
+mod registration;
 #[cfg(feature = "relay")]
 pub mod relay;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]
 pub mod remote;
+mod root_cutover;
 mod server;
 mod service;
 pub mod stop;
@@ -124,6 +129,14 @@ pub use record::{
     takeover_path, try_read_live_record, try_read_record, try_read_takeover, write_atomic,
     write_takeover, Allowlist, ServiceRecord, TakeoverRequest, PROTOCOL_MAJOR, PROTOCOL_MINOR,
     RANK_UNKNOWN,
+};
+pub use registration::{
+    MethodDescriptor, Registration, RegistrationError, ServiceIdentity, TransportProfile,
+};
+pub use root_cutover::{
+    CutoverContext, CutoverError, CutoverParticipant, CutoverPhase, CutoverReport, CutoverStep,
+    FsMove, ParticipantError, RecoverOutcome, RetireMode, Retired, RootCutover, RootSelection,
+    RootStatus, Settlement, CUTOVER_RECORD,
 };
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,

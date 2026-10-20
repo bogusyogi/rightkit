@@ -104,10 +104,9 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Working method
 
-1. Edit locally. Run nothing that compiles or tests.
-2. Preview the selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
-3. Push to `main` in batches. A push that arrives while a run is in progress waits; of several
-   waiting pushes GitHub may supersede older pending runs; each admitted run covers changes since its last green commit.
+1. Edit locally. Before pushing CI scripts or workflows, run `node --test "scripts/ci/*.test.mjs"` (Adrian, 2026-10-20). This Node-only preflight is local; Cargo, package test suites, installs & builds remain CI-only.
+2. Preview selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
+3. Batch reviewed fixes into one push. Superseded shared validation cancels; immutable qualification & publication runs retain their own exact candidates. Keep independent ready package qualifications concurrent, separate from shared validation. Avoid micro-pushes that discard unfinished validation & caches.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
 
 ## Two hosts, one owner

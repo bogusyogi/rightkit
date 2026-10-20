@@ -59,7 +59,7 @@ describe('Chrome sandbox access on Windows', () => {
   });
 
   // The real thing, on Windows: a fresh folder has no grant; after the installer's grant it has both.
-  it.skipIf(process.platform !== 'win32')('a fresh folder lacks the grant until the installer grants it', () => {
+  if (process.platform === 'win32') it('a fresh folder lacks the grant until the installer grants it', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'rk-sbx-'));
     try {
       const exe = path.join(dir, 'chrome.exe');

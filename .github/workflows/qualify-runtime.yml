@@ -87,7 +87,7 @@ jobs:
           RUNTIME_SOURCE: ${{ github.workspace }}/candidate
           RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
           RUNTIME_OUT: ${{ runner.temp }}/runtime-results
-        run: node harness/scripts/ci/runtime-qualify.mjs measure
+        run: node harness/scripts/ci/runtime-qualify.mjs measure-clean
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:

@@ -55,7 +55,7 @@ describe('freePort', () => {
   });
 });
 
-describe.skipIf(process.platform === 'win32')('spawnOwnedProcess registry (POSIX process groups)', () => {
+if (process.platform !== 'win32') describe('spawnOwnedProcess registry (POSIX process groups)', () => {
   it('stops the whole launched group, grandchildren included, and refuses anything it did not launch', async () => {
     const owned = spawnOwnedProcess('/bin/sh', ['-c', 'sleep 600 & echo $!; wait'], { stdio: 'pipe' });
     const grandchild = await new Promise<number>((resolve, reject) => {

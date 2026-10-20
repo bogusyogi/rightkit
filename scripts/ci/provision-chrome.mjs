@@ -63,7 +63,7 @@ export async function recordPin({ version, key, url, dryRun, fetchImpl = fetch, 
 }
 
 /** Units whose tests drive real Chrome for Testing: ordinary CI provisions the pin once per job before running any of them. */
-export const CHROME_NPM_DIRS = ["packages/qa", "packages/qa-chrome"];
+export const CHROME_NPM_DIRS = ["packages/qa", "packages/qa-chrome", "packages/settings-ui", "packages/onboarding"];
 export const CHROME_RUST_CRATES = ["rightkit-browser", "rightkit-qa", "rightkit-pdf"];
 export function needsChrome(selection) {
   return (selection?.npm?.test ?? []).some((dir) => CHROME_NPM_DIRS.includes(dir)) || (selection?.rust?.test ?? []).some((name) => CHROME_RUST_CRATES.includes(name));

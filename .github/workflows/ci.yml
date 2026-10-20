@@ -75,7 +75,7 @@ jobs:
   # Windows: one job per group of crates / npm packages (a crate's feature rows always stay together).
   # max-parallel bounds this matrix; GitHub admits jobs under account-wide concurrency.
   shards-windows:
-    needs: [plan]
+    needs: [plan, hygiene]
     if: ${{ needs.plan.outputs.windows_shard_count != '0' }}
     name: windows ${{ matrix.id }}
     runs-on: windows-2025
@@ -91,6 +91,7 @@ jobs:
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
           save-cache: ${{ github.event_name != 'pull_request' }}
@@ -115,7 +116,7 @@ jobs:
 
   # Offer all five standard macOS slots; GitHub controls account-wide admission, including closure jobs.
   shards-macos:
-    needs: [plan]
+    needs: [plan, hygiene]
     if: ${{ needs.plan.outputs.macos_shard_count != '0' }}
     name: macos ${{ matrix.id }}
     runs-on: xcode-27
@@ -131,6 +132,7 @@ jobs:
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
           save-cache: ${{ github.event_name != 'pull_request' }}
@@ -157,7 +159,7 @@ jobs:
   # Dependents of a changed crate must still compile: default features, then the crate's checkFeatureSets
   # rows (all features unless ci/gate.config.json says otherwise). Separate from the crates' own test jobs.
   closure-windows:
-    needs: [plan]
+    needs: [plan, hygiene]
     if: ${{ needs.plan.outputs.windows_closure_count != '0' }}
     name: windows ${{ matrix.id }}
     runs-on: windows-2025
@@ -173,6 +175,7 @@ jobs:
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
           save-cache: ${{ github.event_name != 'pull_request' }}
@@ -196,7 +199,7 @@ jobs:
           if-no-files-found: error
 
   closure-macos:
-    needs: [plan]
+    needs: [plan, hygiene]
     if: ${{ needs.plan.outputs.macos_closure_count != '0' }}
     name: macos ${{ matrix.id }}
     runs-on: xcode-27
@@ -212,6 +215,7 @@ jobs:
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
           save-cache: ${{ github.event_name != 'pull_request' }}

@@ -32,7 +32,8 @@
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @rightkit/qa-chrome build && pnpm run build && vitest run && node --test public-storage.test.mjs ts-register.test.mjs"
+    "test": "pnpm --filter @rightkit/qa-chrome build && pnpm run build && vitest run && node --test public-storage.test.mjs ts-register.test.mjs",
+    "test:adoption-contract": "pnpm run build && vitest run --config vitest.adoption.config.ts"
   },
   "dependencies": {
     "@rightkit/qa-chrome": "0.1.9"

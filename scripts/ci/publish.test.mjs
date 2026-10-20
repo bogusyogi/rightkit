@@ -861,7 +861,7 @@ test("build (npm) builds only the planned units and their workspace dependency c
   const args = commandBuild({ env, spawn, root });
   const builds = calls.filter((c) => c.command === "pnpm");
   assert.equal(builds.length, 1, "one pnpm build, scoped by filters");
-  assert.deepEqual(builds[0].args, ["--workspace-concurrency=1", "--filter", "@rightkit/a...", "--filter", "@rightkit/c...", "run", "build"]);
+  assert.deepEqual(builds[0].args, ["--workspace-concurrency=1", "--if-present", "--filter", "@rightkit/a...", "--filter", "@rightkit/c...", "run", "build"]);
   assert.deepEqual(args, builds[0].args);
   for (const wide of ["-r", "--recursive", "--workspace-root"]) assert.ok(!builds[0].args.includes(wide), `no ${wide}`);
   assert.ok(!builds[0].args.some((a) => a.includes("@rightkit/b")), "an unrelated package is not built");
@@ -873,7 +873,7 @@ test("build (npm) builds only the planned units and their workspace dependency c
 });
 
 test("the build closure arguments filter each named package with its dependencies and refuse anything that is not a package name", () => {
-  assert.deepEqual(pnpmBuildClosureArgs(["@rightkit/logs", "rightkit-plain", "@rightkit/logs"]), ["--workspace-concurrency=1", "--filter", "@rightkit/logs...", "--filter", "rightkit-plain...", "run", "build"]);
+  assert.deepEqual(pnpmBuildClosureArgs(["@rightkit/logs", "rightkit-plain", "@rightkit/logs"]), ["--workspace-concurrency=1", "--if-present", "--filter", "@rightkit/logs...", "--filter", "rightkit-plain...", "run", "build"]);
   assert.throws(() => pnpmBuildClosureArgs([]), /no packages to build/);
   assert.throws(() => pnpmBuildClosureArgs([undefined]), /unsafe package name/);
   for (const bad of ["--filter", "-r", "!@rightkit/a", "@rightkit/a...", "...@rightkit/a", "[origin/main]", "./packages/a", "a b", "@rightkit/a;x"]) assert.throws(() => pnpmBuildClosureArgs([bad]), /unsafe package name/, bad);
@@ -1051,7 +1051,7 @@ test("the real publish workflow holds the contract and every mutation is rejecte
   for (const required of ["dry runs share publish concurrency group", "real publishes do not share concurrency group"]) assert.ok(names.includes(required), required);
   assert.equal(doc.jobs.verify.steps.find((s) => s.name === "Cache the pinned Chrome for Testing").if.trim(), CHROME_IF);
   assert.equal(doc.jobs.verify.steps.find((s) => /provision-chrome\.mjs/.test(s.run ?? "")).if.trim(), CHROME_IF);
-  for (const required of ["Chrome cache drops React-shell coverage", "Chrome provision drops React-shell coverage"]) assert.ok(names.includes(required), required);
+  for (const required of ["Chrome cache drops React-shell coverage", "Chrome provision drops React-shell coverage", "Chrome cache drops settings-ui coverage", "Chrome provision drops settings-ui coverage", "Chrome cache drops onboarding coverage", "Chrome provision drops onboarding coverage"]) assert.ok(names.includes(required), required);
   for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
 });
 
@@ -1389,6 +1389,12 @@ test("a unit that needs unprovisioned assets must be named in allow_missing_asse
 test("ci/asset-gated.json lists every crate and package whose tests read RIGHTKIT_REQUIRE_ASSETS", () => {
   const repo = fileURLToPath(new URL("../..", import.meta.url));
   const gated = JSON.parse(fs.readFileSync(path.join(repo, "ci", "asset-gated.json"), "utf8"));
+  const provisionedNpm = new Set(["@rightkit/qa", "@rightkit/qa-chrome"]);
+  const publishWorkflow = fs.readFileSync(path.join(repo, ".github", "workflows", "publish.yml"), "utf8");
+  const gateSource = fs.readFileSync(path.join(repo, "scripts", "ci", "gate.mjs"), "utf8");
+  assert.match(publishWorkflow, /name: Provision the pinned Chrome for Testing[\s\S]*?contains\(needs\.plan\.outputs\.units, '@rightkit\/qa'\)/);
+  assert.ok("@rightkit/qa-chrome".includes("@rightkit/qa"), "the workflow's selected-unit substring condition also provisions qa-chrome");
+  assert.match(gateSource, /RIGHTKIT_REQUIRE_ASSETS:\s*"1"/, "unallowed package test runs keep strict required-assets mode");
   const reads = (dir) => {
     const hits = [];
     const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (["node_modules", "target", "dist", ".git"].includes(e.name)) continue; const full = path.join(d, e.name); if (e.isDirectory()) walk(full); else if (/\.(rs|mjs|ts|tsx|js)$/.test(e.name) && fs.readFileSync(full, "utf8").includes("RIGHTKIT_REQUIRE_ASSETS")) hits.push(full); } };
@@ -1407,7 +1413,9 @@ test("ci/asset-gated.json lists every crate and package whose tests read RIGHTKI
     const manifest = path.join(repo, "packages", entry.name, "package.json");
     if (!fs.existsSync(manifest)) continue;
     const name = JSON.parse(fs.readFileSync(manifest, "utf8")).name;
-    if (reads(path.join(repo, "packages", entry.name))) assert.ok(Object.hasOwn(gated.npm, name), `${name} reads RIGHTKIT_REQUIRE_ASSETS but is not in ci/asset-gated.json`);
+    if (reads(path.join(repo, "packages", entry.name)) && !Object.hasOwn(gated.npm, name)) {
+      assert.ok(provisionedNpm.has(name), `${name} reads RIGHTKIT_REQUIRE_ASSETS but is neither asset-gated nor provisioned by publish.yml`);
+    }
   }
 });
 

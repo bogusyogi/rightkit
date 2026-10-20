@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "publish",
+  "generatedAt": "2026-10-20T07:59:20.835Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:4a25a76f0676e28cbcf3cae8e825837a5d72730d285bbf598d3ffafb93b0ca44",
+    "host": "darwin"
+  },
+  "package": {
+    "event": "publish",
+    "id": "cargo:rightkit-transcript",
+    "ecosystem": "cargo",
+    "name": "rightkit-transcript",
+    "version": "0.4.0",
+    "sourceCommit": "cace3d40fe9ada0a1095ad115627bbfdc9e5f09e",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-transcript/rightkit-transcript-0.4.0.crate",
+    "integrity": "c735ac05b7101a2e8c350795522ad866acfe0745d39ee4c1c9c22a2eeffd14c8",
+    "archiveSha256": "c735ac05b7101a2e8c350795522ad866acfe0745d39ee4c1c9c22a2eeffd14c8",
+    "publishedAt": "2026-10-20",
+    "publisherTool": {
+      "version": "0.4.0",
+      "source": "installed-published",
+      "host": "darwin"
+    },
+    "originalPublication": null,
+    "qualifier": null,
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-transcript-0.4.0-r2b-20261020T075513Z/readback.txt",
+      "versionsJsonSection": null,
+      "archiveSha256": "c735ac05b7101a2e8c350795522ad866acfe0745d39ee4c1c9c22a2eeffd14c8"
+    },
+    "features": [],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "[] (default)",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/transcript-0.4.0-r1rows-win-cace3d40",
+        "result": "pass 57/0/0; fmt, clippy, secret scan clean"
+      },
+      {
+        "host": "darwin",
+        "features": "right-release gate rows",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/gate-final/rightkit-transcript-0.4.0.mac-qualify.log",
+        "result": "pass 57/0/0/0"
+      },
+      {
+        "host": "win32",
+        "features": "R1 closure: all-features dependents via R10 push gate (speech-client)",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-cace3d40fe9a/summary.txt",
+        "result": "exit 0"
+      },
+      {
+        "host": "win32",
+        "features": "R10 push gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-cace3d40fe9a/summary.txt",
+        "result": "all rows exit 0"
+      },
+      {
+        "host": "darwin",
+        "features": "publisher run",
+        "gateEvidence": "right-release 0.4.0 publish cargo --crate rightkit-transcript --from-evidence /Volumes/D/scratch/qual/rightkit-transcript-0.4.0-cace3d40fe9a/gate.json (Mac); log /Volumes/D/scratch/publish-transcript-0.4.0.log",
+        "result": "pass"
+      },
+      {
+        "host": "win32",
+        "features": "qualifier tools",
+        "gateEvidence": "right-release 0.4.0 --qualify-only (M) + D:/scratch/rk-exec-20261020/tools/{r1-rows.sh,registry-consumer.sh,r2b.sh} (W per gate row)",
+        "result": "pass"
+      }
+    ],
+    "runtimeBudget": "not-required (continuous=false)",
+    "packedConsumer": {
+      "ok": true,
+      "example": "transcript-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-transcript-0.4.0-registry-consumer"
+      ]
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "transcript-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-transcript-0.4.0-r2b-20261020T075513Z"
+      ]
+    },
+    "reviewer": "astra",
+    "reviewSign": {
+      "name": "RK Astra",
+      "verdict": "SIGN",
+      "artifactSha256": "c735ac05b7101a2e8c350795522ad866acfe0745d39ee4c1c9c22a2eeffd14c8",
+      "message": "Pulse e5b36c8a-003a-42ad-9d9b-b55fe58bd481",
+      "request": "D:/scratch/rk-exec-20261020/review/rightkit-transcript-0.4.0-R8.md"
+    }
+  },
+  "satisfies": []
+}

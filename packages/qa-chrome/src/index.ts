@@ -226,7 +226,11 @@ export type ProfileRemoval = 'removed' | 'not-attempted' | 'failed' | 'timed-out
 export type ChromeCloseStep = 'cdp' | 'sigterm' | 'sigkill' | 'already-exited' | 'not-attempted';
 
 export interface ChromeCloseReport {
-  /** Last shutdown phase attempted; otherwise `already-exited` for a gone launcher or `not-attempted`. */
+  /**
+   * Last shutdown phase that issued something (`cdp`, `sigterm`, `sigkill`); otherwise `already-exited` when the
+   * launcher was gone before any step, or `not-attempted`. A phase that had nothing to issue (POSIX with the
+   * launcher gone and no member of its group left, a scan that failed) does not change it.
+   */
   step: ChromeCloseStep;
   exited: boolean;
   /** True only when the profile directory was verified gone (or there was no harness profile). */
@@ -241,8 +245,10 @@ export interface ChromeCloseReport {
   profileRemoval: ProfileRemoval;
   /**
    * Pids of processes still carrying this profile's `--user-data-dir` after the close, from a
-   * process-list scan (Windows, macOS and Linux). Empty when none remain. Reported only: close()
-   * does not signal them on POSIX; on Windows they are forced by native identity (pid plus creation time) before the report is built.
+   * process-list scan (Windows, macOS and Linux). Empty when none remain. Before the report is built, Windows
+   * forces them by native identity (pid plus creation time). POSIX signals only while the launcher remains owned;
+   * processes surviving an exited launcher remain diagnostic leftovers.
+   * A Windows row whose identity could not be verified is not listed; it sets `livenessUnknown` instead.
    */
   leftoverPids: number[];
   /**
@@ -253,8 +259,9 @@ export interface ChromeCloseReport {
   durationMs: number;
   /**
    * Optional, present only when true. The close could not establish that the browser is gone: a liveness
-   * query or the final profile scan failed or timed out, or the launcher's exit was never seen while the
-   * profile scan listed nothing. `exited` is false whenever this is set.
+   * query or the final profile scan failed or timed out, the final scan listed a process whose identity could
+   * not be verified (Windows), or the launcher's exit was never seen while the profile scan listed nothing.
+   * `exited` is false whenever this is set.
    */
   livenessUnknown?: boolean;
 }
@@ -381,8 +388,9 @@ export type LauncherLiveness = 'alive' | 'gone' | 'unknown';
 
 /**
  * OS probe for the launcher. POSIX: `kill(-pid, 0)` on its process group; ESRCH is gone, EPERM means the
- * group exists, any other error is unknown. Windows has no separate query: Node's exit bookkeeping decides
- * (see `observeLauncher`), so this reports `alive` until that records an exit.
+ * group exists, any other error is unknown. Windows: `kill(pid, 0)` on the launcher itself, which libuv's open
+ * handle pins to our process until Node records the exit; ESRCH is gone. Node's exit bookkeeping is consulted
+ * first either way (see `observeLauncher`).
  */
 function launcherLiveness(child: ChildProcess): LauncherLiveness {
   const pid = child.pid;
@@ -419,11 +427,16 @@ const SCAN_CAP_MS = 15_000;
  * A process the profile scan listed. On Windows `creation` is the process's full 100 ns creation FILETIME
  * (decimal string), read through a native handle that stayed open while the scan refreshed CIM ownership
  * metadata; the kill reopens the pid and kills only if the same FILETIME is read from the handle it will terminate,
- * so a pid reused by another process is never killed. POSIX entries carry no creation time.
+ * so a pid reused by another process is never killed. A Windows row whose identity could not be established
+ * (access denied, a CIM row that vanished or changed owner mid-check) carries `unknown: true` and no creation
+ * time: it is never killed, never read as clean, and makes the close report `livenessUnknown`. POSIX entries
+ * carry no creation time and never authorize post-launcher-exit signaling.
  */
 export interface ProfileProcess {
   pid: number;
   creation?: string;
+  /** Windows only, present only when true: listed by CIM for this profile, but its identity could not be verified. */
+  unknown?: true;
 }
 
 /**
@@ -517,13 +530,17 @@ function runWindowsPowerShell(body: string, env: Record<string, string>, timeout
 }
 
 /**
- * Windows: kill descendants by native identity. One PowerShell call for the whole batch: each pid is opened
- * with a native handle, its creation FILETIME is re-read on that same handle, and only an exact match with the
- * scanned FILETIME is terminated through that handle. A mismatch (another process now owns the pid), a gone
- * pid, or any error skips the process. Entries without a creation time are never killed. Bounded by
- * `timeoutMs` (whole ms, capped); with no positive time left nothing is spawned.
+ * Force the descendants a fresh scan listed.
+ *
+ * Windows: by native identity. One PowerShell call for the whole batch: each pid is opened with a native
+ * handle, its creation FILETIME is re-read on that same handle, and only an exact match with the scanned
+ * FILETIME is terminated through that handle. A mismatch (another process now owns the pid), a gone pid, or
+ * any error skips the process. Entries without a creation time (`unknown` rows included) are never killed.
+ * Bounded by `timeoutMs` (whole ms, capped); with no positive time left nothing is spawned.
+ * POSIX scans authorize no signals: snapshots cannot reserve a PID or process group against reuse.
  */
 export function killVerifiedProcesses(procs: readonly ProfileProcess[], timeoutMs: number): void {
+  if (process.platform !== 'win32') return;
   const timeout = spawnTimeout(timeoutMs, TASKKILL_CAP_MS);
   if (timeout <= 0) return;
   const batch = procs
@@ -571,16 +588,21 @@ const SCAN_UNKNOWN = 'UNKNOWN|';
 
 /**
  * Parse Windows scan output: `pid|creationFiletime` per live, identity-checked process, `UNKNOWN|pid` for a
- * process whose identity could not be established, then the completion marker. `null` (a failed scan) when the
- * marker is missing or any pid is unknown: a scan that cannot vouch for every listed process is never read as
- * clean, and nothing is killed from it.
+ * process whose identity could not be established, then the completion marker. `null` (a failed scan) only
+ * when the marker is missing. An unknown pid is kept as an `unknown` entry beside the verified ones: the
+ * verified processes can still be forced by identity, while the unknown one is never killed and never read as
+ * clean (the close reports `livenessUnknown` for it). One unverifiable row no longer hides every verified one.
  */
 export function parseProfileScan(stdout: string): ProfileProcess[] | null {
   const lines = stdout.split(/\r?\n/).map((line) => line.trim());
   if (!lines.includes(SCAN_COMPLETE)) return null;
-  if (lines.some((line) => line.startsWith(SCAN_UNKNOWN))) return null;
   const procs: ProfileProcess[] = [];
   for (const line of lines) {
+    if (line.startsWith(SCAN_UNKNOWN)) {
+      const unknownPid = Number(line.slice(SCAN_UNKNOWN.length));
+      if (Number.isInteger(unknownPid) && unknownPid > 0 && unknownPid !== process.pid) procs.push({ pid: unknownPid, unknown: true });
+      continue;
+    }
     const match = /^(\d+)\|(\d+)$/.exec(line);
     if (!match) continue;
     const pid = Number(match[1]);
@@ -604,8 +626,10 @@ export function parseProfileScan(stdout: string): ProfileProcess[] | null {
  * FILETIME is read from that same handle before and after the query, avoiding CIM timestamp precision loss.
  * A failed ownership query or native check makes the scan unknown; changed ownership is skipped.
  *
- * A scan that fails or times out returns `[]`, which means "unknown", not "none". `closeChromeGracefully`
- * never reads that as clean; it reports `livenessUnknown` instead.
+ * This convenience cannot tell "none" from "unknown": a scan that fails or times out also returns `[]`, and a
+ * Windows row whose identity could not be verified is listed by pid like any other. Callers that need the
+ * distinction use {@link probeProfileProcesses}, which returns `null` for a failed scan and marks unverified
+ * rows `unknown`. `closeChromeGracefully` uses that form and never reads a failed scan as clean.
  */
 export function chromeProcessesForProfile(profileDir: string): number[] {
   return (probeProfileProcesses(profileDir) ?? []).map((p) => p.pid);
@@ -625,10 +649,15 @@ export function probeProcessIdentities(rows: ReadonlyArray<{ pid: number; cimFil
     .map((r) => `${r.pid}|${r.cimFileTime}`);
   if (batch.length === 0) return [];
   const out = runWindowsPowerShell(`foreach ($e in $env:RK_QA_ROWS.Split(';')) { $f = $e.Split('|'); RkEmit $f[0] $f[1] }; '${SCAN_COMPLETE}'`, { RK_QA_ROWS: batch.join(';') }, timeout);
-  return out === null ? null : parseProfileScan(out);
+  const verifiedRows = out === null ? null : parseProfileScan(out);
+  // This identity check vouches for every caller-supplied row or for none: one unverifiable row fails the batch.
+  return verifiedRows === null || verifiedRows.some((p) => p.unknown) ? null : verifiedRows;
 }
 
-/** The same scan with failure kept distinct: `null` when the query failed, exited non-zero, timed out, hit an unverifiable pid, or had no positive time to start. */
+/**
+ * The same scan with failure kept distinct: `null` when the query failed, exited non-zero, timed out, or had no
+ * positive time to start. A Windows pid whose identity could not be verified is an `unknown` entry, not a failure.
+ */
 export function probeProfileProcesses(profileDir: string, timeoutMs: number = SCAN_CAP_MS): ProfileProcess[] | null {
   if (!profileDir) return [];
   const timeout = spawnTimeout(timeoutMs, SCAN_CAP_MS);
@@ -701,7 +730,9 @@ export interface CloseSeams {
    * remaining budget, capped. Never called once the launcher has been observed gone (any platform).
    */
   signalTree?: (child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL', timeoutMs: number) => void;
-  /** Force-kills descendants listed by a fresh scan, by native identity (pid plus creation FILETIME). Windows only. */
+  /**
+   * Force-kills descendants listed by a fresh scan by native identity (pid plus creation FILETIME). Windows only.
+   */
   killProcesses?: (procs: ProfileProcess[], timeoutMs: number) => void;
   /** Profile scan, bounded by `timeoutMs`. `null` when the query failed, timed out or hit an unknown pid. A bare pid has no creation time. */
   scanProfile?: (profileDir: string, timeoutMs: number) => Array<number | ProfileProcess> | null;
@@ -778,10 +809,18 @@ interface CloseBudget {
   left(): number;
   finalLeft(): number;
   phase(ms: number): CloseBudget;
+  /** The budget as the profile removal sees it: its `left()` includes the removal reserve the other steps may not spend. */
+  forRemoval(): CloseBudget;
 }
 
 /** Time kept back from the steps so the final scan can still run inside the budget. */
 const FINAL_OBSERVE_RESERVE_MS = 5_000;
+/**
+ * Time kept back from the shutdown steps (grace waits, forced kills, settle) so the profile removal still gets a
+ * real bound when the tree would not settle: without it a close that spent its budget forcing a hung renderer
+ * reached the removal with nothing left and reported `not-attempted`.
+ */
+const PROFILE_REMOVE_RESERVE_MS = 10_000;
 
 function phaseBudget(d: CloseDriver, parent: CloseBudget, ms: number): CloseBudget {
   // A non-finite bound means "no phase cap": the phase is bounded by its parent (the global budget) alone.
@@ -790,17 +829,32 @@ function phaseBudget(d: CloseDriver, parent: CloseBudget, ms: number): CloseBudg
     left: () => Math.min(parent.left(), Math.max(0, end - d.now())),
     finalLeft: () => parent.finalLeft(),
     phase: (next) => phaseBudget(d, phase, next),
+    forRemoval: () => parent.forRemoval(),
   };
   return phase;
 }
 
+/**
+ * Both reserves come off the steps' `left()`: `budget - final reserve - removal reserve`, each reserve at most a
+ * quarter of the budget. The removal may spend `budget - final reserve`; the final observation may spend it all.
+ */
 function makeBudget(d: CloseDriver, started: number, budgetMs: number): CloseBudget {
   const deadline = started + budgetMs;
-  const reserve = Math.min(FINAL_OBSERVE_RESERVE_MS, Math.floor(budgetMs / 4));
+  const quarter = Math.floor(budgetMs / 4);
+  const finalReserve = Math.min(FINAL_OBSERVE_RESERVE_MS, quarter);
+  const removeReserve = Math.min(PROFILE_REMOVE_RESERVE_MS, quarter);
+  const finalLeft = () => Math.max(0, deadline - d.now());
+  const removal: CloseBudget = {
+    left: () => Math.max(0, deadline - finalReserve - d.now()),
+    finalLeft,
+    phase: (ms) => phaseBudget(d, removal, ms),
+    forRemoval: () => removal,
+  };
   const root: CloseBudget = {
-    left: () => Math.max(0, deadline - reserve - d.now()),
-    finalLeft: () => Math.max(0, deadline - d.now()),
+    left: () => Math.max(0, deadline - finalReserve - removeReserve - d.now()),
+    finalLeft,
     phase: (ms) => phaseBudget(d, root, ms),
+    forRemoval: () => removal,
   };
   return root;
 }
@@ -824,31 +878,36 @@ function scanWithin(d: CloseDriver, profileDir: string, limitMs: number): Profil
 
 /**
  * Signal the launcher, bounded by the remaining budget. Never signals a launcher whose exit Node has recorded:
- * its saved pid or process group may belong to someone else by now.
+ * its saved pid or process group may belong to someone else by now. Returns whether a signal was issued.
  */
-function signalLauncher(d: CloseDriver, b: CloseBudget, child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
-  if (launcherExitRecorded(child)) return;
+function signalLauncher(d: CloseDriver, b: CloseBudget, child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): boolean {
+  if (launcherExitRecorded(child)) return false;
   const timeoutMs = spawnTimeout(b.left(), TASKKILL_CAP_MS);
-  if (timeoutMs <= 0) return;
+  if (timeoutMs <= 0) return false;
   try {
     d.signal(child, signal, timeoutMs);
   } catch { /* gone */ }
+  return true;
 }
 
 /**
- * Windows: force the descendants a fresh scan just listed, by native identity, in one call bounded by the
- * remaining budget and phase. The launcher is never among them (it is signalled through its ChildProcess
- * only). POSIX forces nothing here: it signals the process group while the group root is alive, and never
- * after it is gone.
+ * Force the descendants a fresh scan just listed, in one call bounded by the remaining budget and phase. The
+ * launcher is never among them (it is signalled through its ChildProcess or its group only). Returns whether a
+ * kill was issued; a failed scan (`null`) forces nothing.
+ *
+ * Windows: every verified row (an `unknown` row is skipped), by native identity. POSIX never forces scanned
+ * rows: while the launcher remains owned, `signalLauncher` reaches its group; after exit, a snapshot cannot
+ * prevent group-id reuse, so surviving processes remain diagnostic leftovers.
  */
-function forceDescendants(d: CloseDriver, b: CloseBudget, child: ChildProcess, fresh: readonly ProfileProcess[] | null): void {
-  if (d.platform !== 'win32' || !fresh) return;
-  const targets = fresh.filter((p) => p.pid !== child.pid);
+function forceDescendants(d: CloseDriver, b: CloseBudget, child: ChildProcess, fresh: readonly ProfileProcess[] | null): boolean {
+  if (d.platform !== 'win32' || !fresh || !child.pid) return false;
+  const targets = fresh.filter((p) => p.pid !== child.pid && !p.unknown);
   const timeoutMs = spawnTimeout(b.left(), TASKKILL_CAP_MS);
-  if (targets.length === 0 || timeoutMs <= 0) return;
+  if (targets.length === 0 || timeoutMs <= 0) return false;
   try {
     d.kill(targets, timeoutMs);
   } catch { /* gone */ }
+  return true;
 }
 
 type RemoveAttempt = 'done' | 'timed-out-terminated' | 'timed-out-running';
@@ -897,7 +956,8 @@ async function attemptRemove(d: CloseDriver, profileDir: string, ms: number, sto
 
 /**
  * Remove the harness-owned profile, retrying EBUSY/EPERM-class failures until `min(boundMs, remaining budget)`
- * passes. Every attempt, its stop wait included, ends inside that same time (the stop wait comes out of the
+ * passes; the remaining budget here includes the removal reserve the shutdown steps could not spend, so a tree
+ * that never settled still leaves the removal a real bound. Every attempt, its stop wait included, ends inside that same time (the stop wait comes out of the
  * phase, not on top of it): the removal runs off this thread (by default in a
  * separate process this close owns and terminates when the bound is spent), so a stalled or huge removal
  * cannot hold the close past its phase or the global budget. Between attempts on Windows the profile is
@@ -907,7 +967,7 @@ async function attemptRemove(d: CloseDriver, profileDir: string, ms: number, sto
  * millisecond left in the phase or the global budget (including `profileRemoveMs: 0`) nothing is attempted.
  */
 async function removeProfileDir(d: CloseDriver, b: CloseBudget, child: ChildProcess, profileDir: string, boundMs: number): Promise<ProfileRemoval> {
-  const rb = b.phase(boundMs);
+  const rb = b.forRemoval().phase(boundMs);
   let attempted = false;
   const end = (): ProfileRemoval => (!d.exists(profileDir) ? 'removed' : attempted ? 'failed' : 'not-attempted');
   for (;;) {
@@ -949,6 +1009,8 @@ async function observeLauncher(d: CloseDriver, child: ChildProcess): Promise<Lau
 interface Settling {
   settled: boolean;
   launcher: LauncherLiveness;
+  /** Present after the forced phase: whether it issued any signal or kill. */
+  forced?: boolean;
 }
 
 /** The launcher is gone and the profile scan is known to list nothing. */
@@ -974,22 +1036,26 @@ async function waitSettled(d: CloseDriver, b: CloseBudget, child: ChildProcess, 
 /**
  * Force the tree, re-issuing every 2 s until settled or `min(killBound, remaining budget)` passes. Every
  * iteration works from its own fresh observation. The launcher is signalled only while it has not been
- * observed gone, and only through its ChildProcess (Windows) or process group (POSIX). Windows forces just the
- * descendants that iteration's scan listed, by native identity; a scan that failed or hit an unverifiable pid
- * forces nothing. POSIX never signals once the group root is gone: processes still carrying the profile are
- * left for the report. Returns at once when the launcher is gone and the profile scan is clean.
+ * observed gone, and only through its ChildProcess (Windows) or process group (POSIX). Descendants are forced
+ * from that iteration's scan on Windows, every verified row by native identity. POSIX signals only while the
+ * launcher remains owned. A failed scan forces nothing. An iteration that can
+ * issue nothing (launcher gone and no verified, owned target, or an unknown scan) ends the phase at once:
+ * waiting longer here could change nothing, and the settle and the final observation still follow. Returns at
+ * once when the launcher is gone and the profile scan is clean. `forced` says whether anything was issued.
  */
 async function forceSettled(d: CloseDriver, b: CloseBudget, child: ChildProcess, profileDir: string | undefined, killBound: number): Promise<Settling> {
   const pb = b.phase(killBound);
+  let forced = false;
   for (;;) {
     const launcher = await observeLauncher(d, child);
     const scan = profileDir ? scanWithin(d, profileDir, pb.left()) : [];
-    if (launcher === 'gone' && scan?.length === 0) return { settled: true, launcher };
-    if (d.platform !== 'win32' && launcher === 'gone') return { settled: false, launcher };
-    if (launcher !== 'gone') signalLauncher(d, pb, child, 'SIGKILL');
-    forceDescendants(d, pb, child, scan);
+    if (launcher === 'gone' && scan?.length === 0) return { settled: true, launcher, forced };
+    let acted = launcher !== 'gone' && signalLauncher(d, pb, child, 'SIGKILL');
+    if (forceDescendants(d, pb, child, scan)) acted = true;
+    forced ||= acted;
+    if (!acted) return { settled: false, launcher, forced };
     const next = await waitSettled(d, pb, child, profileDir, Math.min(2_000, pb.left()));
-    if (next.settled || pb.left() <= 0) return next;
+    if (next.settled || pb.left() <= 0) return { ...next, forced };
   }
 }
 
@@ -1006,9 +1072,9 @@ async function forceSettled(d: CloseDriver, b: CloseBudget, child: ChildProcess,
  * The profile is removed as soon as the launcher is confirmed gone and a fresh scan lists nothing, without
  * waiting for the remaining grace or kill bounds.
  *
- * POSIX never signals the process group once the group root (the launcher) is observed gone: a saved group id
- * may be reused. Processes still carrying the profile are reported as `leftoverPids` (or unknown if the scan
- * fails) with `exited: false`.
+ * POSIX never signals the process group once the launcher is observed gone: a saved group id may be reused.
+ * Processes still carrying the profile are reported as `leftoverPids` (or unknown if the scan fails), with
+ * `exited: false`.
  *
  * `exited` is true only when the launcher is gone (Node's exit, or the OS probe) and the final fresh scan
  * succeeded and listed nothing. A failed or timed-out scan or probe, or a scan that met a process it could
@@ -1061,12 +1127,13 @@ export async function closeChromeGracefully(options: {
     signalLauncher(d, b, child, 'SIGTERM');
     seen = await waitSettled(d, b, child, profileDir, grace);
   }
-  // Windows: Chrome's children outlive a dead launcher, so each descendant a fresh scan lists is forced by
-  // native identity; under load one round can leave a hung renderer, so this keeps re-issuing. POSIX has
-  // nothing to force once the group root is gone.
-  if (!seen.settled && (d.platform === 'win32' || seen.launcher !== 'gone') && killBound > 0 && b.left() >= 1) {
-    step = 'sigkill';
+  // Chrome's children can outlive a dead launcher. Windows forces each descendant a fresh scan lists by native
+  // identity; POSIX signals only while its launcher remains owned. Under load one round can leave
+  // a hung renderer, so this keeps re-issuing while it has something to force. `step` records the phase only
+  // when it issued something.
+  if (!seen.settled && killBound > 0 && b.left() >= 1) {
     seen = await forceSettled(d, b, child, profileDir, killBound);
+    if (seen.forced) step = 'sigkill';
   }
   // Not settled: pids still exiting get a bounded wait, then the last scan decides. A pid still listed after
   // the bound is a leftover. A scan that never answers is unknown, not an empty profile. When settled the
@@ -1097,10 +1164,12 @@ export async function closeChromeGracefully(options: {
     const final = scanWithin(d, profileDir, b.finalLeft());
     if (final === null) {
       scanUnknown = true;
-      leftoverPids = lastKnownProfile?.map((p) => p.pid) ?? leftoverPids;
+      leftoverPids = lastKnownProfile?.filter((p) => !p.unknown).map((p) => p.pid) ?? leftoverPids;
     } else {
-      leftoverPids = final.map((p) => p.pid);
-      scanUnknown = false;
+      // A verified row is a leftover. An unknown row (Windows: listed for this profile, identity unverifiable) is
+      // neither claimed as a leftover nor read as clean: the close is unknown, as after a failed scan.
+      leftoverPids = final.filter((p) => !p.unknown).map((p) => p.pid);
+      scanUnknown = final.some((p) => p.unknown === true);
     }
   }
   observedExitingPids = observedExitingPids.filter((pid) => !leftoverPids.includes(pid));

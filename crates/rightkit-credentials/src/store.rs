@@ -150,7 +150,7 @@ impl Config {
     }
 }
 
-fn env_tripped(name: &str) -> bool {
+pub(crate) fn env_tripped(name: &str) -> bool {
     match std::env::var(name) {
         Ok(v) => !matches!(
             v.trim().to_ascii_lowercase().as_str(),
@@ -251,7 +251,8 @@ static MINT_LOCK: Mutex<()> = Mutex::new(());
 /// the in-flight table (bound store identity + the backend's native credential identity), so
 /// every `Store` reaching the same native credential takes the same rotation lock. Entries are
 /// retained for the process; rotation targets are few and long-lived.
-static ROTATION_LOCKS: Mutex<BTreeMap<TargetKey, Arc<Mutex<()>>>> = Mutex::new(BTreeMap::new());
+static ROTATION_LOCKS: Mutex<BTreeMap<TargetKey, Arc<std::sync::atomic::AtomicBool>>> =
+    Mutex::new(BTreeMap::new());
 
 /// Where a mutation of one credential target stands.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -527,7 +528,7 @@ impl Store {
             .map_err(|_| Error::Unavailable("rotation lock registry poisoned".into()))?;
         let local = locks
             .entry(key)
-            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .or_insert_with(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
             .clone();
         Ok((
             Store {

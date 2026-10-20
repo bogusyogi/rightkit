@@ -179,6 +179,11 @@ const BUILD_NAME = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0,63}$
  * pnpm arguments that build exactly the named workspace packages plus everything they depend on (`name...`
  * selects the package and its workspace dependency closure), in dependency order, one at a time. Nothing
  * outside that closure is built, so an unrelated package that does not build cannot block a publish.
+ *
+ * `--if-present` lets a selected package without a `build` script pass (a plain-JS unit such as @rightkit/release,
+ * whose closure may hold no `build` script at all, otherwise fails with ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT and
+ * nothing can be packed); a `build` script that exists and fails still fails the run. It goes before `run`:
+ * pnpm forwards options placed after the script name to the script itself.
  */
 export function pnpmBuildClosureArgs(names) {
   const unique = [...new Set(names ?? [])];
@@ -186,5 +191,5 @@ export function pnpmBuildClosureArgs(names) {
   // ".." is refused as well: pnpm reads a trailing or leading "..." as a dependency/dependent selector.
   const bad = unique.filter((name) => typeof name !== "string" || !BUILD_NAME.test(name) || name.includes(".."));
   if (bad.length) throw new Error(`refusing to build unsafe package name(s): ${bad.map(String).join(", ")}`);
-  return ["--workspace-concurrency=1", ...unique.flatMap((name) => ["--filter", `${name}...`]), "run", "build"];
+  return ["--workspace-concurrency=1", "--if-present", ...unique.flatMap((name) => ["--filter", `${name}...`]), "run", "build"];
 }

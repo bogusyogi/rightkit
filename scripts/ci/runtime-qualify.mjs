@@ -5,6 +5,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { archiveTool } from "./registry-consumer.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const CRATE = "rightkit-logs";
@@ -13,6 +14,13 @@ const SHA = /^[a-f0-9]{40}$/;
 const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const write = (file, value) => fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+const MEASURE_ENVIRONMENT = Object.freeze([
+  "PATH", "PATHEXT", "COMSPEC", "SystemRoot", "SYSTEMROOT", "WINDIR", "HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR",
+  "GITHUB_ACTIONS", "GITHUB_REF", "GITHUB_SHA", "RUNNER_NAME", "ImageVersion", "RUNTIME_SOURCE", "RUNTIME_PACKED", "RUNTIME_OUT",
+]);
+export function cleanMeasurementEnvironment(env) {
+  return Object.fromEntries(MEASURE_ENVIRONMENT.filter((name) => env[name] !== undefined).map((name) => [name, env[name]]));
+}
 function command(exe, args, cwd, options = {}) {
   const result = spawnSync(exe, args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, ...options });
   if (result.error || result.status !== 0) throw new Error(`${exe} failed: ${result.error?.message ?? result.stderr ?? result.status}`);
@@ -75,13 +83,14 @@ async function resolveCandidate(env) {
   write(path.join(packed, "runtime-context.json"), context);
   fs.appendFileSync(env.GITHUB_OUTPUT, `source_sha=${context.sourceSha}\n`);
 }
-function bindSource(source, packed) {
+function bindSource(source, packed, env = process.env) {
   const context = read(path.join(packed, "runtime-context.json"));
   const manifestBytes = fs.readFileSync(path.join(packed, "manifest.json"));
   const unit = validateManifest(JSON.parse(manifestBytes), context, packed);
   if (command("git", ["rev-parse", "HEAD"], source).trim() !== context.sourceSha) throw new Error("measured checkout differs from candidate source SHA");
   const archive = path.join(packed, unit.file);
-  const names = safeArchiveMembers(command("tar", ["-tzf", archive], source));
+  const tar = archiveTool(process.platform, env);
+  const names = safeArchiveMembers(command(tar, ["-tzf", archive], source));
   const prefix = `${CRATE}-${unit.version}/`;
   if (names.some((name) => !name.startsWith(prefix))) throw new Error("unexpected crate archive root");
   const bindings = {};
@@ -92,7 +101,7 @@ function bindSource(source, packed) {
     const rel = full.slice(unit.dir.length + 1);
     const member = `${prefix}${rel === "Cargo.toml" ? "Cargo.toml.orig" : rel}`;
     if (!names.includes(member)) throw new Error(`sealed source missing: ${full}`);
-    const sealed = command("tar", ["-xOzf", archive, member], source, { encoding: "buffer" });
+    const sealed = command(tar, ["-xOzf", archive, member], source, { encoding: "buffer" });
     const blob = command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" });
     if (!sealed.equals(blob)) throw new Error(`sealed source differs: ${full}`);
     bindings[full] = hash(blob);
@@ -116,7 +125,7 @@ export function measurementProblems(record, budget, sourceSha, host) {
 async function measure(env) {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_REF !== "refs/heads/main") throw new Error("CI main only");
   for (const name of Object.keys(env)) if ((/TOKEN|PASSWORD|SECRET|CREDENTIAL/.test(name) && env[name]) || name.startsWith("ACTIONS_ID_TOKEN")) throw new Error(`credential-like variable ${name} forbidden during measurement`);
-  const { context, unit, manifestSha256, bindings } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED);
+  const { context, unit, manifestSha256, bindings } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED, env);
   const crateDir = path.join(env.RUNTIME_SOURCE, unit.dir);
   const budget = read(path.join(crateDir, "runtime-budget.json"));
   const original = read(path.join(ROOT, unit.dir, "runtime-budget.json"));
@@ -143,8 +152,14 @@ async function measure(env) {
   write(path.join(output, "qualification.json"), receipt);
   if (receipt.problems.length) throw new Error(receipt.problems.join("; "));
 }
+function measureClean(env) {
+  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "measure"], {
+    cwd: ROOT, env: cleanMeasurementEnvironment(env), stdio: "inherit", windowsHide: true,
+  });
+  if (result.error || result.status !== 0) throw new Error(`clean measurement process failed: ${result.error?.message ?? result.status}`);
+}
 async function combine(env) {
-  const { context, unit, manifestSha256 } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED);
+  const { context, unit, manifestSha256 } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED, env);
   const crateDir = path.join(env.RUNTIME_SOURCE, unit.dir);
   const budget = read(path.join(crateDir, "runtime-budget.json"));
   const records = [];
@@ -175,8 +190,8 @@ async function combine(env) {
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const action = { resolve: resolveCandidate, measure, combine }[process.argv[2]];
-    if (!action) throw new Error("usage: runtime-qualify.mjs resolve|measure|combine");
+    const action = { resolve: resolveCandidate, measure, "measure-clean": measureClean, combine }[process.argv[2]];
+    if (!action) throw new Error("usage: runtime-qualify.mjs resolve|measure|measure-clean|combine");
     await action(process.env);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

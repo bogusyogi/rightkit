@@ -42,7 +42,7 @@ describe('QA run workspace', () => {
     expect(workspace.dataDir).not.toBe(os.homedir());
   });
 
-  it.skipIf(process.platform !== 'darwin')('ignores external broker TMPDIR for app-side paths', () => {
+  if (process.platform === 'darwin') it('ignores external broker TMPDIR for app-side paths', () => {
     const root = tempRoot();
     const spy = vi.spyOn(os, 'tmpdir').mockReturnValue('/Volumes/D');
     try {
@@ -55,7 +55,7 @@ describe('QA run workspace', () => {
     } finally { spy.mockRestore(); }
   });
 
-  it.skipIf(process.platform !== 'darwin')('keeps fallback control socket paths short even with long app keys', () => {
+  if (process.platform === 'darwin') it('keeps fallback control socket paths short even with long app keys', () => {
     const workspace = createQaWorkspace({ root: tempRoot(), appKey: 'a'.repeat(100) });
     const socket = path.join(workspace.env.TMPDIR, 'rk-12345678-control-12345678.sock');
     expect(Buffer.byteLength(socket)).toBeLessThanOrEqual(100);

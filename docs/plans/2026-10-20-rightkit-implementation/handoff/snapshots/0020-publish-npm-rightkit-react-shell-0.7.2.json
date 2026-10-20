@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "publish",
+  "generatedAt": "2026-10-20T10:52:09.705Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/append-react-shell-handoff.mjs sha256:f6edd72eea00b62595f72041193b7d9b733975eb906e57fd5286e0a349c2054e",
+    "host": "win32"
+  },
+  "package": {
+    "event": "publish",
+    "id": "npm:@rightkit/react-shell",
+    "ecosystem": "npm",
+    "name": "@rightkit/react-shell",
+    "version": "0.7.2",
+    "sourceCommit": "b2bfa82c3be12c3bd1b8a7ac19d89e07bdd68f85",
+    "archiveUrl": "https://registry.npmjs.org/@rightkit/react-shell/-/react-shell-0.7.2.tgz",
+    "integrity": "sha512-hrqucPHWDQ+VwbwX7CjB/DtD2nOmFyxiLLyYd2SchP57hvw38uwlV/jHlQVqJ01/GmLZVcdZM0rBvBXsIYpxzQ==",
+    "archiveSha256": "b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+    "publishedAt": "2026-10-20T09:56:32.802Z",
+    "publisherTool": {
+      "version": "scripts/ci/upload.mjs@b2bfa82c3be12c3bd1b8a7ac19d89e07bdd68f85 (npm 11.19.0; Node 26.8.1)",
+      "source": "source-tree-copy",
+      "host": "linux"
+    },
+    "originalPublication": null,
+    "qualifier": null,
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/react-shell-registry-readback/registry.json",
+      "versionsJsonSection": null,
+      "archiveSha256": "b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+      "nativeReceipts": [
+        {
+          "path": "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-macos-15/registry-readback-receipt.json",
+          "sha256": "55c8ce7c9fb6cd0285a6110db64b182f07c53dbf6747ca7c7220a3ba2d39e3ed"
+        },
+        {
+          "path": "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-windows-2025/registry-readback-receipt.json",
+          "sha256": "a7abba4d0ea7c52cb0d8b3d4996d048d0b39ce72ccc190a47bfcc1dbb6cbc27e"
+        }
+      ],
+      "publicationReceipt": {
+        "path": "D:/scratch/rk-exec-20261020/react-shell-publication-39403051223/publication-receipt.json",
+        "sha256": "949ecb832ad3407dace39c071255cc90ac305853b59e0eaf0dcfa086450d750d"
+      }
+    },
+    "features": [],
+    "targets": [
+      "darwin-arm64",
+      "win32-x64"
+    ],
+    "qualification": [
+      {
+        "host": "linux",
+        "features": "publication of sealed approved artifact",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/react-shell-publication-39403051223/publication-receipt.json",
+        "result": "published; registryVerified=true"
+      },
+      {
+        "host": "darwin",
+        "features": "R2b exact registry consumer: runtime imports, exports, CSS assets, strict TypeScript",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-macos-15/registry-readback-receipt.json",
+        "result": "pass; verified=true; typesVerified=true; all 3 commands exit 0; readback run 39405653064"
+      },
+      {
+        "host": "win32",
+        "features": "R2b exact registry consumer: runtime imports, exports, CSS assets, strict TypeScript",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-windows-2025/registry-readback-receipt.json",
+        "result": "pass; verified=true; typesVerified=true; all 3 commands exit 0; readback run 39405653064"
+      }
+    ],
+    "runtimeBudget": "deferred: publication/readback snapshot only; full PK09 qualification remains unclaimed",
+    "packedConsumer": {
+      "ok": false,
+      "notApplicable": null,
+      "example": null,
+      "evidence": null,
+      "missingEvidence": "No separate exact packed-consumer receipt supplied for publication 39403051223; native registry consumers recorded separately."
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "native exact-registry React Table runtime/export/CSS/TypeScript consumer",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-macos-15/registry-readback-receipt.json",
+        "D:/scratch/rk-exec-20261020/registry-readback-39405653064/registry-readback-windows-2025/registry-readback-receipt.json"
+      ]
+    },
+    "reviewer": null,
+    "reviewSign": {
+      "name": "Oracle (agent source-byte review)",
+      "reviewRef": "agent-review:/root/npm_foundation_review/39398432518/source-bytes",
+      "artifactSha256": "b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+      "approvalSource": "ci/approved-artifacts.json",
+      "qualification": "Existing approved-artifact record; no Astra/Fable identity inferred."
+    },
+    "publicationEvidence": {
+      "runId": "39403051223",
+      "runAttempt": "1",
+      "receipt": "D:/scratch/rk-exec-20261020/react-shell-publication-39403051223/publication-receipt.json",
+      "receiptSha256": "949ecb832ad3407dace39c071255cc90ac305853b59e0eaf0dcfa086450d750d"
+    }
+  },
+  "satisfies": []
+}

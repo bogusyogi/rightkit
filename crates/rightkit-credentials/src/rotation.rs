@@ -54,7 +54,8 @@
 use crate::{ConditionalDelete, Error, Result, Secret, Store};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Suffix of the marker item's account name.
@@ -128,7 +129,7 @@ pub(crate) fn lock_file_name(store: &str, credential: &str) -> String {
 /// The whole-rotation lock of one credential: the process-local mutex and, when the store has a
 /// lock directory, the cross-process lock file.
 pub(crate) struct RotationLock {
-    local: Arc<Mutex<()>>,
+    local: Arc<AtomicBool>,
     file: Option<PathBuf>,
     timeout: Duration,
 }
@@ -140,13 +141,29 @@ pub(crate) type FileHold = Arc<File>;
 
 /// Held for one begin, commit or abort; both layers release on drop, except that the lock file
 /// stays held while a worker thread of this invocation is still inside a backend call.
-pub(crate) struct RotationHeld<'a> {
+pub(crate) struct RotationHeld {
     file: Option<FileHold>,
-    _local: MutexGuard<'a, ()>,
+    _local: LocalHold,
+}
+
+/// An owned permit over the SAME per-native-credential registry entry. Unlike MutexGuard this
+/// can cross the DB trait's Send boundary; it does not change the lock identity or ordering.
+struct LocalHold(Arc<AtomicBool>);
+
+impl Drop for LocalHold {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl RotationLock {
-    pub(crate) fn new(local: Arc<Mutex<()>>, file: Option<PathBuf>, timeout: Duration) -> Self {
+    #[cfg(feature = "db-adapter")]
+    pub(crate) fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub(crate) fn new(local: Arc<AtomicBool>, file: Option<PathBuf>, timeout: Duration) -> Self {
         Self {
             local,
             file,
@@ -157,15 +174,17 @@ impl RotationLock {
     /// Take the process-local mutex, then the lock file. Both waits share one deadline of the
     /// store timeout. The mutex is always taken first, so two threads of one process queue on it
     /// and only one of them contends for the file.
-    pub(crate) fn acquire(&self) -> Result<RotationHeld<'_>> {
+    pub(crate) fn acquire(&self) -> Result<RotationHeld> {
         let now = Instant::now();
         let deadline = now
             .checked_add(self.timeout)
             .unwrap_or_else(|| now + Duration::from_secs(365 * 24 * 60 * 60));
-        let local = poll(deadline, || match self.local.try_lock() {
-            Ok(guard) => Ok(Some(guard)),
-            Err(TryLockError::WouldBlock) => Ok(None),
-            Err(TryLockError::Poisoned(_)) => Err(unavailable("rotation lock poisoned")),
+        let local = poll(deadline, || {
+            Ok(self
+                .local
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .ok()
+                .map(|_| LocalHold(Arc::clone(&self.local))))
         })?;
         let file = match &self.file {
             Some(path) => Some(Arc::new(lock_file(path, deadline)?)),
@@ -200,10 +219,8 @@ impl RotationLock {
     /// Whether the process-local mutex or the lock file is held by anyone right now. Takes
     /// each layer with a single non-blocking try and releases it at once; never waits.
     pub(crate) fn is_held(&self) -> Result<bool> {
-        match self.local.try_lock() {
-            Ok(guard) => drop(guard),
-            Err(TryLockError::WouldBlock) => return Ok(true),
-            Err(TryLockError::Poisoned(_)) => return Err(unavailable("rotation lock poisoned")),
+        if self.local.load(Ordering::Acquire) {
+            return Ok(true);
         }
         let Some(path) = &self.file else {
             return Ok(false);
@@ -226,7 +243,7 @@ impl RotationLock {
     }
 }
 
-impl RotationHeld<'_> {
+impl RotationHeld {
     /// `store` with this invocation's cross-process lock attached to its mutations. A timed-out
     /// backend call cannot be cancelled: its worker thread keeps running and may still write
     /// the primary or the marker after the caller has its `Error::Timeout`. Each mutation's
@@ -310,7 +327,7 @@ fn lock_file(path: &Path, deadline: Instant) -> Result<File> {
 /// Remove only the marker that was read: `Changed` means another writer put a different marker
 /// there, which stays. Backends without an atomic conditional delete report `Unsupported`; the
 /// plain delete is then still serialised against every rotation call by the lock.
-fn remove_marker(store: &Store, account: &str, value: &Secret) -> Result<bool> {
+pub(crate) fn remove_marker(store: &Store, account: &str, value: &Secret) -> Result<bool> {
     match store.delete_if_equals(&marker(account), value)? {
         ConditionalDelete::Deleted => Ok(true),
         ConditionalDelete::Absent | ConditionalDelete::Changed => Ok(false),
@@ -320,7 +337,7 @@ fn remove_marker(store: &Store, account: &str, value: &Secret) -> Result<bool> {
 
 /// Commit body; the caller holds the rotation lock. `expected` is the value the caller began,
 /// or `None` to commit whatever is pending (recovery).
-fn commit_locked(store: &Store, account: &str, expected: Option<&Secret>) -> Result<bool> {
+pub(crate) fn commit_locked(store: &Store, account: &str, expected: Option<&Secret>) -> Result<bool> {
     store.rotation_ready(account)?;
     let Some(new) = store.pending_rotation(account)? else {
         let Some(expected) = expected else {
@@ -439,7 +456,7 @@ mod tests {
 
     fn lock_over(path: &Path, timeout: Duration) -> RotationLock {
         // A fresh local mutex per lock: two of these are two processes as far as the file goes.
-        RotationLock::new(Arc::new(Mutex::new(())), Some(path.to_path_buf()), timeout)
+        RotationLock::new(Arc::new(AtomicBool::new(false)), Some(path.to_path_buf()), timeout)
     }
 
     /// A temp dir closed to group and others. `tempfile` may create it with the umask's default mode

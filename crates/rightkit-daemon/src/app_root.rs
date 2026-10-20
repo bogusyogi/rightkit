@@ -442,6 +442,7 @@ pub struct MigrateOptions {
     ephemeral_specials: bool,
     reparse_points: bool,
     optional_link: Option<OptionalLinkPolicy>,
+    excluded: Vec<PathBuf>,
 }
 
 impl fmt::Debug for MigrateOptions {
@@ -451,6 +452,7 @@ impl fmt::Debug for MigrateOptions {
             .field("ephemeral_specials", &self.ephemeral_specials)
             .field("reparse_points", &self.reparse_points)
             .field("optional_link_policy", &self.optional_link.is_some())
+            .field("excluded", &self.excluded)
             .finish()
     }
 }
@@ -507,6 +509,27 @@ impl MigrateOptions {
         self
     }
 
+    /// Leave the entry at `rel` (a path relative to the migrated tree) and everything below it out
+    /// of the copy. For state a lifecycle participant moves by its own means (an encrypted
+    /// database and its key, moved by [`RootCutover`](crate::RootCutover) through the participant
+    /// that owns it): copying such files as plain bytes would race the owner's relocation and
+    /// collide with its destination. An excluded path is not planned, copied, verified or
+    /// recorded; it is neither an omission nor a reason for the state to be `ReadyWithOmissions`,
+    /// so the caller that excludes a path owns moving it. Exclusions match exact components;
+    /// differently spelled case aliases are refused rather than silently skipped. `rel` must be relative and made only of
+    /// normal components; anything else is ignored (it can match no entry).
+    pub fn exclude(mut self, rel: impl Into<PathBuf>) -> Self {
+        let rel = rel.into();
+        if rel.components().next().is_some()
+            && rel
+                .components()
+                .all(|c| matches!(c, Component::Normal(_)))
+        {
+            self.excluded.push(rel);
+        }
+        self
+    }
+
     pub fn links(&self) -> bool {
         self.links
     }
@@ -528,6 +551,27 @@ impl MigrateOptions {
 
     fn is_optional(&self, rel: &Path) -> bool {
         self.optional_link.as_ref().is_some_and(|f| f(rel))
+    }
+
+    /// Exact component exclusions preserve distinct names on case-sensitive volumes.
+    /// Differently spelled case aliases fail closed rather than silently omitting material.
+    fn is_excluded(&self, rel: &Path) -> Result<bool, AppRootError> {
+        for ex in &self.excluded {
+            if rel.starts_with(ex) {
+                return Ok(true);
+            }
+            let mut have = rel.components();
+            let ambiguous = ex.components().all(|want| match (want, have.next()) {
+                (Component::Normal(w), Some(Component::Normal(h))) => {
+                    w.to_string_lossy().to_lowercase() == h.to_string_lossy().to_lowercase()
+                }
+                _ => false,
+            });
+            if ambiguous {
+                return Err(AppRootError::UnsupportedSource(rel.to_path_buf()));
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -783,6 +827,25 @@ impl AppRoot {
         opts: &MigrateOptions,
         maker: LinkMaker<'_>,
     ) -> Result<MigrationReport, AppRootError> {
+        self.migrate_current(src, opts, maker, false)
+    }
+
+    /// Cutover must compare current authoritative bytes even if a previous copy was Ready.
+    pub(crate) fn migrate_for_cutover(
+        &self,
+        src: &Path,
+        opts: &MigrateOptions,
+    ) -> Result<MigrationReport, AppRootError> {
+        self.migrate_current(src, opts, &make_link, true)
+    }
+
+    fn migrate_current(
+        &self,
+        src: &Path,
+        opts: &MigrateOptions,
+        maker: LinkMaker<'_>,
+        revalidate: bool,
+    ) -> Result<MigrationReport, AppRootError> {
         if !src.is_absolute() || src.components().any(|c| c == Component::ParentDir) {
             return Err(AppRootError::PathEscape(src.display().to_string()));
         }
@@ -806,20 +869,20 @@ impl AppRoot {
         }
         let _lock = self.lock_writer()?;
         match self.read_state(&csrc)? {
-            Some((MigrationState::Ready, state)) => {
+            Some((MigrationState::Ready, state)) if !revalidate => {
                 self.repair_marker(&csrc, &state);
                 return Ok(MigrationReport::bare(
                     MigrationOutcome::AlreadyMigrated,
                     MigrationState::Ready,
                 ));
             }
-            Some((MigrationState::ReadyWithOmissions, state)) => {
+            Some((MigrationState::ReadyWithOmissions, state)) if !revalidate => {
                 return self.retry_unresolved(&csrc, &state, maker);
             }
             // An earlier run did not finish: do the whole copy again.
-            Some((MigrationState::Incomplete, _)) => {}
+            Some(_) => {}
             None => {
-                if let Some(complete) = self.legacy_marker(&csrc) {
+                if let Some(complete) = self.legacy_marker(&csrc).filter(|_| !revalidate) {
                     let state = if complete {
                         MigrationState::Ready
                     } else {
@@ -835,6 +898,20 @@ impl AppRoot {
         // Plan first: a source this mode refuses fails here, before the destination is touched.
         let mut entries = Vec::new();
         collect(&csrc, Path::new(""), opts, &mut entries)?;
+        if revalidate {
+            // Old root remains authoritative until switch. A file removed there after an earlier
+            // copy must not survive silently in the selected tree; preserve it and refuse cutover.
+            let current: std::collections::BTreeSet<_> =
+                entries.iter().map(Entry::rel).collect();
+            let mut destination = Vec::new();
+            let destination_opts = opts.clone().exclude(WRITER_LOCK);
+            collect(&cdst, Path::new(""), &destination_opts, &mut destination)?;
+            for entry in &destination {
+                if !current.contains(entry.rel()) {
+                    return Err(AppRootError::Collision(cdst.join(entry.rel())));
+                }
+            }
+        }
         // Record the pending state before the first destination write, so that any interruption
         // (a crash included) leaves `Incomplete` on disk and never a state that reads as done.
         self.write_state(&state_json(
@@ -894,11 +971,9 @@ impl AppRoot {
                     }
                     let mut writer =
                         AtomicWriter::create_new_private(&to).map_err(io::Error::other)?;
-                    let mut source = rightkit_fs::open_read_nofollow(
-                        &from,
-                        &rightkit_fs::ReadOptions::new(),
-                    )
-                    .map_err(io::Error::other)?;
+                    let mut source =
+                        rightkit_fs::open_read_nofollow(&from, &rightkit_fs::ReadOptions::new())
+                            .map_err(io::Error::other)?;
                     io::copy(&mut source, writer.file_mut())?;
                     commit_migration_file(writer, &from, &to)?;
                 }
@@ -1204,6 +1279,15 @@ enum Entry {
     },
 }
 
+impl Entry {
+    fn rel(&self) -> &Path {
+        match self {
+            Self::Dir { rel } | Self::File { rel, .. } | Self::Link { rel, .. }
+            | Self::Special { rel, .. } | Self::Reparse { rel, .. } => rel,
+        }
+    }
+}
+
 /// What a migration did or found, as it is recorded in the state file. `Default` is the empty
 /// state of a run that has just started.
 #[derive(Default)]
@@ -1327,6 +1411,9 @@ fn collect(
             continue;
         }
         let r = rel.join(&name);
+        if opts.is_excluded(&r)? {
+            continue;
+        }
         // Windows: classify a reparse point before anything else. `DirEntry::file_type` reports a
         // junction as a directory symlink and an `AF_UNIX` socket file as a plain file; neither
         // may be treated as what std calls it.
@@ -1776,9 +1863,7 @@ fn commit_migration_file(
     match writer.commit() {
         Ok(()) => Ok(()),
         Err(FsError::AlreadyExists(_)) => {
-            if regular_entry(&fs::symlink_metadata(target)?)
-                && same_content(source, target)?
-            {
+            if regular_entry(&fs::symlink_metadata(target)?) && same_content(source, target)? {
                 Ok(())
             } else {
                 Err(AppRootError::Collision(target.to_path_buf()))
@@ -1806,7 +1891,10 @@ fn validate_metadata_target(path: &Path) -> io::Result<bool> {
         Ok(m) if regular_entry(&m) => Ok(true),
         Ok(_) => Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("migration metadata is not a regular file: {}", path.display()),
+            format!(
+                "migration metadata is not a regular file: {}",
+                path.display()
+            ),
         )),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(e),
@@ -1814,13 +1902,17 @@ fn validate_metadata_target(path: &Path) -> io::Result<bool> {
 }
 
 /// Write owned metadata through exclusive staging; never open a fixed temporary name.
-fn write_json_atomic(path: &Path, body: &serde_json::Value) -> io::Result<()> {
+pub(crate) fn write_json_atomic(path: &Path, body: &serde_json::Value) -> io::Result<()> {
     let replacing = validate_metadata_target(path)?;
     let mut writer = AtomicWriter::create_with(
         path,
         AtomicWriteOptions {
             private: true,
-            replace: if replacing { ReplaceMode::Rename } else { ReplaceMode::NoReplace },
+            replace: if replacing {
+                ReplaceMode::Rename
+            } else {
+                ReplaceMode::NoReplace
+            },
             ..Default::default()
         },
     )
@@ -1847,7 +1939,7 @@ fn link_ok(to: &Path, written: &Path, dir: bool) -> bool {
 }
 
 /// Byte-for-byte equality (stronger than a digest compare).
-fn same_content(a: &Path, b: &Path) -> Result<bool, AppRootError> {
+pub(crate) fn same_content(a: &Path, b: &Path) -> Result<bool, AppRootError> {
     let mut fa = rightkit_fs::open_read_nofollow(a, &rightkit_fs::ReadOptions::new())
         .map_err(io::Error::other)?;
     let mut fb = rightkit_fs::open_read_nofollow(b, &rightkit_fs::ReadOptions::new())
@@ -2074,8 +2166,11 @@ mod tests {
         let a = s.app_root("App").unwrap();
         let old = old_tree(d.path());
         for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
-            fs::hard_link(old.join("a.txt"), a.root().join(format!("{name}{TMP_SUFFIX}")))
-                .unwrap();
+            fs::hard_link(
+                old.join("a.txt"),
+                a.root().join(format!("{name}{TMP_SUFFIX}")),
+            )
+            .unwrap();
         }
         settled(|| a.migrate_from(&old)).unwrap();
         assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
@@ -2105,10 +2200,12 @@ mod tests {
         assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
         assert_eq!(fs::read(a.root().join("a.txt")).unwrap(), b"alpha");
         for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
-            assert!(fs::symlink_metadata(a.root().join(format!("{name}{TMP_SUFFIX}")))
-                .unwrap()
-                .file_type()
-                .is_symlink());
+            assert!(
+                fs::symlink_metadata(a.root().join(format!("{name}{TMP_SUFFIX}")))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
         }
     }
 
@@ -2172,10 +2269,13 @@ mod tests {
         for name in [MIGRATION_STATE, MIGRATION_MARKER] {
             let target = a.root().join(name);
             std::os::unix::fs::symlink(old.join("a.txt"), &target).unwrap();
-            let error = write_json_atomic(&target, &serde_json::json!({"source": "old"}))
-                .unwrap_err();
+            let error =
+                write_json_atomic(&target, &serde_json::json!({"source": "old"})).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+            assert!(fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink());
             assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
         }
     }

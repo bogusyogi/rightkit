@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedConfigCrates, changedLockNames, parseLock, reach, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
+import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, reach, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const LOCK = `version = 4
 
@@ -135,4 +135,12 @@ test("asset-gated units need allow_missing_assets, and allow_ignored / allow_mis
   assert.throws(() => selectUnits({ ...base, allowMissingAssets: ["rightkit-a"], allowIgnored: ["rightkit-zzz"] }), /allow_ignored names rightkit-zzz, which are not units/);
   assert.throws(() => selectUnits({ ...base, allowMissingAssets: ["rightkit-a", "rightkit-zzz"] }), /allow_missing_assets names rightkit-zzz, which are not units/);
   assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-b"], members, allowIgnored: ["rightkit-b"] }).rust.test, ["rightkit-b"]);
+});
+
+test("the build closure tolerates a unit without a build script and keeps --if-present ahead of the script name", () => {
+  const args = pnpmBuildClosureArgs(["@rightkit/release", "@rightkit/logs", "@rightkit/release"]);
+  assert.deepEqual(args, ["--workspace-concurrency=1", "--if-present", "--filter", "@rightkit/release...", "--filter", "@rightkit/logs...", "run", "build"]);
+  // pnpm parses options placed before the command; anything after the script name is forwarded to the script.
+  assert.ok(args.indexOf("--if-present") < args.indexOf("run"));
+  assert.equal(args.filter((a) => a === "--if-present").length, 1);
 });

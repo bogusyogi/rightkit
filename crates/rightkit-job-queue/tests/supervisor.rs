@@ -3,8 +3,8 @@
 
 use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_job_queue::{
-    CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle, LifecycleEvent,
-    ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
+    CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle,
+    LifecycleEvent, ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
     CONTRACT_VERSION_MISMATCH,
 };
 use serde_json::json;

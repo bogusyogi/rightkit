@@ -87,9 +87,12 @@ describe('resolveChromeForTesting', () => {
 });
 
 const installed = findChromeForTesting();
+if (!installed.path && process.env.RIGHTKIT_REQUIRE_ASSETS === '1') {
+  throw new Error(`Chrome for Testing is required by RIGHTKIT_REQUIRE_ASSETS=1 but is unavailable: ${installed.reason}`);
+}
 if (!installed.path) console.warn(`[chrome.test] real-browser test skipped: ${installed.reason}`);
 
-describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real Chrome for Testing)', () => {
+if (installed.path) describe('launchChromeForTesting + graceful close (real Chrome for Testing)', () => {
   it('closes through CDP, leaves no process tree, profile dir, or new code-sign clone', async () => {
     const before = new Set(codeSignCloneEntries());
     const browser = await launchChromeForTesting({ executablePath: installed.path, profilePrefix: 'rk-qa-cft-close-' });
@@ -118,7 +121,7 @@ describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real 
   }, 60_000);
 });
 
-describe.skipIf(process.platform === 'win32')('chromeProcessesForProfile on POSIX (process-list scan)', () => {
+if (process.platform !== 'win32') describe('chromeProcessesForProfile on POSIX (process-list scan)', () => {
   it('finds a leftover process whose parent was killed without cleanup, and only for the exact profile', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'rk-qa-orphan-'));
     try {
@@ -153,7 +156,7 @@ describe.skipIf(process.platform === 'win32')('chromeProcessesForProfile on POSI
   });
 });
 
-describe.skipIf(process.platform !== 'win32')('chromeProcessesForProfile on Windows (CIM command-line scan)', () => {
+if (process.platform === 'win32') describe('chromeProcessesForProfile on Windows (CIM command-line scan)', () => {
   it('finds the processes of exactly one profile: quoted, unquoted, a file inside it, never a sibling prefix', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'rk-qa-scan-'));
     const script = path.join(root, 'child.mjs');
@@ -1172,8 +1175,12 @@ describe('parseProfileScan (Windows scan output)', () => {
     expect(parseProfileScan('RK_QA_SCAN_COMPLETE')).toEqual([]);
   });
 
-  it('an UNKNOWN pid makes the whole scan unknown (null), even beside live pids', () => {
-    expect(parseProfileScan('123|638000000000000001\nUNKNOWN|456\nRK_QA_SCAN_COMPLETE\n')).toBeNull();
+  it('retains verified identities beside unknown pids without assigning identity to unknown rows', () => {
+    expect(parseProfileScan('123|638000000000000001\nUNKNOWN|456\nRK_QA_SCAN_COMPLETE\n')).toEqual([
+      { pid: 123, creation: '638000000000000001' },
+      { pid: 456, unknown: true },
+    ]);
+    expect(parseProfileScan('UNKNOWN|456\nRK_QA_SCAN_COMPLETE\n')).toEqual([{ pid: 456, unknown: true }]);
   });
 
   it('output without the completion marker is a failed scan', () => {
@@ -1270,7 +1277,7 @@ describe('closeChromeGracefully: phase caps, POSIX group root gone (injected sea
   });
 });
 
-describe.skipIf(process.platform === 'win32')('POSIX group root gone with members left (real processes)', () => {
+if (process.platform !== 'win32') describe('POSIX group root gone with members left (real processes)', () => {
   it('neither the host-exit signal nor close() signals the saved group once the root has exited; the member is reported', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'rk-qa-pgid-'));
     const profile = path.join(root, 'profile');
@@ -1315,7 +1322,7 @@ describe.skipIf(process.platform === 'win32')('POSIX group root gone with member
   }, 60_000);
 });
 
-describe.skipIf(process.platform !== 'win32')('Windows native process identity (real processes)', () => {
+if (process.platform === 'win32') describe('Windows native process identity (real processes)', () => {
   /** An idle node process whose command line carries the profile, like a Chrome child. */
   function startIdle(root: string, profile: string): ChildProcess {
     const script = path.join(root, 'child.mjs');

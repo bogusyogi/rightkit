@@ -27,6 +27,10 @@ function ruleOf(fn: () => unknown): UserDataRule {
   throw new Error('expected a UserDataViolation');
 }
 
+function linkDirectory(target: string, link: string): void {
+  fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
 describe('QA runs never touch real user data', () => {
   it('refuses every forbidden location with its rule', () => {
     const { fakeHome: h, guard } = fixture();
@@ -49,11 +53,15 @@ describe('QA runs never touch real user data', () => {
     expect(error?.message).toContain('user-folder');
   });
 
-  it.skipIf(process.platform === 'win32')('refuses external volumes, other accounts and relative paths', () => {
+  if (process.platform !== 'win32') it('refuses external volumes and other accounts', () => {
     const { guard } = fixture();
     expect(ruleOf(() => guard.checkDir('/Volumes/Backup/qa-home'))).toBe('external-volume');
     expect(ruleOf(() => guard.checkDir('/Users/someone-else/Documents/x'))).toBe('user-folder');
     expect(ruleOf(() => guard.checkDir('/Users/someone-else/Library/Application Support/ViewRight'))).toBe('real-app-data');
+  });
+
+  it('refuses relative paths on every host', () => {
+    const { guard } = fixture();
     expect(ruleOf(() => guard.checkDir('relative/path'))).toBe('unresolvable');
   });
 
@@ -70,14 +78,14 @@ describe('QA runs never touch real user data', () => {
     expect(ruleOf(() => QaLaunchGuard.forWorkspace({ home: root }))).toBe('not-a-qa-root');
   });
 
-  it.skipIf(process.platform === 'win32')('refuses a symlink out of the QA root', () => {
+  it('refuses a symlink out of the QA root', () => {
     const { fakeHome, guard, workspace } = fixture();
     const intoDocuments = path.join(workspace.home, 'looks-internal');
-    fs.symlinkSync(path.join(fakeHome, 'Documents'), intoDocuments);
+    linkDirectory(path.join(fakeHome, 'Documents'), intoDocuments);
     expect(ruleOf(() => guard.checkDir(intoDocuments))).toBe('user-folder');
     expect(ruleOf(() => guard.checkDir(path.join(intoDocuments, 'deeper/file')))).toBe('user-folder');
     const plain = path.join(workspace.home, 'to-plain');
-    fs.symlinkSync(path.join(fakeHome, 'Elsewhere'), plain);
+    linkDirectory(path.join(fakeHome, 'Elsewhere'), plain);
     expect(ruleOf(() => guard.checkDir(plain))).toBe('outside-qa-root');
   });
 

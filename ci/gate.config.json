@@ -178,6 +178,28 @@
         [
           "--features",
           "isolated-test-keychain"
+        ],
+        [
+          "--features",
+          "os-auth"
+        ],
+        [
+          "--features",
+          "db-adapter,rightkit-db/sqlcipher"
+        ],
+        [
+          "--features",
+          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
+        ]
+      ],
+      "checkFeatureSets": [
+        [
+          "--features",
+          "db-adapter,os-auth,settings-probe,isolated-test-keychain,rightkit-db/sqlcipher"
+        ],
+        [
+          "--features",
+          "db-adapter,os-auth,rightkit-db/sqlcipher-system"
         ]
       ]
     },

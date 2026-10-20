@@ -15,8 +15,6 @@
     "rightkit-vad": "ONNX Runtime and the Silero model"
   },
   "npm": {
-    "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit",
-    "@rightkit/qa-chrome": "one POSIX-only test (chromeProcessesForProfile process-list scan) skips on Windows; the Windows scan has its own test",
-    "@rightkit/qa": "sibling app checkouts for apps-contract.test.ts, platform-conditional tests, and Chrome for Testing for page.integration.test.ts (that test has no skip: provision Chrome for Testing, see docs/CI.md)"
+    "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit"
   }
 }
