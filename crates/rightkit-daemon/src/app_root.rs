@@ -521,9 +521,7 @@ impl MigrateOptions {
     pub fn exclude(mut self, rel: impl Into<PathBuf>) -> Self {
         let rel = rel.into();
         if rel.components().next().is_some()
-            && rel
-                .components()
-                .all(|c| matches!(c, Component::Normal(_)))
+            && rel.components().all(|c| matches!(c, Component::Normal(_)))
         {
             self.excluded.push(rel);
         }
@@ -901,8 +899,7 @@ impl AppRoot {
         if revalidate {
             // Old root remains authoritative until switch. A file removed there after an earlier
             // copy must not survive silently in the selected tree; preserve it and refuse cutover.
-            let current: std::collections::BTreeSet<_> =
-                entries.iter().map(Entry::rel).collect();
+            let current: std::collections::BTreeSet<_> = entries.iter().map(Entry::rel).collect();
             let mut destination = Vec::new();
             let destination_opts = opts.clone().exclude(WRITER_LOCK);
             collect(&cdst, Path::new(""), &destination_opts, &mut destination)?;
@@ -1282,8 +1279,11 @@ enum Entry {
 impl Entry {
     fn rel(&self) -> &Path {
         match self {
-            Self::Dir { rel } | Self::File { rel, .. } | Self::Link { rel, .. }
-            | Self::Special { rel, .. } | Self::Reparse { rel, .. } => rel,
+            Self::Dir { rel }
+            | Self::File { rel, .. }
+            | Self::Link { rel, .. }
+            | Self::Special { rel, .. }
+            | Self::Reparse { rel, .. } => rel,
         }
     }
 }

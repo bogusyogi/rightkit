@@ -20,7 +20,7 @@ speech = ["dep:rightkit-speech-client"]
 demo = []
 
 [dependencies]
-rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
 rightkit-automation = { version = "0.5.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 rightkit-speech-client = { version = "0.4.0", path = "../rightkit-speech-client", optional = true }

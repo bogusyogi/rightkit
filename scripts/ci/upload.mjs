@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { shippedDependencyProblems } from "./registry-spec.mjs";
 
 export const REPOSITORY = "bogusyogi/rightkit"; // moved 2026-10-17 (#342)
 export const REQUIRED_HOSTS = ["macos", "windows"];
@@ -106,7 +107,7 @@ export function checkNpmTarball({ file, name, version, dir, spawn = spawnSync })
   let pkg = null;
   try { pkg = JSON.parse(tarEntry(file, "package/package.json", spawn).toString("utf8")); } catch (error) { return { problems: [error.message], pkg: null, files }; }
   if (pkg.name !== name || pkg.version !== version) problems.push(`${path.basename(file)} holds ${pkg.name}@${pkg.version}, expected ${name}@${version}`);
-  if (/"workspace:|"file:|"link:/.test(JSON.stringify(pkg.dependencies ?? {}) + JSON.stringify(pkg.optionalDependencies ?? {}) + JSON.stringify(pkg.peerDependencies ?? {}))) problems.push(`${name}: packed package.json still holds a workspace:, file: or link: specifier`);
+  problems.push(...shippedDependencyProblems(pkg));
   problems.push(...repositoryProblems(pkg, dir));
   for (const entry of entryPoints(pkg)) if (!files.has(`package/${entry}`)) problems.push(`${name}: package.json points at ${entry}, which is not in the tarball`);
   return { problems, pkg, files };
@@ -177,6 +178,17 @@ export function loadSealed({ packDir, registry, unitsText, run = {} }) {
 }
 
 /** Both hosts must have signed off on exactly the sealed bytes of this run. Returns problems. */
+/** Validate secretless archive scan evidence as data; privileged upload never loads scanner code. */
+export function archiveScanProblems(scan, archiveSha256) {
+  const keys = ["archiveSha256", "files", "problems", "scanner", "schema", "status", "violations"];
+  if (!scan || typeof scan !== "object" || Array.isArray(scan) || JSON.stringify(Object.keys(scan).sort()) !== JSON.stringify(keys)) return ["archiveScan proof is missing or malformed"];
+  if (scan.schema !== 1 || scan.scanner !== "publish-cargo/scanCrateForSecrets" || scan.status !== "pass" ||
+      !/^[0-9a-f]{64}$/.test(scan.archiveSha256 ?? "") || scan.archiveSha256 !== archiveSha256 ||
+      !Number.isSafeInteger(scan.files) || scan.files < 1 || scan.files > 20_000 ||
+      !Array.isArray(scan.violations) || scan.violations.length !== 0 || !Array.isArray(scan.problems) || scan.problems.length !== 0) return ["archiveScan proof must pass with exact sealed SHA-256, positive file count & no findings"];
+  return [];
+}
+
 export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, run = {} }) {
   const problems = [];
   const docs = [];
@@ -220,6 +232,7 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
       if (!row) { bad(`no evidence for ${unit.name}`); continue; }
       if (row.version !== unit.version || row.file !== unit.file || row.sha256 !== unit.sha256) bad(`${unit.name}: it verified different bytes (${row.file} ${String(row.sha256).slice(0, 12)}) than the sealed ${unit.file} ${unit.sha256.slice(0, 12)}`);
       if (row.bytesVerified !== true) bad(`${unit.name}: the sealed bytes were not verified`);
+      for (const problem of archiveScanProblems(row.archiveScan, unit.sha256)) bad(`${unit.name}: ${problem}`);
       if (!PASS_STATUSES.includes(row.status)) bad(`${unit.name}: status ${JSON.stringify(row.status)} is not a pass`);
       if (row.status === "allowed-exclusion" && !allowExcl.has(unit.name)) bad(`${unit.name}: excluded from this host without allow_host_exclusion`);
       if (row.status === "allowed-no-test" && !allowNoTest.has(unit.name)) bad(`${unit.name}: has no test script and is not named in allow_no_test`);

@@ -337,7 +337,11 @@ pub(crate) fn remove_marker(store: &Store, account: &str, value: &Secret) -> Res
 
 /// Commit body; the caller holds the rotation lock. `expected` is the value the caller began,
 /// or `None` to commit whatever is pending (recovery).
-pub(crate) fn commit_locked(store: &Store, account: &str, expected: Option<&Secret>) -> Result<bool> {
+pub(crate) fn commit_locked(
+    store: &Store,
+    account: &str,
+    expected: Option<&Secret>,
+) -> Result<bool> {
     store.rotation_ready(account)?;
     let Some(new) = store.pending_rotation(account)? else {
         let Some(expected) = expected else {
@@ -456,7 +460,11 @@ mod tests {
 
     fn lock_over(path: &Path, timeout: Duration) -> RotationLock {
         // A fresh local mutex per lock: two of these are two processes as far as the file goes.
-        RotationLock::new(Arc::new(AtomicBool::new(false)), Some(path.to_path_buf()), timeout)
+        RotationLock::new(
+            Arc::new(AtomicBool::new(false)),
+            Some(path.to_path_buf()),
+            timeout,
+        )
     }
 
     /// A temp dir closed to group and others. `tempfile` may create it with the umask's default mode

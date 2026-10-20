@@ -1,0 +1,85 @@
+# Trusted main data admission; both native consumers use public registries without credentials.
+name: reviewed-registry-readback
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Committed schema 2 candidate ID
+        type: string
+        required: true
+      promotion_run:
+        description: Exact successful publish-reviewed numeric run ID
+        type: string
+        required: true
+permissions: {}
+jobs:
+  provenance:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      transfer_sha256: ${{ steps.prepare.outputs.transfer_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Authenticate promotion, original archives, native proofs & publication receipt
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          READBACK_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          READBACK_PROMOTION_RUN: ${{ inputs.promotion_run }}
+          READBACK_BUNDLE: ${{ runner.temp }}/reviewed-readback-bundle
+        run: node scripts/ci/reviewed-registry-readback.mjs prepare
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewed-readback-bundle
+          if-no-files-found: error
+          retention-days: 30
+  consumer:
+    needs: provenance
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [xcode-27, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: reviewed-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewed-readback-bundle
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - name: Fetch exact public registry archives & run committed standalone examples
+        env:
+          READBACK_BUNDLE: ${{ runner.temp }}/reviewed-readback-bundle
+          READBACK_OUTPUT: ${{ runner.temp }}/reviewed-readback-output
+          READBACK_TRANSFER_SHA256: ${{ needs.provenance.outputs.transfer_sha256 }}
+        run: node scripts/ci/reviewed-registry-readback.mjs consume
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: reviewed-registry-readback-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewed-readback-output
+          if-no-files-found: error
+          retention-days: 30

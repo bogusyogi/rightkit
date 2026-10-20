@@ -33,7 +33,7 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 [dependencies]
 rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).

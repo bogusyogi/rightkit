@@ -1,7 +1,8 @@
 # RightKit CI
 
 RightKit CI runs in GitHub Actions on Windows & macOS. Pushes to `main` & pull requests run
-selected package qualification in independent jobs; publication uses separate `publish.yml` jobs.
+selected package qualification in independent jobs. `publish.yml` qualifies sealed archives;
+`publish-reviewed.yml` promotes committed, reviewed candidates.
 The public-repository guard rejects private forks.
 
 ## Layout
@@ -19,8 +20,10 @@ The public-repository guard rejects private forks.
 | `ci/shards.json` | Shard sizes & units that always get a job of their own |
 | `ci/gate.config.json` | Per-crate feature sets, extra paths, serial runs, host limits |
 | `ci/known-red.json` | Units that are red today, per host, each with a reason |
-| `.github/workflows/publish.yml` | Manual-dispatch publication of npm packages and crates; see "Publishing" |
-| `scripts/ci/publish.mjs` | Plans, packs and publishes for `publish.yml`; records receipts in the ledger |
+| `.github/workflows/publish.yml` | Manual qualification: pack once, verify sealed archives on both native hosts |
+| `.github/workflows/publish-reviewed.yml` | Promote a committed candidate without rebuilding |
+| `scripts/ci/publish.mjs` | Qualification planning, packing, verification & receipt-ledger import |
+| `scripts/ci/reviewed-candidate.mjs`, `scripts/ci/upload.mjs` | Authenticate candidate provenance, enforce approvals & upload sealed bytes |
 
 ## What runs
 
@@ -53,9 +56,10 @@ Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
 | `plan` | Linux | `scripts/ci/ci-plan.mjs`: asks `gate.mjs --plan --host <os>` what Windows and macOS each have to verify (each OS against its own last-green marker; a pull request against its merge base), then cuts that into the jobs below |
 | `shards-windows`, `shards-macos` | one job per shard | `gate.mjs --select "<tokens>" --steps test`: tests, clippy and every feature row of the selected crates; npm package tests; root suites; each Swift package. `fail-fast: false`, so one red shard never hides another |
 | `closure-windows`, `closure-macos` | up to 4 jobs per OS | `--steps closure`: every dependent of a changed crate is compiled with default features and with its `checkFeatureSets` rows (all features unless the config says otherwise) |
-| `hygiene` | Linux | RightKit ownership; `--steps lock,fmt` (Cargo.lock check, rustfmt) for every selected crate; the secret scan (`scripts/ci/secret-scan.mjs`, the publication gate's scan) of every selected crate; the owner dependency graphs |
-| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's last-green marker to this commit when everything that OS had to verify, and hygiene, passed |
-| `summary` | Linux | The one required check: fails unless the guard, the plan and hygiene passed and every other job passed or was skipped because the plan needed none of it |
+| `hygiene` | Linux | Required `--steps lock,fmt` for selected crates & shared secret scan of selected crate/package sources; installs frozen release dependency closure with lifecycle scripts disabled |
+| `ownership` | Linux | Independent required ownership validation; advisory dependency graphs follow without delaying native qualification |
+| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's last-green marker to this commit when required host proof, hygiene & ownership pass |
+| `summary` | Linux | The one required check: fails unless guard, plan, hygiene & ownership pass and every other job passed or was skipped because the plan needed none of it |
 
 How units are cut: a crate is never split, so all of its feature rows share one job and one target directory. Crates are packed
 into groups of about 12 build commands (`rustWeight` in `shards.mjs`: test rows, doubled for a serial rerun, plus clippy and the
@@ -65,12 +69,14 @@ npm packages are grouped six to a job; each job builds only its packages' worksp
 Swift root-manifest check share the `root` job. `ci/shards.json` can change the sizes (`rustTargetWeight`, `npmTargetWeight`,
 `closureChunkSize`, `closureMaxJobs`) or pin units to their own job (`solo`).
 
-Concurrency: Windows matrices cap shard jobs at 8 & closure jobs at 4; macOS caps them at 3 & 2.
+Concurrency: Windows matrices cap shard jobs at 12 & closure jobs at 4; macOS caps them at 5 & 2.
 GitHub admits jobs under account-wide runner limits; these caps do not reserve capacity for other workflows.
 
-Each OS has its own last-green marker (restored by `plan`, advanced by `mark-green-<os>`).
-A red run repeats required units until they pass. Known-red labels remain visible in gate reports;
-aggregate command proof still requires successful results. The marker cache path changed with the sharding, so the first run after the change is a full run.
+Each OS uses authenticated successful `mark-green-<os>` job history, resolved by `last-green.mjs`.
+Resolver checks repository, workflow, main push, exact attempt, full commit ancestry & compatible
+shared harness/toolchain inputs. Missing or uncertain history selects full coverage; cache entries
+never prove green. A red run repeats required units until they pass. Known-red labels remain visible;
+aggregate command proof still requires successful results.
 The aggregate check is `summary`; branch protection must select it when replacing former per-OS `ci` checks.
 Summary requires every prerequisite, accepts matrix skips only for an explicit zero plan count, & checks every planned
 shard report against commit, host, selection & steps. Plan freezes every required command; reports must contain
@@ -106,7 +112,7 @@ gate report names it under "Now green" for removal in next commit.
 
 1. Edit locally. Before pushing CI scripts or workflows, run `node --test "scripts/ci/*.test.mjs"` (Adrian, 2026-10-20). This Node-only preflight is local; Cargo, package test suites, installs & builds remain CI-only.
 2. Preview selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
-3. Batch reviewed fixes into one push. Superseded shared validation cancels; immutable qualification & publication runs retain their own exact candidates. Keep independent ready package qualifications concurrent, separate from shared validation. Avoid micro-pushes that discard unfinished validation & caches.
+3. Batch reviewed fixes into one push. Active `main` validation finishes; its single pending slot coalesces newer pushes to latest pending commit. Superseded PR validation cancels. Independent qualification runs remain concurrent; promotion uses a separate global queue. Avoid micro-pushes that discard pending validation.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
 
 ## Two hosts, one owner
@@ -117,188 +123,165 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
-`publish.yml` is the hosted publication route: manual dispatch, from
-`main` of the public repository, one registry per run. Bytes are built once, then only moved.
+Publication has two dispatches from `main` of public `bogusyogi/rightkit`: qualify once,
+then promote approved original bytes. Builds, package tests & publication stay in Actions;
+local-build exceptions do not authorize local execution under current CI-only instruction.
 
 ```bash
-gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa" -f dry_run=true
-gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-child-process" -f dry_run=false
+gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa"
+gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-child-process"
 ```
 
-`units` is a space-separated list of package or crate names. Do a `dry_run=true` run first; the real
-run is the same dispatch with `dry_run=false`. **Nothing waits for approval**: the `release`
-environment has no required reviewers, so a real run uploads as soon as its checks pass (see "What
-protects a publication" below).
+`units` is a space-separated, dependency-first list; one registry per qualification run.
+`publish.yml` has no `dry_run` dispatch input & never uploads to a registry. It packs once,
+then Windows (`windows-2025`) & macOS (`xcode-27`) verify those sealed archives.
+Its per-run concurrency group permits independent qualifications concurrently.
 
-**Conditional local publish.** Local publication requires an explicit committed local-build grant;
-this checkout has no `.rightkit-local-build.json`. With an applicable grant, supported commands are:
-`right-release publish npm --package @rightkit/<name> --local` or
-`right-release publish cargo --crate <name> --local`. `--local` refuses unless the committed
-`.rightkit-local-build.json` (repository `bogusyogi/rightkit`, `allow: "build-test-publish"`) is present, the host is
-macOS or Windows (a crate publishes from either; `publish npm --local` needs the macOS Keychain token and stays on the
-Mac), the unit's directory is clean at a resolvable HEAD, and the version is not yet on the registry. It then runs the
-unit's own CI commands from `ci/gate.config.json` (a unit in `ci/asset-gated.json` runs with
-`RIGHTKIT_REQUIRE_ASSETS=0` and its skipped count is recorded; any other unit runs strict), packs the artifact
-(`pnpm pack` / `cargo package --locked`), and writes the normal gate evidence to `release-evidence/gate/`: one receipt
-for the publishing host (operator `agent (local-build grant)`), a `darwin` run with `hostPolicy: "darwin-only"` on the
-Mac or a `win32` run with `hostPolicy: "win32-only"` on Windows, and the grant as the reason. The existing
-`enforcePublicationGate` and the existing publisher (`publishGatedTarball`, or the `publish cargo` flow) then run on that
-evidence. No test or evidence step can be skipped. Windows publishes with the credential Cargo stores in
-`~/.cargo/credentials.toml` (no token is passed, read or logged), so the Mac and the Dell can publish different crates of a
-batch in parallel.
+After R8 Astra signoff on exact diff, commit both approval layers in `ci/approved-artifacts.json` (schema 2):
 
-**Qualify on one host, publish from another (cargo).** Run
-`right-release publish cargo --crate <name> --local --qualify-only --bundle <new-bundle-dir>` on source host.
-This single-crate command runs configured tests, feature checks, clippy, formatting, secret scan &
-`cargo package --locked` verification, then exports `.crate` bytes & `gate.json` without uploading.
-Transfer that bundle to upload host at identical HEAD, then run
-`right-release publish cargo --crate <name> --from-evidence <copied-bundle-dir>/gate.json`.
-Upload host validates exact HEAD, version, complete configured qualification & artifact proof, reusing source host's
-recorded host policy. It repacks without recompiling & refuses any archive hash mismatch before publishing with its
-own Cargo credential. Runtime-budget, package-content, secret-scan & registry-readback checks remain enforced.
+- `artifacts`: every unit's registry, name, version & archive SHA-256, with reviewer & review reference.
+- `candidates`: immutable candidate ID, original source SHA, qualification run ID/attempt/workflow ID,
+  sealed manifest SHA-256, registry, ordered units & exact allowsets; packed artifact ID/digest &
+  both native receipt artifact IDs/digests plus raw receipt SHA-256 values.
 
-**Signed helper.** An npm run that names `@rightkit/release` first runs the `sign-swap` job (`xcode-27`, `environment: release`):
-it builds `rightkit-swap` with no secret in scope, then installs the Developer ID identity from `APPLE_CERTIFICATE_BASE64`,
-`APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` and `vars.APPLE_DEVELOPER_ID`, signs and verifies it, and records its sha256.
-`pack` stays secretless: it downloads the `rightkit-swap-signed` artifact, re-checks the hash and places it at
-`packages/release/bin/darwin/rightkit-swap` before sealing. The `release` environment must hold those three secrets and variable.
+Archive approval hashes & candidate provenance hashes are both required. One cannot replace
+another. R8 review must cover original source, sealed archives, manifest & native evidence.
+Collect authenticated pins with `node scripts/ci/candidate-pins.mjs <run-id> <candidate-id> <new-scratch-directory>`.
+Collector emits an unsigned proposal after verifying source identity, artifact digests & native receipts.
+It never edits approvals, assigns reviewers or publishes; independent R8 review remains required.
 
-Four optional inputs make a skip explicit instead of silent; each name must be a unit of the request:
-
-- `allow_host_exclusion`: crates that `ci/gate.config.json` keeps off one verify host.
-- `allow_no_test`: npm packages without a `test` script.
-- `allow_ignored`: units that may have ignored tests (Rust `ignored` in a libtest summary). The count is recorded.
-- `allow_missing_assets`: units whose tests may skip for a missing asset, sibling checkout or platform (a
-  `SKIP` marker, a vitest or node:test skip). A unit listed in `ci/asset-gated.json` (tests that need models,
-  FFmpeg, a desktop session or sibling product checkouts the workflow does not provision) is refused unless it
-  is named here; naming any other unit is refused, and a named unit runs with `RIGHTKIT_REQUIRE_ASSETS=0`.
-  Every unit not named runs strict (`RIGHTKIT_REQUIRE_ASSETS=1`), so a missing asset fails instead of skipping.
-  A publish test fails when a crate or package reads `RIGHTKIT_REQUIRE_ASSETS` and is not listed.
-
-A unit that a host would skip, a package with nothing to run, or an asset-gated unit fails the plan unless it is named.
-
-| Job | Runs on | Proves | Secrets / id-token |
-|---|---|---|---|
-| `guard` | ubuntu | The ref is `refs/heads/main` and the repository is public | none |
-| `plan` | ubuntu | The publish contract (`scripts/ci/workflow-contract.mjs`, parsed structure plus mutation proofs) and the publish unit tests pass; every name matches a strict pattern and exists in the workspace (crates from `cargo metadata`, so quoted keys, inherited and renamed dependencies are resolved by Cargo); none is private, `publish = false` or in `ci/known-red.json`; versions already on the registry are skipped; each workspace dependency is on the registry at a version meeting its requirement (Cargo semantics: caret default, `~`, `1.2.*` = `>=1.2.0, <1.3.0`, comparison operators, comma lists) or earlier in the request; order is dependencies first | none |
-| `pack` | ubuntu (npm), `xcode-27` (crates) | Builds the artifacts once: npm first builds only the planned units and their workspace dependency closure (`publish.mjs build`, `pnpm --filter "<name>..."`, never `pnpm -r`), then `pnpm pack` tarballs, or `cargo package --locked` (which compiles and verifies each crate without any token). Seals them in `manifest.json` (name, version, size, sha256; npm also sha1 and integrity; crates also the upload metadata read from the packaged `Cargo.toml`) and uploads the artifact `publish-packed`. A packed `package.json` must name the unit, hold no `workspace:` specifier and carry the npm provenance `repository` | none |
-| `verify` | `xcode-27` **and** `windows-2025` | Downloads `publish-packed` and re-hashes it. `gate.mjs --registry <r> --units "<names>"` builds (npm: the planned units and their workspace dependency closure only) and tests exactly the planned units and READS the runners' own results (`test result:` per libtest binary, node:test and vitest summaries, `SKIP` markers with or without a prefix, line-buffered so a marker split across stream chunks counts): a unit passes only when every one of its test commands (each feature set and serial rerun) itself executed a positive count (the total is a summary, never pooled) and no ignored or skipped test the allow inputs did not name; a unit with no test step, a host exclusion or missing test script not named, and a red unit all fail. Then `publish.mjs verify` checks the sealed bytes (npm: name, version, entry points exist in the tarball, provenance `repository`; crates: every file equals the commit's blob and `Cargo.toml.orig` equals the crate's own manifest) and **consumes them**: npm installs the sealed tarballs of the request together (`npm install --ignore-scripts`, dependencies from the registry) into a scratch project and proves every `main`/`module`/`types`/`bin`/`exports` target exists and each exports subpath resolves and each JS entry imports without throwing (a package that cannot import in plain Node declares `rightkit.publishCheck.skipImport` in `package.json`; it is still resolved), then **runs every declared `bin` from the installed copy** with the safe read-only command the package declares under `rightkit.publishCheck.binSmoke` (an argument array expecting exit 0, or `{ args, exitCode, output }` for a CLI whose only safe call prints its usage; an undeclared bin, a stray declaration or a wrong exit code fails the unit); crates extract each sealed `.crate`, require the packaged `Cargo.toml` to reproduce the sealed upload metadata, and run `cargo check` on the packaged crate (`--locked` when it ships a `Cargo.lock` and needs no sibling patch; unpublished siblings of the same request are patched in from their sealed crates; a host-excluded crate is not built there). It writes this host's receipt, bound to the manifest hash, run id and attempt, with the executed, ignored and skipped counts and the consumer report. | none |
-| `seal-check` | ubuntu | `upload.mjs run --dry-run`: requires every sealed unit to match a reviewer-approved entry in `ci/approved-artifacts.json` (name, version, sha256), re-hashes the sealed bytes, requires both hosts' receipts to name the same manifest, commit and run, re-checks provenance preconditions, and builds the exact publish commands and request bodies without sending them. Runs for dry and real dispatches | none |
-| `upload` | ubuntu, `environment: release`, only when `dry_run=false` | Fresh runner; checks out only `scripts/ci/upload.mjs` and `ci/approved-artifacts.json`; installs and builds nothing; repeats the hash and receipt checks (the manifest's run id must be this run; a receipt's attempt may not predate the manifest's or exceed this attempt, and it must name the manifest run and attempt it verified); uploads the sealed bytes; compares the registry's bytes with them | `NPM_TOKEN` or `CARGO_REGISTRY_TOKEN`, and `id-token: write`: this job only |
-
-- **npm.** `npm publish <sealed .tgz> --ignore-scripts --access public --provenance --registry
-  https://registry.npmjs.org/`. Afterwards the registry's `dist.shasum` and `dist.integrity` must equal
-  the sealed tarball's. Provenance needs each package's `repository` to name
-  `https://github.com/bogusyogi/rightkit` with its own `directory`; the pack, verify and upload steps
-  check that in the packed manifest, in dry and real runs alike.
-- **Crates.** `cargo publish` cannot take a prebuilt `.crate`, and it would compile with the token in the
-  environment, so `upload.mjs` PUTs the sealed `.crate` to `https://crates.io/api/v1/crates/new` with the
-  token on that one request (`redirect: "error"`). The body is the registry web API's: a 32-bit
-  little-endian length, the JSON metadata, a 32-bit little-endian length, the `.crate` bytes. The JSON
-  comes from `cargo metadata` of the packaged manifest, and the request carries `Accept: application/json`.
-  The answer is parsed: an `errors` array (crates.io can send it with HTTP 200) or a body that is not the
-  documented JSON fails the run before anything is recorded as published, and `warnings` are logged and kept in the
-  receipt. The `.crate` sha256 must then equal the `cksum` the sparse index serves. crates.io's publish rate limits apply to a large first publication; a refusal
-  stops the run with its status.
-- **Child processes.** Every child gets an allow-listed environment (runner basics, `GITHUB_*`, `RUNNER_*`,
-  `ACTIONS_ID_TOKEN_*`), never `process.env`; only the `npm publish` child receives `NODE_AUTH_TOKEN`.
-  `pack`, `verify`, `seal-check` and the dry run refuse to start if a registry token or an OIDC request
-  token is present.
-- **Dry run.** `pack`, `verify` and `seal-check` run in full. No step references a secret, and no job in
-  the dry run requests `id-token`. `seal-check` uploads `publication-receipt-dry-run`.
-
-### What protects a publication
-
-Stated as configured, not as hoped:
-
-- **Reviewer-approved artifact list.** The `release` environment has no required reviewers, so the human gate
-  is `ci/approved-artifacts.json`: committed entries `{registry, name, version, sha256, reviewer, reviewRef}`.
-  `seal-check` (no secret) and `upload` both check out that file at the dispatched commit and `upload.mjs`
-  refuses before any registry client, request or token use unless EVERY sealed unit has an entry with the exact
-  registry, name, version and sha256. A missing, mismatched, duplicate or malformed entry, a missing or
-  malformed file, or an empty manifest refuses; approvals for units not in the run are ignored. The file path
-  is fixed relative to the script (no input or environment can name another), `workflow-contract.mjs` pins the
-  sparse checkouts and the script's gate by mutation, and an approval is added by committing the reviewed
-  sha256 (the CI pack must reproduce those bytes). Anyone who can push `main` can edit the list, so it protects
-  against an unreviewed build, not against a malicious committer: protect `ci/` with branch protection / code owners.
-- **Approval gate.** Beyond that list there is no human step: a run proceeds to `upload`
-  automatically once `guard`, `plan`, `pack`, both `verify` hosts and `seal-check` are green.
-- **Who can dispatch.** Anyone with write access to the repository can run `workflow_dispatch`, and the
-  workflow runs from `main`'s workflow file only (`guard`). That is the whole gate; a collaborator with
-  write access can publish.
-- **Secrets.** The workflow reads both tokens in the `upload` job only. `NPM_TOKEN` is an environment secret
-  of `release`, and the `release` environment's deployment branches are limited to `main`, so a workflow on
-  another branch cannot read it. `CARGO_REGISTRY_TOKEN` is a **repository secret**: it is readable by any
-  workflow job on a same-repository branch, with or without the environment, so a collaborator who can push a
-  branch can write a workflow that reads it. This is an accepted residual risk until the token moves into
-  `release`; the move needs no workflow change. These settings are stated from the owner's report; they cannot be
-  verified from this repository.
-- **Contract.** `scripts/ci/workflow-contract.mjs` runs in `plan` and asserts on the parsed workflow: the
-  `upload` job and step conditions equal exact strings (an appended `|| true` is a different condition), and any
-  use of the `secrets` context in any form (`secrets.X`, `secrets['X']`, `secrets["X"]`, `toJSON(secrets)`, a
-  bare `secrets`, `secrets: inherit`, workflow, job or step `env`/`with`) outside the two token variables of
-  the two upload steps is refused. The YAML subset parser rejects block scalars it does not model (folded `>`
-  scalars, indentation indicators, `+` chomping), anchors, aliases, tags, tabs, multi-line flow collections and
-  duplicate keys.
-- **Chrome for Testing.** `@rightkit/qa` and `@rightkit/qa-chrome` run real Chrome. `verify` installs the version
-  pinned in `ci/chrome-for-testing.json` through `scripts/ci/provision-chrome.mjs` (URL derived from the version under
-  Google's bucket, sha256 checked, cached by the pin file's hash, no secret) and sets
-  `RIGHTKIT_CHROME_FOR_TESTING_ROOT`. The workspace installer is not used because it downloads the moving Stable
-  build and does not check a digest. To fill a pin without a local download, set `version` and leave a platform's
-  `sha256` empty, then run a **dry run** that names a qa package: the step downloads to a temp file, prints
-  `CHROME_PIN <platform> <version> <sha256> <bytes>` to the log and job summary, deletes the file and fails with
-  "pin recorded above". An unpinned download is never installed or run, and a real publish refuses an empty
-  sha256 (the contract ties the step's `PUBLISH_DRY_RUN` to the plan's `dry_run`).
-  `ci/chrome-for-testing.json` also pins `headlessShell.win64` (`chrome-headless-shell-win64.zip` of the same version);
-  `provisionHeadlessShell` unpacks it beside `chrome-win64` on Windows for the `rightkit-browser` fixture, which cannot
-  run `chrome.exe` inside an AppContainer (its crashpad handler cannot create a named pipe there).
-- **Chrome for Testing in ordinary CI.** The ci gate (`scripts/ci/gate.mjs`, `chromeGate`) calls the same module
-  (`provisionForTests` in `scripts/ci/provision-chrome.mjs`) before any unit runs whenever the selection includes
-  `packages/qa`, `packages/qa-chrome`, `rightkit-browser`, `rightkit-qa` or `rightkit-pdf`, on both legs, so Mac and
-  Windows test the same pinned build instead of whatever the image carries. It installs under
-  `$RUNNER_TOOL_CACHE/rightkit-chrome-for-testing` (else `$RUNNER_TEMP`) and exports `RIGHTKIT_CHROME_FOR_TESTING_ROOT`
-  and `RIGHTKIT_CHROME_FOR_TESTING` to every later step. A directory whose `install.json` already records the pinned
-  sha256 is reused with no download, so the download happens once per job (about 200 MB on Windows, less on Mac) and
-  not at all on a persistent runner. The rendered `ci.yml` has no cache step for it and right-git offers no option
-  to add an arbitrary cache path (`ciIncremental` caches only DerivedData), so hosted runners pay the download on
-  every run that touches those units. A provisioning failure is a red `chrome:provision` unit. Publish verify is
-  unchanged: it provisions in its own step and the gate does not repeat it in `--units` mode.
-- **What the checks do stop.** A red or missing verification on either host, bytes that differ from what
-  was verified, a dependency installed or built in the privileged job, a token reaching a build step, a
-  dry run touching a credential, and a workflow edit that weakens any of this on `main` (the contract
-  fails in `plan` and in `packages/release`'s contract test). They do not stop an authorized collaborator
-  dispatching a legitimate-looking real run, or a malicious change to `main` that also changes the
-  contract.
-
-### Retrying failed jobs
-
-A re-run of failed jobs keeps the run id, so `upload` downloads the earlier attempt's `publication-receipt`
-(artifact pattern `publication-receipt`, into `sealed/previous`) and `upload.mjs` starts from it: the receipt must
-be this run's, commit and registry, real (not dry), and from an earlier attempt, else the run is refused.
-Before sending anything it asks the registry about EVERY planned unit: a unit whose exact version and sealed hash
-are already served is recorded as `published-by-earlier-attempt` (with the attempt and outcome that preceded it) and
-skipped; the same version with different bytes, a registry answer that cannot be read, or a unit the earlier
-receipt called verified that the registry no longer serves, refuses the run before any publish. Rows replaced by a
-later attempt move to `history`, so no earlier evidence is erased; each unit row carries `outcome`
-(`pending`, `published-unverified`, `published`, `published-by-earlier-attempt`, `failed`, `refused`) and the
-attempt that wrote it. An ambiguous failure (a network error after the request) stays `pending` or `failed` and the
-next attempt settles it from the registry. A crates.io index that lags a publish from the earlier attempt can show
-the crate as absent; the PUT is then refused by crates.io as already uploaded and a later retry reconciles it.
-
-### Ledger
-
-A real run uploads the artifact `publication-receipt` (`publication-receipt.json`): per unit the version,
-registry, commit SHA, tarball or crate sha256, timestamp, and whether it was published and
-byte-verified against the registry. After a real run:
+Commit approval after qualification source commit; promotion commit must descend from it.
+Dispatch only committed candidate ID:
 
 ```bash
-gh run download <run-id> --name publication-receipt --dir /tmp/rk-receipt
-node scripts/ci/publish.mjs ledger /tmp/rk-receipt/publication-receipt.json
+gh workflow run publish-reviewed.yml -f candidate_id="<committed-candidate-id>"
 ```
 
-`ledger` refuses a dry-run receipt, skips any unit that was not published and byte-verified (and fails when
-none is), and records the rest through `recordPublished` into `packages/release/rightkit-versions.json` and
-its consumer copies. It is strict: a failed write or copy refresh throws (`recordPublished(..., { strict: true })`;
-every other caller keeps log-and-continue), and it reads the ledger back, exiting non-zero unless every
-recorded version (or a later one) is present and the session-hook copy is byte-identical. Commit those files. `node packages/release/rightkit-sync.mjs` reaches the same state
-from the registries when no receipt is at hand.
+Promotion has no `dry_run` dispatch input. Its secretless `seal-check` internally runs
+`reviewed-candidate.mjs run --dry-run`; credentialed `upload` repeats admission & uploads exact
+approved archives without rebuilding. Dispatch cannot supply paths, URLs, units or wider allowsets.
+
+### Qualification batch & scheduling
+
+Until per-unit candidate/receipt slicing exists, one qualification batch must contain only
+review-clean units with compatible dependency closure. Isolate any host-held or asset-held unit
+in its own batch; never promote a clean subset from a mixed batch. Schema currently binds entire
+ordered unit list, sealed manifest & both native receipts.
+
+Promotion is serialized across registries by global concurrency group `publish`, `queue: max`
+(up to 100 pending runs), `cancel-in-progress: false`. Queue order is not a dependency scheduler:
+operator dispatches only DAG-ready candidates whose dependencies are available. Preserve every
+active promotion; qualification runs need no promotion lock.
+
+Qualification artifacts, native receipts, admission receipts & publication receipts retain 90 days.
+Promotion rejects expired or missing artifacts, mismatched digests, wrong source/run/attempt,
+failed or incomplete native jobs & altered manifests. Requalify & review after evidence expires;
+never rebuild silently under an old approval.
+
+### Qualification jobs
+
+| Job | Host | Evidence / authority |
+|---|---|---|
+| `guard` | Ubuntu | Requires `main` & public repository |
+| `plan` | Ubuntu | Parsed workflow contracts & focused CI contract tests; validates unit names, versions, dependency order, known-red status & explicit allowsets |
+| `build-swap` | `xcode-27`, when `@rightkit/release` is selected | Compiles helper without secrets; seals unsigned bytes & source/run/host provenance |
+| `sign-swap` | Fresh `xcode-27` runner | Validates same-run unsigned artifact before credential import; signs/verifies without source checkout, dependency install or compilation; only qualification job using `release` environment & signing secrets |
+| `pack` | Ubuntu for npm; `xcode-27` for crates | Builds selected dependency closure, packs once & seals name/version/size/SHA-256 in `manifest.json`; npm also seals SHA-1/integrity; crates seal packaged upload metadata |
+| `verify` | `xcode-27` & `windows-2025` | Re-hashes archives, runs selected unit gates, consumes sealed packages & writes host receipt bound to source, manifest & run/attempt |
+| `qualified` | Ubuntu | Requires successful guard, plan, pack & both-host verification with nonempty plan |
+
+`pack` stays secretless. For `@rightkit/release`, both helper jobs must succeed; a skipped signer
+cannot satisfy packing. Pack downloads signed helper, verifies its hash & includes it before sealing.
+Unsigned transfer binds source, run/attempt, workflow, native host & bytes; signing checks that binding
+before importing identity. `sign-swap` uses `APPLE_CERTIFICATE_BASE64`,
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` & `vars.APPLE_DEVELOPER_ID` in `release`.
+
+Four optional qualification inputs name requested units explicitly:
+
+- `allow_host_exclusion`: crates excluded from one native host by gate config.
+- `allow_no_test`: npm packages without a test script.
+- `allow_ignored`: units permitting recorded ignored tests.
+- `allow_missing_assets`: units listed in `ci/asset-gated.json` permitting recorded asset/platform skips;
+  these run with `RIGHTKIT_REQUIRE_ASSETS=0`. Other units run strict.
+
+Unapproved exclusions, missing scripts, ignored tests & skips fail qualification. These allowsets
+record exceptions; they do not establish contract closure or waive native runtime requirements.
+
+Sealed npm consumers install requested tarballs together into scratch projects, resolve declared
+entry points, import supported JS entries & run declared safe `binSmoke` commands. Sealed crate
+consumers check extracted archives, patch unpublished request siblings from sealed crates & check
+packaged crates. These checks do not substitute for every release qualification requirement.
+
+### Manual holds & registry equality
+
+Locked [package qualification requirements](plans/2026-10-20-rightkit-implementation/01-packages.md)
+remain controlling. Missing external-policy evidence, R7 native runtime-budget evidence for published version/features,
+dependency-closure proof or R2a automation stays manual **HOLD**. Workflow success alone does not close these requirements.
+R8 review records actual evidence & unresolved holds before candidate approval.
+
+R2a requires isolated consumers resolving through a directory registry of sealed archives before
+upload. Existing sealed-consumer checks are evidence, not a claim that complete R2a directory-registry
+automation exists. R2b consumes actual registry packages after upload. Record R2b evidence separately;
+a successful upload or checksum readback alone does not prove consumer behavior.
+
+Registry equality is mandatory. npm publication sends sealed `.tgz` with `--ignore-scripts`, public
+access & provenance; readback checks sealed SHA-1/integrity. Crates upload uses direct registry API
+PUT of sealed `.crate` & packaged metadata, avoiding token-bearing compilation; sparse-index checksum
+must match sealed SHA-256. Registry errors, unreadable responses or mismatched bytes fail publication.
+
+### Admission & credentials
+
+`reviewed-candidate.mjs` authenticates original `publish.yml` run/attempt, source repository/commit,
+workflow identity, successful required jobs & exact artifact IDs/digests through Actions API. It checks
+raw native receipt hashes, sealed manifest hash & every per-unit archive approval before promotion.
+Both admission & upload use trusted scripts/approval file from promotion commit; source package code
+is never checked out or built in privileged job.
+
+`workflow-contract.mjs` enforces qualification structure, one pack & both native hosts with no registry
+privilege. `reviewed-workflow-contract.mjs` pins promotion's candidate-only input, global queue,
+secretless admission, sparse checkout, token scope & upload dependency. Contracts reject weakened
+workflow structure; they cannot establish external repository policy or defend against a malicious
+committer who changes both workflow & contract.
+
+Trusted `main` writers own workflow, verifier & approval data. Approval records bind exact archive
+bytes to independently observed human review; reviewer/reference strings are not cryptographic
+signatures. Authenticated Actions provenance establishes artifact origin, not reviewer identity.
+The `release` environment has a `main` branch restriction & no required reviewers. Registry secret
+names were verified there; repository-level `CARGO_REGISTRY_TOKEN` was removed to prevent unrelated
+branch workflows from receiving it. Branch protection would add a separate trust boundary; it is
+not claimed by this pipeline or required by existing R8 review policy.
+Registry tokens & OIDC authority belong only to promotion `upload`; read-only Actions authentication
+is used for artifact admission. Child-process environments are allow-listed; only npm upload child
+receives npm token. Secretless admission refuses registry/OIDC credentials.
+
+### Chrome for Testing
+
+Qualification provisions pinned Chrome through `scripts/ci/provision-chrome.mjs` using
+`ci/chrome-for-testing.json`, verifies download SHA-256 & caches by pin-file hash. Empty pins fail;
+there is no dispatch dry-run pin-discovery route. Windows headless-shell pin supports
+`rightkit-browser` AppContainer fixtures. Workspace moving-Stable installer is not qualification evidence.
+
+Ordinary CI gate uses same provisioner for selected Chrome-dependent units, exports
+`RIGHTKIT_CHROME_FOR_TESTING_ROOT` & `RIGHTKIT_CHROME_FOR_TESTING`, & reuses an installation only
+when recorded digest matches pin. Provisioning failure is red `chrome:provision` evidence.
+
+### Retries & ledger
+
+Every real promotion reconciles all planned versions against registry before sending bytes. Exact
+existing bytes are recorded as `published-by-earlier-attempt`; different bytes or unreadable registry
+state refuse publication. Current reviewed workflow does not download previous-attempt receipts;
+retain those artifacts separately rather than claiming automatic receipt-history carry-forward.
+Ambiguous upload outcomes require registry reconciliation, never a guessed success.
+
+`publication-receipt` records source commit, promotion identity/candidate, versions, archive hashes &
+publication/readback outcomes. After actual publication:
+
+```bash
+gh run download <promotion-run-id> --name publication-receipt --dir D:/scratch/rk-receipt
+node scripts/ci/publish.mjs ledger D:/scratch/rk-receipt/publication-receipt.json
+```
+
+`ledger` rejects dry-run receipts & records only published, registry-verified rows through strict
+`recordPublished` into `packages/release/rightkit-versions.json` & consumer copies, then reads them
+back. Commit resulting ledger files through integration owner. Registry consumer receipts & contract
+closure evidence remain bound separately to exact published versions & hashes.

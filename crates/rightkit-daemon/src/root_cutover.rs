@@ -440,12 +440,14 @@ impl Record {
             retired: text_of("retired").map(PathBuf::from),
         };
         let mut names = BTreeSet::new();
-        if record.id.len() != 16 || !record.id.bytes().all(|b| b.is_ascii_hexdigit())
+        if record.id.len() != 16
+            || !record.id.bytes().all(|b| b.is_ascii_hexdigit())
             || record.generation == 0
             || !matches!(record.fs_move.as_str(), "none" | "tree" | "companions")
-            || record.participants.iter().any(|name| {
-                !valid_participant_name(name) || !names.insert(name)
-            })
+            || record
+                .participants
+                .iter()
+                .any(|name| !valid_participant_name(name) || !names.insert(name))
         {
             return Err(bad("invalid cutover identity, generation or participants"));
         }
@@ -493,7 +495,9 @@ fn read_record(new_root: &Path) -> Result<Option<Record>, CutoverError> {
     let record = Record::parse(&text)?;
     let actual = fs::canonicalize(new_root)?;
     if record.new_root != actual {
-        return Err(CutoverError::RecordMismatch("record names another destination".into()));
+        return Err(CutoverError::RecordMismatch(
+            "record names another destination".into(),
+        ));
     }
     check_directory(&actual, record.new_key)?;
     Ok(Some(record))
@@ -515,14 +519,20 @@ fn write_record(new_root: &Path, record: &Record) -> io::Result<()> {
 pub enum CutoverError {
     /// The old or new root cannot be used as given (missing, not a real directory, a symlink,
     /// not UTF-8, relative, or the two nest). Nothing was changed.
-    InvalidRoot { path: PathBuf, reason: &'static str },
+    InvalidRoot {
+        path: PathBuf,
+        reason: &'static str,
+    },
     /// A participant name is empty, not plain, or used twice, or an owned path is not a plain
     /// relative path.
     BadParticipant(String),
     /// A companion path is not a plain relative path to a regular file in the old root.
     BadCompanion(PathBuf),
     /// A companion lies on a path a participant owns.
-    OwnedPathConflict { participant: String, path: PathBuf },
+    OwnedPathConflict {
+        participant: String,
+        path: PathBuf,
+    },
     /// Another process or thread is running a cutover for this root.
     Busy(PathBuf),
     /// A destination holds something other than what would be written. Nothing was overwritten.
@@ -868,8 +878,12 @@ impl RootCutover {
             None => legacy.to_path_buf(),
             Some(record) => {
                 let (path, key) = match record.phase {
-                    CutoverPhase::Switched | CutoverPhase::Completed => (&record.new_root, record.new_key),
-                    CutoverPhase::Copying | CutoverPhase::Aborted => (&record.old_root, record.old_key),
+                    CutoverPhase::Switched | CutoverPhase::Completed => {
+                        (&record.new_root, record.new_key)
+                    }
+                    CutoverPhase::Copying | CutoverPhase::Aborted => {
+                        (&record.old_root, record.old_key)
+                    }
                 };
                 check_directory(path, key)?;
                 path.clone()
@@ -878,12 +892,18 @@ impl RootCutover {
     }
 
     fn validate_resume(&self, record: &Record) -> Result<(), CutoverError> {
-        let names: Vec<_> = self.participants.iter().map(|p| p.name().to_string()).collect();
+        let names: Vec<_> = self
+            .participants
+            .iter()
+            .map(|p| p.name().to_string())
+            .collect();
         if names != record.participants
             || (matches!(record.phase, CutoverPhase::Copying | CutoverPhase::Aborted)
                 && self.fs_move.label() != record.fs_move)
         {
-            return Err(CutoverError::RecordMismatch("participant order or file-move mode changed".into()));
+            return Err(CutoverError::RecordMismatch(
+                "participant order or file-move mode changed".into(),
+            ));
         }
         if record.retired.is_none() {
             let old = fs::canonicalize(&self.old_root)?;
@@ -950,7 +970,9 @@ impl RootCutover {
             reason,
         };
         if !raw.is_absolute() || raw.components().any(|c| c == Component::ParentDir) {
-            return Err(invalid("the old root must be an absolute path without '..'"));
+            return Err(invalid(
+                "the old root must be an absolute path without '..'",
+            ));
         }
         let md = fs::symlink_metadata(raw).map_err(|_| invalid("the old root does not exist"))?;
         if !real_directory(&md) {
@@ -1292,8 +1314,8 @@ impl RootCutover {
         let mut pairs = Vec::new();
         for rel in rels {
             let src = plan.old.join(rel);
-            let md = fs::symlink_metadata(&src)
-                .map_err(|_| CutoverError::BadCompanion(rel.clone()))?;
+            let md =
+                fs::symlink_metadata(&src).map_err(|_| CutoverError::BadCompanion(rel.clone()))?;
             if !md.is_file() {
                 return Err(CutoverError::BadCompanion(rel.clone()));
             }

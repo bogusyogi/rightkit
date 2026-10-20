@@ -2,7 +2,9 @@
 //! restore, and the drain and resume that every transition uses.
 
 use super::error::LifecycleError;
-use super::keystore::{Key, KeySource, KeyStoreError, PendingKey, ProtectedKeySession, ProtectedKeyStore};
+use super::keystore::{
+    Key, KeySource, KeyStoreError, PendingKey, ProtectedKeySession, ProtectedKeyStore,
+};
 use super::rotate::{recover_with_guard, Faults, NoFaults, RecoveryOutcome};
 use super::transition::{
     acquire_shared, journal_exists, next_id, JournalState, RootIdentity, StoreTransition,

@@ -3,14 +3,12 @@
 // `gate.mjs --plan` what each runner OS has to verify, then cuts that into the shard jobs of
 // scripts/ci/shards.mjs and writes them as GitHub Actions job outputs (JSON matrices).
 //
-//   node scripts/ci/ci-plan.mjs [--markers <dir>] [--out <file>]
+//   node scripts/ci/ci-plan.mjs [--last-green <authenticated-results.json>] [--out <file>]
 //
-// The last-green marker of an OS is <dir>/<runner label>/sha (the workflow restores one cache per OS
-// there). A push is compared with that commit; no marker, or a marker that is not an ancestor of HEAD,
-// means a full run for that OS. A pull request is compared with its merge base (gate.mjs resolves it).
+// last-green.mjs resolves successful per-OS jobs through Actions API. Unknown evidence means a full
+// run for that OS. Pull requests use their merge base (gate.mjs resolves it); caches never prove green.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planHost, planHygiene, requiredShardCommands, shardsConfig } from "./shards.mjs";
@@ -24,12 +22,18 @@ const argOf = (flag) => { const i = process.argv.indexOf(flag); return i > 0 ? p
 const isSha = (value) => /^[0-9a-f]{40}$/i.test(value ?? "");
 const git = (...args) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
 
-/** The commit a push to this OS is compared with, or null (full run). A marker that is not an ancestor of HEAD is ignored. */
-function markerBase(dir, label) {
-  let marker = "";
-  try { marker = fs.readFileSync(path.join(dir, label, "sha"), "utf8").trim(); } catch { return null; }
-  if (!isSha(marker) || git("cat-file", "-e", `${marker}^{commit}`).status !== 0) return null;
-  return git("merge-base", "--is-ancestor", marker, "HEAD").status === 0 ? marker : null;
+/** Consume only current-checkout results from required authenticated resolver step. */
+function markerBase(file, runner) {
+  try {
+    const resolved = JSON.parse(fs.readFileSync(file, "utf8"));
+    const head = git("rev-parse", "HEAD").stdout.trim();
+    const result = resolved.results?.[runner.key];
+    const proof = result?.provenance;
+    if (!isSha(head) || resolved.currentHead !== head || !isSha(result?.base) || !proof) return null;
+    if (proof.commit !== result.base || proof.repository !== process.env.GITHUB_REPOSITORY || proof.runner !== runner.label || proof.workflow !== ".github/workflows/ci.yml" || proof.markGreenJob !== `mark-green-${runner.key}` || proof.evidenceContract !== "rightkit-shared-ci-last-green/v1") return null;
+    if (git("cat-file", "-e", `${result.base}^{commit}`).status !== 0) return null;
+    return git("merge-base", "--is-ancestor", result.base, head).status === 0 ? result.base : null;
+  } catch { return null; }
 }
 
 /** One `gate.mjs --plan` for a host. The gate must echo the host back: an old gate silently ignoring --host would plan the wrong OS. */
@@ -43,7 +47,7 @@ function gatePlan(host, extra) {
 
 function main() {
   const event = process.env.GITHUB_EVENT_NAME ?? "push";
-  const markers = argOf("--markers") ?? path.join(os.homedir(), ".right-git-last-green");
+  const markers = argOf("--last-green");
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "ci/gate.config.json"), "utf8"));
   const shards = shardsConfig(JSON.parse(fs.readFileSync(path.join(ROOT, "ci/shards.json"), "utf8")));
 
@@ -57,7 +61,7 @@ function main() {
   const evidence = [];
   const summary = ["## RightKit CI plan", "", "| Runner | Base | Rust crates | Dependents | npm | Root | Swift | Shard jobs | Closure jobs |", "|---|---|---|---|---|---|---|---|---|"];
   for (const runner of RUNNERS) {
-    const base = event === "pull_request" ? null : markerBase(markers, runner.label);
+    const base = event === "pull_request" ? null : markerBase(markers, runner);
     // A pull request leaves --base off: the gate compares it with its merge base. No base and no PR means a full run.
     const extra = event === "pull_request" ? [] : base ? ["--base", base] : ["--all"];
     const selection = gatePlan(runner.host, extra);
@@ -77,6 +81,7 @@ function main() {
   output.evidence = JSON.stringify(evidence);
   output.hygiene_tokens = hygiene.tokens;
   output.scan_crates = hygiene.crates.join(" ");
+  output.scan_packages = hygiene.packages.join(" ");
 
   summary.push("", `Hygiene: ${hygiene.crates.length} crate(s) and ${hygiene.packages.length} package(s) for lock, fmt and the secret scan.`);
 

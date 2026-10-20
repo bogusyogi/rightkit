@@ -1,0 +1,78 @@
+name: qualify-fs
+on:
+  workflow_dispatch:
+    inputs:
+      qualified_source_run:
+        description: Main publish.yml run with sealed fs 0.4.6 & successful native verify jobs
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fs-native-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - run: node --test scripts/ci/fs-native-fixtures.test.mjs
+      - name: Bind exact source run, host receipts & archive digests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FS_QUALIFIED_SOURCE_RUN: ${{ inputs.qualified_source_run }}
+          FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
+        run: node scripts/ci/fs-native-fixtures.mjs resolve
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fs-native-candidate
+          path: ${{ runner.temp }}/fs-native-bundle
+          if-no-files-found: error
+          retention-days: 7
+  native:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, xcode-27]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
+      FS_NATIVE_OUT: ${{ runner.temp }}/fs-native-results
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: fs-native-candidate
+          path: ${{ runner.temp }}/fs-native-bundle
+      - name: Mount mandatory isolated native volumes
+        run: node scripts/ci/fs-native-fixtures.mjs setup
+      - name: Qualify exact archive through standalone consumer & cross-volume test
+        run: node scripts/ci/fs-native-fixtures.mjs qualify
+      - name: Detach volumes & remove bounded fixture state
+        if: ${{ always() }}
+        run: node scripts/ci/fs-native-fixtures.mjs cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: fs-native-${{ matrix.runner }}
+          path: ${{ runner.temp }}/fs-native-results
+          if-no-files-found: error
+          retention-days: 14

@@ -144,5 +144,4 @@ pub trait ProtectedKeySession: Send {
     fn write_recovery(&mut self, key: &Key) -> Result<(), KeyStoreError>;
 
     fn clear_recovery(&mut self) -> Result<(), KeyStoreError>;
-
 }

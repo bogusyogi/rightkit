@@ -132,7 +132,9 @@ fn profile() -> ApprovalProfile {
         .action("delete", ActionProfile::new(60_000))
         .action(
             "unlock",
-            ActionProfile::new(60_000).max_ttl_ms(120_000).requires_client(true),
+            ActionProfile::new(60_000)
+                .max_ttl_ms(120_000)
+                .requires_client(true),
         )
         .action(
             "idempotent",
@@ -267,7 +269,13 @@ fn a_proof_for_one_request_cannot_answer_another_action_account_or_revision() {
         .decide(&first.id, Decision::Approve, 7, &proof_for_first)
         .unwrap_err();
     assert!(
-        matches!(err, ApprovalError::StaleRevision { expected: 7, found: 1 }),
+        matches!(
+            err,
+            ApprovalError::StaleRevision {
+                expected: 7,
+                found: 1
+            }
+        ),
         "{err}"
     );
     // None of that changed anything.
@@ -369,7 +377,11 @@ fn an_expired_request_cannot_be_decided_or_claimed() {
     let rig = rig();
     let pending = rig
         .coordinator
-        .request(NewRequest::new("send", digest(1), "agent-1").account("acct-a").ttl_ms(1_000))
+        .request(
+            NewRequest::new("send", digest(1), "agent-1")
+                .account("acct-a")
+                .ttl_ms(1_000),
+        )
         .unwrap();
     rig.clock.advance(1_000);
     let err = rig
@@ -390,7 +402,11 @@ fn an_expired_request_cannot_be_decided_or_claimed() {
     // Approved, then expired before the claim.
     let second = rig
         .coordinator
-        .request(NewRequest::new("send", digest(2), "agent-1").account("acct-a").ttl_ms(5_000))
+        .request(
+            NewRequest::new("send", digest(2), "agent-1")
+                .account("acct-a")
+                .ttl_ms(5_000),
+        )
         .unwrap();
     let approved = approve(&rig, &second, "alice", "n2");
     rig.clock.advance(5_000);
@@ -424,7 +440,13 @@ fn revocation_before_the_claim_ends_the_approval() {
     assert_eq!(revoked.state, ApprovalState::Revoked);
     let err = rig.coordinator.claim(&approved.id).unwrap_err();
     assert!(
-        matches!(err, ApprovalError::InvalidState { state: ApprovalState::Revoked, .. }),
+        matches!(
+            err,
+            ApprovalError::InvalidState {
+                state: ApprovalState::Revoked,
+                ..
+            }
+        ),
         "{err}"
     );
 }
@@ -440,7 +462,12 @@ fn removing_an_account_revokes_its_open_requests_but_not_a_claim_in_flight() {
     let in_flight = approve(&rig, &claimed, "alice", "n2");
     let token = rig.coordinator.claim(&in_flight.id).unwrap();
 
-    assert_eq!(rig.coordinator.revoke_account("acct-a", "account removed").unwrap(), 2);
+    assert_eq!(
+        rig.coordinator
+            .revoke_account("acct-a", "account removed")
+            .unwrap(),
+        2
+    );
     for id in [&approved.id, &a2.id] {
         assert_eq!(
             rig.coordinator.get(id).unwrap().unwrap().state,
@@ -466,7 +493,9 @@ fn only_the_requester_cancels_and_a_cancelled_request_cannot_be_claimed() {
     let rig = rig();
     let pending = send(&rig, 1, "acct-a");
     assert!(matches!(
-        rig.coordinator.cancel(&pending.id, "someone-else").unwrap_err(),
+        rig.coordinator
+            .cancel(&pending.id, "someone-else")
+            .unwrap_err(),
         ApprovalError::NotRequester
     ));
     let approved = approve(&rig, &pending, "alice", "n1");
@@ -526,9 +555,10 @@ fn exactly_one_of_many_concurrent_claimants_gets_the_token() {
     let refusals = refusals.into_inner().unwrap();
     assert_eq!(refusals.len(), 7);
     assert!(
-        refusals
-            .iter()
-            .all(|e| matches!(e, ApprovalError::AlreadyClaimed(_) | ApprovalError::Conflict(_))),
+        refusals.iter().all(|e| matches!(
+            e,
+            ApprovalError::AlreadyClaimed(_) | ApprovalError::Conflict(_)
+        )),
         "{refusals:?}"
     );
     // And never again.
@@ -575,7 +605,10 @@ fn a_failed_claim_row_means_no_token_and_the_approval_is_still_usable() {
     assert!(after.claim_id.is_none());
 
     rig.rows.fail_on(None);
-    let token = rig.coordinator.claim(&approved.id).expect("claim after audit recovers");
+    let token = rig
+        .coordinator
+        .claim(&approved.id)
+        .expect("claim after audit recovers");
     rig.coordinator
         .settle(&token, EffectOutcome::Succeeded, "")
         .unwrap();
@@ -608,12 +641,9 @@ fn a_failed_outcome_row_blocks_success_until_it_is_written() {
 
 #[test]
 fn an_action_that_needs_audit_before_effect_refuses_a_coordinator_without_a_sink() {
-    let coordinator = ApprovalCoordinator::new(
-        profile(),
-        Arc::new(MemoryApprovalStore::new()),
-        verifier(),
-    )
-    .unwrap();
+    let coordinator =
+        ApprovalCoordinator::new(profile(), Arc::new(MemoryApprovalStore::new()), verifier())
+            .unwrap();
     let err = coordinator
         .request(NewRequest::new("send", digest(1), "agent-1").account("acct-a"))
         .unwrap_err();
@@ -646,7 +676,11 @@ fn an_effect_that_reports_uncertainty_settles_as_outcome_unknown() {
     let token = rig.coordinator.claim(&approved.id).unwrap();
     let settled = rig
         .coordinator
-        .settle(&token, EffectOutcome::OutcomeUnknown, "timeout after submit")
+        .settle(
+            &token,
+            EffectOutcome::OutcomeUnknown,
+            "timeout after submit",
+        )
         .unwrap();
     assert_eq!(settled.outcome, Some(EffectOutcome::OutcomeUnknown));
     assert_eq!(rig.rows.kinds().last(), Some(&AuditKind::OutcomeUnknown));
@@ -755,20 +789,31 @@ fn a_reconcilable_effect_is_asked_and_other_actions_never_are() {
 #[test]
 fn recovery_cannot_report_reconciled_success_without_required_audit() {
     let rig = rig();
-    let pending = rig.coordinator
+    let pending = rig
+        .coordinator
         .request(NewRequest::new("idempotent", digest(1), "agent-1"))
         .unwrap();
     let approved = approve(&rig, &pending, "owner", "recovery-audit");
     rig.coordinator.claim(&approved.id).unwrap();
-    let reconciler = Reconcile { answer: Reconciled::Applied, asked: AtomicU64::new(0) };
+    let reconciler = Reconcile {
+        answer: Reconciled::Applied,
+        asked: AtomicU64::new(0),
+    };
     rig.rows.fail_on(Some(AuditKind::Succeeded));
     assert!(matches!(
-        rig.coordinator.recover_claims(ClaimRecovery::All, Some(&reconciler)),
+        rig.coordinator
+            .recover_claims(ClaimRecovery::All, Some(&reconciler)),
         Err(ApprovalError::AuditFailed(_))
     ));
-    assert_eq!(rig.coordinator.get(&pending.id).unwrap().unwrap().state, ApprovalState::Claimed);
+    assert_eq!(
+        rig.coordinator.get(&pending.id).unwrap().unwrap().state,
+        ApprovalState::Claimed
+    );
     rig.rows.fail_on(None);
-    let recovered = rig.coordinator.recover_claims(ClaimRecovery::All, Some(&reconciler)).unwrap();
+    let recovered = rig
+        .coordinator
+        .recover_claims(ClaimRecovery::All, Some(&reconciler))
+        .unwrap();
     assert_eq!(recovered.len(), 1);
     assert_eq!(recovered[0].outcome, Some(EffectOutcome::Succeeded));
     assert!(rig.rows.kinds().contains(&AuditKind::Succeeded));
@@ -861,7 +906,10 @@ fn free_text_never_reaches_the_record_or_the_audit_rows() {
         )
         .unwrap();
     assert_eq!(record.detail, "detail=withheld");
-    assert_eq!(redact_detail("count=3 reason_code=moved"), "count=3 reason_code=moved");
+    assert_eq!(
+        redact_detail("count=3 reason_code=moved"),
+        "count=3 reason_code=moved"
+    );
     assert_eq!(redact_detail("secret: hunter2"), "detail=withheld");
     assert_eq!(redact_detail(&"a".repeat(500)), "detail=withheld");
     assert!(rig
@@ -879,12 +927,9 @@ fn the_profile_is_data_and_a_bad_one_is_refused() {
     let text = serde_json::to_string(&p).unwrap();
     let back: ApprovalProfile = serde_json::from_str(&text).unwrap();
     assert_eq!(back, p);
-    assert!(ApprovalCoordinator::new(
-        back,
-        Arc::new(MemoryApprovalStore::new()),
-        verifier()
-    )
-    .is_ok());
+    assert!(
+        ApprovalCoordinator::new(back, Arc::new(MemoryApprovalStore::new()), verifier()).is_ok()
+    );
 
     assert!(ApprovalProfile::new()
         .try_action("x", ActionProfile::new(0))
@@ -897,12 +942,10 @@ fn the_profile_is_data_and_a_bad_one_is_refused() {
         .is_err());
     let zero_open: ApprovalProfile =
         serde_json::from_str(r#"{"actions":{},"max_open":0}"#).unwrap();
-    assert!(ApprovalCoordinator::new(
-        zero_open,
-        Arc::new(MemoryApprovalStore::new()),
-        verifier()
-    )
-    .is_err());
+    assert!(
+        ApprovalCoordinator::new(zero_open, Arc::new(MemoryApprovalStore::new()), verifier())
+            .is_err()
+    );
 }
 
 #[test]
@@ -919,10 +962,15 @@ fn a_failed_decision_audit_keeps_the_exact_pending_revision() {
     let rig = rig();
     let pending = send(&rig, 31, "acct-a");
     rig.rows.fail_on(Some(AuditKind::Approved));
-    let error = rig.coordinator.decide(
-        &pending.id, Decision::Approve, pending.revision,
-        &proof("alice", "audit-failed", &pending, Decision::Approve),
-    ).unwrap_err();
+    let error = rig
+        .coordinator
+        .decide(
+            &pending.id,
+            Decision::Approve,
+            pending.revision,
+            &proof("alice", "audit-failed", &pending, Decision::Approve),
+        )
+        .unwrap_err();
     assert!(matches!(error, ApprovalError::AuditFailed(_)));
     let after = rig.coordinator.get(&pending.id).unwrap().unwrap();
     assert_eq!(after.state, ApprovalState::Pending);
@@ -930,16 +978,24 @@ fn a_failed_decision_audit_keeps_the_exact_pending_revision() {
     assert!(after.decided_by.is_none());
     // Verified nonces are single-use even when the subsequent audit append fails.
     rig.rows.fail_on(None);
-    assert_eq!(approve(&rig, &after, "alice", "audit-retry").state, ApprovalState::Approved);
+    assert_eq!(
+        approve(&rig, &after, "alice", "audit-retry").state,
+        ApprovalState::Approved
+    );
 }
 
 #[test]
 fn a_failed_request_audit_does_not_insert_a_pending_request() {
     let rig = rig();
     rig.rows.fail_on(Some(AuditKind::Requested));
-    let error = rig.coordinator.request(
-        NewRequest::new("send", digest(32), "agent-1").account("acct-a").id("audit-refused")
-    ).unwrap_err();
+    let error = rig
+        .coordinator
+        .request(
+            NewRequest::new("send", digest(32), "agent-1")
+                .account("acct-a")
+                .id("audit-refused"),
+        )
+        .unwrap_err();
     assert!(matches!(error, ApprovalError::AuditFailed(_)));
     assert!(rig.coordinator.get("audit-refused").unwrap().is_none());
 }

@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { APPROVED, authenticatePublication, registryUrl, lockEvidence, validatePublication } from "./registry-readback.mjs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { APPROVED, RECIPES, recipeForRun, verifyTransfer, authenticatePublication, registryUrl, lockEvidence, validatePublication } from "./registry-readback.mjs";
 
 test("workflow runner scratch context stays below job steps boundary", () => {
   const source = readFileSync(new URL("../../.github/workflows/registry-readback.yml", import.meta.url), "utf8");
@@ -31,6 +34,32 @@ test("accept pinned successful main publication; reject changed source, event, w
 });
 test("receipt bytes are pinned before trusting any publication fields", () => {
   assert.throws(() => validatePublication(Buffer.from('{}'), {}), /receipt hash mismatch/);
+  assert.throws(() => validatePublication(Buffer.from('{}'), {}, RECIPES['license-0.3.0']), /receipt hash mismatch/);
+  assert.throws(() => validatePublication(Buffer.from('{}'), {}, { ...APPROVED }), /unreviewed/);
+});
+
+test("only reviewed recipes select successful authenticated publication", () => {
+  assert.deepEqual(Object.keys(RECIPES).sort(), ['license-0.3.0','react-shell-0.7.2']);
+  for (const [id, approved] of Object.entries(RECIPES)) {
+    assert.equal(recipeForRun(approved.runId).id, id);
+    const run = {...runFixture(),id:approved.runId,head_sha:approved.commit};
+    authenticatePublication(run,jobsFixture(),approved.runId,approved.repository);
+    assert.throws(()=>authenticatePublication({...run,head_sha:APPROVED.commit === approved.commit ? '0'.repeat(40) : APPROVED.commit},jobsFixture(),approved.runId,approved.repository));
+  }
+  for (const input of ['39411004654','license-0.3.0','',undefined]) assert.throws(()=>recipeForRun(input));
+});
+
+test("bundle transfer requires exact files & rejects changed bytes", () => {
+  const dir=mkdtempSync(path.join(tmpdir(),'rk-transfer-'));
+  try {
+    const names=['recipe.json','publication-run.json','publication-jobs.json','publication-receipt.json','manifest.json','registry-readback.mjs','consume.mjs'];
+    const digests={};
+    for(const name of names) { writeFileSync(path.join(dir,name),name); digests[name]=createHash('sha256').update(name).digest('hex'); }
+    const seal=()=>writeFileSync(path.join(dir,'transfer-sha256.json'),JSON.stringify(digests));
+    seal(); assert.deepEqual(verifyTransfer(dir),digests);
+    writeFileSync(path.join(dir,'recipe.json'),'changed'); assert.throws(()=>verifyTransfer(dir),/transfer hash mismatch/);
+    digests['../escape']='0'.repeat(64); seal(); assert.throws(()=>verifyTransfer(dir),/file set mismatch/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 test("reject alternate registry, credentials, Git, path & workspace sources", () => {
   for (const url of ["https://registry.npmjs.org.evil.test/x", "http://registry.npmjs.org/x", "https://user@registry.npmjs.org/x", "file:../x", "git+https://github.com/a/b", "workspace:*"]) assert.throws(() => registryUrl(url));

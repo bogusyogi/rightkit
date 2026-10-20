@@ -6,19 +6,19 @@ import { parseYaml } from "./workflow-yaml.mjs";
 const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const NODE = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
 const ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
-export const REVIEWED_CONCURRENCY = "${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}";
+export const REVIEWED_CONCURRENCY = "publish";
 export const MAIN_GUARD = "${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
-export const REVIEWED_UPLOAD_IF = "${{ needs.seal-check.result == 'success' && inputs.dry_run == false && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
-export const REVIEWED_SPARSE = "scripts/ci/upload.mjs\nscripts/ci/reviewed-candidate.mjs\nci/approved-artifacts.json\n";
+export const REVIEWED_UPLOAD_IF = "${{ needs.seal-check.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
+export const REVIEWED_SPARSE = "scripts/ci/upload.mjs\nscripts/ci/registry-spec.mjs\nscripts/ci/reviewed-candidate.mjs\nci/approved-artifacts.json\n";
 const keys = (object, expected) => assert.deepEqual(Object.keys(object).sort(), [...expected].sort());
 
 export function assertReviewedDoc(doc) {
   keys(doc, ["name", "on", "permissions", "concurrency", "jobs"]);
   assert.equal(doc.name, "publish-reviewed");
   keys(doc.on, ["workflow_dispatch"]); keys(doc.on.workflow_dispatch, ["inputs"]);
-  assert.deepEqual(doc.on.workflow_dispatch.inputs, { candidate_id: { description: "Committed schema 2 candidate ID", type: "string", required: "true" }, dry_run: { description: "Check provenance, approvals & sealed bytes without publishing", type: "boolean", default: "true" } });
+  assert.deepEqual(doc.on.workflow_dispatch.inputs, { candidate_id: { description: "Committed schema 2 candidate ID", type: "string", required: "true" } });
   assert.deepEqual(doc.permissions, { contents: "read" });
-  assert.deepEqual(doc.concurrency, { group: REVIEWED_CONCURRENCY, "cancel-in-progress": "false" });
+  assert.deepEqual(doc.concurrency, { group: REVIEWED_CONCURRENCY, queue: "max", "cancel-in-progress": "false" });
   keys(doc.jobs, ["seal-check", "upload"]);
   const check = doc.jobs["seal-check"]; const upload = doc.jobs.upload;
   keys(check, ["if", "runs-on", "timeout-minutes", "permissions", "outputs", "steps"]);
@@ -58,18 +58,22 @@ export function assertReviewedDoc(doc) {
 }
 
 export const REVIEWED_MUTATIONS = [
+  ["missing trusted uploader dependency", (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] = REVIEWED_SPARSE.replace("scripts/ci/registry-spec.mjs\n", ""); }],
+  ["promotion drops queued candidates", (d) => { delete d.concurrency.queue; }],
+  ["promotion narrows pending queue", (d) => { d.concurrency.queue = "single"; }],
+  ["promotion cancels in progress", (d) => { d.concurrency["cancel-in-progress"] = "true"; }],
   ["untrusted checkout", (d) => { d.jobs.upload.steps[0].with.ref = "${{ inputs.candidate_id }}"; }],
   ["candidate executable checkout", (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] += "packages\n"; }],
   ["credentials before admission", (d) => { d.jobs["seal-check"].steps[2].env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; }],
   ["OIDC before admission", (d) => { d.jobs["seal-check"].permissions["id-token"] = "write"; }],
   ["bypass secretless gate", (d) => { d.jobs.upload.needs = []; }],
-  ["bypass dry-run", (d) => { d.jobs.upload.if = MAIN_GUARD; }],
+  ["bypass secretless result", (d) => { d.jobs.upload.if = MAIN_GUARD; }],
   ["rebuild in credential job", (d) => { d.jobs.upload.steps[2].run = "cargo package"; }],
   ["environment spoof", (d) => { d.jobs.upload.steps[2].env.GITHUB_SHA = "${{ inputs.candidate_id }}"; }],
   ["mutable download step", (d) => { d.jobs.upload.steps.push({ uses: "actions/download-artifact@main" }); }],
   ["separate publication lock", (d) => { d.concurrency.group = "publish-reviewed"; }],
   ["path input", (d) => { d.on.workflow_dispatch.inputs.path = { type: "string" }; }],
-  ["publish by default", (d) => { d.on.workflow_dispatch.inputs.dry_run.default = "false"; }],
+  ["restore dispatch dry-run roundtrip", (d) => { d.on.workflow_dispatch.inputs.dry_run = { type: "boolean", default: "true" }; }],
   ["dispatch shell injection", (d) => { d.jobs["seal-check"].steps[2].run += " ${{ inputs.candidate_id }}"; }],
 ];
 

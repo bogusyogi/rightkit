@@ -35,7 +35,9 @@ struct Session {
 
 fn mapped(error: Error) -> KeyStoreError {
     let kind = match error {
-        Error::Denied | Error::InteractionRequired | Error::Guarded { .. } => KeyStoreErrorKind::Denied,
+        Error::Denied | Error::InteractionRequired | Error::Guarded { .. } => {
+            KeyStoreErrorKind::Denied
+        }
         // An OS mutation worker outlives its caller's bounded wait. Never let transient
         // readback after this error authorize rollback or deletion of either viable key.
         Error::Timeout { .. } | Error::InProgress { .. } => KeyStoreErrorKind::Unsettled,
@@ -50,7 +52,10 @@ fn mapped(error: Error) -> KeyStoreError {
 fn key(secret: Secret) -> Result<Key, KeyStoreError> {
     let value = secret.expose_str().map_err(mapped)?;
     if value.is_empty() {
-        return Err(KeyStoreError::new(KeyStoreErrorKind::Corrupt, "empty protected key"));
+        return Err(KeyStoreError::new(
+            KeyStoreErrorKind::Corrupt,
+            "empty protected key",
+        ));
     }
     Ok(Key::new(value.to_owned()))
 }
@@ -109,7 +114,9 @@ impl CredentialsKeyStore {
             }
         }
         if account.ends_with(ROTATION_PENDING_SUFFIX) {
-            return Err(KeyStoreError::other("primary account names a pending marker"));
+            return Err(KeyStoreError::other(
+                "primary account names a pending marker",
+            ));
         }
         // Establish that this backend has the required cross-process lock configuration.
         let _ = store.rotation_store(&account).map_err(mapped)?;
@@ -165,18 +172,31 @@ impl Session {
 
 impl ProtectedKeySession for Session {
     fn read_primary(&mut self) -> Result<Option<Key>, KeyStoreError> {
-        self.with_store(|store| store.get(&self.account).map_err(mapped)?.map(key).transpose())
+        self.with_store(|store| {
+            store
+                .get(&self.account)
+                .map_err(mapped)?
+                .map(key)
+                .transpose()
+        })
     }
 
     fn read_pending(&mut self) -> Result<Option<PendingKey>, KeyStoreError> {
         self.with_store(|store| {
             // Read the exact marker instead of filtering empty secrets as pending_rotation
             // does: malformed storage must be Corrupt, never an empty slot.
-            let pending = store.get(&format!("{}{ROTATION_PENDING_SUFFIX}", self.account)).map_err(mapped)?;
-            pending.map(|secret| {
-                let revision = revision(&secret);
-                Ok(PendingKey { key: key(secret)?, revision })
-            }).transpose()
+            let pending = store
+                .get(&format!("{}{ROTATION_PENDING_SUFFIX}", self.account))
+                .map_err(mapped)?;
+            pending
+                .map(|secret| {
+                    let revision = revision(&secret);
+                    Ok(PendingKey {
+                        key: key(secret)?,
+                        revision,
+                    })
+                })
+                .transpose()
         })
     }
 
@@ -198,10 +218,16 @@ impl ProtectedKeySession for Session {
     fn promote_pending(&mut self, expected: &PendingRevision) -> Result<(), KeyStoreError> {
         self.with_store(|store| {
             let Some(pending) = store.pending_rotation(&self.account).map_err(mapped)? else {
-                if store.get(&self.account).map_err(mapped)?.is_some_and(|key| revision(&key) == *expected) {
+                if store
+                    .get(&self.account)
+                    .map_err(mapped)?
+                    .is_some_and(|key| revision(&key) == *expected)
+                {
                     return Ok(());
                 }
-                return Err(KeyStoreError::other("pending revision is no longer present"));
+                return Err(KeyStoreError::other(
+                    "pending revision is no longer present",
+                ));
             };
             if revision(&pending) != *expected {
                 return Err(KeyStoreError::other("pending revision was superseded"));
@@ -235,18 +261,27 @@ impl ProtectedKeySession for Session {
     }
 
     fn read_recovery(&mut self) -> Result<Option<Key>, KeyStoreError> {
-        self.with_store(|store| store.get(&self.recovery).map_err(mapped)?.map(key).transpose())
+        self.with_store(|store| {
+            store
+                .get(&self.recovery)
+                .map_err(mapped)?
+                .map(key)
+                .transpose()
+        })
     }
 
     fn write_recovery(&mut self, value: &Key) -> Result<(), KeyStoreError> {
         if value.is_empty() {
             return Err(KeyStoreError::other("cannot retain an empty recovery key"));
         }
-        self.with_store(|store| store.set_str(&self.recovery, value.as_str()).map_err(mapped))
+        self.with_store(|store| {
+            store
+                .set_str(&self.recovery, value.as_str())
+                .map_err(mapped)
+        })
     }
 
     fn clear_recovery(&mut self) -> Result<(), KeyStoreError> {
         self.with_store(|store| store.delete(&self.recovery).map(|_| ()).map_err(mapped))
     }
-
 }

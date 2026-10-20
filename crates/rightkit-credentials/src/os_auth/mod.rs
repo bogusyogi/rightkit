@@ -351,7 +351,10 @@ pub fn install_biometric_bridge(bridge: Arc<dyn BiometricBridge>) {
 
 #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
 fn installed_bridge() -> Option<Arc<dyn BiometricBridge>> {
-    BRIDGE.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    BRIDGE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
 }
 
 #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
@@ -550,11 +553,7 @@ mod tests {
             .timeout(Duration::from_secs(601))
             .validate()
             .is_err());
-        assert!(r
-            .clone()
-            .timeout(Duration::from_secs(1))
-            .validate()
-            .is_ok());
+        assert!(r.clone().timeout(Duration::from_secs(1)).validate().is_ok());
         assert!(r.clone().owner_window(0).validate().is_err());
         assert!(r.clone().owner_window(7).validate().is_ok());
         assert!(r.clone().guard_env("").validate().is_err());

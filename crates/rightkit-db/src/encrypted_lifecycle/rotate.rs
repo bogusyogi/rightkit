@@ -585,7 +585,9 @@ impl<'a> Run<'a> {
                 Ok(Some(pending)) => {
                     if let Err(discard) = self.ks.discard_pending(&pending.revision) {
                         if discard.kind == KeyStoreErrorKind::Unsettled {
-                            return self.indeterminate(format!("pending cleanup has not settled: {discard}"));
+                            return self.indeterminate(format!(
+                                "pending cleanup has not settled: {discard}"
+                            ));
                         }
                         left.push(format!("discard the staged key: {discard}"));
                     }
@@ -602,7 +604,8 @@ impl<'a> Run<'a> {
             };
             if let Err(restore) = restored {
                 if restore.kind == KeyStoreErrorKind::Unsettled {
-                    return self.indeterminate(format!("recovery restoration has not settled: {restore}"));
+                    return self
+                        .indeterminate(format!("recovery restoration has not settled: {restore}"));
                 }
                 left.push(format!("restore the recovery slot: {restore}"));
             }
@@ -876,7 +879,9 @@ impl<'a> Run<'a> {
             Ok(Some(pending)) => {
                 if let Err(error) = self.ks.discard_pending(&pending.revision) {
                     if error.kind == KeyStoreErrorKind::Unsettled {
-                        return Ok(self.indeterminate(format!("pending cleanup has not settled: {error}")));
+                        return Ok(
+                            self.indeterminate(format!("pending cleanup has not settled: {error}"))
+                        );
                     }
                     self.cleanup
                         .push(format!("discard the pending key: {error}"));
@@ -890,7 +895,9 @@ impl<'a> Run<'a> {
         if !self.retain {
             if let Err(error) = self.ks.clear_recovery() {
                 if error.kind == KeyStoreErrorKind::Unsettled {
-                    return Ok(self.indeterminate(format!("recovery cleanup has not settled: {error}")));
+                    return Ok(
+                        self.indeterminate(format!("recovery cleanup has not settled: {error}"))
+                    );
                 }
                 self.cleanup
                     .push(format!("clear the recovery slot: {error}"));
@@ -987,9 +994,9 @@ pub(super) fn make_primary(
     }
     match ks.read_primary() {
         Ok(Some(primary)) if primary.as_str() == key.as_str() => Ok(()),
-        Ok(_) => Err(promoted.err().unwrap_or_else(||
-            KeyStoreError::other("promotion did not change the primary key")
-        )),
+        Ok(_) => Err(promoted
+            .err()
+            .unwrap_or_else(|| KeyStoreError::other("promotion did not change the primary key"))),
         Err(error) => Err(error),
     }
 }
@@ -1014,7 +1021,8 @@ pub(super) fn recover_locked(
     faults: &dyn Faults,
 ) -> Result<RecoveryReport, LifecycleError> {
     let _ = faults;
-    let mut session = cfg.key_store
+    let mut session = cfg
+        .key_store
         .lock_rotation(cfg.transition.acquire_timeout)
         .map_err(|error| key_store_error("rotation lock", error))?;
     let ks = &mut *session;

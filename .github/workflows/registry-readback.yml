@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       publication_run:
-        description: Reviewed successful publish run
+        description: Reviewed successful publish run (react-shell 0.7.2 or license 0.3.0)
         type: string
         required: true
         default: "39403051223"

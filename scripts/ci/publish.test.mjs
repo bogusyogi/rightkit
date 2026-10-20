@@ -7,12 +7,14 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
-import { APPROVED_ARTIFACTS_FILE, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, checkReceipts, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
-import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, SEAL_CHECK_IF, SPARSE_UPLOAD, UPLOAD_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
+import { scanArchiveForSecrets } from "./archive-secret-scan.mjs";
+import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
+import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
 // "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
@@ -34,6 +36,8 @@ function approvedFor(packDir) {
   return file;
 }
 const executeUpload = (options) => executeUploadRaw({ approvedFile: approvedFor(options.packDir), ...options });
+
+
 
 // ---- requirements -----------------------------------------------------------------------------
 
@@ -321,6 +325,8 @@ function sealCrates(names = ["rightkit-a"]) {
   return { dir, manifest };
 }
 
+const archiveScanFixture = (unit) => ({ schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: unit.sha256, status: "pass", files: 1, violations: [], problems: [] });
+
 function receipts(packDir, manifest, { skip = [], override = {}, unitOverride = {} } = {}) {
   const dir = tmp("receipts");
   const manifestSha256 = sha256(fs.readFileSync(path.join(packDir, "manifest.json")));
@@ -330,13 +336,41 @@ function receipts(packDir, manifest, { skip = [], override = {}, unitOverride = 
     const doc = {
       schema: 1, kind: "verify", host, registry: manifest.registry, commit: manifest.commit, manifestSha256, runId: "77", runAttempt: "1", manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt,
       allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [],
-      units: manifest.units.map((u) => ({ name: u.name, version: u.version, file: u.file, sha256: u.sha256, bytesVerified: true, status: "pass", executed: 3, ignored: 0, skipped: 0, consumer: { verified: true }, ...unitOverride })),
+      units: manifest.units.map((u) => ({ name: u.name, version: u.version, file: u.file, sha256: u.sha256, archiveScan: archiveScanFixture(u), bytesVerified: true, status: "pass", executed: 3, ignored: 0, skipped: 0, consumer: { verified: true }, ...unitOverride })),
       ...override,
     };
     fs.writeFileSync(path.join(dir, `publish-receipt-verify-${host}`, `verify-${host}.json`), JSON.stringify(doc));
   }
   return dir;
 }
+
+test("both hosts require strict passing scan proof for exact sealed bytes", () => {
+  const sealed = sealNpm();
+  for (const host of ["macos", "windows"]) {
+    for (const mutate of [
+      (row) => { delete row.archiveScan; },
+      (row) => { row.archiveScan.status = "fail"; },
+      (row) => { row.archiveScan.archiveSha256 = "b".repeat(64); },
+      (row) => { row.archiveScan.schema = 2; },
+      (row) => { row.archiveScan.scanner = "other-scanner"; },
+      (row) => { row.archiveScan.files = 0; },
+      (row) => { row.archiveScan.files = "1"; },
+      (row) => { row.archiveScan.violations = ["hidden/config"]; },
+      (row) => { row.archiveScan.problems = ["unreadable archive"]; },
+      (row) => { row.archiveScan.violations = {}; },
+      (row) => { row.archiveScan.extra = true; },
+      (row) => { row.archiveScan = []; },
+    ]) {
+      const receiptsDir = receipts(sealed.dir, sealed.manifest);
+      const file = path.join(receiptsDir, `publish-receipt-verify-${host}`, `verify-${host}.json`);
+      const receipt = JSON.parse(fs.readFileSync(file, "utf8"));
+      mutate(receipt.units[0]);
+      fs.writeFileSync(file, JSON.stringify(receipt));
+      const problems = checkReceipts({ manifest: sealed.manifest, manifestSha256: sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))), receiptsDir, run: { runId: "77", runAttempt: "1" } });
+      assert.ok(problems.some((problem) => problem.startsWith(`${host} receipt:`) && problem.includes("archiveScan")), JSON.stringify(problems));
+    }
+  }
+});
 
 /** A spawn that records every call, answers the ones in `fake`, and runs tar for real. */
 function spy(fake = {}) {
@@ -916,7 +950,7 @@ test("pack (crates) runs one cargo package, reads the packaged manifest, and sea
   assert.throws(() => commandPack({ env: { ...env, CARGO_REGISTRY_TOKEN: "crate-secret-token" }, spawn, root }), /must not receive secrets/);
 });
 
-test("verify re-hashes the sealed bytes, requires gate evidence, and binds the receipt to the manifest", () => {
+test("verify re-hashes the sealed bytes, requires gate evidence, and binds the receipt to the manifest", async () => {
   const sealed = sealNpm();
   const runTemp = tmp("verify");
   const evidenceDir = path.join(runTemp, "rightkit-ci");
@@ -925,33 +959,40 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   writeEvidence();
   const env = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir });
   let consumerProblems = [];
-  const consume = { npm: ({ units }) => new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])), crates: () => { throw new Error("not used"); } };
-  const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume });
-  const receipt = run();
+  let consumerCalls = 0;
+  const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: (dir) => fs.readdirSync(dir).filter((file) => fs.readFileSync(path.join(dir, file), "utf8").includes("fixture-sensitive-value")) } });
+  const consume = { npm: ({ units }) => { consumerCalls++; return new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])); }, crates: () => { throw new Error("not used"); } };
+  const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume, scanArchive });
+  const receipt = await run();
   assert.equal(receipt.host, "windows");
   assert.equal(receipt.manifestRunId, "77");
   assert.equal(receipt.manifestRunAttempt, "1");
   assert.equal(receipt.runAttempt, "1");
   assert.equal(receipt.units[0].consumer.verified, true);
+  assert.equal(receipt.units[0].archiveScan.archiveSha256, sealed.manifest.units[0].sha256);
+  const unsafe = sealNpm({ extraFiles: { "hidden/config": "fixture-sensitive-value" } });
+  const beforeUnsafe = consumerCalls;
+  await assert.rejects(() => run({ PUBLISH_PACK_DIR: unsafe.dir }), /archiveScan proof/);
+  assert.equal(consumerCalls, beforeUnsafe, "archive scan refusal precedes consumer execution");
   consumerProblems = ["@rightkit/a: ./dist/index.js did not resolve or import: boom"];
-  assert.throws(() => run(), /did not resolve or import: boom/);
+  await assert.rejects(() => run(), /did not resolve or import: boom/);
   consumerProblems = [];
-  assert.throws(() => run({ GITHUB_RUN_ID: "78" }), /manifest run 77 is not this run 78/);
-  assert.throws(() => run({ GITHUB_RUN_ATTEMPT: "" }), /GITHUB_RUN_ATTEMPT is not set/);
+  await assert.rejects(() => run({ GITHUB_RUN_ID: "78" }), /manifest run 77 is not this run 78/);
+  await assert.rejects(() => run({ GITHUB_RUN_ATTEMPT: "" }), /GITHUB_RUN_ATTEMPT is not set/);
   assert.equal(receipt.manifestSha256, sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))));
   assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified]), [["@rightkit/a", "pass", true]]);
   assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-windows.json")));
-  assert.throws(() => run({ NODE_AUTH_TOKEN: "npm-secret-token" }), /must not receive secrets/);
-  assert.throws(() => run({}, "linux"), /macOS or Windows/);
+  await assert.rejects(() => run({ NODE_AUTH_TOKEN: "npm-secret-token" }), /must not receive secrets/);
+  await assert.rejects(() => run({}, "linux"), /macOS or Windows/);
   writeEvidence({ host: "macos" });
-  assert.throws(() => run(), /gate evidence is for npm on macos/);
+  await assert.rejects(() => run(), /gate evidence is for npm on macos/);
   writeEvidence({ units: [] });
-  assert.throws(() => run(), /left no evidence for it/);
+  await assert.rejects(() => run(), /left no evidence for it/);
   writeEvidence({}, "fail");
-  assert.throws(() => run(), /gate status "fail"/);
+  await assert.rejects(() => run(), /gate status "fail"/);
   writeEvidence();
   fs.appendFileSync(path.join(sealed.dir, sealed.manifest.units[0].file), "x");
-  assert.throws(() => run(), /sha256 does not match the manifest/);
+  await assert.rejects(() => run(), /sha256 does not match the manifest/);
 });
 
 test("a sealed crate must equal the commit's source, byte for byte", () => {
@@ -1027,145 +1068,127 @@ jobs:
   ]) assert.throws(() => parseYaml(bad), pattern, JSON.stringify(bad));
 });
 
-// RightKit hosts no workflow since 2026-10-17 (#342); the real-workflow checks skip while publish.yml is absent.
-const realWorkflowSkip = !fs.existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url)) && "no publish.yml (#342)";
-test("the real publish workflow parses, and it is the sealed-upload shape", { skip: realWorkflowSkip }, () => {
-  const text = fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8");
-  const doc = parseYaml(text);
-  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "sign-swap", "pack", "verify", "seal-check", "upload"]);
-  assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
-  assert.equal(doc.jobs.upload.environment, "release");
-});
-
-// ---- the publish contract: structural conditions, every secret expression form ------------------
-
+// ---- qualification & promotion workflow trust boundaries --------------------------------------
+const realWorkflowSkip = !fs.existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url)) && "no publish.yml";
 const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8"));
 
-test("the real publish workflow holds the contract and every mutation is rejected", { skip: realWorkflowSkip }, () => {
+test("qualification packs once, retains both native receipts & has no publication privilege or dispatch dry-run", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(assertPublishDoc(doc), true);
-  assert.deepEqual(proveMutations(doc), []);
-  const names = MUTATIONS.map(([name]) => name);
+  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"]);
+  assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
+  assert.equal(doc.on.workflow_dispatch.inputs.dry_run, undefined);
+  assert.equal(doc.jobs.plan.outputs.dry_run, undefined);
+  assert.equal(doc.jobs.upload, undefined);
+  assert.equal(doc.jobs["seal-check"], undefined);
   assert.equal(doc.concurrency.group, PUBLISH_CONCURRENCY_GROUP);
   assert.equal(doc.concurrency["cancel-in-progress"], "false");
-  for (const required of ["dry runs share publish concurrency group", "real publishes do not share concurrency group"]) assert.ok(names.includes(required), required);
-  assert.equal(doc.jobs.verify.steps.find((s) => s.name === "Cache the pinned Chrome for Testing").if.trim(), CHROME_IF);
-  assert.equal(doc.jobs.verify.steps.find((s) => /provision-chrome\.mjs/.test(s.run ?? "")).if.trim(), CHROME_IF);
-  for (const required of ["Chrome cache drops React-shell coverage", "Chrome provision drops React-shell coverage", "Chrome cache drops settings-ui coverage", "Chrome provision drops settings-ui coverage", "Chrome cache drops onboarding coverage", "Chrome provision drops onboarding coverage"]) assert.ok(names.includes(required), required);
-  for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
+  assert.equal(doc.jobs.pack.steps.filter((s) => s.run?.trim() === "node scripts/ci/publish.mjs pack").length, 1);
+  assert.equal(doc.jobs.verify.steps.find((s) => /provision-chrome\.mjs/.test(s.run ?? "")).env.PUBLISH_DRY_RUN, "false");
+  for (const name of ["Cache the pinned Chrome for Testing", "Provision the pinned Chrome for Testing"]) assert.equal(doc.jobs.verify.steps.find((s) => s.name === name).if.trim(), CHROME_IF);
+  const receipt = doc.jobs.verify.steps.find((s) => s.with?.name === "publish-receipt-verify-${{ matrix.os }}");
+  assert.equal(receipt.with.path, "${{ runner.temp }}/verify-receipt");
+  assert.equal(receipt.with["if-no-files-found"], "error");
+  assert.equal(receipt.with["retention-days"], "90");
+  assert.deepEqual(proveMutations(doc), []);
+  const names = MUTATIONS.map(([name]) => name);
+  for (const required of ["qualification regains upload", "qualification regains approval before pack", "qualification packs twice", "qualification regains dry-run dispatch", "verify loses native receipt artifact", "drop the Windows verify host", "drop the macOS verify host", "qualification final gate accepts skipped verify", "pack builds the whole workspace", "pack drops the scoped build", "pack builds after sealing"]) assert.ok(names.includes(required), required);
 });
 
-test("pack, verify, seal-check and upload follow explicit upstream success and stop on cancellation; a skipped sign-swap no longer skips them, and every dropped operand is rejected", { skip: realWorkflowSkip }, () => {
+test("packing & native verification stop after failed, skipped or cancelled required jobs", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(doc.jobs.pack.if.trim(), PACK_IF);
   assert.equal(doc.jobs.verify.if.trim(), VERIFY_IF);
-  assert.equal(doc.jobs["seal-check"].if.trim(), SEAL_CHECK_IF);
-  assert.equal(doc.jobs.upload.if.trim(), UPLOAD_IF);
-  for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.ok(gate.includes("!cancelled()") && !gate.includes("always()"), "a cancelled workflow must not continue, so never always()");
-  // A small evaluator for the `&&` chains these conditions use: `!cancelled()` is true unless the workflow was cancelled,
-  // `needs.<job>.result == 'success'` reads the upstream result, the sign-swap term accepts success or skipped, and the plan
-  // outputs and the ref are compared as written.
-  const evaluate = (condition, { results, count = "3", dryRun = "false", ref = "refs/heads/main", cancelled = false }) => condition.replace(/^\$\{\{\s*|\s*\}\}$/g, "").split(" && ").every((term) => {
+  const evaluate = (condition, { results, count = "3", cancelled = false, registry = "npm", release = false }) => condition.replace(SWAP_OK_OR_SKIPPED, "swap-statuses").replace(/^\$\{\{\s*|\s*\}\}$/g, "").split(" && ").every((term) => {
     if (term === "!cancelled()") return !cancelled;
-    if (term === "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')") return results["sign-swap"] === "success" || results["sign-swap"] === "skipped";
-    let m = /^needs\.([a-z-]+)\.result == 'success'$/.exec(term);
+    if (term === "swap-statuses") return registry === "npm" && release ? results["build-swap"] === "success" && results["sign-swap"] === "success" : results["build-swap"] === "skipped" && results["sign-swap"] === "skipped";
+    const m = /^needs\.([a-z-]+)\.result == 'success'$/.exec(term);
     if (m) return results[m[1]] === "success";
     if (term === "needs.plan.outputs.count != '0'") return count !== "0";
-    if (term === "needs.plan.outputs.dry_run == 'false'") return dryRun === "false";
-    if (term === "github.ref == 'refs/heads/main'") return ref === "refs/heads/main";
-    throw new Error(`the evaluator does not know ${term}`);
+    throw new Error(`unknown gate term: ${term}`);
   });
-  const ok = { guard: "success", plan: "success", pack: "success", verify: "success", "seal-check": "success", "sign-swap": "skipped" };
-  // the failure seen in run 39395402683: sign-swap skipped (no @rightkit/release), everything else green
-  assert.equal(evaluate(PACK_IF, { results: ok }), true);
-  assert.equal(evaluate(PACK_IF, { results: { ...ok, "sign-swap": "success" } }), true, "a succeeded sign-swap also allows pack");
-  assert.equal(evaluate(VERIFY_IF, { results: ok }), true);
-  assert.equal(evaluate(SEAL_CHECK_IF, { results: ok }), true);
-  assert.equal(evaluate(UPLOAD_IF, { results: ok }), true);
-  assert.equal(evaluate(UPLOAD_IF, { results: ok, dryRun: "true" }), false, "a dry run never uploads");
-  assert.equal(evaluate(UPLOAD_IF, { results: ok, ref: "refs/heads/x" }), false);
-  for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: ok, count: "0" }), false, "an empty plan runs nothing");
-  // A CANCELLED WORKFLOW whose every prior job result is still 'success' (cancel arrives between jobs): cancelled() is true, so
-  // none of pack, verify, seal-check or upload may start. This is its own case, separate from an upstream job result of 'cancelled'.
-  const allSuccess = { guard: "success", plan: "success", pack: "success", verify: "success", "seal-check": "success", "sign-swap": "success" };
-  for (const [name, gate] of [["pack", PACK_IF], ["verify", VERIFY_IF], ["seal-check", SEAL_CHECK_IF], ["upload", UPLOAD_IF]]) {
-    assert.equal(evaluate(gate, { results: allSuccess }), true, `${name} starts when nothing is cancelled`);
-    assert.equal(evaluate(gate, { results: allSuccess, cancelled: true }), false, `${name} must not start in a cancelled workflow even though every prior job succeeded`);
-    assert.equal(evaluate(gate, { results: ok, cancelled: true }), false, `${name} must not start in a cancelled workflow (sign-swap skipped)`);
+  const ok = { guard: "success", plan: "success", pack: "success", "build-swap": "skipped", "sign-swap": "skipped" };
+  for (const gate of [PACK_IF, VERIFY_IF]) {
+    assert.equal(evaluate(gate, { results: ok }), true);
+    assert.equal(evaluate(gate, { results: ok, count: "0" }), false);
+    assert.equal(evaluate(gate, { results: ok, cancelled: true }), false);
+    for (const upstream of ["guard", "plan"]) for (const bad of ["failure", "skipped", "cancelled"]) assert.equal(evaluate(gate, { results: { ...ok, [upstream]: bad } }), false);
   }
-  // an upstream JOB result of failure, skipped or cancelled (workflow not cancelled)
-  for (const bad of ["failure", "skipped", "cancelled"]) {
-    for (const upstream of ["guard", "plan"]) for (const gate of [PACK_IF, VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, [upstream]: bad } }), false, `${upstream} ${bad}`);
-    for (const gate of [VERIFY_IF, SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, pack: bad } }), false, `pack ${bad}`);
-    for (const gate of [SEAL_CHECK_IF, UPLOAD_IF]) assert.equal(evaluate(gate, { results: { ...ok, verify: bad } }), false, `verify ${bad}`);
-    assert.equal(evaluate(UPLOAD_IF, { results: { ...ok, "seal-check": bad } }), false, `seal-check ${bad}`);
-  }
-  for (const bad of ["failure", "cancelled"]) assert.equal(evaluate(PACK_IF, { results: { ...ok, "sign-swap": bad } }), false, `sign-swap ${bad} blocks pack`);
-  assert.ok(MUTATIONS.length >= 230);
-  const names = MUTATIONS.map(([name]) => name);
-  for (const required of ["pack condition uses always() instead of !cancelled()", "verify condition uses always() instead of !cancelled()", "seal-check condition uses always() instead of !cancelled()", "upload condition uses always() instead of !cancelled()", "pack condition drops !cancelled()", "verify condition drops !cancelled()", "seal-check condition drops !cancelled()", "upload condition drops !cancelled()", "verify condition drops needs.pack.result == 'success'", "seal-check condition drops needs.verify.result == 'success'", "upload condition drops needs.seal-check.result == 'success'", "upload condition drops needs.verify.result == 'success'", "upload accepts a skipped pack job", "pack accepts a failed sign-swap job", "pack has no condition", "verify has no condition"]) assert.ok(names.includes(required), required);
-  for (const [name, mutate] of MUTATIONS.filter(([n]) => /^(?:pack|verify|seal-check|upload) (?:condition (?:drops|uses)|accepts a (?:skipped|failed))/.test(n))) {
-    const copy = structuredClone(doc);
-    mutate(copy);
+  for (const bad of ["failure", "skipped", "cancelled"]) assert.equal(evaluate(VERIFY_IF, { results: { ...ok, pack: bad } }), false);
+  for (const bad of ["failure", "cancelled"]) assert.equal(evaluate(PACK_IF, { results: { ...ok, "sign-swap": bad } }), false);
+  assert.equal(evaluate(PACK_IF, { results: ok, release: true }), false, "required signer cannot skip");
+  assert.equal(evaluate(PACK_IF, { results: { ...ok, "build-swap": "success", "sign-swap": "success" }, release: true }), true);
+  for (const bad of ["failure", "cancelled", "skipped"]) assert.equal(evaluate(PACK_IF, { results: { ...ok, "build-swap": bad, "sign-swap": "success" }, release: true }), false, "required unsigned build must succeed");
+  for (const [name, mutate] of MUTATIONS.filter(([n]) => /^(?:pack|verify) (?:condition (?:drops|uses)|accepts a (?:skipped|failed))/.test(n))) {
+    const copy = structuredClone(doc); mutate(copy);
     assert.throws(() => assertPublishDoc(copy), /condition must be exactly/, name);
   }
 });
 
-test("seal-check and upload both check out the approved-artifacts list; pack builds only the planned closure", { skip: realWorkflowSkip }, () => {
-  const doc = realDoc();
-  const checkout = (job) => doc.jobs[job].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
-  for (const job of ["seal-check", "upload"]) {
-    assert.deepEqual(checkout(job).with["sparse-checkout"].split("\n").filter(Boolean), SPARSE_UPLOAD, job);
-    assert.equal(checkout(job).with["sparse-checkout-cone-mode"], "false", job);
-  }
-  assert.deepEqual(SPARSE_UPLOAD, ["scripts/ci/upload.mjs", "ci/approved-artifacts.json"]);
-  const dry = doc.jobs["seal-check"].steps.find((s) => s.run);
-  assert.equal(dry.run.trim(), "node scripts/ci/upload.mjs run --dry-run");
-  const pack = doc.jobs.pack.steps;
-  assert.ok(pack.some((s) => s.run?.trim() === "node scripts/ci/publish.mjs build"));
-  assert.ok(!pack.some((s) => /pnpm[^\n]*(?:\s-r\b|--recursive)|run build/.test(s.run ?? "")), "pack no longer builds the whole workspace");
+test("native helper build is isolated from fresh source-free signer & same-run identity precedes signing secrets", { skip: realWorkflowSkip }, () => {
+  const doc = realDoc(); const build = doc.jobs["build-swap"]; const signer = doc.jobs["sign-swap"];
+  assert.equal(build.environment, undefined);
+  assert.deepEqual(build.permissions, { contents: "read" });
+  assert.equal(signer.if, SIGN_SWAP_IF);
+  assert.deepEqual(signer.needs, ["guard", "plan", "build-swap"]);
+  assert.deepEqual(signer.steps[0].with, { name: UNSIGNED_ARTIFACT, path: "${{ runner.temp }}/swap-unsigned" });
+  assert.equal(signer.steps[1].run, UNSIGNED_VALIDATE_RUN);
+  assert.deepEqual(signer.steps[1].env, { EXPECTED_SHA256: "${{ needs.build-swap.outputs.sha256 }}" });
+  assert.match(signer.steps[1].run, /cmp "\$RUNNER_TEMP\/expected-swap-receipt.txt"/);
+  assert.match(signer.steps[1].run, /shasum -a 256 -c rightkit-swap.sha256/);
+  assert.equal(signer.steps.filter((step) => step.env?.APPLE_CERTIFICATE_BASE64).length, 1);
+  assert.equal(signer.steps[2].env.APPLE_CERTIFICATE_BASE64, "${{ secrets.APPLE_CERTIFICATE_BASE64 }}");
+  assert.equal(signer.steps.some((step) => /checkout|toolchain|setup-node|pnpm/.test(step.uses ?? "")), false);
+  assert.equal(signer.steps.some((step) => /cargo |pnpm |npm |node /.test(step.run ?? "")), false);
   const names = MUTATIONS.map(([name]) => name);
-  for (const required of ["upload no longer checks out the approved-artifacts list", "seal-check no longer checks out the approved-artifacts list", "seal-check checks out the whole workspace", "the approved-artifacts path is overridden through the upload env", "the approved-artifacts path is overridden through the seal-check env", "the dry run no longer runs the uploader (and so the approval check)", "pack builds the whole workspace", "pack drops the scoped build", "pack builds after sealing"]) assert.ok(names.includes(required), required);
-  const broken = (edit) => { const copy = structuredClone(doc); edit(copy.jobs); return () => assertPublishDoc(copy); };
-  assert.throws(broken((j) => { j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"] = "scripts/ci/upload.mjs"; }), /seal-check must check out exactly/);
-  assert.throws(broken((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs"; }), /upload must check out exactly|sparse-checkout must be/);
-  assert.throws(broken((j) => { j.pack.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs build").run = "pnpm -r run build"; }), /pack must (?:run exactly one|not build the whole workspace)/);
+  for (const name of ["build-swap joins signing environment", "build-swap requests OIDC", "signer reads secrets before validation", "signer checks out package code", "signer takes unsigned artifact from foreign run", "signer omits unsigned hash validation", "signer omits source run validation", "signer substitutes source attempt in receipt", "sign-swap rebuilds after receiving secrets", "pack admits skipped signer for required helper"]) assert.ok(names.includes(name), name);
 });
 
-test("the contract compares conditions exactly and finds every secret expression", { skip: realWorkflowSkip }, () => {
+test("qualification aggregate always runs & refuses every missing prerequisite or empty plan", { skip: realWorkflowSkip }, () => {
+  const doc = realDoc();
+  const gate = doc.jobs.qualified;
+  assert.equal(gate.if, "${{ always() }}");
+  assert.deepEqual(gate.needs, ["guard", "plan", "pack", "verify"]);
+  assert.deepEqual(gate.steps[0].env, QUALIFIED_ENV);
+  assert.equal(gate.steps[0].run, QUALIFIED_RUN);
+  // Interpret only these shell test commands; this regression remains pure & host-independent.
+  const accepts = (env) => gate.steps[0].run.trim().split("\n").every((line) => {
+    const match = /^test "\$([A-Z_]+)" (= success|-gt 0)$/.exec(line);
+    assert.ok(match, line);
+    return match[2] === "= success" ? env[match[1]] === "success" : /^\d+$/.test(env[match[1]] ?? "") && Number(env[match[1]]) > 0;
+  });
+  const success = { GUARD_RESULT: "success", PLAN_RESULT: "success", PACK_RESULT: "success", VERIFY_RESULT: "success", UNIT_COUNT: "2" };
+  assert.equal(accepts(success), true);
+  for (const key of ["GUARD_RESULT", "PLAN_RESULT", "PACK_RESULT", "VERIFY_RESULT"]) for (const bad of ["failure", "skipped", "cancelled", ""]) assert.equal(accepts({ ...success, [key]: bad }), false, `${key}: ${bad}`);
+  for (const count of ["0", "", "invalid"]) assert.equal(accepts({ ...success, UNIT_COUNT: count }), false);
+});
+
+test("qualification contract finds every secret expression & exact-condition bypass", { skip: realWorkflowSkip }, () => {
   const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc); return () => assertPublishDoc(doc); };
-  assert.throws(broken((d) => { d.jobs.upload.if = `${d.jobs.upload.if} || true`; }), /upload's condition must be exactly/);
-  assert.throws(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if.replace(" }}", " || true }}")}`; }), /upload's condition must be exactly/);
-  assert.doesNotThrow(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if}  `; }), "surrounding whitespace is not a different condition");
+  assert.throws(broken((d) => { d.jobs.pack.if += " || true"; }), /condition must be exactly/);
+  assert.throws(broken((d) => { d.jobs.verify.if = d.jobs.verify.if.replace(" }}", " || true }}"); }), /condition must be exactly/);
+  assert.doesNotThrow(broken((d) => { d.jobs.verify.if = `  ${d.jobs.verify.if}  `; }));
   for (const form of ["${{ secrets.X }}", "${{ secrets['X'] }}", '${{ secrets["X"] }}', "${{ toJSON(secrets) }}", "${{ secrets }}", "${{ SECRETS.X }}", "${{ format('{0}', secrets.X) }}"]) {
-    for (const job of ["guard", "plan", "sign-swap", "pack", "verify", "seal-check"]) {
+    for (const job of ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"]) {
       assert.throws(broken((d) => { const step = d.jobs[job].steps.at(-1); step.env = { ...(step.env ?? {}), T: form }; }), /secrets context|secret/, `${job}: ${form}`);
     }
   }
   assert.throws(broken((d) => { d.jobs.verify.secrets = "inherit"; }), /secrets/);
+  assert.match(realDoc().jobs.guard.steps[0].run, /exit 1\nfi\n$/);
 });
 
-test("the privileged upload job is closed: env, shell, working directory, step list, with keys and job keys", { skip: realWorkflowSkip }, () => {
-  const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc.jobs.upload); return () => assertPublishDoc(doc); };
-  const npm = 5; const crates = 6;
-  for (const key of ["NODE_OPTIONS", "NPM_CONFIG_SCRIPT_SHELL", "npm_config_registry", "JAVA_TOOL_OPTIONS", "PATH", "BASH_ENV", "LD_PRELOAD"]) {
-    assert.throws(broken((u) => { u.steps[npm].env[key] = "x"; }), /never allowed|exactly the env keys/, `${key} on the npm step`);
-    assert.throws(broken((u) => { u.steps[crates].env[key] = "x"; }), /exactly the env keys/, `${key} on the crates step`);
+test("reviewed promotion needs one dispatch, secretless admission & original-byte upload with exact approvals", () => {
+  const doc = parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url), "utf8"));
+  assert.equal(assertReviewedDoc(doc), true);
+  assert.deepEqual(Object.keys(doc.on.workflow_dispatch.inputs), ["candidate_id"]);
+  assert.deepEqual(doc.concurrency, { group: "publish", queue: "max", "cancel-in-progress": "false" });
+  assert.equal(doc.jobs["seal-check"].steps[2].run, "node scripts/ci/reviewed-candidate.mjs run --dry-run");
+  assert.deepEqual(doc.jobs.upload.needs, ["seal-check"]);
+  assert.equal(doc.jobs.upload.if.includes("inputs.dry_run"), false);
+  for (const [name, mutate] of REVIEWED_MUTATIONS) {
+    const copy = structuredClone(doc); mutate(copy);
+    assert.throws(() => assertReviewedDoc(copy), undefined, name);
   }
-  assert.throws(broken((u) => { u.steps[npm].shell = "bash"; }), /may carry only the keys/);
-  assert.throws(broken((u) => { u.steps[npm]["working-directory"] = "/tmp"; }), /may carry only the keys/);
-  assert.throws(broken((u) => { u.steps.push({ name: "x", run: "node scripts/ci/upload.mjs run" }); }), /must have exactly 8 steps/);
-  assert.throws(broken((u) => { u.steps[1].with.cache = "npm"; }), /exactly the with keys/);
-  assert.throws(broken((u) => { u.steps[2].with["run-id"] = "1"; }), /exactly the with keys/);
-  for (const key of ["container", "services", "defaults", "env", "strategy", "outputs", "concurrency"]) assert.throws(broken((u) => { u[key] = {}; }), /upload may carry only the keys|no job-level env/, key);
-  assert.doesNotThrow(broken(() => {}));
-});
-
-test("the YAML parser reads the real workflow's run blocks as the spec does", { skip: realWorkflowSkip }, () => {
-  const doc = realDoc();
-  const upload = doc.jobs.upload.steps.find((s) => s.name === "Upload to npm");
-  assert.equal(upload.run, "node scripts/ci/upload.mjs run");
-  assert.match(doc.jobs.guard.steps[0].run, /exit 1\nfi\n$/);
 });
 
 // ---- shipped-byte consumer verification ------------------------------------------------------

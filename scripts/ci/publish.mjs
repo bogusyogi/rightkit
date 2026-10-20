@@ -25,7 +25,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
-import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
+import { archiveScanProblems, checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
+import { registrySpecProblem } from "./registry-spec.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
 // "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
@@ -110,7 +111,7 @@ export function readNpmWorkspace(root = ROOT) {
     if (!manifest?.name) continue;
     const deps = [];
     for (const kind of ["dependencies", "optionalDependencies", "peerDependencies"]) {
-      for (const [name, spec] of Object.entries(manifest[kind] ?? {})) deps.push({ name, spec: String(spec), kind, dev: false });
+      for (const [name, spec] of Object.entries(manifest[kind] ?? {})) deps.push({ name, spec, kind, dev: false });
     }
     units.set(manifest.name, { name: manifest.name, version: manifest.version ?? "", dir: `packages/${entry.name}`, private: manifest.private === true, hasTest: Boolean(manifest.scripts?.test), deps });
   }
@@ -300,11 +301,12 @@ export async function planPublication({ registry, unitsText, dryRun, allowHostEx
   for (const unit of toPublish) {
     for (const dep of unit.deps) {
       const target = members.get(dep.name);
+      if (registry === "npm") {
+        const problem = registrySpecProblem(dep.spec, { workspaceMember: Boolean(target) });
+        if (problem) { errors.push(`${unit.name}: dependency ${dep.name} ${problem}: ${JSON.stringify(dep.spec)}`); continue; }
+      }
       if (!target || dep.name === unit.name) continue;
       if (dep.dev && !dep.spec) continue; // path-only dev-dependency: cargo strips it on publish
-      if (registry === "npm" && dep.spec.startsWith("workspace:") === false && /^(file|link|git|github|https?):/.test(dep.spec)) {
-        errors.push(`${unit.name}: dependency ${dep.name} uses a non-registry specifier ${dep.spec}`); continue;
-      }
       if (registry === "crates" && typeof dep.source === "string" && dep.source.startsWith("git+")) {
         errors.push(`${unit.name}: dependency ${dep.name} is a git dependency; the registry rejects it`); continue;
       }
@@ -597,7 +599,7 @@ function gateEvidence(env) {
  * checks the npm tarballs (name, version, entry points, provenance repository) or the crate sources,
  * requires the gate's explicit per-unit evidence, and binds all of it to the manifest hash.
  */
-export function commandVerify({ env = process.env, spawn = spawnSync, host = hostName(), consume = { npm: consumeNpm, crates: consumeCrates } } = {}) {
+export async function commandVerify({ env = process.env, spawn = spawnSync, host = hostName(), consume = { npm: consumeNpm, crates: consumeCrates }, scanArchive = async (options) => (await import("./archive-secret-scan.mjs")).scanArchiveForSecrets(options) } = {}) {
   requireNoTokens(env);
   const registry = env.PUBLISH_REGISTRY;
   const commit = requireActionsOnMain(env, spawn);
@@ -615,6 +617,18 @@ export function commandVerify({ env = process.env, spawn = spawnSync, host = hos
   if (evidence.host !== hostId || evidence.registry !== registry || evidence.sha !== commit) problems.push(`gate evidence is for ${evidence.registry} on ${evidence.host} at ${evidence.sha}, not ${registry} on ${hostId} at ${commit}`);
   const rows = [];
   const scratchRoot = env.RUNNER_TEMP || os.tmpdir();
+  const fail = () => { throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`); };
+  if (problems.length) fail();
+  // Scan every sealed unit before any consumer installs, extracts or executes shipped contents.
+  const archiveScans = new Map();
+  for (const unit of manifest.units) {
+    let scan;
+    try { scan = await scanArchive({ file: path.join(dir, unit.file), registry: registry === "npm" ? "npm" : "cargo", name: unit.name, version: unit.version, scratchRoot }); }
+    catch { problems.push(`${unit.name}: archive secret scan failed`); continue; }
+    archiveScans.set(unit.name, scan);
+    for (const problem of archiveScanProblems(scan, unit.sha256)) problems.push(`${unit.name}: ${problem}`);
+  }
+  if (problems.length) fail();
   // Consumer verification: install/extract the SEALED artifacts together and use them as a consumer would.
   let consumed = new Map();
   if (manifest && problems.length === 0) {
@@ -637,7 +651,7 @@ export function commandVerify({ env = process.env, spawn = spawnSync, host = hos
     const row = (evidence.units ?? []).find((u) => u.name === unit.name);
     if (!row) problems.push(`${unit.name}: the gate left no evidence for it on ${hostId}`);
     else if (!PASS_STATUSES.includes(row.status)) problems.push(`${unit.name}: gate status ${JSON.stringify(row.status)} on ${hostId} is not a pass`);
-    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [] });
+    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScans.get(unit.name), bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [] });
   }
   if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
   const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, units: rows };

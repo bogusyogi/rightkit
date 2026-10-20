@@ -10,7 +10,7 @@ readme = "README.md"
 include = ["src/**", "tests/**", "README.md", "API.md", "INDEX.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }

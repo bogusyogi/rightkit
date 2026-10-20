@@ -28,7 +28,7 @@ paths = ["dep:rightkit-daemon"]
 offscreen-private-spi = []
 
 [dependencies]
-rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon", optional = true }
+rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -121,12 +121,13 @@ function npmPackages() {
 
 function unitPlan() {
   const config = readJson("ci/gate.config.json", {});
+  const lock = parseLock(fs.readFileSync(path.join(ROOT, "Cargo.lock"), "utf8"));
   const units = (argOf("--units") ?? "").split(/\s+/).filter(Boolean);
   const packages = npmPackages();
   const names = (flag) => (argOf(flag) ?? "").split(/\s+/).filter(Boolean);
   let picked;
   const allowIgnored = names("--allow-ignored"); const allowMissingAssets = names("--allow-missing-assets");
-  try { picked = selectUnits({ registry: argOf("--registry"), units, members: rustMembers(config), packages, host: HOST, config, allowHostExclusion: names("--allow-host-exclusion"), allowNoTest: names("--allow-no-test"), allowIgnored, allowMissingAssets, assetGated: readJson("ci/asset-gated.json", {}) }); } catch (error) {
+  try { picked = selectUnits({ registry: argOf("--registry"), units, members: rustMembers(config), packages, lock, host: HOST, config, allowHostExclusion: names("--allow-host-exclusion"), allowNoTest: names("--allow-no-test"), allowIgnored, allowMissingAssets, assetGated: readJson("ci/asset-gated.json", {}) }); } catch (error) {
     console.error(`gate: ${error.message}. Usage: --registry npm|crates --units "<names>"`);
     process.exit(2);
   }

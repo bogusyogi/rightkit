@@ -5,12 +5,12 @@
 /** Paths that change what every Rust unit means. */
 export const RUST_GLOBAL = [
   /^Cargo\.toml$/, /^rust-toolchain(\.toml)?$/, /^\.cargo\//, /^\.rightgit\.json$/,
-  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan)\.mjs$/, /^ci\/shards\.json$/,
+  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan|test-results|provision-chrome|provision-ort)\.mjs$/, /^ci\/(shards\.json|chrome-for-testing\.json)$/, /^crates\/rightkit-ffmpeg\/catalog\/native-libraries\.json$/,
 ];
 /** Paths that change what every npm unit means. */
 export const NPM_GLOBAL = [
   /^package\.json$/, /^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/, /^\.rightgit\.json$/,
-  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan)\.mjs$/, /^ci\/shards\.json$/,
+  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan|test-results|provision-chrome|provision-ort)\.mjs$/, /^ci\/(shards\.json|chrome-for-testing\.json)$/, /^crates\/rightkit-ffmpeg\/catalog\/native-libraries\.json$/,
 ];
 /** Files inside a unit that cannot change its behaviour. */
 const INERT = [/(^|\/)CHANGELOG\.md$/, /(^|\/)runtime-budget\.evidence\//];
@@ -119,9 +119,9 @@ export function changedConfigCrates(previous, next) {
 }
 
 /**
- * Explicit unit selection for a publish verification run: exactly the named units, in the order
- * given, with nothing derived from a diff and no dependents added. `registry` is "crates" (units
- * are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
+ * Explicit unit selection for a publish verification run: named units are tested in the order
+ * given; a parsed Cargo.lock graph is required, and reverse workspace dependents of tested crates
+ * are added to `check`. `registry` is "crates" (units are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
  * for selectNpm, each with `scripts`). Returns the shapes selectRust and selectNpm return, so the
  * gate runs them unchanged, plus `excluded` and `noTest`: the units the gate will NOT run on `host`
  * and has been explicitly allowed not to.
@@ -130,7 +130,7 @@ export function changedConfigCrates(previous, next) {
  * `allowHostExclusion` names it; an npm package without a `test` script throws unless `allowNoTest`
  * names it; an allow entry naming a unit that is not in `units` throws.
  */
-export function selectUnits({ registry, units, members = [], packages = [], host = null, config = {}, allowHostExclusion = [], allowNoTest = [], allowIgnored = [], allowMissingAssets = [], assetGated = {} }) {
+export function selectUnits({ registry, units, members = [], packages = [], lock = null, host = null, config = {}, allowHostExclusion = [], allowNoTest = [], allowIgnored = [], allowMissingAssets = [], assetGated = {} }) {
   if (!Array.isArray(units) || units.length === 0) throw new Error("no units named");
   const unique = [...new Set(units)];
   for (const [label, list] of [["allow_host_exclusion", allowHostExclusion], ["allow_no_test", allowNoTest], ["allow_ignored", allowIgnored], ["allow_missing_assets", allowMissingAssets]]) {
@@ -145,6 +145,9 @@ export function selectUnits({ registry, units, members = [], packages = [], host
   const notGated = allowMissingAssets.filter((name) => !Object.hasOwn(gated, name));
   if (notGated.length) throw new Error(`allow_missing_assets names ${notGated.join(", ")}, which ci/asset-gated.json does not list for ${registry}`);
   if (registry === "crates") {
+    if (!(lock instanceof Map)) throw new Error("crates selection requires the parsed Cargo.lock workspace graph to check reverse dependents");
+    const incomplete = members.filter((member) => !lock.has(member.name)).map((member) => member.name);
+    if (incomplete.length) throw new Error(`Cargo.lock workspace graph is incomplete; missing member(s): ${incomplete.join(", ")}`);
     const known = new Set(members.map((m) => m.name));
     const unknown = unique.filter((name) => !known.has(name));
     if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
@@ -156,7 +159,18 @@ export function selectUnits({ registry, units, members = [], packages = [], host
       if (allowHostExclusion.includes(name)) excluded.push(name); else refused.push(`${name} (restricted to ${os.join(", ")})`);
     }
     if (refused.length) throw new Error(`${refused.join(", ")} would be skipped on ${host}; name each in allow_host_exclusion or lift the restriction`);
-    return { rust: { all: false, test: unique.filter((n) => !excluded.includes(n)), check: [] }, npm: { all: false, test: [] }, excluded, noTest: [] };
+    const test = unique.filter((n) => !excluded.includes(n));
+    const memo = new Map();
+    const reverse = members.map((member) => member.name).filter((name) => !unique.includes(name) && test.some((target) => reach(lock, name, memo).has(target)));
+    const restricted = reverse.filter((name) => {
+      const os = config.rust?.[name]?.os;
+      return host && os && !os.includes(host);
+    });
+    if (restricted.length) {
+      const detail = restricted.map((name) => `${name} (restricted to ${config.rust[name].os.join(", ")})`).join(", ");
+      throw new Error(`reverse-dependent check would be skipped on ${host}: ${detail}; lift the host restriction or select an allowed native verification path`);
+    }
+    return { rust: { all: false, test, check: reverse.sort() }, npm: { all: false, test: [] }, excluded, noTest: [] };
   }
   if (registry === "npm") {
     const byName = new Map(packages.map((p) => [p.name, p]));

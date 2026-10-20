@@ -37,7 +37,10 @@ fn a_registration_hosts_its_methods_for_the_apps_it_names_and_nobody_else() {
             |_cx, _params, _emit| Ok(json!("narrow")),
         )
         .unwrap();
-    assert_eq!(registration.methods().ids().collect::<Vec<_>>(), ["echo", "narrow"]);
+    assert_eq!(
+        registration.methods().ids().collect::<Vec<_>>(),
+        ["echo", "narrow"]
+    );
 
     let service = Service::builder()
         .register(&suite, registration, HostOptions::new())
@@ -92,7 +95,9 @@ fn registration_refuses_what_cannot_work_before_anything_is_hosted() {
 
     // `ping` belongs to the host.
     assert_eq!(
-        Registration::new(identity()).method(ok("ping"), handler).err(),
+        Registration::new(identity())
+            .method(ok("ping"), handler)
+            .err(),
         Some(RegistrationError::Reserved("ping".to_string()))
     );
     // A method registered twice.
@@ -106,7 +111,9 @@ fn registration_refuses_what_cannot_work_before_anything_is_hosted() {
     );
     // A bad id is the method table's refusal.
     assert!(matches!(
-        Registration::new(identity()).method(ok("a/b"), handler).err(),
+        Registration::new(identity())
+            .method(ok("a/b"), handler)
+            .err(),
         Some(RegistrationError::Table(_))
     ));
     // A registration with no method hosts nothing.
@@ -125,7 +132,9 @@ fn a_local_profile_refuses_methods_that_remote_devices_could_reach() {
         Registration::new(identity())
             .method(remote_reachable.clone(), handler)
             .err(),
-        Some(RegistrationError::RemoteMethodInLocalProfile("both".to_string()))
+        Some(RegistrationError::RemoteMethodInLocalProfile(
+            "both".to_string()
+        ))
     );
     // The same method is fine once the registration says it offers a remote profile.
     let registration = Registration::new(identity())
@@ -150,7 +159,10 @@ fn an_identity_is_validated() {
         Err(RegistrationError::BadIdentity("version"))
     );
     let id = ServiceIdentity::new("ok-name", "engine", 3, "2.1").unwrap();
-    assert_eq!((id.service(), id.role(), id.rank(), id.version()), ("ok-name", "engine", 3, "2.1"));
+    assert_eq!(
+        (id.service(), id.role(), id.rank(), id.version()),
+        ("ok-name", "engine", 3, "2.1")
+    );
 }
 
 #[cfg(feature = "remote")]
@@ -158,12 +170,16 @@ fn an_identity_is_validated() {
 fn a_local_only_registration_refuses_a_remote_daemon() {
     let (dir, suite) = suite();
     let registration = Registration::new(identity())
-        .method(MethodDescriptor::local("m", ["alpha"]), |_c, _p, _e| Ok(json!(1)))
+        .method(MethodDescriptor::local("m", ["alpha"]), |_c, _p, _e| {
+            Ok(json!(1))
+        })
         .unwrap();
     let built = Service::builder()
         .register(&suite, registration, HostOptions::new())
         .unwrap()
-        .remote(rightkit_daemon::remote::DaemonConfig::new(dir.path().join("remote")))
+        .remote(rightkit_daemon::remote::DaemonConfig::new(
+            dir.path().join("remote"),
+        ))
         .start();
     match built {
         Err(BuildError::Registration(RegistrationError::RemoteNotDeclared)) => {}

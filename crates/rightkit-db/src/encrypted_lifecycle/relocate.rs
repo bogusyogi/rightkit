@@ -203,7 +203,9 @@ impl EncryptedStore {
             Some(destination) if !Arc::ptr_eq(destination, &cfg.key_store) => Some(
                 destination
                     .lock_rotation(cfg.transition.acquire_timeout)
-                    .map_err(|error| Failure::plain(key_store_error("destination rotation lock", error)))?,
+                    .map_err(|error| {
+                        Failure::plain(key_store_error("destination rotation lock", error))
+                    })?,
             ),
             _ => None,
         };
@@ -216,17 +218,30 @@ impl EncryptedStore {
             Ok(Some(_)) => {
                 return Err(Failure::plain(LifecycleError::WrongDestinationKey {
                     path: new_path.clone(),
-                    detail: "the destination key store already holds a different primary key".into(),
+                    detail: "the destination key store already holds a different primary key"
+                        .into(),
                 }))
             }
-            Err(error) => return Err(Failure::plain(key_store_error("destination primary", error))),
+            Err(error) => {
+                return Err(Failure::plain(key_store_error(
+                    "destination primary",
+                    error,
+                )))
+            }
         }
         match destination.read_pending() {
             Ok(None) => {}
-            Ok(Some(_)) => return Err(Failure::plain(LifecycleError::Precondition(
-                "the destination key store has an unfinished pending key".into(),
-            ))),
-            Err(error) => return Err(Failure::plain(key_store_error("destination pending", error))),
+            Ok(Some(_)) => {
+                return Err(Failure::plain(LifecycleError::Precondition(
+                    "the destination key store has an unfinished pending key".into(),
+                )))
+            }
+            Err(error) => {
+                return Err(Failure::plain(key_store_error(
+                    "destination pending",
+                    error,
+                )))
+            }
         }
 
         let journal = Journal {
@@ -382,12 +397,17 @@ impl EncryptedStore {
                         &[old_path.as_path(), new_path.as_path()],
                         &cfg.transition,
                     )?;
-                    let source = cfg.key_store.lock_rotation(cfg.transition.acquire_timeout)
+                    let source = cfg
+                        .key_store
+                        .lock_rotation(cfg.transition.acquire_timeout)
                         .map_err(|error| key_store_error("rotation lock", error))?;
                     let destination = match &plan.new_key_store {
                         Some(destination) if !Arc::ptr_eq(destination, &cfg.key_store) => Some(
-                            destination.lock_rotation(cfg.transition.acquire_timeout)
-                                .map_err(|error| key_store_error("destination rotation lock", error))?,
+                            destination
+                                .lock_rotation(cfg.transition.acquire_timeout)
+                                .map_err(|error| {
+                                    key_store_error("destination rotation lock", error)
+                                })?,
                         ),
                         _ => None,
                     };
@@ -396,7 +416,8 @@ impl EncryptedStore {
                     drop(source);
                     cleanup_transition.settle();
                     Ok(removed)
-                })().unwrap_or(false);
+                })()
+                .unwrap_or(false);
                 Err(Box::new(Failure {
                     error,
                     copy_retained: if removed || !new_path.exists() {

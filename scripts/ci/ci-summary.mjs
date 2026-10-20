@@ -14,7 +14,8 @@ try {
       counts[`${family}-${host}`] = /^\d+$/.test(value ?? "") ? Number(value) : NaN;
     }
   }
-  const aggregate = summaryVerdict(needs, { required: ["private-repo-guard", "plan", "hygiene"], counts });
+  const required = ["private-repo-guard", "plan", "hygiene", "ownership"];
+  const aggregate = summaryVerdict(needs, { required, counts });
   const expected = JSON.parse(outputs.evidence ?? "null");
   if (!Array.isArray(expected) || expected.length !== Object.values(counts).reduce((sum, count) => sum + count, 0)) throw new Error("evidence plan does not match planned matrix counts");
   for (const host of ["windows", "macos"]) {
@@ -27,10 +28,10 @@ try {
   }
   const evidence = evidenceVerdict(expected, reports, process.env.GITHUB_SHA);
   for (const host of ["windows", "macos"]) {
-    const keys = ["private-repo-guard", "plan", "hygiene", `shards-${host}`, `closure-${host}`];
+    const keys = [...required, `shards-${host}`, `closure-${host}`];
     const hostNeeds = Object.fromEntries(keys.map((key) => [key, needs[key]]));
     const hostCounts = Object.fromEntries(Object.entries(counts).filter(([key]) => key.endsWith(`-${host}`)));
-    const jobs = summaryVerdict(hostNeeds, { required: keys.slice(0, 3), counts: hostCounts });
+    const jobs = summaryVerdict(hostNeeds, { required, counts: hostCounts });
     const proof = evidenceVerdict(expected.filter((job) => job.host === host), reports, process.env.GITHUB_SHA);
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${host}_green=${jobs.ok && proof.ok}\n`);
   }

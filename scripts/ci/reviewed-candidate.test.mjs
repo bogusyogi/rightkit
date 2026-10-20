@@ -10,6 +10,7 @@ import { parseYaml } from "./workflow-yaml.mjs";
 
 const SOURCE = "a".repeat(40); const PROMOTION = "b".repeat(40);
 const clone = (x) => structuredClone(x);
+const archiveScanFixture = (unit) => ({ schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: unit.sha256, status: "pass", files: 1, violations: [], problems: [] });
 function fixture(t, mutate = () => {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-reviewed-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
@@ -18,7 +19,7 @@ function fixture(t, mutate = () => {}) {
   const unit = { name: "rightkit-a", version: "0.1.0", file: "rightkit-a-0.1.0.crate", sha256: sha("sha256", crate), size: crate.length, metaFile: "rightkit-a-0.1.0.upload.json", metaSha256: sha("sha256", metadata) };
   const manifest = { schema: 1, registry: "crates", commit: SOURCE, runId: "77", runAttempt: "1", units: [unit] };
   const files = { packed: { [unit.file]: crate, [unit.metaFile]: metadata, "manifest.json": Buffer.from(JSON.stringify(manifest)) } };
-  for (const host of ["macos", "windows"]) files[host] = { [`verify-${host}.json`]: Buffer.from(JSON.stringify({ schema: 1, kind: "verify", host, registry: "crates", commit: SOURCE, manifestSha256: sha("sha256", files.packed["manifest.json"]), runId: "77", runAttempt: "1", manifestRunId: "77", manifestRunAttempt: "1", allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [], units: [{ ...unit, bytesVerified: true, status: "pass", executed: 2, ignored: 0, skipped: 0, consumer: { verified: true } }] })) };
+  for (const host of ["macos", "windows"]) files[host] = { [`verify-${host}.json`]: Buffer.from(JSON.stringify({ schema: 1, kind: "verify", host, registry: "crates", commit: SOURCE, manifestSha256: sha("sha256", files.packed["manifest.json"]), runId: "77", runAttempt: "1", manifestRunId: "77", manifestRunAttempt: "1", allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [], units: [{ ...unit, archiveScan: archiveScanFixture(unit), bytesVerified: true, status: "pass", executed: 2, ignored: 0, skipped: 0, consumer: { verified: true } }] })) };
   const archives = Object.fromEntries(Object.keys(files).map((host) => [host, Buffer.from(`ZIP fixture ${host}`)]));
   const candidate = { id: "candidate-77", sourceSha: SOURCE, runId: "77", runAttempt: "1", workflowId: "5", manifestSha256: sha("sha256", files.packed["manifest.json"]), registry: "crates", units: ["rightkit-a"], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, artifacts: {} };
   const artifactNames = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025" };

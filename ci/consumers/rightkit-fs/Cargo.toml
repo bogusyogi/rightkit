@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-fs-native-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-fs = { version = "=0.4.6", features = ["transaction", "test-seams"] }
+serde_json = "1"

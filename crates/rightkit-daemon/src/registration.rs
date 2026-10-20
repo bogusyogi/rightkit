@@ -206,10 +206,16 @@ impl From<TableError> for RegistrationError {
     }
 }
 
-type MethodFn = Box<dyn Fn(&CallContext, &Value, &Emit) -> Result<Value, ServiceError> + Send + Sync>;
+type MethodFn =
+    Box<dyn Fn(&CallContext, &Value, &Emit) -> Result<Value, ServiceError> + Send + Sync>;
 
 /// What [`Registration::into_parts`] hands to the builder.
-type Parts = (ServiceIdentity, TransportProfile, MethodTable, Arc<dyn Handler>);
+type Parts = (
+    ServiceIdentity,
+    TransportProfile,
+    MethodTable,
+    Arc<dyn Handler>,
+);
 
 /// Identity, method descriptors and one handler closure per method, checked together. See the
 /// module docs.

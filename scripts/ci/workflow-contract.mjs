@@ -8,24 +8,20 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 export const VERIFY_HOSTS = ["windows-2025", "xcode-27"];
-export const PUBLISH_CONCURRENCY_GROUP = "${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}";
-const ALLOWED_UPLOAD_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@"];
-const ALLOWED_UPLOAD_RUN = ["node scripts/ci/upload.mjs run"];
+export const PUBLISH_CONCURRENCY_GROUP = "qualification-${{ github.run_id }}";
 // Conditions are compared as exact strings (after trimming), never matched by pattern: an appended
 // `|| true`, a reordered operand or a different operator is a different condition.
-// pack, verify, seal-check and upload must run only while the workflow is NOT cancelled (`!cancelled()`, never
+// pack & verify must run only while the workflow is NOT cancelled (`!cancelled()`, never
 // `always()`, which would continue a cancelled run) and only after each upstream job explicitly succeeded: a job whose
 // condition has a status function other than the implicit success() runs after skipped upstream jobs (sign-swap is
 // skipped for most runs), so a dropped result check is the dangerous case (it would let the job follow a failed or
 // skipped one). The count test keeps an empty plan from running anything.
 const RESULT_OK = (job) => `needs.${job}.result == 'success'`;
 const COUNT_TERM = "needs.plan.outputs.count != '0'";
-const SWAP_OK_OR_SKIPPED = "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')";
+export const SWAP_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(needs.plan.outputs.units, '@rightkit/release')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped'))";
 export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
 export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
 export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell') || contains(needs.plan.outputs.units, '@rightkit/settings-ui') || contains(needs.plan.outputs.units, '@rightkit/onboarding'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}";
-export const SEAL_CHECK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${RESULT_OK("verify")} }}`;
-export const UPLOAD_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${RESULT_OK("verify")} && ${RESULT_OK("seal-check")} && ${COUNT_TERM} && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}`;
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
@@ -35,29 +31,20 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
-// The privileged job, completely: these are the only job keys, step keys, steps, `with` keys and env keys it may carry.
-// Anything not listed (NODE_OPTIONS, NPM_CONFIG_*, any *_OPTIONS, PATH, a custom shell, a working directory, a container,
-// service containers, defaults, a step the list does not name) is a violation, because the upload job holds the tokens.
-export const UPLOAD_JOB_KEYS = ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"];
-export const UPLOAD_STEP_KEYS = ["env", "if", "name", "run", "uses", "with"];
-export const UPLOAD_STEPS = [
-  { uses: "actions/checkout@", with: { "persist-credentials": "false", "sparse-checkout": /^scripts\/ci\/upload\.mjs\nci\/approved-artifacts\.json\n?$/, "sparse-checkout-cone-mode": "false" }, env: [] },
-  { uses: "actions/setup-node@", with: { "node-version": /^\d+\.\d+\.\d+$/, "package-manager-cache": "false" }, env: [] },
-  { uses: "actions/download-artifact@", with: { name: "publish-packed", path: `${RT}/sealed/packed` }, env: [] },
-  { uses: "actions/download-artifact@", with: { pattern: "publish-receipt-verify-*", path: `${RT}/sealed/receipts` }, env: [] },
-  { uses: "actions/download-artifact@", with: { pattern: "publication-receipt", path: `${RT}/sealed/previous` }, env: [] },
-  { run: "node scripts/ci/upload.mjs run", with: {}, env: { ...PUBLISH_ENV, NODE_AUTH_TOKEN: TOKEN_ENV.NODE_AUTH_TOKEN } },
-  { run: "node scripts/ci/upload.mjs run", with: {}, env: { ...PUBLISH_ENV, CARGO_REGISTRY_TOKEN: TOKEN_ENV.CARGO_REGISTRY_TOKEN } },
-  { uses: "actions/upload-artifact@", with: { name: "publication-receipt", path: `${RT}/publication-receipt`, "retention-days": "90", overwrite: "true", "if-no-files-found": "ignore" }, env: [] },
-];
-const HAZARD_ENV = /^(?:NODE_OPTIONS|NODE_PATH|PATH|LD_[A-Z_]+|DYLD_[A-Z_]+|BASH_ENV|ENV|SHELLOPTS|PS4|GITHUB_(?:ENV|PATH)|NPM_CONFIG_.*|.*_OPTIONS)$/i;
-const SEAL_CHECK_RUN = "node scripts/ci/upload.mjs run --dry-run";
-const SEAL_CHECK_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@", "actions/upload-artifact@"];
-const ALL_JOBS = ["guard", "plan", "sign-swap", "pack", "verify", "seal-check", "upload"];
-// sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only job besides upload that may use an
+const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"];
+export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\n';
+export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}" };
+// sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only qualification job that may use an
 // environment or the secrets context, and then only the three Apple identity secrets, in exactly one step; the build
-// that produces the binary runs before that step and holds no secret. pack stays secretless and only downloads the result.
-export const SIGN_SWAP_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
+// builder runs on a separate secretless runner. pack stays secretless & only downloads signed result.
+export const BUILD_SWAP_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
+export const SIGN_SWAP_IF = "${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
+export const UNSIGNED_SEAL_RUN = "set -euo pipefail\nout=\"$RUNNER_TEMP/swap-unsigned\"\nmkdir -p \"$out\"\ncp target/release/rightkit-swap \"$out/rightkit-swap\"\n(cd \"$out\" && shasum -a 256 rightkit-swap > rightkit-swap.sha256)\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-swap\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"\ncat \"$out/rightkit-swap.sha256\" >> \"$out/source-receipt.txt\"\nprintf 'sha256=%s\\n' \"$(cut -d ' ' -f 1 \"$out/rightkit-swap.sha256\")\" >> \"$GITHUB_OUTPUT\"\n";
+export const UNSIGNED_VALIDATE_RUN = "set -euo pipefail\nin=\"$RUNNER_TEMP/swap-unsigned\"\n[[ \"$EXPECTED_SHA256\" =~ ^[0-9a-f]{64}$ ]]\nshopt -s dotglob nullglob\nfiles=(\"$in\"/*)\ntest \"${#files[@]}\" -eq 3\nfor file in rightkit-swap rightkit-swap.sha256 source-receipt.txt; do\n  test -f \"$in/$file\"\n  test ! -L \"$in/$file\"\ndone\nprintf '%s  rightkit-swap\\n' \"$EXPECTED_SHA256\" > \"$RUNNER_TEMP/expected-swap.sha256\"\ncmp \"$RUNNER_TEMP/expected-swap.sha256\" \"$in/rightkit-swap.sha256\"\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-swap\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$RUNNER_TEMP/expected-swap-receipt.txt\"\ncat \"$RUNNER_TEMP/expected-swap.sha256\" >> \"$RUNNER_TEMP/expected-swap-receipt.txt\"\ncmp \"$RUNNER_TEMP/expected-swap-receipt.txt\" \"$in/source-receipt.txt\"\n(cd \"$in\" && shasum -a 256 -c rightkit-swap.sha256)\n";
+export const SIGN_IDENTITY_RUN = "set -euo pipefail\ncertificate_path=\"$RUNNER_TEMP/apple-signing.p12\"\nkeychain_path=\"$RUNNER_TEMP/apple-signing.keychain-db\"\nprintf '%s' \"$APPLE_CERTIFICATE_BASE64\" | base64 --decode > \"$certificate_path\"\nsecurity create-keychain -p \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity set-keychain-settings -lut 21600 \"$keychain_path\"\nsecurity unlock-keychain -p \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity import \"$certificate_path\" -P \"$APPLE_CERTIFICATE_PASSWORD\" -A -t cert -f pkcs12 -k \"$keychain_path\"\nsecurity set-key-partition-list -S apple-tool:,apple: -k \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity list-keychain -d user -s \"$keychain_path\"\nrm -f \"$certificate_path\"\n";
+export const SIGN_HELPER_RUN = "set -euo pipefail\nout=\"$RUNNER_TEMP/swap-signed\"\nrm -rf \"$out\" && mkdir -p \"$out\"\ncp \"$RUNNER_TEMP/swap-unsigned/rightkit-swap\" \"$out/rightkit-swap\"\ncp \"$RUNNER_TEMP/swap-unsigned/source-receipt.txt\" \"$out/unsigned-source-receipt.txt\"\ncodesign --force --strict --options runtime --timestamp --sign \"$APPLE_DEVELOPER_ID\" \"$out/rightkit-swap\"\ncodesign --verify --strict --verbose=2 \"$out/rightkit-swap\"\ndetails=\"$(codesign -dvv \"$out/rightkit-swap\" 2>&1)\"\nprintf '%s\\n' \"$details\"\nprintf '%s\\n' \"$details\" | grep -q 'Authority=Developer ID Application'\nprintf '%s\\n' \"$details\" | grep -Eq 'flags=0x[0-9a-f]+\\(.*runtime'\n(cd \"$out\" && shasum -a 256 rightkit-swap > rightkit-swap.sha256 && cat rightkit-swap.sha256)\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=sign-swap\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"\ncat \"$out/rightkit-swap.sha256\" >> \"$out/source-receipt.txt\"\n{ echo '### rightkit-swap (Developer ID signed)'; echo '```'; cat \"$out/rightkit-swap.sha256\"; echo '```'; } >> \"$GITHUB_STEP_SUMMARY\"\n";
+export const SIGN_CLEANUP_RUN = "keychain_path=\"$RUNNER_TEMP/apple-signing.keychain-db\"\nsecurity delete-keychain \"$keychain_path\" || true\nrm -f \"$RUNNER_TEMP/apple-signing.p12\"\n";
+export const UNSIGNED_ARTIFACT = "rightkit-swap-unsigned-${{ github.run_attempt }}";
 export const SIGN_SWAP_SECRETS = {
   APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}",
   APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}",
@@ -74,11 +61,6 @@ const SIGNING_TOOLS = /\b(?:codesign|notarytool|security\s+(?:import|create-keyc
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sorted = (list) => [...list].sort();
-// Both the dry-run job (seal-check, no secret) and the privileged upload job check out exactly these two files: the
-// uploader and the committed, reviewer-signed ci/approved-artifacts.json, read from the dispatched commit and never
-// from an input. The same script, in both jobs, refuses a sealed unit that has no exact approved name+version+sha256.
-export const SPARSE_UPLOAD = ["scripts/ci/upload.mjs", "ci/approved-artifacts.json"];
-const sparseIsExact = (value) => typeof value === "string" && same(value.split("\n").map((l) => l.trim()).filter(Boolean), SPARSE_UPLOAD);
 // pack builds only the planned units and their workspace dependency closure (publish.mjs build), never the whole workspace.
 export const PACK_BUILD_RUN = "node scripts/ci/publish.mjs build";
 const stepsOf = (job) => (Array.isArray(job?.steps) ? job.steps : []);
@@ -123,17 +105,34 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // Triggers and ambient authority.
   check(doc?.on && typeof doc.on === "object" && same(Object.keys(doc.on), ["workflow_dispatch"]), "must be triggered by workflow_dispatch only");
   check(same(doc?.permissions, { contents: "read" }), "top-level permissions must be exactly contents: read");
-  check(doc?.concurrency?.group === PUBLISH_CONCURRENCY_GROUP, "dry runs must use a unique workflow-run concurrency group while actual publishes share publish");
+  check(doc?.concurrency?.group === PUBLISH_CONCURRENCY_GROUP, "qualification must use a unique workflow-run concurrency group");
   check(doc?.concurrency?.["cancel-in-progress"] === "false", "a publish must never be cancelled half-way");
   check(same(sorted(Object.keys(jobs)), sorted(ALL_JOBS)), `jobs must be exactly ${ALL_JOBS.join(", ")}`);
-  const { guard, plan, pack, verify, upload } = jobs;
+  const { guard, plan, pack, verify } = jobs;
   const signSwap = jobs["sign-swap"];
-  const sealCheck = jobs["seal-check"];
   const rest = { ...doc }; delete rest.jobs;
   check(findMatches(rest, SECRET_PATTERN).length === 0 && findMatches(rest, ID_TOKEN_PATTERN).length === 0, `no secret or id-token outside a job (${[...findMatches(rest, SECRET_PATTERN), ...findMatches(rest, ID_TOKEN_PATTERN)].map((h) => h.path).join(", ")})`);
   check(doc?.env === undefined && doc?.defaults === undefined, "no workflow-level env or defaults");
   check(findKey(doc, "continue-on-error").length === 0, `continue-on-error is forbidden (${findKey(doc, "continue-on-error").join(", ")})`);
   check(findKey(doc, "pull_request_target").length === 0, "pull_request_target is forbidden");
+
+  check(doc?.on?.workflow_dispatch?.inputs?.dry_run === undefined, "qualification has no dry_run dispatch input");
+  check(plan?.outputs?.dry_run === undefined, "qualification has no dry_run output");
+  check(stepsOf(plan).find((s) => s.run?.trim() === "node scripts/ci/publish.mjs plan")?.env?.PUBLISH_DRY_RUN === "false", "qualification planning must require production-grade pins");
+  check(findMatches(jobs, /upload\.mjs|reviewed-candidate\.mjs run/).length === 0, "qualification cannot execute publication code or require approval before packing");
+  check(stepsOf(pack).filter((s) => s.run?.trim() === "node scripts/ci/publish.mjs pack").length === 1, "qualification must pack exactly once");
+  const receipt = stepsOf(verify).filter((s) => s.with?.name === "publish-receipt-verify-${{ matrix.os }}");
+  check(receipt.length === 1 && receipt[0].with.path === `${RT}/verify-receipt` && receipt[0].with["if-no-files-found"] === "error" && receipt[0].with["retention-days"] === "90", "every verify host must retain its native receipt");
+
+  const qualified = jobs.qualified;
+  check(same(needsOf(qualified), ["guard", "plan", "pack", "verify"]) && qualified?.if === "${{ always() }}", "qualified must always inspect guard, plan, pack & both-host verify results");
+  check(same(sorted(Object.keys(qualified ?? {})), ["if", "needs", "runs-on", "steps", "timeout-minutes"]) && qualified?.["runs-on"] === "ubuntu-24.04", "qualified must be a closed hosted result gate");
+  check(stepsOf(qualified).length === 1 && same(sorted(Object.keys(qualified.steps[0])), ["env", "name", "run"]) && same(qualified.steps[0].env, QUALIFIED_ENV) && qualified.steps[0].run === QUALIFIED_RUN, "qualified must fail for every failed, cancelled or skipped prerequisite & empty plan");
+
+  for (const [jobName, artifactName] of [["pack", "publish-packed"], ["build-swap", UNSIGNED_ARTIFACT], ["sign-swap", SIGN_SWAP_ARTIFACT], ["verify", "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}"]]) {
+    const artifacts = stepsOf(jobs[jobName]).filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === artifactName);
+    check(artifacts.length === 1 && artifacts[0].with["retention-days"] === "90", `${artifactName} must retain qualification evidence for 90 days`);
+  }
 
   // The main-only, public-only guard, and every job behind it.
   const guardStep = stepsOf(guard)[0];
@@ -147,18 +146,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
     check((job["timeout-minutes"] ?? "") !== "", `${jobName} must set timeout-minutes`);
   }
 
-  // Both verify hosts exist and gate the upload.
+  // Both native verify hosts qualify sealed archives.
   check(same(sorted(verify?.strategy?.matrix?.os ?? []), VERIFY_HOSTS), `verify must run on exactly ${VERIFY_HOSTS.join(" and ")}`);
   check(verify?.strategy?.matrix && !("exclude" in verify.strategy.matrix) && !("include" in verify.strategy.matrix), "verify matrix must not exclude or include legs");
   check(verify?.["runs-on"] === "${{ matrix.os }}", "verify must run on the matrix host");
-  for (const needed of ["guard", "plan", "sign-swap"]) check(needsOf(pack).includes(needed), `pack must need ${needed}`);
+  for (const needed of ["guard", "plan", "build-swap", "sign-swap"]) check(needsOf(pack).includes(needed), `pack must need ${needed}`);
   for (const needed of ["guard", "plan", "pack"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
-  for (const needed of ["verify", "pack", "plan"]) check(needsOf(sealCheck).includes(needed), `seal-check must need ${needed}`);
-  for (const needed of ["guard", "plan", "pack", "verify", "seal-check"]) check(needsOf(upload).includes(needed), `upload must need ${needed}`);
-  // verify and seal-check run after their needs succeeded (never skipped just because sign-swap was skipped) and only for a non-empty plan.
-  for (const [jobName, job, want] of [["verify", verify, VERIFY_IF], ["seal-check", sealCheck, SEAL_CHECK_IF]]) {
-    check(typeof job?.if === "string" && job.if.trim() === want, `${jobName}'s condition must be exactly ${want}`);
-  }
+  check(typeof verify?.if === "string" && verify.if.trim() === VERIFY_IF, `verify's condition must be exactly ${VERIFY_IF}`);
   // pack runs after sign-swap succeeded or was skipped (a crates run, or a run without @rightkit/release), never after it failed.
   check(typeof pack?.if === "string" && pack.if.trim() === PACK_IF, `pack's condition must be exactly ${PACK_IF}`);
   const verifyRuns = stepsOf(verify).map((s) => s.run ?? "");
@@ -166,7 +160,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
   const chromeStep = stepsOf(verify).find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
-  check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "${{ needs.plan.outputs.dry_run }}", "the Chrome pin step must run the provision script with PUBLISH_DRY_RUN taken from the plan's dry_run output (an unpinned download may be recorded only in a dry run)");
+  check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "false", "the Chrome pin step must require pinned downloads with PUBLISH_DRY_RUN false");
   const chromeCache = stepsOf(verify).find((s) => s.name === "Cache the pinned Chrome for Testing");
   check(chromeCache?.if?.trim() === CHROME_IF && chromeCache?.uses?.startsWith("actions/cache@"), "the pinned Chrome cache must cover npm @rightkit/qa, @rightkit/react-shell, @rightkit/settings-ui and @rightkit/onboarding plus crates rightkit-browser");
   check(chromeStep?.if?.trim() === CHROME_IF, "the pinned Chrome provision step must cover npm @rightkit/qa, @rightkit/react-shell, @rightkit/settings-ui and @rightkit/onboarding plus crates rightkit-browser");
@@ -174,9 +168,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
 
-  // Secrets and id-token exist only in upload, and nothing else is privileged.
+  // Qualification has no registry privilege; only sign-swap holds Apple identity secrets.
   for (const [jobName, job] of Object.entries(jobs)) {
-    if (jobName === "upload") continue;
     const isSign = jobName === "sign-swap";
     const secretHits = findMatches(job, SECRET_PATTERN); const idHits = findMatches(job, ID_TOKEN_PATTERN);
     if (!isSign) check(secretHits.length === 0, `${jobName} must not reference the secrets context in any form (${secretHits.map((h) => h.path).join(", ")})`);
@@ -185,62 +178,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
     check(job.env === undefined && job.uses === undefined && job.secrets === undefined, `${jobName} has no job-level env, uses or secrets`);
     check(job.permissions === undefined || same(job.permissions, { contents: "read" }), `${jobName} permissions must be contents: read`);
   }
-  check(upload?.environment === "release", "upload must use environment: release");
-  check(same(upload?.permissions, { contents: "read", "id-token": "write" }), "upload permissions must be exactly contents: read and id-token: write");
-  check(typeof upload?.if === "string" && upload.if.trim() === UPLOAD_IF, `upload's condition must be exactly ${UPLOAD_IF}`);
-  check(upload?.["runs-on"] === "ubuntu-24.04", "upload runs on a fresh hosted runner");
-  const uploadSteps = stepsOf(upload);
-  const secretRefs = findMatches(upload, SECRET_PATTERN);
-  const tokenSteps = [];
-  uploadSteps.forEach((step, i) => {
-    if (step.uses) check(ALLOWED_UPLOAD_ACTIONS.some((a) => step.uses.startsWith(a)) || /^actions\/upload-artifact@/.test(step.uses), `upload may not use ${step.uses}`);
-    if (step.run !== undefined) check(ALLOWED_UPLOAD_RUN.includes(step.run.trim()), `upload may run only ${ALLOWED_UPLOAD_RUN.join(", ")}, not ${JSON.stringify(step.run.trim().slice(0, 60))}`);
-    const own = secretRefs.filter((h) => h.path.startsWith(`.steps[${i}]`));
-    if (own.length) tokenSteps.push({ step, i, own });
-    // Step conditions are exact: only the two token steps (own registry) and the always-run receipt upload may have one.
-    if (step.env?.NODE_AUTH_TOKEN !== undefined || step.env?.CARGO_REGISTRY_TOKEN !== undefined || own.length) return;
-    if (/^actions\/upload-artifact@/.test(step.uses ?? "")) check(step.if === undefined || step.if.trim() === "always()", `upload step ${i} may carry no condition other than always()`);
-    else check(step.if === undefined, `upload step ${i} (${step.name ?? step.uses ?? "run"}) may carry no condition`);
-  });
-  check(secretRefs.every((h) => /^\.steps\[\d+\]\.env\.(NODE_AUTH_TOKEN|CARGO_REGISTRY_TOKEN)$/.test(h.path)), `the secrets context may appear only as the value of NODE_AUTH_TOKEN or CARGO_REGISTRY_TOKEN in a step env (found ${secretRefs.map((h) => h.path).join(", ")})`);
-  check(upload?.env === undefined && upload?.defaults === undefined && upload?.uses === undefined && upload?.secrets === undefined, "upload has no job-level env, defaults, uses or secrets");
-  // The privileged job is closed: exact job keys, exact steps, exact step keys, exact `with` keys and env keys per step.
-  const extraJobKeys = Object.keys(upload ?? {}).filter((k) => !UPLOAD_JOB_KEYS.includes(k));
-  check(extraJobKeys.length === 0, `upload may carry only the keys ${UPLOAD_JOB_KEYS.join(", ")}, not ${extraJobKeys.join(", ")} (container, services, defaults, env, strategy, outputs and concurrency are forbidden there)`);
-  check(uploadSteps.length === UPLOAD_STEPS.length, `upload must have exactly ${UPLOAD_STEPS.length} steps (${UPLOAD_STEPS.map((x) => x.uses ?? "run").join(", ")}); found ${uploadSteps.length}`);
-  UPLOAD_STEPS.forEach((expected, i) => {
-    const step = uploadSteps[i];
-    if (!step) return;
-    const where = `upload step ${i} (${step.name ?? step.uses ?? "run"})`;
-    const stray = Object.keys(step).filter((k) => !UPLOAD_STEP_KEYS.includes(k));
-    check(stray.length === 0, `${where} may carry only the keys ${UPLOAD_STEP_KEYS.join(", ")}, not ${stray.join(", ")} (no shell, working-directory, id, timeout or continue-on-error)`);
-    if (expected.uses) check(typeof step.uses === "string" && step.uses.startsWith(expected.uses) && step.run === undefined, `${where} must be ${expected.uses}`);
-    else check(step.run !== undefined && step.uses === undefined && step.run.trim() === expected.run, `${where} must run exactly ${expected.run}`);
-    const withKeys = Object.keys(step.with ?? {});
-    check(same(sorted(withKeys), sorted(Object.keys(expected.with))), `${where} must carry exactly the with keys [${Object.keys(expected.with).join(", ")}], not [${withKeys.join(", ")}]`);
-    for (const [key, want] of Object.entries(expected.with)) {
-      const have = step.with?.[key];
-      check(have !== undefined && (want instanceof RegExp ? want.test(String(have)) : String(have) === want), `${where}: with.${key} must be ${want instanceof RegExp ? String(want) : JSON.stringify(want)}`);
-    }
-    const envKeys = Object.keys(step.env ?? {});
-    const wantEnv = Array.isArray(expected.env) ? {} : expected.env;
-    for (const key of envKeys) if (HAZARD_ENV.test(key)) check(false, `${where}: env ${key} is a startup-hook, search-path, option or npm-config override and is never allowed`);
-    check(same(sorted(envKeys), sorted(Object.keys(wantEnv))), `${where} must carry exactly the env keys [${Object.keys(wantEnv).join(", ")}], not [${envKeys.join(", ")}]`);
-    for (const [key, want] of Object.entries(wantEnv)) check(step.env?.[key] === undefined || String(step.env[key]).trim() === want, `${where}: env ${key} must be ${want}`);
-  });
-  const checkout = uploadSteps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
-  check(sparseIsExact(checkout?.with?.["sparse-checkout"]) && checkout?.with?.["sparse-checkout-cone-mode"] === "false", `upload must check out exactly ${SPARSE_UPLOAD.join(" and ")} (the uploader and the reviewer-approved artifact list) and nothing else`);
-  const tokenEnv = (vars) => tokenSteps.filter(({ step }) => Object.keys(step.env ?? {}).some((k) => vars.includes(k)));
-  check(tokenSteps.length === 2, "upload must have exactly two steps that read a secret (one per registry)");
-  const npmStep = tokenEnv(["NODE_AUTH_TOKEN"])[0]?.step; const cratesStep = tokenEnv(["CARGO_REGISTRY_TOKEN"])[0]?.step;
-  check(npmStep && npmStep.env.NODE_AUTH_TOKEN === TOKEN_ENV.NODE_AUTH_TOKEN && !("CARGO_REGISTRY_TOKEN" in npmStep.env), "the npm step must read exactly NODE_AUTH_TOKEN from secrets.NPM_TOKEN");
-  check(cratesStep && cratesStep.env.CARGO_REGISTRY_TOKEN === TOKEN_ENV.CARGO_REGISTRY_TOKEN && !("NODE_AUTH_TOKEN" in cratesStep.env), "the crates step must read exactly CARGO_REGISTRY_TOKEN from secrets.CARGO_REGISTRY_TOKEN");
-  check(tokenSteps.every(({ own }) => own.length === 1), "each upload step may read exactly one token");
-  check(npmStep?.if?.trim() === NPM_STEP_IF && cratesStep?.if?.trim() === CRATES_STEP_IF, "each token step must run only for its own registry (exact condition)");
-  check(tokenSteps.every(({ step }) => step.run?.trim() === "node scripts/ci/upload.mjs run"), "a token step may only run the upload script");
-
   // Licence gate: pinned install, then the exact check, both only for a crates run naming rightkit-typeset, both after the plan step,
-  // in a job with no secret; plan is needed (directly or not) by pack, verify, seal-check and upload.
+  // in a job with no secret; pack & verify both require plan.
   const planSteps = stepsOf(plan);
   for (const step of planSteps) if (step.uses) check(PLAN_ALLOWED_ACTIONS.some((a) => step.uses.startsWith(a)), `plan may use only ${PLAN_ALLOWED_ACTIONS.join(", ")}, not ${step.uses}`);
   const denyInstallAt = planSteps.findIndex((s) => (s.uses ?? "").startsWith("taiki-e/install-action@"));
@@ -249,32 +188,30 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(denyInstallAt >= 0 && planSteps.filter((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).length === 1 && planSteps[denyInstallAt].if?.trim() === DENY_IF && same(Object.keys(planSteps[denyInstallAt].with ?? {}), ["tool"]) && planSteps[denyInstallAt].with.tool === DENY_TOOL && planSteps[denyInstallAt].env === undefined, `plan must install ${DENY_TOOL} (pinned action, only the tool input) under the exact licence-gate condition`);
   check(denyRunAt >= 0 && planSteps.filter((s) => /cargo deny\b/.test(s.run ?? "")).length === 1 && planSteps[denyRunAt].run.trim() === DENY_RUN && planSteps[denyRunAt].if?.trim() === DENY_IF && planSteps[denyRunAt].env === undefined && planSteps[denyRunAt].shell === undefined, `plan must run exactly "${DENY_RUN}" under the exact licence-gate condition, with no env or shell`);
   check(planAt >= 0 && denyInstallAt > planAt && denyRunAt > denyInstallAt, "the licence gate must install the checker, then run it, after the plan step");
-  for (const job of ["pack", "verify", "seal-check", "upload"]) check(reaches(job, "plan"), `${job} must run only after plan, which holds the licence gate`);
+  for (const job of ["pack", "verify"]) check(reaches(job, "plan"), `${job} must run only after plan, which holds the licence gate`);
 
-  // sign-swap: the one other job that holds a secret. Exactly one step reads exactly the three Apple identity secrets,
-  // after the build; nothing else is privileged; the signed bytes leave only as the rightkit-swap-signed artifact.
+  // Isolated native builder emits only sealed bytes; fresh signer has no source checkout or build process.
+  const buildSwap = jobs["build-swap"]; const buildSteps = stepsOf(buildSwap);
+  check(buildSwap?.if === BUILD_SWAP_IF && same(needsOf(buildSwap), ["guard", "plan"]) && buildSwap?.["runs-on"] === "xcode-27", "build-swap must be the native secretless build behind guard & plan");
+  check(same(sorted(Object.keys(buildSwap ?? {})), ["if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"]) && same(buildSwap?.outputs, { sha256: "${{ steps.seal.outputs.sha256 }}" }), "build-swap must expose only its sealed helper hash");
+  check(buildSteps.length === 5 && buildSteps[2]?.run === "cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs" && buildSteps[2]?.env === undefined && buildSteps[3]?.run === UNSIGNED_SEAL_RUN && buildSteps[3]?.id === "seal" && buildSteps[3]?.shell === "bash" && buildSteps[3]?.env === undefined && buildSteps[3]?.if === undefined, "build-swap must build & seal with exact source/run/hash receipt before artifact transfer");
+  check(buildSteps[0]?.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" && buildSteps[1]?.uses === "dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0", "build-swap uses pinned checkout & native toolchain");
+  check(buildSteps[4]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(buildSteps[4]?.with, { name: UNSIGNED_ARTIFACT, path: `${RT}/swap-unsigned`, "retention-days": "90", overwrite: "false", "if-no-files-found": "error" }) && buildSteps[4]?.if === undefined, "build-swap must retain immutable unsigned helper artifact");
   const signSteps = stepsOf(signSwap);
-  check(signSwap?.environment === "release", "sign-swap must use environment: release");
-  check(same(signSwap?.permissions, { contents: "read" }), "sign-swap permissions must be exactly contents: read (no id-token)");
-  check(typeof signSwap?.if === "string" && signSwap.if.trim() === SIGN_SWAP_IF, `sign-swap's condition must be exactly ${SIGN_SWAP_IF}`);
-  check(signSwap?.["runs-on"] === "xcode-27", "sign-swap runs on the macOS signing host xcode-27");
-  check(needsOf(signSwap).includes("guard") && needsOf(signSwap).includes("plan"), "sign-swap must need guard and plan");
-  const signSecretRefs = findMatches(signSwap, SECRET_PATTERN);
-  const secretStepIndexes = [...new Set(signSecretRefs.map((h) => Number(/^\.steps\[(\d+)\]/.exec(h.path)?.[1] ?? -1)))];
-  check(signSecretRefs.every((h) => /^\.steps\[\d+\]\.env\.[A-Z0-9_]+$/.test(h.path)), `sign-swap may read the secrets context only as step env values (found ${signSecretRefs.map((h) => h.path).join(", ")})`);
-  check(secretStepIndexes.length === 1 && secretStepIndexes[0] >= 0, "sign-swap must read secrets in exactly one step");
-  const keychainStep = signSteps[secretStepIndexes[0]];
-  check(keychainStep && same(sorted(Object.keys(keychainStep.env ?? {})), sorted(Object.keys(SIGN_SWAP_SECRETS))) && Object.entries(SIGN_SWAP_SECRETS).every(([k, v]) => String(keychainStep.env[k]).trim() === v), "the sign-swap secret step must read exactly APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD and APPLE_KEYCHAIN_PASSWORD from the same-named secrets");
-  check(keychainStep?.uses === undefined && keychainStep?.if === undefined && !/cargo|curl|wget|node|pnpm|npm|\bsh\b/.test(keychainStep?.run ?? ""), "the sign-swap secret step may only run keychain commands, with no condition");
-  const buildAt = signSteps.findIndex((s) => /cargo build /.test(s.run ?? ""));
-  check(buildAt >= 0 && buildAt < secretStepIndexes[0] && signSteps[buildAt].env === undefined && /-p rightkit-fs --bin rightkit-swap/.test(signSteps[buildAt].run), "sign-swap must build rightkit-fs's rightkit-swap before any secret is read, in a step with no env");
-  check(signSteps.every((s, i) => i === secretStepIndexes[0] || !/\bsecurity\s+(?:import|create-keychain)\b/.test(s.run ?? "")), "only the secret step may import the signing identity");
-  const codesignStep = signSteps.find((s) => /codesign --force/.test(s.run ?? ""));
-  check(codesignStep && same(Object.keys(codesignStep.env ?? {}), ["APPLE_DEVELOPER_ID"]) && codesignStep.env.APPLE_DEVELOPER_ID === "${{ vars.APPLE_DEVELOPER_ID }}" && /--options runtime/.test(codesignStep.run) && /--timestamp/.test(codesignStep.run) && /codesign --verify --strict/.test(codesignStep.run) && /shasum -a 256/.test(codesignStep.run), "sign-swap must sign with --options runtime --timestamp as vars.APPLE_DEVELOPER_ID, verify with --strict and record the sha256");
-  check(signSteps.some((s) => /security delete-keychain/.test(s.run ?? "") && s.if?.trim() === "${{ always() }}"), "sign-swap must remove the keychain in an always() step");
-  const handOver = signSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
-  check(handOver.length === 1 && handOver[0].with?.name === SIGN_SWAP_ARTIFACT && handOver[0].with?.path === `${RT}/swap-signed`, `sign-swap must hand over exactly ${RT}/swap-signed as the ${SIGN_SWAP_ARTIFACT} artifact`);
-  check(signSteps.every((s) => !s.uses || /^(?:actions\/(?:checkout|upload-artifact)|dtolnay\/rust-toolchain)@/.test(s.uses)), "sign-swap may use only checkout, the Rust toolchain and upload-artifact");
+  check(same(findMatches(signSwap, SECRET_PATTERN), Object.entries(SIGN_SWAP_SECRETS).map(([key, text]) => ({ path: `.steps[2].env.${key}`, text }))), "sign-swap secrets context must occur only in exact identity import step after validation");
+  check(same(sorted(Object.keys(signSwap ?? {})), ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]), "sign-swap job is closed against containers, env & defaults");
+  check(signSwap?.environment === "release" && same(signSwap?.permissions, { contents: "read" }) && signSwap?.["runs-on"] === "xcode-27", "sign-swap uses only native signing environment with no OIDC");
+  check(signSwap?.if === SIGN_SWAP_IF && same(needsOf(signSwap), ["guard", "plan", "build-swap"]), "sign-swap requires successful build-swap, guard & plan");
+  check(signSteps.length === 6, "fresh signer must have exactly download, validation, identity, signing, cleanup & handover steps");
+  check(same(sorted(Object.keys(signSteps[0] ?? {})), ["name", "uses", "with"]) && signSteps[0]?.uses === "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" && same(signSteps[0]?.with, { name: UNSIGNED_ARTIFACT, path: `${RT}/swap-unsigned` }), "signer downloads only exact unsigned artifact from same run, with no checkout or foreign run");
+  const expectedRuns = [UNSIGNED_VALIDATE_RUN, SIGN_IDENTITY_RUN, SIGN_HELPER_RUN, SIGN_CLEANUP_RUN];
+  const expectedEnvs = [{ EXPECTED_SHA256: "${{ needs.build-swap.outputs.sha256 }}" }, SIGN_SWAP_SECRETS, { APPLE_DEVELOPER_ID: "${{ vars.APPLE_DEVELOPER_ID }}" }, undefined];
+  for (let i = 1; i <= 4; i++) {
+    const step = signSteps[i];
+    const expectedKeys = i === 4 ? ["if", "name", "run", "shell"] : ["env", "name", "run", "shell"];
+    check(same(sorted(Object.keys(step ?? {})), expectedKeys) && step?.run === expectedRuns[i - 1] && same(step?.env, expectedEnvs[i - 1]) && step?.shell === "bash" && step?.if === (i === 4 ? "${{ always() }}" : undefined), `signer step ${i} must match exact validation/signing-only source & authority`);
+  }
+  check(same(sorted(Object.keys(signSteps[5] ?? {})), ["name", "uses", "with"]) && signSteps[5]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(signSteps[5]?.with, { name: SIGN_SWAP_ARTIFACT, path: `${RT}/swap-signed`, "retention-days": "90", overwrite: "true", "if-no-files-found": "error" }), "signer hands over only signed helper & bound source/hash receipts");
   // pack is secretless and consumes the signed helper only by download.
   const packSwapDownload = stepsOf(pack).filter((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_SWAP_ARTIFACT);
   check(packSwapDownload.length === 1 && packSwapDownload[0].if?.trim() === PACK_SWAP_STEP_IF && same(sorted(Object.keys(packSwapDownload[0].with)), ["name", "path"]) && packSwapDownload[0].with.path === `${RT}/swap-signed`, `pack must download ${SIGN_SWAP_ARTIFACT} into ${RT}/swap-signed with only name and path, only when sign-swap succeeded`);
@@ -283,16 +220,6 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const placeAt = stepsOf(pack).findIndex((s) => /install -m 0755 [^\n]*packages\/release\/bin\/darwin\/rightkit-swap/.test(s.run ?? "") && /sha256sum -c/.test(s.run ?? ""));
   const packAt = stepsOf(pack).findIndex((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? ""));
   check(placeAt >= 0 && stepsOf(pack)[placeAt].if?.trim() === PACK_SWAP_STEP_IF && placeAt < packAt, "pack must re-check the helper's sha256, place it at packages/release/bin/darwin/rightkit-swap and do so before it packs");
-
-  // The dry run: same script, no secret, no id-token, nothing sent.
-  const dryStep = stepsOf(sealCheck).find((s) => s.run?.trim() === SEAL_CHECK_RUN);
-  check(dryStep && dryStep.if === undefined, "seal-check must run the upload script with --dry-run, unconditionally");
-  check(dryStep && same(sorted(Object.keys(dryStep.env ?? {})), sorted(Object.keys(PUBLISH_ENV))) && Object.entries(PUBLISH_ENV).every(([k, v]) => String(dryStep.env[k]).trim() === v), "the seal-check dry run may carry exactly the PUBLISH_ request env, taken from the plan (no path, token or option override of the approved-artifact check)");
-  check(stepsOf(sealCheck).every((s) => s.run === undefined || s.run.trim() === SEAL_CHECK_RUN), `seal-check may run only ${SEAL_CHECK_RUN}`);
-  check(stepsOf(sealCheck).every((s) => s.run !== undefined || SEAL_CHECK_ACTIONS.some((a) => (s.uses ?? "").startsWith(a))), "seal-check may use only checkout, setup-node and the artifact actions");
-  check(plan?.outputs?.dry_run === "${{ steps.plan.outputs.dry_run }}", "plan's dry_run output must be the plan step's");
-  const sealCheckout = stepsOf(sealCheck).find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
-  check(sparseIsExact(sealCheckout?.with?.["sparse-checkout"]) && sealCheckout?.with?.["sparse-checkout-cone-mode"] === "false", `seal-check must check out exactly ${SPARSE_UPLOAD.join(" and ")}, so the reviewer-approved artifact check runs without a secret before the upload job can start`);
 
   // pack builds only the planned npm units and their workspace dependency closure, never the whole workspace.
   const packSteps = stepsOf(pack);
@@ -331,8 +258,6 @@ const withoutTerm = (condition, term) => {
 const CONDITION_JOBS = [
   ["pack", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), COUNT_TERM, SWAP_OK_OR_SKIPPED]],
   ["verify", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM]],
-  ["seal-check", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM, RESULT_OK("verify")]],
-  ["upload", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), RESULT_OK("verify"), RESULT_OK("seal-check"), COUNT_TERM, "needs.plan.outputs.dry_run == 'false'", "github.ref == 'refs/heads/main'"]],
 ];
 /** One mutation per operand of verify's, seal-check's and upload's conditions, plus weakened result checks. */
 const CONDITION_MUTATIONS = [
@@ -347,15 +272,47 @@ const CONDITION_MUTATIONS = [
   ["pack accepts a failed sign-swap job", edit((j) => { j.pack.if = j.pack.if.replace("needs.sign-swap.result == 'skipped'", "needs.sign-swap.result != 'cancelled'"); })],
   ["pack has no condition", edit((j) => { delete j.pack.if; })],
   ["verify has no condition", edit((j) => { delete j.verify.if; })],
-  ["seal-check has no condition", edit((j) => { delete j["seal-check"].if; })],
-  ["upload has no condition", edit((j) => { delete j.upload.if; })],
   ["verify's condition is the old implicit-success count test", edit((j) => { j.verify.if = "${{ needs.plan.outputs.count != '0' }}"; })],
 ];
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 export const MUTATIONS = [
-  ["dry runs share publish concurrency group", edit((_, d) => { d.concurrency.group = "publish"; })],
-  ["real publishes do not share concurrency group", edit((_, d) => { d.concurrency.group = "${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish-' }}"; })],
+  ["signer permits unexpected artifact entries", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('test "${#files[@]}" -eq 3', 'true'); })],
+  ["signer permits artifact symlinks", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('  test ! -L "$in/$file"', '  true'); })],
+  ["pack loses unsigned build dependency", edit((j) => { j.pack.needs = j.pack.needs.filter((n) => n !== "build-swap"); })],
+  ["pack admits skipped signer for required helper", edit((j) => { j.pack.if = j.pack.if.replace("needs.sign-swap.result == 'success'", "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')"); })],
+  ["signer substitutes source workflow in receipt", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('"$GITHUB_WORKFLOW_REF"', '"foreign"'); })],
+  ["signer substitutes source attempt in receipt", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('"$GITHUB_RUN_ATTEMPT"', '"1"'); })],
+  ["build-swap joins signing environment", edit((j) => { j["build-swap"].environment = "release"; })],
+  ["build-swap requests OIDC", edit((j) => { j["build-swap"].permissions["id-token"] = "write"; })],
+  ["build-swap loses source receipt", edit((j) => { j["build-swap"].steps[3].run = "echo sealed"; })],
+  ["build-swap substitutes sealed hash output", edit((j) => { j["build-swap"].outputs.sha256 = "literal"; })],
+  ["signer checks out package code", edit((j) => { j["sign-swap"].steps.splice(0, 0, { uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", with: { "persist-credentials": "false" } }); })],
+  ["signer takes unsigned artifact from foreign run", edit((j) => { j["sign-swap"].steps[0].with["run-id"] = "1"; })],
+  ["signer takes different unsigned artifact", edit((j) => { j["sign-swap"].steps[0].with.name = "other"; })],
+  ["signer omits unsigned hash validation", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('(cd "$in" && shasum -a 256 -c rightkit-swap.sha256)', 'true'); })],
+  ["signer omits source run validation", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('cmp "$RUNNER_TEMP/expected-swap-receipt.txt" "$in/source-receipt.txt"', 'true'); })],
+  ["signer admits arbitrary unsigned hash", edit((j) => { j["sign-swap"].steps[1].env.EXPECTED_SHA256 = "literal"; })],
+  ["signer reads secrets before validation", edit((j) => { [j["sign-swap"].steps[1], j["sign-swap"].steps[2]] = [j["sign-swap"].steps[2], j["sign-swap"].steps[1]]; })],
+  ["signer validation may skip", edit((j) => { j["sign-swap"].steps[1].if = "${{ false }}"; })],
+  ["signer loses build dependency", edit((j) => { j["sign-swap"].needs = ["guard", "plan"]; })],
+  ["signer installs dependencies", edit((j) => { j["sign-swap"].steps[3].run += "\npnpm install"; })],
+  ["qualification drops final result gate", edit((j) => { delete j.qualified; })],
+  ["qualification final gate can skip", edit((j) => { delete j.qualified.if; })],
+  ["qualification final gate accepts skipped verify", edit((j) => { j.qualified.steps[0].run = j.qualified.steps[0].run.replace('test "$VERIFY_RESULT" = success', 'true'); })],
+  ["qualification final gate loses verify dependency", edit((j) => { j.qualified.needs = j.qualified.needs.filter((n) => n !== "verify"); })],
+  ["qualification cancels an in-progress run", edit((_, d) => { d.concurrency["cancel-in-progress"] = "true"; })],
+  ["pack shortens archive retention", edit((j) => { j.pack.steps.find((s) => s.with?.name === "publish-packed").with["retention-days"] = "7"; })],
+  ["verify shortens receipt retention", edit((j) => { j.verify.steps.find((s) => s.with?.name === "publish-receipt-verify-${{ matrix.os }}").with["retention-days"] = "7"; })],
+  ["sign-swap shortens helper retention", edit((j) => { j["sign-swap"].steps.find((s) => s.with?.name === SIGN_SWAP_ARTIFACT).with["retention-days"] = "7"; })],
+  ["verify shortens evidence retention", edit((j) => { j.verify.steps.find((s) => s.with?.name === "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}").with["retention-days"] = "7"; })],
+  ["qualification loses independent concurrency", edit((_, d) => { d.concurrency.group = "publish"; })],
+  ["qualification regains dry-run dispatch", edit((_, d) => { d.on.workflow_dispatch.inputs.dry_run = { type: "boolean", default: "true" }; })],
+  ["qualification regains upload", edit((j) => { j.upload = { "runs-on": "ubuntu-24.04", steps: [] }; })],
+  ["qualification regains approval before pack", edit((j) => { j.pack.steps.push({ run: "node scripts/ci/upload.mjs run --dry-run" }); })],
+  ["qualification packs twice", edit((j) => { j.pack.steps.push({ ...j.pack.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs pack") }); })],
+  ["verify loses native receipt artifact", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.with?.name !== "publish-receipt-verify-${{ matrix.os }}"); })],
+  ["qualification planning permits unpinned assets", edit((j) => { j.plan.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs plan").env.PUBLISH_DRY_RUN = "true"; })],
   ["Chrome cache drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
   ["Chrome provision drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
   ["Chrome cache drops settings-ui coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/settings-ui')", ""); })],
@@ -365,9 +322,6 @@ export const MUTATIONS = [
   ["drop the Windows verify host", edit((j) => { j.verify.strategy.matrix.os = ["xcode-27"]; })],
   ["drop the macOS verify host", edit((j) => { j.verify.strategy.matrix.os = ["windows-2025"]; })],
   ["exclude a verify leg", edit((j) => { j.verify.strategy.matrix.exclude = [{ os: "windows-2025" }]; })],
-  ["upload no longer needs verify", edit((j) => { j.upload.needs = j.upload.needs.filter((n) => n !== "verify"); })],
-  ["upload no longer needs seal-check", edit((j) => { j.upload.needs = j.upload.needs.filter((n) => n !== "seal-check"); })],
-  ["seal-check no longer needs verify", edit((j) => { j["seal-check"].needs = j["seal-check"].needs.filter((n) => n !== "verify"); })],
   ["continue-on-error on a job", edit((j) => { j.verify["continue-on-error"] = "true"; })],
   ["continue-on-error on a step", edit((j) => { j.verify.steps[0]["continue-on-error"] = "true"; })],
   ["guard allows another branch", edit((j) => { j.guard.steps[0].run = j.guard.steps[0].run.replace('"$REF" != "refs/heads/main"', '"$REF" != "refs/heads/dev"'); })],
@@ -377,24 +331,7 @@ export const MUTATIONS = [
   ["verify requests id-token", edit((j) => { j.verify.permissions = { contents: "read", "id-token": "write" }; })],
   ["pack reads a secret", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }; })],
   ["verify reads a secret", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" }; })],
-  ["seal-check reads a secret", edit((j) => { j["seal-check"].steps.find((s) => s.run).env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; })],
-  ["seal-check joins the release environment", edit((j) => { j["seal-check"].environment = "release"; })],
-  ["seal-check requests id-token", edit((j) => { j["seal-check"].permissions = { contents: "read", "id-token": "write" }; })],
-  ["upload installs dependencies", edit((j) => { j.upload.steps.splice(2, 0, { name: "install", run: "pnpm install --frozen-lockfile" }); })],
-  ["upload builds", edit((j) => { j.upload.steps.splice(2, 0, { name: "build", run: "cargo build --release" }); })],
-  ["upload adds pnpm", edit((j) => { j.upload.steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
-  ["upload adds a Rust toolchain", edit((j) => { j.upload.steps.splice(2, 0, actionStep("dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0")); })],
-  ["upload checks out the whole workspace", edit((j) => { delete j.upload.steps[0].with["sparse-checkout"]; })],
   // The reviewer-approved artifact list (ci/approved-artifacts.json) is checked in seal-check (no secret) and again in upload.
-  ["upload no longer checks out the approved-artifacts list", edit((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs\n"; })],
-  ["upload checks out an approved list from another path", edit((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs\nci/other-approved.json\n"; })],
-  ["upload checks out more than the uploader and the approved list", edit((j) => { j.upload.steps[0].with["sparse-checkout"] += "scripts/ci/publish.mjs\n"; })],
-  ["seal-check no longer checks out the approved-artifacts list", edit((j) => { j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"] = "scripts/ci/upload.mjs"; })],
-  ["seal-check checks out the whole workspace", edit((j) => { delete j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"]; })],
-  ["seal-check loses non-cone sparse checkout", edit((j) => { delete j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout-cone-mode"]; })],
-  ["the approved-artifacts path is overridden through the upload env", edit((j) => { j.upload.steps[5].env.APPROVED_ARTIFACTS_FILE = "${{ runner.temp }}/other.json"; })],
-  ["the approved-artifacts path is overridden through the seal-check env", edit((j) => { j["seal-check"].steps.find((s) => s.run).env.APPROVED_ARTIFACTS_FILE = "${{ runner.temp }}/other.json"; })],
-  ["the dry run no longer runs the uploader (and so the approval check)", edit((j) => { j["seal-check"].steps.find((s) => s.run).run = "echo skipped"; })],
   // pack builds only the planned units and their dependency closure.
   ["pack builds the whole workspace", edit((j) => { j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).run = "pnpm -r --workspace-concurrency=1 run build"; })],
   ["pack builds the whole workspace in the install step", edit((j) => { const s = j.pack.steps.find((x) => x.run?.trim() === "pnpm install --frozen-lockfile"); s.run = "pnpm install --frozen-lockfile\npnpm -r run build"; })],
@@ -402,14 +339,6 @@ export const MUTATIONS = [
   ["pack builds after sealing", edit((j) => { const i = j.pack.steps.findIndex((s) => s.run?.trim() === PACK_BUILD_RUN); const [x] = j.pack.steps.splice(i, 1); j.pack.steps.splice(-1, 0, x); })],
   ["the pack build step is given another unit list", edit((j) => { j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).env.PUBLISH_UNITS = "@rightkit/all"; })],
   ["the pack build step runs for crates too", edit((j) => { delete j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).if; })],
-  ["upload loses its environment", edit((j) => { delete j.upload.environment; })],
-  ["upload loses id-token", edit((j) => { j.upload.permissions = { contents: "read" }; })],
-  ["upload runs even after failures", edit((j) => { j.upload.if = "${{ always() }}"; })],
-  ["upload no longer needs a real publish", edit((j) => { j.upload.if = "${{ github.ref == 'refs/heads/main' }}"; })],
-  ["upload no longer needs main", edit((j) => { j.upload.if = "${{ needs.plan.outputs.dry_run == 'false' }}"; })],
-  ["one upload step reads both tokens", edit((j) => { const s = j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN); s.env.CARGO_REGISTRY_TOKEN = "${{ secrets.CARGO_REGISTRY_TOKEN }}"; })],
-  ["a token step runs for either registry", edit((j) => { delete j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN).if; })],
-  ["the npm token comes from another secret", edit((j) => { j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN).env.NODE_AUTH_TOKEN = "${{ secrets.OTHER }}"; })],
   ["top-level permissions widen", edit((_, d) => { d.permissions = { contents: "write" }; })],
   ["a push trigger appears", edit((_, d) => { d.on.push = { branches: ["main"] }; })],
   ["pull_request_target appears", edit((_, d) => { d.on.pull_request_target = {}; })],
@@ -422,79 +351,18 @@ export const MUTATIONS = [
   ["verify may be skipped by a condition", edit((j) => { j.verify.if = "${{ always() }}"; })],
   ["a job has no timeout", edit((j) => { delete j.pack["timeout-minutes"]; })],
   // Condition and secret-expression bypasses (each is valid GitHub expression syntax).
-  ["upload condition gains || true after the expression", edit((j) => { j.upload.if = `${j.upload.if} || true`; })],
-  ["upload condition gains || true inside the expression", edit((j) => { j.upload.if = j.upload.if.replace(" }}", " || true }}"); })],
-  ["upload condition is wrapped in a negation", edit((j) => { j.upload.if = j.upload.if.replace("${{ ", "${{ !(!(").replace(" }}", ")) }}"); })],
-  ["upload condition drops the count test", edit((j) => { j.upload.if = "${{ needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}"; })],
-  ["a token step condition gains || true", edit((j) => { const s = j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN); s.if = s.if.replace(" }}", " || true }}"); })],
-  ["the receipt step gains a condition other than always()", edit((j) => { j.upload.steps.at(-1).if = "${{ success() }}"; })],
-  ["an upload checkout is conditional", edit((j) => { j.upload.steps[0].if = "${{ false }}"; })],
   ["pack reads a bracket-form secret", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), T: "${{ secrets['CARGO_REGISTRY_TOKEN'] }}" }; })],
   ["verify reads a double-quoted bracket-form secret", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), T: '${{ secrets["CARGO_REGISTRY_TOKEN"] }}' }; })],
   ["verify reads toJSON(secrets)", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), ALL: "${{ toJSON(secrets) }}" }; })],
   ["pack reads the bare secrets context", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), ALL: "${{ secrets }}" }; })],
-  ["seal-check reads a mixed-case secret", edit((j) => { j["seal-check"].steps.find((s) => s.run).env.T = "${{ Secrets.NPM_TOKEN }}"; })],
   ["a verify step condition reads a secret", edit((j) => { j.verify.steps[1].if = "${{ secrets.NPM_TOKEN != '' }}"; })],
   ["a verify checkout takes a secret as with.token", edit((j) => { j.verify.steps[0].with.token = "${{ secrets.NPM_TOKEN }}"; })],
   ["plan calls secrets: inherit", edit((j) => { j.plan.secrets = "inherit"; })],
   ["a job calls a reusable workflow", edit((j) => { j.pack.uses = "./.github/workflows/other.yml"; })],
   ["workflow-level env holds a secret", edit((_, d) => { d.env = { T: "${{ secrets.NPM_TOKEN }}" }; })],
-  ["a job-level env holds a secret", edit((j) => { j["seal-check"].env = { T: "${{ secrets.NPM_TOKEN }}" }; })],
-  ["the npm token step reads a bracket-form secret", edit((j) => { j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN).env.NODE_AUTH_TOKEN = "${{ secrets['NPM_TOKEN'] }}"; })],
-  ["an upload step reads toJSON(secrets)", edit((j) => { j.upload.steps.splice(2, 0, { name: "leak", env: { ALL: "${{ toJSON(secrets) }}" } }); })],
-  ["the download step takes a secret token", edit((j) => { j.upload.steps.find((x) => /download-artifact/.test(x.uses ?? "")).with["github-token"] = "${{ secrets.NPM_TOKEN }}"; })],
-  ["seal-check runs the uploader without --dry-run after the dry run", edit((j) => { const s = j["seal-check"].steps.find((x) => x.run); s.run = `${s.run.trim()} || node scripts/ci/upload.mjs run`; })],
-  ["seal-check dry run is conditional", edit((j) => { j["seal-check"].steps.find((x) => x.run).if = "${{ false }}"; })],
-  ["seal-check adds a second run step", edit((j) => { j["seal-check"].steps.push({ name: "extra", run: "echo hi" }); })],
-  ["seal-check uses an unlisted action", edit((j) => { j["seal-check"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["the Chrome pin step is told it is always a dry run", edit((j) => { j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN = "true"; })],
   ["the Chrome pin step loses its dry-run flag", edit((j) => { delete j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN; })],
   // The privileged job is closed (audit finding 18): environment, step keys, `with` keys, step list and job keys.
-  ["the npm step gains NODE_OPTIONS (a preload runs with the token)", edit((j) => { j.upload.steps[5].env.NODE_OPTIONS = "--import=./evil.mjs"; })],
-  ["the crates step gains NODE_OPTIONS", edit((j) => { j.upload.steps[6].env.NODE_OPTIONS = "--require ./evil.cjs"; })],
-  ["the npm step gains NPM_CONFIG_SCRIPT_SHELL", edit((j) => { j.upload.steps[5].env.NPM_CONFIG_SCRIPT_SHELL = "/tmp/sh"; })],
-  ["the npm step gains a lower-case npm_config_ key", edit((j) => { j.upload.steps[5].env.npm_config_registry = "https://evil.invalid/"; })],
-  ["the crates step gains a *_OPTIONS key", edit((j) => { j.upload.steps[6].env.JAVA_TOOL_OPTIONS = "-javaagent:x.jar"; })],
-  ["the npm step gains PATH", edit((j) => { j.upload.steps[5].env.PATH = "/tmp/bin"; })],
-  ["the npm step gains a key outside the allow-list", edit((j) => { j.upload.steps[5].env.EXTRA = "1"; })],
-  ["the npm step loses a PUBLISH_ key", edit((j) => { delete j.upload.steps[5].env.PUBLISH_ALLOW_NO_TEST; })],
-  ["a PUBLISH_ key is rebound to a literal", edit((j) => { j.upload.steps[5].env.PUBLISH_UNITS = "@rightkit/anything"; })],
-  ["the checkout step gains an env block", edit((j) => { j.upload.steps[0].env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
-  ["the setup-node step gains PATH", edit((j) => { j.upload.steps[1].env = { PATH: "/tmp/bin" }; })],
-  ["a download step gains an env block", edit((j) => { j.upload.steps[2].env = { X: "1" }; })],
-  ["the receipt upload gains an env block", edit((j) => { j.upload.steps[7].env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
-  ["the npm step overrides the shell", edit((j) => { j.upload.steps[5].shell = "bash -c 'node --import ./evil.mjs {0}'"; })],
-  ["the crates step overrides the shell", edit((j) => { j.upload.steps[6].shell = "pwsh"; })],
-  ["the npm step changes its working directory", edit((j) => { j.upload.steps[5]["working-directory"] = "${{ runner.temp }}/sealed/packed"; })],
-  ["a step gains an id", edit((j) => { j.upload.steps[5].id = "publish"; })],
-  ["a step gains its own timeout", edit((j) => { j.upload.steps[5]["timeout-minutes"] = 1; })],
-  ["a run step gains a with block", edit((j) => { j.upload.steps[5].with = { x: "1" }; })],
-  ["an extra upload step repeats the uploader", edit((j) => { j.upload.steps.splice(7, 0, { name: "again", run: "node scripts/ci/upload.mjs run" }); })],
-  ["an extra upload step appends a checkout", edit((j) => { j.upload.steps.push({ uses: j.upload.steps[0].uses, with: { ...j.upload.steps[0].with } }); })],
-  ["an upload step is removed", edit((j) => { j.upload.steps.splice(4, 1); })],
-  ["upload steps are reordered", edit((j) => { const [x] = j.upload.steps.splice(5, 1); j.upload.steps.splice(2, 0, x); })],
-  ["the checkout gains a ref", edit((j) => { j.upload.steps[0].with.ref = "refs/heads/other"; })],
-  ["the checkout gains a repository", edit((j) => { j.upload.steps[0].with.repository = "someone/else"; })],
-  ["the checkout drops sparse-checkout-cone-mode", edit((j) => { delete j.upload.steps[0].with["sparse-checkout-cone-mode"]; })],
-  ["setup-node gains a cache", edit((j) => { j.upload.steps[1].with.cache = "npm"; })],
-  ["setup-node gains a registry-url", edit((j) => { j.upload.steps[1].with["registry-url"] = "https://evil.invalid/"; })],
-  ["setup-node drops package-manager-cache", edit((j) => { delete j.upload.steps[1].with["package-manager-cache"]; })],
-  ["a download takes another run id", edit((j) => { j.upload.steps[2].with["run-id"] = "1"; })],
-  ["a download takes another repository", edit((j) => { j.upload.steps[3].with.repository = "someone/else"; })],
-  ["a download merges into another path", edit((j) => { j.upload.steps[4].with["merge-multiple"] = "true"; })],
-  ["the packed download reads another artifact", edit((j) => { j.upload.steps[2].with.name = "other"; })],
-  ["the previous-receipt download reads a wider pattern", edit((j) => { j.upload.steps[4].with.pattern = "*"; })],
-  ["the previous-receipt download writes into the sealed bytes", edit((j) => { j.upload.steps[4].with.path = "${{ runner.temp }}/sealed/packed"; })],
-  ["the receipt upload gains a second path", edit((j) => { j.upload.steps[7].with.path = "${{ runner.temp }}/publication-receipt\n${{ runner.temp }}/sealed"; })],
-  ["the receipt upload drops overwrite", edit((j) => { delete j.upload.steps[7].with.overwrite; })],
-  ["upload gains defaults", edit((j) => { j.upload.defaults = { run: { shell: "bash", "working-directory": "/tmp" } }; })],
-  ["upload gains job-level NODE_OPTIONS", edit((j) => { j.upload.env = { NODE_OPTIONS: "--import=./evil.mjs" }; })],
-  ["upload gains a container", edit((j) => { j.upload.container = "evil.invalid/image:latest"; })],
-  ["upload gains services", edit((j) => { j.upload.services = { db: { image: "evil.invalid/db" } }; })],
-  ["upload gains a strategy", edit((j) => { j.upload.strategy = { matrix: { x: [1] } }; })],
-  ["upload gains job outputs", edit((j) => { j.upload.outputs = { x: "${{ steps.a.outputs.b }}" }; })],
-  ["upload gains a concurrency group", edit((j) => { j.upload.concurrency = "x"; })],
-  ["upload gains a display name that is a key outside the list", edit((j) => { j.upload["runs-on-labels"] = ["self-hosted"]; })],
   // sign-swap and the secretless pack.
   ["the signing secret leaks into pack", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" }; })],
   ["pack joins the release environment", edit((j) => { j.pack.environment = "release"; })],
@@ -505,12 +373,12 @@ export const MUTATIONS = [
   ["pack stops re-checking the swap hash", edit((j) => { const s = j.pack.steps.find((x) => /install -m 0755/.test(x.run ?? "")); s.run = s.run.replace("sha256sum -c", "true"); })],
   ["pack places the swap after packing", edit((j) => { const i = j.pack.steps.findIndex((x) => /install -m 0755/.test(x.run ?? "")); const [x] = j.pack.steps.splice(i, 1); j.pack.steps.splice(-1, 0, x); })],
   ["pack no longer needs sign-swap", edit((j) => { j.pack.needs = j.pack.needs.filter((n) => n !== "sign-swap"); })],
-  ["pack runs after a failed sign-swap", edit((j) => { j.pack.if = j.pack.if.replace(" && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')", ""); })],
+  ["pack runs after a failed sign-swap", edit((j) => { j.pack.if = withoutTerm(j.pack.if, SWAP_OK_OR_SKIPPED); })],
   ["pack no longer needs a green plan", edit((j) => { j.pack.if = j.pack.if.replace("needs.plan.result == 'success' && ", ""); })],
   ["sign-swap reads the npm token", edit((j) => { j["sign-swap"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; })],
   ["sign-swap reads a secret in a second step", edit((j) => { j["sign-swap"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.X = "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}"; })],
-  ["the swap build step gets a secret", edit((j) => { j["sign-swap"].steps.find((s) => /cargo build /.test(s.run ?? "")).env = { T: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" }; })],
-  ["sign-swap builds after the secret step", edit((j) => { const i = j["sign-swap"].steps.findIndex((s) => /cargo build /.test(s.run ?? "")); const [x] = j["sign-swap"].steps.splice(i, 1); const k = j["sign-swap"].steps.findIndex((s) => s.env?.APPLE_CERTIFICATE_BASE64); j["sign-swap"].steps.splice(k + 1, 0, x); })],
+  ["the swap build step gets a secret", edit((j) => { j["build-swap"].steps.find((s) => /cargo build /.test(s.run ?? "")).env = { T: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" }; })],
+  ["sign-swap rebuilds after receiving secrets", edit((j) => { j["sign-swap"].steps.splice(3, 0, { run: "cargo build --release" }); })],
   ["sign-swap requests id-token", edit((j) => { j["sign-swap"].permissions = { contents: "read", "id-token": "write" }; })],
   ["sign-swap loses its environment", edit((j) => { delete j["sign-swap"].environment; })],
   ["sign-swap runs on another host", edit((j) => { j["sign-swap"]["runs-on"] = "ubuntu-24.04"; })],
@@ -524,7 +392,6 @@ export const MUTATIONS = [
   // The licence gate (rightkit#264).
   ["the deny gate is removed", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !/cargo deny/.test(s.run ?? "")); })],
   ["the deny install is removed", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !(s.uses ?? "").startsWith("taiki-e/install-action@")); })],
-  ["deny runs after upload", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.upload.steps.push(x); })],
   ["deny moves to pack", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.pack.steps.push(x); })],
   ["deny runs before the plan step", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.plan.steps.splice(0, 0, x); })],
   ["the deny gate also runs for npm", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ contains(steps.plan.outputs.units, 'rightkit-typeset') }}"; })],
@@ -536,7 +403,6 @@ export const MUTATIONS = [
   ["the deny checker version floats", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.tool = "cargo-deny"; })],
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
   ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
-  ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
   ...CONDITION_MUTATIONS,
 ];
 

@@ -1,22 +1,5 @@
-# Publishes selected @rightkit npm packages or rightkit crates. Manual dispatch from main only.
-# docs/CI.md ("Publishing") explains dispatch, what each job proves and how the ledger is updated.
-#
-# Trust boundary. Bytes are built once, then only moved:
-#   sign-swap   the ONLY job besides upload with a secret (environment: release, the three Apple signing
-#               secrets, no id-token). Runs for npm runs that name @rightkit/release: builds the
-#               rightkit-swap helper with no secret in scope, then installs the Developer ID identity,
-#               signs and verifies that one binary, removes the keychain and hands the bytes over as an artifact
-#   pack        no secret, no id-token: builds the npm tarballs / .crate files, seals them with a manifest.
-#               It receives the signed rightkit-swap only by artifact download (hash re-checked), never signs
-#   verify      no secret, no id-token: on macOS AND Windows re-hashes the sealed bytes, checks them, runs
-#               the unit gate, and writes a per-host receipt bound to the manifest hash
-#   seal-check  no secret, no id-token: the upload script in dry-run mode (hash, receipt and provenance
-#               checks, the exact commands and request bodies, nothing sent)
-#   upload      the ONLY job with a registry token or id-token (environment: release). Fresh runner, checks
-#               out one dependency-free script, installs and builds nothing, re-checks the hashes and both
-#               receipts, then uploads the sealed bytes. It runs only when dry_run is false.
-# Request inputs reach scripts only through env, never through run text. scripts/ci/workflow-contract.mjs
-# asserts all of the above on this file's parsed structure; plan runs it before anything else.
+# Qualification only: pack once, verify exact archives on Windows & macOS, retain provenance.
+# publish-reviewed.yml alone promotes approved archives without rebuilding.
 name: publish
 
 on:
@@ -31,10 +14,6 @@ on:
         description: Space-separated package names (npm) or crate names (crates)
         type: string
         required: true
-      dry_run:
-        description: Pack, verify and check the upload; publish nothing
-        type: boolean
-        default: true
       allow_host_exclusion:
         description: Crates that ci/gate.config.json keeps off one verify host; each must be named to publish
         type: string
@@ -55,9 +34,9 @@ on:
 permissions:
   contents: read
 
-# A publish is never cancelled half-way; a second dispatch waits.
+# Independent qualification runs retain their own artifacts & receipts.
 concurrency:
-  group: ${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}
+  group: qualification-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -85,7 +64,6 @@ jobs:
     timeout-minutes: 15
     outputs:
       registry: ${{ steps.plan.outputs.registry }}
-      dry_run: ${{ steps.plan.outputs.dry_run }}
       count: ${{ steps.plan.outputs.count }}
       units: ${{ steps.plan.outputs.units }}
       allow_host_exclusion: ${{ steps.plan.outputs.allow_host_exclusion }}
@@ -113,7 +91,7 @@ jobs:
         env:
           PUBLISH_REGISTRY: ${{ inputs.registry }}
           PUBLISH_UNITS: ${{ inputs.units }}
-          PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_DRY_RUN: "false"
           PUBLISH_ALLOW_HOST_EXCLUSION: ${{ inputs.allow_host_exclusion }}
           PUBLISH_ALLOW_NO_TEST: ${{ inputs.allow_no_test }}
           PUBLISH_ALLOW_IGNORED: ${{ inputs.allow_ignored }}
@@ -130,21 +108,78 @@ jobs:
         if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
         run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses
 
-  sign-swap:
+  build-swap:
     needs: [guard, plan]
     if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.seal.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - name: Build unsigned helper on a secretless runner
+        run: cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs
+      - name: Seal unsigned helper & bind its native build receipt
+        id: seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/swap-unsigned"
+          mkdir -p "$out"
+          cp target/release/rightkit-swap "$out/rightkit-swap"
+          (cd "$out" && shasum -a 256 rightkit-swap > rightkit-swap.sha256)
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-swap\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
+          cat "$out/rightkit-swap.sha256" >> "$out/source-receipt.txt"
+          printf 'sha256=%s\n' "$(cut -d ' ' -f 1 "$out/rightkit-swap.sha256")" >> "$GITHUB_OUTPUT"
+      - name: Hand over sealed unsigned helper
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rightkit-swap-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swap-unsigned
+          retention-days: 90
+          overwrite: false
+          if-no-files-found: error
+
+  sign-swap:
+    needs: [guard, plan, build-swap]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}
     environment: release
     runs-on: xcode-27
     timeout-minutes: 60
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fetch exact unsigned helper from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
-      - name: Build rightkit-swap with no secret in scope
-        run: cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs
+          name: rightkit-swap-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swap-unsigned
+      - name: Validate same-run source receipt & expected unsigned hash before credential import
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.build-swap.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          in="$RUNNER_TEMP/swap-unsigned"
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          shopt -s dotglob nullglob
+          files=("$in"/*)
+          test "${#files[@]}" -eq 3
+          for file in rightkit-swap rightkit-swap.sha256 source-receipt.txt; do
+            test -f "$in/$file"
+            test ! -L "$in/$file"
+          done
+          printf '%s  rightkit-swap\n' "$EXPECTED_SHA256" > "$RUNNER_TEMP/expected-swap.sha256"
+          cmp "$RUNNER_TEMP/expected-swap.sha256" "$in/rightkit-swap.sha256"
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-swap\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/expected-swap-receipt.txt"
+          cat "$RUNNER_TEMP/expected-swap.sha256" >> "$RUNNER_TEMP/expected-swap-receipt.txt"
+          cmp "$RUNNER_TEMP/expected-swap-receipt.txt" "$in/source-receipt.txt"
+          (cd "$in" && shasum -a 256 -c rightkit-swap.sha256)
       - name: Install Apple signing identity in temporary keychain
         shell: bash
         env:
@@ -171,7 +206,8 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/swap-signed"
           rm -rf "$out" && mkdir -p "$out"
-          cp target/release/rightkit-swap "$out/rightkit-swap"
+          cp "$RUNNER_TEMP/swap-unsigned/rightkit-swap" "$out/rightkit-swap"
+          cp "$RUNNER_TEMP/swap-unsigned/source-receipt.txt" "$out/unsigned-source-receipt.txt"
           codesign --force --strict --options runtime --timestamp --sign "$APPLE_DEVELOPER_ID" "$out/rightkit-swap"
           codesign --verify --strict --verbose=2 "$out/rightkit-swap"
           details="$(codesign -dvv "$out/rightkit-swap" 2>&1)"
@@ -179,6 +215,8 @@ jobs:
           printf '%s\n' "$details" | grep -q 'Authority=Developer ID Application'
           printf '%s\n' "$details" | grep -Eq 'flags=0x[0-9a-f]+\(.*runtime'
           (cd "$out" && shasum -a 256 rightkit-swap > rightkit-swap.sha256 && cat rightkit-swap.sha256)
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=sign-swap\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
+          cat "$out/rightkit-swap.sha256" >> "$out/source-receipt.txt"
           { echo '### rightkit-swap (Developer ID signed)'; echo '```'; cat "$out/rightkit-swap.sha256"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Remove Apple signing material
         if: ${{ always() }}
@@ -192,13 +230,13 @@ jobs:
         with:
           name: rightkit-swap-signed
           path: ${{ runner.temp }}/swap-signed
-          retention-days: 7
+          retention-days: 90
           overwrite: true
           if-no-files-found: error
 
   pack:
-    needs: [guard, plan, sign-swap]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && (needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped') }}
+    needs: [guard, plan, build-swap, sign-swap]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(needs.plan.outputs.units, '@rightkit/release')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped')) }}
     runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
@@ -249,7 +287,7 @@ jobs:
         with:
           name: publish-packed
           path: ${{ runner.temp }}/rk-pack
-          retention-days: 7
+          retention-days: 90
           overwrite: true
           if-no-files-found: error
 
@@ -309,7 +347,7 @@ jobs:
         shell: bash
         env:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
-          PUBLISH_DRY_RUN: ${{ needs.plan.outputs.dry_run }}
+          PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
       - name: Build and test exactly the planned units
         shell: bash
@@ -344,7 +382,7 @@ jobs:
         with:
           name: publish-receipt-verify-${{ matrix.os }}
           path: ${{ runner.temp }}/verify-receipt
-          retention-days: 7
+          retention-days: 90
           overwrite: true
           if-no-files-found: error
       - name: Upload QA evidence
@@ -353,122 +391,26 @@ jobs:
         with:
           name: publish-verify-${{ matrix.os }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/rightkit-ci
-          retention-days: 7
-          overwrite: true
-          if-no-files-found: ignore
-
-  seal-check:
-    needs: [guard, plan, pack, verify]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && needs.verify.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/upload.mjs
-            ci/approved-artifacts.json
-          sparse-checkout-cone-mode: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "26.8.1"
-          package-manager-cache: false
-      - name: Fetch the sealed artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: publish-packed
-          path: ${{ runner.temp }}/sealed/packed
-      - name: Fetch both hosts' receipts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: publish-receipt-verify-*
-          path: ${{ runner.temp }}/sealed/receipts
-      - name: Dry-run the upload with no credentials (includes the reviewer-approved artifact check)
-        env:
-          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
-          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
-          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
-          PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
-          PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
-        run: node scripts/ci/upload.mjs run --dry-run
-      - name: Keep the dry-run receipt
-        if: ${{ needs.plan.outputs.dry_run == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: publication-receipt-dry-run
-          path: ${{ runner.temp }}/publication-receipt
-          retention-days: 7
-          overwrite: true
-          if-no-files-found: ignore
-
-  upload:
-    needs: [guard, plan, pack, verify, seal-check]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.verify.result == 'success' && needs.seal-check.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}
-    environment: release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/upload.mjs
-            ci/approved-artifacts.json
-          sparse-checkout-cone-mode: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "26.8.1"
-          package-manager-cache: false
-      - name: Fetch the sealed artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: publish-packed
-          path: ${{ runner.temp }}/sealed/packed
-      - name: Fetch both hosts' receipts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: publish-receipt-verify-*
-          path: ${{ runner.temp }}/sealed/receipts
-      - name: Fetch the earlier attempt publication receipt if any
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: publication-receipt
-          path: ${{ runner.temp }}/sealed/previous
-      - name: Upload to npm
-        if: ${{ needs.plan.outputs.registry == 'npm' }}
-        env:
-          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
-          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
-          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
-          PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
-          PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/ci/upload.mjs run
-      - name: Upload to crates.io
-        if: ${{ needs.plan.outputs.registry == 'crates' }}
-        env:
-          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
-          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
-          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
-          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
-          PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
-          PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: node scripts/ci/upload.mjs run
-      - name: Keep the publication receipt
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: publication-receipt
-          path: ${{ runner.temp }}/publication-receipt
           retention-days: 90
           overwrite: true
           if-no-files-found: ignore
+
+  qualified:
+    needs: [guard, plan, pack, verify]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require completed packing & both native verification hosts
+        env:
+          GUARD_RESULT: ${{ needs.guard.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PACK_RESULT: ${{ needs.pack.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          UNIT_COUNT: ${{ needs.plan.outputs.count }}
+        run: |
+          test "$GUARD_RESULT" = success
+          test "$PLAN_RESULT" = success
+          test "$PACK_RESULT" = success
+          test "$VERIFY_RESULT" = success
+          test "$UNIT_COUNT" -gt 0

@@ -7,9 +7,10 @@
 
 use rightkit_db::encrypted_lifecycle::{
     EncryptedStore, EncryptedStoreConfig, Faults, Key, KeySource, KeyStoreError, KeyStoreErrorKind,
-    Killed, LifecycleError, PendingKey, PendingRevision, Phase, ProtectedKeySession, ProtectedKeyStore, RecoveryOutcome,
-    RecoveryStep, RekeyFault, RekeyStep, RelocationPlan, RelocationReport, RotationReport,
-    RotationRequest, StoreTransition, TransitionKind, TransitionOptions,
+    Killed, LifecycleError, PendingKey, PendingRevision, Phase, ProtectedKeySession,
+    ProtectedKeyStore, RecoveryOutcome, RecoveryStep, RekeyFault, RekeyStep, RelocationPlan,
+    RelocationReport, RotationReport, RotationRequest, StoreTransition, TransitionKind,
+    TransitionOptions,
 };
 use rightkit_db::{DbOptions, ReadPoolOptions, RestoreOptions, StoreLock, Zeroizing};
 use std::collections::HashMap;
@@ -49,7 +50,10 @@ struct Inner {
     promote: Promote,
     fail_discard: bool,
     fail_delete_legacy: bool,
-    late_promotion: Option<(std::sync::mpsc::Receiver<()>, std::sync::mpsc::SyncSender<()>)>,
+    late_promotion: Option<(
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    )>,
 }
 
 #[derive(Clone, Default)]
@@ -142,7 +146,12 @@ impl ProtectedKeyStore for FakeKeys {
         use std::sync::atomic::Ordering;
         let started = std::time::Instant::now();
         loop {
-            if !self.2.load(Ordering::Acquire) && self.1.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+            if !self.2.load(Ordering::Acquire)
+                && self
+                    .1
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+            {
                 return Ok(Box::new(FakeSession { keys: self.clone() }));
             }
             if started.elapsed() >= timeout {
@@ -159,7 +168,9 @@ struct FakeSession {
 
 impl Drop for FakeSession {
     fn drop(&mut self) {
-        self.keys.1.store(false, std::sync::atomic::Ordering::Release);
+        self.keys
+            .1
+            .store(false, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -202,7 +213,9 @@ impl ProtectedKeySession for FakeSession {
         }
         if mode == Promote::Unsettled {
             let (release, done) = inner.late_promotion.take().unwrap();
-            self.keys.2.store(true, std::sync::atomic::Ordering::Release);
+            self.keys
+                .2
+                .store(true, std::sync::atomic::Ordering::Release);
             let keys = self.keys.clone();
             std::thread::spawn(move || {
                 release.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -213,7 +226,10 @@ impl ProtectedKeySession for FakeSession {
                 drop(inner);
                 done.send(()).unwrap();
             });
-            return Err(KeyStoreError::new(KeyStoreErrorKind::Unsettled, "promotion worker still active"));
+            return Err(KeyStoreError::new(
+                KeyStoreErrorKind::Unsettled,
+                "promotion worker still active",
+            ));
         }
         inner.primary = Some(key);
         if mode == Promote::WriteThenFail {
@@ -258,7 +274,14 @@ impl ProtectedKeySession for FakeSession {
     }
 
     fn read_recovery(&mut self) -> Result<Option<Key>, KeyStoreError> {
-        Ok(self.keys.0.lock().unwrap().recovery.clone().map(Zeroizing::new))
+        Ok(self
+            .keys
+            .0
+            .lock()
+            .unwrap()
+            .recovery
+            .clone()
+            .map(Zeroizing::new))
     }
 
     fn write_recovery(&mut self, key: &Key) -> Result<(), KeyStoreError> {
@@ -1294,14 +1317,18 @@ fn recover_rotation_without_an_open_store_reconciles_a_dead_rotation() {
 fn owned_session_moves_threads_and_excludes_competitors_until_drop() {
     let keys = FakeKeys::with_primary(OLD);
     let mut session = keys.lock_rotation(Duration::ZERO).unwrap();
-    let revision = session.write_pending(&Zeroizing::new(NEW.to_string())).unwrap();
+    let revision = session
+        .write_pending(&Zeroizing::new(NEW.to_string()))
+        .unwrap();
     let competing = keys.clone();
     let session = std::thread::spawn(move || {
         assert_eq!(session.read_primary().unwrap().unwrap().as_str(), OLD);
         assert!(competing.lock_rotation(Duration::ZERO).is_err());
         assert_eq!(session.read_pending().unwrap().unwrap().revision, revision);
         session
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
     assert!(keys.lock_rotation(Duration::ZERO).is_err());
     drop(session);
     let mut next = keys.lock_rotation(Duration::ZERO).unwrap();
@@ -1316,7 +1343,10 @@ fn interrupted_rekey_releases_session_without_losing_viable_pending_key() {
     let store = EncryptedStore::open(config(&path, &keys)).unwrap();
     let result = store.rotate_key_with_faults(
         RotationRequest::new(NEW),
-        &TestFaults { die: Some(Phase::Rekeyed), ..TestFaults::default() },
+        &TestFaults {
+            die: Some(Phase::Rekeyed),
+            ..TestFaults::default()
+        },
     );
     assert!(matches!(result, Err(Killed(Phase::Rekeyed))));
     let mut session = keys.lock_rotation(Duration::ZERO).unwrap();
@@ -1339,9 +1369,8 @@ fn relocation_acquires_destination_session_before_publishing_copy() {
     let destination = FakeKeys::default();
     let store = EncryptedStore::open(config(&path, &source)).unwrap();
     let held = destination.lock_rotation(Duration::ZERO).unwrap();
-    let report = store.relocate(
-        RelocationPlan::new(&new_path).with_new_key_store(Arc::new(destination.clone())),
-    );
+    let report = store
+        .relocate(RelocationPlan::new(&new_path).with_new_key_store(Arc::new(destination.clone())));
     assert!(matches!(report, RelocationReport::NotRelocated { .. }));
     assert!(!new_path.exists());
     assert_eq!(count(&store), 1);
@@ -1376,11 +1405,18 @@ fn unsettled_promotion_retains_both_keys_until_late_worker_finishes() {
     let report = store.rotate_key(RotationRequest::new(NEW));
     assert!(matches!(report, RotationReport::Indeterminate { .. }));
     assert!(store.is_blocked());
-    assert_eq!(keys.primary().as_deref(), Some(OLD), "readback is still old before late mutation");
+    assert_eq!(
+        keys.primary().as_deref(),
+        Some(OLD),
+        "readback is still old before late mutation"
+    );
     assert_eq!(keys.pending().as_deref(), Some(NEW));
     assert_eq!(keys.recovery().as_deref(), Some(OLD));
     assert!(journal_exists(&path));
-    assert!(opens_with(&path, NEW), "uncertain promotion must not roll DB back");
+    assert!(
+        opens_with(&path, NEW),
+        "uncertain promotion must not roll DB back"
+    );
     assert!(keys.lock_rotation(Duration::ZERO).is_err());
     release_tx.send(()).unwrap();
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1400,7 +1436,11 @@ struct PausedPoolAdmission {
 impl Faults for PausedPoolAdmission {
     fn before_pool_registration(&self) {
         self.entered.send(()).unwrap();
-        self.release.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
+        self.release
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
     }
 }
 
@@ -1409,30 +1449,47 @@ fn pool_admission_cannot_escape_transition_drain_registry() {
     let dir = tempfile::tempdir().unwrap();
     let path = make_db(dir.path(), "pool-admission.db", OLD);
     let keys = FakeKeys::with_primary(OLD);
-    let store = Arc::new(EncryptedStore::open(
-        config(&path, &keys).with_drain_timeout(Duration::ZERO),
-    ).unwrap());
+    let store = Arc::new(
+        EncryptedStore::open(config(&path, &keys).with_drain_timeout(Duration::ZERO)).unwrap(),
+    );
     let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
     let opening = store.clone();
     let pool_thread = std::thread::spawn(move || {
-        opening.read_pool_with_faults(1, ReadPoolOptions::new(), &PausedPoolAdmission {
-            entered: entered_tx,
-            release: Mutex::new(release_rx),
-        }).unwrap()
+        opening
+            .read_pool_with_faults(
+                1,
+                ReadPoolOptions::new(),
+                &PausedPoolAdmission {
+                    entered: entered_tx,
+                    release: Mutex::new(release_rx),
+                },
+            )
+            .unwrap()
     });
     entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     // Admission has opened SQLCipher connections but has not registered them. Rotation must
     // stop at live-state admission rather than missing this pool and reaching rekey.
     let report = store.recover_rotation();
-    assert!(report.is_blocked(), "admission must block transition drain: {report:?}");
+    assert!(
+        report.is_blocked(),
+        "admission must block transition drain: {report:?}"
+    );
     release_tx.send(()).unwrap();
     let pool = pool_thread.join().unwrap();
     assert_eq!(keys.primary().as_deref(), Some(OLD));
     let reader = pool.get().unwrap();
-    assert_eq!(reader.query_row("SELECT count(*) FROM t", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(
+        reader
+            .query_row("SELECT count(*) FROM t", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
     drop(reader);
-    assert!(matches!(store.rotate_key(RotationRequest::new(NEW)), RotationReport::Committed));
+    assert!(matches!(
+        store.rotate_key(RotationRequest::new(NEW)),
+        RotationReport::Committed
+    ));
 }
 
 #[test]

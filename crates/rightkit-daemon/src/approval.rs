@@ -856,7 +856,10 @@ pub enum ApprovalError {
     /// The action requires audit before effect and no sink is configured.
     AuditRequired,
     /// The call is not allowed from the request's current state.
-    InvalidState { id: String, state: ApprovalState },
+    InvalidState {
+        id: String,
+        state: ApprovalState,
+    },
     /// `claim` on a request that is still Pending.
     NotApproved(String),
     /// `claim` on a request that is already Claimed (or settled): the one claim is spent.
@@ -866,7 +869,10 @@ pub enum ApprovalError {
     /// The request expired (and is now `Expired`).
     Expired(String),
     /// The decision named a revision other than the current one.
-    StaleRevision { expected: u64, found: u64 },
+    StaleRevision {
+        expected: u64,
+        found: u64,
+    },
     /// Another caller changed the request first.
     Conflict(String),
     /// The verifier refused the proof.
@@ -903,7 +909,10 @@ impl fmt::Display for ApprovalError {
                 write!(f, "approval: request {id} was already claimed")
             }
             ApprovalError::StaleClaim(id) => {
-                write!(f, "approval: the claim on request {id} is not the one on record")
+                write!(
+                    f,
+                    "approval: the claim on request {id} is not the one on record"
+                )
             }
             ApprovalError::Expired(id) => write!(f, "approval: request {id} expired"),
             ApprovalError::StaleRevision { expected, found } => write!(
@@ -1076,7 +1085,9 @@ impl ApprovalCoordinator {
     ) -> Result<ApprovalRecord, ApprovalError> {
         let mut next = current.clone();
         edit(&mut next);
-        next.revision = current.revision.checked_add(1)
+        next.revision = current
+            .revision
+            .checked_add(1)
             .ok_or(ApprovalError::Invalid("approval revision exhausted"))?;
         self.audit_for(&next, self.event(&next, kind, actor, detail))?;
         match self.store.replace(current.revision, &next) {
@@ -1254,7 +1265,11 @@ impl ApprovalCoordinator {
                 now_ms: now,
             })
             .map_err(|e| ApprovalError::Unverified(e.to_string()))?;
-        if !verified.principal.accounts.permits(record.account.as_deref()) {
+        if !verified
+            .principal
+            .accounts
+            .permits(record.account.as_deref())
+        {
             return Err(ApprovalError::ScopeDenied);
         }
         if !record.approvers.is_empty() && !record.approvers.contains(&verified.principal.id) {
@@ -1262,9 +1277,14 @@ impl ApprovalCoordinator {
         }
         if let Some(nonce) = &verified.nonce {
             if nonce.expires_ms <= now {
-                return Err(ApprovalError::Unverified("the proof has expired".to_string()));
+                return Err(ApprovalError::Unverified(
+                    "the proof has expired".to_string(),
+                ));
             }
-            if !self.store.claim_nonce(&nonce.value, nonce.expires_ms, now)? {
+            if !self
+                .store
+                .claim_nonce(&nonce.value, nonce.expires_ms, now)?
+            {
                 return Err(ApprovalError::ReplayedNonce);
             }
         }
@@ -1297,10 +1317,16 @@ impl ApprovalCoordinator {
                 state: record.state,
             });
         }
-        let next = self.transition(&record, AuditKind::Cancelled, Some(requester), "cancelled", |r| {
-            r.state = ApprovalState::Cancelled;
-            r.reason = Some("cancelled".to_string());
-        })?;
+        let next = self.transition(
+            &record,
+            AuditKind::Cancelled,
+            Some(requester),
+            "cancelled",
+            |r| {
+                r.state = ApprovalState::Cancelled;
+                r.reason = Some("cancelled".to_string());
+            },
+        )?;
         Ok(next)
     }
 
@@ -1375,16 +1401,24 @@ impl ApprovalCoordinator {
         }
         let now = self.clock.now_ms();
         let claim_id = random_id()?;
-        let claimed = match self.transition(&record, AuditKind::Claimed, record.decided_by.as_deref(), "", |r| {
-            r.state = ApprovalState::Claimed;
-            r.claim_id = Some(claim_id.clone());
-            r.claimed_ms = Some(now);
-        }) {
+        let claimed = match self.transition(
+            &record,
+            AuditKind::Claimed,
+            record.decided_by.as_deref(),
+            "",
+            |r| {
+                r.state = ApprovalState::Claimed;
+                r.claim_id = Some(claim_id.clone());
+                r.claimed_ms = Some(now);
+            },
+        ) {
             Ok(next) => next,
             Err(ApprovalError::Conflict(_)) => {
                 // Lost the race: say what the winner made of it.
                 return Err(match self.store.get(id)? {
-                    Some(r) if matches!(r.state, ApprovalState::Claimed | ApprovalState::Settled) => {
+                    Some(r)
+                        if matches!(r.state, ApprovalState::Claimed | ApprovalState::Settled) =>
+                    {
                         ApprovalError::AlreadyClaimed(r.id)
                     }
                     Some(r) if r.state.is_terminal() => ApprovalError::InvalidState {

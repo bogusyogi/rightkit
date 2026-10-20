@@ -7,14 +7,11 @@ on:
         description: Committed schema 2 candidate ID
         type: string
         required: true
-      dry_run:
-        description: Check provenance, approvals & sealed bytes without publishing
-        type: boolean
-        default: true
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}
+  group: publish
+  queue: max
   cancel-in-progress: false
 jobs:
   seal-check:
@@ -33,6 +30,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/upload.mjs
+            scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs
             ci/approved-artifacts.json
           sparse-checkout-cone-mode: false
@@ -55,7 +53,7 @@ jobs:
           if-no-files-found: error
   upload:
     needs: [seal-check]
-    if: ${{ needs.seal-check.result == 'success' && inputs.dry_run == false && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    if: ${{ needs.seal-check.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -70,6 +68,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/upload.mjs
+            scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs
             ci/approved-artifacts.json
           sparse-checkout-cone-mode: false

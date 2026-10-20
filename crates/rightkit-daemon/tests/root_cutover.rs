@@ -107,7 +107,11 @@ impl CutoverParticipant for Probe {
         self.step(CutoverStep::Reopen, cx, "")
     }
 
-    fn settle(&mut self, cx: &CutoverContext, settlement: Settlement) -> Result<(), ParticipantError> {
+    fn settle(
+        &mut self,
+        cx: &CutoverContext,
+        settlement: Settlement,
+    ) -> Result<(), ParticipantError> {
         let note = match settlement {
             Settlement::Committed => ":committed",
             _ => ":aborted",
@@ -230,10 +234,7 @@ fn without_a_record_the_legacy_root_is_selected() {
     let env = env();
     let app = app(&env);
     assert!(RootCutover::status(&app).unwrap().is_none());
-    assert_eq!(
-        RootCutover::selected_root(&app, &env.old).unwrap(),
-        env.old
-    );
+    assert_eq!(RootCutover::selected_root(&app, &env.old).unwrap(), env.old);
 }
 
 #[test]
@@ -387,7 +388,10 @@ fn recover_leaves_a_cutover_that_never_switched_alone() {
         .participant(Probe::new("one", &log).failing(CutoverStep::Relocate));
     assert!(cutover.run().is_err());
     let before = lines(&log).len();
-    assert!(matches!(cutover.recover().unwrap(), RecoverOutcome::Nothing));
+    assert!(matches!(
+        cutover.recover().unwrap(),
+        RecoverOutcome::Nothing
+    ));
     assert_eq!(lines(&log).len(), before, "recover must not run hooks");
     assert_eq!(
         RootCutover::status(&app).unwrap().unwrap().selected,
@@ -415,17 +419,22 @@ fn an_old_root_replaced_before_the_switch_aborts_the_cutover() {
     let err = cutover.run().unwrap_err();
     assert!(matches!(err, CutoverError::PathSubstituted(_)), "{err}");
     assert!(lines(&log).contains(&"one:settle:aborted".to_string()));
-    assert!(matches!(RootCutover::status(&app), Err(CutoverError::PathSubstituted(_))));
+    assert!(matches!(
+        RootCutover::status(&app),
+        Err(CutoverError::PathSubstituted(_))
+    ));
     assert!(matches!(
         RootCutover::selected_root(&app, &env.old),
         Err(CutoverError::PathSubstituted(_))
     ));
-    let record: serde_json::Value = serde_json::from_slice(
-        &fs::read(app.root().join(CUTOVER_RECORD)).unwrap()
-    ).unwrap();
+    let record: serde_json::Value =
+        serde_json::from_slice(&fs::read(app.root().join(CUTOVER_RECORD)).unwrap()).unwrap();
     assert_eq!(record["phase"], "aborted");
     // The substituted directory was never touched.
-    assert_eq!(fs::read(old.join("impostor.txt")).unwrap(), b"not the old root");
+    assert_eq!(
+        fs::read(old.join("impostor.txt")).unwrap(),
+        b"not the old root"
+    );
 }
 
 #[test]
@@ -467,7 +476,10 @@ fn a_companion_destination_with_other_content_is_a_collision_and_nothing_is_over
     ]));
     let err = cutover.run().unwrap_err();
     assert!(matches!(err, CutoverError::Collision(_)), "{err}");
-    assert_eq!(fs::read(app.root().join("settings.json")).unwrap(), b"different");
+    assert_eq!(
+        fs::read(app.root().join("settings.json")).unwrap(),
+        b"different"
+    );
     assert!(
         !app.root().join("other.json").exists(),
         "the collision is found before anything is published"
@@ -486,11 +498,18 @@ fn companions_must_be_plain_relative_files_not_on_a_participant_path() {
     } else {
         PathBuf::from("/etc/hosts")
     };
-    for bad in [PathBuf::from("../escape.txt"), absolute, PathBuf::from("empty")] {
-        let mut cutover = RootCutover::new(app(&env), &env.old)
-            .fs_move(FsMove::Companions(vec![bad.clone()]));
+    for bad in [
+        PathBuf::from("../escape.txt"),
+        absolute,
+        PathBuf::from("empty"),
+    ] {
+        let mut cutover =
+            RootCutover::new(app(&env), &env.old).fs_move(FsMove::Companions(vec![bad.clone()]));
         let err = cutover.run().unwrap_err();
-        assert!(matches!(err, CutoverError::BadCompanion(_)), "{bad:?}: {err}");
+        assert!(
+            matches!(err, CutoverError::BadCompanion(_)),
+            "{bad:?}: {err}"
+        );
     }
     let log = log();
     let mut conflicted = RootCutover::new(app(&env), &env.old)
@@ -508,13 +527,21 @@ fn a_tree_move_leaves_out_the_paths_a_participant_owns() {
     let env = env();
     let app = app(&env);
     fs::create_dir_all(env.old.join("db")).unwrap();
-    fs::write(env.old.join("db").join("data.sqlite"), b"raw database bytes").unwrap();
+    fs::write(
+        env.old.join("db").join("data.sqlite"),
+        b"raw database bytes",
+    )
+    .unwrap();
     fs::create_dir_all(env.old.join("db2")).unwrap();
     fs::write(env.old.join("db2").join("x"), b"x").unwrap();
     let new_root = app.root().to_path_buf();
     let relocate = move |_: &CutoverContext| {
         fs::create_dir_all(new_root.join("db")).unwrap();
-        fs::write(new_root.join("db").join("data.sqlite"), b"relocated by the owner").unwrap();
+        fs::write(
+            new_root.join("db").join("data.sqlite"),
+            b"relocated by the owner",
+        )
+        .unwrap();
     };
     let log = log();
     let mut cutover = RootCutover::new(app.clone(), &env.old)
@@ -547,7 +574,8 @@ fn a_second_cutover_for_the_same_root_is_busy_not_interleaved() {
         }
     };
     let log = log();
-    let mut cutover = RootCutover::new(app, &env.old).participant(Probe::new("one", &log).on_relocate(hook));
+    let mut cutover =
+        RootCutover::new(app, &env.old).participant(Probe::new("one", &log).on_relocate(hook));
     cutover.run().expect("cutover");
     assert_eq!(*seen.lock().unwrap(), Some(true));
 }
@@ -559,13 +587,25 @@ fn recovery_refuses_missing_participants_without_completing_the_generation() {
     let log = log();
     let mut initial = RootCutover::new(app.clone(), &env.old)
         .participant(Probe::new("database", &log).failing(CutoverStep::Reopen));
-    assert!(matches!(initial.run(), Err(CutoverError::ReopenPending { .. })));
+    assert!(matches!(
+        initial.run(),
+        Err(CutoverError::ReopenPending { .. })
+    ));
     let mut missing = RootCutover::new(app.clone(), &env.old);
-    assert!(matches!(missing.recover(), Err(CutoverError::RecordMismatch(_))));
-    assert_eq!(RootCutover::status(&app).unwrap().unwrap().phase, CutoverPhase::Switched);
-    let mut restored = RootCutover::new(app.clone(), &env.old)
-        .participant(Probe::new("database", &log));
-    assert!(matches!(restored.recover().unwrap(), RecoverOutcome::Resumed(_)));
+    assert!(matches!(
+        missing.recover(),
+        Err(CutoverError::RecordMismatch(_))
+    ));
+    assert_eq!(
+        RootCutover::status(&app).unwrap().unwrap().phase,
+        CutoverPhase::Switched
+    );
+    let mut restored =
+        RootCutover::new(app.clone(), &env.old).participant(Probe::new("database", &log));
+    assert!(matches!(
+        restored.recover().unwrap(),
+        RecoverOutcome::Resumed(_)
+    ));
     assert_eq!(RootCutover::status(&app).unwrap().unwrap().generation, 1);
 }
 
@@ -575,7 +615,11 @@ fn a_completed_record_copied_to_another_directory_never_selects_that_directory()
     let app = app(&env);
     RootCutover::new(app.clone(), &env.old).run().unwrap();
     let replacement = env.suite.app_root("OtherApp").unwrap();
-    fs::copy(app.root().join(CUTOVER_RECORD), replacement.root().join(CUTOVER_RECORD)).unwrap();
+    fs::copy(
+        app.root().join(CUTOVER_RECORD),
+        replacement.root().join(CUTOVER_RECORD),
+    )
+    .unwrap();
     assert!(matches!(
         RootCutover::selected_root(&replacement, &env.old),
         Err(CutoverError::RecordMismatch(_))
@@ -689,7 +733,10 @@ fn nested_or_missing_old_roots_are_refused_before_anything_is_written() {
     ] {
         let mut cutover = RootCutover::new(app.clone(), &bad);
         let err = cutover.run().unwrap_err();
-        assert!(matches!(err, CutoverError::InvalidRoot { .. }), "{bad:?}: {err}");
+        assert!(
+            matches!(err, CutoverError::InvalidRoot { .. }),
+            "{bad:?}: {err}"
+        );
     }
     assert!(RootCutover::status(&app).unwrap().is_none());
 }
@@ -723,7 +770,10 @@ fn a_ready_copy_never_hides_changes_in_the_still_authoritative_old_root() {
         }
         let mut cutover = RootCutover::new(app.clone(), &env.old).fs_move(tree());
         assert!(matches!(cutover.run(), Err(CutoverError::Migrate(_))));
-        assert_eq!(RootCutover::selected_root(&app, &env.old).unwrap(), fs::canonicalize(&env.old).unwrap());
+        assert_eq!(
+            RootCutover::selected_root(&app, &env.old).unwrap(),
+            fs::canonicalize(&env.old).unwrap()
+        );
         assert_eq!(fs::read(app.root().join("a.txt")).unwrap(), b"alpha");
     }
 }
@@ -736,6 +786,12 @@ fn a_differently_cased_exclusion_never_silently_omits_a_tree_entry() {
     let mut cutover = RootCutover::new(app.clone(), &env.old)
         .fs_move(FsMove::Tree(MigrateOptions::strict().exclude("db")));
     assert!(matches!(cutover.run(), Err(CutoverError::Migrate(_))));
-    assert_eq!(RootCutover::selected_root(&app, &env.old).unwrap(), fs::canonicalize(&env.old).unwrap());
-    assert_eq!(fs::read(env.old.join("DB")).unwrap(), b"must not be omitted");
+    assert_eq!(
+        RootCutover::selected_root(&app, &env.old).unwrap(),
+        fs::canonicalize(&env.old).unwrap()
+    );
+    assert_eq!(
+        fs::read(env.old.join("DB")).unwrap(),
+        b"must not be omitted"
+    );
 }
