@@ -16,7 +16,7 @@ const safe = (name) => typeof name === "string" && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z
 const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 /** Relative helper closure is discovered from trusted files, never producer imports. */
 export function trustedRuntimeHelperPaths() {
-  const pending = ["packages/release/runtime-budgets.mjs"], seen = new Set();
+  const pending = ["packages/release/runtime-budgets.mjs", "scripts/ci/runtime-qualify.mjs"], seen = new Set();
   while (pending.length) {
     const name = pending.pop();
     if (seen.has(name)) continue;

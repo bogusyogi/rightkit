@@ -18,10 +18,10 @@ export const PUBLISH_CONCURRENCY_GROUP = "qualification-${{ github.run_id }}";
 // skipped one). The count test keeps an empty plan from running anything.
 const RESULT_OK = (job) => `needs.${job}.result == 'success'`;
 const COUNT_TERM = "needs.plan.outputs.count != '0'";
-export const SWAP_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(needs.plan.outputs.units, '@rightkit/release')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped'))";
+export const SWAP_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped'))";
 export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
 export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
-export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell') || contains(needs.plan.outputs.units, '@rightkit/settings-ui') || contains(needs.plan.outputs.units, '@rightkit/onboarding'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}";
+export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}";
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
@@ -37,8 +37,8 @@ export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_R
 // sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only qualification job that may use an
 // environment or the secrets context, and then only the three Apple identity secrets, in exactly one step; the build
 // builder runs on a separate secretless runner. pack stays secretless & only downloads signed result.
-export const BUILD_SWAP_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
-export const SIGN_SWAP_IF = "${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}";
+export const BUILD_SWAP_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}";
+export const SIGN_SWAP_IF = "${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}";
 export const UNSIGNED_SEAL_RUN = "set -euo pipefail\nout=\"$RUNNER_TEMP/swap-unsigned\"\nmkdir -p \"$out\"\ncp target/release/rightkit-swap \"$out/rightkit-swap\"\n(cd \"$out\" && shasum -a 256 rightkit-swap > rightkit-swap.sha256)\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-swap\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"\ncat \"$out/rightkit-swap.sha256\" >> \"$out/source-receipt.txt\"\nprintf 'sha256=%s\\n' \"$(cut -d ' ' -f 1 \"$out/rightkit-swap.sha256\")\" >> \"$GITHUB_OUTPUT\"\n";
 export const UNSIGNED_VALIDATE_RUN = "set -euo pipefail\nin=\"$RUNNER_TEMP/swap-unsigned\"\n[[ \"$EXPECTED_SHA256\" =~ ^[0-9a-f]{64}$ ]]\nshopt -s dotglob nullglob\nfiles=(\"$in\"/*)\ntest \"${#files[@]}\" -eq 3\nfor file in rightkit-swap rightkit-swap.sha256 source-receipt.txt; do\n  test -f \"$in/$file\"\n  test ! -L \"$in/$file\"\ndone\nprintf '%s  rightkit-swap\\n' \"$EXPECTED_SHA256\" > \"$RUNNER_TEMP/expected-swap.sha256\"\ncmp \"$RUNNER_TEMP/expected-swap.sha256\" \"$in/rightkit-swap.sha256\"\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-swap\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$RUNNER_TEMP/expected-swap-receipt.txt\"\ncat \"$RUNNER_TEMP/expected-swap.sha256\" >> \"$RUNNER_TEMP/expected-swap-receipt.txt\"\ncmp \"$RUNNER_TEMP/expected-swap-receipt.txt\" \"$in/source-receipt.txt\"\n(cd \"$in\" && shasum -a 256 -c rightkit-swap.sha256)\n";
 export const SIGN_IDENTITY_RUN = "set -euo pipefail\ncertificate_path=\"$RUNNER_TEMP/apple-signing.p12\"\nkeychain_path=\"$RUNNER_TEMP/apple-signing.keychain-db\"\nprintf '%s' \"$APPLE_CERTIFICATE_BASE64\" | base64 --decode > \"$certificate_path\"\nsecurity create-keychain -p \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity set-keychain-settings -lut 21600 \"$keychain_path\"\nsecurity unlock-keychain -p \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity import \"$certificate_path\" -P \"$APPLE_CERTIFICATE_PASSWORD\" -A -t cert -f pkcs12 -k \"$keychain_path\"\nsecurity set-key-partition-list -S apple-tool:,apple: -k \"$APPLE_KEYCHAIN_PASSWORD\" \"$keychain_path\"\nsecurity list-keychain -d user -s \"$keychain_path\"\nrm -f \"$certificate_path\"\n";
@@ -53,7 +53,7 @@ export const SIGN_SWAP_SECRETS = {
 export const SIGN_SWAP_ARTIFACT = "rightkit-swap-signed";
 const PACK_SWAP_STEP_IF = "${{ needs.sign-swap.result == 'success' }}";
 // The licence gate (rightkit#264) lives in plan, which every later job needs, so nothing can pack or upload past a failure.
-export const DENY_IF = "${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}";
+export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}";
 export const DENY_TOOL = "cargo-deny@0.20.2";
 export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses";
 const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
@@ -159,8 +159,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
-  const fsIf = "${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}";
-  const fsCleanupIf = "${{ always() && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}";
+  const fsIf = "${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}";
+  const fsCleanupIf = "${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}";
   const fsSetupAt = verifyRuns.findIndex(r => r.includes("node scripts/ci/fs-native-fixtures.mjs setup"));
   const fsCleanupAt = verifyRuns.findIndex(r => r.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup");
   const fsSetup = stepsOf(verify)[fsSetupAt]; const fsCleanup = stepsOf(verify)[fsCleanupAt];
@@ -285,6 +285,10 @@ const CONDITION_MUTATIONS = [
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 export const MUTATIONS = [
+  ["FS setup regains substring unit matching", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.if = s.if.replace("contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ')", "contains(needs.plan.outputs.units, 'rightkit-fs')"); })],
+  ["FS cleanup regains substring unit matching", edit(j => { const s = j.verify.steps.find(s => s.run?.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup"); s.if = s.if.replace("contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ')", "contains(needs.plan.outputs.units, 'rightkit-fs')"); })],
+  ["Chrome cache drops qa-chrome coverage", edit(j => { const s = j.verify.steps.find(s => s.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ')", ""); })],
+  ["Chrome provision drops qa-chrome coverage", edit(j => { const s = j.verify.steps.find(s => /provision-chrome\.mjs/.test(s.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ')", ""); })],
   ["FS verification loses mounted fixture setup", edit(j => { j.verify.steps = j.verify.steps.filter(s => !s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); })],
   ["FS cleanup skips failed verification", edit(j => { j.verify.steps.find(s => s.run?.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup").if = "${{ success() }}"; })],
   ["FS gate uses scratch instead of distinct mounted volume", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.run = s.run.replace("${plan.other}", "${plan.scratch}"); })],
@@ -324,12 +328,12 @@ export const MUTATIONS = [
   ["qualification packs twice", edit((j) => { j.pack.steps.push({ ...j.pack.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs pack") }); })],
   ["verify loses native receipt artifact", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.with?.name !== "publish-receipt-verify-${{ matrix.os }}"); })],
   ["qualification planning permits unpinned assets", edit((j) => { j.plan.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs plan").env.PUBLISH_DRY_RUN = "true"; })],
-  ["Chrome cache drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
-  ["Chrome provision drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
-  ["Chrome cache drops settings-ui coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/settings-ui')", ""); })],
-  ["Chrome provision drops settings-ui coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/settings-ui')", ""); })],
-  ["Chrome cache drops onboarding coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/onboarding')", ""); })],
-  ["Chrome provision drops onboarding coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/onboarding')", ""); })],
+  ["Chrome cache drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ')", ""); })],
+  ["Chrome provision drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ')", ""); })],
+  ["Chrome cache drops settings-ui coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ')", ""); })],
+  ["Chrome provision drops settings-ui coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ')", ""); })],
+  ["Chrome cache drops onboarding coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding ')", ""); })],
+  ["Chrome provision drops onboarding coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding ')", ""); })],
   ["drop the Windows verify host", edit((j) => { j.verify.strategy.matrix.os = ["xcode-27"]; })],
   ["drop the macOS verify host", edit((j) => { j.verify.strategy.matrix.os = ["windows-2025"]; })],
   ["exclude a verify leg", edit((j) => { j.verify.strategy.matrix.exclude = [{ os: "windows-2025" }]; })],
@@ -405,7 +409,7 @@ export const MUTATIONS = [
   ["the deny install is removed", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !(s.uses ?? "").startsWith("taiki-e/install-action@")); })],
   ["deny moves to pack", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.pack.steps.push(x); })],
   ["deny runs before the plan step", edit((j) => { const i = j.plan.steps.findIndex((s) => /cargo deny/.test(s.run ?? "")); const [x] = j.plan.steps.splice(i, 1); j.plan.steps.splice(0, 0, x); })],
-  ["the deny gate also runs for npm", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ contains(steps.plan.outputs.units, 'rightkit-typeset') }}"; })],
+  ["the deny gate also runs for npm", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}"; })],
   ["the deny gate ignores rightkit-typeset", edit((j) => { j.plan.steps.find((s) => /cargo deny/.test(s.run ?? "")).if = "${{ inputs.registry == 'npm' }}"; })],
   ["the deny gate is made non-fatal", edit((j) => { const s = j.plan.steps.find((x) => /cargo deny/.test(x.run ?? "")); s.run = `${s.run} || true`; })],
   ["the deny gate checks another crate", edit((j) => { const s = j.plan.steps.find((x) => /cargo deny/.test(x.run ?? "")); s.run = s.run.replace("rightkit-typeset", "rightkit-fs"); })],
@@ -436,6 +440,7 @@ export function proveMutations(doc) {
 // relative to the script (no environment, input or default can name another file); and the checker must
 // still compare registry, name, version and sha256 for every sealed unit. proveUploadScriptMutations shows
 // that removing or weakening any of this is rejected. Behaviour is proven by scripts/ci/publish.test.mjs.
+const CONTEXT_GUARD = 'if (!dryRun && !candidateContext) throw new Error("real upload requires an admitted authenticated candidate context");';
 const APPROVAL_CALL = "problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));";
 const APPROVED_PATH_LINE = 'export const APPROVED_ARTIFACTS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "approved-artifacts.json");';
 const UNIT_LOOP = "const names = new Set();\n  for (const unit of manifest.units) {";
@@ -454,9 +459,13 @@ export function assertUploadScript(text, name = "upload.mjs") {
   const main = mainAt >= 0 ? text.slice(mainAt) : "";
   check(/\bapprovedFile\b/.test(header) && !/\bapprovedFile\s*=/.test(header), "executeUpload must take approvedFile with no default (a missing approval file refuses)");
   check(body.split(APPROVAL_CALL).length === 2 && body.includes(`\n    ${APPROVAL_CALL}`), "executeUpload must run checkApprovedArtifacts exactly once, unconditionally, in the manifest checks");
+  const contextAt = body.indexOf(CONTEXT_GUARD);
+  check(contextAt >= 0 && body.indexOf("  const previous =") > contextAt, "real uploads must require admitted authenticated candidate context before registry access");
+  check(body.includes('archiveScanResolver = assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });'), "candidate context must pass authenticated admission validation");
   const callAt = body.indexOf(APPROVAL_CALL);
   const refuseAt = body.indexOf("throw new Error(`sealed upload refused");
   const firstEffect = Math.min(...["reconcileUnit({", 'spawn("npm"', "fetchImpl(CRATES_PUBLISH_URL", "new Receipt("].map((s) => { const i = body.indexOf(s); return i < 0 ? Infinity : i; }));
+  check(contextAt >= 0 && contextAt < firstEffect, "admitted context guard must precede any registry or receipt effect");
   check(callAt >= 0 && refuseAt > callAt && firstEffect > refuseAt, "the approval check must come before the refusal point, and the refusal before any reconciliation, receipt, spawn or request");
   check(text.includes(APPROVED_PATH_LINE) && (text.match(/APPROVED_ARTIFACTS_FILE\s*=/g) ?? []).length === 1, "the approved-artifacts path must be fixed relative to upload.mjs (ci/approved-artifacts.json)");
   check(main.includes("approvedFile: APPROVED_ARTIFACTS_FILE,") && !/approvedFile:\s*(?!\s|APPROVED_ARTIFACTS_FILE,)/.test(main), "the command entry must pass approvedFile: APPROVED_ARTIFACTS_FILE");
@@ -469,6 +478,8 @@ export function assertUploadScript(text, name = "upload.mjs") {
 
 const textEdit = (from, to) => (text) => { if (!text.includes(from)) throw new Error(`mutation anchor not found: ${from.slice(0, 50)}`); return text.replace(from, () => to); };
 export const UPLOAD_SCRIPT_MUTATIONS = [
+  ["real upload loses its admitted context guard", textEdit(CONTEXT_GUARD, "")],
+  ["candidate context bypasses authentication", textEdit("archiveScanResolver = assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });", "archiveScanResolver = undefined;")],
   ["the approval check is removed", textEdit(APPROVAL_CALL, "")],
   ["the approval check only runs for a real upload", textEdit(APPROVAL_CALL, `if (!dryRun) ${APPROVAL_CALL}`)],
   ["the approval check only runs for a dry run", textEdit(APPROVAL_CALL, `if (dryRun) ${APPROVAL_CALL}`)],

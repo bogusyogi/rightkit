@@ -109,10 +109,7 @@ fn corrupt_slots_never_look_empty_and_rotation_lock_is_bounded() {
         KeyStoreErrorKind::Corrupt
     );
     store
-        .set(
-            "db-key.rotation-pending",
-            &Secret::from_bytes(vec![0xff]),
-        )
+        .set("db-key.rotation-pending", &Secret::from_bytes(vec![0xff]))
         .unwrap();
     assert_eq!(
         session.read_pending().unwrap_err().kind,

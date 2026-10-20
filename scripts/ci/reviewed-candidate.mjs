@@ -329,9 +329,9 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
     const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
     requireThat(payloadProblems.length === 0, payloadProblems.join("; "));
     const { loadCandidateSource } = await import("./candidate-source.mjs");
-    const { semanticAdmission } = await import("./semantic-admission.mjs");
     const { qa, bindings } = await originalQa({ prepared, env, fetchImpl, spawn });
     const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: candidate.allow, spawn });
+    const { semanticAdmission } = await import("./semantic-admission.mjs");
     const receipts = Object.fromEntries(["macos", "windows"].map((host) => { const directory = path.join(prepared.receiptsDir, host); return [host, JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"))]; }));
     const runtimePin = selectSupplement(supplementalFile, candidate, "runtime-workload-pin", approvedFile);
     let runtimeProof = null;

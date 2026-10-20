@@ -540,6 +540,8 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);
 
+  if (!dryRun && !candidateContext) throw new Error("real upload requires an admitted authenticated candidate context");
+
   const previous = !dryRun && previousDir ? loadPreviousReceipt({ previousDir, registry, commit: manifest.commit, run: promotionRun }) : null;
   const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", ...(candidateContext ? { promotionCommit: env.GITHUB_SHA, candidate: candidateContext.candidate } : {}) }, previous);
   const redact = (text) => (token ? String(text ?? "").split(token).join("<redacted>") : String(text ?? ""));

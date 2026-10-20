@@ -103,11 +103,17 @@ async function resolveCandidate(env) {
   write(path.join(packed, "runtime-context.json"), context);
   fs.appendFileSync(env.GITHUB_OUTPUT, `source_sha=${context.sourceSha}\n`);
 }
+export function assertMeasuredSource(source, sourceSha, run = command) {
+  if (run("git", ["rev-parse", "HEAD"], source).trim() !== sourceSha) throw new Error("measured checkout differs from candidate source SHA");
+  // Both staged & unstaged tracked changes alter bytes Cargo can execute. Git
+  // applies checkout normalization when comparing, including Windows CRLF.
+  if (run("git", ["status", "--porcelain", "--untracked-files=no"], source).trim()) throw new Error("measured checkout has tracked changes from candidate source SHA");
+}
 function bindSource(source, packed, env = process.env) {
   const context = read(path.join(packed, "runtime-context.json"));
   const manifestBytes = fs.readFileSync(path.join(packed, "manifest.json"));
   const unit = validateManifest(JSON.parse(manifestBytes), context, packed);
-  if (command("git", ["rev-parse", "HEAD"], source).trim() !== context.sourceSha) throw new Error("measured checkout differs from candidate source SHA");
+  assertMeasuredSource(source, context.sourceSha);
   const archive = path.join(packed, unit.file);
   const tar = archiveTool(process.platform, env);
   const names = safeArchiveMembers(command(tar, ["-tzf", archive], source));

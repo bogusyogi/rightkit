@@ -15,6 +15,7 @@ import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
+import { prepareCandidate, authenticateAdmission } from "./reviewed-candidate.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
 // "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
@@ -35,7 +36,85 @@ function approvedFor(packDir) {
   fs.writeFileSync(file, JSON.stringify({ schema: 1, artifacts: (manifest.units ?? []).map((u) => approvedEntry(manifest.registry, u)) }));
   return file;
 }
-const executeUpload = (options) => executeUploadRaw({ approvedFile: approvedFor(options.packDir), ...options });
+const executeUpload = async (options) => {
+  const input = { approvedFile: approvedFor(options.packDir), ...options };
+  // Keep malformed-fixture checks on the public uploader. Only otherwise-valid real
+  // uploads advance through the same preparation & admission APIs as promotion.
+  try { return await executeUploadRaw(input); } catch (error) {
+    if (error.message !== "real upload requires an admitted authenticated candidate context") throw error;
+  }
+  return executeUploadRaw({ ...input, ...await admittedUploadFixture(input) });
+};
+
+function admissionZip(files) {
+  const rows = Object.entries(files).map(([name, bytes]) => {
+    const filename = Buffer.from(name), header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50); header.writeUInt16LE(3 << 8, 4);
+    header.writeUInt32LE(bytes.length, 24); header.writeUInt16LE(filename.length, 28);
+    header.writeUInt32LE((0x81a4 << 16) >>> 0, 38);
+    return Buffer.concat([header, filename]);
+  });
+  const payload = Buffer.concat(Object.values(files)), directory = Buffer.concat(rows), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(rows.length, 8); end.writeUInt16LE(rows.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(payload.length, 16);
+  return Buffer.concat([payload, directory, end]);
+}
+
+async function admittedUploadFixture(input) {
+  const manifestBytes = fs.readFileSync(path.join(input.packDir, "manifest.json"));
+  const manifest = JSON.parse(manifestBytes);
+  const root = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch"), "rk-admission-"));
+  const files = { packed: Object.fromEntries(fs.readdirSync(input.packDir).map((name) => [name, fs.readFileSync(path.join(input.packDir, name))])) };
+  for (const host of ["macos", "windows"]) {
+    const name = `verify-${host}.json`;
+    files[host] = { [name]: fs.readFileSync(path.join(input.receiptsDir, `publish-receipt-verify-${host}`, name)) };
+  }
+  const candidate = { id: "transport-fixture", sourceSha: manifest.commit, runId: String(manifest.runId), runAttempt: String(manifest.runAttempt), workflowId: "5", manifestSha256: sha256(manifestBytes), registry: manifest.registry, units: manifest.units.map((u) => u.name), allow: Object.fromEntries(Object.entries({ hostExclusion: "HOST_EXCLUSION", noTest: "NO_TEST", ignored: "IGNORED", missingAssets: "MISSING_ASSETS" }).map(([key, suffix]) => [key, (input.env[`PUBLISH_ALLOW_${suffix}`] ?? "").split(/\s+/).filter(Boolean)])), artifacts: {} };
+  const archives = {}, artifacts = {};
+  const repo = { id: 99, full_name: "bogusyogi/rightkit", default_branch: "main" };
+  const promotionSha = "b".repeat(40), promotionId = "88";
+  const artifact = (id, name, bytes, runId, sourceSha) => ({ id, name, expired: false, digest: `sha256:${sha256(bytes)}`, workflow_run: { id: Number(runId), head_sha: sourceSha, head_branch: "main", repository_id: repo.id, head_repository_id: repo.id } });
+  for (const [index, host] of ["packed", "macos", "windows"].entries()) {
+    const id = 100 + index; archives[id] = admissionZip(files[host]);
+    artifacts[id] = artifact(id, host === "packed" ? "publish-packed" : `publish-receipt-verify-${host === "macos" ? "xcode-27" : "windows-2025"}`, archives[id], candidate.runId, candidate.sourceSha);
+    candidate.artifacts[host] = { id: String(id), digest: artifacts[id].digest, ...(host === "packed" ? {} : { receiptSha256: sha256(Object.values(files[host])[0]) }) };
+  }
+  const admission = { schema: 1, kind: "semantic-admission", original: { candidateId: candidate.id, candidateSha256: sha256(JSON.stringify(candidate)), sourceSha: candidate.sourceSha, manifestSha256: candidate.manifestSha256, archives: manifest.units.map(({ name, version, file, sha256, metaFile, metaSha256 }) => ({ name, version, file, sha256, ...(metaFile ? { metaFile, metaSha256 } : {}) })) }, sourceTree: "c".repeat(40), sourceHashes: { "fixture.json": "d".repeat(64) }, verifierSha: promotionSha, runId: promotionId, runAttempt: input.env.GITHUB_RUN_ATTEMPT, qa: Object.fromEntries(["macos", "windows"].map((host, i) => [host, { id: String(300 + i), digest: `sha256:${"e".repeat(64)}`, summarySha256: "f".repeat(64), unitEvidenceSha256: "a".repeat(64) }])), units: manifest.units.map((u) => ({ name: u.name, version: u.version, archiveSha256: u.sha256, ok: true, policies: { macos: "required-positive-tests", windows: "required-positive-tests" }, failures: [], adoptionPending: [], runtime: manifest.registry === "crates" ? { status: "ok" } : null, runtimeFeatureProof: manifest.registry === "crates" ? { classification: "false", listedOwner: false, required: false, status: "not-applicable", failures: [] } : null, runtimeInputHashes: {}, evidenceSha256: "b".repeat(64) })) };
+  files.admission = { "admission.json": Buffer.from(JSON.stringify(admission)) };
+  archives[400] = admissionZip(files.admission);
+  artifacts[400] = artifact(400, "reviewed-admission-receipt", archives[400], promotionId, promotionSha);
+  const approvedFile = path.join(root, "approved.json"), supplementalFile = path.join(root, "supplements.json");
+  fs.writeFileSync(approvedFile, JSON.stringify({ schema: 2, candidates: [candidate], artifacts: JSON.parse(fs.readFileSync(input.approvedFile)).artifacts }));
+  fs.writeFileSync(supplementalFile, JSON.stringify({ schema: 1, supplements: [] }));
+  const env = { ...input.env, GITHUB_SHA: promotionSha, GITHUB_RUN_ID: promotionId, GITHUB_TOKEN: "read-fixture", GITHUB_WORKFLOW_REF: `${repo.full_name}/.github/workflows/publish-reviewed.yml@refs/heads/main`, RUNNER_TEMP: root, PUBLISH_ADMISSION_ID: "400", PUBLISH_ADMISSION_DIGEST: artifacts[400].digest };
+  const workflow = (promotion) => ({ id: promotion ? 7 : 5, path: `.github/workflows/${promotion ? "publish-reviewed" : "publish"}.yml`, state: "active" });
+  const run = (promotion) => ({ id: Number(promotion ? promotionId : candidate.runId), run_attempt: Number(promotion ? env.GITHUB_RUN_ATTEMPT : candidate.runAttempt), repository: repo, head_repository: repo, workflow_id: promotion ? 7 : 5, path: workflow(promotion).path, event: "workflow_dispatch", head_branch: "main", head_sha: promotion ? promotionSha : candidate.sourceSha, status: promotion ? "in_progress" : "completed", conclusion: "success" });
+  const fetchImpl = async (url) => {
+    const route = String(url).slice(`https://api.github.com/repos/${repo.full_name}`.length).replace(/^\//, "");
+    let doc;
+    if (!route) doc = repo;
+    else if (route.startsWith("actions/workflows/")) doc = workflow(route.includes("publish-reviewed"));
+    else if (route.startsWith("compare/")) doc = { status: "ahead", merge_base_commit: { sha: candidate.sourceSha } };
+    else if (route.startsWith("actions/runs/")) {
+      const promotion = route.split("/")[2] === promotionId;
+      if (route.includes("/jobs?")) { const r = run(promotion); const names = promotion ? ["seal-check"] : ["guard", "plan", "pack", "verify (xcode-27, 26.8.1)", "verify (windows-2025, 26.8.1)"]; doc = { total_count: names.length, jobs: names.map((name) => ({ name, run_id: r.id, run_attempt: r.run_attempt, head_sha: r.head_sha, status: "completed", conclusion: "success" })) }; }
+      else doc = run(promotion);
+    } else if (/^actions\/artifacts\/\d+/.test(route)) {
+      const id = route.split("/")[2];
+      if (route.endsWith("/zip")) return { ok: true, status: 200, arrayBuffer: async () => archives[id] };
+      doc = artifacts[id];
+    } else throw new Error(`unexpected admission fixture API ${route}`);
+    return { ok: true, status: 200, json: async () => doc };
+  };
+  const spawn = (command, args) => {
+    assert.equal(command, "unzip");
+    const host = path.basename(args[1]).replace(/\.zip$/, "");
+    return { status: 0, stdout: args[0] === "-Z1" ? Object.keys(files[host]).join("\n") : files[host][args[2]] };
+  };
+  const prepared = await prepareCandidate({ env, candidateId: candidate.id, approvedFile, supplementalFile, fetchImpl, spawn });
+  await authenticateAdmission({ prepared, env, fetchImpl, spawn });
+  return { env, packDir: prepared.packDir, receiptsDir: prepared.receiptsDir, approvedFile, candidateContext: prepared.context };
+}
 
 
 
@@ -469,6 +548,17 @@ function fakeNpm(sealed, { failing = [], present = {} } = {}) {
 
 // ---- the upload job: seal, receipts, dry run, command and environment construction ------------
 
+test("real upload requires admitted context before registry or receipt effects", async () => {
+  for (const registry of ["npm", "crates"]) {
+    const sealed = registry === "npm" ? sealNpm() : sealCrates(["rightkit-a"]);
+    const outDir = path.join(tmp("context-guard"), "absent"), requests = [];
+    await assert.rejects(executeUploadRaw({ env: actionsEnv({ PUBLISH_REGISTRY: registry, PUBLISH_UNITS: registry === "npm" ? "@rightkit/a" : "rightkit-a", ...(registry === "npm" ? { NODE_AUTH_TOKEN: "fixture", ...oidc } : { CARGO_REGISTRY_TOKEN: "fixture" }) }), packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), approvedFile: approvedFor(sealed.dir), outDir, dryRun: false, spawn: spy().spawn, fetchImpl: async (...args) => { requests.push(args); throw new Error("registry must remain untouched"); } }), /requires an admitted authenticated candidate context/);
+    assert.deepEqual(requests, []);
+    assert.equal(fs.existsSync(outDir), false);
+  }
+});
+
+
 test("upload (dry run) checks hashes and receipts, sends nothing, and refuses any credential", async () => {
   const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
@@ -495,7 +585,9 @@ test("upload (real npm) builds the publish command from the sealed tarball and i
   const doc = await executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed), log: (l) => lines.push(l), pause: 1 });
   const publish = calls.find((c) => c.command === "npm");
   assert.ok(publish, "npm publish ran");
-  const file = path.join(sealed.dir, sealed.manifest.units[0].file);
+  const file = publish.args[1];
+  assert.equal(path.basename(file), sealed.manifest.units[0].file);
+  assert.equal(sha256(fs.readFileSync(file)), sealed.manifest.units[0].sha256);
   assert.deepEqual(publish.args.slice(0, 7), ["publish", file, "--ignore-scripts", "--access", "public", "--provenance", "--registry"]);
   assert.equal(publish.args[7], NPM_REGISTRY_URL);
   assert.equal(publish.args[8], "--userconfig");
@@ -567,7 +659,7 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { runAttempt: "x" } })), /not a positive integer/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { manifestRunAttempt: "9" } })), /it verified manifest run 77\/9/);
   const rerun = rewrite({ runAttempt: "1" });
-  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })); // a re-run may reuse attempt 1's bytes
+  await assert.rejects(run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /run attempt 2 is later than this attempt 1/); // admitted candidate pins original verification attempt
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
   const rerunReceipts = receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "1" } });
   await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }));
@@ -796,11 +888,11 @@ test("upload retry: refuses a previous receipt that is not this run's, or that s
   const unit = sealed.manifest.units[0];
   const prior = (patch = {}, rows) => {
     const dir = tmp("prior");
-    fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ schema: 1, registry: "npm", dryRun: false, commit: SHA, runId: "77", runAttempt: "1", priorAttempts: [], history: [], receipts: rows ?? [{ unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", attempt: "1" }], ...patch }));
+    fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ schema: 1, registry: "npm", dryRun: false, commit: SHA, runId: "88", runAttempt: "1", priorAttempts: [], history: [], receipts: rows ?? [{ unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", attempt: "1" }], ...patch }));
     return dir;
   };
   const go = (previousDir) => { const fake = fakeNpm(sealed); return executeUpload({ env, packDir: sealed.dir, receiptsDir, previousDir, outDir: tmp("out"), dryRun: false, spawn: fake.spawn, fetchImpl: fake.fetchImpl, pause: 1, log: () => {} }); };
-  await assert.rejects(go(prior({ runId: "78" })), /previous attempt receipt refused: run 78 is not this run 77/);
+  await assert.rejects(go(prior({ runId: "78" })), /previous attempt receipt refused: run 78 is not this run 88/);
   await assert.rejects(go(prior({ commit: "b".repeat(40) })), /previous attempt receipt refused: commit/);
   await assert.rejects(go(prior({ dryRun: true })), /not a real publication receipt/);
   await assert.rejects(go(prior({ registry: "crates" })), /registry crates is not npm/);
@@ -1458,8 +1550,8 @@ test("ci/asset-gated.json lists every crate and package whose tests read RIGHTKI
   const provisionedNpm = new Set(["@rightkit/qa", "@rightkit/qa-chrome"]);
   const publishWorkflow = fs.readFileSync(path.join(repo, ".github", "workflows", "publish.yml"), "utf8");
   const gateSource = fs.readFileSync(path.join(repo, "scripts", "ci", "gate.mjs"), "utf8");
-  assert.match(publishWorkflow, /name: Provision the pinned Chrome for Testing[\s\S]*?contains\(needs\.plan\.outputs\.units, '@rightkit\/qa'\)/);
-  assert.ok("@rightkit/qa-chrome".includes("@rightkit/qa"), "the workflow's selected-unit substring condition also provisions qa-chrome");
+  assert.equal(parseYaml(publishWorkflow).jobs.verify.steps.find((step) => step.name === "Provision the pinned Chrome for Testing").if, CHROME_IF);
+  for (const name of provisionedNpm) assert.ok(CHROME_IF.includes(`' ${name} '`), `${name} requires explicit Chrome provisioning`);
   assert.match(gateSource, /RIGHTKIT_REQUIRE_ASSETS:\s*"1"/, "unallowed package test runs keep strict required-assets mode");
   const reads = (dir) => {
     const hits = [];

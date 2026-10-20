@@ -100,17 +100,17 @@ jobs:
       # Licence gate (rightkit#264): a crates run that includes rightkit-typeset stops here, before pack,
       # verify and upload can exist, if any dependency licence violates deny.toml.
       - name: Install the pinned licence checker
-        if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
+        if: ${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-deny@0.20.2
       - name: Check rightkit-typeset dependency licences
-        if: ${{ inputs.registry == 'crates' && contains(steps.plan.outputs.units, 'rightkit-typeset') }}
+        if: ${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}
         run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses
 
   build-swap:
     needs: [guard, plan]
-    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}
+    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}
     runs-on: xcode-27
     timeout-minutes: 60
     permissions:
@@ -147,7 +147,7 @@ jobs:
 
   sign-swap:
     needs: [guard, plan, build-swap]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-swap.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}
     environment: release
     runs-on: xcode-27
     timeout-minutes: 60
@@ -236,7 +236,7 @@ jobs:
 
   pack:
     needs: [guard, plan, build-swap, sign-swap]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/release') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(needs.plan.outputs.units, '@rightkit/release')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped')) }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped')) }}
     runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
@@ -337,20 +337,20 @@ jobs:
           name: publish-packed
           path: ${{ runner.temp }}/rk-pack
       - name: Cache the pinned Chrome for Testing
-        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell') || contains(needs.plan.outputs.units, '@rightkit/settings-ui') || contains(needs.plan.outputs.units, '@rightkit/onboarding'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ runner.temp }}/chrome-for-testing
           key: chrome-for-testing-${{ runner.os }}-${{ matrix.os }}-${{ hashFiles('ci/chrome-for-testing.json') }}
       - name: Provision the pinned Chrome for Testing
-        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell') || contains(needs.plan.outputs.units, '@rightkit/settings-ui') || contains(needs.plan.outputs.units, '@rightkit/onboarding'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         shell: bash
         env:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
       - name: Mount mandatory FS qualification volumes
-        if: ${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}
+        if: ${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         shell: bash
         env:
           FS_NATIVE_OUT: ${{ runner.temp }}/rightkit-ci/fs-native
@@ -382,7 +382,7 @@ jobs:
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
         run: node scripts/ci/publish.mjs verify
       - name: Detach FS qualification volumes & remove bounded fixture state
-        if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}
+        if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         env:
           FS_NATIVE_OUT: ${{ runner.temp }}/rightkit-ci/fs-native
         run: node scripts/ci/fs-native-fixtures.mjs cleanup

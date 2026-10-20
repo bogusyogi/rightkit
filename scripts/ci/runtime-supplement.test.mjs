@@ -123,6 +123,8 @@ test("authenticated hashes cannot bless fabricated RESULT values or invalid owne
     (f) => { const b=JSON.parse(f.data["crates/rightkit-logs/runtime-budget.json"]); b.ceilings.wakeupsPerSecond=1000; f.data["crates/rightkit-logs/runtime-budget.json"]=JSON.stringify(b); },
     (f) => { f.helperMutations.set("packages/release/runtime-budgets.mjs", Buffer.from("// changed owner semantics")); },
     (f) => { f.helperMutations.set("packages/release/crate-graph.mjs", Buffer.from("// changed dependency graph")); },
+    (f) => { f.helperMutations.set("scripts/ci/registry-consumer.mjs", Buffer.from("// changed archive tool")); },
+    (f) => { f.helperMutations.set("scripts/ci/consumer-recipes.mjs", Buffer.from("// changed transitive harness helper")); },
   ]) { const f = runtimeFixture(t); mutation(f); f.refresh(); await assert.rejects(f.verify(), /runtime supplement refused/); }
 });
 test("trusted owner gate rejects negative mismatched bare baseline floor even when raw agrees", (t) => {
@@ -138,5 +140,5 @@ test("frozen budget & trusted helper closure include consumed parsing/graph sema
   validateFrozenRuntimeBudget(structuredClone(budget), budget);
   for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) assert.throws(() => validateFrozenRuntimeBudget({ ...budget, [key]: {} }, budget), /frozen/);
   const paths = trustedRuntimeHelperPaths();
-  for (const name of ["packages/release/runtime-budgets.mjs", "packages/release/crate-graph.mjs", "packages/release/publication-gate.mjs", "pnpm-lock.yaml"]) assert.ok(paths.includes(name));
+  for (const name of ["packages/release/runtime-budgets.mjs", "packages/release/crate-graph.mjs", "packages/release/publication-gate.mjs", "scripts/ci/runtime-qualify.mjs", "scripts/ci/registry-consumer.mjs", "scripts/ci/consumer-recipes.mjs", "scripts/ci/upload.mjs", "pnpm-lock.yaml"]) assert.ok(paths.includes(name), `missing trusted helper ${name}`);
 });

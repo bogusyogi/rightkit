@@ -48,7 +48,12 @@ export function pnpmInvocation(args, platform = process.platform, env = process.
   if (platform !== 'win32') return { command: 'pnpm', args };
   // cmd is needed for pnpm.cmd; reject expansion & command syntax before quoting.
   if (args.some(arg => /["%!*&|<>^\r\n]/.test(arg))) throw new Error('unsafe Windows pnpm argument');
-  return { command: path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), args: ['/d', '/s', '/c', `pnpm ${args.map(arg => `"${arg}"`).join(' ')}`] };
+  return { command: path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), args: ['/d', '/s', '/c', `pnpm ${args.map(arg => `"${arg}"`).join(' ')}`], windowsVerbatimArguments: true };
+}
+export function spawnPnpm(args, { spawn = spawnSync, platform = process.platform, env = process.env, options = {} } = {}) {
+  const call = pnpmInvocation(args, platform, env);
+  const spawnOptions = { ...options, ...(call.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}) };
+  return { call, result: spawn(call.command, call.args, spawnOptions), options: spawnOptions };
 }
 
 /** Admission accepts authenticated expected identity, reviewed recipe & Git blob bindings.
@@ -153,13 +158,20 @@ export function runNpmConsumer({ packDir, name, reportFile, root = ROOT, scratch
   const child = Object.fromEntries(Object.entries(childEnv(env)).filter(([key]) => !/^(GITHUB_|ACTIONS_|RUNNER_)/.test(key)));
   Object.assign(child, { HOME: home, USERPROFILE: home, npm_config_userconfig: path.join(home, '.npmrc'), npm_config_globalconfig: path.join(home, 'global.npmrc'), npm_config_ignore_scripts: 'true', CI: 'true', COREPACK_ENABLE_PROJECT_SPEC: '1' });
   fs.writeFileSync(child.npm_config_userconfig, 'registry=https://registry.npmjs.org/\nignore-scripts=true\n'); fs.writeFileSync(child.npm_config_globalconfig, '');
-  const run = (command, args, cwd = scratch, stage = 'source') => {
-    const result = spawn(command, args, { cwd, env: child, encoding: 'utf8', timeout: 300_000, maxBuffer: 8 * 1024 * 1024 });
+  const run = (command, args, cwd = scratch, stage = 'source', spawnOptions = {}, invoke = spawn) => {
+    const result = invoke(command, args, { cwd, env: child, encoding: 'utf8', timeout: 300_000, maxBuffer: 8 * 1024 * 1024, ...spawnOptions });
     commands.push({ stage, command, args, cwd, status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), ...(result.error ? { error: result.error.message } : {}) });
     if (result.error || result.status !== 0) throw new Error(`consumer command failed: ${command} (${result.status})`);
     return String(result.stdout);
   };
-  const pnpm = args => { const call = pnpmInvocation(args, process.platform, env); return run(call.command, call.args, scratch, args[0] === 'install' ? 'install' : 'toolchain'); };
+  const pnpm = args => {
+    const call = pnpmInvocation(args, process.platform, env);
+    return run(call.command, call.args, scratch, args[0] === 'install' ? 'install' : 'toolchain', {}, (command, invocationArgs, options) => {
+      const invoked = spawnPnpm(args, { spawn, platform: process.platform, env, options });
+      if (invoked.call.command !== command || JSON.stringify(invoked.call.args) !== JSON.stringify(invocationArgs)) throw new Error('pnpm invocation changed during spawn');
+      return invoked.result;
+    });
+  };
   let report = { schema: 1, kind: 'npm-consumer', qualification: 'R2a', recipeId: 'PK11-npm-logs', name, version: unit.version, commit: sealed.manifest.commit, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, host: process.platform === 'win32' ? 'windows' : 'macos', runnerOS: env.RUNNER_OS, arch: process.arch, commands, verified: false };
   try {
     const bindings = {};

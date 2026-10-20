@@ -5,9 +5,28 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { BENCH_ARGS, WORKLOADS, SUPPORTED_PRESCRIPTION, validateSourcePrescription, harnessMetadataPaths, preserveWorkloadRecord, validateWorkloadReceipts, CRATE, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems, cleanMeasurementEnvironment } from "./runtime-qualify.mjs";
+import { BENCH_ARGS, WORKLOADS, SUPPORTED_PRESCRIPTION, validateSourcePrescription, harnessMetadataPaths, preserveWorkloadRecord, validateWorkloadReceipts, CRATE, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems, cleanMeasurementEnvironment, assertMeasuredSource } from "./runtime-qualify.mjs";
 
 const sourceSha = "a".repeat(40);
+test("measurement requires candidate HEAD & no staged or unstaged tracked changes", () => {
+  const source = "candidate-source", calls = [];
+  const run = (status = "", head = sourceSha) => (exe, args, cwd) => {
+    calls.push({ exe, args, cwd });
+    return args[0] === "rev-parse" ? `${head}\n` : status;
+  };
+  assertMeasuredSource(source, sourceSha, run());
+  assert.deepEqual(calls, [
+    { exe: "git", args: ["rev-parse", "HEAD"], cwd: source },
+    { exe: "git", args: ["status", "--porcelain", "--untracked-files=no"], cwd: source },
+  ]);
+  for (const status of [" M crates/rightkit-logs/src/lib.rs\n", "M  crates/rightkit-logs/benches/budget.rs\n", "A  crates/rightkit-logs/benches/workloads.json\n", " D Cargo.lock\n", "R  old.rs -> new.rs\n"]) {
+    assert.throws(() => assertMeasuredSource(source, sourceSha, run(status)), /tracked changes/);
+  }
+  calls.length = 0;
+  assert.throws(() => assertMeasuredSource(source, sourceSha, run("", "b".repeat(40))), /source SHA/);
+  assert.equal(calls.length, 1, "wrong HEAD fails before further binding");
+  assert.throws(() => assertMeasuredSource(source, sourceSha, () => { throw new Error("git failed"); }), /git failed/);
+});
 const run = { id: 123, repository: { full_name: "org/rightkit" }, head_repository: { full_name: "org/rightkit" }, path: ".github/workflows/publish.yml", head_branch: "main", event: "workflow_dispatch", status: "completed", run_attempt: 1, head_sha: sourceSha };
 test("candidate identity rejects fork, alternate workflow, branch, event & incomplete run", () => {
   assert.equal(validateRun(run, "org/rightkit", "123").sourceSha, sourceSha);

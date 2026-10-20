@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { validateVectors, validateSurface, validateContext, validateRuntime, pnpmInvocation, npmConsumerQualificationProblems, RECIPE_FILES, SOURCE_FILES } from './npm-consumer.mjs';
+import { validateVectors, validateSurface, validateContext, validateRuntime, pnpmInvocation, spawnPnpm, npmConsumerQualificationProblems, RECIPE_FILES, SOURCE_FILES } from './npm-consumer.mjs';
 import { sha } from './upload.mjs';
 const vectors = JSON.parse(fs.readFileSync(new URL('../../crates/rightkit-logs/tests/scrub-parity.v1.json', import.meta.url)));
 const pkg = JSON.parse(fs.readFileSync(new URL('../../packages/logs/package.json', import.meta.url)));
@@ -39,7 +39,19 @@ test('runtime receipt requires positive exact named counts', () => {
   assert.throws(() => validateRuntime({ ...receipt, passed: false }, vectors));
 });
 test('Windows wrapper rejects command expansion in archive paths', () => {
-  assert.equal(pnpmInvocation(['--version'], 'win32', { SystemRoot: 'C:\\Windows' }).args.at(-1), 'pnpm "--version"');
+  const invocation = pnpmInvocation(['--version'], 'win32', { SystemRoot: 'C:\\Windows' });
+  assert.equal(invocation.args.at(-1), 'pnpm "--version"');
+  assert.equal(invocation.windowsVerbatimArguments, true);
+  assert.equal(pnpmInvocation(['--version'], 'darwin').windowsVerbatimArguments, undefined);
+  const observed = [];
+  const spawn = (...args) => { observed.push(args); return { status: 0, stdout: 'ok', stderr: '' }; };
+  const windowsCall = spawnPnpm(['--version'], { spawn, platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, options: { cwd: 'C:\\scratch' } });
+  assert.equal(observed[0][0], invocation.command);
+  assert.deepEqual(observed[0][1], invocation.args);
+  assert.equal(observed[0][2].windowsVerbatimArguments, true);
+  assert.equal(windowsCall.result.stdout, 'ok');
+  spawnPnpm(['--version'], { spawn, platform: 'darwin', env: {} });
+  assert.equal(Object.hasOwn(observed[1][2], 'windowsVerbatimArguments'), false);
   assert.throws(() => pnpmInvocation(['file:C:\\temp\\%SECRET%'], 'win32'));
   assert.throws(() => pnpmInvocation(['file:C:\\temp\\x&whoami'], 'win32'));
 });
