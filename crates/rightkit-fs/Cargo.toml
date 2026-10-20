@@ -28,11 +28,6 @@ path = "tests/e2e.rs"
 required-features = ["json"]
 
 [[test]]
-name = "publish_dir_policy"
-path = "tests/publish_dir_policy.rs"
-required-features = ["fs"]
-
-[[test]]
 name = "clone"
 path = "tests/clone.rs"
 required-features = ["fs"]

@@ -150,9 +150,7 @@ pub use private::{
     write_private_executable, write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
-pub use publish_dir::{
-    publish_dir, publish_dir_with, DirPublishMethod, DirPublishPolicy, PublishedDir,
-};
+pub use publish_dir::{publish_dir, DirPublishMethod, PublishedDir};
 #[cfg(feature = "fs")]
 pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
 #[cfg(feature = "fs")]
