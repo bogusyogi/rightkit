@@ -39,6 +39,8 @@ pub use deferred::{
 };
 mod table;
 pub use table::{Expect, JobTable};
+mod query;
+pub use query::{JobCursor, JobOrder, JobPage, JobQuery, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT};
 mod settle;
 pub(crate) use settle::{is_storage_error, projected, LifecycleEvent, Settle, SettleRequest};
 pub use settle::{

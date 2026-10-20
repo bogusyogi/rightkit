@@ -78,6 +78,58 @@ impl Budget {
     }
 }
 
+/// What a request carries as `params`.
+enum Outbound<'a> {
+    /// A value this crate serializes into the frame.
+    Value(Value),
+    /// The caller's pre-serialized JSON, spliced in as is.
+    Raw(&'a [u8]),
+}
+
+/// Check that `raw` is exactly one JSON value on one line, without building it: `IgnoredAny`
+/// validates the syntax (and, through `from_slice`, that nothing but whitespace follows) without
+/// materialising strings. The parser's own error is dropped: it must never be able to quote the
+/// bytes.
+fn validate_raw_params(raw: &[u8]) -> Result<(), &'static str> {
+    if raw.is_empty() {
+        return Err("raw params are empty");
+    }
+    if raw.iter().any(|b| matches!(b, b'\n' | b'\r')) {
+        return Err("raw params contain a line break");
+    }
+    serde_json::from_slice::<serde::de::IgnoredAny>(raw)
+        .map(|_| ())
+        .map_err(|_| "raw params are not a single JSON value")
+}
+
+/// One `request` frame with `raw` spliced in as `params`, in a buffer allocated at its final
+/// size (so no reallocation can leave an unwiped copy of `raw` behind).
+fn encode_raw_request(id: u64, method: &str, raw: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+    let method_json = serde_json::to_vec(method).map_err(|e| e.to_string())?;
+    let head = format!(r#"{{"type":"request","id":{id},"method":"#);
+    const PARAMS: &[u8] = br#","params":"#;
+    let payload = head.len() + method_json.len() + PARAMS.len() + raw.len() + 1;
+    if payload > limit {
+        return Err(format!(
+            "request of {payload} bytes exceeds the {limit}-byte frame limit"
+        ));
+    }
+    let mut out = Vec::with_capacity(payload + 1);
+    out.extend_from_slice(head.as_bytes());
+    out.extend_from_slice(&method_json);
+    out.extend_from_slice(PARAMS);
+    out.extend_from_slice(raw);
+    out.extend_from_slice(b"}\n");
+    debug_assert_eq!(out.len(), payload + 1);
+    Ok(out)
+}
+
+/// Overwrite `bytes` with zeros in a way the optimizer keeps.
+fn wipe(bytes: &mut [u8]) {
+    bytes.iter_mut().for_each(|b| *b = 0);
+    std::hint::black_box(&*bytes);
+}
+
 /// What the reader thread hands a waiting caller. Callbacks run on the
 /// caller's own thread, never on the reader and never under a lock.
 enum Msg {
@@ -423,8 +475,7 @@ impl EngineClient {
             for (mut bytes, reply) in wrx {
                 let r = writer.write_all(&bytes).and_then(|_| writer.flush());
                 // Outbound frames may carry secrets in params: wipe before drop.
-                bytes.iter_mut().for_each(|b| *b = 0);
-                std::hint::black_box(&bytes);
+                wipe(&mut bytes);
                 let _ = reply.send(r);
             }
         });
@@ -693,6 +744,33 @@ impl EngineClient {
             .call_budget(method, params, on_frame, Budget::progress(deadline))
     }
 
+    /// As [`Self::call_timeout`], but the request's `params` are the caller's own, already
+    /// serialized JSON bytes, spliced into the outbound frame as they are. The bytes are never
+    /// parsed into a `serde_json::Value` (which would leave a copy this crate cannot wipe): they
+    /// are only checked, in place, to be exactly one JSON value with no line break, and refused
+    /// with `bad_input` before anything is written when they are not. The only copy this crate
+    /// makes is the outbound frame buffer, which the writer thread overwrites with zeros once the
+    /// frame has been written (or the write has failed); it is allocated at its final size, so it
+    /// never reallocates and leaves no stale copy behind. Keep `params_json` in a
+    /// `zeroize::Zeroizing` buffer to wipe the caller's side too. What the engine does with the
+    /// bytes it reads is out of scope.
+    ///
+    /// No progress events are delivered; the reply, its errors, the `timeout` and the stalled-write
+    /// handling (`DELIVERY_UNKNOWN`) are those of [`Self::call_timeout`].
+    pub fn call_timeout_raw(
+        &self,
+        method: &str,
+        params_json: &[u8],
+        timeout: Duration,
+    ) -> JobResult<Value> {
+        self.core.call_wire(
+            method,
+            Outbound::Raw(params_json),
+            None,
+            Budget::absolute(Some(timeout)),
+        )
+    }
+
     /// Ask the engine to stop, then terminate an owned child that outlives
     /// `grace`. Bounded regardless of engine behaviour: the shutdown request is
     /// sent and awaited on a helper thread for at most `grace` (a hung engine
@@ -833,6 +911,22 @@ impl Core {
         on_event: Option<OnEventFrame>,
         budget: Budget,
     ) -> JobResult<Value> {
+        self.call_wire(method, Outbound::Value(params), on_event, budget)
+    }
+
+    fn call_wire(
+        self: &Arc<Self>,
+        method: &str,
+        outbound: Outbound<'_>,
+        on_event: Option<OnEventFrame>,
+        budget: Budget,
+    ) -> JobResult<Value> {
+        // Refused before an id is taken or anything is registered or written.
+        if let Outbound::Raw(raw) = &outbound {
+            if let Err(why) = validate_raw_params(raw) {
+                return Err(JobError::supervisor("bad_input", why));
+            }
+        }
         let timeout = budget.absolute.or(budget.idle);
         let started = Instant::now();
         let mut deadline = timeout.map(|t| started + t);
@@ -849,26 +943,45 @@ impl Core {
                     wants_events: on_event.is_some() || budget.idle.is_some(),
                 },
             );
-        let frame = json!({"type": "request", "id": id, "method": method, "params": params});
-        let mut bytes = Vec::new();
-        if let Err(e) = write_json_line(&mut bytes, &frame, self.frame_limit) {
-            // Local encode/oversize refusal: nothing was queued or written (zero bytes
-            // reached the engine), so this is nonretryable validation (`bad_input`),
-            // never `engine_write` — a shell must not restart/retry a request the
-            // engine never saw. Attempted transport failures below stay distinct.
-            self.pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
-            return Err(JobError::supervisor("bad_input", e.to_string()));
-        }
+        let encoded = match outbound {
+            Outbound::Value(params) => {
+                let frame =
+                    json!({"type": "request", "id": id, "method": method, "params": params});
+                let mut bytes = Vec::new();
+                write_json_line(&mut bytes, &frame, self.frame_limit)
+                    .map(|()| bytes)
+                    .map_err(|e| e.to_string())
+            }
+            Outbound::Raw(raw) => encode_raw_request(id, method, raw, self.frame_limit),
+        };
+        let bytes = match encoded {
+            Ok(bytes) => bytes,
+            Err(why) => {
+                // Local encode/oversize refusal: nothing was queued or written (zero bytes
+                // reached the engine), so this is nonretryable validation (`bad_input`),
+                // never `engine_write` — a shell must not restart/retry a request the
+                // engine never saw. Attempted transport failures below stay distinct.
+                self.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id);
+                return Err(JobError::supervisor("bad_input", why));
+            }
+        };
         let (rtx, rrx) = channel();
-        let queued = self
+        let queued = match self
             .writes
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .send((bytes, rtx))
-            .is_ok();
+        {
+            Ok(()) => true,
+            // The writer thread is gone, so nobody else will wipe the frame.
+            Err(std::sync::mpsc::SendError((mut bytes, _))) => {
+                wipe(&mut bytes);
+                false
+            }
+        };
         let written = if !queued {
             Err(JobError::supervisor("engine_write", "writer stopped"))
         } else {

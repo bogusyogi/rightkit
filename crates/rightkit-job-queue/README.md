@@ -354,3 +354,25 @@ already-cancelled work. `cancel_all()` flags current work & returns its count;
 future registrations start uncancelled. Cancellation is cooperative: handlers
 must observe returned `Arc<AtomicBool>`; guard drop never resets flags retained
 by work. Registries do not persist, recover, fence or terminate jobs.
+
+### Activity listing (0.4.1)
+
+The same registry doubles as an activity registry for a UI that shows what runs.
+`register_with(id, ActivityOptions::new().label("Export").progress(0.0))` sets a
+label, message and progress (and may pass the caller's own cancel flag); the guard
+updates them (`set_progress`, `set_message`, `set_label`, `report`). `list()`
+returns an `ActivitySnapshot` per registration in registration order, `get(id)`
+one, and `revision()` rises on every change so a poller re-lists only when it
+moved. Still process-local and unpersisted.
+
+## Cross-process lock order, and unsolicited events (0.4.1)
+
+`JobLocks::new(dir).with_fifo_scope(FifoScope::CrossProcess)` serves `acquire`
+waiters in arrival order across processes (the default `FifoScope::Process` orders
+only waiters sharing one `JobLocks`). Every process that waits on the directory
+must opt in; `try_lock` never joins the line. Waiters keep ticket files under
+`<dir>/<job id>.queue/`; a crashed waiter's ticket is swept by the next waiter.
+
+`Dispatcher::event_emitter()` returns an `EventEmitter`; `emit(json)` sends an
+unsolicited `{"type":"event","event":..}` frame on the connection `serve` is
+serving, from any thread. It errors with `not_serving` when none is served.

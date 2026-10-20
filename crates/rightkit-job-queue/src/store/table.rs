@@ -16,9 +16,9 @@ use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, Optional
 use serde_json::Value;
 
 use super::{
-    add_event_on, check_fence, init_schema as init_core_schema, now, row, Adoption, Job, JobRecord,
-    LifecycleEvent, NewJob, PruneReport, Recovery, Resolution, Submission, SubmitOptions,
-    Submitted, Transition, CANCELLED, COLS, COMPLETE, FAILED, NCORE,
+    add_event_on, artifact_row, check_fence, init_schema as init_core_schema, now, row, Adoption,
+    Job, JobRecord, LifecycleEvent, NewJob, PruneReport, Recovery, Resolution, Submission,
+    SubmitOptions, Submitted, Transition, CANCELLED, COLS, COMPLETE, FAILED, NCORE,
 };
 use crate::config::{Ext, StatusModel, StoreConfig};
 use crate::error::{JobError, JobResult};
@@ -727,6 +727,105 @@ impl JobTable {
                     .error(Some(error.to_json_with(self.cfg.includes_retryable()))),
             )?
             .is_some())
+    }
+
+    // ---------------------------------------------------------------- delete ----
+
+    /// Delete the terminal job `job_id` and every crate-owned side row keyed by it, on the
+    /// caller's connection, in one nested savepoint: the job row, its `job_events` rows, its
+    /// `rk_job_submissions` rows (only when the table declares
+    /// [`StoreConfig::external_id`], the condition under which that table exists), its
+    /// artifact rows (the configured [`StoreConfig::artifacts`] table), its `rk_job_meta` row
+    /// and its `rk_job_deleting` mark; the job row goes last. Rolling back the caller's
+    /// transaction restores the job and all of them. Tables the app declared itself
+    /// (`StoreConfig::app_schema`) are never touched: an app row that references the job
+    /// (a foreign key with enforcement on) makes the delete fail and roll back whole.
+    ///
+    /// Only a terminal job (`complete`, `failed`, `cancelled`) is deleted. A job in any other
+    /// status of the model is refused with `illegal_transition` and nothing is written; that
+    /// includes a held job and a non-terminal status the app named like a failure (for
+    /// example a retryable `send_failed`), because only `complete`, `failed` and `cancelled`
+    /// are terminal. `job_not_found` when there is no such job; `stale_attempt` or
+    /// `revision_conflict` when `expect` does not hold.
+    ///
+    /// This is rows only. No file, scratch or work directory is touched, no delivery pin or
+    /// cancel token is involved and `StoreHook` is not called (a hook has no delete callback).
+    /// The returned [`PruneReport`] names the removed rows; `artifacts` carries the file paths
+    /// of the removed artifact rows, which the caller removes itself if it wants them gone
+    /// (see [`JobStore::delete`](super::JobStore::delete) for a delete that owns the files).
+    pub fn delete_terminal(
+        &self,
+        conn: &Connection,
+        job_id: &str,
+        expect: Expect,
+    ) -> JobResult<PruneReport> {
+        atomic(conn, || {
+            self.check_expect(conn, job_id, &expect)?;
+            let before = self.load(conn, job_id)?;
+            self.check_revision(&before, &expect)?;
+            if !before.job.is_terminal() {
+                return Err(JobError::new(
+                    "illegal_transition",
+                    format!(
+                        "job {job_id} is {}, not terminal; only a terminal job can be deleted",
+                        before.job.status
+                    ),
+                ));
+            }
+            let a = &self.cfg.artifacts;
+            let mut report = PruneReport::default();
+            {
+                let mut st = conn.prepare(&format!(
+                    "SELECT {}, job_id, path, sha256, bytes, mime FROM {} \
+                     WHERE job_id=?1 ORDER BY created_at, rowid",
+                    a.id_column, a.table
+                ))?;
+                let rows = st
+                    .query_map([job_id], artifact_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                report.artifacts = rows;
+            }
+            report.events = conn.execute("DELETE FROM job_events WHERE job_id=?1", [job_id])?;
+            if self.cfg.external_id.is_some() {
+                report.submissions =
+                    conn.execute("DELETE FROM rk_job_submissions WHERE job_id=?1", [job_id])?;
+            }
+            conn.execute(
+                &format!("DELETE FROM {} WHERE job_id=?1", a.table),
+                [job_id],
+            )?;
+            conn.execute("DELETE FROM rk_job_meta WHERE job_id=?1", [job_id])?;
+            conn.execute("DELETE FROM rk_job_deleting WHERE job_id=?1", [job_id])?;
+            let mut guard = String::new();
+            let mut vals: Vec<rusqlite::types::Value> = vec![job_id.to_string().into()];
+            let mut have = None;
+            if let (Some(col), Some(rev)) =
+                (self.cfg.revision.as_deref(), self.revision_of(&before))
+            {
+                vals.push(rev.into());
+                guard = format!(" AND {col}=?2");
+                have = Some(rev);
+            }
+            let changed = conn.execute(
+                &format!("DELETE FROM {} WHERE job_id=?1{guard}", self.name()),
+                params_from_iter(vals),
+            )?;
+            if changed != 1 {
+                return Err(match have {
+                    Some(rev) => {
+                        let actual = self
+                            .load(conn, job_id)
+                            .ok()
+                            .and_then(|r| self.revision_of(&r))
+                            .unwrap_or(rev);
+                        JobError::revision_conflict(job_id, rev, actual)
+                    }
+                    None => JobError::new("job_not_found", format!("no such job: {job_id}")),
+                });
+            }
+            report.jobs = vec![job_id.to_string()];
+            Ok(report)
+        })
     }
 
     // ------------------------------------------------- external submissions ----

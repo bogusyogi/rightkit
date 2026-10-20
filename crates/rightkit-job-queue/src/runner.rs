@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::config::Ext;
 use crate::error::{JobError, JobResult, HOST_HANDOFF};
+use crate::lock_queue::{self, Joined, TicketSlot};
 use crate::sched::{Gate, Priority};
 use crate::store::{
     is_storage_error, now, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job,
@@ -67,7 +68,7 @@ impl JobLock {
     }
 }
 
-fn lock_error(error: FsError) -> JobError {
+pub(crate) fn lock_error(error: FsError) -> JobError {
     match error {
         FsError::Io { path, source } => JobError::from(std::io::Error::new(
             source.kind(),
@@ -85,8 +86,27 @@ pub enum LockWait {
     Cancelled,
 }
 
+/// How far [`JobLocks`] waiters are served in arrival order ([`JobLocks::with_fifo_scope`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FifoScope {
+    /// Waiters in this process (clones of one `JobLocks`) are served in arrival order; another
+    /// process, or a `JobLocks` built separately, competes for the file lock unordered. The
+    /// default.
+    #[default]
+    Process,
+    /// Waiters are served in arrival order across processes and across separate `JobLocks`
+    /// values on the same directory, through ticket files under `<dir>/<job id>.queue/`. Every
+    /// process that waits on the same lock directory must use this scope: a waiter built with
+    /// [`FifoScope::Process`], and [`JobLocks::try_lock`], join no line and can take the lock out
+    /// of turn.
+    CrossProcess,
+}
+
 const LOCK_WAIT_SLICE: Duration = Duration::from_millis(100);
 const LOCK_QUEUE_PAUSE: Duration = Duration::from_millis(10);
+/// Each poll of a cross-process line reads its directory, so a waiter behind the head polls less.
+const LOCK_TICKET_PAUSE: Duration = Duration::from_millis(25);
 
 /// One waiter's place in the same-process FIFO for one job id; leaving on drop.
 struct WaitSlot {
@@ -135,6 +155,21 @@ impl Drop for WaitSlot {
     }
 }
 
+/// A waiter's place in the line its [`FifoScope`] selects.
+enum Turn {
+    Process(WaitSlot),
+    Ticket(TicketSlot),
+}
+
+impl Turn {
+    fn is_head(&self) -> JobResult<bool> {
+        match self {
+            Self::Process(slot) => Ok(slot.is_head()),
+            Self::Ticket(slot) => slot.is_head(),
+        }
+    }
+}
+
 /// Directory of per-job lock files. A non-terminal job whose lock is free has
 /// no live runner, so it is recoverable.
 #[derive(Clone)]
@@ -142,6 +177,7 @@ pub struct JobLocks {
     dir: PathBuf,
     waiters: Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
     next_ticket: Arc<AtomicU64>,
+    scope: FifoScope,
 }
 
 impl JobLocks {
@@ -150,7 +186,25 @@ impl JobLocks {
             dir: dir.into(),
             waiters: Arc::default(),
             next_ticket: Arc::new(AtomicU64::new(1)),
+            scope: FifoScope::Process,
         }
+    }
+
+    /// Sets how far waiters are served in arrival order (default [`FifoScope::Process`]).
+    /// Clones made afterwards keep the scope.
+    pub fn with_fifo_scope(mut self, scope: FifoScope) -> Self {
+        self.scope = scope;
+        self
+    }
+
+    /// The arrival-order scope of [`JobLocks::acquire`] and [`JobLocks::acquire_cancellable`].
+    pub fn fifo_scope(&self) -> FifoScope {
+        self.scope
+    }
+
+    /// `<dir>/<job_id>.queue`: where [`FifoScope::CrossProcess`] waiters keep their tickets.
+    fn queue_dir(&self, job_id: &str) -> PathBuf {
+        self.dir.join(format!("{job_id}.queue"))
     }
 
     /// Lock-file directory.
@@ -171,8 +225,9 @@ impl JobLocks {
     }
 
     /// Waits up to `timeout` for `job_id`'s lock: `Ok(Some)` held, `Ok(None)` timed out.
-    /// Same-process waiters (clones share the queue) are served in arrival order;
-    /// cross-process exclusion is the file lock's. `try_lock` bypasses the queue.
+    /// Same-process waiters (clones share the queue) are served in arrival order; with
+    /// [`FifoScope::CrossProcess`] (see [`JobLocks::with_fifo_scope`]) so are waiters in other
+    /// processes. Exclusion itself is the file lock's. `try_lock` bypasses the queue.
     pub fn acquire(&self, job_id: &str, timeout: Duration) -> JobResult<Option<JobLock>> {
         Ok(match self.acquire_cancellable(job_id, timeout, || false)? {
             LockWait::Acquired(lock) => Some(lock),
@@ -192,14 +247,31 @@ impl JobLocks {
         let path = self.path(job_id)?;
         std::fs::create_dir_all(&self.dir)?;
         let deadline = Instant::now().checked_add(timeout);
-        let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
-        let slot = WaitSlot::join(&self.waiters, job_id, ticket);
+        // One line only: mixing the in-process and the ticket order could leave two waiters each
+        // waiting on the other.
+        let turn = match self.scope {
+            FifoScope::Process => {
+                let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
+                Turn::Process(WaitSlot::join(&self.waiters, job_id, ticket))
+            }
+            FifoScope::CrossProcess => {
+                match TicketSlot::join(&self.queue_dir(job_id), deadline, &cancel)? {
+                    Joined::Slot(slot) => Turn::Ticket(slot),
+                    Joined::Cancelled => return Ok(LockWait::Cancelled),
+                    Joined::TimedOut => return Ok(LockWait::TimedOut),
+                }
+            }
+        };
+        let pause = match self.scope {
+            FifoScope::Process => LOCK_QUEUE_PAUSE,
+            FifoScope::CrossProcess => LOCK_TICKET_PAUSE,
+        };
         loop {
             if cancel() {
                 return Ok(LockWait::Cancelled);
             }
             let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()));
-            if slot.is_head() {
+            if turn.is_head()? {
                 let slice = remaining.map_or(LOCK_WAIT_SLICE, |r| r.min(LOCK_WAIT_SLICE));
                 match FileLock::acquire(&path, &LockOptions::wait(slice)) {
                     Ok(lock) => return Ok(LockWait::Acquired(JobLock { _lock: lock })),
@@ -207,7 +279,7 @@ impl JobLocks {
                     Err(error) => return Err(lock_error(error)),
                 }
             } else {
-                std::thread::sleep(remaining.map_or(LOCK_QUEUE_PAUSE, |r| r.min(LOCK_QUEUE_PAUSE)));
+                std::thread::sleep(remaining.map_or(pause, |r| r.min(pause)));
             }
             if deadline.is_some_and(|d| Instant::now() >= d) {
                 return Ok(LockWait::TimedOut);
@@ -232,6 +304,8 @@ impl JobLocks {
     /// on a file nobody else sees.
     pub fn remove(&self, job_id: &str) -> JobResult<bool> {
         let path = self.path(job_id)?;
+        // The ticket directory of a cross-process line, when no waiter is left in it.
+        lock_queue::discard(&self.queue_dir(job_id));
         if !path.exists() {
             return Ok(false);
         }
@@ -260,6 +334,13 @@ impl JobLocks {
         };
         for entry in rd.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(id) = name.strip_suffix(".queue") {
+                // An emptied cross-process line of a job `keep` rejects; not reported as a lock.
+                if !id.is_empty() && !keep(id) && self.path(id).is_ok() {
+                    lock_queue::discard(&entry.path());
+                }
+                continue;
+            }
             let Some(id) = name.strip_suffix(".lock") else {
                 continue;
             };

@@ -29,12 +29,16 @@
 //!   registers `Init`/`SetSettings`/entitlement style state with
 //!   [`EngineSupervisor::set_snapshot`] and each replacement child receives the
 //!   latest of each before the supervisor reports `Ready`.
+//! - Secrets that must not be kept are not snapshots: [`SupervisorConfig::with_handshake`]
+//!   evaluates a provider once per generation, after the snapshots and before `Ready`, and sends
+//!   the pre-serialized, zeroized calls it returns without the supervisor ever retaining them.
 //! - A call that exceeds its timeout treats the engine as wedged: the tree is
 //!   killed and the normal restart path runs. An optional health check pings
 //!   the engine and does the same after consecutive failures.
 
 use std::fmt;
 use std::io::{self, BufReader};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::Stdio;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -47,12 +51,13 @@ use rightkit_child_process::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
+use zeroize::Zeroizing;
 
 use crate::client::{
     merge_event_callbacks, ChildExit, ClientOptions, ContractRequirement, EngineClient,
     OnEventFrame, ProgressDeadline, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
-use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN};
+use crate::error::{ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, DELIVERY_UNKNOWN};
 use crate::wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT};
 
 /// Code of the boot failure raised by [`SupervisorConfig::require_scrubbed_env`].
@@ -70,6 +75,73 @@ type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
 type LineSink = dyn Fn(&str) + Send + Sync;
 type OnEvent = Box<dyn Fn(&Value) + Send>;
+type HandshakeFn = dyn Fn(u64) -> Result<Vec<HandshakeCall>, JobError> + Send + Sync;
+
+/// How a failed [`HandshakeCall`] is treated. See [`SupervisorConfig::with_handshake`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandshakeMode {
+    /// Any failure of the call (an engine error reply, a transport failure, a timeout) fails the
+    /// boot, exactly like a failed snapshot replay.
+    Required,
+    /// An engine *error reply* (`ok: false`) is tolerated: the boot continues and a fixed,
+    /// non-secret code is reported on the lifecycle stream (never the params, never the engine's
+    /// message). Any *transport* failure still fails the boot, whatever the mode: a write error,
+    /// `DELIVERY_UNKNOWN`, a timeout, the engine exiting or closing the connection, a protocol
+    /// error, a frame over the limit, or a call the supervisor refused locally (`bad_input`).
+    /// A connection that died is never reported `Ready`.
+    BestEffort,
+}
+
+/// One call of a per-generation handshake: a method and its `params`, already serialized as a
+/// single line of JSON, and what a failure means. Built by the provider given to
+/// [`SupervisorConfig::with_handshake`], consumed by the supervisor, never kept.
+///
+/// `params_json` is JSON text, not a value: the supervisor never parses it into a
+/// `serde_json::Value`, so the only copies of a secret in it are the caller's `Zeroizing` buffer
+/// and the outbound frame buffer (see [`EngineClient::call_timeout_raw`]).
+///
+/// The type has no `Clone`, and its `Debug` shows the method and the params' length only.
+#[non_exhaustive]
+pub struct HandshakeCall {
+    method: String,
+    params_json: Zeroizing<Vec<u8>>,
+    mode: HandshakeMode,
+}
+
+impl HandshakeCall {
+    /// `params_json` must be exactly one JSON value on one line (no `\n` or `\r` anywhere);
+    /// anything else is refused with `bad_input` before a byte is written, and fails the boot
+    /// whatever `mode` says.
+    pub fn new(
+        method: impl Into<String>,
+        params_json: Zeroizing<Vec<u8>>,
+        mode: HandshakeMode,
+    ) -> Self {
+        Self {
+            method: method.into(),
+            params_json,
+            mode,
+        }
+    }
+    /// The engine method this call invokes.
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+    /// How a failure of this call is treated.
+    pub fn mode(&self) -> HandshakeMode {
+        self.mode
+    }
+}
+
+impl fmt::Debug for HandshakeCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HandshakeCall")
+            .field("method", &self.method)
+            .field("params_len", &self.params_json.len())
+            .field("mode", &self.mode)
+            .finish()
+    }
+}
 
 /// Shell-visible engine lifecycle: what banners and tests key off.
 /// `Recovering` is the window between an unexpected exit and the replacement
@@ -175,7 +247,7 @@ pub enum ExitReason {
     SpawnFailed(String),
     /// No valid hello (`hello_timeout`, `engine_exited`, `engine_protocol`).
     HelloFailed(String),
-    /// A snapshot replay call failed.
+    /// A snapshot replay call or a [`SupervisorConfig::with_handshake`] call failed.
     HandshakeFailed(String),
 }
 
@@ -311,6 +383,7 @@ pub struct SupervisorConfig {
     protocol_error_sink: Option<ProtocolErrorSink>,
     fallback_error_code: String,
     exit_observer: Option<Arc<dyn ExitObserver>>,
+    handshake: Option<Arc<HandshakeFn>>,
 }
 
 impl SupervisorConfig {
@@ -342,7 +415,43 @@ impl SupervisorConfig {
             protocol_error_sink: None,
             fallback_error_code: "engine_error".into(),
             exit_observer: None,
+            handshake: None,
         }
+    }
+    /// Deliver fresh secrets (for example provider API keys) to every engine generation before it
+    /// is `Ready`, without the supervisor keeping them. `provider` is called with the generation
+    /// number of the boot, on the booting thread with no supervisor lock held, once the snapshot
+    /// replay has settled and before the switch to `Ready`; it returns the [`HandshakeCall`]s to
+    /// send, in order, with this boot's [`SupervisorConfig::rpc_timeout`] for each. A restart
+    /// boots a new generation and calls it again, so every generation reads its secrets fresh
+    /// (a rotated key reaches the next generation without any `set_snapshot`).
+    ///
+    /// Retention: nothing on the supervisor holds handshake data. The provider's return value
+    /// lives on the boot's stack; each call's params are sent straight from its `Zeroizing`
+    /// buffer and the call is dropped (zeroized) right after its send, before the next one. The
+    /// supervisor does not parse the params, log them, or put them in an error, an exit reason or
+    /// a lifecycle message: failures are reported by method name and error code only (a failing
+    /// provider by its error's `code` only). On the wire the params live only in the outbound
+    /// frame buffer, which the client overwrites with zeros once the frame is written or the write
+    /// failed. What this does not cover: the engine's own memory and what it does with the secret,
+    /// the OS pipe buffers, the `Value` of the engine's reply, and whatever the provider keeps
+    /// for itself.
+    ///
+    /// Failure: a [`HandshakeMode::Required`] call that fails in any way, a
+    /// [`HandshakeMode::BestEffort`] call that fails in a way other than an engine error reply
+    /// (see [`HandshakeMode`]), a provider that returns `Err` (or panics), and params that are
+    /// not one line of JSON all fail the boot (`handshake_failed`) through the normal restart
+    /// budget, like a failed snapshot. A shutdown during the handshake aborts it: no further call
+    /// is sent and the provider is not asked again.
+    ///
+    /// A `set_snapshot` that lands while the handshake runs is replayed after it, still before
+    /// `Ready`. Replaces any earlier provider.
+    pub fn with_handshake(
+        mut self,
+        provider: impl Fn(u64) -> Result<Vec<HandshakeCall>, JobError> + Send + Sync + 'static,
+    ) -> Self {
+        self.handshake = Some(Arc::new(provider));
+        self
     }
     /// Report every abnormal engine exit (not an intentional shutdown) to `observer`, with the
     /// restart count at that point. Off by default.
@@ -1450,6 +1559,9 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     // nothing new keeps the lock through the switch to `Ready`, so no update falls in the gap.
     let mut sent: Vec<(String, u64)> = Vec::new();
     let mut passes: u32 = 0;
+    // The per-generation handshake runs once, when the snapshots have settled; a snapshot that
+    // lands during it is picked up by the next pass of this loop.
+    let mut handshake_pending = sh.cfg.handshake.is_some();
     let mut g = loop {
         let g = sh.lock();
         let todo: Vec<Snapshot> = g
@@ -1459,7 +1571,31 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             .cloned()
             .collect();
         if todo.is_empty() {
-            break g;
+            if !handshake_pending {
+                break g;
+            }
+            drop(g);
+            handshake_pending = false;
+            match run_handshake(sh, generation, &client) {
+                Ok(()) => continue,
+                Err(HandshakeEnd::Shutdown) => {
+                    client.kill(sh.cfg.shutdown_grace);
+                    return Err(JobError::supervisor(
+                        "down",
+                        "engine was shut down while starting",
+                    ));
+                }
+                Err(HandshakeEnd::Failed { reason, message }) => {
+                    client.kill(sh.cfg.shutdown_grace);
+                    let text = tail.finish_within(Duration::from_millis(500));
+                    return fail(
+                        ExitReason::HandshakeFailed(reason),
+                        "handshake_failed",
+                        message,
+                        text,
+                    );
+                }
+            }
         }
         drop(g);
         passes += 1;
@@ -1524,6 +1660,85 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     let _ = thread::Builder::new()
         .name(format!("{}-monitor", sh.cfg.name))
         .spawn(move || monitor(shared, generation, client, tail));
+    Ok(())
+}
+
+/// Why the per-generation handshake did not complete.
+enum HandshakeEnd {
+    /// The supervisor is shutting down or the generation is stale: abort without a failure.
+    Shutdown,
+    /// A call, the provider or the params failed. Both texts name a method and a code only.
+    Failed { reason: String, message: String },
+}
+
+/// Fixed, non-secret code reported when a best-effort call is answered with an engine error.
+const HANDSHAKE_BEST_EFFORT_ERROR: &str = "handshake_best_effort_error";
+
+/// Evaluate the configured provider for `generation` and send its calls in order. Holds no
+/// supervisor lock across a call, keeps nothing of the calls on the supervisor, and drops each
+/// call (zeroizing its params) as soon as it has been sent.
+fn run_handshake(
+    sh: &Arc<Shared>,
+    generation: u64,
+    client: &EngineClient,
+) -> Result<(), HandshakeEnd> {
+    let Some(provider) = sh.cfg.handshake.clone() else {
+        return Ok(());
+    };
+    let live = || {
+        let g = sh.lock();
+        g.generation == generation && !g.shutting_down
+    };
+    // Checked before the provider reads any secret, and before every call.
+    if !live() {
+        return Err(HandshakeEnd::Shutdown);
+    }
+    let calls = match catch_unwind(AssertUnwindSafe(|| provider(generation))) {
+        Ok(Ok(calls)) => calls,
+        Ok(Err(e)) => {
+            return Err(HandshakeEnd::Failed {
+                reason: format!("handshake provider: {}", e.code),
+                message: format!("handshake provider failed: {}", e.code),
+            })
+        }
+        Err(_) => {
+            return Err(HandshakeEnd::Failed {
+                reason: "handshake provider panicked".into(),
+                message: "handshake provider panicked".into(),
+            })
+        }
+    };
+    // Each call is moved out of the vector by the iterator and dropped at the end of its turn;
+    // calls not yet sent when the handshake aborts are dropped (zeroized) with the iterator.
+    for call in calls {
+        if !live() {
+            return Err(HandshakeEnd::Shutdown);
+        }
+        let HandshakeCall {
+            method,
+            params_json,
+            mode,
+        } = call;
+        let result = client.call_timeout_raw(&method, &params_json, sh.cfg.rpc_timeout);
+        drop(params_json);
+        match result {
+            Ok(_) => {}
+            // Only an engine error *reply* is tolerated, and only for a best-effort call.
+            Err(e) if mode == HandshakeMode::BestEffort && e.origin == ErrorOrigin::Engine => {
+                let g = sh.lock();
+                sh.emit(&g, format!("{HANDSHAKE_BEST_EFFORT_ERROR}: {method}"), None);
+            }
+            Err(e) => {
+                if !live() {
+                    return Err(HandshakeEnd::Shutdown);
+                }
+                return Err(HandshakeEnd::Failed {
+                    reason: format!("{method}: {}", e.code),
+                    message: format!("{method} failed during handshake: {}", e.code),
+                });
+            }
+        }
+    }
     Ok(())
 }
 

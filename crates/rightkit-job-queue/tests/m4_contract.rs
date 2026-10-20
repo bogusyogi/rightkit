@@ -30,7 +30,8 @@ fn frames(out: &SharedBuf) -> Vec<Value> {
         .collect()
 }
 
-/// `hold` is a long request that runs until released; it sees disconnect cooperatively.
+/// `hold` is a long request that runs until released; it sees disconnect cooperatively. `fast` is
+/// a long request that answers at once.
 struct Hold {
     release: Arc<AtomicBool>,
     closed: Arc<AtomicUsize>,
@@ -38,10 +39,10 @@ struct Hold {
 }
 impl CommandSet for Hold {
     fn methods(&self) -> Vec<String> {
-        vec!["hold".into(), "quick".into()]
+        vec!["hold".into(), "fast".into(), "quick".into()]
     }
     fn is_long(&self, method: &str, _: &Value) -> bool {
-        method == "hold"
+        method == "hold" || method == "fast"
     }
     fn call(&self, method: &str, _: &Value, _: bool, _: &Sink) -> JobResult<Value> {
         if method == "hold" {
@@ -160,6 +161,124 @@ fn a_drain_timeout_does_not_detach_requests_that_finish_in_time() {
     assert!(frames(&out)
         .iter()
         .any(|f| f["type"] == "response" && f["id"] == 1 && f["ok"] == true));
+}
+
+fn input(lines: &[String]) -> BufReader<Cursor<String>> {
+    BufReader::new(Cursor::new(lines.join("\n")))
+}
+
+fn long_req(id: u64, method: &str) -> String {
+    json!({"type": "request", "id": id, "method": method}).to_string()
+}
+
+fn answered(out: &SharedBuf, id: u64) -> bool {
+    frames(out)
+        .iter()
+        .any(|f| f["type"] == "response" && f["id"] == id && f["ok"] == true)
+}
+
+#[test]
+fn eof_with_no_drain_timeout_joins_many_long_requests_and_loses_no_answer() {
+    // Reaping finished threads while admitting must not change the default: EOF waits for all.
+    let r = rig(Dispatcher::new("t", "1"));
+    let release = Arc::clone(&r.release);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(400));
+        release.store(true, Ordering::SeqCst);
+    });
+    let mut lines: Vec<String> = (1..=100).map(|i| long_req(i, "fast")).collect();
+    lines.push(long_req(1000, "hold"));
+    lines.extend((101..=150).map(|i| long_req(i, "fast")));
+    let out = SharedBuf::default();
+    let started = Instant::now();
+    let report = serve_report(Arc::new(r.d), input(&lines), out.clone(), false).unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(350),
+        "waits for hold"
+    );
+    assert_eq!(report, ServeReport { detached: 0 });
+    assert!(r.finished.load(Ordering::SeqCst));
+    assert_eq!(r.closed.load(Ordering::SeqCst), 1);
+    for id in (1..=150).chain([1000]) {
+        assert!(answered(&out, id), "no answer for {id}");
+    }
+}
+
+#[test]
+fn shutdown_with_no_drain_timeout_joins_running_and_finished_long_requests() {
+    let r = rig(Dispatcher::new("t", "1"));
+    let release = Arc::clone(&r.release);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(400));
+        release.store(true, Ordering::SeqCst);
+    });
+    let mut lines: Vec<String> = (1..=40).map(|i| long_req(i, "fast")).collect();
+    lines.push(long_req(1000, "hold"));
+    lines.push(long_req(2000, "shutdown"));
+    // Never read: the loop stopped at shutdown.
+    lines.push(long_req(3000, "fast"));
+    let out = SharedBuf::default();
+    let started = Instant::now();
+    let report = serve_report(Arc::new(r.d), input(&lines), out.clone(), false).unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(350),
+        "waits for hold"
+    );
+    assert_eq!(report, ServeReport { detached: 0 });
+    assert!(r.finished.load(Ordering::SeqCst));
+    assert_eq!(r.closed.load(Ordering::SeqCst), 1);
+    for id in (1..=40).chain([1000, 2000]) {
+        assert!(answered(&out, id), "no answer for {id}");
+    }
+    assert!(!frames(&out).iter().any(|f| f["id"] == 3000));
+}
+
+#[test]
+fn a_bounded_drain_counts_only_running_requests_among_many_finished_ones() {
+    // The drain is long enough for 120 cold thread spawns on a loaded host to finish, so only the
+    // stuck request can still be running when it passes.
+    let r = rig(Dispatcher::new("t", "1").with_drain_timeout(Duration::from_secs(3)));
+    let mut lines: Vec<String> = (1..=60).map(|i| long_req(i, "fast")).collect();
+    lines.push(long_req(1000, "hold"));
+    lines.extend((61..=120).map(|i| long_req(i, "fast")));
+    let out = SharedBuf::default();
+    let started = Instant::now();
+    let report = serve_report(Arc::new(r.d), input(&lines), out.clone(), false).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "serve must return by the deadline with a stuck request: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(report.detached, 1);
+    assert_eq!(r.closed.load(Ordering::SeqCst), 1);
+    assert!(!r.finished.load(Ordering::SeqCst));
+    assert!(!answered(&out, 1000));
+    for id in 1..=120 {
+        assert!(answered(&out, id), "no answer for {id}");
+    }
+    // The detached request is only detached: released, it finishes and answers cleanly.
+    r.release.store(true, Ordering::SeqCst);
+    let until = Instant::now() + Duration::from_secs(3);
+    while !r.finished.load(Ordering::SeqCst) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(r.finished.load(Ordering::SeqCst));
+}
+
+#[test]
+fn a_bounded_drain_detaches_every_stuck_request_and_never_blocks_past_the_deadline() {
+    let r = rig(Dispatcher::new("t", "1").with_drain_timeout(Duration::from_millis(200)));
+    let lines: Vec<String> = (1..=3).map(|i| long_req(i, "hold")).collect();
+    let out = SharedBuf::default();
+    let started = Instant::now();
+    let report = serve_report(Arc::new(r.d), input(&lines), out.clone(), false).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(report.detached, 3);
+    r.release.store(true, Ordering::SeqCst);
 }
 
 #[test]

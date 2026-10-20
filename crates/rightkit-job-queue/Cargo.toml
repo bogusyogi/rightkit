@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-job-queue"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -27,9 +27,9 @@ protocol = ["dep:rightkit-sidecar"]
 contract = ["store", "protocol"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
 # `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
-# database. Includes the store-free `doctor` probe. A consumer that also serves or speaks the
+# database. Includes the store-free `doctor` probe and (for `SupervisorConfig::with_handshake`) `zeroize`. A consumer that also serves or speaks the
 # dispatcher contract adds `contract`.
-supervisor = ["protocol", "doctor"]
+supervisor = ["protocol", "doctor", "dep:zeroize"]
 # Client-side bounded doctor probes with capability caching; no store or wire dependency.
 doctor = ["dep:rightkit-child-process"]
 # `DispatcherHandler`: serve a `Dispatcher` over `rightkit-daemon` (gates `rightkit-daemon`).
@@ -53,6 +53,7 @@ rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon", optional = t
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 uuid = { version = "1", features = ["v4"], optional = true }
+zeroize = { version = "1.9", optional = true }
 
 [dev-dependencies]
 # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
@@ -95,6 +96,10 @@ required-features = ["contract"]
 
 [[test]]
 name = "m3_supervision"
+required-features = ["supervisor"]
+
+[[test]]
+name = "handshake"
 required-features = ["supervisor"]
 
 [[test]]
@@ -220,6 +225,22 @@ required-features = ["store"]
 [[test]]
 name = "job_table"
 required-features = ["store"]
+
+[[test]]
+name = "table_query"
+required-features = ["store"]
+
+[[test]]
+name = "table_delete"
+required-features = ["store"]
+
+[[test]]
+name = "job_lock_fifo"
+required-features = ["store"]
+
+[[test]]
+name = "event_emitter"
+required-features = ["contract"]
 
 [[test]]
 name = "doctor_probe"

@@ -17,10 +17,12 @@
 //!   events are NDJSON lines on stderr.
 
 use std::io::{self, BufRead, Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
+use rightkit_sidecar::{encode_json_line, read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 
 use crate::config::Ext;
@@ -60,6 +62,103 @@ pub trait CommandSet: Send + Sync {
     fn shutdown(&self) {}
 }
 
+/// Sends unsolicited events (`{"type":"event","event":{..}}`, no `id`) on the connection
+/// [`serve`] / [`serve_report`] is serving, from any thread. Get one from
+/// [`Dispatcher::event_emitter`] before the dispatcher is moved into `serve`; clones share the
+/// binding.
+///
+/// The frame is the one a request's events use minus the `id`, which
+/// `EngineClient` delivers as an unsolicited event (it never counts as
+/// progress of a call). Frames and responses are written whole under one lock, so an emitted event
+/// never interleaves with another frame. Nothing is queued: an event emitted while no connection
+/// is being served is refused, not held. The first frame on a connection is still `hello`: the
+/// emitter binds after it is written.
+#[derive(Clone, Default)]
+pub struct EventEmitter {
+    inner: Arc<EmitterInner>,
+}
+
+#[derive(Default)]
+struct EmitterInner {
+    bound: Mutex<Option<Bound>>,
+    next: AtomicU64,
+}
+
+struct Bound {
+    token: u64,
+    sink: Sink,
+    limit: usize,
+}
+
+/// Unbinds its connection when `serve_report` returns, however it returns.
+struct BoundGuard {
+    inner: Arc<EmitterInner>,
+    token: u64,
+}
+
+impl Drop for BoundGuard {
+    fn drop(&mut self) {
+        let mut bound = self.inner.bound.lock().unwrap_or_else(|p| p.into_inner());
+        // A later serve may have bound since; leave that one.
+        if bound.as_ref().is_some_and(|b| b.token == self.token) {
+            *bound = None;
+        }
+    }
+}
+
+impl EventEmitter {
+    /// True while a connection is being served.
+    pub fn is_connected(&self) -> bool {
+        self.inner
+            .bound
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some()
+    }
+
+    /// Sends `event` as an unsolicited event frame. Refused with `not_serving` when no connection
+    /// is being served, and with `frame_too_large` / `bad_input` when the frame exceeds the
+    /// dispatcher's frame limit or cannot be written as one line; nothing is written then.
+    /// Delivery to a peer that has already gone is not reported (the connection ends the serve).
+    pub fn emit(&self, event: Value) -> JobResult<()> {
+        let (sink, limit) = {
+            let bound = self.inner.bound.lock().unwrap_or_else(|p| p.into_inner());
+            match bound.as_ref() {
+                Some(b) => (Arc::clone(&b.sink), b.limit),
+                None => {
+                    return Err(JobError::new(
+                        "not_serving",
+                        "no connection is being served; the event was not sent",
+                    ))
+                }
+            }
+        };
+        let frame = json!({"type": "event", "event": event});
+        match encode_json_line(&frame, limit) {
+            Ok(_) => {}
+            Err(FrameError::TooLarge { limit }) => {
+                return Err(JobError::new(
+                    "frame_too_large",
+                    format!("event frame exceeds {limit} bytes"),
+                ))
+            }
+            Err(e) => return Err(JobError::new("bad_input", format!("event frame: {e}"))),
+        }
+        sink(frame);
+        Ok(())
+    }
+
+    fn bind(&self, sink: Sink, limit: usize) -> BoundGuard {
+        let token = self.inner.next.fetch_add(1, Ordering::Relaxed) + 1;
+        *self.inner.bound.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(Bound { token, sink, limit });
+        BoundGuard {
+            inner: Arc::clone(&self.inner),
+            token,
+        }
+    }
+}
+
 /// Replaces the built-in `doctor` payload. Gets `dry_run` and the method list.
 pub type DoctorFn = Arc<dyn Fn(bool, &[String]) -> Value + Send + Sync>;
 
@@ -75,6 +174,7 @@ pub struct Dispatcher {
     drain_timeout: Option<Duration>,
     aliases: Vec<(String, String)>,
     method_meta: Vec<(String, Value)>,
+    emitter: EventEmitter,
 }
 
 pub struct Outcome {
@@ -118,7 +218,14 @@ impl Dispatcher {
             drain_timeout: None,
             aliases: vec![],
             method_meta: vec![],
+            emitter: EventEmitter::default(),
         }
+    }
+    /// A handle for events this engine sends on its own initiative, with no request behind them
+    /// (see [`EventEmitter`]). Take it before the dispatcher moves into `serve`; clones share the
+    /// connection `serve` binds.
+    pub fn event_emitter(&self) -> EventEmitter {
+        self.emitter.clone()
     }
     /// Drop a built-in (`ping`, `doctor`, `shutdown`) so an app command set
     /// can own that method name, or so it is not served at all.
@@ -377,6 +484,14 @@ where
 }
 
 /// As [`serve`], reporting how many long requests were left running by a bounded drain.
+///
+/// Finished long-request threads are joined as the loop admits frames: after each frame is read,
+/// every handle whose thread [`JoinHandle::is_finished`] is joined and the rest are kept, without
+/// ever waiting on a running one. A resident connection therefore does not accumulate one handle
+/// per completed request. The bound is not zero: the loop reaps only when a frame arrives, so
+/// while it is blocked on the reader the handles retained are at most the long requests still
+/// running plus those admitted since the last reap (a finished one stays until the next frame is
+/// read, or until the connection ends).
 pub fn serve_report<R, W>(
     d: Arc<Dispatcher>,
     mut reader: R,
@@ -404,11 +519,17 @@ where
         })
     };
     emit(d.hello());
+    // After hello, so an unsolicited event never precedes it; released when this returns.
+    let _emitter = d.emitter.bind(Arc::clone(&emit), limit);
     let mut buf = Vec::new();
-    let mut threads = Vec::new();
+    let mut threads: Vec<JoinHandle<()>> = Vec::new();
     let running = Arc::new((Mutex::new(0usize), std::sync::Condvar::new()));
     loop {
-        match read_json_line::<_, Value>(&mut reader, &mut buf, limit) {
+        let frame = read_json_line::<_, Value>(&mut reader, &mut buf, limit);
+        // Bound retained handles by active work: join what already finished, never a running one.
+        reap_finished(&mut threads);
+        note_retained(threads.len());
+        match frame {
             Ok(None) => break,
             Ok(Some(req)) => {
                 let long = req["type"] == "request"
@@ -433,6 +554,7 @@ where
                         });
                         emit(r)
                     }));
+                    note_retained(threads.len());
                     continue;
                 }
                 let o = d.handle_request_value(&req, dry_run, &emit);
@@ -487,13 +609,55 @@ where
     }
     let detached = *n;
     drop(n);
-    if detached == 0 {
-        for t in threads {
-            let _ = t.join();
+    // A count of 0 means every `RunningGuard` dropped, not that every thread has exited, and a
+    // running request never finishes by the deadline. Join only handles that report finished
+    // (re-polled with a short sleep, never past the deadline); the rest drop here, detached.
+    loop {
+        reap_finished(&mut threads);
+        let left = deadline.saturating_duration_since(Instant::now());
+        if threads.is_empty() || left.is_zero() {
+            break;
+        }
+        std::thread::sleep(left.min(Duration::from_millis(2)));
+    }
+    Ok(ServeReport { detached })
+}
+
+/// Join every long-request thread that has finished and keep the rest. Never waits on a thread
+/// that is still running, so it is safe to call while admitting frames.
+fn reap_finished(threads: &mut Vec<JoinHandle<()>>) {
+    let mut i = 0;
+    while i < threads.len() {
+        if threads[i].is_finished() {
+            let _ = threads.swap_remove(i).join();
+        } else {
+            i += 1;
         }
     }
-    // Otherwise the handles drop here: the running requests are detached, finished ones are gone.
-    Ok(ServeReport { detached })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Handles `serve_report` retained on this thread at the last observation point.
+    static RETAINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The largest value `RETAINED` took since the last [`reset_retained`].
+    static RETAINED_PEAK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn note_retained(n: usize) {
+    RETAINED.set(n);
+    RETAINED_PEAK.set(RETAINED_PEAK.get().max(n));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_retained(_: usize) {}
+
+#[cfg(test)]
+fn reset_retained() {
+    RETAINED.set(0);
+    RETAINED_PEAK.set(0);
 }
 
 /// Counts a running long request; decrements (and wakes the drain) when the thread ends, however
@@ -1088,5 +1252,305 @@ impl JobCommands {
                 format!("unknown method: {other}"),
             )),
         }
+    }
+}
+
+/// bogusyogi/rightkit#802: `serve_report` reaps finished long-request threads while admitting
+/// frames. These tests read the crate-private `RETAINED` observation, which `serve_report` sets on
+/// the calling thread, from a scripted reader that runs on that same thread.
+#[cfg(test)]
+mod serve_reap_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[derive(Clone, Default)]
+    struct Buf(Arc<Mutex<Vec<u8>>>);
+    impl Write for Buf {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Buf {
+        fn responses(&self) -> Vec<Value> {
+            let bytes = self.0.lock().unwrap().clone();
+            String::from_utf8(bytes)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .filter(|v| v["type"] == "response")
+                .collect()
+        }
+        fn response_count(&self) -> usize {
+            self.responses().len()
+        }
+        fn answered(&self, id: u64) -> bool {
+            self.responses().iter().any(|v| v["id"] == id)
+        }
+    }
+
+    /// `fast`, `block` and `boom` are long; `quick` is answered inline. `block` waits for
+    /// `release`; `boom` panics.
+    struct Cmds {
+        release: Arc<AtomicBool>,
+    }
+    impl CommandSet for Cmds {
+        fn methods(&self) -> Vec<String> {
+            ["fast", "block", "boom", "quick"]
+                .map(String::from)
+                .to_vec()
+        }
+        fn is_long(&self, method: &str, _: &Value) -> bool {
+            method != "quick"
+        }
+        fn call(&self, method: &str, _: &Value, _: bool, _: &Sink) -> JobResult<Value> {
+            match method {
+                "block" => {
+                    let until = Instant::now() + Duration::from_secs(10);
+                    while !self.release.load(Ordering::SeqCst) {
+                        if Instant::now() >= until {
+                            return Err(JobError::new("timeout", "block was never released"));
+                        }
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Ok(json!({"released": true}))
+                }
+                "boom" => panic!("handler exploded"),
+                _ => Ok(json!({})),
+            }
+        }
+    }
+
+    fn dispatcher() -> (Dispatcher, Arc<AtomicBool>) {
+        let release = Arc::new(AtomicBool::new(false));
+        let d = Dispatcher::new("t", "1").with(Arc::new(Cmds {
+            release: Arc::clone(&release),
+        }));
+        (d, release)
+    }
+
+    /// A reader whose next line comes from a closure run on the serving thread each time the
+    /// loop needs input, so the closure can wait, observe `RETAINED`, and end the stream (`None`).
+    struct FnReader {
+        next: Box<dyn FnMut() -> Option<String>>,
+        buf: Vec<u8>,
+        pos: usize,
+        eof: bool,
+    }
+    impl FnReader {
+        fn new(next: impl FnMut() -> Option<String> + 'static) -> Self {
+            Self {
+                next: Box::new(next),
+                buf: Vec::new(),
+                pos: 0,
+                eof: false,
+            }
+        }
+    }
+    impl Read for FnReader {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            let chunk = self.fill_buf()?;
+            let n = chunk.len().min(out.len());
+            out[..n].copy_from_slice(&chunk[..n]);
+            self.consume(n);
+            Ok(n)
+        }
+    }
+    impl BufRead for FnReader {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            if self.pos >= self.buf.len() && !self.eof {
+                match (self.next)() {
+                    Some(mut line) => {
+                        line.push('\n');
+                        self.buf = line.into_bytes();
+                    }
+                    None => {
+                        self.eof = true;
+                        self.buf.clear();
+                    }
+                }
+                self.pos = 0;
+            }
+            Ok(&self.buf[self.pos..])
+        }
+        fn consume(&mut self, n: usize) {
+            self.pos += n;
+        }
+    }
+
+    fn req(id: u64, method: &str) -> String {
+        json!({"type": "request", "id": id, "method": method}).to_string()
+    }
+
+    fn wait_until(what: &str, cond: impl Fn() -> bool) {
+        let until = Instant::now() + Duration::from_secs(10);
+        while !cond() {
+            assert!(Instant::now() < until, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Generous slack for a thread that answered but is not yet observably finished at the
+    /// moment of a reap. The tests assert "a handful", not "hundreds".
+    const SLACK: usize = 16;
+
+    #[test]
+    fn one_open_connection_with_many_completed_requests_retains_bounded_handles() {
+        reset_retained();
+        const N: u64 = 200;
+        let (d, _release) = dispatcher();
+        let out = Buf::default();
+        let probe = out.clone();
+        let sampled_at_end = Arc::new(AtomicUsize::new(usize::MAX));
+        let sampled = Arc::clone(&sampled_at_end);
+        let mut sent = 0u64;
+        let reader = FnReader::new(move || {
+            // The reader stays open: wait for the previous answer before the next frame.
+            wait_until("previous answer", || probe.response_count() as u64 >= sent);
+            if sent == N {
+                sampled.store(RETAINED.get(), Ordering::SeqCst);
+                return None;
+            }
+            sent += 1;
+            Some(req(sent, "fast"))
+        });
+        let report = serve_report(Arc::new(d), reader, out.clone(), false).unwrap();
+        assert_eq!(report, ServeReport { detached: 0 });
+        assert_eq!(out.response_count() as u64, N);
+        assert!(out.responses().iter().all(|v| v["ok"] == true));
+        let peak = RETAINED_PEAK.get();
+        assert!(peak >= 1, "the observation hook saw nothing");
+        assert!(
+            peak <= SLACK,
+            "retained {peak} handles for {N} completed requests"
+        );
+        let at_end = sampled_at_end.load(Ordering::SeqCst);
+        assert!(at_end <= SLACK, "{at_end} retained while blocked on input");
+    }
+
+    #[test]
+    fn a_burst_then_idle_keeps_finished_handles_until_the_next_frame_and_no_longer() {
+        reset_retained();
+        const BURST: u64 = 5;
+        let (d, _release) = dispatcher();
+        let out = Buf::default();
+        let probe = out.clone();
+        let idle = Arc::new(AtomicUsize::new(usize::MAX));
+        let after_next_frame = Arc::new(AtomicUsize::new(usize::MAX));
+        let (idle_w, after_w) = (Arc::clone(&idle), Arc::clone(&after_next_frame));
+        let mut step = 0u64;
+        let reader = FnReader::new(move || {
+            step += 1;
+            match step {
+                1..=BURST => Some(req(step, "fast")),
+                s if s == BURST + 1 => {
+                    // Idle: every request has answered and finished, the loop is blocked here.
+                    wait_until("burst answers", || probe.response_count() as u64 == BURST);
+                    std::thread::sleep(Duration::from_millis(150));
+                    idle_w.store(RETAINED.get(), Ordering::SeqCst);
+                    Some(req(100, "quick"))
+                }
+                _ => {
+                    // The quick frame was read, which reaped, and has been answered.
+                    after_w.store(RETAINED.get(), Ordering::SeqCst);
+                    None
+                }
+            }
+        });
+        serve_report(Arc::new(d), reader, out.clone(), false).unwrap();
+        let idle = idle.load(Ordering::SeqCst);
+        // The honest bound: the last admitted handle (and any finished since the last reap)
+        // stays until a frame arrives, but never more than were admitted.
+        assert!((1..=BURST as usize).contains(&idle), "idle retained {idle}");
+        assert_eq!(after_next_frame.load(Ordering::SeqCst), 0);
+        assert!(out.answered(100));
+    }
+
+    #[test]
+    fn an_unfinished_request_does_not_block_admission_or_reaping_of_finished_ones() {
+        reset_retained();
+        const FAST: u64 = 20;
+        let (d, release) = dispatcher();
+        let out = Buf::default();
+        let probe = out.clone();
+        let blocked_unanswered = Arc::new(AtomicBool::new(false));
+        let mid = Arc::new(AtomicUsize::new(usize::MAX));
+        let (unanswered_w, mid_w) = (Arc::clone(&blocked_unanswered), Arc::clone(&mid));
+        let release_w = Arc::clone(&release);
+        let mut step = 0u64;
+        let reader = FnReader::new(move || {
+            step += 1;
+            match step {
+                1 => Some(req(1, "block")),
+                // Later frames are admitted and answered while id 1 is still running.
+                s if s <= FAST + 1 => {
+                    wait_until("fast answers", || probe.response_count() as u64 >= s - 2);
+                    Some(req(s, "fast"))
+                }
+                s if s == FAST + 2 => {
+                    wait_until("last fast answer", || probe.response_count() as u64 >= FAST);
+                    unanswered_w.store(!probe.answered(1), Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(150));
+                    Some(req(200, "quick"))
+                }
+                s if s == FAST + 3 => {
+                    // Reaped on that frame: only the running request is retained.
+                    mid_w.store(RETAINED.get(), Ordering::SeqCst);
+                    Some(req(201, "quick"))
+                }
+                _ => {
+                    release_w.store(true, Ordering::SeqCst);
+                    None
+                }
+            }
+        });
+        let report = serve_report(Arc::new(d), reader, out.clone(), false).unwrap();
+        assert_eq!(report, ServeReport { detached: 0 });
+        assert!(blocked_unanswered.load(Ordering::SeqCst));
+        assert_eq!(mid.load(Ordering::SeqCst), 1);
+        assert!(out.answered(200) && out.answered(201));
+        // Default drain: serve joined the released request and its answer is there.
+        let r1 = out.responses().into_iter().find(|v| v["id"] == 1).unwrap();
+        assert_eq!(r1["ok"], true);
+        assert_eq!(out.response_count() as u64, FAST + 3);
+    }
+
+    #[test]
+    fn a_panicking_long_handler_still_answers_and_is_reaped() {
+        reset_retained();
+        let (d, _release) = dispatcher();
+        let out = Buf::default();
+        let probe = out.clone();
+        let after = Arc::new(AtomicUsize::new(usize::MAX));
+        let after_w = Arc::clone(&after);
+        let mut step = 0u64;
+        let reader = FnReader::new(move || {
+            step += 1;
+            match step {
+                1..=5 => Some(req(step, "boom")),
+                6 => {
+                    wait_until("panic answers", || probe.response_count() == 5);
+                    std::thread::sleep(Duration::from_millis(150));
+                    Some(req(100, "quick"))
+                }
+                _ => {
+                    after_w.store(RETAINED.get(), Ordering::SeqCst);
+                    None
+                }
+            }
+        });
+        serve_report(Arc::new(d), reader, out.clone(), false).unwrap();
+        for id in 1..=5u64 {
+            let r = out.responses().into_iter().find(|v| v["id"] == id).unwrap();
+            assert_eq!(r["ok"], false, "{r}");
+            assert!(
+                r["error"]["message"].as_str().unwrap().contains("panicked"),
+                "{r}"
+            );
+        }
+        assert_eq!(after.load(Ordering::SeqCst), 0);
     }
 }

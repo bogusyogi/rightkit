@@ -36,8 +36,12 @@ use crate::error::{JobError, JobResult, CURSOR_MISMATCH, INVALID_CURSOR};
 const VERSION: &str = "rk1";
 /// Sort tag of the one order a listing has: newest first, `created_at DESC, rowid DESC`.
 const SORT_NEWEST_FIRST: &str = "cd";
-/// A longer string is never a cursor this crate issued (the filter values travel inside it).
-const MAX_CURSOR_LEN: usize = 16 * 1024;
+// No fixed length cap. A cursor hex-encodes the `status` and `request_id` filter values and the
+// row's `created_at`, none of which has a length bound of its own, so any cap shorter than the
+// longest listing the store accepts would refuse a cursor this crate issued (the walk would die
+// at its first page). Same rule as the `JobTable` query cursor in `store/query.rs`: the decoder
+// accepts exactly the shape `Cursor::after_row` issues, and decoding is linear in a string the
+// caller already holds.
 
 /// An opaque position in a paged listing (see [`JobStore::list_page`]).
 ///
@@ -102,9 +106,6 @@ impl Cursor {
     fn decode(&self) -> JobResult<Position> {
         let bad = |why: &str| JobError::new(INVALID_CURSOR, format!("not a paging cursor: {why}"));
         let s = self.0.as_str();
-        if s.len() > MAX_CURSOR_LEN {
-            return Err(bad("too long"));
-        }
         let parts: Vec<&str> = s.split('.').collect();
         let &[version, sort, status, request_id, created_at, rowid] = parts.as_slice() else {
             return Err(bad("wrong number of fields"));
@@ -374,7 +375,34 @@ mod tests {
             let e = Cursor::parse(bad).unwrap_err();
             assert_eq!(e.code, INVALID_CURSOR, "{bad:?}");
         }
-        assert!(Cursor::parse(&"a".repeat(MAX_CURSOR_LEN + 1)).is_err());
+        // Length alone never makes a cursor bad; a long string of the wrong shape still is.
+        assert!(Cursor::parse(&"a".repeat(100_000)).is_err());
+    }
+
+    #[test]
+    fn every_issued_cursor_decodes_whatever_its_length() {
+        // Filter values and `created_at` have no length bound, so a cursor well past any fixed
+        // cap must round-trip and still bind to the filter it was issued for.
+        let status = "s".repeat(40_000);
+        let request_id = "r".repeat(70_000);
+        let created_at = format!("2026-01-01T00:00:00Z{}", "p".repeat(50_000));
+        let f = filter(Some(&status), Some(&request_id));
+        let c = Cursor::after_row(&f, &created_at, 42);
+        assert!(c.as_str().len() > 300_000);
+        let parsed = Cursor::parse(c.as_str()).unwrap();
+        assert_eq!(parsed, c);
+        let p = parsed.position_for(&f).unwrap();
+        assert_eq!(p.status.as_deref(), Some(status.as_str()));
+        assert_eq!(p.request_id.as_deref(), Some(request_id.as_str()));
+        assert_eq!(p.created_at, created_at);
+        assert_eq!(p.rowid, 42);
+        assert_eq!(
+            parsed
+                .position_for(&filter(Some(&status), Some("other")))
+                .unwrap_err()
+                .code,
+            CURSOR_MISMATCH
+        );
     }
 
     #[test]

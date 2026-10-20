@@ -15,6 +15,8 @@ mod error;
 pub mod ffi;
 mod inline;
 #[cfg(feature = "store")]
+mod lock_queue;
+#[cfg(feature = "store")]
 pub mod pool;
 #[cfg(feature = "store")]
 mod runner;
@@ -41,8 +43,8 @@ pub use config::{
 };
 #[cfg(feature = "contract")]
 pub use contract::{
-    parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, Flags,
-    JobCommands, Outcome, PayloadMapper, ServeReport, Sink, JOB_METHODS,
+    parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, EventEmitter,
+    Flags, JobCommands, Outcome, PayloadMapper, ServeReport, Sink, JOB_METHODS,
 };
 #[cfg(feature = "doctor")]
 pub use doctor_probe::{
@@ -56,7 +58,9 @@ pub use error::{
     DELIVERY_UNKNOWN, HANDLER_UNSETTLED, HOST_HANDOFF, INTERRUPTED, INVALID_CURSOR, JOB_EXISTS,
     REVISION_CONFLICT, STALE_ATTEMPT, STALLED, SUPERSEDED,
 };
-pub use inline::{InlineCancelRegistry, InlineJobGuard};
+pub use inline::{
+    ActivityOptions, ActivityRegistry, ActivitySnapshot, InlineCancelRegistry, InlineJobGuard,
+};
 #[cfg(feature = "store")]
 pub use pool::{OutcomeFn, PoolConfig, Staged, StagedHandler, StagedPool};
 #[cfg(feature = "store")]
@@ -68,8 +72,8 @@ pub use rightkit_db::rusqlite;
 pub use rightkit_db::RecoveryPolicy;
 #[cfg(feature = "store")]
 pub use runner::{
-    AttemptPolicy, EventSink, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks, LockWait,
-    RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
+    AttemptPolicy, EventSink, FifoScope, HandlerOutcome, JobControl, JobHandler, JobLock, JobLocks,
+    LockWait, RunOutcome, Runner, UnsettledRecovery, DEFAULT_MAX_ATTEMPTS,
 };
 #[cfg(feature = "store")]
 pub use sched::{Gate, InteractiveGuard, Priority};
@@ -79,20 +83,24 @@ pub use service::DispatcherHandler;
 pub use store::{
     Admitted, Adoption, Artifact, CancelToken, ClaimScope, Cursor, DeferredFlush, DeferredKind,
     DeferredOp, DeleteLater, DeleteOptions, DeleteReport, Event, Expect, FlushReport,
-    ImportOptions, ImportRecord, Imported, Job, JobRecord, JobStore, JobTable, ListFilter,
-    ListPage, NewJob, OpenRecovery, ProgressStats, ProvisionalJob, PrunePolicy, PruneReport,
-    Recovery, Resolution, Settlement, SettlementShutdown, Submission, SubmissionRecord,
-    SubmitOptions, Submitted, Transition, UnsettledJob, CANCELLED, COMPLETE, DELETING_TABLE,
-    FAILED, MAX_DEFERRED_OPS, MAX_EVENTS, MAX_IMPORT_BATCH, MAX_PENDING_SETTLEMENTS,
-    MAX_PENDING_SETTLEMENT_BYTES, META_TABLE, PATH_OUTSIDE_ROOT, QUEUED, RUNNING,
-    SUBMISSIONS_TABLE,
+    ImportOptions, ImportRecord, Imported, Job, JobCursor, JobOrder, JobPage, JobQuery, JobRecord,
+    JobStore, JobTable, ListFilter, ListPage, NewJob, OpenRecovery, ProgressStats, ProvisionalJob,
+    PrunePolicy, PruneReport, Recovery, Resolution, Settlement, SettlementShutdown, Submission,
+    SubmissionRecord, SubmitOptions, Submitted, Transition, UnsettledJob, CANCELLED, COMPLETE,
+    DEFAULT_QUERY_LIMIT, DELETING_TABLE, FAILED, MAX_DEFERRED_OPS, MAX_EVENTS, MAX_IMPORT_BATCH,
+    MAX_PENDING_SETTLEMENTS, MAX_PENDING_SETTLEMENT_BYTES, MAX_QUERY_LIMIT, META_TABLE,
+    PATH_OUTSIDE_ROOT, QUEUED, RUNNING, SUBMISSIONS_TABLE,
 };
 #[cfg(feature = "supervisor")]
 pub use supervisor::{
-    CallOptions, EngineSupervisor, ExitObserver, ExitReason, HealthCheck, InitialFailure,
-    Lifecycle, LifecycleEvent, Readiness, ShutdownOutcome, ShutdownReport, SupervisorConfig,
-    SupervisorStatus, Terminal,
+    CallOptions, EngineSupervisor, ExitObserver, ExitReason, HandshakeCall, HandshakeMode,
+    HealthCheck, InitialFailure, Lifecycle, LifecycleEvent, Readiness, ShutdownOutcome,
+    ShutdownReport, SupervisorConfig, SupervisorStatus, Terminal,
 };
+/// The buffer type [`HandshakeCall::new`] takes for its params, re-exported so a host builds it
+/// with the `zeroize` this crate links.
+#[cfg(feature = "supervisor")]
+pub use zeroize::Zeroizing;
 #[cfg(feature = "crash")]
 mod crash_observer;
 #[cfg(feature = "crash")]

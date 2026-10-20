@@ -483,3 +483,78 @@ fn extension_columns_ride_along() {
     // Same-second submits tie on `created_at`; `rowid` puts the newest first.
     assert_eq!(seen, made.into_iter().rev().collect::<Vec<_>>());
 }
+
+/// A cursor carries the `status` and `request_id` filter values and the last row's `created_at`,
+/// none of which has a length bound, so every cursor the walk issues must be read back however
+/// long it is. Statuses and stamps this long are written raw, as an app or an import could.
+#[test]
+fn a_walk_over_long_filter_values_and_stamps_accepts_every_cursor_it_issues() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JobStore::open(dir.path().join("j.db")).unwrap();
+    let status = "s".repeat(12_000);
+    let mut expected = Vec::new();
+    for i in 0..9usize {
+        let id = format!("long-{i:02}");
+        let created_at = format!("2026-01-01T00:00:{i:02}Z{}", "p".repeat(9_000));
+        store
+            .write(|c| {
+                c.execute(
+                    "INSERT INTO jobs (job_id, request_id, kind, request_json, status, attempts,                      created_at, updated_at) VALUES (?1, NULL, 'scan', '{}', ?2, 0, ?3, ?3)",
+                    params![id, status, created_at],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        expected.push(id);
+    }
+    // Newest first: the stamps rise with `i`.
+    expected.reverse();
+    let f = ListFilter {
+        limit: Some(2),
+        status: Some(status.clone()),
+        ..ListFilter::default()
+    };
+    let mut after: Option<Cursor> = None;
+    let mut ids = Vec::new();
+    let mut longest = 0usize;
+    loop {
+        let page = store.list_page(&f, after.as_ref()).unwrap();
+        ids.extend(ids_of(&page));
+        match page.next {
+            Some(c) => {
+                longest = longest.max(c.as_str().len());
+                // The string form of an issued cursor is accepted again, unchanged.
+                let again = Cursor::parse(c.as_str()).unwrap();
+                assert_eq!(again, c);
+                after = Some(again);
+            }
+            None => break,
+        }
+    }
+    assert_eq!(ids, expected, "no gap, no duplicate, over long values");
+    assert!(
+        longest > 16 * 1024,
+        "the walk must issue a cursor past the old 16 KiB cap, longest was {longest}"
+    );
+}
+
+/// `request_id` is unique, so a walk filtered by one holds at most one row and never issues a
+/// cursor; a very long `request_id` must still list and bind like any other.
+#[test]
+fn a_very_long_request_id_filter_lists_its_row_and_binds_a_cursor_to_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JobStore::open(dir.path().join("j.db")).unwrap();
+    let long = "q".repeat(60_000);
+    let (job, _) = store.submit(&new_job(Some(&long))).unwrap();
+    let f = ListFilter {
+        limit: Some(1),
+        request_id: Some(long.clone()),
+        ..ListFilter::default()
+    };
+    let page = store.list_page(&f, None).unwrap();
+    assert_eq!(ids_of(&page), vec![job.job_id.clone()]);
+    assert!(
+        page.next.is_none(),
+        "a unique request_id has no second page"
+    );
+}

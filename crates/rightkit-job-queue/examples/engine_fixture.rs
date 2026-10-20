@@ -3,7 +3,9 @@
 //!
 //! Environment: `FX_DIR` (state directory, required), `FX_PLAN` (comma list of
 //! per-generation modes; the last repeats). The generation number is the count
-//! of lines in `FX_DIR/gen`, appended on every start.
+//! of lines in `FX_DIR/gen`, appended on every start. When `FX_LOG_METHODS` is set, every
+//! request received is appended, before it is answered, to `FX_DIR/methods` as
+//! `<generation> <method>` (never its params).
 //!
 //! Modes: `ok`, `slow_hello:<ms>`, `no_hello`, `crash:<ms>` (exit 9 shortly after
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
@@ -75,6 +77,7 @@ fn main() {
         }
     });
     let mut state = Map::new();
+    let log_methods = std::env::var_os("FX_LOG_METHODS").is_some();
     loop {
         if name == "wedge" && started.elapsed() >= Duration::from_millis(arg) {
             loop {
@@ -94,6 +97,14 @@ fn main() {
             req["method"].as_str().unwrap_or("").to_string(),
             req["params"].clone(),
         );
+        if log_methods {
+            let mut log = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("methods"))
+                .unwrap();
+            writeln!(log, "{n} {method}").unwrap();
+        }
         let ok = |result: Value| json!({"type":"response","id":id,"ok":true,"result":result});
         let reply = match method.as_str() {
             "ping" => ok(json!({"pong": true})),
