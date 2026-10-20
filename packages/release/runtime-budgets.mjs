@@ -59,6 +59,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { parse } from "smol-toml";
+import { RUNTIME_BUDGET_CRATES } from "./runtime-budget-crates.mjs";
 import { singleHostOfPolicy } from "./publication-gate.mjs";
 import { findWorkspaceRoot, lockClosure, pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 
@@ -68,18 +69,7 @@ export const RUNTIME_BUDGET_FILE = "runtime-budget.json";
 export const RUNTIME_BUDGET_EVIDENCE_DIR = "runtime-budget.evidence";
 export const RUNTIME_BUDGET_SCHEMA = 1;
 
-export const RUNTIME_BUDGET_CRATES = Object.freeze([
-  "rightkit-fsindex",
-  "rightkit-file-watch",
-  "rightkit-job-queue",
-  "rightkit-daemon",
-  "rightkit-cache",
-  "rightkit-sync",
-  "rightkit-logs",
-  "rightkit-tauri-shell",
-  "rightkit-qa",
-  "rightkit-send",
-]);
+export { RUNTIME_BUDGET_CRATES };
 
 export const BUDGET_FIGURES = Object.freeze(["residentMemoryBytes", "idleCpuPercent", "wakeupsPerSecond", "diskOpsPerSecond"]);
 const FIGURE_LABEL = Object.freeze({

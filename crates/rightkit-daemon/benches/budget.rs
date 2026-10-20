@@ -66,7 +66,10 @@ fn main() {
         .map(|_| Arc::new(Client::connect(&suite, "budget", "bench").expect("connect")))
         .collect();
     for client in &clients {
-        assert_eq!(client.call("echo", json!({"warmup": true})).unwrap(), json!({"warmup": true}));
+        assert_eq!(
+            client.call("echo", json!({"warmup": true})).unwrap(),
+            json!({"warmup": true})
+        );
     }
     let started = Instant::now();
     let threads = 8usize.min(conns.max(1));
@@ -77,7 +80,10 @@ fn main() {
             std::thread::spawn(move || {
                 for i in 0..share {
                     let c = &mine[i % mine.len()];
-                    assert_eq!(c.call("echo", json!({"n": i})).expect("echo"), json!({"n": i}));
+                    assert_eq!(
+                        c.call("echo", json!({"n": i})).expect("echo"),
+                        json!({"n": i})
+                    );
                 }
                 share
             })
@@ -98,7 +104,10 @@ fn main() {
     );
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
     let end = hosted.status();
-    assert_eq!(end.connections as usize, conns, "idle workload lost held connections");
+    assert_eq!(
+        end.connections as usize, conns,
+        "idle workload lost held connections"
+    );
     println!("RESULT open_connections={} connections", end.connections);
     print!(
         "{}",
@@ -120,7 +129,9 @@ fn main() {
 
 #[cfg(feature = "remote-loopback")]
 fn loopback_budget(conns: usize, requests: usize, idle_s: u64) {
-    use rightkit_daemon::loopback::{Authenticated, Limits, Loopback, LoopbackApp, LoopbackConfig, Request, Response};
+    use rightkit_daemon::loopback::{
+        Authenticated, Limits, Loopback, LoopbackApp, LoopbackConfig, Request, Response,
+    };
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::sync::Mutex;
@@ -146,10 +157,14 @@ fn loopback_budget(conns: usize, requests: usize, idle_s: u64) {
         }
         let head = String::from_utf8(head).unwrap();
         assert!(head.starts_with("HTTP/1.1 200 "), "{head}");
-        let length: usize = head.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().unwrap())
-        }).expect("bounded response body");
+        let length: usize = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().unwrap())
+            })
+            .expect("bounded response body");
         assert!(length <= 4096);
         let mut body = vec![0; length];
         stream.read_exact(&mut body).unwrap();
@@ -160,43 +175,78 @@ fn loopback_budget(conns: usize, requests: usize, idle_s: u64) {
     // Hold idle connections throughout measurement instead of measuring timeout cleanup.
     limits.idle_timeout = Duration::from_secs(idle_s.saturating_add(120));
     let host = Loopback::start(
-        LoopbackConfig::new().limits(limits).max_connections(conns + 8)
+        LoopbackConfig::new()
+            .limits(limits)
+            .max_connections(conns + 8)
             // Retain production token-bucket path with enough declared burst for finite warmup/load.
             .rate_limit(Some((200.0, (requests + conns + 1) as f64))),
         Arc::new(App),
-    ).expect("isolated loopback host");
+    )
+    .expect("isolated loopback host");
     let port = host.port();
     let token = host.token().expose().to_owned();
-    let clients: Vec<_> = (0..conns).map(|_| {
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-        stream.set_write_timeout(Some(Duration::from_secs(30))).unwrap();
-        echo(&mut stream, port, &token, &json!({"warmup": true}));
-        Arc::new(Mutex::new(stream))
-    }).collect();
-    let threads = 8usize.min(conns);
-    let handles: Vec<_> = (0..threads).map(|t| {
-        let mine: Vec<_> = clients.iter().skip(t).step_by(threads).cloned().collect();
-        let token = token.clone();
-        let share = requests / threads + usize::from(t < requests % threads);
-        std::thread::spawn(move || {
-            for i in 0..share {
-                echo(&mut mine[i % mine.len()].lock().unwrap(), port, &token, &json!({"n": i}));
-            }
-            share
+    let clients: Vec<_> = (0..conns)
+        .map(|_| {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(30)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(30)))
+                .unwrap();
+            echo(&mut stream, port, &token, &json!({"warmup": true}));
+            Arc::new(Mutex::new(stream))
         })
-    }).collect();
-    assert_eq!(handles.into_iter().map(|h| h.join().unwrap()).sum::<usize>(), requests);
+        .collect();
+    let threads = 8usize.min(conns);
+    let handles: Vec<_> = (0..threads)
+        .map(|t| {
+            let mine: Vec<_> = clients.iter().skip(t).step_by(threads).cloned().collect();
+            let token = token.clone();
+            let share = requests / threads + usize::from(t < requests % threads);
+            std::thread::spawn(move || {
+                for i in 0..share {
+                    echo(
+                        &mut mine[i % mine.len()].lock().unwrap(),
+                        port,
+                        &token,
+                        &json!({"n": i}),
+                    );
+                }
+                share
+            })
+        })
+        .collect();
+    assert_eq!(
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .sum::<usize>(),
+        requests
+    );
     assert_eq!(host.connections(), conns);
     let warm = process_usage().expect("process usage");
     let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
-    assert_eq!(host.connections(), conns, "idle workload lost held TCP connections");
+    assert_eq!(
+        host.connections(),
+        conns,
+        "idle workload lost held TCP connections"
+    );
     println!("RESULT open_connections={} connections", host.connections());
-    print!("{}", idle.result_lines(&warm, &BudgetLabels {
-        krate: "rightkit-daemon", version: env!("CARGO_PKG_VERSION"),
-        scale_unit: "connections", scale: conns as u64,
-        what: "loopback HTTP bearer echo requests then held TCP connections idle", scope: "synthetic",
-    }));
+    print!(
+        "{}",
+        idle.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-daemon",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "connections",
+                scale: conns as u64,
+                what: "loopback HTTP bearer echo requests then held TCP connections idle",
+                scope: "synthetic",
+            }
+        )
+    );
     drop(clients);
     host.shutdown();
     assert!(host.wait_stopped(Duration::from_secs(10)));

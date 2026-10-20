@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-ffmpeg-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-ffmpeg = { version = "=0.2.10" }

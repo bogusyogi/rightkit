@@ -26,7 +26,7 @@ test("PK identity binds executable source, every file, exact dependency & select
 
 test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
-  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-browser", "rightkit-credentials", "rightkit-fs", "rightkit-job-queue", "rightkit-logs", "rightkit-motion", "rightkit-playback", "rightkit-spend"]);
+  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-browser", "rightkit-credentials", "rightkit-ffmpeg", "rightkit-fs", "rightkit-job-queue", "rightkit-logs", "rightkit-motion", "rightkit-overlay", "rightkit-pdf", "rightkit-playback", "rightkit-spend"]);
   for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.4", "PK11"]]) {
     const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);

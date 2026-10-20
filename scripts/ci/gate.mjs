@@ -444,7 +444,7 @@ async function rustGate(selection, config, consumers = new Map()) {
     if (!applies(name)) continue;
     await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
     // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
-    for (const features of config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes: 30 });
+    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes: 30 });
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes: config.rust?.[name]?.timeoutMinutes ?? 30, env: assetEnv(selection, name) });
     }

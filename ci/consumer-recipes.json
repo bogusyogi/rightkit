@@ -288,6 +288,48 @@
         "src/main.rs": "1d3b169f09edbf9983c38870d6b5df9b19986b5aad82dfd32ed6c8fe664752ad"
       },
       "aggregateSha256": "fda9f9df5818bc546625f3f2bbdbfd7b24bbef7da966e95b3f0405fae80a81af"
+    },
+    "rightkit-pdf": {
+      "pkId": "PK08",
+      "id": "ci/consumers/rightkit-pdf/src/main.rs",
+      "dependency": "rightkit-pdf = { version = \"=0.3.3\", features = [\"host\"] }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; temp directory only, removed on exit; no ffmpeg or PDFKit run off macOS (open answers Unsupported). The host feature compiles on every platform (objc2 deps are macOS-only target deps). Consider a PK17-4 gate row for feature host on macOS before it is claimed",
+      "consumes": "PK08-6 names ViewRight pdf_adapter.rs:106 and mac_pdf_view.rs:103 as the PdfHost consumers (per the plan, not re-read here); rightkit-pdf public items used: write::Document (src/write.rs:238,283,357,363), inspect::page_graph_from_bytes (src/inspect.rs:335), compose::compose_candidate (src/compose.rs:146), save::stage_prepared_save (src/save.rs:290), save::PdfSaveTokenStore (src/save.rs:143), commit::commit_pdf_save (src/commit.rs:468), model::document_sha256 (src/model.rs:938), host::PdfHost::new (src/host/mod.rs:720), host::OpenRequest, NativeParent::detached (src/host/mod.rs:452)",
+      "files": {
+        "Cargo.toml": "1271b0559a3bf57a49ff7a7c087f030fac054b2b661d00c35a238bc545c39076",
+        "README.md": "ebe4ddbec9df4c91d9b308e2ffe0c6d40fd44494ef443cdd08dad47896a535e1",
+        "src/main.rs": "06e8dc147151d0796ff4c82633cc9f73a903550a47d5d0b141db5f49989040d8"
+      },
+      "aggregateSha256": "b1cf10c6833bce21f131288719660fe9135ee99e9a6665442ee2988e3826b146"
+    },
+    "rightkit-overlay": {
+      "pkId": "PK08",
+      "id": "ci/consumers/rightkit-overlay/src/main.rs",
+      "dependency": "rightkit-overlay = { version = \"=0.2.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; pure geometry and model only; no windows, no Win32 calls, no timers, no files",
+      "consumes": "PK08-4 names HeardRight hub_window.rs:420 (pill/hub) as the OverlayHost consumer (per the plan, not re-read here); rightkit-overlay public items used: OverlayModel::new/apply/hit_test (src/lib.rs:911-945), OverlayEvent (src/lib.rs:30), fills_monitor (src/lib.rs:208), rects_overlap (src/lib.rs:311), covering_window and CoveringCandidate (src/lib.rs:318-353), Rect and WorkArea (src/lib.rs:55,82)",
+      "files": {
+        "Cargo.toml": "da1356d2ae79dbbc88af7b0808192aa657a9f095159bdb193f3cb772a3875318",
+        "README.md": "770ff4bb02fbe406da975e7b6799480bbb07090f35fd1debef8dab2d0297d623",
+        "src/main.rs": "0fe566395d7bfb6a3b2d4a7756a72734a1ad36e5b15e3b6246f0e257bde8b761"
+      },
+      "aggregateSha256": "e67bbe0291afa387b0293859ac1b23017ab113f98ac7d23794ff75999f195b40"
+    },
+    "rightkit-ffmpeg": {
+      "pkId": "PK19",
+      "id": "ci/consumers/rightkit-ffmpeg/src/main.rs",
+      "dependency": "rightkit-ffmpeg = { version = \"=0.2.10\" }",
+      "extraDependencies": [],
+      "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
+      "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
+      "files": {
+        "Cargo.toml": "25c593f4ceff4450caaa38e6094fedc83a1037324bbe3aeb9711ca279c90a1a7",
+        "README.md": "6c8c8889252efa82ac7ee302918bb288591aac87b52e9ca808910e699ac42dfd",
+        "src/main.rs": "8bfa7fc9fea71457e426f4fa469d9dfafcb665ec98a485079e998c47cb2dab8e"
+      },
+      "aggregateSha256": "66e5b4afae2ea42ca3e946e2485a49bc1add1bdb8f0c7b48ef989586e76c2b13"
     }
   }
 }

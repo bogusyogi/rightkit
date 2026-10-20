@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-pdf-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-pdf = { version = "=0.3.3", features = ["host"] }

@@ -652,7 +652,7 @@ export async function admit() {
 // ---------------------------------------------------------------------------------------------------------------
 import { selectSupplement, selectSupplements, validateRuntimeTransfer, RUNTIME_PROOF_WORKLOADS } from "./reviewed-candidate.mjs";
 import { workloadsFor as trustedWorkloadsFor } from "./runtime-qualify.mjs";
-import { RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
+import { RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budget-crates.mjs";
 const runtimePin = (f, n, proofSha256 = String(n).repeat(64).slice(0, 64)) => ({ schema: 1, kind: "runtime-workload-pin", original: clone(f.supplements.supplements[0].original), producer: { workflowId: "6", runId: "88", runAttempt: "2", jobId: "104", sourceSha: PROMOTION, jobs: { candidate: "101", win32: "102", darwin: "103", qualify: "104" } }, artifact: { id: String(500 + n), digest: `sha256:${String(n).repeat(64).slice(0, 64)}`, proofSha256 }, policy: { id: "runtime-workloads/v1", sourceSha: PROMOTION, validatorSourceSha: PROMOTION } });
 const transferRow = (name, pin, candidateId) => ({ name, runtimeFeatureProof: { classification: "always-on", listedOwner: true, required: true, status: "qualified", failures: [], proof: { candidateId, proofSha256: pin.artifact.proofSha256, workloads: [...RUNTIME_PROOF_WORKLOADS[name]] } } });
 test("credential-side runtime workload table equals the trusted coverage table exactly", () => {

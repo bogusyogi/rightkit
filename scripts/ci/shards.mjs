@@ -272,7 +272,8 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
       for (const features of sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
-      for (const features of entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
+      // An empty checkFeatureSets row is the default check above; never run it twice.
+      for (const features of (entry.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
     } else if (kind === "npm") {
       if (npm.find((pkg) => pkg.dir === name).scripts?.test) add(unit, "pnpm", ["--dir", name, "run", "test"]);
     } else if (kind === "root") {
