@@ -376,8 +376,31 @@ test("credential-free transfer verification exercises fresh job without upload",
   const f = fixture(t);
   const result = await runReviewed({ env: f.env, verifyAdmission: true, approvedFile: f.approvedFile, supplementalFile: f.supplementalFile, fetchImpl: f.fetchImpl, spawn: f.spawn });
   assert.equal(result.original.candidateId, f.candidate.id); assert.equal(f.puts.length, 0);
-  const transfer = JSON.parse(fs.readFileSync(path.join(f.temp, "publication-receipt", "admission-transfer.json"), "utf8"));
+  const transfer = JSON.parse(fs.readFileSync(path.join(f.temp, "publication-admission-transfer", "admission-transfer.json"), "utf8"));
   assert.equal(transfer.upload, false); assert.equal(transfer.kind, "semantic-admission-transfer"); assert.equal(transfer.candidateSha256, result.original.candidateSha256);
+});
+
+test("fresh-job transfer then publication keep exact, separate artifact contents", async (t) => {
+  const f = fixture(t);
+  const options = { approvedFile: f.approvedFile, supplementalFile: f.supplementalFile, fetchImpl: f.fetchImpl, spawn: f.spawn };
+  const admitted = await runReviewed({ ...options, env: f.env, verifyAdmission: true });
+  const transferDir = path.join(f.temp, "publication-admission-transfer");
+  const publicationDir = path.join(f.temp, "publication-receipt");
+  assert.deepEqual(fs.readdirSync(transferDir), ["admission-transfer.json"]);
+  assert.equal(fs.existsSync(publicationDir), false);
+  assert.equal(f.puts.length, 0);
+  const transferBytes = fs.readFileSync(path.join(transferDir, "admission-transfer.json"));
+  const published = await runReviewed({ ...options, env: { ...f.env, CARGO_REGISTRY_TOKEN: "registry-fixture" } });
+  assert.equal(f.puts.length, 1);
+  assert.deepEqual(fs.readdirSync(transferDir), ["admission-transfer.json"]);
+  assert.deepEqual(fs.readFileSync(path.join(transferDir, "admission-transfer.json")), transferBytes);
+  assert.deepEqual(fs.readdirSync(publicationDir), ["publication-receipt.json"]);
+  const receipt = JSON.parse(fs.readFileSync(path.join(publicationDir, "publication-receipt.json"), "utf8"));
+  assert.deepEqual(receipt, published);
+  assert.equal(receipt.dryRun, false);
+  assert.equal(receipt.candidate.id, admitted.original.candidateId);
+  assert.equal(receipt.receipts[0].published, true);
+  assert.equal(receipt.receipts[0].registryVerified, true);
 });
 
 
@@ -389,7 +412,7 @@ test("fresh transfer tolerates job OIDC availability without requesting or using
   assert.equal(result.original.candidateId, f.candidate.id);
   assert.equal(f.puts.length, 0);
   assert.ok(f.requests.every((request) => request.url.startsWith("https://api.github.com/") && request.options.headers.authorization === "Bearer github-read-fixture"));
-  const transfer = JSON.parse(fs.readFileSync(path.join(f.temp, "publication-receipt", "admission-transfer.json"), "utf8"));
+  const transfer = JSON.parse(fs.readFileSync(path.join(f.temp, "publication-admission-transfer", "admission-transfer.json"), "utf8"));
   assert.equal(transfer.upload, false);
 });
 

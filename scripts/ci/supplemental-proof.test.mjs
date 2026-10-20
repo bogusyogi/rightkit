@@ -175,3 +175,19 @@ test("producer installs frozen scanner dependencies before scanning with lifecyc
     assert.throws(() => guard(mutated));
   }
 });
+
+ test("runtime pins share strict original binding & pin four distinct successful jobs", (t) => {
+  const f = fixture(t);
+  const pin = structuredClone(f.pin);
+  pin.kind = "runtime-workload-pin";
+  pin.policy.id = "runtime-workloads/v1";
+  pin.producer.jobs = { candidate: "101", win32: "102", darwin: "103", qualify: pin.producer.jobId };
+  validateSupplementPin(pin, f.candidate);
+  for (const mutate of [
+    (p) => { p.producer.jobs.darwin = p.producer.jobs.win32; },
+    (p) => { delete p.producer.jobs.candidate; },
+    (p) => { p.original.sourceSha = PRODUCER; },
+    (p) => { p.artifact.proofSha256 = "claimed"; },
+    (p) => { p.policy.id = SUPPLEMENT_POLICY; },
+  ]) { const changed = structuredClone(pin); mutate(changed); assert.throws(() => validateSupplementPin(changed, f.candidate), /refused/); }
+});

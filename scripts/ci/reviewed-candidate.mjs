@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, loadSealed, checkReceipts, checkApprovedArtifacts, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, loadSealed, checkReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -53,21 +53,23 @@ export function selectCandidate(file, id) {
 }
 
 /** Separate committed pins never alter original candidate or receipt schemas. */
-export function selectArchiveSupplement(file, candidate, approvedFile = APPROVED_ARTIFACTS_FILE) {
+export function selectSupplement(file, candidate, kind, approvedFile = APPROVED_ARTIFACTS_FILE) {
   const doc = JSON.parse(fs.readFileSync(file, "utf8"));
   exact(doc, ["schema", "supplements"], "supplement collection");
   requireThat(doc.schema === 1 && Array.isArray(doc.supplements), "unknown supplement collection schema");
   const seen = new Set();
   for (const pin of doc.supplements) {
     const id = pin?.original?.candidateId;
-    requireThat(typeof id === "string" && !seen.has(id), "invalid or duplicate supplemental candidate ID");
-    seen.add(id);
+    const identity = `${id}:${pin?.kind}`;
+    requireThat(typeof id === "string" && !seen.has(identity), "invalid or duplicate supplemental candidate/kind");
+    seen.add(identity);
     validateSupplementPin(pin, selectCandidate(approvedFile, id));
   }
-  const pin = doc.supplements.find((row) => row.original.candidateId === candidate.id) ?? null;
+  const pin = doc.supplements.find((row) => row.original.candidateId === candidate.id && row.kind === kind) ?? null;
   if (pin) validateSupplementPin(pin, candidate);
   return pin;
 }
+export const selectArchiveSupplement = (file, candidate, approvedFile = APPROVED_ARTIFACTS_FILE) => selectSupplement(file, candidate, "archive-scan-supplement-pin", approvedFile);
 
 export function checkProvenance({ candidate, repository, workflow, run, jobs, promotionSha, comparison }) {
   requireThat(repository.full_name === REPOSITORY && repository.default_branch === "main", "wrong repository/default branch");
@@ -165,7 +167,7 @@ export async function prepareCandidate({ env, candidateId, approvedFile = APPROV
   // Freeze the authenticated record; caller cannot widen its allowsets after admission.
   const context = JSON.parse(JSON.stringify({ candidate }));
   const freeze = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } }; freeze(context);
-  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, archiveScanResolver, manifest: sealed.manifest, repository, admitted: false });
+  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, supplementalFile, archiveScanResolver, manifest: sealed.manifest, repository, admitted: false });
   return { context, packDir, receiptsDir };
 }
 
@@ -276,9 +278,14 @@ function validateAdmission(admission, prepared, env) {
     exact(row, ["name", "version", "archiveSha256", "ok", "policies", "failures", "adoptionPending", "runtime", "runtimeFeatureProof", "runtimeInputHashes", "evidenceSha256"], "semantic unit verdict");
     exact(row.policies, ["macos", "windows"], "semantic unit host policies");
     if (candidate.registry === "crates") {
-      exact(row.runtimeFeatureProof, ["classification", "listedOwner", "required", "status", "failures"], "semantic runtime feature proof");
       const proof = row.runtimeFeatureProof;
-      requireThat(["false", "held-resource"].includes(proof.classification) && proof.listedOwner === false && proof.required === false && proof.status === "not-applicable" && Array.isArray(proof.failures) && proof.failures.length === 0, "runtime feature proof remains required, held or incoherent");
+      exact(proof, ["classification", "listedOwner", "required", "status", "failures", ...(proof?.status === "qualified" ? ["proof"] : [])], "semantic runtime feature proof");
+      requireThat(Array.isArray(proof.failures) && proof.failures.length === 0, "runtime feature proof failed");
+      if (proof.status === "qualified") {
+        const pin = selectSupplement(bound.supplementalFile, candidate, "runtime-workload-pin", bound.approvedFile);
+        exact(proof.proof, ["candidateId", "proofSha256", "workloads"], "runtime supplement transfer");
+        requireThat(row.name === "rightkit-logs" && proof.classification === "always-on" && proof.listedOwner === true && proof.required === true && pin && proof.proof.candidateId === candidate.id && proof.proof.proofSha256 === pin.artifact.proofSha256 && same(proof.proof.workloads, ["tracing", "detached"]), "runtime supplement transfer mismatch");
+      } else requireThat(["false", "held-resource"].includes(proof.classification) && proof.listedOwner === false && proof.required === false && proof.status === "not-applicable", "runtime feature proof remains required, held or incoherent");
     } else requireThat(row.runtimeFeatureProof === null, "npm runtime feature proof must be null");
     requireThat(Object.values(row.policies).every((policy) => policy === "required-positive-tests") && Array.isArray(row.adoptionPending) && row.adoptionPending.every((reason) => typeof reason === "string" && reason.length > 0) && row.runtimeInputHashes && typeof row.runtimeInputHashes === "object" && !Array.isArray(row.runtimeInputHashes) && Object.entries(row.runtimeInputHashes).every(([name, hash]) => name && !/[\\\x00-\x1f:]/.test(name) && name.split("/").every((part) => part && part !== "." && part !== "..") && HEX.test(hash)) && (candidate.registry === "crates" ? row.runtime?.status === "ok" : row.runtime === null), "incomplete semantic native/runtime verdict");
     const unit = bound.manifest.units.find((item) => item.name === row?.name);
@@ -319,12 +326,20 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
   const prepared = await prepareCandidate({ env, candidateId: env.PUBLISH_CANDIDATE_ID, approvedFile, supplementalFile, fetchImpl, spawn });
   const candidate = prepared.context.candidate, bound = contexts.get(prepared.context);
   if (dryRun) {
+    const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
+    requireThat(payloadProblems.length === 0, payloadProblems.join("; "));
     const { loadCandidateSource } = await import("./candidate-source.mjs");
     const { semanticAdmission } = await import("./semantic-admission.mjs");
     const { qa, bindings } = await originalQa({ prepared, env, fetchImpl, spawn });
     const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: candidate.allow, spawn });
     const receipts = Object.fromEntries(["macos", "windows"].map((host) => { const directory = path.join(prepared.receiptsDir, host); return [host, JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"))]; }));
-    const result = await semanticAdmission({ candidate, manifest: bound.manifest, source, receipts, qa, packDir: prepared.packDir, env, spawn });
+    const runtimePin = selectSupplement(supplementalFile, candidate, "runtime-workload-pin", approvedFile);
+    let runtimeProof = null;
+    if (runtimePin) {
+      const { verifyRuntimeSupplement } = await import("./runtime-supplement.mjs");
+      runtimeProof = await verifyRuntimeSupplement({ candidate, pin: runtimePin, manifest: bound.manifest, manifestSha256: candidate.manifestSha256, source, packDir: prepared.packDir, env, fetchImpl, spawn });
+    }
+    const result = await semanticAdmission({ candidate, manifest: bound.manifest, source, receipts, qa, packDir: prepared.packDir, env, spawn, runtimeProof });
     requireThat(result.ok === true, `semantic admission failed: ${JSON.stringify({ failures: result.failures ?? [], hosts: result.hostVerdicts ?? {}, units: (result.units ?? []).filter((unit) => unit.ok !== true) })}`);
     const admission = { schema: 1, kind: "semantic-admission", original: originalBinding(candidate, bound.manifest), sourceTree: source.source.tree, sourceHashes: source.sourceHashes, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, qa: bindings, units: result.units };
     validateAdmission(admission, prepared, env);
@@ -339,7 +354,7 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
   if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `registry=${candidate.registry}\n`);
   if (verifyAdmission) {
     assertAuthenticatedContext(prepared.context, { env: uploadEnv, ...prepared, approvedFile });
-    const directory = path.join(env.RUNNER_TEMP, "publication-receipt"); fs.mkdirSync(directory, { recursive: true });
+    const directory = path.join(env.RUNNER_TEMP, "publication-admission-transfer"); fs.mkdirSync(directory, { recursive: true });
     const receipt = { schema: 1, kind: "semantic-admission-transfer", upload: false, candidateId: candidate.id, candidateSha256: admission.original.candidateSha256, sourceSha: candidate.sourceSha, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, admissionArtifact: { id: env.PUBLISH_ADMISSION_ID, digest: `sha256:${env.PUBLISH_ADMISSION_DIGEST.replace(/^sha256:/, "")}` } };
     fs.writeFileSync(path.join(directory, "admission-transfer.json"), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });
     return admission;

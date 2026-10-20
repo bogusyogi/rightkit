@@ -9,8 +9,11 @@ import { TEST_COMMAND } from "./test-results.mjs";
 import { featureLabels } from "./publication-record.mjs";
 import { cargoRecipe } from "./consumer-recipes.mjs";
 import { validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
-import { runtimeBudgetCheck, crateClass, RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
+import { runtimeBudgetCheck, runtimeBudgetStructureCheck, crateClass, RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
+import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
+import { npmConsumerQualificationProblems, RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
+import { declaredEntries } from "./consume.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const HOSTS = { macos: "darwin", windows: "win32" };
@@ -23,18 +26,23 @@ const setEqual = (a, b) => Array.isArray(a) && Array.isArray(b) && same([...a].s
 const text = (s) => typeof s === "string" && s.trim().length > 0;
 const safe = (s) => typeof s === "string" && s.length > 0 && !/[\\:\x00-\x1f]/.test(s) && s.split("/").every((p) => p && p !== "." && p !== "..");
 
-/** Structural/freshness success cannot prove isolated workloads or published feature coverage.
- * No authenticated runtime supplement loader exists here; producer claims cannot release this HOLD.
- * Classification comes from the runtime owner, including its runtime_budget & listed-owner fallback. */
-export function runtimeFeatureProofPolicy({ crate, meta = {}, hasFile = false }) {
+/** Source structure & authenticated exact-archive workloads are separate conjunctive proofs. */
+export function runtimeFeatureProofPolicy({ crate, meta = {}, hasFile = false, runtimeProof = null, candidate, unit }) {
   const listedOwner = RUNTIME_BUDGET_CRATES.includes(crate);
   const classification = crateClass(meta, { hasFile: hasFile || listedOwner });
   const required = listedOwner || classification.kind === "always-on";
-  return {
+  const result = {
     classification: classification.kind, listedOwner, required,
     status: required ? "HOLD" : "not-applicable",
     failures: required ? ["authenticated isolated runtime feature/workload proof missing"] : [],
   };
+  if (required && runtimeProof && classification.kind === "always-on") {
+    try {
+      authenticatedRuntimeProof(runtimeProof, candidate, unit);
+      return { ...result, status: "qualified", failures: [], proof: { candidateId: runtimeProof.candidateId, proofSha256: runtimeProof.proofSha256, workloads: ["tracing", "detached"] } };
+    } catch { /* Caller JSON cannot grant runtime qualification. */ }
+  }
+  return result;
 }
 function file(root, relative) {
   if (!safe(relative)) throw new Error("unsafe evidence path");
@@ -110,8 +118,40 @@ function reviewedRecipe(source, unit) {
   return { ...recipe, sourceCommit: source.source.sha };
 }
 
+/** Named npm seam: authenticated candidate DATA & trusted verifier recipe inventory only. */
+export function namedNpmQualificationProblems({ source, candidate, manifest, unit, host, report, publicationEvidence } = {}) {
+  const problems = [];
+  if (unit?.name !== "@rightkit/logs") return ["missing reviewed named npm R2a recipe; generic import is not PK qualification"];
+  try {
+    if (typeof source?.readData !== "function" || source.source?.sha !== candidate?.sourceSha || manifest?.commit !== candidate?.sourceSha || candidate.registry !== "npm") throw new Error("authenticated npm source reader/identity missing");
+    const config = JSON.parse(file(ROOT, "ci/consumer-recipes.json"));
+    const recipe = config.schema === 1 ? config.npm?.[unit.name] : undefined;
+    if (!recipe) throw new Error("missing trusted reviewed npm recipe inventory");
+    const sourceBindings = {}, data = {};
+    for (const relative of [...NPM_RECIPE_FILES, ...NPM_SOURCE_FILES]) {
+      const raw = source.readData(relative);
+      if (!Buffer.isBuffer(raw)) throw new Error(`authenticated source did not return exact blob bytes: ${relative}`);
+      data[relative] = raw;
+      sourceBindings[relative] = { sha256: hash(raw), gitBlob: crypto.createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${raw.length}\0`), raw])).digest("hex") };
+    }
+    const rootManifest = JSON.parse(data["package.json"]);
+    const packageManifest = JSON.parse(data["packages/logs/package.json"]);
+    if (unit.dir !== "packages/logs" || packageManifest.name !== unit.name || packageManifest.version !== unit.version || rootManifest.packageManager !== packageManifest.packageManager) throw new Error("authenticated npm manifest/version/pnpm pin mismatch");
+    const native = publicationEvidence?.runs;
+    if (!Array.isArray(native) || native.length !== 1 || native[0]?.host?.os !== HOSTS[host] || !text(native[0]?.host?.arch)) throw new Error("actual native publication run missing");
+    const expected = { name: unit.name, version: unit.version, commit: candidate.sourceSha, runId: String(candidate.runId), runAttempt: String(candidate.runAttempt), manifestRunId: String(manifest.runId), manifestRunAttempt: String(manifest.runAttempt), manifestSha256: candidate.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, archiveIntegrity: unit.integrity, host, runnerOS: host === "windows" ? "Windows" : "macOS", arch: native[0].host.arch, packageManager: rootManifest.packageManager };
+    problems.push(...npmConsumerQualificationProblems({ report, expected, recipe, sourceBindings }));
+    // Preserve generic portability's complete installed-entry proof, even alongside named runtime.
+    const declared = declaredEntries(packageManifest);
+    const portability = report?.portability;
+    const runtime = declared.subpaths.filter(entry => entry.runtime.length > 0).map(entry => entry.spec);
+    if (!portability || portability.entries !== runtime.length || portability.filesChecked !== declared.files.length || portability.noJsEntry !== (runtime.length === 0) || !setEqual(portability.imported, runtime) || !setEqual(portability.patterns, declared.patterns) || !setEqual(portability.bins, declared.bins) || ["resolvedOnly", "productionRejected", "conditionalImports", "skippedImport", "binSmoke"].some(field => !setEqual(portability[field], [])) || declared.patterns.length || declared.bins.length) problems.push("named npm R2a lacks complete unchanged generic portability proof");
+  } catch (error) { problems.push(`named npm R2a: ${error.message}`); }
+  return problems;
+}
+
 /** Caller authenticates provenance first; this function validates contents & never publishes. */
-export function semanticAdmission({ candidate, manifest, source, receipts = {}, qa = {}, packDir, env = {}, spawn = spawnSync } = {}) {
+export function semanticAdmission({ candidate, manifest, source, receipts = {}, qa = {}, packDir, env = {}, spawn = spawnSync, runtimeProof = null } = {}) {
   const failures = []; const evidenceHashes = {}; const hostVerdicts = {}; const archives = {};
   const fail = (s) => failures.push(s);
   const attempt = (fn, label) => { try { return fn(); } catch (error) { fail(`${label}: ${error.message}`); return null; } };
@@ -164,7 +204,9 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
       if (row?.publicationEvidence) records.push(row.publicationEvidence);
       const report = row?.consumer;
       if (report?.arch !== row?.publicationEvidence?.runs?.[0]?.host?.arch) bad(`${host}: R2a native architecture differs from actual host run`);
-      if (candidate.registry === "npm") bad(`${host}: missing reviewed named npm R2a recipe; generic import is not PK qualification`);
+      if (candidate.registry === "npm") {
+        for (const error of namedNpmQualificationProblems({ source, candidate, manifest, unit, host, report, publicationEvidence: row?.publicationEvidence })) bad(`${host}: ${error}`);
+      }
       else {
         let recipe;
         try { recipe = reviewedRecipe(source, unit); } catch (error) { bad(`${host}: ${error.message}`); }
@@ -184,7 +226,7 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
         const meta = packageInfo?.manifest?.package?.metadata?.rightkit ?? {};
         const budgetFile = `${unit.dir}/runtime-budget.json`;
         const hasBudgetFile = fs.existsSync(path.join(source.root, budgetFile));
-        runtimeFeatureProof = runtimeFeatureProofPolicy({ crate: unit.name, meta, hasFile: hasBudgetFile });
+        runtimeFeatureProof = runtimeFeatureProofPolicy({ crate: unit.name, meta, hasFile: hasBudgetFile, runtimeProof, candidate, unit });
         runtimeFeatureProof.failures.forEach(bad);
         const gitEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !/^GIT_/i.test(key)));
         Object.assign(gitEnv, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" });
@@ -192,7 +234,8 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
           const result = spawn("git", ["-c", "core.hooksPath=", "-c", "core.fsmonitor=false", ...args], { cwd, env: gitEnv, encoding: "utf8", windowsHide: true, shell: false, timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
           return { status: result.error || result.signal ? 1 : result.status ?? 1, stdout: String(result.stdout ?? "").trim() };
         };
-        runtime = runtimeBudgetCheck({ crate: unit.name, crateDir: unitRoot, version: unit.version, evidence: combined }, { git });
+        const runtimeCheck = runtimeFeatureProof.status === "qualified" ? runtimeBudgetStructureCheck : runtimeBudgetCheck;
+        runtime = runtimeCheck({ crate: unit.name, crateDir: unitRoot, version: unit.version, evidence: combined }, { git });
         if (runtime.status !== "ok") bad(`runtime budget: ${runtime.detail}`);
         if (hasBudgetFile) {
           const raw = file(source.root, budgetFile); runtimeInputHashes[budgetFile] = hash(raw);

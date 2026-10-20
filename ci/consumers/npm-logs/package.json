@@ -1,0 +1,6 @@
+{
+  "name": "rightkit-pk11-npm-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0"
+}

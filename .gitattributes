@@ -20,3 +20,14 @@ scripts/embed-export/** -text
 packages/release/msix-repair-guard.ps1 text eol=lf
 # Vendored tauri-runtime-wry (docs/design/tauri-runtime-wry-windows-rc.md): keep upstream bytes, never convert line endings.
 vendor/tauri-runtime-wry/** -text
+# Named npm consumer evidence binds source & recipe bytes across both native hosts.
+/ci/consumers/npm-logs/** text eol=lf
+/ci/consumer-recipes.json text eol=lf
+/package.json text eol=lf
+/packages/logs/package.json text eol=lf
+/packages/logs/README.md text eol=lf
+/packages/logs/src/index.ts text eol=lf
+/packages/logs/src/crash.ts text eol=lf
+/packages/logs/src/recorder.ts text eol=lf
+/crates/rightkit-logs/tests/scrub-parity.v1.json text eol=lf
+/crates/rightkit-logs/benches/workloads.json text eol=lf

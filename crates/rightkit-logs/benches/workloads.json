@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "crate": "rightkit-logs",
+  "defaultFeatures": true,
+  "coverage": {
+    "default": "http and detached API",
+    "tracing": "tracing writer",
+    "log-bridge": "compiled in detached workload; no additional background worker",
+    "testing": "test-only; excluded"
+  },
+  "workloads": [
+    {
+      "id": "tracing",
+      "args": [
+        "test",
+        "--locked",
+        "--profile",
+        "release-iterate",
+        "-p",
+        "rightkit-logs",
+        "--features",
+        "tracing",
+        "--bench",
+        "budget"
+      ],
+      "bench": "budget",
+      "intervalMs": null
+    },
+    {
+      "id": "detached",
+      "args": [
+        "test",
+        "--locked",
+        "--profile",
+        "release-iterate",
+        "-p",
+        "rightkit-logs",
+        "--features",
+        "tracing,log-bridge",
+        "--bench",
+        "budget_detached"
+      ],
+      "bench": "budget_detached",
+      "intervalMs": 1000
+    }
+  ]
+}

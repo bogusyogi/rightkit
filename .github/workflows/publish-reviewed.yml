@@ -127,8 +127,16 @@ jobs:
           PUBLISH_ADMISSION_DIGEST: ${{ needs.seal-check.outputs.admission_digest }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run
-      - name: Keep publication receipt
+      - name: Keep admission transfer receipt
         if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-admission-transfer
+          path: ${{ runner.temp }}/publication-admission-transfer
+          retention-days: 90
+          if-no-files-found: error
+      - name: Keep publication receipt
+        if: ${{ always() && !inputs.dry_run }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: publication-receipt

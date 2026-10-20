@@ -4,8 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission } from "./semantic-admission.mjs";
+import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission, namedNpmQualificationProblems } from "./semantic-admission.mjs";
 import { derivePublicationObligations } from "./publication-obligations.mjs";
+import { RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
+import { TEST_COMMAND } from "./test-results.mjs";
 
 const SHA = "a".repeat(40); const TREE = "b".repeat(40); const HEX = "c".repeat(64);
 const hash = (data) => crypto.createHash("sha256").update(data).digest("hex");
@@ -42,6 +44,8 @@ test("listed owners cannot bypass HOLD with false/held-resource or unchecked pro
     assert.equal(result.status, "HOLD");
     assert.equal(result.required, true);
   }
+  const result = runtimeFeatureProofPolicy({ crate: "rightkit-logs", runtimeProof: { candidateId: "claimed", proofSha256: HEX }, candidate: {}, unit: {} });
+  assert.equal(result.status, "HOLD", "raw runtime JSON is never an authenticated handle");
 });
 function canonical() {
   const expected = { kind: "cargo", name: "rightkit-logs", version: "0.3.4", commit: SHA, artifactSha256: HEX };
@@ -138,4 +142,97 @@ test("changed actual archive & raw QA hash fail independently", (t) => {
   const result = semanticAdmission(input);
   assert.ok(result.failures.some((s) => s.includes("sourceGate differs")));
   assert.ok(result.units[0].failures.some((s) => s.includes("actual archive")));
+});
+
+// Candidate fixtures expose authenticated bytes only. No candidate module is loaded or run.
+function namedNpmFixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-named-npm-semantic-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const packDir = path.join(root, "packs"); fs.mkdirSync(packDir);
+  const sourceData = new Map([...NPM_RECIPE_FILES, ...NPM_SOURCE_FILES].map(relative => [relative, fs.readFileSync(new URL(`../../${relative}`, import.meta.url))]));
+  const packageManifest = JSON.parse(sourceData.get("packages/logs/package.json"));
+  fs.mkdirSync(path.join(root, "packages/logs"), { recursive: true });
+  fs.writeFileSync(path.join(root, "packages/logs/package.json"), sourceData.get("packages/logs/package.json"));
+  const bytes = Buffer.from("original sealed npm candidate fixture");
+  const unit = { name: packageManifest.name, version: packageManifest.version, dir: "packages/logs", file: "logs.tgz", size: bytes.length, sha256: hash(bytes), integrity: `sha512-${crypto.createHash("sha512").update(bytes).digest("base64")}` };
+  const manifest = { schema: 1, registry: "npm", commit: SHA, runId: "77", runAttempt: "1", units: [unit] };
+  const rawManifest = JSON.stringify(manifest); fs.writeFileSync(path.join(packDir, "manifest.json"), rawManifest); fs.writeFileSync(path.join(packDir, unit.file), bytes);
+  const candidate = { sourceSha: SHA, manifestSha256: hash(rawManifest), registry: "npm", units: [unit.name], runId: "77", runAttempt: "1" };
+  const hosts = {}, receipts = {}, qa = {}, reads = [];
+  const source = { source: { sha: SHA, tree: TREE }, root, hosts, sourceHashes: {}, readData(relative) { reads.push(relative); const bytes = sourceData.get(relative); if (!bytes) throw new Error(`missing authenticated blob ${relative}`); this.sourceHashes[relative] = hash(bytes); return Buffer.from(bytes); } };
+  for (const host of ["macos", "windows"]) {
+    hosts[host] = derivePublicationObligations({ registry: "npm", units: [unit.name], host, packageManifests: [{ dir: unit.dir, json: packageManifest }] });
+    const results = hosts[host].commands.map(row => ({ ...row, ok: true, code: 0, timedOut: false, seconds: 1, isTest: TEST_COMMAND.test(row.command), executed: TEST_COMMAND.test(row.command) ? 4 : 0, failed: 0, ignored: 0, skipped: 0, binaries: TEST_COMMAND.test(row.command) ? 1 : 0 }));
+    const rows = [...new Set(results.map(row => row.unit))].map(id => ({ id, ok: true, known: false, failed: [], seconds: results.filter(row => row.unit === id).length, skipped: 0 }));
+    const summary = { host, sha: SHA, selection: null, steps: "lock,fmt,test,closure", results, rows };
+    const policy = hosts[host].unitPolicies[0];
+    const selected = results.filter(row => row.unit === policy.id);
+    const steps = selected.map(row => ({ command: row.command, ok: true, seconds: 1, ...(row.isTest ? Object.fromEntries(["executed", "failed", "ignored", "skipped", "binaries"].map(key => [key, row[key]])) : {}) }));
+    const tests = selected.filter(row => row.isTest);
+    const executed = tests.reduce((sum, row) => sum + row.executed, 0);
+    const unitEvidence = { schema: 2, host, registry: "npm", sha: SHA, ok: true, units: [{ name: unit.name, id: policy.id, status: "pass", executed, ignored: 0, skipped: 0, problems: [], steps }] };
+    qa[host] = { summary, unitEvidence, summarySha256: hash(JSON.stringify(summary)), unitEvidenceSha256: hash(JSON.stringify(unitEvidence)) };
+    const arch = host === "macos" ? "arm64" : "x64";
+    const publicationEvidence = { schema: 1, kind: "npm", name: unit.name, version: unit.version, commit: SHA, tree: TREE, artifactSha256: unit.sha256, runs: [{ commit: SHA, artifactSha256: unit.sha256, host: { os: host === "macos" ? "darwin" : "win32", arch }, command: tests.map(row => row.command).join(" && "), features: ["default"], passed: executed, failed: 0, operator: "fixture/native-job", timestamp: "2026-10-20T00:00:00Z" }] };
+    const consumer = namedNpmReport({ sourceData, candidate, manifest, unit, host, arch });
+    receipts[host] = { schema: 1, kind: "verify", host, registry: "npm", commit: SHA, manifestSha256: candidate.manifestSha256, runId: "77", runAttempt: "1", manifestRunId: "77", manifestRunAttempt: "1", allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [], sourceGate: { tree: TREE, summarySha256: qa[host].summarySha256, unitEvidenceSha256: qa[host].unitEvidenceSha256 }, units: [{ ...unit, status: "pass", bytesVerified: true, publicationEvidence, consumer }] };
+  }
+  return { input: { candidate, manifest, source, receipts, qa, packDir }, sourceData, reads };
+}
+function namedNpmReport({ sourceData, candidate, manifest, unit, host, arch }) {
+  const api = host === "windows" ? path.win32 : path.posix;
+  const scratch = host === "windows" ? "D:\\scratch\\consumer" : "/scratch/consumer";
+  const checkout = host === "windows" ? "D:\\checkout" : "/checkout";
+  const archive = host === "windows" ? "D:\\packs\\logs.tgz" : "/packs/logs.tgz";
+  const commands = [], sourceBindings = {};
+  const add = (stage, command, args, stdout, cwd = scratch) => commands.push({ stage, command, args, stdout, stderr: "", cwd, status: 0 });
+  for (const [relative, bytes] of sourceData) {
+    sourceBindings[relative] = { sha256: hash(bytes), gitBlob: crypto.createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex") };
+    add("source", "git", ["show", `${SHA}:${relative}`], bytes.toString("utf8"), checkout);
+  }
+  const pkg = JSON.parse(sourceData.get("packages/logs/package.json"));
+  const recipeFiles = Object.fromEntries(NPM_RECIPE_FILES.map(relative => [relative, sourceBindings[relative]]));
+  add("archive-read", "tar", ["-xOzf", "logs.tgz", "package/package.json"], JSON.stringify(pkg), api.dirname(archive));
+  add("archive-read", "tar", ["-xOzf", "logs.tgz", "package/README.md"], sourceData.get("packages/logs/README.md").toString("utf8"), api.dirname(archive));
+  const pin = pkg.packageManager, store = api.join(scratch, "store"), home = api.join(scratch, "home");
+  const pnpm = (stage, args, output) => host === "windows" ? add(stage, "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", `pnpm ${args.map(arg => `"${arg}"`).join(" ")}`], output) : add(stage, "pnpm", args, output);
+  pnpm("toolchain", ["--version"], `${pin.slice(5)}\n`);
+  pnpm("install", ["install", "--ignore-scripts", "--no-frozen-lockfile", "--ignore-workspace", "--store-dir", store], "installed");
+  const vectors = JSON.parse(sourceData.get(NPM_SOURCE_FILES.at(-1)));
+  const counts = { exportNames: 9, parity: 37, crashParity: vectors.vectors.filter(row => row.windowCrash).length, diagnostics: 10, crashCapture: 3, logsExample: 1 };
+  add("runtime", host === "windows" ? "C:\\node\\node.exe" : "/usr/bin/node", ["consumer.mjs"], JSON.stringify({ schema: 1, recipe: "PK11-npm-logs", passed: true, counts }));
+  const consumerManifest = { ...JSON.parse(sourceData.get("ci/consumers/npm-logs/package.json")), dependencies: { [unit.name]: `file:${archive.replaceAll("\\", "/")}` } };
+  const lock = `lockfileVersion: 9\nresolution: file:${archive.replaceAll("\\", "/")}\nintegrity: ${unit.integrity}\n`;
+  return { schema: 1, kind: "npm-consumer", qualification: "R2a", recipeId: "PK11-npm-logs", name: unit.name, version: unit.version, commit: SHA, runId: String(candidate.runId), runAttempt: String(candidate.runAttempt), manifestRunId: String(manifest.runId), manifestRunAttempt: String(manifest.runAttempt), manifestSha256: candidate.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, archiveIntegrity: unit.integrity, host, runnerOS: host === "windows" ? "Windows" : "macOS", arch, verified: true, commands, sourceBindings, counts, toolchain: { node: "v24.0.0", pnpm: pin.slice(5), packageManager: pin }, recipe: { sourceCommit: SHA, files: recipeFiles, sha256: hash(JSON.stringify(recipeFiles)) }, paritySource: { path: NPM_SOURCE_FILES.at(-1), ...sourceBindings[NPM_SOURCE_FILES.at(-1)] }, lock, lockSha256: hash(lock), isolation: { checkout, scratch, originalArchive: archive, home, userconfig: api.join(home, ".npmrc"), globalconfig: api.join(home, "global.npmrc"), store, systemRoot: "C:\\Windows", ignoreScripts: true, inheritWorkspace: false, scriptLifecycle: "disabled", manifest: consumerManifest, consumerManifestSha256: hash(`${JSON.stringify(consumerManifest, null, 2)}\n`) }, portability: { entries: 1, imported: [unit.name], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport: [], patterns: [], bins: [], binSmoke: [], filesChecked: 2, noJsEntry: false } };
+}
+test("semantic admission accepts named npm evidence on both native hosts through data-only source reader", t => {
+  const fixture = namedNpmFixture(t);
+  const result = semanticAdmission(fixture.input);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.units[0].failures, []);
+  assert.equal(result.ok, true);
+  for (const relative of [...NPM_RECIPE_FILES, ...NPM_SOURCE_FILES]) assert.ok(fixture.reads.includes(relative));
+});
+test("named npm semantic integration refuses source/output/portability/host/pin substitutions", t => {
+  const mutations = [
+    fixture => { fixture.input.receipts.macos.units[0].consumer.counts.parity = 36; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.commands.at(-1).stdout = "{}"; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.recipe.sha256 = HEX; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.portability.imported = []; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.portability.filesChecked = 1; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.portability.skippedImport = ["."]; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.arch = "x64"; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.archiveIntegrity = "sha512-forged"; },
+    fixture => { fixture.input.receipts.macos.units[0].consumer.toolchain.pnpm = "1.0.0"; },
+    fixture => { fixture.input.source.readData = undefined; },
+    fixture => { fixture.sourceData.set("packages/logs/src/crash.ts", Buffer.from("candidate changed code")); },
+    fixture => { fixture.sourceData.set(NPM_SOURCE_FILES.at(-1), Buffer.from('{"schema":2}')); },
+    fixture => { fixture.sourceData.set("ci/consumers/npm-logs/consumer.mjs", Buffer.from("throw new Error('candidate recipe must not execute')")); },
+    fixture => { const pkg = JSON.parse(fixture.sourceData.get("package.json")); pkg.packageManager = "pnpm@1.0.0"; fixture.sourceData.set("package.json", Buffer.from(JSON.stringify(pkg))); },
+  ];
+  for (const mutate of mutations) { const fixture = namedNpmFixture(t); mutate(fixture); const result = semanticAdmission(fixture.input); assert.equal(result.ok, false); assert.ok(result.units[0].failures.length); }
+});
+test("unknown npm remains HOLD even with a forged named consumer", t => {
+  const fixture = namedNpmFixture(t);
+  assert.ok(namedNpmQualificationProblems({ unit: { name: "@rightkit/other" }, report: fixture.input.receipts.macos.units[0].consumer }).some(problem => problem.includes("generic import is not PK qualification")));
 });

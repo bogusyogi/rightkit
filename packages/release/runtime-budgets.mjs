@@ -582,7 +582,14 @@ export function statusApiDeclared(api, source) {
  * `evidence` is the release gate evidence for it (the host-policy authority). `requireInstalled`
  * (adoption) additionally needs a fresh in-ceiling installed-app measurement, optionally for `app`.
  */
-export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requireInstalled = false, app, heldResource = false }, { readFile = readFileSync, exists = existsSync, git = defaultGit } = {}) {
+export function evaluateRuntimeBudget(options, deps = {}) {
+  return evaluateRuntimeBudgetOwned(options, deps);
+}
+
+// Private owner mode: no caller-supplied boolean can weaken publication or adoption.
+const STRUCTURE_ONLY = Symbol("runtime-budget-structure-only");
+function evaluateRuntimeBudgetOwned({ crate, crateDir, version, evidence, requireInstalled = false, app, heldResource = false }, { readFile = readFileSync, exists = existsSync, git = defaultGit } = {}, mode) {
+  const structural = mode === STRUCTURE_ONLY;
   const file = path.join(crateDir, RUNTIME_BUDGET_FILE);
   if (!exists(file)) return { ok: false, problems: [`${RUNTIME_BUDGET_FILE} is missing (docs/RUNTIME-BUDGETS.md)`] };
   let budget;
@@ -656,7 +663,7 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
 
   // Measurements.
   const records = Array.isArray(budget.measurements) ? budget.measurements : [];
-  if (records.length === 0) problems.push("no measurements recorded (a declared ceiling is not evidence)");
+  if (!structural && records.length === 0) problems.push("no measurements recorded (a declared ceiling is not evidence)");
   const valid = [];
   records.forEach((m, index) => {
     const bad = validateMeasurement(m, index);
@@ -665,7 +672,7 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
     if (evidenceProblems.length) problems.push(...evidenceProblems); else valid.push({ m, index });
   });
   const counted = valid.filter(({ m }) => m.crateVersion === version);
-  if (valid.length && nonEmpty(version) && counted.length === 0) {
+  if (!structural && valid.length && nonEmpty(version) && counted.length === 0) {
     problems.push(`no measurement for version ${version} (recorded: ${[...new Set(valid.map(({ m }) => m.crateVersion))].join(", ")})`);
   }
   // Why a measurement fails one figure, or null. A delta-basis figure of a synthetic measurement is gated on
@@ -690,7 +697,7 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
     }
     return null;
   };
-  for (const { m, index } of counted) {
+  for (const { m, index } of (structural ? valid : counted)) {
     for (const key of BUDGET_FIGURES) {
       const failure = figureFailure(m, key);
       if (failure) problems.push(`measurement[${index}] on ${m.host.os}/${m.host.arch} ${failure}`);
@@ -698,6 +705,14 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
   }
   const withinCeilings = (m) => BUDGET_FIGURES.every((key) => ceilings[key] !== undefined && (usesDelta(m, key) ? deltaCeilings[key] !== undefined && figureFailure(m, key) === null : m.observed[key] === null ? figureUnavailableOn(m.host?.os, key) : m.observed[key] <= ceilings[key]));
   const atScale = (m) => requiredScale !== null && m.dataScale.unit === requiredScale.unit && m.dataScale.count >= requiredScale.minCount;
+  if (structural) {
+    if (!Array.isArray(budget.measurements)) problems.push("measurements must be an array");
+    const scope = measuredPathspecs(crateDir, { exists, readFile });
+    problems.push(...scope.problems);
+    for (const key of deltaFigures) if (!nonEmpty(budget.deltaSources?.[key])) problems.push(`deltaSources.${key} must name its ceiling source`);
+    if (budget.deltaSources !== undefined && (!budget.deltaSources || typeof budget.deltaSources !== "object" || Array.isArray(budget.deltaSources) || Object.keys(budget.deltaSources).some((key) => !deltaFigures.includes(key)))) problems.push("deltaSources must name only declared delta figures");
+    for (const { m, index } of valid) if (!atScale(m)) problems.push(`measurement[${index}] is below required scale`);
+  }
   const staleness = new Map();
   const stale = (m) => {
     if (!staleness.has(m.commit)) staleness.set(m.commit, measurementStaleness(m.commit, crateDir, git, { exists, readFile }));
@@ -706,7 +721,7 @@ export function evaluateRuntimeBudget({ crate, crateDir, version, evidence, requ
 
   // Required hosts: one fresh, in-ceiling, at-scale measurement of this version on each.
   // A held-resource crate defers measurement to adoption: no per-host publish measurement is required.
-  const required = heldResource ? [] : requiredBudgetHosts(budget, evidence);
+  const required = heldResource || structural ? [] : requiredBudgetHosts(budget, evidence);
   for (const host of required) {
     const onHost = counted.filter(({ m }) => m.host.os === host);
     if (onHost.length === 0) { problems.push(`no ${HOSTS[host]} measurement for version ${version} (required hosts: ${required.map((h) => HOSTS[h]).join(" and ")}${required.length > 1 ? "; apps ship on both and the release gate requires both unless a darwin-only policy with a reason is recorded" : `; ${required[0]}-only policy: ${String((evidence ?? budget).hostPolicyReason).trim()}`})`); continue; }
@@ -810,7 +825,17 @@ export function heldResourceProblems({ crate, crateDir, meta }, { readFile = rea
  * naming every matched pattern), "held-resource" (resources table, adoption-time proof) or always-on
  * (runtime-budget.json, fully checked). `readFile`, `exists` and `git` are injectable.
  */
-export function runtimeBudgetCheck({ crate, crateDir, version, evidence, requireInstalled = false, app }, deps = {}) {
+export function runtimeBudgetCheck(options, deps = {}) {
+  return runtimeBudgetCheckOwned(options, deps);
+}
+
+/** Source structure only; grants no runtime qualification or semantic admission. */
+export function runtimeBudgetStructureCheck(options, deps = {}) {
+  const result = runtimeBudgetCheckOwned({ ...options, requireInstalled: false }, deps, STRUCTURE_ONLY);
+  return { ...result, name: "runtime-budget-structure" };
+}
+
+function runtimeBudgetCheckOwned({ crate, crateDir, version, evidence, requireInstalled = false, app }, deps = {}, mode) {
   const { readFile = readFileSync, exists = existsSync } = deps;
   let pkg;
   try { pkg = readCargoPackage(crateDir, { exists, readFile }); } catch (error) {
@@ -857,9 +882,9 @@ export function runtimeBudgetCheck({ crate, crateDir, version, evidence, require
     return fail(crate, crateDir, [`undeclared: none of ${RUNTIME_BUDGET_FILE}, continuous = false with a continuous_reason, or continuous = "held-resource" with resources`],
       `declare the crate (docs/RUNTIME-BUDGETS.md)`);
   }
-  const result = evaluateRuntimeBudget({ crate, crateDir, version: version ?? pkg.version, evidence, requireInstalled, app }, deps);
+  const result = evaluateRuntimeBudgetOwned({ crate, crateDir, version: version ?? pkg.version, evidence, requireInstalled, app }, deps, mode);
   if (result.ok) {
-    return { name: RUNTIME_BUDGET_CHECK, status: "ok", detail: `${crate} ${version ?? pkg.version} has measured runtime budgets on every required host` };
+    return { name: RUNTIME_BUDGET_CHECK, status: "ok", detail: mode === STRUCTURE_ONLY ? `${crate} ${version ?? pkg.version} runtime budget structure is valid; qualification is separate` : `${crate} ${version ?? pkg.version} has measured runtime budgets on every required host` };
   }
   return fail(crate, crateDir, result.problems);
 }

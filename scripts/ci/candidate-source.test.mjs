@@ -79,6 +79,12 @@ test("candidate source authenticates blobs, inventories packages & derives nativ
   assert.deepEqual(loaded.hosts.macos.selection.npm.test, ["packages/one"]);
   assert.equal(loaded.sourceHashes["pnpm-workspace.yaml"].length, 64);
   assert.ok(loaded.sourceHashes["packages/parked/package.json"], "excluded manifest bytes remain authenticated");
+  const original = loaded.readData("package.json");
+  assert.ok(Buffer.isBuffer(original));
+  assert.equal(original.toString(), '{"name":"fixture","private":true}');
+  original.fill(0);
+  assert.equal(loaded.readData("package.json").toString(), '{"name":"fixture","private":true}', "returned buffers cannot mutate authenticated source");
+  assert.throws(() => loaded.readData("../outside"), /unsafe|missing|untracked|candidate/i);
   assert.ok(input.calls.every((args) => !["checkout", "fetch", "config", "reset"].includes(args[0])));
 });
 

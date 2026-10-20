@@ -483,6 +483,24 @@ export async function reconcileUnit({ registry, unit, fetchImpl }) {
   return "absent";
 }
 
+/** Check registry payload semantics without credentials or registry access. Returns problem strings. */
+export function checkUploadPayloads({ manifest, packDir, registry, spawn = spawnSync }) {
+  const problems = [];
+  if (registry === "npm") {
+    for (const unit of manifest.units) {
+      try { problems.push(...checkNpmTarball({ file: path.join(packDir, unit.file), name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems); } catch (error) { problems.push(`${unit.name}: ${error.message}`); }
+    }
+  } else {
+    for (const unit of manifest.units) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"));
+        if (meta.name !== unit.name || meta.vers !== unit.version || !Array.isArray(meta.deps)) problems.push(`${unit.name}: upload metadata does not describe ${unit.name}@${unit.version}`);
+      } catch { problems.push(`${unit.name}: upload metadata is unreadable`); }
+    }
+  }
+  return problems;
+}
+
 /**
  * Check everything, then upload (or, with dryRun, describe) each sealed unit in order. Injectable `spawn`
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
@@ -518,18 +536,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
     if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
     problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
     problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver }));
-    if (registry === "npm") {
-      for (const unit of manifest.units) {
-        try { problems.push(...checkNpmTarball({ file: path.join(packDir, unit.file), name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems); } catch (error) { problems.push(`${unit.name}: ${error.message}`); }
-      }
-    } else {
-      for (const unit of manifest.units) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"));
-          if (meta.name !== unit.name || meta.vers !== unit.version || !Array.isArray(meta.deps)) problems.push(`${unit.name}: upload metadata does not describe ${unit.name}@${unit.version}`);
-        } catch { problems.push(`${unit.name}: upload metadata is unreadable`); }
-      }
-    }
+    problems.push(...checkUploadPayloads({ manifest, packDir, registry, spawn }));
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);
 

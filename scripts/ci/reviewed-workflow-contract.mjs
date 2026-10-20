@@ -58,7 +58,7 @@ export function assertReviewedDoc(doc) {
     admission_id: "${{ steps.admission.outputs.artifact-id }}",
     admission_digest: "${{ steps.admission.outputs.artifact-digest }}",
   });
-  assert.equal(check.steps.length, 8); assert.equal(upload.steps.length, 6);
+  assert.equal(check.steps.length, 8); assert.equal(upload.steps.length, 7);
   for (const job of [check, upload]) {
     assert.equal(job["runs-on"], "ubuntu-24.04"); assert.ok(Number(job["timeout-minutes"]) > 0);
     assert.deepEqual(job.steps[1], { uses: NODE, with: { "node-version": "26.8.1", "package-manager-cache": "false" } });
@@ -90,12 +90,16 @@ export function assertReviewedDoc(doc) {
     assert.deepEqual(step.env, { ...transferEnv, [variable]: `\${{ secrets.${secret} }}` });
     assert.equal(step.run, "node scripts/ci/reviewed-candidate.mjs run");
   }
-  for (const [step, name, always] of [[check.steps[7], "reviewed-admission-receipt", false], [upload.steps[5], "publication-receipt", true]]) {
-    keys(step, always ? ["name", "if", "uses", "with"] : ["name", "id", "uses", "with"]);
-    if (!always) assert.equal(step.id, "admission");
-    if (always) assert.equal(step.if, "always()");
+  for (const [step, name, directory, condition] of [
+    [check.steps[7], "reviewed-admission-receipt", "publication-admission", null],
+    [upload.steps[5], "reviewed-admission-transfer", "publication-admission-transfer", "always()"],
+    [upload.steps[6], "publication-receipt", "publication-receipt", "${{ always() && !inputs.dry_run }}"],
+  ]) {
+    keys(step, condition ? ["name", "if", "uses", "with"] : ["name", "id", "uses", "with"]);
+    if (!condition) assert.equal(step.id, "admission");
+    else assert.equal(step.if, condition);
     assert.equal(step.uses, ARTIFACT);
-    assert.deepEqual(step.with, { name, path: always ? "${{ runner.temp }}/publication-receipt" : "${{ runner.temp }}/publication-admission", "retention-days": "90", "if-no-files-found": "error" });
+    assert.deepEqual(step.with, { name, path: `\${{ runner.temp }}/${directory}`, "retention-days": "90", "if-no-files-found": "error" });
   }
   return true;
 }
@@ -131,6 +135,11 @@ export const REVIEWED_MUTATIONS = [
   ["missing admission digest output", (d) => { delete d.jobs["seal-check"].outputs.admission_digest; }],
   ["mutable admission identity", (d) => { d.jobs.upload.steps[2].env.PUBLISH_ADMISSION_ID = "${{ inputs.candidate_id }}"; }],
   ["missing credential-free transfer check", (d) => { d.jobs.upload.steps.splice(2, 1); }],
+  ["transfer contaminates publication artifact", (d) => { d.jobs.upload.steps[5].with.path = "${{ runner.temp }}/publication-receipt"; }],
+  ["transfer evidence omitted on dry run", (d) => { d.jobs.upload.steps[5].if = "${{ !inputs.dry_run }}"; }],
+  ["publication artifact required on dry run", (d) => { d.jobs.upload.steps[6].if = "always()"; }],
+  ["publication artifact includes transfer directory", (d) => { d.jobs.upload.steps[6].with.path = "${{ runner.temp }}"; }],
+  ["transfer replaces publication artifact identity", (d) => { d.jobs.upload.steps[5].with.name = "publication-receipt"; }],
   ["semantic dependencies under credentials", (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] += "scripts/ci/semantic-admission.mjs\npackages/release\n"; }],
 ];
 

@@ -9,7 +9,7 @@ const unit = { name: "rightkit-logs", version: "0.3.4" };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
 const manifest = fs.readFileSync(path.join(committedRoot, "ci/consumers/rightkit-logs/Cargo.toml"), "utf8");
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-pk-recipe-")); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-pk-recipe-"))); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const dir = path.join(root, "ci/consumers/rightkit-logs"); fs.mkdirSync(path.dirname(dir), { recursive: true });
   fs.cpSync(path.join(committedRoot, "ci/consumers/rightkit-logs"), dir, { recursive: true });
   fs.copyFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), path.join(root, "ci/consumer-recipes.json"));

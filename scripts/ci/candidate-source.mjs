@@ -89,7 +89,7 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
   }
   const sourceHashes = {};
   let total = 0;
-  function read(name) {
+  function readData(name) {
     const blob = entries.get(name);
     if (!blob) throw new Error(`candidate missing ${name}`);
     const size = text(["cat-file", "-s", blob]);
@@ -97,8 +97,9 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
     const bytes = git(["cat-file", "blob", blob]).bytes;
     if (bytes.length !== Number(size) || crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") !== blob) throw new Error("candidate blob authentication failed");
     sourceHashes[name] = digest(bytes);
-    return bytes.toString("utf8");
+    return Buffer.from(bytes);
   }
+  const read = (name) => readData(name).toString("utf8");
   const json = (name) => object(JSON.parse(read(name)), name);
   const config = json("ci/gate.config.json");
   const assetGated = json("ci/asset-gated.json");
@@ -142,5 +143,5 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
   const hosts = Object.fromEntries(["macos", "windows"].map((host) => [host, derivePublicationObligations({ ...data, host })]));
   // Recheck mutable checkout identity after reading data (all semantic bytes came from blobs).
   if (text(["rev-parse", "--verify", "HEAD^{commit}"]) !== sourceSha || text(["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"])) throw new Error("candidate changed during source loading");
-  return { source: { sha: sourceSha, tree }, hosts, root, sourceHashes };
+  return { source: { sha: sourceSha, tree }, hosts, root, sourceHashes, readData };
 }

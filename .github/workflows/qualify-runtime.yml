@@ -41,7 +41,7 @@ jobs:
         with:
           name: runtime-candidate
           path: ${{ runner.temp }}/runtime-packed
-          retention-days: 7
+          retention-days: 90
           if-no-files-found: error
   measure:
     needs: candidate
@@ -54,7 +54,7 @@ jobs:
           - runner: xcode-27
             host: darwin
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -82,7 +82,7 @@ jobs:
         with:
           name: runtime-candidate
           path: ${{ runner.temp }}/runtime-packed
-      - name: Measure fixed tracing writer workload & record raw provenance
+      - name: Measure tracing & detached workloads sequentially in isolated processes
         env:
           RUNTIME_SOURCE: ${{ github.workspace }}/candidate
           RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
@@ -93,7 +93,7 @@ jobs:
         with:
           name: runtime-${{ matrix.host }}
           path: ${{ runner.temp }}/runtime-results
-          retention-days: 14
+          retention-days: 90
           if-no-files-found: error
   qualify:
     needs: [candidate, measure]
@@ -128,7 +128,7 @@ jobs:
         with:
           pattern: runtime-*
           path: ${{ runner.temp }}/runtime-hosts
-      - name: Validate both hosts with existing runtime-budget gate & generate reviewable records
+      - name: Validate both workloads on both hosts with existing runtime-budget gate
         env:
           RUNTIME_SOURCE: ${{ github.workspace }}/candidate
           RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
@@ -140,5 +140,5 @@ jobs:
         with:
           name: runtime-qualified
           path: ${{ runner.temp }}/runtime-qualified
-          retention-days: 14
+          retention-days: 90
           if-no-files-found: error

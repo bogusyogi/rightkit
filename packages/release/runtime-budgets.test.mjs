@@ -18,6 +18,7 @@ import {
   RUNTIME_BUDGET_CRATES,
   runtimeBudgetAdoptionCheck,
   runtimeBudgetCheck,
+  runtimeBudgetStructureCheck,
   runtimeBudgetOptIn,
   runtimeBudgetSection,
   scanContinuousFiles,
@@ -1078,4 +1079,32 @@ test("a pattern id counts as named only as a whole token in the reason", (t) => 
   assert.equal(incidental.status, "fail");
   assert.match(incidental.detail, /src matches sleep \(src\/index\.rs\)/);
   assert.equal(check(crate(t, { file: false, readme: null, manifest: declared("one-shot sleep in a retry helper, reviewed"), src })).status, "ok");
+});
+
+const structure = (dir, over = {}) => runtimeBudgetStructureCheck({ crate: "rightkit-fsindex", crateDir: dir, version: "0.2.0", ...over }, { git: freshGit() });
+test("structure permits missing current measurement while publication still refuses", (t) => {
+  for (const measurements of [[], [measurement("darwin", { crateVersion: "0.1.0" })]]) {
+    const dir = crate(t, { budget: budgetFor({ measurements }) });
+    assert.equal(structure(dir).status, "ok");
+    assert.equal(runtimeBudgetCheck({ crate: "rightkit-fsindex", crateDir: dir, version: "0.2.0", structureOnly: true }, { git: freshGit() }).status, "fail");
+    assert.equal(evaluate(dir, { structureOnly: true }).ok, false);
+  }
+});
+test("structure refuses historical failures, invalid evidence, README & metadata", (t) => {
+  const old = (over) => measurement("darwin", { crateVersion: "0.1.0", ...over });
+  for (const options of [
+    { budget: budgetFor({ measurements: [old({ observed: { ...OBSERVED, residentMemoryBytes: CEILINGS.residentMemoryBytes + 1 } })] }) },
+    { budget: budgetFor({ measurements: [old({ evidence: { file: "runtime-budget.evidence/missing.txt", sha256: "a".repeat(64) } })] }) },
+    { budget: budgetFor({ measurements: [old({ dataScale: { description: "tiny", unit: "entries", count: 1 } })] }) },
+    { budget: budgetFor({ measurements: [], ceilings: { ...CEILINGS, idleCpuPercent: 0 } }) },
+    { budget: budgetFor({ measurements: [] }), readme: "# wrong" },
+    { budget: budgetFor({ measurements: [] }), manifest: MANIFEST + '[dependencies]\nmissing = { path = "../missing-structural-dependency" }\n' },
+  ]) assert.equal(structure(crate(t, options)).status, "fail");
+});
+
+test("structure preserves false & held-resource classification decisions", (t) => {
+  for (const [dir, name] of [[held(t), "rightkit-held"], [held(t, { toml: resourceToml("") }), "rightkit-held"], [crate(t, { file: false, readme: null, manifest: '[package]\nname = "rightkit-new"\nversion = "0.1.0"\n[package.metadata.rightkit]\ncontinuous = false\ncontinuous_reason = "no background work"\n', src: "pub fn status() {}" }), "rightkit-new"]]) {
+    const options = { crate: name, crateDir: dir, version: "0.1.0" };
+    assert.equal(runtimeBudgetStructureCheck(options, { git: freshGit() }).status, runtimeBudgetCheck(options, { git: freshGit() }).status);
+  }
 });

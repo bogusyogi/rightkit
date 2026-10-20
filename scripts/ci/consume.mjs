@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runRegistryConsumer } from "./registry-consumer.mjs";
+import { runNpmConsumer } from "./npm-consumer.mjs";
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
 /** How to run npm without a shell: node + npm-cli.js beside the running node, else the npm shim. */
@@ -154,7 +155,7 @@ process.stdout.write("RK_CONSUME " + JSON.stringify(out) + "\\n");
  * Install the sealed tarballs together into a scratch project and check each from its installed copy.
  * Returns Map(unit name -> { problems: [], report }). Never throws for a package defect.
  */
-export function consumeNpm({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath }) {
+export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath }) {
   const results = new Map(units.map((u) => [u.name, { problems: [], report: {} }]));
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-consume-npm-"));
   try {
@@ -221,6 +222,29 @@ export function consumeNpm({ units, packDir, scratchRoot = os.tmpdir(), spawn = 
       }
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  return results;
+}
+
+/** Preserve every existing portability gate; only named PK11 receives R2a evidence. */
+export function consumeNpm(options) {
+  const results = consumeNpmPortability(options);
+  for (const unit of options.units) {
+    const out = results.get(unit.name);
+    if (unit.name !== "@rightkit/logs") continue;
+    const portability = out.report;
+    const scratchRoot = options.scratchRoot ?? os.tmpdir();
+    // A unique external report path is required by named runner & removed after readback.
+    const reportDirectory = fs.mkdtempSync(path.join(scratchRoot, "rk-pk11-report-"));
+    try {
+      const report = (options.npmConsumer ?? runNpmConsumer)({ packDir: options.packDir, name: unit.name, reportFile: path.join(reportDirectory, "report.json"), scratchRoot, spawn: options.spawn ?? spawnSync, env: options.env ?? process.env, ...(options.root ? { root: options.root } : {}) });
+      out.report = { ...report, portability };
+      if (out.problems.length || report?.verified !== true || report.qualification !== "R2a" || report.name !== unit.name || report.version !== unit.version || report.archiveSha256 !== unit.sha256 || report.archiveSize !== unit.size) {
+        out.report.verified = false;
+        out.problems.push(`${unit.name}: named PK11 consumer or existing portability gates failed`);
+      }
+    } catch (error) { out.report = { ...(error.report ?? {}), qualification: "R2a", verified: false, portability }; out.problems.push(`${unit.name}: named PK11 npm consumer failed: ${error.message}`); }
+    finally { fs.rmSync(reportDirectory, { recursive: true, force: true }); }
+  }
   return results;
 }
 

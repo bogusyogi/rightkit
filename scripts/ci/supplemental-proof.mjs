@@ -17,7 +17,7 @@ const need = (ok, why) => { if (!ok) throw new Error(`archive supplement refused
 function exact(value, keys, label) {
   need(value && typeof value === "object" && !Array.isArray(value) && same(Object.keys(value).sort(), [...keys].sort()), `${label} keys mismatch`);
 }
-const candidateHash = (candidate) => sha("sha256", JSON.stringify(validateCandidate(candidate)));
+export const candidateHash = (candidate) => sha("sha256", JSON.stringify(validateCandidate(candidate)));
 const artifactName = (candidateId, attempt) => `archive-scan-supplement-${candidateId}-${attempt}`;
 const proofName = "archive-scan-supplement.json";
 
@@ -28,7 +28,7 @@ function policy(value, sourceSha) {
 function original(candidate) {
   return { candidateId: candidate.id, candidateSha256: candidateHash(candidate), sourceSha: candidate.sourceSha, manifestSha256: candidate.manifestSha256, packedArtifact: candidate.artifacts.packed };
 }
-function checkOriginal(value, candidate) {
+export function checkOriginal(value, candidate) {
   exact(value, ["candidateId", "candidateSha256", "sourceSha", "manifestSha256", "packedArtifact"], "original binding");
   exact(value.packedArtifact, ["id", "digest"], "original packed artifact");
   const expected = original(candidate);
@@ -40,12 +40,18 @@ function checkOriginal(value, candidate) {
 export function validateSupplementPin(pin, candidate) {
   validateCandidate(candidate);
   exact(pin, ["schema", "kind", "original", "producer", "artifact", "policy"], "supplement pin");
-  need(pin.schema === 1 && pin.kind === "archive-scan-supplement-pin", "unknown supplement pin version/kind");
+  need(pin.schema === 1 && ["archive-scan-supplement-pin", "runtime-workload-pin"].includes(pin.kind), "unknown supplement pin version/kind");
   checkOriginal(pin.original, candidate);
-  exact(pin.producer, ["workflowId", "runId", "runAttempt", "jobId", "sourceSha"], "producer pin");
+  const runtime = pin.kind === "runtime-workload-pin";
+  exact(pin.producer, ["workflowId", "runId", "runAttempt", "jobId", "sourceSha", ...(runtime ? ["jobs"] : [])], "producer pin");
+  if (runtime) {
+    exact(pin.producer.jobs, ["candidate", "win32", "darwin", "qualify"], "runtime jobs");
+    need(Object.values(pin.producer.jobs).every(id) && new Set(Object.values(pin.producer.jobs)).size === 4 && pin.producer.jobs.qualify === pin.producer.jobId, "invalid runtime job pins");
+  }
   for (const key of ["workflowId", "runId", "runAttempt", "jobId"]) need(id(pin.producer[key]), `invalid producer ${key}`);
   need(SHA.test(pin.producer.sourceSha), "invalid producer source revision");
-  policy(pin.policy, pin.producer.sourceSha);
+  if (runtime) { exact(pin.policy, ["id", "sourceSha", "validatorSourceSha"], "runtime policy"); need(pin.policy.id === "runtime-workloads/v1" && pin.policy.sourceSha === pin.producer.sourceSha && pin.policy.validatorSourceSha === pin.producer.sourceSha, "runtime policy mismatch"); }
+  else policy(pin.policy, pin.producer.sourceSha);
   exact(pin.artifact, ["id", "digest", "proofSha256"], "supplement artifact pin");
   need(id(pin.artifact.id) && /^sha256:[0-9a-f]{64}$/.test(pin.artifact.digest) && HASH.test(pin.artifact.proofSha256), "invalid supplement artifact identity/hash");
   need(!Object.values(candidate.artifacts).some((a) => String(a.id) === pin.artifact.id), "supplement cannot alias original artifact");
@@ -84,12 +90,36 @@ function artifactBinding(artifact, pin, { name, runId, sourceSha, repository }) 
   const run = artifact.workflow_run;
   need(String(run?.id) === String(runId) && run.head_sha === sourceSha && run.head_branch === "main" && run.repository_id === repository.id && run.head_repository_id === repository.id, "foreign artifact provenance");
 }
-async function download(api, pin, destination, name, binding, spawn) {
+async function download(api, pin, destination, name, binding, spawn, nested = false) {
   const artifact = await api(`actions/artifacts/${pin.id}`);
   artifactBinding(artifact, pin, { ...binding, name });
   const bytes = await api(`actions/artifacts/${pin.id}/zip`, true);
   need(`sha256:${sha("sha256", bytes)}` === pin.digest, "downloaded artifact digest mismatch");
-  const entries = unpackArtifact({ bytes, zipFile: `${destination}.zip`, destination, spawn });
+  let entries;
+  if (!nested) entries = unpackArtifact({ bytes, zipFile: `${destination}.zip`, destination, spawn });
+  else {
+    need(bytes.length <= 64 * 1024 * 1024, "runtime artifact exceeds bound");
+    const zip = `${destination}.zip`;
+    fs.writeFileSync(zip, bytes);
+    const invoke = (args) => {
+      const result = spawn("unzip", args, { encoding: "buffer", windowsHide: true, shell: false, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+      need(!result.error && !result.signal && result.status === 0, "runtime artifact extraction failed");
+      return Buffer.from(result.stdout ?? "");
+    };
+    entries = invoke(["-Z1", zip]).toString("utf8").trim().split(/\r?\n/);
+    need(entries.length > 0 && entries.length < 1000 && new Set(entries).size === entries.length && entries.every((entry) => /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\/?$/.test(entry) && entry.replace(/\/$/, "").split("/").every((part) => part !== "." && part !== "..")), "unsafe runtime artifact paths");
+    let total = 0;
+    for (const entry of entries) {
+      if (entry.endsWith("/")) continue;
+      // Materialize bytes with exclusive writes, never archived modes or links.
+      const content = invoke(["-p", zip, entry]);
+      total += content.length;
+      need(total <= 64 * 1024 * 1024, "expanded runtime artifact exceeds bound");
+      const file = path.join(destination, ...entry.split("/"));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content, { flag: "wx", mode: 0o600 });
+    }
+  }
   return { entries, artifact };
 }
 async function originalArchive({ candidate, env, api, root, spawn }) {
@@ -133,6 +163,7 @@ export async function produceArchiveSupplement({ env = process.env, candidateId,
 /** Pure proof check; authentication is owned by verifyArchiveSupplement below, never by this helper. */
 export function validateSupplementProof(proof, { candidate, pin, manifest }) {
   validateSupplementPin(pin, candidate);
+  need(pin.kind === "archive-scan-supplement-pin", "wrong archive supplement kind");
   exact(proof, ["schema", "kind", "original", "producer", "policy", "units"], "supplement proof");
   need(proof.schema === 1 && proof.kind === "archive-scan-supplement", "unknown proof version/kind");
   checkOriginal(proof.original, candidate);
@@ -151,6 +182,35 @@ export function validateSupplementProof(proof, { candidate, pin, manifest }) {
   return proof;
 }
 
+/** Shared fixed-repository producer authentication; callers cannot substitute artifact/run checks. */
+export async function authenticateSupplement({ candidate, pin, env, fetchImpl = fetch, spawn = spawnSync, root, repository, workflowPath, requiredJobs, name }) {
+  const api = evidenceApi(env, fetchImpl);
+    need(repository?.full_name === REPOSITORY && Number.isSafeInteger(repository.id), "fixed repository mismatch");
+    const workflow = await api(`actions/workflows/${path.posix.basename(workflowPath)}`);
+    need(String(workflow.id) === pin.producer.workflowId && workflow.path === workflowPath && workflow.state === "active", "producer workflow mismatch");
+    const route = `actions/runs/${pin.producer.runId}/attempts/${pin.producer.runAttempt}`;
+    const run = await api(route);
+    need(String(run.id) === pin.producer.runId && Number(run.run_attempt) === Number(pin.producer.runAttempt) && String(run.workflow_id) === pin.producer.workflowId && run.path === workflowPath && run.event === "workflow_dispatch" && run.head_branch === "main" && run.head_sha === pin.producer.sourceSha && run.status === "completed" && run.conclusion === "success", "producer run provenance/success mismatch");
+    for (const repo of [run.repository, run.head_repository]) need(repo?.id === repository.id && repo.full_name === REPOSITORY, "foreign producer repository");
+    const comparison = await api(`compare/${pin.producer.sourceSha}...${env.GITHUB_SHA}`);
+    need(["ahead", "identical"].includes(comparison.status) && comparison.merge_base_commit?.sha === pin.producer.sourceSha, "validator must descend from pinned policy/validator revision");
+    const jobs = await api(`${route}/jobs?per_page=100`);
+    need(Array.isArray(jobs.jobs) && jobs.jobs.length === jobs.total_count && new Set(jobs.jobs.map((job) => job.id)).size === jobs.jobs.length, "incomplete producer jobs");
+    need(jobs.jobs.every((job) => String(job.run_id) === pin.producer.runId && Number(job.run_attempt) === Number(pin.producer.runAttempt) && job.head_sha === pin.producer.sourceSha), "producer job provenance mismatch");
+    for (const [name, jobId] of Object.entries(requiredJobs)) {
+      const selected = jobs.jobs.filter((job) => String(job.id) === jobId && job.name === name);
+      need(selected.length === 1 && jobs.jobs.filter((job) => job.name === name).length === 1 && selected[0].status === "completed" && selected[0].conclusion === "success", "pinned producer job did not succeed");
+    }
+    const destination = path.join(root, "supplement");
+    const { entries } = await download(api, pin.artifact, destination, name, { runId: pin.producer.runId, sourceSha: pin.producer.sourceSha, repository: repository }, spawn, pin.kind === "runtime-workload-pin");
+    return { entries, destination, api };
+}
+
+export async function retainedSupplementOriginal({ candidate, env, fetchImpl = fetch, root, spawn = spawnSync }) {
+  context(env);
+  return originalArchive({ candidate, env, api: evidenceApi(env, fetchImpl), root, spawn });
+}
+
 const authenticated = new WeakMap();
 /** Trusted main validator authenticates original archive retention & successful pinned producer run. */
 export async function verifyArchiveSupplement({ candidate, pin, manifest, manifestSha256, env, fetchImpl = fetch, spawn = spawnSync }) {
@@ -162,22 +222,8 @@ export async function verifyArchiveSupplement({ candidate, pin, manifest, manife
   try {
     const original = await originalArchive({ candidate, env, api, root, spawn });
     need(same(original.manifest, manifest), "caller manifest differs from retained original");
-    const workflow = await api("actions/workflows/supplement-archive-scan.yml");
-    need(String(workflow.id) === pin.producer.workflowId && workflow.path === SUPPLEMENT_WORKFLOW && workflow.state === "active", "producer workflow mismatch");
-    const route = `actions/runs/${pin.producer.runId}/attempts/${pin.producer.runAttempt}`;
-    const run = await api(route);
-    need(String(run.id) === pin.producer.runId && Number(run.run_attempt) === Number(pin.producer.runAttempt) && String(run.workflow_id) === pin.producer.workflowId && run.path === SUPPLEMENT_WORKFLOW && run.event === "workflow_dispatch" && run.head_branch === "main" && run.head_sha === pin.producer.sourceSha && run.status === "completed" && run.conclusion === "success", "producer run provenance/success mismatch");
-    for (const repo of [run.repository, run.head_repository]) need(repo?.id === original.repository.id && repo.full_name === REPOSITORY, "foreign producer repository");
-    const comparison = await api(`compare/${pin.producer.sourceSha}...${env.GITHUB_SHA}`);
-    need(["ahead", "identical"].includes(comparison.status) && comparison.merge_base_commit?.sha === pin.producer.sourceSha, "validator must descend from pinned policy/validator revision");
-    const jobs = await api(`${route}/jobs?per_page=100`);
-    need(Array.isArray(jobs.jobs) && jobs.jobs.length === jobs.total_count && new Set(jobs.jobs.map((job) => job.id)).size === jobs.jobs.length, "incomplete producer jobs");
-    need(jobs.jobs.every((job) => String(job.run_id) === pin.producer.runId && Number(job.run_attempt) === Number(pin.producer.runAttempt) && job.head_sha === pin.producer.sourceSha), "producer job provenance mismatch");
-    const selected = jobs.jobs.filter((job) => String(job.id) === pin.producer.jobId && job.name === "archive-scan");
-    need(selected.length === 1 && jobs.jobs.filter((job) => job.name === "archive-scan").length === 1 && selected[0].status === "completed" && selected[0].conclusion === "success", "pinned archive-scan job did not succeed");
-    const destination = path.join(root, "supplement");
-    const { entries } = await download(api, pin.artifact, destination, artifactName(candidate.id, pin.producer.runAttempt), { runId: pin.producer.runId, sourceSha: pin.producer.sourceSha, repository: original.repository }, spawn);
-    need(same(entries, [proofName]), "supplement artifact must contain exactly one proof");
+    const { destination } = await authenticateSupplement({ candidate, pin, env, fetchImpl, spawn, root, repository: original.repository, workflowPath: SUPPLEMENT_WORKFLOW, requiredJobs: { "archive-scan": pin.producer.jobId }, name: artifactName(candidate.id, pin.producer.runAttempt) });
+    need(same(fs.readdirSync(destination), [proofName]), "supplement artifact must contain exactly one proof");
     const raw = fs.readFileSync(path.join(destination, proofName));
     need(sha("sha256", raw) === pin.artifact.proofSha256, "raw supplemental proof hash mismatch");
     const proof = validateSupplementProof(JSON.parse(raw.toString("utf8")), { candidate, pin, manifest: original.manifest });

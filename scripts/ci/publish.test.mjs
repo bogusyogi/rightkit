@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
-import { APPROVED_ARTIFACTS_FILE, checkReceipts, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, checkReceipts, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 import { scanArchiveForSecrets } from "./archive-secret-scan.mjs";
 import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
@@ -386,6 +386,54 @@ function spy(fake = {}) {
 }
 
 const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
+
+test("upload payload preflight checks npm semantics through real tar without registry access", () => {
+  const cases = [
+    [{}, null],
+    [{ name: "@rightkit/other" }, /holds @rightkit\/other@0\.1\.0, expected/],
+    [{ version: "0.2.0" }, /holds @rightkit\/a@0\.2\.0, expected/],
+    [{ repository: { type: "git", url: "https://github.com/other/rightkit", directory: "packages/a" } }, /must name https:\/\/github\.com\/bogusyogi\/rightkit/],
+    [{ main: "dist/missing.js" }, /points at dist\/missing\.js/],
+    [{ dependencies: { "@rightkit/other": "workspace:*" } }, /workspace:/],
+  ];
+  for (const [extra, expected] of cases) {
+    const sealed = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, extra) });
+    const { spawn, calls } = spy();
+    const problems = checkUploadPayloads({ manifest: sealed.manifest, packDir: sealed.dir, registry: "npm", spawn });
+    if (expected) assert.match(problems.join("\n"), expected);
+    else assert.deepEqual(problems, []);
+    assert.ok(calls.some((call) => call.command === "tar" && call.args[0] === "-tzf"));
+    assert.ok(calls.some((call) => call.command === "tar" && call.args[0] === "-xOzf"));
+    assert.ok(calls.every((call) => call.command === "tar"), "preflight only inspects tar payloads");
+  }
+});
+
+test("upload payload preflight reports unreadable npm archives & continues checking units", () => {
+  const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]], packageJson: (name, dir) => npmPackageJson(name, dir, { version: "0.2.0" }) });
+  fs.writeFileSync(path.join(sealed.dir, sealed.manifest.units[0].file), "not a tarball");
+  const problems = checkUploadPayloads({ manifest: sealed.manifest, packDir: sealed.dir, registry: "npm", spawn: spy().spawn });
+  assert.ok(problems.some((problem) => problem.startsWith("@rightkit/a:")));
+  assert.ok(problems.some((problem) => problem.includes("holds @rightkit/b@0.2.0")));
+});
+
+test("upload payload preflight checks crates metadata identity, deps shape & readability", () => {
+  const sealed = sealCrates();
+  const unit = sealed.manifest.units[0];
+  const metaFile = path.join(sealed.dir, unit.metaFile);
+  const run = () => checkUploadPayloads({ manifest: sealed.manifest, packDir: sealed.dir, registry: "crates", spawn: () => assert.fail("metadata preflight needs no child process") });
+  assert.deepEqual(run(), []);
+  for (const extra of [{ name: "other" }, { vers: "0.2.0" }, { deps: {} }, { deps: null }]) {
+    fs.writeFileSync(metaFile, JSON.stringify({ name: unit.name, vers: unit.version, deps: [], ...extra }));
+    assert.deepEqual(run(), [`${unit.name}: upload metadata does not describe ${unit.name}@${unit.version}`]);
+  }
+  for (const text of ["not JSON", "null"]) {
+    fs.writeFileSync(metaFile, text);
+    assert.deepEqual(run(), [`${unit.name}: upload metadata is unreadable`]);
+  }
+  fs.rmSync(metaFile);
+  assert.deepEqual(run(), [`${unit.name}: upload metadata is unreadable`]);
+});
+
 const oidc = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.invalid/x", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-secret" };
 // A registry that does not hold a unit until it is asked a second time (the first request is upload.mjs's pre-publish
 // reconciliation); `already` names units that are on the registry from the start.
