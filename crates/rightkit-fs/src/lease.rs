@@ -80,7 +80,7 @@
 //!
 //! Not compiled or run when written.
 
-use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, ReplaceMode};
+use crate::atomic::{atomic_write_with_options, AtomicWriteOptions, AtomicWriter, ReplaceMode};
 use crate::error::{FsError, Result};
 use crate::{process_liveness, ProcessLiveness};
 use std::fs;
@@ -549,6 +549,14 @@ impl Guard {
     /// (mixed protocol: fail closed). A killed holder's lock is dropped by the kernel, so the
     /// next take simply succeeds.
     fn acquire(lease: &Path, _ttl: Duration, now: u64) -> Result<Option<Guard>> {
+        Self::acquire_after_publish(lease, now, || {})
+    }
+
+    fn acquire_after_publish(
+        lease: &Path,
+        now: u64,
+        after_publish: impl FnOnce(),
+    ) -> Result<Option<Guard>> {
         let path = Self::path_for(lease);
         if let Ok(meta) = fs::symlink_metadata(&path) {
             if meta.file_type().is_symlink() {
@@ -559,7 +567,7 @@ impl Guard {
             fs::create_dir_all(parent).map_err(|e| FsError::io(parent, e))?;
         }
         let mut options = fs::OpenOptions::new();
-        options.read(true).write(true).create(true);
+        options.read(true).write(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -567,14 +575,15 @@ impl Guard {
                 .mode(0o600)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
         }
-        let (mut file, newly_created) = match options.create_new(true).open(&path) {
-            Ok(file) => (file, true),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                options.create(false).create_new(false);
-                (
-                    options.open(&path).map_err(|e| FsError::io(&path, e))?,
-                    false,
-                )
+        let mut file = match options.open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                // Publish complete bytes before any contender can open the stable inode.
+                // Hard-link creation is strictly exclusive; unsupported volumes fail closed.
+                if publish_guard(&path, now, |from, to| fs::hard_link(from, to))? {
+                    after_publish();
+                }
+                options.open(&path).map_err(|e| FsError::io(&path, e))?
             }
             // A symlink swapped in after the check above: O_NOFOLLOW reports ELOOP on Unix.
             Err(e) => return Err(FsError::io(&path, e)),
@@ -597,8 +606,7 @@ impl Guard {
                 .map_err(|e| FsError::io(&path, e))?;
             text
         };
-        if !newly_created
-            && !existing.starts_with(&format!("{GUARD_HEADER}\n"))
+        if !existing.starts_with(&format!("{GUARD_HEADER}\n"))
             && !legacy_guard_owner_is_dead(&existing)
         {
             let _ = file.unlock();
@@ -622,6 +630,37 @@ impl Guard {
             }
         }
         Ok(Some(Guard { file }))
+    }
+}
+
+/// Publish one complete, private sibling inode without ever reserving or replacing `path`.
+/// AtomicWriter is used only for private temp creation and cleanup, never its commit fallback.
+fn publish_guard(
+    path: &Path,
+    now: u64,
+    publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> Result<bool> {
+    let mut writer = AtomicWriter::create_with(
+        path,
+        AtomicWriteOptions {
+            private: true,
+            durable: false,
+            ..AtomicWriteOptions::default()
+        },
+    )?;
+    let text = format!(
+        "{GUARD_HEADER}\npid={}\ncreated_ms={now}\ntoken={}\n",
+        std::process::id(),
+        new_token()
+    );
+    writer
+        .file_mut()
+        .write_all(text.as_bytes())
+        .map_err(|e| FsError::io(writer.temp_path(), e))?;
+    match publish(writer.temp_path(), path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(FsError::io(path, e)),
     }
 }
 
@@ -1019,6 +1058,107 @@ mod tests {
         assert!(Guard::acquire(&path, TTL, T0 + 1).unwrap().is_none());
         drop(guard);
         assert!(acquire_at(&path, T0 + 1).acquired().is_some());
+    }
+
+    #[test]
+    fn published_guard_survives_creator_losing_first_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lease_path(&dir);
+        let mut competitor = None;
+        let creator = Guard::acquire_after_publish(&path, T0, || {
+            let text = fs::read_to_string(Guard::path_for(&path)).unwrap();
+            assert!(text.starts_with(&format!("{GUARD_HEADER}\n")));
+            competitor = Guard::acquire(&path, TTL, T0 + 1).unwrap();
+            assert!(competitor.is_some());
+        })
+        .unwrap();
+        assert!(creator.is_none(), "creator declines without waiting");
+        assert!(Guard::acquire(&path, TTL, T0 + 2).unwrap().is_none());
+        drop(competitor);
+        assert!(Guard::acquire(&path, TTL, T0 + 3).unwrap().is_some());
+    }
+
+    #[test]
+    fn unsupported_guard_publication_leaves_no_final_or_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("guard");
+        let error = publish_guard(&path, T0, |from, to| {
+            assert!(!to.exists());
+            assert!(fs::read_to_string(from)
+                .unwrap()
+                .starts_with(&format!("{GUARD_HEADER}\n")));
+            Err(io::Error::new(io::ErrorKind::Unsupported, "no hard links"))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), Some(io::ErrorKind::Unsupported));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn legacy_guard_arriving_during_publication_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("guard");
+        for record in ["", "pid=unknown\n"] {
+            assert!(!publish_guard(&path, T0, |from, to| {
+                fs::write(to, record)?;
+                fs::hard_link(from, to)
+            })
+            .unwrap());
+            assert_eq!(fs::read_to_string(&path).unwrap(), record);
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+            fs::remove_file(&path).unwrap();
+        }
+    }
+
+    #[test]
+    fn racing_guard_publishers_preserve_one_stable_inode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("guard");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    publish_guard(&path, T0, |from, to| {
+                        barrier.wait();
+                        fs::hard_link(from, to)
+                    })
+                    .unwrap()
+                })
+            })
+            .collect();
+        let winners = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|published| *published)
+            .count();
+        assert_eq!(winners, 1);
+        use std::io::{Read, Seek, SeekFrom};
+        let mut held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        held.try_lock().unwrap();
+        let mut before = Vec::new();
+        held.seek(SeekFrom::Start(0)).unwrap();
+        held.read_to_end(&mut before).unwrap();
+        assert!(!publish_guard(&path, T0 + 1, |from, to| fs::hard_link(from, to)).unwrap());
+        let mut after = Vec::new();
+        held.seek(SeekFrom::Start(0)).unwrap();
+        held.read_to_end(&mut after).unwrap();
+        assert_eq!(after, before);
+        let contender = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(matches!(
+            contender.try_lock(),
+            Err(fs::TryLockError::WouldBlock)
+        ));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]
