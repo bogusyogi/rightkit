@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::options::{ReplaceMode, SharingRetry};
+use crate::options::{ReplaceMode, SharingRetry, WriteSecurity};
 use crate::store::Error;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -25,6 +25,9 @@ pub(crate) struct WriteMode {
     pub replace: ReplaceMode,
     pub durable: bool,
     pub retry: Option<SharingRetry>,
+    /// Who may read the written file. Translated into `rightkit_fs::Privacy` by [`fs_options`];
+    /// this crate holds no permission or ACL code of its own.
+    pub security: WriteSecurity,
 }
 
 impl Default for WriteMode {
@@ -33,6 +36,7 @@ impl Default for WriteMode {
             replace: ReplaceMode::Rename,
             durable: true,
             retry: None,
+            security: WriteSecurity::Default,
         }
     }
 }
@@ -50,6 +54,10 @@ pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
         retry_sharing_violation: mode
             .retry
             .map(|r| rightkit_fs::RetryPolicy::new(r.attempts, r.delay)),
+        privacy: match mode.security {
+            WriteSecurity::Default => rightkit_fs::Privacy::Inherit,
+            WriteSecurity::OwnerPrivate => rightkit_fs::Privacy::OwnerOnly,
+        },
         ..Default::default()
     }
 }
@@ -119,6 +127,13 @@ fn publish_error(dest: &Path, e: rightkit_fs::FsError) -> Error {
             path: dest.to_path_buf(),
             source,
         },
+        // The requested owner-only protection could not be established; nothing was published.
+        refused @ (rightkit_fs::FsError::UnsafeAcl(_)
+        | rightkit_fs::FsError::TooPermissive(_)
+        | rightkit_fs::FsError::NotOwned(_)) => Error::Protection {
+            path: dest.to_path_buf(),
+            reason: refused.to_string(),
+        },
         rightkit_fs::FsError::Io { source, .. } => Error::Io(source),
         other => Error::Io(io::Error::other(other)),
     }
@@ -128,5 +143,61 @@ fn into_io(e: Error) -> io::Error {
     match e {
         Error::Io(source) => source,
         other => io::Error::other(other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rightkit_fs::{FsError, Privacy};
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_default_profile_asks_for_no_privacy_step() {
+        let options = fs_options(&WriteMode::default());
+        assert_eq!(options.effective_privacy(), Privacy::Inherit);
+    }
+
+    #[test]
+    fn the_owner_private_profile_asks_the_fs_layer_for_owner_only() {
+        let mode = WriteMode {
+            security: WriteSecurity::OwnerPrivate,
+            ..WriteMode::default()
+        };
+        assert_eq!(fs_options(&mode).effective_privacy(), Privacy::OwnerOnly);
+        // Nothing else about the write changes with the profile.
+        let plain = fs_options(&WriteMode::default());
+        let private = fs_options(&mode);
+        assert_eq!(private.durable, plain.durable);
+        assert_eq!(private.create_parents, plain.create_parents);
+        assert_eq!(private.replace, plain.replace);
+    }
+
+    #[test]
+    fn a_refused_protection_is_a_typed_error_not_an_io_error() {
+        let dest = PathBuf::from("settings.json");
+        for refused in [
+            FsError::UnsafeAcl(dest.clone()),
+            FsError::TooPermissive(dest.clone()),
+            FsError::NotOwned(dest.clone()),
+        ] {
+            match publish_error(&dest, refused) {
+                Error::Protection { path, reason } => {
+                    assert_eq!(path, dest);
+                    assert!(!reason.is_empty());
+                }
+                other => panic!("expected Error::Protection, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn other_publish_failures_keep_their_classification() {
+        let dest = PathBuf::from("settings.json");
+        let io = FsError::Io {
+            path: dest.clone(),
+            source: io::Error::other("disk"),
+        };
+        assert!(matches!(publish_error(&dest, io), Error::Io(_)));
     }
 }

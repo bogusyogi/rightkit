@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-settings"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events."

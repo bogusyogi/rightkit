@@ -160,6 +160,24 @@ pub enum ReplaceMode {
     MoveWriteThrough,
 }
 
+/// Who may read the settings file a write produces. Set it with [`StoreOptions::write_security`] or
+/// `FileBackend::write_security`. This crate only names the profile: the permission and ACL work is
+/// done by `rightkit_fs` (`Privacy`), and a write whose protection cannot be established fails with
+/// [`crate::Error::Protection`] and publishes nothing; it never falls back to the default profile.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WriteSecurity {
+    /// Today's behaviour: no privacy step. The file takes the existing file's mode or the
+    /// platform default (Unix `0666 & ~umask`) and the parent directory's inherited ACL
+    /// (Windows). The default, kept for compatibility.
+    #[default]
+    Default,
+    /// Owner-only on every platform: Unix mode `0600` from creation with `0700` parents (macOS
+    /// refuses a parent whose extended ACL would grant others access), a single protected ACE
+    /// for the current user on Windows. The `.bak` and corrupt copies are already owner-only
+    /// whatever the profile.
+    OwnerPrivate,
+}
+
 /// Retry for a publish step that fails because another process holds the file open. Only Windows
 /// sharing and lock violations are retried; the policy is inert on other platforms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +228,7 @@ pub struct StoreOptions {
     pub(crate) replace: ReplaceMode,
     pub(crate) durable: bool,
     pub(crate) sharing_retry: Option<SharingRetry>,
+    pub(crate) write_security: WriteSecurity,
     pub(crate) keep_corrupt_copy: bool,
     pub(crate) quarantine_name: QuarantineName,
     pub(crate) trailing_newline: bool,
@@ -240,6 +259,7 @@ impl StoreOptions {
             replace: ReplaceMode::Rename,
             durable: true,
             sharing_retry: None,
+            write_security: WriteSecurity::Default,
             keep_corrupt_copy: false,
             quarantine_name: QuarantineName::Timestamped,
             trailing_newline: false,
@@ -309,8 +329,19 @@ impl StoreOptions {
             replace: self.replace,
             durable: self.durable,
             retry: self.sharing_retry,
+            security: self.write_security,
         };
         rightkit_fs::publication_durability(&crate::atomic::fs_options(&mode), destination_exists)
+    }
+
+    /// Who may read the file a write produces (see [`WriteSecurity`]). Default
+    /// [`WriteSecurity::Default`], what every earlier version did. With
+    /// [`WriteSecurity::OwnerPrivate`] a write that cannot be made owner-only fails with
+    /// [`crate::Error::Protection`] before anything is published; the existing file is not
+    /// changed. Reads are unaffected.
+    pub fn write_security(mut self, profile: WriteSecurity) -> Self {
+        self.write_security = profile;
+        self
     }
 
     /// Retry the replace up to `attempts` more times, pausing `delay` before each, when Windows

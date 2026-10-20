@@ -245,6 +245,12 @@ impl FileBackend {
         self
     }
 
+    /// Who may read the written file. See [`StoreOptions::write_security`].
+    pub fn write_security(mut self, profile: crate::options::WriteSecurity) -> Self {
+        self.mode.security = profile;
+        self
+    }
+
     /// Retry the replace on Windows sharing violations. See
     /// [`StoreOptions::retry_sharing_violation`].
     pub fn retry_sharing_violation(mut self, attempts: u32, delay: std::time::Duration) -> Self {
@@ -276,6 +282,7 @@ impl FileBackend {
                 replace: options.replace,
                 durable: options.durable,
                 retry: options.sharing_retry,
+                security: options.write_security,
             },
             keep_corrupt_copy: options.keep_corrupt_copy,
             quarantine_name: options.quarantine_name.clone(),

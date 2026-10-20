@@ -63,6 +63,12 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+    /// The protection asked for with [`StoreOptions::write_security`] could not be established
+    /// (a macOS extended ACL that would grant others access, a file or directory another user owns
+    /// or that others can reach). Nothing was published: the previous settings file is untouched.
+    /// `reason` is the file-system layer's message. Never a silent fallback to the default profile.
+    #[error("settings file {} cannot be written with the requested protection: {reason}", path.display())]
+    Protection { path: PathBuf, reason: String },
 }
 
 /// Which step of keeping the previous content failed. See [`Error::PreserveFailed`].

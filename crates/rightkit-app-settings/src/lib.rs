@@ -18,6 +18,7 @@ pub use document::{Document, DocumentState};
 pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
     OnRefused, QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
+    WriteSecurity,
 };
 pub use rightkit_fs::PublicationDurability;
 pub use secret::{Presence, SecretProbe, SecretRef};

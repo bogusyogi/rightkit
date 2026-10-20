@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.2.4 — unpublished staging
+## 0.3.0 — 2026-10-20
+
+PK04-5. Release note: this changes a public enum, so it publishes as the next MINOR (0.3.0), not a patch, and `rightkit-tauri-shell`'s optional `rightkit-app-settings` requirement is raised to it in the same group.
+
+- **New: `StoreOptions::write_security(WriteSecurity)` and `FileBackend::write_security`** (also reaches `Document::open_path_with` and every `Store::open*`). `WriteSecurity::Default` is today's behaviour and the default. `WriteSecurity::OwnerPrivate` makes the settings file owner-only on every platform by asking `rightkit-fs` for `Privacy::OwnerOnly` on the atomic write (Unix mode `0600` from creation and `0700` parents; a single protected ACE for the current user on Windows; macOS refuses a parent whose extended ACL would give others access). This crate holds no chmod, ACL or DACL code. The `.bak` and corrupt copies were already owner-only whatever the profile. Switching a store from `Default` to `OwnerPrivate` tightens the file on its next write. `StoreOptions::achieved_durability` is unchanged by the profile.
+- **New: `Error::Protection { path, reason }`.** A write whose requested protection cannot be established (`FsError::UnsafeAcl`, `TooPermissive` or `NotOwned` from the file-system layer) fails with it, with nothing published and the previous file untouched; it never falls back to the default profile. **Breaking for exhaustive matches on `Error`** (it is not `non_exhaustive`), like `Error::Replaced` and `Error::PreserveFailed` before it. Nothing in this repository matches `Error` exhaustively.
+- Not done: no read-back verification after the write (the file-system layer's refusals are the guarantee), and no profile that keeps the Windows parent ACL (`rightkit-fs` has `Privacy::OwnerOnlyUnixInheritWindows`; add a profile when an app asks).
+- Tests: `tests/write_security.rs` (owner-only file, owner-only `.bak`, tightening on switch, `Document` and `FileBackend` reach, default unchanged) and unit tests in `src/atomic.rs` (profile to `Privacy`, refused protection to `Error::Protection`).
+
+## 0.2.4 (published)
 
 - Backups stay private, and corrupt copies are preserved for recovery.
 - A corrupt copy kept under a fixed `QuarantineName` is staged owner-only before any byte is written and renamed over the previous copy, like the timestamped copy and the `.bak`; it was a plain `fs::copy`. Tests: `tests/preserve.rs`.
