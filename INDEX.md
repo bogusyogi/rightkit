@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 17.
+Flagged mismatches: 16.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -106,7 +106,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 0.4.0 | ok |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
 | `@rightkit/qa` | npm | 0.5.2 | 0.5.1 | 0.5.1 | **MISMATCH staged 0.5.1 != source 0.5.2** |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
-| `@rightkit/qa-chrome` | npm | 0.1.10 | 0.1.8 | 0.1.8 | **MISMATCH staged 0.1.8 != source 0.1.10** | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
+| `@rightkit/qa-chrome` | npm | 0.1.10 | 0.1.10 | 0.1.10 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0.7.2 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/release` | npm | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.6.1 | 0.7.0 | staged, not yet published |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |

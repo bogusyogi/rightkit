@@ -36,7 +36,7 @@
     "test:adoption-contract": "pnpm run build && vitest run --config vitest.adoption.config.ts"
   },
   "dependencies": {
-    "@rightkit/qa-chrome": "0.1.9"
+    "@rightkit/qa-chrome": "0.1.10"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

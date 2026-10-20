@@ -2,9 +2,9 @@
 
 PK14 (rows M20, M21) npm R2a consumer recipe for `@rightkit/qa` at the workspace version `0.5.2` (`packages/qa/package.json`). Source fixture only: no qualification receipt exists until the runner executes it.
 
-Runner owns installation, provenance binding and evidence capture. Copy this directory outside the workspace into a fresh scratch consumer directory. Install the exact packed tarball with the repository-pinned pnpm, with no workspace, Git or link overrides; the only other dependency is the reviewed closure pin `@rightkit/qa-chrome` `0.1.9`. Repeat in a fresh directory against the registry-fetched exact version and retain the fetched tarball. Record installation output, resolved version and integrity, and tarball SHA-256 alongside the consumer result.
+Runner owns installation, provenance binding and evidence capture. Copy this directory outside the workspace into a fresh scratch consumer directory. Install the exact packed tarball with the repository-pinned pnpm, with no workspace, Git or link overrides; the only other dependency is the reviewed closure pin `@rightkit/qa-chrome` `0.1.10`. Repeat in a fresh directory against the registry-fetched exact version and retain the fetched tarball. Record installation output, resolved version and integrity, and tarball SHA-256 alongside the consumer result.
 
-Closure: `@rightkit/qa-chrome` `0.1.9` is the workspace version and the `packages/qa` importer link in `pnpm-lock.yaml`. It is not on the registry yet (registry readback is `0.1.8`; PK14-2 publishes qa-chrome 0.1.9 before qa). Packed and fetched installs therefore fail until that publish. The recipe does not substitute the older pin.
+Closure: `@rightkit/qa-chrome` `0.1.10` is the reviewed closure pin and the `packages/qa` importer specifier in `pnpm-lock.yaml` (the importer remains a workspace link). Before qualification, verify that this exact version is readable from the registry.
 
 Required environment:
 
