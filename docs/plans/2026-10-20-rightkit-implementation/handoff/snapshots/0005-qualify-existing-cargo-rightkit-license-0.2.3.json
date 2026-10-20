@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "qualify-existing",
+  "generatedAt": "2026-10-20T02:32:51.209Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:04c13d5c4f2305b395858c3745ea8cfdfc4ee33cfdcb2a7f07b67bb2b7e93025",
+    "host": "win32"
+  },
+  "package": {
+    "event": "qualify-existing",
+    "id": "cargo:rightkit-license",
+    "ecosystem": "cargo",
+    "name": "rightkit-license",
+    "version": "0.2.3",
+    "sourceCommit": null,
+    "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-license/rightkit-license-0.2.3.crate",
+    "integrity": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+    "archiveSha256": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+    "publishedAt": null,
+    "publisherTool": null,
+    "originalPublication": {
+      "publishedAt": null,
+      "publisher": "unrecorded"
+    },
+    "qualifier": {
+      "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+      "host": "win32"
+    },
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-license.txt",
+      "versionsJsonSection": null
+    },
+    "features": [
+      "engine-gate"
+    ],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "engine-gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-win.log",
+        "result": "pass"
+      },
+      {
+        "host": "darwin",
+        "features": "engine-gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-mac.log",
+        "result": "pass"
+      }
+    ],
+    "runtimeBudget": "not-required",
+    "packedConsumer": {
+      "ok": null,
+      "notApplicable": "unchanged published bytes"
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "entitlements-baseline",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-win.log",
+        "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-mac.log"
+      ]
+    },
+    "reviewer": null
+  },
+  "satisfies": [
+    "PK05.entitlements-baseline"
+  ]
+}

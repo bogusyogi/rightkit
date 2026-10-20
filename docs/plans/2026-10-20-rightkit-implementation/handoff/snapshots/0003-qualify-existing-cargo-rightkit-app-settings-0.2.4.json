@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "qualify-existing",
+  "generatedAt": "2026-10-20T02:32:51.195Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:04c13d5c4f2305b395858c3745ea8cfdfc4ee33cfdcb2a7f07b67bb2b7e93025",
+    "host": "win32"
+  },
+  "package": {
+    "event": "qualify-existing",
+    "id": "cargo:rightkit-app-settings",
+    "ecosystem": "cargo",
+    "name": "rightkit-app-settings",
+    "version": "0.2.4",
+    "sourceCommit": null,
+    "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-app-settings/rightkit-app-settings-0.2.4.crate",
+    "integrity": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
+    "archiveSha256": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
+    "publishedAt": null,
+    "publisherTool": null,
+    "originalPublication": {
+      "publishedAt": null,
+      "publisher": "unrecorded"
+    },
+    "qualifier": {
+      "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+      "host": "win32"
+    },
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-app-settings.txt",
+      "versionsJsonSection": null
+    },
+    "features": [
+      "sql"
+    ],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "sql",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
+        "result": "pass"
+      },
+      {
+        "host": "darwin",
+        "features": "sql",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log",
+        "result": "pass"
+      }
+    ],
+    "runtimeBudget": "not-required",
+    "packedConsumer": {
+      "ok": null,
+      "notApplicable": "unchanged published bytes"
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "settings-baseline",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
+        "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log"
+      ]
+    },
+    "reviewer": null
+  },
+  "satisfies": [
+    "PK04.settings-baseline"
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "publish",
+  "generatedAt": "2026-10-20T03:57:34.416Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:90f389cc4c0db6eda358a0f619157787ec26236a34487dd7e5ca6f3001969034",
+    "host": "darwin"
+  },
+  "package": {
+    "event": "publish",
+    "id": "cargo:rightkit-fs",
+    "ecosystem": "cargo",
+    "name": "rightkit-fs",
+    "version": "0.4.5",
+    "sourceCommit": "01e12e01e174d63c3f4f0cf8c2639f54de6c9ba3",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-fs/rightkit-fs-0.4.5.crate",
+    "integrity": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+    "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+    "publishedAt": "2026-10-20",
+    "publisherTool": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
+    "qualifier": {
+      "tool": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+      "host": "darwin"
+    },
+    "registryReadback": {
+      "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+      "evidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b/readback.txt"
+    },
+    "features": [
+      "fs",
+      "lock",
+      "json"
+    ],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "all-features",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/fs-0.4.5-r1-win-rev3",
+        "result": "pass 425/0/0 parallel and serial; fmt, clippy -D warnings, secret scan clean"
+      },
+      {
+        "host": "darwin",
+        "features": "all-features",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-packed",
+        "result": "pass 545/0/0 parallel and serial on the packed bytes"
+      },
+      {
+        "host": "darwin",
+        "features": "right-release publish gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
+        "result": "pass 1090/0/0"
+      }
+    ],
+    "runtimeBudget": "not-required (continuous=false)",
+    "packedConsumer": {
+      "ok": true,
+      "example": "fs-packed (checked commit accept/refuse, atomic_write, FileLock owner record, exclusion, shared lock)",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-registry-consumer"
+      ]
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "fs-packed (checked commit accept/refuse, atomic_write, FileLock owner record, exclusion, shared lock)",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b"
+      ]
+    },
+    "reviewer": {
+      "name": "RK Astra",
+      "verdict": "SIGN",
+      "artifactSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+      "message": "Pulse 3147820f-7e9a-446a-ab18-ed5057bcf9be",
+      "request": "D:/scratch/rk-exec-20261020/review/fs-0.4.5-R8-rev3.md"
+    }
+  },
+  "satisfies": [
+    "PK01.lease",
+    "PK01.atomic-publication"
+  ]
+}

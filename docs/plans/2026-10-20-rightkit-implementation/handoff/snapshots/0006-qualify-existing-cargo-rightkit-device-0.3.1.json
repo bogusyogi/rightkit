@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "qualify-existing",
+  "generatedAt": "2026-10-20T02:32:51.216Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:04c13d5c4f2305b395858c3745ea8cfdfc4ee33cfdcb2a7f07b67bb2b7e93025",
+    "host": "win32"
+  },
+  "package": {
+    "event": "qualify-existing",
+    "id": "cargo:rightkit-device",
+    "ecosystem": "cargo",
+    "name": "rightkit-device",
+    "version": "0.3.1",
+    "sourceCommit": null,
+    "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-device/rightkit-device-0.3.1.crate",
+    "integrity": "6b18b1a50b9d8aabc4d93a6b773ae099e8efb82a0231e5481f800571d72484a3",
+    "archiveSha256": "6b18b1a50b9d8aabc4d93a6b773ae099e8efb82a0231e5481f800571d72484a3",
+    "publishedAt": null,
+    "publisherTool": null,
+    "originalPublication": {
+      "publishedAt": null,
+      "publisher": "unrecorded"
+    },
+    "qualifier": {
+      "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+      "host": "win32"
+    },
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-device.txt",
+      "versionsJsonSection": null
+    },
+    "features": [],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "default",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-device-win.log",
+        "result": "pass"
+      },
+      {
+        "host": "darwin",
+        "features": "default",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-device-mac.log",
+        "result": "pass"
+      }
+    ],
+    "runtimeBudget": "not-required",
+    "packedConsumer": {
+      "ok": null,
+      "notApplicable": "unchanged published bytes"
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "device-baseline",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/consumer-device-win.log",
+        "D:/scratch/rk-exec-20261020/evidence/consumer-device-mac.log"
+      ]
+    },
+    "reviewer": null
+  },
+  "satisfies": [
+    "PK05.device"
+  ]
+}

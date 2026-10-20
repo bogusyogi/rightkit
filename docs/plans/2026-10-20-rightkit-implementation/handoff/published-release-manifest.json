@@ -1,0 +1,2284 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "generatedAt": "2026-10-20T04:00:58.001Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:e977a87d20db976cfc72b5147fb4605e9cf0a1e41a0b2246d33d10afc6821f71",
+    "host": "win32"
+  },
+  "selectedSnapshot": {
+    "path": "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json",
+    "sha256": "62ef32b65e981df316763c6de1cc1ecb42ab47ee2f66ca1b447bc17e1b9c88bb"
+  },
+  "packages": [
+    {
+      "event": "publish",
+      "id": "cargo:rightkit-fs",
+      "ecosystem": "cargo",
+      "name": "rightkit-fs",
+      "version": "0.4.5",
+      "sourceCommit": "01e12e01e174d63c3f4f0cf8c2639f54de6c9ba3",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-fs/rightkit-fs-0.4.5.crate",
+      "integrity": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+      "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+      "publishedAt": "2026-10-20",
+      "publisherTool": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
+      "qualifier": {
+        "tool": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+        "host": "darwin"
+      },
+      "registryReadback": {
+        "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+        "evidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b/readback.txt"
+      },
+      "features": [
+        "fs",
+        "lock",
+        "json"
+      ],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "all-features",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/fs-0.4.5-r1-win-rev3",
+          "result": "pass 425/0/0 parallel and serial; fmt, clippy -D warnings, secret scan clean"
+        },
+        {
+          "host": "darwin",
+          "features": "all-features",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-packed",
+          "result": "pass 545/0/0 parallel and serial on the packed bytes"
+        },
+        {
+          "host": "darwin",
+          "features": "right-release publish gate",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
+          "result": "pass 1090/0/0"
+        }
+      ],
+      "runtimeBudget": "not-required (continuous=false)",
+      "packedConsumer": {
+        "ok": true,
+        "example": "fs-packed (checked commit accept/refuse, atomic_write, FileLock owner record, exclusion, shared lock)",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-registry-consumer"
+        ]
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "fs-packed (checked commit accept/refuse, atomic_write, FileLock owner record, exclusion, shared lock)",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b"
+        ]
+      },
+      "reviewer": {
+        "name": "RK Astra",
+        "verdict": "SIGN",
+        "artifactSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
+        "message": "Pulse 3147820f-7e9a-446a-ab18-ed5057bcf9be",
+        "request": "D:/scratch/rk-exec-20261020/review/fs-0.4.5-R8-rev3.md"
+      },
+      "history": [
+        {
+          "version": "0.4.4",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0001-qualify-existing-cargo-rightkit-fs-0.4.4.json",
+          "effective": false
+        },
+        {
+          "version": "0.4.5",
+          "event": "publish",
+          "snapshot": "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json",
+          "effective": true
+        },
+        {
+          "version": "0.4.5",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-db",
+      "ecosystem": "cargo",
+      "name": "rightkit-db",
+      "version": "0.5.0",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-db/rightkit-db-0.5.0.crate",
+      "integrity": "7916249992b73700f0575c42de9acc69297d6c612a80827334f3cfae15534970",
+      "archiveSha256": "7916249992b73700f0575c42de9acc69297d6c612a80827334f3cfae15534970",
+      "publishedAt": null,
+      "publisherTool": null,
+      "originalPublication": {
+        "publishedAt": null,
+        "publisher": "unrecorded"
+      },
+      "qualifier": {
+        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+        "host": "win32"
+      },
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-db.txt",
+        "versionsJsonSection": null
+      },
+      "features": [
+        "bundled",
+        "statement-cache"
+      ],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "bundled,statement-cache",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-db-win.log",
+          "result": "pass"
+        },
+        {
+          "host": "darwin",
+          "features": "bundled,statement-cache",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-db-mac.log",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": {
+        "ok": null,
+        "notApplicable": "unchanged published bytes"
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "db-baseline",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/consumer-db-win.log",
+          "D:/scratch/rk-exec-20261020/evidence/consumer-db-mac.log"
+        ]
+      },
+      "reviewer": null,
+      "history": [
+        {
+          "version": "0.5.0",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0002-qualify-existing-cargo-rightkit-db-0.5.0.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-app-settings",
+      "ecosystem": "cargo",
+      "name": "rightkit-app-settings",
+      "version": "0.2.4",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-app-settings/rightkit-app-settings-0.2.4.crate",
+      "integrity": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
+      "archiveSha256": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
+      "publishedAt": null,
+      "publisherTool": null,
+      "originalPublication": {
+        "publishedAt": null,
+        "publisher": "unrecorded"
+      },
+      "qualifier": {
+        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+        "host": "win32"
+      },
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-app-settings.txt",
+        "versionsJsonSection": null
+      },
+      "features": [
+        "sql"
+      ],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "sql",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
+          "result": "pass"
+        },
+        {
+          "host": "darwin",
+          "features": "sql",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": {
+        "ok": null,
+        "notApplicable": "unchanged published bytes"
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "settings-baseline",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
+          "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log"
+        ]
+      },
+      "reviewer": null,
+      "history": [
+        {
+          "version": "0.2.4",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-credentials",
+      "ecosystem": "cargo",
+      "name": "rightkit-credentials",
+      "version": "0.3.0",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-credentials/rightkit-credentials-0.3.0.crate",
+      "integrity": "40c46f3544cb19ae5724b6bbdb1cc32b57c01307008c5c14f690e805848699f1",
+      "archiveSha256": "40c46f3544cb19ae5724b6bbdb1cc32b57c01307008c5c14f690e805848699f1",
+      "publishedAt": null,
+      "publisherTool": null,
+      "originalPublication": {
+        "publishedAt": null,
+        "publisher": "unrecorded"
+      },
+      "qualifier": {
+        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+        "host": "win32"
+      },
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-credentials.txt",
+        "versionsJsonSection": null
+      },
+      "features": [],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "default",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-credentials-win.log",
+          "result": "pass"
+        },
+        {
+          "host": "darwin",
+          "features": "default",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-credentials-mac.log",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": {
+        "ok": null,
+        "notApplicable": "unchanged published bytes"
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "credentials-baseline",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/consumer-credentials-win.log",
+          "D:/scratch/rk-exec-20261020/evidence/consumer-credentials-mac.log"
+        ]
+      },
+      "reviewer": null,
+      "history": [
+        {
+          "version": "0.3.0",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0004-qualify-existing-cargo-rightkit-credentials-0.3.0.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-license",
+      "ecosystem": "cargo",
+      "name": "rightkit-license",
+      "version": "0.2.3",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-license/rightkit-license-0.2.3.crate",
+      "integrity": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+      "archiveSha256": "0d3445b5e1f4421807cdab96506db041d52aa7ef413c946991beec7ee2f6ee4e",
+      "publishedAt": null,
+      "publisherTool": null,
+      "originalPublication": {
+        "publishedAt": null,
+        "publisher": "unrecorded"
+      },
+      "qualifier": {
+        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+        "host": "win32"
+      },
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-license.txt",
+        "versionsJsonSection": null
+      },
+      "features": [
+        "engine-gate"
+      ],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "engine-gate",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-win.log",
+          "result": "pass"
+        },
+        {
+          "host": "darwin",
+          "features": "engine-gate",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-mac.log",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": {
+        "ok": null,
+        "notApplicable": "unchanged published bytes"
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "entitlements-baseline",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-win.log",
+          "D:/scratch/rk-exec-20261020/evidence/consumer-entitlements-mac.log"
+        ]
+      },
+      "reviewer": null,
+      "history": [
+        {
+          "version": "0.2.3",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0005-qualify-existing-cargo-rightkit-license-0.2.3.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-device",
+      "ecosystem": "cargo",
+      "name": "rightkit-device",
+      "version": "0.3.1",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-device/rightkit-device-0.3.1.crate",
+      "integrity": "6b18b1a50b9d8aabc4d93a6b773ae099e8efb82a0231e5481f800571d72484a3",
+      "archiveSha256": "6b18b1a50b9d8aabc4d93a6b773ae099e8efb82a0231e5481f800571d72484a3",
+      "publishedAt": null,
+      "publisherTool": null,
+      "originalPublication": {
+        "publishedAt": null,
+        "publisher": "unrecorded"
+      },
+      "qualifier": {
+        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
+        "host": "win32"
+      },
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-device.txt",
+        "versionsJsonSection": null
+      },
+      "features": [],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "default",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-device-win.log",
+          "result": "pass"
+        },
+        {
+          "host": "darwin",
+          "features": "default",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-device-mac.log",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": {
+        "ok": null,
+        "notApplicable": "unchanged published bytes"
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "device-baseline",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/consumer-device-win.log",
+          "D:/scratch/rk-exec-20261020/evidence/consumer-device-mac.log"
+        ]
+      },
+      "reviewer": null,
+      "history": [
+        {
+          "version": "0.3.1",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0006-qualify-existing-cargo-rightkit-device-0.3.1.json",
+          "effective": true
+        }
+      ]
+    }
+  ],
+  "capabilities": {
+    "PK01.atomic-baseline": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-fs@0.4.5"
+      ],
+      "evidence": [
+        "snapshots/0001-qualify-existing-cargo-rightkit-fs-0.4.4.json",
+        "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json"
+      ]
+    },
+    "PK01.atomic-publication": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-fs@0.4.5"
+      ],
+      "evidence": [
+        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json"
+      ]
+    },
+    "PK01.lease": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-fs@0.4.5"
+      ],
+      "evidence": [
+        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json"
+      ]
+    },
+    "PK01.write-locks": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK01.transactions": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK02.capture": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK02.configured-runner": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK02.streaming": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK02.breakaway": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK03.sqlite-baseline": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-db@0.5.0"
+      ],
+      "evidence": [
+        "snapshots/0002-qualify-existing-cargo-rightkit-db-0.5.0.json"
+      ]
+    },
+    "PK03.protected-store": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK03.helper-trust": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK03.encrypted-lifecycle": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK04.settings-baseline": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-app-settings@0.2.4"
+      ],
+      "evidence": [
+        "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json"
+      ]
+    },
+    "PK04.host-services": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK04.write-security": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK05.entitlements-baseline": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-license@0.2.3"
+      ],
+      "evidence": [
+        "snapshots/0005-qualify-existing-cargo-rightkit-license-0.2.3.json"
+      ]
+    },
+    "PK05.license-client": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK05.device": {
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-device@0.3.1"
+      ],
+      "evidence": [
+        "snapshots/0006-qualify-existing-cargo-rightkit-device-0.3.1.json"
+      ]
+    },
+    "PK05.account": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK06.job-queue": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK06.engine-host": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK06.daemon-client": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK06.loopback": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK07.migration": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK07.root-cutover": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK07.approvals": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK07.services": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.shell-modules": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.surface": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.overlay": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.preview": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.pdf": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK08.app-lock": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK09.primitives": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK10.receipts": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK10.license-step": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK10.notices": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK11.redaction": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK11.watchdog": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK11.log-config": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK12.redirect": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK12.cookie-export": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK12.downloader": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK13.update": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK14.qa-chrome": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK14.mode-roots": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK14.harness": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK14.fixture-capture": {
+      "status": "deferred-separate-dispatch",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK15.agent-tools": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK15.applicability": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.swift-release": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.pulse-hub": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.heardright-helpers": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.heardright-ios": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.scraperight-ios": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK16.coderight-ios": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.release": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.scanner": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.gate-rows": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.activation": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.notices": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.adoption-evidence": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.handoff": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.docs": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    },
+    "PK17.recipes": {
+      "status": "pending",
+      "packageIds": [],
+      "evidence": []
+    }
+  },
+  "contracts": {
+    "PK01": {
+      "status": "partial",
+      "capabilities": [
+        "PK01.atomic-baseline",
+        "PK01.atomic-publication",
+        "PK01.lease",
+        "PK01.write-locks",
+        "PK01.transactions"
+      ]
+    },
+    "PK02": {
+      "status": "pending",
+      "capabilities": [
+        "PK02.capture",
+        "PK02.configured-runner",
+        "PK02.streaming",
+        "PK02.breakaway"
+      ]
+    },
+    "PK03": {
+      "status": "partial",
+      "capabilities": [
+        "PK03.sqlite-baseline",
+        "PK03.protected-store",
+        "PK03.helper-trust",
+        "PK03.encrypted-lifecycle"
+      ]
+    },
+    "PK04": {
+      "status": "partial",
+      "capabilities": [
+        "PK04.settings-baseline",
+        "PK04.host-services",
+        "PK04.write-security"
+      ]
+    },
+    "PK05": {
+      "status": "partial",
+      "capabilities": [
+        "PK05.entitlements-baseline",
+        "PK05.license-client",
+        "PK05.device",
+        "PK05.account"
+      ]
+    },
+    "PK06": {
+      "status": "pending",
+      "capabilities": [
+        "PK06.job-queue",
+        "PK06.engine-host",
+        "PK06.daemon-client",
+        "PK06.loopback"
+      ]
+    },
+    "PK07": {
+      "status": "pending",
+      "capabilities": [
+        "PK07.migration",
+        "PK07.root-cutover",
+        "PK07.approvals",
+        "PK07.services"
+      ]
+    },
+    "PK08": {
+      "status": "pending",
+      "capabilities": [
+        "PK08.shell-modules",
+        "PK08.surface",
+        "PK08.overlay",
+        "PK08.preview",
+        "PK08.pdf",
+        "PK08.app-lock"
+      ]
+    },
+    "PK09": {
+      "status": "pending",
+      "capabilities": [
+        "PK09.primitives"
+      ]
+    },
+    "PK10": {
+      "status": "pending",
+      "capabilities": [
+        "PK10.receipts",
+        "PK10.license-step",
+        "PK10.notices"
+      ]
+    },
+    "PK11": {
+      "status": "pending",
+      "capabilities": [
+        "PK11.redaction",
+        "PK11.watchdog",
+        "PK11.log-config"
+      ]
+    },
+    "PK12": {
+      "status": "pending",
+      "capabilities": [
+        "PK12.redirect",
+        "PK12.cookie-export",
+        "PK12.downloader"
+      ]
+    },
+    "PK13": {
+      "status": "pending",
+      "capabilities": [
+        "PK13.update"
+      ]
+    },
+    "PK14": {
+      "status": "pending",
+      "capabilities": [
+        "PK14.qa-chrome",
+        "PK14.mode-roots",
+        "PK14.harness",
+        "PK14.fixture-capture"
+      ]
+    },
+    "PK15": {
+      "status": "pending",
+      "capabilities": [
+        "PK15.agent-tools",
+        "PK15.applicability"
+      ]
+    },
+    "PK16": {
+      "status": "pending",
+      "capabilities": [
+        "PK16.swift-release",
+        "PK16.pulse-hub",
+        "PK16.heardright-helpers",
+        "PK16.heardright-ios",
+        "PK16.scraperight-ios",
+        "PK16.coderight-ios"
+      ]
+    },
+    "PK17": {
+      "status": "pending",
+      "capabilities": [
+        "PK17.release",
+        "PK17.scanner",
+        "PK17.gate-rows",
+        "PK17.activation",
+        "PK17.notices",
+        "PK17.adoption-evidence",
+        "PK17.handoff",
+        "PK17.docs",
+        "PK17.recipes"
+      ]
+    }
+  },
+  "apps": {
+    "pulse": {
+      "tasks": {
+        "AP-PU-01": {
+          "requiresCapabilities": [
+            "PK07.root-cutover",
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK06.daemon-client` only if immutable root context crosses daemon clients; `PK08.app-lock` only if root-coupled lock caller exists; AP-PU-04 carries owned DB lifecycle slice"
+          ]
+        },
+        "AP-PU-02": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK01.atomic-publication` for new retry/publish-dir flow; `PK01.write-locks` for adopted generic lock; `PK07.migration` if cutover uses this path"
+          ]
+        },
+        "AP-PU-03": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK06.job-queue",
+            "PK06.engine-host",
+            "PK06.daemon-client",
+            "PK07.services"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK02.configured-runner` for `run_command`; `PK02.streaming` for `run_streaming`; `PK02.breakaway` for explicit breakaway builder"
+          ]
+        },
+        "AP-PU-04": {
+          "requiresCapabilities": [
+            "PK03.sqlite-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.root-cutover` only if the owned budget DB folder is relocated; external Codex DB remains read-only and requires no DB migration slice"
+          ]
+        },
+        "AP-PU-05": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline",
+            "PK04.host-services",
+            "PK09.primitives"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK04.write-security` for patch/write callers; `PK03.protected-store` + `PK03.helper-trust` for active typed secret/helper callers; `PK07.services` or `PK07.approvals` only for corresponding registered host calls"
+          ]
+        },
+        "AP-PU-06": {
+          "requiresCapabilities": [
+            "PK05.license-client"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.release` only for new JS license-client consumer; `PK05.device` / `PK05.account` for active device/account callers; `PK03.protected-store` for credential storage; `PK13.update` for active update-auth callers"
+          ]
+        },
+        "AP-PU-07": {
+          "requiresCapabilities": [
+            "PK07.approvals",
+            "PK15.applicability"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.services` for hosted approval service; `PK15.agent-tools` only if an agent toolbox is an active client caller"
+          ]
+        },
+        "AP-PU-08": {
+          "requiresCapabilities": [
+            "PK08.shell-modules",
+            "PK08.app-lock",
+            "PK16.swift-release",
+            "PK16.pulse-hub"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK03.protected-store` only if a real credential-storage caller consumes it; `PK08.surface` only for active setup/main SurfaceSpec switch caller; `PK08.overlay`, `PK08.preview`, `PK08.pdf` only for active corresponding callers"
+          ]
+        },
+        "AP-PU-09": {
+          "requiresCapabilities": [
+            "PK09.primitives"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-PU-10": {
+          "requiresCapabilities": [
+            "PK10.receipts"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK10.license-step` if license onboarding is active; `PK10.notices` if shared legal notices are consumed"
+          ]
+        },
+        "AP-PU-11": {
+          "requiresCapabilities": [
+            "PK11.redaction"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK11.watchdog` for shell detector callers; `PK11.log-config` for app log configuration callers"
+          ]
+        },
+        "AP-PU-12": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: none until a network caller is confirmed; `PK12.redirect`, `PK12.cookie-export`, `PK12.downloader` only for matching active redirect/cookie/download callers; otherwise record evidence-backed N/A"
+          ]
+        },
+        "AP-PU-13": {
+          "requiresCapabilities": [
+            "PK13.update"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.recipes` for named release scripts; `PK17.adoption-evidence` for qualifying the adopted callpath"
+          ]
+        },
+        "AP-PU-14": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK14.qa-chrome` only for active browser QA target; never `PK14.fixture-capture` or `PK17.activation`"
+          ]
+        },
+        "AP-PU-15": {
+          "requiresCapabilities": [
+            "PK15.applicability",
+            "PK07.services",
+            "PK07.approvals"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK15.agent-tools` only for an active client-toolbox caller; hosted actions do not require agent-tools"
+          ]
+        },
+        "AP-PU-16": {
+          "requiresCapabilities": [
+            "PK16.swift-release",
+            "PK16.pulse-hub"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-PU-17": {
+          "requiresCapabilities": [
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.adoption-evidence` for final switch receipt; no `PK17.activation`"
+          ]
+        },
+        "AP-PU-18": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: none; closure waits only for other migration tasks implicated by ledger (AP-PU-01–17/19), never itself or overall packet signoff; no new package slice"
+          ]
+        },
+        "AP-PU-19": {
+          "requiresCapabilities": [
+            "PK02.capture"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        }
+      },
+      "readyForAdoption": []
+    },
+    "heardright": {
+      "tasks": {
+        "AP-HR-01": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK06.engine-host"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK06.daemon-client` + `PK07.services` only for an actual separate shared daemon/session/service composition; `PK06.job-queue` only if this app caller consumes shared queue APIs; `PK02.configured-runner` for `run_command`; `PK02.streaming` for `run_streaming`; `PK02.breakaway` for explicit breakaway builder"
+          ]
+        },
+        "AP-HR-02": {
+          "requiresCapabilities": [
+            "PK03.protected-store",
+            "PK03.encrypted-lifecycle"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.root-cutover` only if DB folder is relocated; legacy DB/key migration is covered by encrypted-lifecycle, not daemon folder migration"
+          ]
+        },
+        "AP-HR-03": {
+          "requiresCapabilities": [
+            "PK03.protected-store"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK03.helper-trust` only if an active helper caller uses the credential backend"
+          ]
+        },
+        "AP-HR-04": {
+          "requiresCapabilities": [
+            "PK05.license-client"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.release` only for new JS `license-client` renderer consumer; `PK05.account` / `PK05.device` for active account/device callpaths; `PK03.protected-store` for credential storage; `PK07.services` for shared host registrations"
+          ]
+        },
+        "AP-HR-05": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline",
+            "PK04.host-services",
+            "PK09.primitives"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK04.write-security` for active patch/write calls; `PK03.protected-store` + `PK03.helper-trust` for typed API-key credential helper path; `PK07.services` or `PK07.approvals` only for matching registered host calls"
+          ]
+        },
+        "AP-HR-06": {
+          "requiresCapabilities": [
+            "PK11.watchdog",
+            "PK11.redaction"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK11.log-config` when app log configuration bridge is replaced"
+          ]
+        },
+        "AP-HR-07": {
+          "requiresCapabilities": [
+            "PK08.shell-modules"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK08.surface` only for active setup/main SurfaceSpec switch caller; `PK08.overlay` for active overlay callers; `PK16.heardright-helpers` for Swift helper callers"
+          ]
+        },
+        "AP-HR-08": {
+          "requiresCapabilities": [
+            "PK09.primitives"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-HR-09": {
+          "requiresCapabilities": [
+            "PK10.receipts"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK10.license-step` for active license onboarding step; `PK10.notices` for active shared legal notice caller"
+          ]
+        },
+        "AP-HR-10": {
+          "requiresCapabilities": [
+            "PK11.redaction",
+            "PK11.log-config"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.services` for shared gated host registration"
+          ]
+        },
+        "AP-HR-11": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: none until network/cookie caller is confirmed; `PK12.redirect`, `PK12.cookie-export`, `PK12.downloader` only for corresponding active callers; otherwise record evidence-backed N/A"
+          ]
+        },
+        "AP-HR-12": {
+          "requiresCapabilities": [
+            "PK13.update"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.recipes` for named packaging/signing scripts; `PK17.adoption-evidence` for exact qualified callpath"
+          ]
+        },
+        "AP-HR-13": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK14.qa-chrome` only for active browser QA; never `PK14.fixture-capture` or `PK17.activation`"
+          ]
+        },
+        "AP-HR-14": {
+          "requiresCapabilities": [
+            "PK15.applicability"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Client toolbox: `PK15.agent-tools`; hosted service: `PK07.services` + `PK07.approvals`; no agent-tools requirement merely for hosted service"
+          ]
+        },
+        "AP-HR-15": {
+          "requiresCapabilities": [
+            "PK16.swift-release",
+            "PK16.heardright-ios"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK16.heardright-helpers` for existing macOS Swift/CloudKit helpers; `PK06.daemon-client` only if an actual Rust bridge caller consumes it"
+          ]
+        },
+        "AP-HR-16": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-HR-17": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: none; —"
+          ]
+        },
+        "AP-HR-18": {
+          "requiresCapabilities": [
+            "PK14.mode-roots"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.root-cutover` only if app data folder is relocated"
+          ]
+        },
+        "AP-HR-19": {
+          "requiresCapabilities": [
+            "PK05.entitlements-baseline"
+          ],
+          "ready": true,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-HR-20": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: none; closure waits only for other migration tasks implicated by ledger (AP-HR-01–19/21), never itself or overall packet signoff; no new package slice"
+          ]
+        },
+        "AP-HR-21": {
+          "requiresCapabilities": [
+            "PK02.capture"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        }
+      },
+      "readyForAdoption": [
+        "AP-HR-19"
+      ]
+    },
+    "viewright": {
+      "tasks": {
+        "AP-VR-01": {
+          "requiresCapabilities": [],
+          "ready": true,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-VR-02": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK05.license-client",
+            "PK05.device",
+            "PK03.protected-store"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Protected-store slice applies to actual credential persistence; qualify shipped native host(s)."
+          ]
+        },
+        "AP-VR-03": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK05.license-client",
+            "PK13.update",
+            "PK17.release"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Native UpdateAuth required for actual renderer call path in `src/state/updateLicense.ts` and callers. For `@rightkit/license` 0.3.0 `./testing` adoption, PK17.release is required and exact version comes from its receipt."
+          ]
+        },
+        "AP-VR-04": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline",
+            "PK01.write-locks"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: One-file save uses keyed lock + checked atomic commit; no `PK01.transactions` or multifile publication."
+          ]
+        },
+        "AP-VR-05": {
+          "requiresCapabilities": [
+            "PK08.shell-modules",
+            "PK08.pdf"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Native-target qualification for each registered PDF command caller."
+          ]
+        },
+        "AP-VR-06": {
+          "requiresCapabilities": [
+            "PK08.pdf"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Rust/macOS PDFKit consumer is `src-tauri/src/mac_pdf_view.rs`; qualify native Rust/PDFKit target. No `PK16` absent actual Swift consumer; no app conversion to Swift."
+          ]
+        },
+        "AP-VR-07": {
+          "requiresCapabilities": [
+            "PK08.preview"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Receipts cover actual Tauri preview scheme, auth, budget and revocation caller."
+          ]
+        },
+        "AP-VR-08": {
+          "requiresCapabilities": [
+            "PK08.shell-modules"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Generic WebView2 COM menu moves to `webview2_menu`; EX1 is only iframe inspector + View Source/source-jump policy. Add `PK08.surface` only if source/API comparison identifies a consumed SurfaceSpec caller. No app DevTools."
+          ]
+        },
+        "AP-VR-09": {
+          "requiresCapabilities": [
+            "PK11.redaction",
+            "PK11.log-config",
+            "PK11.watchdog",
+            "PK07.migration"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.migration` covers migrated root/DB open path; preserve `logs.rs::load_persisted_enabled` read-only SQL/opt-out/default. Capture adapter conditional on actual capture caller."
+          ]
+        },
+        "AP-VR-10": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK09.primitives",
+            "PK10.receipts"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK10.license-step` only for a source-confirmed license onboarding step; `PK10.notices` only for actual release notice generation. Settings/legal/onboarding sources are named above."
+          ]
+        },
+        "AP-VR-11": {
+          "requiresCapabilities": [
+            "PK02.configured-runner",
+            "PK12.redirect",
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK14.qa-chrome",
+            "PK17.scanner",
+            "PK17.recipes"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `src-tauri/src/lib.rs::report_fatal_startup` configures Windows `powershell.exe` with `.env(\"VIEWRIGHT_FATAL_MESSAGE\", message)`; published `run` lacks env configuration, so `run_command(OwnedCommand, …, RunOptions)` requires `PK02.configured-runner`. `PK12.redirect` only for confirmed redirect caller; `PK17.recipes` only for exact release recipe source. M3/M4 provisional N/A from bounded source/manifest scan; add PK06 only if engine/sidecar caller is found."
+          ]
+        },
+        "AP-VR-12": {
+          "requiresCapabilities": [
+            "PK17.adoption-evidence",
+            "PK17.handoff"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Close only after every other applicable AP, including AP-VR-14, is complete with source-backed N/A/unknown dispositions & residual evidence. No `PK17.activation` gate."
+          ]
+        },
+        "AP-VR-13": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline",
+            "PK03.sqlite-baseline",
+            "PK07.migration",
+            "PK14.mode-roots"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Add `PK07.root-cutover` only if actual app-root relocation/cutover is in scope. Plain SQLite metadata does not imply `PK03.encrypted-lifecycle` or credential `PK03.protected-store`."
+          ]
+        },
+        "AP-VR-14": {
+          "requiresCapabilities": [
+            "PK17.adoption-evidence"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Reconcile all existing exception-ledger records after contributing deletions; this does not create an exemption for generic mechanics."
+          ]
+        }
+      },
+      "readyForAdoption": [
+        "AP-VR-01"
+      ]
+    },
+    "mailright": {
+      "tasks": {
+        "AP-MR-01": {
+          "requiresCapabilities": [],
+          "ready": true,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        },
+        "AP-MR-02": {
+          "requiresCapabilities": [
+            "PK01.transactions",
+            "PK03.encrypted-lifecycle",
+            "PK07.root-cutover"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK07.migration` only if source confirms schema migration in transition; evidence actual encrypted key lifecycle and companion set."
+          ]
+        },
+        "AP-MR-03": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Qualify the existing published Settings capability with `qualify-existing`; do not wait for PK09 primitives or new host-service capability absent an actual settings bridge caller. Preserve `SqlSettings` adoption & domain queries."
+          ]
+        },
+        "AP-MR-04": {
+          "requiresCapabilities": [
+            "PK06.engine-host"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Add `PK06.daemon-client` only if source confirms consumption; `supervise_adopted` accepts `PrivateChild`, not arbitrary resident processes."
+          ]
+        },
+        "AP-MR-05": {
+          "requiresCapabilities": [
+            "PK07.approvals",
+            "PK07.services",
+            "PK15.applicability"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Source-confirmed Mail agent gate methods. Preserve exact account/action/resource policy and protocol; audit-after-effect failures are not pre-effect refusals."
+          ]
+        },
+        "AP-MR-06": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK03.protected-store",
+            "PK05.license-client",
+            "PK05.device",
+            "PK17.release"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Qualify only shipped native hosts. For `@rightkit/license` 0.3.0 `./testing` adoption, require PK17.release & pin exact version from that receipt; update auth belongs to AP-MR-08 only if an actual caller consumes it."
+          ]
+        },
+        "AP-MR-07": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK09.primitives",
+            "PK10.receipts"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK10.license-step` only for exact license-onboarding consumer; `PK10.notices` only for actual release notice generation. Retain content/actions/accessibility at three named table callers."
+          ]
+        },
+        "AP-MR-08": {
+          "requiresCapabilities": [
+            "PK05.license-client",
+            "PK11.redaction",
+            "PK11.log-config",
+            "PK11.watchdog",
+            "PK12.redirect",
+            "PK13.update"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK12.downloader` only if source confirms verified-download caller. Update auth only for actual caller; shell detector once; capture adapter only when used."
+          ]
+        },
+        "AP-MR-09": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK08.shell-modules"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `src-tauri/src/startup_error.rs::platform::show` is a confirmed macOS process caller; it passes args only, so published `run`/`RunOptions` (`PK02.capture`) suffices, with no environment/cwd configuration caller established. Add `PK08.surface` only for source-confirmed SurfaceSpec caller and `PK08.pdf` only for source-confirmed PdfHost caller; add `PK16.*` only for actual Swift consumer, not Rust PDFKit. Qualify actual supported native targets."
+          ]
+        },
+        "AP-MR-10": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK14.qa-chrome",
+            "PK17.scanner",
+            "PK17.recipes"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.recipes` only for exact `right-release.config.mjs`, dev scripts & `stage-dev-sidecars.mjs` callers. No `PK14.fixture-capture` or `PK17.activation`."
+          ]
+        },
+        "AP-MR-11": {
+          "requiresCapabilities": [
+            "PK17.adoption-evidence",
+            "PK17.handoff"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Close only after every other applicable AP, including AP-MR-12, is complete and every M1–M23 row has receipt, source-backed N/A or bounded retained behavior. No activation gate."
+          ]
+        },
+        "AP-MR-12": {
+          "requiresCapabilities": [
+            "PK17.adoption-evidence"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Reconcile every existing exception-ledger record after contributing deletions; ledger presence does not exempt generic mechanics."
+          ]
+        }
+      },
+      "readyForAdoption": [
+        "AP-MR-01"
+      ]
+    },
+    "scraperight": {
+      "tasks": {
+        "AP-SR-01": {
+          "requiresCapabilities": [
+            "PK06.job-queue",
+            "PK06.engine-host"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK06.daemon-client` only if source search finds a separate shared daemon/session attach caller; existing `engine_supervisor.rs` alone is not evidence. Keep multi-client detach/endpoint identity scenarios only for that caller; otherwise validate the app-owned supervisor lifecycle."
+          ]
+        },
+        "AP-SR-02": {
+          "requiresCapabilities": [
+            "PK12.cookie-export",
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK08.shell-modules` only if browser window mechanics move; cookie artifact ownership is PK12 + PK01, with `browser.rs`/`inapp_sign_in.rs` as callers."
+          ]
+        },
+        "AP-SR-03": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline",
+            "PK04.host-services",
+            "PK04.write-security",
+            "PK06.engine-host",
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; settings are persisted and snapshotted into running engine in `commands.rs`."
+          ]
+        },
+        "AP-SR-04": {
+          "requiresCapabilities": [
+            "PK08.shell-modules",
+            "PK08.surface"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; `window_surface.rs` and Tauri setup are native shell callers."
+          ]
+        },
+        "AP-SR-05": {
+          "requiresCapabilities": [
+            "PK10.receipts",
+            "PK04.host-services",
+            "PK06.job-queue"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; `commands_models.rs` has onboarding persistence and pending job callers."
+          ]
+        },
+        "AP-SR-06": {
+          "requiresCapabilities": [
+            "PK03.protected-store",
+            "PK04.host-services",
+            "PK05.entitlements-baseline",
+            "PK05.license-client",
+            "PK05.device",
+            "PK05.account"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.release` only if this task adopts new JS `@rightkit/license` 0.3.0 `./testing` client. No `PK10.license-step`: React adapter is not this native Tauri flow."
+          ]
+        },
+        "AP-SR-07": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK08.shell-modules` only for safe open/reveal callers in `commands_files.rs`; output encoding/destination remain app-owned."
+          ]
+        },
+        "AP-SR-08": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline",
+            "PK03.sqlite-baseline",
+            "PK07.migration",
+            "PK07.root-cutover"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `crates/store/Cargo.toml` pins `rightkit-db =0.5.0`; inspect `crates/store` open/root callers with `src-tauri/src/contract.rs::app_data_root`, `engine_paths.rs`, `runtime_paths.rs`, `queue.rs::Queue::from_sidecar`. Current store is plain SQLite, so no `PK03.encrypted-lifecycle`; require that only if a future source workflow proves encryption/key migration. `PK07.services` only for traced service-root caller."
+          ]
+        },
+        "AP-SR-09": {
+          "requiresCapabilities": [
+            "PK09.primitives",
+            "PK04.host-services"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; renderer settings UI & native settings commands are actual callers."
+          ]
+        },
+        "AP-SR-10": {
+          "requiresCapabilities": [
+            "PK10.receipts",
+            "PK04.host-services"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; legal acceptance and onboarding persistence are existing app paths."
+          ]
+        },
+        "AP-SR-11": {
+          "requiresCapabilities": [
+            "PK11.redaction",
+            "PK11.log-config",
+            "PK11.watchdog"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; `logging.rs` and `crash_window.rs` are present; shell watchdog is to be adopted because no ScrapeRight `on_stall` caller exists."
+          ]
+        },
+        "AP-SR-12": {
+          "requiresCapabilities": [
+            "PK12.redirect",
+            "PK12.downloader",
+            "PK13.update",
+            "PK01.atomic-baseline"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK05.license-client` only for the registered updater authorization caller; verify `commands_release.rs`/`license.rs` route before requiring. Cookie export is AP-SR-02 (`PK12.cookie-export`)."
+          ]
+        },
+        "AP-SR-13": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK17.release",
+            "PK17.scanner",
+            "PK17.recipes",
+            "PK17.adoption-evidence"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK13.update` only for release scripts/configs that actually package updater; M19 recipe replacement is required only for named scripts in this unit. No activation receipt."
+          ]
+        },
+        "AP-SR-14": {
+          "requiresCapabilities": [
+            "PK15.applicability"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK15.agent-tools` and `PK07.services`/`PK07.approvals` only if caller search in agent/client/host registrations finds applicable behavior; M22 is conditional in the source map."
+          ]
+        },
+        "AP-SR-15": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK02.configured-runner",
+            "PK02.streaming"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK02.breakaway` not required: current inspected `helper_process.rs`, `commands_auth.rs`, `browser.rs`, and `engine_supervisor.rs` have no explicit breakaway caller."
+          ]
+        },
+        "AP-SR-16": {
+          "requiresCapabilities": [
+            "PK16.swift-release",
+            "PK16.scraperight-ios"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: No separate Rust PK01/05/10 requirement absent a cross-language bridge; native FS/license/purchase/cloud consumers are qualified through the named ScrapeRight Swift app slice."
+          ]
+        },
+        "AP-SR-17": {
+          "requiresCapabilities": [],
+          "ready": true,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        }
+      },
+      "readyForAdoption": [
+        "AP-SR-17"
+      ]
+    },
+    "coderight": {
+      "tasks": {
+        "AP-CR-01": {
+          "requiresCapabilities": [
+            "PK03.protected-store",
+            "PK04.host-services",
+            "PK05.entitlements-baseline",
+            "PK05.license-client",
+            "PK05.device",
+            "PK05.account"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK13.update` only if updater authorization is migrated here; updater path is separately mapped in AP-CR-10. `PK17.release` is required only if this unit adopts new JS `@rightkit/license` 0.3.0 `./testing` safety/client; native entitlement checks use baseline `PK05.entitlements-baseline`."
+          ]
+        },
+        "AP-CR-02": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK02.configured-runner",
+            "PK02.breakaway",
+            "PK06.daemon-client",
+            "PK06.loopback",
+            "PK07.services",
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK06.job-queue` only if launch/presence path uses queue APIs; current `lib.rs::spawn_daemon_process` is direct process launch, so don't gate it on queue absent caller evidence. No `PK17.activation`; loopback feature release needs scanner slice in AP-CR-03."
+          ]
+        },
+        "AP-CR-03": {
+          "requiresCapabilities": [
+            "PK02.capture",
+            "PK02.configured-runner",
+            "PK06.daemon-client",
+            "PK06.loopback",
+            "PK07.services",
+            "PK17.scanner"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK17.scanner` for the new daemon-loopback feature rule explicitly required by PK06-5; do not require activation. SSH tunnel has no callers per `docs/rightkit-exceptions/M7.md` and the bounded source references above; delete after final whole-repo/public-contract search, no migration."
+          ]
+        },
+        "AP-CR-04": {
+          "requiresCapabilities": [
+            "PK11.redaction",
+            "PK11.log-config"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK11.watchdog` only if this unit adopts stall callbacks; stall detector is separate shell lifecycle, so AP-CR-09 owns it. Existing log rotation is already adopted."
+          ]
+        },
+        "AP-CR-05": {
+          "requiresCapabilities": [
+            "PK03.protected-store",
+            "PK05.license-client"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK05.account`/`PK05.device` only if registered lease callers require those contract slices. No `PK03.encrypted-lifecycle`: protected-store is distinct from encrypted DB lifecycle. Remove `allow_plaintext` opt-in and plaintext writes in `apps/coderight-tauri/src-tauri/src/token_store.rs::AppTokenStoreIo::encrypt`; protected-store unavailable returns typed refusal. Preserve legacy plaintext read only for migration until secure write/readback succeeds, retaining the sole viable legacy value on failure. Keep `cc.coderight.native-oauth`, `WindowsTarget::KeyringCompat`, and `write_owner_only_atomic` (already delegates PK01); do not resurrect `native_oauth::{login,refresh}`: their handlers are absent from `generate_handler!` (`src-tauri/src/lib.rs:1717`) and no current frontend caller exists. Search `crates/auth/src/token_store.rs` too for deletion closure."
+          ]
+        },
+        "AP-CR-06": {
+          "requiresCapabilities": [
+            "PK01.atomic-baseline",
+            "PK03.sqlite-baseline",
+            "PK07.migration",
+            "PK07.root-cutover"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK03.encrypted-lifecycle` only if DB owner/schema/key source establishes an encrypted workflow; current plain SQLite use requires only `PK03.sqlite-baseline`. `PK07.services` only for a traced service-root caller."
+          ]
+        },
+        "AP-CR-07": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline",
+            "PK04.host-services",
+            "PK04.write-security",
+            "PK08.shell-modules",
+            "PK09.primitives"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK08.surface` only if current callers consume new `SurfaceSpec`; generic windows do not require it. `PK08.overlay` only if actual approval-bubble geometry is migrated. Canvas save/get declarations are invoked in UI but handler-unreachable; preserve schema and scope tests, do not activate; only migrate generic shared store mechanics if possible without wiring feature. PDF/preview/app-lock slices have no established caller in this task."
+          ]
+        },
+        "AP-CR-08": {
+          "requiresCapabilities": [
+            "PK04.host-services",
+            "PK10.receipts"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK10.license-step` only if current onboarding step exports consume it; keep task conditional on inspecting actual onboarding components."
+          ]
+        },
+        "AP-CR-09": {
+          "requiresCapabilities": [
+            "PK11.redaction",
+            "PK11.log-config",
+            "PK11.watchdog"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: None; logs, existing rotation, crash capture and shell stall detector are all named current callers."
+          ]
+        },
+        "AP-CR-10": {
+          "requiresCapabilities": [
+            "PK05.license-client",
+            "PK12.redirect",
+            "PK13.update"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK12.downloader` only if native updater/model artifact download is migrated through it; updater installers alone do not imply downloader use."
+          ]
+        },
+        "AP-CR-11": {
+          "requiresCapabilities": [
+            "PK14.mode-roots",
+            "PK14.harness",
+            "PK17.release",
+            "PK17.scanner",
+            "PK17.recipes",
+            "PK17.adoption-evidence"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK13.update` only for release recipes that package app-update behavior. M19 scripts named in AP-CR-11/AP-CR-13 require recipe capability; `PK17.activation` is a separate policy deployment, not qualification readiness."
+          ]
+        },
+        "AP-CR-12": {
+          "requiresCapabilities": [
+            "PK15.applicability",
+            "PK07.services",
+            "PK07.approvals"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: `PK15.agent-tools` only if source confirms actual client toolbox use; hosted Service alone is insufficient. Resolve `rightkit-mandatory.json` M22 control N/A against PK15-2 applicability record; retain O-4 control-server exclusion and do not infer `desktop.*` authority. `PK15.agent-tools` only if source confirms an actual client toolbox consumer; a hosted `Service` caller alone is not a toolbox dependency. `PK06.loopback` only where inspected hosted agent routes use daemon loopback. Preserve existing client/host separation; do not create or grant `desktop.*` authority."
+          ]
+        },
+        "AP-CR-13": {
+          "requiresCapabilities": [
+            "PK04.settings-baseline",
+            "PK04.host-services",
+            "PK04.write-security"
+          ],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: Engine `save_user`/`save_workspace` already use `rightkit_app_settings::atomic_write`; canvas schema save/get declarations exist but handler-unreachable; no NativeWindowsState setup/restore or engine caller was found. Keep them unwired; preserve existing schema/IPC scope evidence, migrate generic store mechanics only where possible without activation. No generic FS capability. `PK09.primitives` remains AP-CR-07 UI work."
+          ]
+        },
+        "AP-CR-14": {
+          "requiresCapabilities": [],
+          "ready": false,
+          "applicable": true,
+          "applicabilityResolved": false,
+          "naReason": null,
+          "evidence": [
+            "conditional requirement awaiting source disposition: published manifest or N/A evidence; Swift native parity"
+          ]
+        },
+        "AP-CR-15": {
+          "requiresCapabilities": [],
+          "ready": true,
+          "applicable": true,
+          "applicabilityResolved": true,
+          "naReason": null,
+          "evidence": []
+        }
+      },
+      "readyForAdoption": [
+        "AP-CR-15"
+      ]
+    }
+  }
+}
