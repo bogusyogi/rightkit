@@ -8,8 +8,11 @@
 //! - [`CancelToken`]: cooperative cancellation for calls and streams.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
 //! - `untrusted` (feature, off by default): tamper-evident wrapping of external text for model input.
-//! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
-//!   `rightkit-credentials` implements.
+//! - [`secret`]: redacted [`Secret`], the [`SecretStore`] interface and the in-memory
+//!   [`MemorySecretStore`] (no production implementation ships in this crate).
+//! - [`ApprovedOrigins`], [`check_redirect_target`] and [`RedirectRefusal`]: the redirect origin
+//!   allowlist (`Request::approved_redirect_origins`), its typed error
+//!   ([`HttpError::RedirectRefused`]) and a string-level guard for other transports.
 //! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on
 //!   reqwest/tokio, with a body [`BodyStream`] and an async [`SseStream`].
 //! - `testing` (feature): in-process mock server that records exact requests.
@@ -46,8 +49,9 @@ pub use client::{
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::{Multipart, MultipartRelated};
 pub use netpolicy::{
-    parse_host_ip, parse_legacy_ipv4, validate_public_https_url, AddressClass, AddressPolicy,
-    CredentialScope, HostIpKind, IpNet, ParsedHostIp, ResolveError, UrlPolicyError,
+    check_redirect_target, parse_host_ip, parse_legacy_ipv4, validate_public_https_url,
+    AddressClass, AddressPolicy, ApprovedOrigins, CredentialScope, HostIpKind, IpNet, ParsedHostIp,
+    RedirectRefusal, ResolveError, UrlPolicyError,
 };
 pub use quota::{defer_in, remaining_in, QuotaSchedule, QuotaStore};
 pub use retry::{

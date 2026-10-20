@@ -2,7 +2,7 @@
 
 Shared blocking HTTP client for Right Suite applications. It provides timeouts, bounded bodies, retry and backoff that honours `Retry-After` (never retrying unsafe methods), streaming responses, WHATWG Server-Sent Events decoding, redacted secrets, and tamper-evident wrapping of untrusted web text before it reaches a model.
 
-Catalog capability: `http-client`. Published to crates.io at 0.2.5 (registry record); the source is 0.3.0, which [INDEX.md](../../INDEX.md) flags as a mismatch.
+Catalog capability: `http-client`. Published to crates.io: 0.3.7 (see [CHANGELOG.md](CHANGELOG.md)); the catalogue record in [INDEX.md](../../INDEX.md) can lag the registry.
 
 ## What it owns
 
@@ -15,12 +15,13 @@ Catalog capability: `http-client`. Published to crates.io at 0.2.5 (registry rec
 - `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (off by default; `ProxyMode` opts in), address policy and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
 - `sse`: `SseDecoder` (`new`, `with_limits`), `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
 - `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting; `wrap_untrusted_web_text_coderight` is the opt-in variant that emits CodeRight's `<coderight-untrusted-context>` envelope (differences: `content_hash` is the body SHA-256, closing-tag text in the body is escaped).
-- `secret`: a redacted `Secret`, and the `SecretStore` trait. `MemorySecretStore` is provided for tests. `src/secret.rs` says `rightkit-credentials` supplies the production implementation, but `rightkit-credentials` has no `SecretStore` implementation and does not depend on this crate.
+- `secret`: a redacted `Secret`, and the `SecretStore` trait (an interface only: `get`, `set`, `delete` keyed by service and account). The one implementation in this repository is `MemorySecretStore`, an in-memory map for tests and ephemeral sessions. There is no production (Keychain / Credential Manager) `SecretStore` implementation: `rightkit-credentials` has its own `Store` and `Secret` types, does not implement this trait and does not depend on this crate. An app that wants OS-backed storage behind this trait implements it over `rightkit-credentials` itself; consumers such as `rightkit-llm`'s `SecretStoreCredentials` accept any `SecretStore`.
+- `ApprovedOrigins`, `Request::approved_redirect_origins`, `RedirectRefusal`, `HttpError::RedirectRefused` and `check_redirect_target`: the redirect origin allowlist, its typed error and a string-level guard for other transports (see [Redirects](#redirects)).
 - `testing` (feature): an in-process mock server that records exact requests.
 
-## Not in this release
+## Not in this crate
 
-File downloads (`download_to_path`) are not part of 0.3.0 and are planned for 0.3.1.
+File downloads. `Client::download_to_path` was removed before publication and is in no published version (see the 0.3.0 entry in [CHANGELOG.md](CHANGELOG.md)). Copy a `StreamResponse` into a writer you own with `StreamResponse::copy_to(writer, max_bytes, progress)`.
 
 ## When to use it
 
@@ -31,13 +32,13 @@ The default client is blocking (`ureq` with `rustls`). For async code enable the
 
 ## Cargo features
 
-No feature is on by default (0.3.0). Name `gzip` and `untrusted` to get what 0.2.x built.
+No feature is on by default (since 0.3.0). Releases before 0.3.0 enabled `gzip` and `untrusted` by default; name them to get that build.
 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
 | `gzip` | no | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
 | `untrusted` | no | `rightkit-fs` (SHA-256 digest) | `wrap_untrusted_web_text` and `WrapOptions` (`Cargo.toml:15-18`, `src/lib.rs:30-31`). |
-| `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time, net), `futures-util`, `bytes`, `rustls`, `rustls-platform-verifier`, `webpki-roots` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
+| `async` | no | `reqwest` 0.13 (`rustls-no-provider` and `stream`; no native-tls), `tokio` (time, net), `futures-util`, `bytes`, `rustls`, `rustls-platform-verifier`, `webpki-roots` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
 | `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`, `loopback_policy`, `loopback_config`. |
 
 Default features are empty since 0.3.0. Name what you use, e.g. `features = ["gzip", "untrusted"]`; with no features:
@@ -120,7 +121,7 @@ Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&valu
 | `Transport` | `Transport` |
 | `Cancelled` | `Cancelled` |
 | `AddressDenied` | `AddressDenied` |
-| `InvalidRequest`, `Json`, `Stream`, `BodyTooLarge` | `Invalid` |
+| `InvalidRequest`, `Json`, `Stream`, `BodyTooLarge`, `HttpsRequired`, `RedirectRefused` | `Invalid` |
 
 ## Address policy
 
@@ -149,7 +150,7 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 
 ## Proxies
 
-`ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are accepted. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen. `System` uses the operating system's proxy for the current user: on Windows the static proxy and bypass list of the system proxy settings with nothing configured, and on other systems, it behaves as `Environment`.
+`ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are supported; there is no SOCKS support in either client (this crate enables no SOCKS feature of `ureq` or `reqwest` and refuses the scheme itself). `Explicit` with any other scheme (`socks5://`, `socks4://`, `ftp://`) is refused as `HttpError::InvalidRequest` ("invalid proxy URL") from `Client::try_new` / `AsyncClient::new`, with nothing sent. `Environment` skips a proxy variable that names an unsupported scheme and uses the next one, and connects directly when none is usable, so an environment holding only `ALL_PROXY=socks5://...` is not proxied. `System` reads only `http=` and `https=` entries and a bare `host:port`; `socks=` and `ftp=` entries, and an entry with its own `socks5://` scheme, read as no entry. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen. `System` uses the operating system's proxy for the current user: on Windows the static proxy and bypass list of the system proxy settings with nothing configured, and on other systems, it behaves as `Environment`.
 
 Limits of `System` in this version: on a default Windows install, where "Automatically detect settings" is on and nothing else is configured, `System` does not fail: it uses the environment proxy variables (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`) when set and a direct connection otherwise. `Client::proxy_mode_used()` / `AsyncClient::proxy_mode_used()` reports which (`ProxyModeUsed::SystemFallbackEnvironment` or `SystemFallbackDirect`, with the reason `automatic detection only; no static proxy or PAC configured`; `System`, `Environment` and `Direct` otherwise). With a static proxy the detection flag is ignored and the static proxy is followed. Since 0.3.2 `System` resolves the static proxy per request URL on Windows. The string is read per scheme as Windows reads it (`http=`, `https=`, a bare `host:port` for the rest), each request goes to its own scheme's endpoint (a scheme with none connects directly), and the bypass list is evaluated for that URL's host: names, addresses, `.suffix`, `*` wildcards anywhere (`10.*`), `<local>` (names without a dot, "Don't use the proxy server for local addresses") and scheme-limited entries (`https://host` bypasses `https` only). The decision is made for every hop, so a redirect is routed on its own. Nothing is cached: it is a string match. One proxy for both schemes with a bypass list of plain hosts is still held as one client-wide proxy; in the per-request case `proxy_diagnostic()` is `None`. What is still refused, as `HttpError::SystemProxyUnsupported { element }` from `Client::try_new` (and on every request of a client built with `Client::new`), with nothing sent:
 
@@ -191,7 +192,7 @@ Windows machines with `<local>` or per-scheme proxies next to a static proxy no 
 
 ## TLS trust and `https_only`
 
-- `ClientConfig::trust` is `TrustRoots::Platform` (default) or `TrustRoots::Bundled`. **From 0.3.0 the default is the operating system's trust store**, so roots an enterprise or an inspection proxy installed on the machine are honoured, as curl and browsers honour them. Before 0.3.0 only Mozilla's bundled roots were trusted. Both clients name their verifier explicitly, so no other crate's Cargo features can change it: the blocking client sets ureq's TLS provider and `RootCerts` (`PlatformVerifier` or `WebPki`); the async client installs a complete rustls `ClientConfig` with `use_preconfigured_tls` in **both** branches (`rustls-platform-verifier` for `Platform`, the `webpki-roots` Mozilla set and nothing else for `Bundled`). reqwest stays 0.12.28 with feature `rustls-tls`; no second reqwest major is needed. `Client::verifier_kind()` and `AsyncClient::verifier_kind()` return `"platform"` or `"bundled"`; the async value reports the configuration that was installed. `Bundled` ignores the machine's roots. There is no option that disables verification.
+- `ClientConfig::trust` is `TrustRoots::Platform` (default) or `TrustRoots::Bundled`. **From 0.3.0 the default is the operating system's trust store**, so roots an enterprise or an inspection proxy installed on the machine are honoured, as curl and browsers honour them. Before 0.3.0 only Mozilla's bundled roots were trusted. Both clients name their verifier explicitly, so no other crate's Cargo features can change it: the blocking client sets ureq's TLS provider and `RootCerts` (`PlatformVerifier` or `WebPki`); the async client installs a complete rustls `ClientConfig` with `use_preconfigured_tls` in **both** branches (`rustls-platform-verifier` for `Platform`, the `webpki-roots` Mozilla set and nothing else for `Bundled`). The async client builds on reqwest 0.13 (`Cargo.toml`: `rustls-no-provider` and `stream`, default features off); rustls is 0.23 with the `ring` provider installed by this crate, and the workspace lock resolves reqwest 0.13.5. `Client::verifier_kind()` and `AsyncClient::verifier_kind()` return `"platform"` or `"bundled"`; the async value reports the configuration that was installed. `Bundled` ignores the machine's roots. There is no option that disables verification.
 - The async client advertises **HTTP/1.1 only** in ALPN. reqwest's `http2` feature is not enabled here, so a server that selected `h2` would otherwise panic hyper-util; the client cannot negotiate it, whatever other crates enable.
 - `ClientConfig::https_only` (default `false`) refuses a non-`https` initial URL and any redirect hop to a non-`https` URL with `HttpError::HttpsRequired { host, scheme, redirect }` (class `Invalid`), before anything is sent to that URL. It applies to both clients. It is separate from the address policy's HTTPS-to-HTTP redirect rule, which stays on; when a redirect to `http` trips both, `HttpsRequired` is the error reported.
 
@@ -228,6 +229,10 @@ Windows machines with `<local>` or per-scheme proxies next to a static proxy no 
 - `max_redirects` defaults to 0, so redirects are not followed. With 0, a 3xx response is always returned, whatever the error policy.
 - The crate follows redirects itself, one hop at a time, so the address policy and header stripping run on every hop. Rules match ureq: 301/302/303 and other 3xx (not 304) become `GET` unless the method is `GET` or `HEAD`; 307/308 are not followed for `POST`, `PUT`, `PATCH` and `DELETE` (the 3xx comes back); a 3xx without `Location` comes back.
 - On a cross-origin hop (scheme, host or port differs) `Authorization`, `Cookie`, headers named like credentials (`authorization`, `authentication`, `cookie`, `token`, `secret`, `api-key`, `apikey`, `password`) and any header holding a recorded secret value are dropped. A same-origin hop keeps them.
+- **Approved origins (unreleased, after 0.3.6).** `Request::approved_redirect_origins(ApprovedOrigins)` confines a request's redirects to its own origin plus the listed origins (scheme, host and port, compared canonically). A hop anywhere else is refused before anything is sent to it, with `HttpError::RedirectRefused { host, reason: RedirectRefusal::UnapprovedOrigin }` (class `Invalid`, never retried); the error names the host only, never the path, query or userinfo. `ApprovedOrigins::new()` means the request's origin only; `ApprovedOrigins::parse(["https://downloads.example.com"])` adds origins (a plain origin per entry, no userinfo, path, query or fragment; one bad entry refuses the whole set). A request without a set behaves as before. The set decides where a redirect may go, not what it carries: a hop to an approved but different origin still drops credentials as described above, and the address policy and `https_only` still run on every hop.
+- **Redirect target shape (unreleased, after 0.3.6).** On every hop, with or without a set, a target whose authority carries userinfo (`https://user:pw@host/`, `https://good.example@evil.example/`) is refused as `RedirectRefused` with `RedirectRefusal::Credentials`. A `Location` that is not an absolute http(s) URL after resolution keeps returning `HttpError::InvalidRequest("redirect with an unusable Location")`.
+- **HTTPS to HTTP.** The clients refuse the hop through the address policy (`HttpError::AddressDenied`, reason "redirect from HTTPS to HTTP refused") unless `AddressPolicy::allow_insecure_redirects()` was set; with `https_only` the error is `HttpsRequired { redirect: true, .. }`. The new `RedirectRefused` is not used for this case, so existing matches on `AddressDenied` keep working.
+- **For other transports.** `check_redirect_target(request_url, from_url, location, &ApprovedOrigins) -> Result<String, RedirectRefusal>` is the same shape and origin check on strings only, for a transport that follows redirects itself (it neither resolves hosts nor applies an `AddressPolicy`). It returns the absolute target, fragment dropped, or `RedirectRefusal::{Malformed, SchemeDowngrade, Credentials, UnapprovedOrigin}`; unlike the clients it has no insecure-redirect opt-in and refuses every `https` to `http` hop. Apply `AddressPolicy::resolve_vetted` to the target's host and connect to the returned addresses.
 - `max_redirects_will_error` defaults to `true`, matching ureq. When a nonzero limit is exhausted, the call returns `HttpError::Transport { connect_phase: false, .. }`. That error is eligible for idempotent retries under the retry policy.
 - Set it to `false` to receive the final 3xx through `send_any`.
 
@@ -237,7 +242,7 @@ Pure Rust over `ureq` with `rustls`, with platform-specific code in `src/system_
 
 ## Tests
 
-`tests/e2e.rs` and, with `--features async`, `tests/async_e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received. `tests/second_read.rs` (and `tests/second_read_async.rs` with `--features async`) pin the retry-sleep clamp. `tests/request_policy.rs` covers per-request overrides, cancellation, redaction and the deadline. `tests/address_policy.rs` (and `tests/async_policy.rs` with `--features async`) cover the address policy: resolver denial per class, embedded IPv4 forms, redirects, cross-origin stripping, first-party mode, `deny_ranges`, `deny_if` and URL redaction. `tests/send_headers.rs`, `tests/proxy.rs` and `tests/phases.rs` cover headers-only calls, proxies and error phases. `tests/classify_parity.rs` cross-checks the classification against `rightkit-browser`'s source.
+`tests/e2e.rs` and, with `--features async`, `tests/async_e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received. `tests/second_read.rs` (and `tests/second_read_async.rs` with `--features async`) pin the retry-sleep clamp. `tests/request_policy.rs` covers per-request overrides, cancellation, redaction and the deadline. `tests/address_policy.rs` (and `tests/async_policy.rs` with `--features async`) cover the address policy: resolver denial per class, embedded IPv4 forms, redirects, cross-origin stripping, first-party mode, `deny_ranges`, `deny_if` and URL redaction. `tests/redirect_guard.rs` (and `tests/tls_local.rs` for the HTTPS to HTTP hop) cover approved origins, the typed redirect error, the userinfo refusal and `check_redirect_target`. `tests/send_headers.rs`, `tests/proxy.rs` and `tests/phases.rs` cover headers-only calls, proxies and error phases. `tests/classify_parity.rs` cross-checks the classification against `rightkit-browser`'s source.
 
 ## Version and changes
 

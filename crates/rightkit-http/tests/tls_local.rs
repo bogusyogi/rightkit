@@ -258,6 +258,28 @@ fn blocking_https_only_refuses_an_https_to_http_redirect() {
     );
 }
 
+#[test]
+fn blocking_refuses_an_https_to_http_redirect_by_default_and_contacts_nothing() {
+    let server = TlsServer::start(loopback_leaf(trusted_ca()), |_| {
+        b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec()
+    });
+    // No `https_only`: the downgrade rule is the address policy's and is always on.
+    let c = Client::new(ClientConfig {
+        max_redirects: 3,
+        ..cfg(TrustRoots::Bundled)
+    });
+    let err = c
+        .send(&Request::get(server.url("/")).bearer("tok-downgrade-1"))
+        .unwrap_err();
+    assert_eq!(err.class(), ErrorClass::AddressDenied, "{err:?}");
+    assert!(
+        matches!(err, HttpError::AddressDenied { ref reason, .. } if reason.contains("HTTPS to HTTP")),
+        "{err:?}"
+    );
+    assert!(!format!("{err} {err:?}").contains("tok-downgrade-1"));
+}
+
 // ---------------------------------------------------------------- async client
 #[cfg(feature = "async")]
 mod async_side {
@@ -319,6 +341,29 @@ mod async_side {
         let c = AsyncClient::new(cfg(TrustRoots::Bundled)).unwrap();
         let err = c.send(&Request::get(server.url("/"))).await.unwrap_err();
         assert!(is_tls_refusal(&err), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn refuses_an_https_to_http_redirect_by_default_and_contacts_nothing() {
+        let server = TlsServer::start(loopback_leaf(trusted_ca()), |_| {
+            b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec()
+        });
+        let c = AsyncClient::new(ClientConfig {
+            max_redirects: 3,
+            ..cfg(TrustRoots::Bundled)
+        })
+        .unwrap();
+        let err = c
+            .send(&Request::get(server.url("/")).bearer("tok-downgrade-2"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.class(), ErrorClass::AddressDenied, "{err:?}");
+        assert!(
+            matches!(err, HttpError::AddressDenied { ref reason, .. } if reason.contains("HTTPS to HTTP")),
+            "{err:?}"
+        );
+        assert!(!format!("{err} {err:?}").contains("tok-downgrade-2"));
     }
 
     #[tokio::test]

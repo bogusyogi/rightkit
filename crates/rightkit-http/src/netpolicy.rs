@@ -1500,6 +1500,29 @@ impl CredentialScope {
 /// another scheme, no host, whitespace/control/backslash anywhere, a bad port, or a path
 /// segment that is `.`/`..` or decodes to text containing a separator.
 fn credential_url_parts(url: &str) -> Option<(String, String, u16, Vec<String>, bool)> {
+    let p = url_authority_parts(url)?;
+    let path = p.tail.split(['?', '#']).next().unwrap_or("");
+    let segments = credential_path_segments(path)?;
+    Some((p.scheme, p.host, p.port, segments, p.userinfo))
+}
+
+/// Canonical origin and shape of an absolute http(s) URL string, before any path rules.
+struct UrlAuthorityParts<'a> {
+    scheme: String,
+    /// Lowercased, brackets and one trailing dot removed (see `normalize_host`).
+    host: String,
+    port: u16,
+    /// The authority carried `user[:password]@`.
+    userinfo: bool,
+    /// Everything from the first `/`, `?` or `#` after the authority (possibly empty).
+    tail: &'a str,
+}
+
+/// Split an absolute http(s) URL into its canonical origin, the userinfo flag and the rest.
+/// `None` for another scheme, no host, whitespace/control/backslash anywhere, or a bad
+/// port. Shared by [`CredentialScope`], [`ApprovedOrigins`] and the redirect shape check, so
+/// all three read an origin the same way.
+fn url_authority_parts(url: &str) -> Option<UrlAuthorityParts<'_>> {
     if url
         .chars()
         .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
@@ -1537,9 +1560,148 @@ fn credential_url_parts(url: &str) -> Option<(String, String, u16, Vec<String>, 
         return None;
     }
     let port = port.unwrap_or(if scheme == "https" { 443 } else { 80 });
-    let path = tail.split(['?', '#']).next().unwrap_or("");
-    let segments = credential_path_segments(path)?;
-    Some((scheme, normalize_host(raw_host), port, segments, userinfo))
+    Some(UrlAuthorityParts {
+        scheme,
+        host: normalize_host(raw_host),
+        port,
+        userinfo,
+        tail,
+    })
+}
+
+/// Canonical `(scheme, host, port)` of an absolute http(s) URL and whether its authority
+/// carries userinfo; `None` when the string is not a URL this crate will follow.
+pub(crate) fn url_origin_parts(url: &str) -> Option<((String, String, u16), bool)> {
+    let parts = url_authority_parts(url)?;
+    Some(((parts.scheme, parts.host, parts.port), parts.userinfo))
+}
+
+/// The origins a request's redirects may reach besides the origin the request itself
+/// started at, set with [`crate::Request::approved_redirect_origins`]. An origin is scheme,
+/// host and port, compared canonically (scheme and host lowercased, one trailing dot
+/// ignored, default ports folded), the same form [`CredentialScope`] and the redirect rules
+/// use.
+///
+/// The request's own origin is always approved, so a same-origin redirect never needs an
+/// entry; `ApprovedOrigins::new()` therefore means "this origin only". A redirect hop
+/// outside the set is refused before anything is sent to it, with
+/// [`crate::HttpError::RedirectRefused`] and [`RedirectRefusal::UnapprovedOrigin`].
+///
+/// The set decides where a redirect may go, not what it carries: a hop to another approved
+/// origin still drops credential-named and secret-valued headers, and the address policy
+/// still runs on every hop. A request without a set follows redirects to any origin the
+/// address policy admits, as before.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ApprovedOrigins {
+    origins: Vec<(String, String, u16)>,
+}
+
+impl ApprovedOrigins {
+    /// The request's own origin only.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Parse origins such as `https://downloads.example.com` or
+    /// `https://cdn.example.com:8443`. A single trailing `/` is accepted. Returns `None` when
+    /// any entry is malformed, is not `http`/`https`, or carries userinfo, a path, a query
+    /// or a fragment; no partial set is returned.
+    pub fn parse<I, S>(origins: I) -> Option<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut set = Self::new();
+        for origin in origins {
+            set = set.with_origin(origin.as_ref())?;
+        }
+        Some(set)
+    }
+
+    /// Add one origin (same rules as [`ApprovedOrigins::parse`]); `None` when it is refused.
+    pub fn with_origin(mut self, origin: &str) -> Option<Self> {
+        let parts = url_authority_parts(origin)?;
+        if parts.userinfo || !(parts.tail.is_empty() || parts.tail == "/") {
+            return None;
+        }
+        let key = (parts.scheme, parts.host, parts.port);
+        if !self.origins.contains(&key) {
+            self.origins.push(key);
+        }
+        Some(self)
+    }
+
+    /// True when `url` is at one of the listed origins. The request's own origin is not
+    /// listed here; the clients add it when they check a hop.
+    pub fn allows(&self, url: &str) -> bool {
+        url_authority_parts(url).is_some_and(|parts| {
+            self.origins
+                .iter()
+                .any(|(s, h, p)| *s == parts.scheme && *h == parts.host && *p == parts.port)
+        })
+    }
+}
+
+/// Why a redirect target was refused by [`crate::HttpError::RedirectRefused`] or
+/// [`check_redirect_target`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum RedirectRefusal {
+    /// The target's origin is neither the request's origin nor in its [`ApprovedOrigins`].
+    UnapprovedOrigin,
+    /// The redirect leaves `https` for `http`. Returned by [`check_redirect_target`] only;
+    /// the clients report this refusal as [`crate::HttpError::AddressDenied`] (see
+    /// [`AddressPolicy::allow_insecure_redirects`]).
+    SchemeDowngrade,
+    /// The target's authority carries userinfo (`user:pass@host`).
+    Credentials,
+    /// The target is not a shape this check accepts: another scheme, no host, a bad port, or
+    /// whitespace, control characters or a backslash anywhere in the URL.
+    Malformed,
+}
+
+impl fmt::Display for RedirectRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnapprovedOrigin => "redirect target origin is not approved",
+            Self::SchemeDowngrade => "redirect from https to http",
+            Self::Credentials => "redirect target carries credentials",
+            Self::Malformed => "redirect target is malformed",
+        })
+    }
+}
+
+impl Error for RedirectRefusal {}
+
+/// String-level guard for one redirect hop, for transports that follow redirects
+/// themselves. `request_url` is the URL the call started at (its origin is always approved),
+/// `from_url` the URL that answered with the redirect and `location` its `Location` value.
+/// Returns the absolute target (fragment dropped) when the hop is acceptable.
+///
+/// Refuses, in this order: a `Location` that does not resolve to an absolute http(s) URL, or
+/// that holds whitespace, control characters or a backslash ([`RedirectRefusal::Malformed`]);
+/// an `https` to `http` hop ([`RedirectRefusal::SchemeDowngrade`], no opt-in here, unlike
+/// [`AddressPolicy::allow_insecure_redirects`] on the clients); a target with userinfo
+/// ([`RedirectRefusal::Credentials`]); and a target outside the request's origin and
+/// `approved` ([`RedirectRefusal::UnapprovedOrigin`]). It reads strings only and neither
+/// resolves a host nor applies an [`AddressPolicy`]. The clients run the same shape and
+/// origin rules on every hop.
+pub fn check_redirect_target(
+    request_url: &str,
+    from_url: &str,
+    location: &str,
+    approved: &ApprovedOrigins,
+) -> Result<String, RedirectRefusal> {
+    let next =
+        crate::redirect::resolve_location(from_url, location).ok_or(RedirectRefusal::Malformed)?;
+    let from_scheme = crate::redirect::scheme_of(from_url).ok_or(RedirectRefusal::Malformed)?;
+    url_origin_parts(&next).ok_or(RedirectRefusal::Malformed)?;
+    let to_scheme = crate::redirect::scheme_of(&next).ok_or(RedirectRefusal::Malformed)?;
+    if from_scheme == "https" && to_scheme == "http" {
+        return Err(RedirectRefusal::SchemeDowngrade);
+    }
+    crate::redirect::vet_target(request_url, &next, Some(approved))?;
+    Ok(next)
 }
 
 /// Decoded, non-empty path segments, or `None` when a segment is `.`/`..` (as written or

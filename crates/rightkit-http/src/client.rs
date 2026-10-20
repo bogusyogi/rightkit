@@ -184,7 +184,9 @@ pub enum ProxyMode {
     None,
     /// `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` (first set, either case) and `NO_PROXY`.
     Environment,
-    /// A proxy URL such as `http://proxy.corp:3128` or `socks5://127.0.0.1:1080`.
+    /// An `http` or `https` proxy URL such as `http://proxy.corp:3128`. Any other scheme,
+    /// `socks5://` included, is refused as [`HttpError::InvalidRequest`] when the client is
+    /// built: neither client supports SOCKS.
     Explicit(String),
     /// The proxy the operating system is configured with for the current user.
     ///
@@ -941,6 +943,7 @@ pub struct Request {
     pub(crate) secret_values: Vec<String>,
     pub(crate) headers_only: bool,
     pub(crate) credential_scope: Option<crate::netpolicy::CredentialScope>,
+    pub(crate) approved_redirect_origins: Option<crate::netpolicy::ApprovedOrigins>,
 }
 
 impl fmt::Debug for Request {
@@ -972,6 +975,7 @@ impl fmt::Debug for Request {
             .field("deadline", &self.deadline)
             .field("cancel", &self.cancel.is_some())
             .field("headers_only", &self.headers_only)
+            .field("approved_redirect_origins", &self.approved_redirect_origins)
             .finish()
     }
 }
@@ -992,6 +996,7 @@ impl Request {
             secret_values: Vec::new(),
             headers_only: false,
             credential_scope: None,
+            approved_redirect_origins: None,
         }
     }
     pub fn get(url: impl Into<String>) -> Self {
@@ -1138,6 +1143,18 @@ impl Request {
     /// is unaffected and still runs on every hop.
     pub fn credential_scope(mut self, scope: crate::netpolicy::CredentialScope) -> Self {
         self.credential_scope = Some(scope);
+        self
+    }
+    /// Confine this request's redirects to its own origin plus `origins` (see
+    /// [`crate::ApprovedOrigins`]; `ApprovedOrigins::new()` means the request's origin
+    /// only). A redirect hop to any other origin is refused before anything is sent to it
+    /// with [`HttpError::RedirectRefused`]. A redirect target that carries userinfo is
+    /// refused the same way, with or without a set. The address policy and
+    /// [`ClientConfig::https_only`] still run on every hop, and a hop to another approved
+    /// origin still drops credential headers. Without this call a redirect may reach any
+    /// origin the address policy admits, as before.
+    pub fn approved_redirect_origins(mut self, origins: crate::netpolicy::ApprovedOrigins) -> Self {
+        self.approved_redirect_origins = Some(origins);
         self
     }
 }
@@ -2045,6 +2062,9 @@ impl Client {
                     .check_redirect_scheme(&from, &to, &host)
                     .map_err(|d| HttpError::from(d).into_redirect_phase())?;
             }
+            // Shape and approved-origin rules, after the scheme rules above so their errors
+            // keep precedence. Nothing is sent to a refused target.
+            redirect::vet_redirect(&req.url, &next_url, req.approved_redirect_origins.as_ref())?;
             if redirect::origin(&url) != redirect::origin(&next_url) {
                 redirect::strip_cross_origin(&mut headers, secrets);
             }
@@ -2279,6 +2299,7 @@ pub(crate) fn observe_attempt_outcome(
             HttpError::InvalidRequest(_)
                 | HttpError::AddressDenied { .. }
                 | HttpError::HttpsRequired { .. }
+                | HttpError::RedirectRefused { .. }
                 | HttpError::SystemProxyUnsupported { .. }
         )
     ) {
@@ -2479,6 +2500,10 @@ pub(crate) fn scrub_error(err: HttpError, values: &[String]) -> HttpError {
             addr,
             class,
             reason: r(reason),
+        },
+        HttpError::RedirectRefused { host, reason } => HttpError::RedirectRefused {
+            host: r(host),
+            reason,
         },
     }
 }

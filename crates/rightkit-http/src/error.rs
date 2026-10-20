@@ -2,7 +2,7 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use crate::netpolicy::{AddressClass, AddressDenial};
+use crate::netpolicy::{AddressClass, AddressDenial, RedirectRefusal};
 
 /// Maximum error-body bytes retained on a [`HttpError::Status`].
 pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
@@ -93,6 +93,15 @@ pub enum HttpError {
         scheme: String,
         redirect: bool,
     },
+    /// A redirect target was refused before anything was sent to it: its origin is outside
+    /// the request's [`crate::ApprovedOrigins`], or its URL carries userinfo or an unsafe
+    /// shape (see [`RedirectRefusal`]). `host` is the target's host, without userinfo, path
+    /// or query. The earlier hops were sent. Never retried, since the same redirect would be
+    /// refused again.
+    RedirectRefused {
+        host: String,
+        reason: RedirectRefusal,
+    },
 }
 
 impl From<AddressDenial> for HttpError {
@@ -128,8 +137,8 @@ pub enum ErrorClass {
     /// The outbound address policy refused the destination.
     AddressDenied,
     /// The request could not be built, or the response body was malformed or oversized
-    /// (`InvalidRequest`, `Json`, `Stream`, `BodyTooLarge`), or `https_only` refused a URL
-    /// (`HttpsRequired`).
+    /// (`InvalidRequest`, `Json`, `Stream`, `BodyTooLarge`), `https_only` refused a URL
+    /// (`HttpsRequired`), or a redirect target was refused (`RedirectRefused`).
     Invalid,
 }
 
@@ -200,6 +209,7 @@ impl HttpError {
             HttpError::SystemProxyUnsupported { .. } => ErrorClass::Invalid,
             HttpError::AddressDenied { .. } => ErrorClass::AddressDenied,
             HttpError::HttpsRequired { .. } => ErrorClass::Invalid,
+            HttpError::RedirectRefused { .. } => ErrorClass::Invalid,
             HttpError::InvalidRequest(_)
             | HttpError::Json(_)
             | HttpError::Stream(_)
@@ -245,6 +255,9 @@ impl fmt::Display for HttpError {
                     f,
                     "https required: {what} '{scheme}' URL for host '{host}' refused"
                 )
+            }
+            HttpError::RedirectRefused { host, reason } => {
+                write!(f, "redirect refused for host '{host}': {reason}")
             }
         }
     }
@@ -326,6 +339,16 @@ mod tests {
             ErrorClass::Invalid
         );
         assert_eq!(HttpError::Json("x".into()).class(), ErrorClass::Invalid);
+        let refused = HttpError::RedirectRefused {
+            host: "h".into(),
+            reason: RedirectRefusal::UnapprovedOrigin,
+        };
+        assert_eq!(refused.class(), ErrorClass::Invalid);
+        assert_eq!(refused.phase(), None);
+        assert_eq!(
+            refused.to_string(),
+            "redirect refused for host 'h': redirect target origin is not approved"
+        );
         assert_eq!(HttpError::Stream("x".into()).class(), ErrorClass::Invalid);
         assert_eq!(
             HttpError::BodyTooLarge { limit: 1 }.class(),

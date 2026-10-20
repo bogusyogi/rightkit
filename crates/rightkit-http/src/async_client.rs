@@ -679,6 +679,9 @@ impl AsyncClient {
                 .address_policy
                 .check_redirect_scheme(url.scheme(), next.scheme(), next.host_str().unwrap_or(""))
                 .map_err(|d| HttpError::from(d).into_redirect_phase())?;
+            // Shape and approved-origin rules, after the scheme rules above so their errors
+            // keep precedence. Nothing is sent to a refused target.
+            redirect::vet_redirect(&req.url, &next_raw, req.approved_redirect_origins.as_ref())?;
             if next.origin() != url.origin() {
                 redirect::strip_cross_origin(&mut headers, secrets);
             }

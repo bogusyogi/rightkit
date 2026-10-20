@@ -9,6 +9,7 @@
 use ureq::http::Uri;
 
 use crate::client::Method;
+use crate::netpolicy::{ApprovedOrigins, RedirectRefusal};
 
 const BODY_HEADERS: [&str; 6] = [
     "content-type",
@@ -83,6 +84,46 @@ pub(crate) fn strip_cross_origin(headers: &mut Vec<(String, String)>, secrets: &
             .any(|s| !s.is_empty() && value.contains(s.as_str()));
         !(by_name || by_value)
     });
+}
+
+/// Shape and origin rules for one resolved redirect target, on strings only: the URL must be
+/// an absolute http(s) URL without whitespace, control characters or backslashes, must not
+/// carry userinfo, and, when the request has an approved set, must be at the origin of
+/// `request_url` or in the set. The check the clients and
+/// [`crate::netpolicy::check_redirect_target`] share.
+pub(crate) fn vet_target(
+    request_url: &str,
+    next_url: &str,
+    approved: Option<&ApprovedOrigins>,
+) -> Result<(), RedirectRefusal> {
+    let (next, userinfo) =
+        crate::netpolicy::url_origin_parts(next_url).ok_or(RedirectRefusal::Malformed)?;
+    if userinfo {
+        return Err(RedirectRefusal::Credentials);
+    }
+    let Some(approved) = approved else {
+        return Ok(());
+    };
+    let own_origin = crate::netpolicy::url_origin_parts(request_url).map(|(origin, _)| origin);
+    if own_origin.as_ref() == Some(&next) || approved.allows(next_url) {
+        return Ok(());
+    }
+    Err(RedirectRefusal::UnapprovedOrigin)
+}
+
+/// [`vet_target`] for the clients: the refusal as a typed [`crate::error::HttpError`]. The
+/// error names the target's host only, never its path, query or userinfo.
+pub(crate) fn vet_redirect(
+    request_url: &str,
+    next_url: &str,
+    approved: Option<&ApprovedOrigins>,
+) -> Result<(), crate::error::HttpError> {
+    vet_target(request_url, next_url, approved).map_err(|reason| {
+        crate::error::HttpError::RedirectRefused {
+            host: host_of(next_url).unwrap_or_default(),
+            reason,
+        }
+    })
 }
 
 /// Drop body-describing headers when a redirect turns the request into a bodiless `GET`.
@@ -289,6 +330,100 @@ mod tests {
                     other => panic!("{scheme:?}: {other:?}"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn vet_target_refuses_userinfo_and_unsafe_shapes() {
+        let req = "https://a.example/start";
+        assert_eq!(vet_target(req, "https://a.example/next", None), Ok(()));
+        assert_eq!(vet_target(req, "https://b.example/next", None), Ok(()));
+        assert_eq!(
+            vet_target(req, "https://user:pw@b.example/", None),
+            Err(RedirectRefusal::Credentials)
+        );
+        assert_eq!(
+            vet_target(req, "https://a.example@evil.example/", None),
+            Err(RedirectRefusal::Credentials)
+        );
+        for bad in [
+            "https://a.example\\@evil.example/",
+            "https://a.example/pa th",
+            "https://a.example/\r\nX: y",
+            "https:///no-host",
+            "https://a.example:notaport/",
+            "ftp://a.example/",
+            "javascript:alert(1)",
+        ] {
+            assert_eq!(
+                vet_target(req, bad, None),
+                Err(RedirectRefusal::Malformed),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn vet_target_enforces_the_approved_set_and_always_admits_the_request_origin() {
+        let req = "https://a.example/start";
+        let empty = ApprovedOrigins::new();
+        let cdn = ApprovedOrigins::parse(["https://cdn.example:8443"]).unwrap();
+        // Same origin, canonical forms folded.
+        for next in [
+            "https://a.example/other",
+            "https://A.EXAMPLE:443/other",
+            "https://a.example./other",
+        ] {
+            assert_eq!(vet_target(req, next, Some(&empty)), Ok(()), "{next}");
+        }
+        // Another origin, a scheme change and a port change are all outside the empty set.
+        for next in [
+            "https://b.example/x",
+            "http://a.example/x",
+            "https://a.example:8443/x",
+            "https://sub.a.example/x",
+        ] {
+            assert_eq!(
+                vet_target(req, next, Some(&empty)),
+                Err(RedirectRefusal::UnapprovedOrigin),
+                "{next}"
+            );
+        }
+        assert_eq!(
+            vet_target(req, "https://cdn.example:8443/f?x=1", Some(&cdn)),
+            Ok(())
+        );
+        assert_eq!(
+            vet_target(req, "https://cdn.example/f", Some(&cdn)),
+            Err(RedirectRefusal::UnapprovedOrigin)
+        );
+        // Shape rules still apply to an approved origin.
+        assert_eq!(
+            vet_target(req, "https://u:p@cdn.example:8443/", Some(&cdn)),
+            Err(RedirectRefusal::Credentials)
+        );
+    }
+
+    #[test]
+    fn vet_redirect_names_the_host_only() {
+        use crate::error::HttpError;
+        match vet_redirect(
+            "https://a.example/",
+            "https://b.example/secret/path?key=SECRET-1",
+            Some(&ApprovedOrigins::new()),
+        ) {
+            Err(HttpError::RedirectRefused { host, reason }) => {
+                assert_eq!(host, "b.example");
+                assert_eq!(reason, RedirectRefusal::UnapprovedOrigin);
+            }
+            other => panic!("{other:?}"),
+        }
+        match vet_redirect("https://a.example/", "https://u:SECRET-2@b.example/", None) {
+            Err(HttpError::RedirectRefused { host, reason }) => {
+                assert_eq!(host, "b.example");
+                assert_eq!(reason, RedirectRefusal::Credentials);
+            }
+            other => panic!("{other:?}"),
         }
     }
 }

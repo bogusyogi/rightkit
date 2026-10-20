@@ -184,18 +184,22 @@ pub fn parse_retry_after_at(value: &str, now: SystemTime) -> Option<Duration> {
 /// Parse a rate-limit reset value (`X-RateLimit-Reset` and similar) into the wait it names,
 /// measured from `now`. Accepted forms: whole Unix epoch seconds (`1760000000`) and an ISO-8601
 /// instant with `T` (or a space) and either `Z` or a `±HH:MM` offset, fractional seconds
-/// allowed (`2026-10-18T10:00:00Z`). A reset already past is `Duration::ZERO`; any other text
+/// allowed (`2026-10-18T10:00:00.5Z`). Fractions finer than nanoseconds round up, so retries
+/// never happen early. A reset already past is `Duration::ZERO`; any other text
 /// is `None`. A bare small integer is read as epoch seconds, so a delta-seconds value is not
 /// accepted here; use [`parse_retry_after_at`] for those.
 pub fn parse_rate_limit_reset_at(value: &str, now: SystemTime) -> Option<Duration> {
     let v = value.trim();
     let at = if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) {
-        let secs: u64 = v.parse().ok()?;
-        UNIX_EPOCH.checked_add(Duration::from_secs(secs))?
+        Duration::from_secs(v.parse().ok()?)
     } else {
         parse_iso8601_instant(v)?
     };
-    Some(at.duration_since(now).unwrap_or(Duration::ZERO))
+    // Compare as exact durations since the epoch: a `SystemTime` on Windows has 100 ns
+    // resolution, so building the reset instant as one would truncate a sub-100 ns fraction
+    // and report a reset that is still ahead as already reached.
+    let now = now.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO);
+    Some(at.saturating_sub(now))
 }
 
 /// [`parse_rate_limit_reset_at`] against the current clock.
@@ -203,8 +207,9 @@ pub fn parse_rate_limit_reset(value: &str) -> Option<Duration> {
     parse_rate_limit_reset_at(value, SystemTime::now())
 }
 
-/// `YYYY-MM-DD[T ]HH:MM:SS[.fraction](Z|±HH:MM)`, fraction ignored.
-fn parse_iso8601_instant(v: &str) -> Option<SystemTime> {
+/// `YYYY-MM-DD[T ]HH:MM:SS[.fraction](Z|±HH:MM)` as the exact time since the Unix epoch,
+/// retaining nanoseconds and rounding finer fractions up to the next nanosecond.
+fn parse_iso8601_instant(v: &str) -> Option<Duration> {
     let b = v.as_bytes();
     if b.len() < 20 {
         return None;
@@ -238,14 +243,35 @@ fn parse_iso8601_instant(v: &str) -> Option<SystemTime> {
         return None;
     }
     let mut i = 19;
+    let mut nanos = 0u32;
+    let mut fraction_digits = 0usize;
+    let mut finer_nonzero = false;
     if b.get(i) == Some(&b'.') {
         i += 1;
         let start = i;
-        while b.get(i).is_some_and(|c| c.is_ascii_digit()) {
+        while let Some(&digit) = b.get(i).filter(|c| c.is_ascii_digit()) {
+            if fraction_digits < 9 {
+                nanos = nanos * 10 + u32::from(digit - b'0');
+            } else if digit != b'0' {
+                finer_nonzero = true;
+            }
+            fraction_digits += 1;
             i += 1;
         }
         if i == start {
             return None;
+        }
+        for _ in fraction_digits..9 {
+            nanos *= 10;
+        }
+        if finer_nonzero {
+            if nanos == 999_999_999 {
+                nanos = 0;
+                // Carry the sub-nanosecond rounding into whole seconds below.
+                fraction_digits = usize::MAX;
+            } else {
+                nanos += 1;
+            }
         }
     }
     let offset: i64 = match *b.get(i)? {
@@ -273,11 +299,14 @@ fn parse_iso8601_instant(v: &str) -> Option<SystemTime> {
         return None;
     }
     let days = days_from_civil(year, month, day);
-    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second - offset;
+    let mut secs = days * 86_400 + hour * 3_600 + minute * 60 + second - offset;
     if secs < 0 {
         return None;
     }
-    Some(UNIX_EPOCH + Duration::from_secs(secs as u64))
+    if fraction_digits == usize::MAX {
+        secs = secs.checked_add(1)?;
+    }
+    Some(Duration::new(secs as u64, nanos))
 }
 
 fn month_number(m: &str) -> Option<i64> {
@@ -484,7 +513,26 @@ mod tests {
         );
         assert_eq!(
             parse_rate_limit_reset_at("2026-10-18 10:00:00.250Z", now),
-            Some(Duration::from_secs(90))
+            Some(Duration::from_millis(90_250))
+        );
+        let at_whole_second = UNIX_EPOCH + Duration::from_secs(1_792_317_600);
+        assert_eq!(
+            parse_rate_limit_reset_at("2026-10-18T10:00:00.5Z", at_whole_second),
+            Some(Duration::from_millis(500))
+        );
+        assert_eq!(
+            parse_rate_limit_reset_at("2026-10-18T10:00:00.0000000001Z", at_whole_second),
+            Some(Duration::from_nanos(1))
+        );
+        // `now` itself is a SystemTime, so its precision is the host's: 1 ns on Unix, 100 ns on
+        // Windows. A reset at or before `now` is zero at that precision.
+        let tick = if cfg!(windows) { 100 } else { 1 };
+        assert_eq!(
+            parse_rate_limit_reset_at(
+                "2026-10-18T10:00:00.0000000001Z",
+                at_whole_second + Duration::from_nanos(tick)
+            ),
+            Some(Duration::ZERO)
         );
         assert_eq!(
             parse_rate_limit_reset_at("2026-10-18T10:00:00-02:00", now),
