@@ -9,7 +9,7 @@ const ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa
 export const REVIEWED_CONCURRENCY = "publish";
 export const MAIN_GUARD = "${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
 export const REVIEWED_UPLOAD_IF = "${{ needs.seal-check.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
-export const REVIEWED_SPARSE = "scripts/ci/upload.mjs\nscripts/ci/registry-spec.mjs\nscripts/ci/reviewed-candidate.mjs\nscripts/ci/supplemental-proof.mjs\nci/approved-artifacts.json\nci/supplemental-proofs.json\n";
+export const REVIEWED_SPARSE = "scripts/ci/upload.mjs\nscripts/ci/registry-spec.mjs\nscripts/ci/reviewed-candidate.mjs\nscripts/ci/supplemental-proof.mjs\nci/approved-artifacts.json\nci/supplemental-proofs.json\nci/linux-required.json\n";
 const keys = (object, expected) => assert.deepEqual(Object.keys(object).sort(), [...expected].sort());
 
 // Resolve declarations across actual YAML boundaries; behavioral tests prove writes.
@@ -105,7 +105,7 @@ export function assertReviewedDoc(doc) {
 }
 
 export const REVIEWED_MUTATIONS = [
-  ...["scripts/ci/supplemental-proof.mjs", "ci/supplemental-proofs.json"].map((file) => [`upload omits ${file}`, (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] = REVIEWED_SPARSE.replace(`${file}\n`, ""); }]),
+  ...["scripts/ci/supplemental-proof.mjs", "ci/supplemental-proofs.json", "ci/linux-required.json"].map((file) => [`upload omits ${file}`, (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] = REVIEWED_SPARSE.replace(`${file}\n`, ""); }]),
   ["missing trusted uploader dependency", (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] = REVIEWED_SPARSE.replace("scripts/ci/registry-spec.mjs\n", ""); }],
   ["promotion drops queued candidates", (d) => { delete d.concurrency.queue; }],
   ["promotion narrows pending queue", (d) => { d.concurrency.queue = "single"; }],
