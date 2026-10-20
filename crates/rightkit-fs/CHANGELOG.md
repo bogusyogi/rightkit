@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.5 — unpublished staging
+## 0.4.5 — 2026-10-20
 
 - **Fixed: lease guard creation race** (Mac qualification of 5a5892a9). A new lease guard was visible empty before its creator took the OS lock; a contender that locked first left a headerless guard every later take refused as unknown legacy. The guard is now published complete (v2 header) by a strict no-replace publish before the stable inode is locked; the unknown-legacy refusal is kept and no placeholder fallback exists. Deterministic paused-publication contender test in `src/lease.rs`.
 - **Added: strict directory publication policies** (CutRight #464 gap 7). `publish_dir_with(src, dest, DirPublishPolicy)` with `DirPublishPolicy { Replace, AbsentOnly, AbsentOrEmpty }` (`#[non_exhaustive]`, default `Replace`). The strict policies never delete or displace anything at `dest`: they publish only through a native atomic no-replace rename (Linux `renameat2(RENAME_NOREPLACE)`, Apple `renamex_np(RENAME_EXCL)`, Windows `MoveFileExW` without replace) and return `FsError::Unavailable` where none exists, with no check-then-rename fallback. `AbsentOnly` refuses any occupied `dest` with `AlreadyExists`; `AbsentOrEmpty` removes an empty real directory with `remove_dir` only, then renames, and refuses a non-empty `dest` with `AlreadyExists`. New `DirPublishMethod::EmptyRemovedThenExclusiveRename`. `publish_dir` is unchanged (`Replace`). Tests: `tests/publish_dir_policy.rs`.

@@ -10,7 +10,7 @@ Safe filesystem state for Right Suite apps:
 - macOS `clonefile(2)` with `CLONE_NOFOLLOW` (`clone_file_nofollow`). It never falls back to a byte copy. `clone_or_link_or_copy_nofollow` is the explicit ladder for callers that can accept less: clone, then hard link, then a durable copy, reporting which one it was.
 - macOS `renamex_np(RENAME_SWAP)` (`swap_paths`, `is_swap_unsupported`) and the `rightkit-swap A B` binary: atomic exchange of two paths, never absent in between.
 
-Catalog capability: `safe-filesystem`. Published to crates.io; the registry record is 0.3.3 and the source is 0.4.0 (a breaking release, not yet published).
+Catalog capability: `safe-filesystem`. Published to crates.io; 0.4.5 adds the complete-before-lock lease guard, opt-in Windows access-denied retry and strict directory publish policies (see CHANGELOG).
 
 ## When to use it
 
@@ -173,7 +173,7 @@ Published version: see [INDEX.md](../../INDEX.md). Version history: [CHANGELOG.m
 ## BLAKE3 identity & verified-copy progress (G8)
 
 ```toml
-rightkit-fs = { version = "0.4.4", default-features = false, features = ["fs", "blake3"] }
+rightkit-fs = { version = "0.4.5", default-features = false, features = ["fs", "blake3"] }
 ```
 
 ```rust,ignore
