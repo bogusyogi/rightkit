@@ -171,9 +171,11 @@ fn loopback_budget(conns: usize, requests: usize, idle_s: u64) {
         assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), *payload);
     }
 
-    let mut limits = Limits::default();
     // Hold idle connections throughout measurement instead of measuring timeout cleanup.
-    limits.idle_timeout = Duration::from_secs(idle_s.saturating_add(120));
+    let limits = Limits {
+        idle_timeout: Duration::from_secs(idle_s.saturating_add(120)),
+        ..Limits::default()
+    };
     let host = Loopback::start(
         LoopbackConfig::new()
             .limits(limits)
