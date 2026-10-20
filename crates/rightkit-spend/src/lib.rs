@@ -276,9 +276,11 @@ impl ReserveOptions {
         self
     }
 
-    /// Also hold the reservation against a caller [`Budget`] (one per reservation; a later call replaces it) (see [`Budget::new`]). The budget
-    /// is checked after the cap and can only refuse more; its key is stored with the
-    /// reservation so later reservations of the key count this one.
+    /// Also hold the reservation against one caller [`Budget`] (see [`Budget::new`]). Calling
+    /// this builder method again replaces its option before admission. The budget is checked
+    /// after the cap and can only refuse more; its key is stored so later reservations count it.
+    /// On request replay, budget presence and normalized key must match; the limit is only
+    /// first-admission policy and is not checked again.
     pub fn caller_budget(mut self, budget: Budget) -> Self {
         self.budget = Some(budget);
         self
@@ -814,8 +816,10 @@ impl Ledger {
     }
 
     /// [`Ledger::reserve`] with an account key and a currency stored on the reservation. The
-    /// options are part of the idempotency check: a repeat with a different account or
-    /// currency is [`SpendError::RequestMismatch`].
+    /// account, currency, and optional normalized caller-budget key are part of the idempotency
+    /// check: changing any of them is [`SpendError::RequestMismatch`]. Budget limits and the
+    /// process budget are first-admission policy; a replay returns the stored reservation
+    /// without checking them again or changing its budget tags.
     #[allow(clippy::too_many_arguments)]
     pub fn reserve_with(
         &mut self,
@@ -1331,7 +1335,9 @@ fn reserve_impl(
         options,
         options.carry_over,
     )?;
-    if !out.replayed {
+    if out.replayed {
+        budget::check_replay_budget(conn, options, &out.reservation, request_id)?;
+    } else {
         // After the cap: a budget can only refuse more. A refusal rolls the hold back with the
         // enclosing transaction or savepoint.
         budget::apply_budgets(conn, ctx, options, &out.reservation)?;

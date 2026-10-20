@@ -314,6 +314,18 @@ fn reserve_multi_impl(
                 request_id: request_id.to_owned(),
             });
         }
+        // The original first leg owns the budget tags. Missing leg zero is not an
+        // untagged request, even if later legs survive; never use the current caps order.
+        let first_seq: i64 = conn
+            .query_row(
+                "SELECT seq FROM spend_group_legs WHERE request_id = ?1 AND leg = 0",
+                [request_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| SpendError::NotFound(request_id.to_owned()))?;
+        let first = require_reservation(conn, &format!("res-{first_seq:08}"))?;
+        budget::check_replay_budget(conn, options, &first, request_id)?;
         return group_outcome(conn, request_id, true);
     }
 
@@ -455,9 +467,11 @@ impl Ledger {
     /// [`SpendError::CapRefused`] naming the cap and nothing is written on any cap. A device
     /// cap with no allowance set takes no leg; at least one cap must apply.
     ///
-    /// Idempotent on `request_id`: the same route, price version, estimate, options and caps
-    /// return the stored legs (`replayed`); any difference is [`SpendError::RequestMismatch`].
-    /// A caller budget or the process budget is checked once and counts the estimate once.
+    /// Idempotent on `request_id`: route, price version, estimate, account, currency, optional
+    /// normalized caller-budget key, and cap fingerprint must match; otherwise this returns
+    /// [`SpendError::RequestMismatch`]. Reordered matching caps return the original stored legs.
+    /// Caller limits and the process budget are first-admission policy, checked once and
+    /// counted once. Replays neither check them again nor change the original budget tags.
     pub fn reserve_multi(
         &mut self,
         request_id: &str,

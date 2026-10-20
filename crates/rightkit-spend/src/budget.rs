@@ -115,6 +115,30 @@ fn check(conn: &Connection, kind: BudgetKind, budget: &Budget, needed_micro: i64
     }
 }
 
+/// A replay keeps the caller budget's optional key as request identity. Limits and the
+/// current process budget are first-admission policy and must never re-admit or retag a replay.
+pub(crate) fn check_replay_budget(
+    conn: &Connection,
+    options: &ReserveOptions,
+    res: &Reservation,
+    request_id: &str,
+) -> Result<()> {
+    let seq = seq_of(&res.reservation_id)?;
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT key FROM spend_budget_tags WHERE seq = ?1 AND kind = 'caller'",
+            [seq],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() != options.budget.as_ref().map(Budget::key) {
+        return Err(SpendError::RequestMismatch {
+            request_id: request_id.to_owned(),
+        });
+    }
+    Ok(())
+}
+
 /// Check the request's caller budgets and the process budget for a new reservation, then tag
 /// the reservation with their keys. Nothing is tagged unless every budget admits it. A key that
 /// is both a caller and the process budget is tagged under each kind.
