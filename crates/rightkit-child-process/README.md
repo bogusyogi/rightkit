@@ -160,6 +160,9 @@ in which that could happen. The rule that replaces it:
 
 ## Also (0.4.0)
 
+- **Windows has no parent-death tie.** `kill_on_parent_exit` is a no-op on Windows. A child there is
+  contained by its kill-on-close job object instead, so an app does not need its own parent-death
+  watchdog: dropping or losing the owner closes the job and terminates the tree.
 - `OwnedCommand::kill_on_parent_exit(true)` is an opt-in tie to the supervising process for the case where
   the parent dies without cleanup (SIGKILL, abort, crash). **Linux only.** `prctl(PR_SET_PDEATHSIG, SIGTERM)`
   is set in `pre_exec`, and `getppid()` is checked afterwards so a supervisor that died before the prctl makes
@@ -264,6 +267,12 @@ in which that could happen. The rule that replaces it:
   `WindowsJob::contain_current_process()` puts this process in a kill-on-close job and leaks the
   handle for the process lifetime; it fails with `PermissionDenied` when an outer job forbids
   nesting.
+  `WindowsJobBuilder::allow_breakaway(true)` adds `JOB_OBJECT_LIMIT_BREAKAWAY_OK` (a member leaves
+  the job only by creating a process with `CREATE_BREAKAWAY_FROM_JOB`; the rest stay contained). A
+  caller-built job has no silent mode. `WindowsJob::contain_current_process_with(builder)`
+  applies those options to the current-process job, so a daemon can contain its descendants and
+  still start a replacement with `CREATE_BREAKAWAY_FROM_JOB` that outlives it. Without breakaway the
+  flag fails with `ERROR_ACCESS_DENIED`.
 - `OwnedCommand::windows_visible()` clears the hidden-console default. `windows_allow_breakaway(true)`
   sets explicit-only breakaway (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`): only grandchildren that request
   breakaway can outlive the helper, all others stay contained. `windows_allow_silent_breakaway(true)`
@@ -380,6 +389,6 @@ their own host platforms.
 - Detached spawns (`spawn_uncontained_detached`) need the parent job to allow breakaway. The spawn fails without fallback when it does not, and a detached spawn cannot take a caller job.
 - Errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is returned as the raw OS error. Other failures are `io::Error::other`.
 - Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:18`), with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects`, `Win32_System_ProcessStatus` (resource usage) and `Win32_System_Threading`. Consumers enable no Windows features.
-- The code has no session or desktop check. Nothing here was run on Windows for this section.
+- The code has no session or desktop check. The Windows suites (`native_capture`, `output_capture`, `windows_process_tree`, `handle_inheritance`, `drop_bounded`, `parent_death`) passed on Windows 11 (the Dell, build 26300) on 2026-10-20, parallel and serial: 185 passed, 0 failed, 1 ignored helper.
 
 Licensed under either MIT or Apache-2.0, at your option.

@@ -14,13 +14,14 @@ use windows::Win32::System::JobObjects::{
     JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
     TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
-    JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOB_OBJECT_LIMIT_PROCESS_MEMORY,
 };
 use windows::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
 };
 
+use crate::owned::BreakawayMode;
 use crate::process_windows::os_error;
 
 /// The active-process cap rightkit-sandbox applies to sandboxed trees.
@@ -50,6 +51,7 @@ pub struct WindowsJobBuilder {
     active_process_limit: Option<u32>,
     job_memory_limit: Option<usize>,
     process_memory_limit: Option<usize>,
+    breakaway: BreakawayMode,
 }
 
 impl WindowsJobBuilder {
@@ -69,6 +71,22 @@ impl WindowsJobBuilder {
     /// Caps the committed memory of each process in the job at `bytes` (at least 1).
     pub fn process_memory_limit(mut self, bytes: usize) -> Self {
         self.process_memory_limit = Some(bytes);
+        self
+    }
+
+    /// Explicit-only breakaway (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`). A process in the job leaves it
+    /// only by asking: it is created with `CREATE_BREAKAWAY_FROM_JOB` (see
+    /// [`CREATE_BREAKAWAY_FROM_JOB`](crate::CREATE_BREAKAWAY_FROM_JOB)). Every process that does
+    /// not ask stays contained and dies with the job. Without this, a process created with that
+    /// flag fails with `ERROR_ACCESS_DENIED`. `false` restores full containment, which is the
+    /// default. There is no silent mode for a caller-built job: a descendant leaves only by
+    /// asking.
+    pub fn allow_breakaway(mut self, allow: bool) -> Self {
+        self.breakaway = if allow {
+            BreakawayMode::Explicit
+        } else {
+            BreakawayMode::None
+        };
         self
     }
 
@@ -93,6 +111,17 @@ impl WindowsJobBuilder {
         };
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        match self.breakaway {
+            BreakawayMode::None => {}
+            BreakawayMode::Explicit => {
+                limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+            }
+            // The builder never selects silent breakaway (only `OwnedCommand` can, for a
+            // child's own job); the arm keeps the match exhaustive and fails closed.
+            BreakawayMode::Silent => {
+                limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+            }
+        }
         if let Some(cap) = self.active_process_limit {
             limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
             limits.BasicLimitInformation.ActiveProcessLimit = cap;
@@ -143,8 +172,27 @@ impl WindowsJob {
     /// including an abnormal exit. Nothing is changed when the call fails. Best effort: when an
     /// outer job forbids nesting the assignment fails with `PermissionDenied`, and the caller may
     /// ignore that error. Call it once, early.
+    ///
+    /// The job allows no breakaway, so a descendant created with `CREATE_BREAKAWAY_FROM_JOB`
+    /// fails with `ERROR_ACCESS_DENIED`. A process that must launch a survivor (a replacement
+    /// daemon) uses [`contain_current_process_with`](Self::contain_current_process_with) instead.
     pub fn contain_current_process() -> std::io::Result<()> {
-        let job = WindowsJob::new(None)?;
+        Self::contain_current_process_with(WindowsJob::builder())
+    }
+
+    /// Like [`contain_current_process`](Self::contain_current_process), with the limits and the
+    /// breakaway policy of `options`. With
+    /// [`allow_breakaway(true)`](WindowsJobBuilder::allow_breakaway), this process and every
+    /// descendant stay contained and die with this process, except a descendant that is created
+    /// with `CREATE_BREAKAWAY_FROM_JOB`: that one leaves the job and outlives this process. Which
+    /// processes survive is therefore the caller's choice, per launch. Nothing is changed when
+    /// the call fails. When an outer job forbids nesting the assignment fails with
+    /// `PermissionDenied` and the caller may ignore that error. Call it once, early.
+    ///
+    /// The limits in `options` apply to this whole process tree for its lifetime; an active
+    /// process or memory cap set here cannot be lifted later.
+    pub fn contain_current_process_with(options: WindowsJobBuilder) -> std::io::Result<()> {
+        let job = options.build()?;
         // The pseudo-handle from GetCurrentProcess names this process with full access.
         let process = unsafe { GetCurrentProcess() };
         unsafe { AssignProcessToJobObject(job.handle, process) }.map_err(os_error)?;
@@ -250,5 +298,74 @@ impl Drop for WindowsJob {
         unsafe {
             let _ = CloseHandle(self.handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::System::JobObjects::{
+        JOB_OBJECT_LIMIT, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+    };
+
+    fn limit_flags(job: &WindowsJob) -> JOB_OBJECT_LIMIT {
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        unsafe {
+            QueryInformationJobObject(
+                Some(job.handle),
+                JobObjectExtendedLimitInformation,
+                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                None,
+            )
+        }
+        .unwrap();
+        limits.BasicLimitInformation.LimitFlags
+    }
+
+    fn has(flags: JOB_OBJECT_LIMIT, flag: JOB_OBJECT_LIMIT) -> bool {
+        flags.0 & flag.0 != 0
+    }
+
+    #[test]
+    fn default_job_allows_no_breakaway() {
+        let flags = limit_flags(&WindowsJob::builder().build().unwrap());
+        assert!(has(flags, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE));
+        assert!(!has(flags, JOB_OBJECT_LIMIT_BREAKAWAY_OK));
+        assert!(!has(flags, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK));
+    }
+
+    #[test]
+    fn explicit_breakaway_sets_only_breakaway_ok() {
+        let flags = limit_flags(&WindowsJob::builder().allow_breakaway(true).build().unwrap());
+        assert!(has(flags, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE));
+        assert!(has(flags, JOB_OBJECT_LIMIT_BREAKAWAY_OK));
+        assert!(!has(flags, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK));
+    }
+
+    #[test]
+    fn explicit_breakaway_can_be_turned_off_again() {
+        let flags = limit_flags(
+            &WindowsJob::builder()
+                .allow_breakaway(true)
+                .allow_breakaway(false)
+                .build()
+                .unwrap(),
+        );
+        assert!(!has(flags, JOB_OBJECT_LIMIT_BREAKAWAY_OK));
+    }
+
+    #[test]
+    fn breakaway_keeps_the_other_limits() {
+        let job = WindowsJob::builder()
+            .allow_breakaway(true)
+            .active_process_limit(8)
+            .job_memory_limit(1 << 30)
+            .build()
+            .unwrap();
+        let flags = limit_flags(&job);
+        assert!(has(flags, JOB_OBJECT_LIMIT_ACTIVE_PROCESS));
+        assert!(has(flags, JOB_OBJECT_LIMIT_JOB_MEMORY));
+        assert!(has(flags, JOB_OBJECT_LIMIT_BREAKAWAY_OK));
     }
 }

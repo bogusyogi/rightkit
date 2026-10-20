@@ -1280,6 +1280,46 @@ mod tests {
         assert!(!output.stdout.bytes.is_empty() && !output.stderr.bytes.is_empty());
     }
 
+    /// Program and arguments for `run`/`run_with_stdin`, which take no `OwnedCommand`.
+    fn noisy_argv() -> (&'static str, Vec<&'static str>) {
+        #[cfg(unix)]
+        {
+            ("sh", vec!["-c", "printf out; printf err >&2"])
+        }
+        #[cfg(windows)]
+        {
+            ("cmd", vec!["/C", "echo out & echo err 1>&2"])
+        }
+    }
+
+    #[test]
+    fn a_capture_read_error_is_an_error_from_run_and_run_with_stdin() {
+        use crate::native_capture::{inject_read_fault, Stream};
+        let options = RunOptions::new(Duration::from_secs(20));
+        let (program, args) = noisy_argv();
+        for (stream, name) in [(Stream::Stdout, "stdout"), (Stream::Stderr, "stderr")] {
+            inject_read_fault(stream, io::ErrorKind::PermissionDenied);
+            let error = run(program, &args, &options).expect_err(
+                "run: a stored capture error must not become an Ok with partial output",
+            );
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+            assert!(error.to_string().contains(name), "{error}");
+
+            inject_read_fault(stream, io::ErrorKind::PermissionDenied);
+            let error = run_with_stdin(program, &args, b"input", &options).expect_err(
+                "run_with_stdin: a stored capture error must not become an Ok with partial output",
+            );
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+            assert!(error.to_string().contains(name), "{error}");
+        }
+        // Control: with nothing armed both runners return a plain Ok with both streams.
+        let output = run(program, &args, &options).unwrap();
+        assert!(output.status.success());
+        assert!(!output.stdout.bytes.is_empty() && !output.stderr.bytes.is_empty());
+        let output = run_with_stdin(program, &args, b"input", &options).unwrap();
+        assert!(output.status.success());
+    }
+
     #[test]
     fn a_capture_read_error_is_an_error_from_run_streaming() {
         use crate::native_capture::{inject_read_fault, Stream};
