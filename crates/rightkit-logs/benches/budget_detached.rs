@@ -43,7 +43,10 @@ fn main() {
 
     let tmp = tempfile::tempdir().unwrap();
     let before = process_usage().expect("process usage");
-    let sink = Arc::new(RotatingTextWriter::new(tmp.path().join("budget.log"), 1 << 20));
+    let sink = Arc::new(RotatingTextWriter::new(
+        tmp.path().join("budget.log"),
+        1 << 20,
+    ));
     let log = Arc::new(DetachedLog::new(sink).with_prefix("[budget] "));
     let started = Instant::now();
     {
