@@ -1,5 +1,8 @@
 # Shell scripts run under bash on every runner, including Windows: always LF.
 *.sh text eol=lf
+# CI contracts & workflow bytes must match native checkouts & hosted runners.
+/scripts/ci/*.mjs text eol=lf
+/.github/workflows/*.yml text eol=lf
 # Vendored sources are hashed byte for byte: never convert their line endings.
 crates/rightkit-tts-qwen-sys/vendor/** -text
 # PDFs are binary even when every byte is ASCII: a converted line ending breaks the xref offsets.
