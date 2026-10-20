@@ -1,4 +1,4 @@
-use rightkit_logs::{redact_quoted, scrub_text, scrub_value};
+use rightkit_logs::{redact_quoted, scrub_text, scrub_value, KnownSecrets};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -121,15 +121,14 @@ impl SecretList {
     }
 }
 
-/// Replaces every occurrence of each known secret in `text` with `[redacted]`.
+/// Replaces every occurrence of each known secret in `text` with `[redacted]`. The matching is
+/// `rightkit_logs::KnownSecrets`: it also removes percent-encoded and JSON- or Debug-escaped
+/// forms of a secret, and merges overlapping matches so no fragment survives.
 pub(crate) fn redact_known(text: &str, secrets: &[String]) -> String {
-    let mut out = text.to_string();
-    for secret in secrets {
-        if !secret.is_empty() && out.contains(secret.as_str()) {
-            out = out.replace(secret.as_str(), "[redacted]");
-        }
+    if secrets.is_empty() {
+        return text.to_string();
     }
-    out
+    KnownSecrets::from_values(secrets).redact(text)
 }
 
 /// Applies [`redact_known`] to every string in `value`, object keys included.
@@ -137,20 +136,7 @@ pub(crate) fn redact_known_value(value: &mut Value, secrets: &[String]) {
     if secrets.is_empty() {
         return;
     }
-    match value {
-        Value::String(s) => *s = redact_known(s, secrets),
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|v| redact_known_value(v, secrets)),
-        Value::Object(map) => {
-            let old = std::mem::take(map);
-            for (key, mut v) in old {
-                redact_known_value(&mut v, secrets);
-                map.insert(redact_known(&key, secrets), v);
-            }
-        }
-        _ => {}
-    }
+    KnownSecrets::from_values(secrets).redact_value(value);
 }
 
 /// `kind` lands in file names: keep a small safe alphabet.
@@ -219,5 +205,22 @@ mod tests {
             serde_json::json!({"a": ["x [redacted]"], "[redacted]": {"b": "[redacted]"}})
         );
         assert_eq!(format!("{list:?}"), "SecretList(2 values)");
+    }
+
+    #[test]
+    fn encoded_and_escaped_forms_of_a_known_secret_are_removed_from_a_report() {
+        let secret = "p@ss \"word\"";
+        let mut list = SecretList::default();
+        list.extend(vec![secret.into()]);
+        let url_form = "GET /x?k=p%40ss%20%22word%22 failed";
+        assert_eq!(
+            redact_known(url_form, list.as_slice()),
+            "GET /x?k=[redacted] failed"
+        );
+        let json = serde_json::json!({ "message": format!("bad {secret}") }).to_string();
+        assert!(!redact_known(&json, list.as_slice()).contains("word"));
+        let mut value = serde_json::json!({ "debug": format!("{secret:?}") });
+        redact_known_value(&mut value, list.as_slice());
+        assert!(!value.to_string().contains("word"), "{value}");
     }
 }

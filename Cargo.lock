@@ -6820,7 +6820,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",

@@ -1,9 +1,14 @@
 # Changelog
 
-## 0.3.3 — unpublished staging
+## 0.3.4 — 2026-10-20
+
+- Changed: known-value redaction (`CrashConfig::redact_values`) now uses `rightkit_logs::KnownSecrets` instead of a private copy. A secret is also removed in its percent-encoded and JSON- or Debug-escaped forms, and overlapping secrets leave no fragment. Requires `rightkit-logs` 0.3.4 (the manifest floor; `KnownSecrets` is public from 0.3.4). Test: `report::tests::encoded_and_escaped_forms_of_a_known_secret_are_removed_from_a_report`. Not compiled or run.
+
+## 0.3.3 (published)
 
 - Serializes idempotent crash-report handoff.
 - Changed: `chain_default_hook` now defaults to `false` in release builds, so a panic payload no longer reaches stderr unless the app opts in; builds with debug assertions still chain. `chain_default_hook(true)` restores the old release behaviour.
+
 
 ## 0.3.2 (2026-10-17)
 

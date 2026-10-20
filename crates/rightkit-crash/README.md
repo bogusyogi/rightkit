@@ -20,7 +20,7 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 
 ## Cargo features
 
-`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
+`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. `window-errors` (off): renderer/webview error capture, `record_window_error`, `WindowErrorGate`, `WindowErrorReport`; adds no dependency. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
 
 ## Usage
 
@@ -43,7 +43,7 @@ fn main() {
 ## Platform support
 
 - macOS: `sample`-based native capture.
-- Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:296`); the crate records no Windows 11 run.
+- Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:296`); it passed on Windows 11 (build 26300, the Dell) on 2026-10-20 with `--all-features`.
 - Android: no in-process handler. `record_android_exits` takes the OS exit history the Kotlin shell reads at launch (`getHistoricalProcessExitReasons`: crash, native crash tombstone, ANR), keeps header and backtrace text only, and records each death once through the normal redacted report path. Not yet run on a device (docs/design/android-minimum.md).
 - Other platforms: structured reports only.
 
