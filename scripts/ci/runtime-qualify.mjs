@@ -133,7 +133,8 @@ async function measure(env) {
   const output = env.RUNTIME_OUT;
   fs.mkdirSync(output, { recursive: true });
   const { recordMeasurement, measuredPathspecs } = await import("../../packages/release/runtime-budgets.mjs");
-  const { specs } = measuredPathspecs(crateDir);
+  const { specs, problems: sourceProblems = [] } = measuredPathspecs(crateDir);
+  if (sourceProblems.length) throw new Error(`cannot bind measured dependency scope: ${sourceProblems.join("; ")}`);
   const measuredPaths = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, ...specs], env.RUNTIME_SOURCE).trim().split(/\r?\n/).filter(Boolean);
   for (const full of measuredPaths) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], env.RUNTIME_SOURCE, { encoding: "buffer" }));
   const toolchain = { rustc: command("rustc", ["-Vv"], env.RUNTIME_SOURCE).trim(), cargo: command("cargo", ["-V"], env.RUNTIME_SOURCE).trim() };

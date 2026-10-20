@@ -158,40 +158,44 @@ function invalidRunFields(run, evidence, tree) {
   return bad;
 }
 
-// Returns { ok, missing[] }. Pure apart from the injected git/readFile.
-export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, artifactBytes, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
+function gateResult(missing, evidence) {
+  const result = { ok: missing.length === 0, missing };
+  Object.defineProperty(result, "evidence", { value: evidence });
+  return Object.freeze(result);
+}
+
+/** Validate supplied evidence against caller-authenticated source identity, without reading Git or files.
+ * The caller owns authentication of expected.commit/tree and requiredHosts (for example, committed CI policy).
+ * Evidence cannot relax host requirements: only an explicit, nonempty subset supplied by the caller can.
+ * This proves receipt contents only; it makes no claim about working-tree cleanliness or receipt provenance. */
+export function validatePublicationEvidence({ expected = {}, evidence, artifactBytes }) {
+  const { kind, name, version, commit, tree } = expected;
   const missing = [];
-  const head = git(["rev-parse", "HEAD"], packagePath);
-  if (!head || !SHA.test(head)) missing.push(`cannot read current commit SHA for ${packagePath}`);
-  const dirty = git(["status", "--porcelain", "--", "."], packagePath);
-  if (dirty === null) missing.push(`cannot read git status for ${packagePath}`);
-  else if (dirty !== "") missing.push(`tree is not clean for ${packagePath}`);
-  let evidence = null;
-  try { evidence = JSON.parse(readFile(evidencePath)); } catch {
-    missing.push(`gate evidence file missing or unreadable: ${evidencePath}`);
+  if (!["npm", "cargo", "swift"].includes(kind)) missing.push("expected kind must be npm, cargo or swift");
+  if (!text(name)) missing.push("expected name must be nonempty");
+  if (!SHA.test(String(commit ?? ""))) missing.push("expected commit is not a full 40-character SHA");
+  const defaults = requiredHosts(kind);
+  let hosts = defaults;
+  if (expected.requiredHosts !== undefined) {
+    const requested = expected.requiredHosts;
+    if (!(Array.isArray(requested) && requested.length > 0 && new Set(requested).size === requested.length
+      && Array.from(requested).every((host) => defaults.includes(host)))) {
+      missing.push(`expected requiredHosts must be a nonempty unique subset of ${defaults.join(", ")}`);
+    } else hosts = requested;
   }
-  if (evidence) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    missing.push("gate evidence must be an object");
+  } else {
     if (evidence.schema !== GATE_SCHEMA) missing.push(`evidence schema must be ${GATE_SCHEMA}`);
     if (evidence.kind !== kind || evidence.name !== name) missing.push(`evidence is for ${evidence.kind}:${evidence.name}, expected ${kind}:${name}`);
     // A missing publishing version must refuse: a skipped comparison would qualify any evidence version.
     if (typeof version !== "string" || version.trim() === "") missing.push("publishing version is unknown (manifest has no literal version), cannot bind the receipt to it");
     else if (evidence.version !== version) missing.push(`evidence version ${evidence.version} != ${version}`);
     if (!SHA.test(String(evidence.commit ?? ""))) missing.push("evidence commit is not a full 40-character SHA");
-    else if (head && evidence.commit !== head) {
-      missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
-    }
+    else if (SHA.test(String(commit ?? "")) && evidence.commit !== commit) missing.push(`evidence commit ${evidence.commit} != expected commit ${commit}`);
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
-    // A batch receipt is bound to the HEAD tree as well as the commit; read it only when a run carries one.
-    // `tree ?? null` below makes an unreadable tree fail the comparison (null never equals a 40-hex tree).
-    const tree = runs.some((run) => run?.batch !== undefined) ? git(["rev-parse", "HEAD^{tree}"], packagePath) : undefined;
-    if (tree === null) missing.push(`cannot read the HEAD tree for ${packagePath}`);
-    // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
-    // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
-    // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
-    // A crate published from the Windows host under the local-build grant records the symmetric
-    // hostPolicy "win32-only" + reason, and then the one required receipt is the Windows run.
-    const singleHost = (kind === "npm" || kind === "cargo") ? singleHostOfPolicy(evidence) : null;
-    for (const host of singleHost ? [singleHost] : requiredHosts(kind)) {
+    if (runs.some((run) => run?.batch !== undefined) && !SHA.test(String(tree ?? ""))) missing.push("expected tree is not a full 40-character SHA for batch evidence");
+    for (const host of hosts) {
       const label = host === "darwin" ? "macOS" : "Windows";
       const matching = runs.filter((run) => run?.host?.os === host);
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }
@@ -204,9 +208,34 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     if (!/^[0-9a-f]{64}$/.test(String(evidence.artifactSha256 ?? ""))) missing.push("evidence artifactSha256 must be a 64-hex hash");
   }
   if (artifactBytes !== undefined && evidence && digestBytes(artifactBytes) !== evidence.artifactSha256) missing.push("artifact sha256 does not match evidence artifactSha256");
-  const result = { ok: missing.length === 0, missing };
-  Object.defineProperty(result, "evidence", { value: evidence });
-  return Object.freeze(result);
+  return gateResult(missing, evidence);
+}
+
+// Acquire local source identity and cleanliness, then use the same content validator as CI.
+export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, artifactBytes, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
+  const missing = [];
+  const head = git(["rev-parse", "HEAD"], packagePath);
+  if (!head || !SHA.test(head)) missing.push(`cannot read current commit SHA for ${packagePath}`);
+  const dirty = git(["status", "--porcelain", "--", "."], packagePath);
+  if (dirty === null) missing.push(`cannot read git status for ${packagePath}`);
+  else if (dirty !== "") missing.push(`tree is not clean for ${packagePath}`);
+  let evidence = null;
+  try { evidence = JSON.parse(readFile(evidencePath)); } catch {
+    missing.push(`gate evidence file missing or unreadable: ${evidencePath}`);
+  }
+  const runs = Array.isArray(evidence?.runs) ? evidence.runs : [];
+  const tree = runs.some((run) => run?.batch !== undefined) ? git(["rev-parse", "HEAD^{tree}"], packagePath) : undefined;
+  if (tree === null) missing.push(`cannot read the HEAD tree for ${packagePath}`);
+  // Local publication retains its recorded single-host grant. CI callers own their policy separately.
+  const singleHost = (kind === "npm" || kind === "cargo") ? singleHostOfPolicy(evidence) : null;
+  const result = validatePublicationEvidence({ expected: { kind, name, version, commit: head, tree,
+    ...(singleHost ? { requiredHosts: [singleHost] } : {}) }, evidence, artifactBytes });
+  for (const problem of result.missing) {
+    if (problem === `evidence commit ${evidence?.commit} != expected commit ${head}`) {
+      missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
+    } else missing.push(problem);
+  }
+  return gateResult(missing, evidence);
 }
 
 // Enforce: throws on missing evidence unless dryRun (then reports and continues).

@@ -7,21 +7,14 @@
 //           reject production resolution, and every
 //           declared bin runs its declared safe command (rightkit.publishCheck.binSmoke) with the
 //           expected exit code.
-//   crates  extract the sealed .crate, check that the packaged Cargo.toml still yields the sealed upload
-//           metadata, and `cargo check` the packaged crate (with --locked when it ships a Cargo.lock and
-//           needs no patch). Sibling crates of the same request that are not on the registry yet are
-//           patched in from their own sealed .crate.
+//   crates  run each committed PK example against exact sealed bytes through an offline directory
+//           registry, then require locked build & runtime success. Missing recipes fail closed.
 // Nothing here publishes or holds a token; the caller has already refused any.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-// A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
-// "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
-const tarDir = (dir) => (process.platform === "win32" ? dir.replaceAll("\\", "/") : dir);
-
-const fwd = (p) => p.replace(/\\/g, "/");
+import { runRegistryConsumer } from "./registry-consumer.mjs";
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
 /** How to run npm without a shell: node + npm-cli.js beside the running node, else the npm shim. */
@@ -234,50 +227,18 @@ export function consumeNpm({ units, packDir, scratchRoot = os.tmpdir(), spawn = 
 // ---- crates -----------------------------------------------------------------------------------
 
 /**
- * Check each sealed .crate as a consumer would get it. `uploadMetadata(pkg, readmeText)` is the same
- * function pack used, so the packaged manifest must still reproduce the sealed `.upload.json` exactly.
- * `excluded` names the units this host is allowed not to build (allow_host_exclusion). Returns
- * Map(unit name -> { problems: [], report }).
+ * Qualify committed PK examples; generic source checks never establish consumer acceptance.
+ * Existing explicit host exclusions retain their caller-controlled semantics.
  */
-export function consumeCrates({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, excluded = [], uploadMetadata }) {
+export function consumeCrates({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, excluded = [], uploadMetadata, root, registryConsumer = runRegistryConsumer }) {
   const results = new Map(units.map((u) => [u.name, { problems: [], report: {} }]));
-  const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-consume-crates-"));
-  try {
-    const dirs = new Map(); const pkgs = new Map();
-    for (const unit of units) {
-      const out = results.get(unit.name);
-      const dest = path.join(scratch, "src", unit.name);
-      fs.mkdirSync(dest, { recursive: true });
-      const untar = spawn("tar", ["-xzf", path.basename(unit.file), "-C", tarDir(dest)], { cwd: packDir, encoding: "utf8", env });
-      const inner = path.join(dest, `${unit.name}-${unit.version}`);
-      if (untar.error || untar.status !== 0 || !fs.existsSync(inner)) { out.problems.push(`${unit.name}: cannot extract ${unit.file}`); continue; }
-      dirs.set(unit.name, inner);
-      const meta = spawn("cargo", ["metadata", "--format-version", "1", "--no-deps", "--manifest-path", path.join(inner, "Cargo.toml")], { cwd: inner, encoding: "utf8", env, maxBuffer: 256 * 1024 * 1024 });
-      let pkg;
-      try { if (meta.error || meta.status !== 0) throw new Error(tail(meta.stderr || meta.error?.message)); pkg = JSON.parse(meta.stdout).packages.find((p) => p.name === unit.name && p.version === unit.version); } catch (error) { out.problems.push(`${unit.name}: cargo metadata of the packaged Cargo.toml failed: ${error.message}`); continue; }
-      if (!pkg) { out.problems.push(`${unit.name}: packaged Cargo.toml does not describe ${unit.name}@${unit.version}`); continue; }
-      pkgs.set(unit.name, pkg);
-      try {
-        const readme = pkg.readme ? fs.readFileSync(path.join(inner, pkg.readme), "utf8") : null;
-        const derived = `${JSON.stringify(uploadMetadata(pkg, readme))}\n`;
-        const sealed = fs.readFileSync(path.join(packDir, unit.metaFile), "utf8");
-        if (derived !== sealed) out.problems.push(`${unit.name}: the sealed upload metadata (${unit.metaFile}) does not match the packaged Cargo.toml and README`);
-      } catch (error) { out.problems.push(`${unit.name}: cannot compare upload metadata with the packaged manifest: ${error.message}`); }
-    }
-    const targetDir = path.join(scratch, "target");
-    for (const unit of units) {
-      const out = results.get(unit.name);
-      if (excluded.includes(unit.name)) { out.report = { checked: false, reason: "allowed host exclusion (allow_host_exclusion)" }; continue; }
-      const inner = dirs.get(unit.name); const pkg = pkgs.get(unit.name);
-      if (!inner || !pkg) continue;
-      const siblings = [...new Set((pkg.dependencies ?? []).map((d) => d.name))].filter((n) => n !== unit.name && dirs.has(n));
-      const patches = siblings.flatMap((n) => ["--config", `patch.crates-io.${n}.path="${fwd(dirs.get(n))}"`]);
-      const locked = patches.length === 0 && fs.existsSync(path.join(inner, "Cargo.lock"));
-      const args = ["check", ...(locked ? ["--locked"] : []), "--manifest-path", path.join(inner, "Cargo.toml"), ...patches];
-      const ran = spawn("cargo", args, { cwd: inner, encoding: "utf8", env: { ...env, CARGO_TARGET_DIR: targetDir, CARGO_TERM_COLOR: "never" }, maxBuffer: 256 * 1024 * 1024, timeout: 60 * 60_000 });
-      out.report = { checked: true, locked, patchedSiblings: siblings, hasCargoLock: fs.existsSync(path.join(inner, "Cargo.lock")) };
-      if (ran.error || ran.status !== 0) out.problems.push(`${unit.name}: cargo check of the packaged crate failed: ${tail(ran.stderr || ran.error?.message, 1500)}`);
-    }
-  } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  for (const unit of units) {
+    const out = results.get(unit.name);
+    if (excluded.includes(unit.name)) { out.report = { checked: false, reason: "allowed host exclusion (allow_host_exclusion)" }; continue; }
+    try {
+      out.report = registryConsumer({ packDir, name: unit.name, scratchRoot, spawn, env, uploadMetadata, ...(root ? { root } : {}) });
+      if (out.report?.verified !== true || out.report.qualification !== "R2a" || out.report.archiveSha256 !== unit.sha256 || out.report.name !== unit.name || out.report.version !== unit.version) throw new Error("exact-archive R2a PK example did not return verified identity");
+    } catch (error) { out.report = error.report ?? { qualification: "R2a", verified: false }; out.problems.push(`${unit.name}: committed registry PK example failed: ${error.message}`); }
+  }
   return results;
 }

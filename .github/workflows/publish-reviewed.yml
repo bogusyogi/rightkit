@@ -7,6 +7,10 @@ on:
         description: Committed schema 2 candidate ID
         type: string
         required: true
+      dry_run:
+        description: Authenticate semantic admission & transfer without uploading
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -22,35 +26,52 @@ jobs:
       contents: read
       actions: read
     outputs:
-      registry: ${{ steps.check.outputs.registry }}
+      registry: ${{ steps.identify.outputs.registry }}
+      admission_id: ${{ steps.admission.outputs.artifact-id }}
+      admission_digest: ${{ steps.admission.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
+          path: verifier
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/upload.mjs
-            scripts/ci/registry-spec.mjs
-            scripts/ci/reviewed-candidate.mjs
-            scripts/ci/supplemental-proof.mjs
-            ci/approved-artifacts.json
-            ci/supplemental-proofs.json
-          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 11.24.0
+          package_json_file: verifier/package.json
+          run_install: false
+      - name: Install trusted verifier dependencies without lifecycle scripts
+        run: pnpm --dir verifier install --filter @rightkit/release... --frozen-lockfile --ignore-scripts
+      - name: Authenticate original source before its data checkout
+        id: identify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+        run: node verifier/scripts/ci/reviewed-candidate.mjs identify
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.identify.outputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
       - name: Authenticate original run & check exact reviewed bytes without registry credentials
         id: check
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
-        run: node scripts/ci/reviewed-candidate.mjs run --dry-run
+          PUBLISH_SOURCE_DIR: ${{ github.workspace }}/candidate
+        run: node verifier/scripts/ci/reviewed-candidate.mjs run --dry-run
       - name: Keep admission receipt
+        id: admission
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reviewed-admission-receipt
-          path: ${{ runner.temp }}/publication-receipt
+          path: ${{ runner.temp }}/publication-admission
           retention-days: 90
           if-no-files-found: error
   upload:
@@ -80,18 +101,30 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
-      - name: Reauthenticate candidate & publish original npm archives
-        if: ${{ needs.seal-check.outputs.registry == 'npm' }}
+      - name: Verify same-run semantic admission transfer without registry credentials
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          PUBLISH_ADMISSION_ID: ${{ needs.seal-check.outputs.admission_id }}
+          PUBLISH_ADMISSION_DIGEST: ${{ needs.seal-check.outputs.admission_digest }}
+        run: node scripts/ci/reviewed-candidate.mjs run --verify-admission
+      - name: Reauthenticate candidate & publish original npm archives
+        # Admission is reauthenticated in this fresh job before any registry credential is used.
+        if: ${{ !inputs.dry_run && needs.seal-check.outputs.registry == 'npm' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          PUBLISH_ADMISSION_ID: ${{ needs.seal-check.outputs.admission_id }}
+          PUBLISH_ADMISSION_DIGEST: ${{ needs.seal-check.outputs.admission_digest }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run
       - name: Reauthenticate candidate & publish original Cargo archives
-        if: ${{ needs.seal-check.outputs.registry == 'crates' }}
+        if: ${{ !inputs.dry_run && needs.seal-check.outputs.registry == 'crates' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          PUBLISH_ADMISSION_ID: ${{ needs.seal-check.outputs.admission_id }}
+          PUBLISH_ADMISSION_DIGEST: ${{ needs.seal-check.outputs.admission_digest }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run
       - name: Keep publication receipt

@@ -349,7 +349,7 @@ pub fn install_biometric_bridge(bridge: Arc<dyn BiometricBridge>) {
     *BRIDGE.lock().unwrap_or_else(PoisonError::into_inner) = Some(bridge);
 }
 
-#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+#[cfg(target_os = "android")]
 fn installed_bridge() -> Option<Arc<dyn BiometricBridge>> {
     BRIDGE
         .lock()

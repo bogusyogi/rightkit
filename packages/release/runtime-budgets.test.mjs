@@ -81,6 +81,7 @@ const freshGit = (over = {}) => (args) => {
   if (args[0] === "merge-base") return over.ancestor ?? ok();
   if (args[0] === "diff") return over.diff ?? ok("");
   if (args[0] === "ls-files") return over.untracked ?? ok("");
+  if (args[0] === "ls-tree") return over.lockTree ?? ok("");
   return { status: 1, stdout: "" };
 };
 const evaluate = (dir, over = {}, git = freshGit()) =>
@@ -198,6 +199,55 @@ test("refuses a measurement whose commit is unknown, not an ancestor, or not che
   refused(evaluate(dir, {}, freshGit({ untracked: { status: 128, stdout: "" } })), /cannot list untracked/);
   assert.match(measurementStaleness("short", dir, freshGit()), /full 40-character SHA/);
   assert.equal(measurementStaleness(COMMIT, dir, freshGit()), null);
+});
+
+test("freshness refuses unreadable or incomplete reachable path metadata without throwing", (t) => {
+  const manifest = `${MANIFEST}[dependencies]\ndep = { path = "deps/dep" }\n`;
+  const bad = crate(t, { manifest, extra: { "deps/dep/Cargo.toml": "[package\n" } });
+  assert.match(measuredPathspecs(bad).problems.join("\n"), /cannot read dependency metadata .*Cargo\.toml/);
+  assert.match(measurementStaleness(COMMIT, bad, freshGit()), /cannot resolve measured dependency graph/);
+  refused(evaluate(bad), /measurement is stale: cannot resolve measured dependency graph/);
+  const missing = crate(t, { manifest });
+  assert.match(measurementStaleness(COMMIT, missing, freshGit()), /dependency manifest is missing/);
+  const transitive = crate(t, { manifest, extra: { "deps/dep/Cargo.toml": '[package]\nname = "dep"\nversion = "1.0.0"\n[dependencies]\nchild = { path = "../child" }\n' } });
+  assert.match(measurementStaleness(COMMIT, transitive, freshGit()), /dependency manifest is missing/);
+  const noIdentity = crate(t, { manifest, extra: { "deps/dep/Cargo.toml": '[package]\nversion = "1.0.0"\n' } });
+  assert.match(measurementStaleness(COMMIT, noIdentity, freshGit()), /dependency manifest has no package\.name/);
+  const unreadable = crate(t);
+  assert.match(measurementStaleness(COMMIT, unreadable, freshGit(), { readFile: (file, encoding) => {
+    if (path.basename(file) === "Cargo.toml") throw new Error("EACCES test manifest");
+    return readFileSync(file, encoding);
+  } }), /cannot read dependency metadata .*EACCES test manifest/);
+});
+
+test("freshness refuses unresolved workspace inheritance while preserving manifest-free paths", (t) => {
+  const dir = crate(t, { manifest: `${MANIFEST}[workspace]\n[dependencies]\ndep = { workspace = true }\n` });
+  assert.match(measurementStaleness(COMMIT, dir, freshGit()), /workspace dependency dep cannot be resolved/);
+  const noManifest = crate(t, { manifest: null });
+  assert.equal(measurementStaleness(COMMIT, noManifest, freshGit()), null);
+  const noLock = crate(t);
+  assert.equal(measurementStaleness(COMMIT, noLock, freshGit()), null);
+  assert.match(measurementStaleness(COMMIT, noLock, freshGit({ lockTree: { status: 1, stdout: "" } })), /cannot establish that Cargo\.lock was absent/);
+  assert.match(measurementStaleness(COMMIT, noLock, freshGit({ lockTree: { status: 0, stdout: "100644 blob object\tCargo.lock" } })), /cannot establish that Cargo\.lock was absent/);
+});
+
+test("freshness refuses unreadable locks and partial reachable lock graphs on either side", (t) => {
+  const root = 'version = 4\n[[package]]\nname = "rightkit-fsindex"\nversion = "0.2.0"\n';
+  const complete = `${root}dependencies = ["dep 1.0.0"]\n[[package]]\nname = "dep"\nversion = "1.0.0"\n`;
+  const historicalGit = (lock) => (args, cwd) => args[0] === "show" ? { status: 0, stdout: lock } : freshGit()(args, cwd);
+  const dir = crate(t, { extra: { "Cargo.lock": complete } });
+  assert.equal(measurementStaleness(COMMIT, dir, historicalGit(complete)), null);
+  assert.match(measurementStaleness(COMMIT, dir, historicalGit(complete), { readFile: (file, encoding) => {
+    if (path.basename(file) === "Cargo.lock") throw new Error("EACCES test lock");
+    return readFileSync(file, encoding);
+  } }), /cannot read Cargo\.lock .*EACCES test lock/);
+  const invalid = ["[package", 'version = 4\n', '[[package]]\nname = "other"\nversion = "1.0.0"\n', `${root}dependencies = ["missing"]\n`, `${root}dependencies = ["dep 9.0.0"]\n[[package]]\nname = "dep"\nversion = "1.0.0"\n`];
+  for (const lock of invalid) {
+    writeFileSync(path.join(dir, "Cargo.lock"), lock);
+    assert.match(measurementStaleness(COMMIT, dir, historicalGit(complete)), /cannot compare Cargo\.lock/);
+    writeFileSync(path.join(dir, "Cargo.lock"), complete);
+    assert.match(measurementStaleness(COMMIT, dir, historicalGit(lock)), /cannot compare Cargo\.lock/);
+  }
 });
 
 test("refuses malformed measurement records", (t) => {

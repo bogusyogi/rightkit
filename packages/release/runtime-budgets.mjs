@@ -260,17 +260,86 @@ const posix = (p) => p.split(path.sep).join("/");
 /**
  * The git pathspecs (relative to the workspace root) whose change makes a measurement stale: the
  * crate's src, benches, Cargo.toml (features) and build.rs, plus src, Cargo.toml and build.rs of every
- * workspace crate it reaches through `path` dependencies (transitively). Returns { root, specs }.
+ * workspace crate it reaches through `path` dependencies (transitively). Returns { root, specs, problems }.
+ * Callers must refuse incomplete metadata rather than using a partial dependency scope.
  */
 export function measuredPathspecs(crateDir, deps = {}) {
-  const root = findWorkspaceRoot(crateDir, deps) ?? path.resolve(crateDir);
+  const { exists = existsSync, readFile = readFileSync } = deps;
+  const problems = [];
+  // Workspace discovery deliberately tolerates bad ancestor manifests elsewhere. Freshness cannot:
+  // a swallowed read/parse failure could hide inherited dependencies and shrink the measured graph.
+  const checkedRead = (file, encoding) => {
+    try {
+      const contents = readFile(file, encoding);
+      if (path.basename(file) === "Cargo.toml") parse(contents);
+      return contents;
+    } catch (error) {
+      problems.push(`cannot read dependency metadata ${file}: ${error.message}`);
+      throw error;
+    }
+  };
+  const checked = { exists, readFile: checkedRead };
+  let root = path.resolve(crateDir);
   const specs = [];
   const add = (dir, names) => { for (const name of names) specs.push(posix(path.relative(root, path.join(dir, name)))); };
-  add(path.resolve(crateDir), CRATE_PATHS);
-  let dependencies = [];
-  try { dependencies = pathDependencyDirs(crateDir, deps); } catch { /* unreadable manifest: the crate paths alone */ }
-  for (const dir of dependencies) add(dir, DEPENDENCY_PATHS);
-  return { root, specs: [...new Set(specs)] };
+  try {
+    root = findWorkspaceRoot(crateDir, checked) ?? root;
+    add(path.resolve(crateDir), CRATE_PATHS);
+    const dependencies = pathDependencyDirs(crateDir, checked);
+    const workspace = exists(path.join(root, "Cargo.toml")) ? parse(checkedRead(path.join(root, "Cargo.toml"), "utf8")).workspace : undefined;
+    for (const dir of [path.resolve(crateDir), ...dependencies]) {
+      const manifestPath = path.join(dir, "Cargo.toml");
+      if (!exists(manifestPath)) {
+        // A manifest-free standalone path has no Cargo graph. A declared path dependency must exist.
+        if (dir !== path.resolve(crateDir)) problems.push(`dependency manifest is missing: ${manifestPath}`);
+        continue;
+      }
+      const manifest = parse(checkedRead(manifestPath, "utf8"));
+      if (!nonEmpty(manifest.package?.name)) problems.push(`dependency manifest has no package.name: ${manifestPath}`);
+      const holders = [manifest, ...Object.values(manifest.target ?? {})];
+      for (const holder of holders) {
+        for (const key of ["dependencies", "build-dependencies", ...(dir === path.resolve(crateDir) ? ["dev-dependencies"] : [])]) {
+          for (const [name, spec] of Object.entries(holder?.[key] ?? {})) {
+            if (spec && typeof spec === "object" && spec.workspace === true && workspace?.dependencies?.[name] === undefined) {
+              problems.push(`workspace dependency ${name} cannot be resolved for ${manifestPath}`);
+            }
+          }
+        }
+      }
+    }
+    for (const dir of dependencies) add(dir, DEPENDENCY_PATHS);
+  } catch (error) {
+    if (!problems.length) problems.push(`cannot resolve measured dependency paths for ${crateDir}: ${error.message}`);
+  }
+  return { root, specs: [...new Set(specs)], problems: [...new Set(problems)] };
+}
+
+// lockClosure compares reachable entries, but its permissive parser can return an empty/partial graph.
+// Require the root and every reachable edge before allowing equality to establish freshness.
+function completeLockClosure(contents, name) {
+  const packages = parse(contents).package;
+  if (!Array.isArray(packages)) throw new Error("missing [[package]] entries");
+  const roots = packages.filter((entry) => entry.name === name);
+  if (!roots.length) throw new Error(`missing package ${name}`);
+  const seen = new Set();
+  const pending = [...roots];
+  while (pending.length) {
+    const entry = pending.pop();
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    if (!nonEmpty(entry.name) || !nonEmpty(entry.version)) throw new Error(`incomplete package identity for ${entry.name ?? name}`);
+    if (entry.dependencies !== undefined && !Array.isArray(entry.dependencies)) throw new Error(`invalid dependencies for ${entry.name}`);
+    for (const edge of entry.dependencies ?? []) {
+      if (!nonEmpty(edge)) throw new Error(`invalid dependency edge for ${entry.name}`);
+      const match = /^(\S+)(?: (\S+))?(?: \(([^)]+)\))?$/.exec(edge);
+      if (!match) throw new Error(`invalid dependency ${edge} of ${entry.name}`);
+      const candidates = packages.filter((candidate) => candidate.name === match[1]
+        && (!match[2] || candidate.version === match[2]) && (!match[3] || candidate.source === match[3]));
+      if (!candidates.length) throw new Error(`unresolved dependency ${edge} of ${entry.name}`);
+      pending.push(...candidates);
+    }
+  }
+  return lockClosure(contents, name);
 }
 
 /**
@@ -289,7 +358,8 @@ export function measurementStaleness(commit, crateDir, git = defaultGit, deps = 
   const known = git(["cat-file", "-t", commit], crateDir);
   if (known.status !== 0 || known.stdout !== "commit") return `commit ${commit.slice(0, 12)} is not a commit in this repository (shallow clone?)`;
   if (git(["merge-base", "--is-ancestor", commit, "HEAD"], crateDir).status !== 0) return `commit ${commit.slice(0, 12)} is not an ancestor of HEAD`;
-  const { root, specs } = measuredPathspecs(crateDir, { exists, readFile });
+  const { root, specs, problems } = measuredPathspecs(crateDir, { exists, readFile });
+  if (problems.length) return `cannot resolve measured dependency graph: ${problems.join("; ")}`;
   // `git diff <commit>` (no second revision) compares the working tree to the commit.
   const changed = git(["diff", "--name-only", commit, "--", ...specs], root);
   if (changed.status !== 0) return "cannot diff the crate against the measured commit";
@@ -298,17 +368,29 @@ export function measurementStaleness(commit, crateDir, git = defaultGit, deps = 
   if (untracked.status !== 0) return "cannot list untracked crate files";
   if (untracked.stdout !== "") return `untracked files since the measurement: ${untracked.stdout.split("\n").slice(0, 5).join(", ")}`;
   let name = null;
-  try { name = readCargoPackage(crateDir, { exists, readFile }).name; } catch { /* no manifest: nothing to resolve in the lock */ }
+  try {
+    if (exists(path.join(crateDir, "Cargo.toml"))) {
+      name = readCargoPackage(crateDir, { exists, readFile }).name;
+      if (!nonEmpty(name)) return `cannot resolve Cargo.lock: ${path.join(crateDir, "Cargo.toml")} has no package.name`;
+    }
+  } catch (error) { return `cannot resolve Cargo.lock package identity: ${error.message}`; }
   if (name) {
     const lockPath = path.join(root, "Cargo.lock");
-    const now = exists(lockPath) ? readFile(lockPath, "utf8") : null;
+    let now;
+    try { now = exists(lockPath) ? readFile(lockPath, "utf8") : null; }
+    catch (error) { return `cannot read Cargo.lock ${lockPath}: ${error.message}`; }
     const then = git(["show", `${commit}:./Cargo.lock`], root);
     const had = then.status === 0;
     if (now === null && had) return "Cargo.lock was removed since the measurement";
     if (now !== null && !had) return "Cargo.lock did not exist at the measured commit";
+    if (now === null && !had) {
+      // A failed show alone cannot distinguish an absent lock from an unreadable Git object.
+      const listed = git(["ls-tree", commit, "--", "Cargo.lock"], root);
+      if (listed.status !== 0 || listed.stdout !== "") return "cannot establish that Cargo.lock was absent at the measured commit";
+    }
     if (now !== null) {
       try {
-        if (JSON.stringify(lockClosure(now, name)) !== JSON.stringify(lockClosure(then.stdout, name))) {
+        if (JSON.stringify(completeLockClosure(now, name)) !== JSON.stringify(completeLockClosure(then.stdout, name))) {
           return `Cargo.lock changed in the dependency graph of ${name} since commit ${commit.slice(0, 12)}`;
         }
       } catch (error) { return `cannot compare Cargo.lock: ${error.message}`; }

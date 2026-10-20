@@ -20,7 +20,8 @@
 // Publish verification (.github/workflows/publish.yml) names its units explicitly:
 //   gate.mjs --registry npm|crates --units "<names>" [--allow-host-exclusion "<names>"] [--allow-no-test "<names>"]
 //            [--allow-ignored "<names>"] [--allow-missing-assets "<names>"]
-// That mode selects exactly those units (no diff, no dependents, no root or Swift suites) and
+// That mode tests exactly those units and compile-checks reverse workspace dependents (no diff,
+// no dependent tests, no root or Swift suites) and
 // treats every red unit as a failure: known-red is not a waiver for publishing. Nothing is skipped
 // silently: a unit this host would not run, or an npm package with no test script, fails the run
 // unless the request names it. Test results are READ from the runners' own summaries (libtest, node:test,
@@ -35,6 +36,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
+import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
 import { parseSelectTokens, parseSteps } from "./shards.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
@@ -495,7 +497,7 @@ function unitVerdicts(selection) {
 }
 
 /** One explicit status per requested unit: pass, allowed-skips, allowed-exclusion, allowed-no-test, or fail (never absent). */
-function writeUnitEvidence(selection, rows, ok, verdicts) {
+function writeUnitEvidence(selection, rows, ok, verdicts, dependentClosure) {
   const { registry, units, excluded, noTest } = selection.unitRequest;
   const byId = new Map(rows.map((r) => [r.id, r]));
   const evidence = units.map((name) => {
@@ -510,7 +512,7 @@ function writeUnitEvidence(selection, rows, ok, verdicts) {
     return { name, id, status, executed: verdict?.executed ?? 0, ignored: verdict?.ignored ?? 0, skipped: verdict?.skipped ?? 0, problems: verdict?.problems ?? [], steps };
   });
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, "unit-evidence.json"), JSON.stringify({ schema: 2, host: HOST, registry, sha: process.env.GITHUB_SHA ?? null, ok: ok && evidence.every((e) => e.status !== "fail"), units: evidence }, null, 2));
+  fs.writeFileSync(path.join(EVIDENCE, "unit-evidence.json"), JSON.stringify({ schema: 2, host: HOST, registry, sha: process.env.GITHUB_SHA ?? null, ok: ok && evidence.every((e) => e.status !== "fail"), units: evidence, ...(dependentClosure ? { dependentClosure } : {}) }, null, 2));
   if (evidence.some((e) => e.status === "fail")) console.log(`No pass evidence for: ${evidence.filter((e) => e.status === "fail").map((e) => e.name).join(", ")}`);
 }
 
@@ -528,6 +530,12 @@ function report(selection) {
     const unit = units.get(id);
     if (!unit) continue; // never ran: the missing-evidence check below names it
     if (verdict.status === "fail") { unit.ok = false; unit.failed.push(...verdict.problems); }
+  }
+  const dependentClosure = UNIT_MODE && selection.unitRequest.registry === "crates"
+    ? dependentClosureEvidence({ selected: selection.rust.check, requested: selection.unitRequest.units, config: selection.config, results })
+    : null;
+  if (dependentClosure && !dependentClosure.ok) {
+    units.set("dependent-check-evidence", { ok: false, seconds: 0, failed: dependentClosure.problems, skipped: 0 });
   }
   const rows = [...units].map(([id, unit]) => ({ id, ...unit, known: Object.hasOwn(knownRed, id) }));
   const unexpected = rows.filter((r) => !r.ok && !r.known);
@@ -548,7 +556,7 @@ function report(selection) {
   fs.mkdirSync(EVIDENCE, { recursive: true });
   fs.writeFileSync(path.join(EVIDENCE, "summary.md"), lines);
   fs.writeFileSync(path.join(EVIDENCE, "summary.json"), JSON.stringify({ host: HOST, sha: process.env.GITHUB_SHA ?? null, base: selection.base, selection: SELECT_MODE ? SELECT : null, steps: [...STEPS].join(","), rows, results }, null, 2));
-  if (UNIT_MODE) writeUnitEvidence(selection, rows, unexpected.length === 0, verdicts);
+  if (UNIT_MODE) writeUnitEvidence(selection, rows, unexpected.length === 0, verdicts, dependentClosure);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines}\n`);
   console.log(lines);
   if (UNIT_MODE) {
@@ -558,7 +566,7 @@ function report(selection) {
     });
     if (missing.length) { console.log(`Requested units with no passing evidence: ${missing.join(", ")}`); return false; }
   }
-  return unexpected.length === 0;
+  return unexpected.length === 0 && (!dependentClosure || dependentClosure.ok);
 }
 
 /**

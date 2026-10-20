@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "cargo": {
+    "rightkit-fs": {
+      "pkId": "PK01",
+      "id": "ci/consumers/rightkit-fs/src/main.rs",
+      "files": {
+        "Cargo.toml": "3c2733aa910dda3ec27dd02db91cc2ed1d89ec6117c430bf89db104bc3e92998",
+        "README.md": "6602afb7254944970c2888fd2970a1732d78f008468aea699cc9ae2a52276cba",
+        "src/main.rs": "d25b220e2ecb722872c5409593efec3f8f578fa108c61dc21c1fadf2c0b7ee77"
+      }
+    },
+    "rightkit-logs": {
+      "pkId": "PK11",
+      "id": "ci/consumers/rightkit-logs/src/main.rs",
+      "files": {
+        "Cargo.toml": "a1b73c8d4accfcbe834a6960891c93062b574b125e0f6ee0a447b837499ac5f2",
+        "src/main.rs": "38eb4ea0ab7a2a02ffaf829de8f49b2b05eb2ceef380b9a72fffa54626aa88d4"
+      }
+    }
+  }
+}

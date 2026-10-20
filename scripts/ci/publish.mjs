@@ -18,6 +18,7 @@
 // through shell interpolation. Every unit name is matched against a strict pattern and against the
 // workspace before any process starts.
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +28,7 @@ import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { archiveScanProblems, checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 import { registrySpecProblem } from "./registry-spec.mjs";
+import { featureLabels } from "./publication-record.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
 // "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
@@ -587,11 +589,54 @@ export function crateSourceProblems({ file, unit, commit, scratchRoot, spawn = s
 }
 
 /** Evidence the gate wrote for this host: one row per requested unit. */
-function gateEvidence(env) {
-  const file = path.join(env.RUNNER_TEMP || os.tmpdir(), "rightkit-ci", "unit-evidence.json");
-  const doc = readJson(file, null);
-  if (!doc) throw new Error(`no gate evidence at ${file}; the gate must run before verify`);
-  return doc;
+function gateEvidence(env, spawn, registry, commit) {
+  const dir = path.join(env.RUNNER_TEMP || os.tmpdir(), "rightkit-ci");
+  const readBound = (name) => {
+    const file = path.join(dir, name);
+    let bytes;
+    try { bytes = fs.readFileSync(file); } catch { throw new Error(`no gate evidence at ${file}; the gate must run before verify`); }
+    let doc;
+    try { doc = JSON.parse(bytes.toString("utf8")); } catch { throw new Error(`invalid JSON in gate evidence ${file}`); }
+    return { doc, hash: crypto.createHash("sha256").update(bytes).digest("hex") };
+  };
+  const { doc: unitEvidence, hash: unitEvidenceSha256 } = readBound("unit-evidence.json");
+  const { doc: summary, hash: summarySha256 } = readBound("summary.json");
+  if (unitEvidence.schema !== 2 || !Array.isArray(unitEvidence.units) || summary.host !== unitEvidence.host
+    || summary.sha !== unitEvidence.sha || summary.sha !== commit || unitEvidence.sha !== commit
+    || unitEvidence.registry !== registry || unitEvidence.ok !== true || !Array.isArray(summary.results)) {
+    throw new Error("gate summary and unit evidence are unavailable or inconsistent with this publication run");
+  }
+  const tree = String(spawn("git", ["rev-parse", "HEAD^{tree}"], { cwd: ROOT, encoding: "utf8" }).stdout ?? "").trim();
+  if (!/^[0-9a-f]{40}$/.test(tree)) throw new Error("cannot bind gate evidence to the current Git tree");
+  return { unitEvidence, summary, sourceGate: { summarySha256, unitEvidenceSha256, dependentClosure: unitEvidence.dependentClosure ?? null, tree } };
+}
+
+function canonicalPublicationEvidence({ unit, row, summary, registry, commit, tree, env }) {
+  if (!row) throw new Error(`${unit.name}: no gate unit evidence exists for publication verification`);
+  if (["allowed-exclusion", "allowed-no-test"].includes(row.status)) {
+    return { publicationEvidence: null, publicationEvidenceWaiver: row.status };
+  }
+  const id = registry === "npm" ? `npm:${unit.dir}` : `rust:${unit.name}`;
+  const results = summary.results.filter((result) => result.unit === id && result.isTest === true);
+  if (!results.length || results.some((result) => result.code !== 0 || result.timedOut !== false
+    || !Number.isSafeInteger(result.seconds) || result.seconds < 0 || !Number.isSafeInteger(result.executed)
+    || !Number.isSafeInteger(result.failed))) {
+    throw new Error(`${unit.name}: gate summary lacks complete passing test command results`);
+  }
+  const passed = results.reduce((sum, result) => sum + result.executed, 0);
+  const failed = results.reduce((sum, result) => sum + result.failed, 0);
+  if (passed <= 0 || failed !== 0 || results.some((result) => result.ok !== true)) {
+    throw new Error(`${unit.name}: gate summary does not prove a positive passing native test run`);
+  }
+  const features = featureLabels(registry, unit.name, results.map((result) => result.command));
+  const operator = `${env.GITHUB_ACTOR ?? ""}/${env.GITHUB_JOB ?? ""}`;
+  if (!env.GITHUB_ACTOR || !env.GITHUB_JOB) throw new Error("GITHUB_ACTOR and GITHUB_JOB are required to identify the native publication operator");
+  return { publicationEvidence: {
+    schema: 1, kind: registry === "npm" ? "npm" : "cargo", name: unit.name, version: unit.version, commit,
+    tree, artifactSha256: unit.sha256,
+    runs: [{ commit, host: { os: process.platform, arch: process.arch }, features, artifactSha256: unit.sha256,
+      command: results.map((result) => result.command).join(" && "), operator, timestamp: new Date().toISOString(), passed, failed }],
+  } };
 }
 
 /**
@@ -611,7 +656,8 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   if (!HOSTS.includes(hostId)) problems.push(`verify runs on macOS or Windows, not ${hostId}`);
   const allowHostExclusion = String(env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "").split(/\s+/).filter(Boolean);
   const allowNoTest = String(env.PUBLISH_ALLOW_NO_TEST ?? "").split(/\s+/).filter(Boolean);
-  const evidence = gateEvidence(env);
+  const gate = gateEvidence(env, spawn, registry, commit);
+  const evidence = gate.unitEvidence;
   const splitList = (text) => String(text ?? "").split(/\s+/).filter(Boolean);
   const allowIgnored = splitList(env.PUBLISH_ALLOW_IGNORED); const allowMissingAssets = splitList(env.PUBLISH_ALLOW_MISSING_ASSETS);
   if (evidence.host !== hostId || evidence.registry !== registry || evidence.sha !== commit) problems.push(`gate evidence is for ${evidence.registry} on ${evidence.host} at ${evidence.sha}, not ${registry} on ${hostId} at ${commit}`);
@@ -651,10 +697,10 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
     const row = (evidence.units ?? []).find((u) => u.name === unit.name);
     if (!row) problems.push(`${unit.name}: the gate left no evidence for it on ${hostId}`);
     else if (!PASS_STATUSES.includes(row.status)) problems.push(`${unit.name}: gate status ${JSON.stringify(row.status)} on ${hostId} is not a pass`);
-    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScans.get(unit.name), bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [] });
+    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScans.get(unit.name), bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [], ...canonicalPublicationEvidence({ unit, row, summary: gate.summary, registry, commit, tree: gate.sourceGate.tree, env }) });
   }
   if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
-  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, units: rows };
+  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, sourceGate: gate.sourceGate, units: rows };
   const out = path.join(env.RUNNER_TEMP || os.tmpdir(), "verify-receipt");
   fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, `verify-${hostId}.json`), `${JSON.stringify(receipt, null, 2)}\n`);

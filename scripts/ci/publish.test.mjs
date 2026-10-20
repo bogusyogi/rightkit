@@ -955,9 +955,14 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   const runTemp = tmp("verify");
   const evidenceDir = path.join(runTemp, "rightkit-ci");
   fs.mkdirSync(evidenceDir, { recursive: true });
-  const writeEvidence = (patch = {}, status = "pass") => fs.writeFileSync(path.join(evidenceDir, "unit-evidence.json"), JSON.stringify({ schema: 1, host: "windows", registry: "npm", sha: SHA, units: [{ name: "@rightkit/a", status, steps: [] }], ...patch }));
+  const writeEvidence = (patch = {}, status = "pass") => {
+    const result = { unit: `npm:${sealed.manifest.units[0].dir}`, command: "pnpm --filter @rightkit/a run test", isTest: true, code: 0, timedOut: false, seconds: 1, executed: 3, failed: 0, ignored: 0, skipped: 0, ok: true };
+    const evidence = { schema: 2, ok: true, host: "windows", registry: "npm", sha: SHA, dependentClosure: { selection: [], expected: [], results: [], ok: true, problems: [] }, units: [{ name: "@rightkit/a", status, executed: 3, steps: [result] }], ...patch };
+    fs.writeFileSync(path.join(evidenceDir, "unit-evidence.json"), JSON.stringify(evidence));
+    fs.writeFileSync(path.join(evidenceDir, "summary.json"), JSON.stringify({ host: evidence.host, sha: SHA, results: [result] }));
+  };
   writeEvidence();
-  const env = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir });
+  const env = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir, GITHUB_ACTOR: "fixture-actor", GITHUB_JOB: "verify" });
   let consumerProblems = [];
   let consumerCalls = 0;
   const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: (dir) => fs.readdirSync(dir).filter((file) => fs.readFileSync(path.join(dir, file), "utf8").includes("fixture-sensitive-value")) } });
@@ -970,6 +975,13 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   assert.equal(receipt.runAttempt, "1");
   assert.equal(receipt.units[0].consumer.verified, true);
   assert.equal(receipt.units[0].archiveScan.archiveSha256, sealed.manifest.units[0].sha256);
+  assert.equal(receipt.sourceGate.summarySha256, sha256(fs.readFileSync(path.join(evidenceDir, "summary.json"))));
+  assert.equal(receipt.sourceGate.unitEvidenceSha256, sha256(fs.readFileSync(path.join(evidenceDir, "unit-evidence.json"))));
+  assert.equal(receipt.sourceGate.tree, SHA);
+  assert.equal(receipt.sourceGate.dependentClosure.ok, true);
+  assert.equal(receipt.units[0].publicationEvidence.runs[0].passed, 3);
+  assert.equal(receipt.units[0].publicationEvidence.runs[0].host.arch, process.arch);
+  assert.equal(receipt.units[0].publicationEvidence.runs[0].host.os, process.platform);
   const unsafe = sealNpm({ extraFiles: { "hidden/config": "fixture-sensitive-value" } });
   const beforeUnsafe = consumerCalls;
   await assert.rejects(() => run({ PUBLISH_PACK_DIR: unsafe.dir }), /archiveScan proof/);
@@ -987,7 +999,7 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   writeEvidence({ host: "macos" });
   await assert.rejects(() => run(), /gate evidence is for npm on macos/);
   writeEvidence({ units: [] });
-  await assert.rejects(() => run(), /left no evidence for it/);
+  await assert.rejects(() => run(), /no gate unit evidence exists/);
   writeEvidence({}, "fail");
   await assert.rejects(() => run(), /gate status "fail"/);
   writeEvidence();
@@ -1180,9 +1192,11 @@ test("qualification contract finds every secret expression & exact-condition byp
 test("reviewed promotion needs one dispatch, secretless admission & original-byte upload with exact approvals", () => {
   const doc = parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url), "utf8"));
   assert.equal(assertReviewedDoc(doc), true);
-  assert.deepEqual(Object.keys(doc.on.workflow_dispatch.inputs), ["candidate_id"]);
+  assert.deepEqual(Object.keys(doc.on.workflow_dispatch.inputs), ["candidate_id", "dry_run"]);
+  assert.equal(doc.on.workflow_dispatch.inputs.dry_run.default, "true");
   assert.deepEqual(doc.concurrency, { group: "publish", queue: "max", "cancel-in-progress": "false" });
-  assert.equal(doc.jobs["seal-check"].steps[2].run, "node scripts/ci/reviewed-candidate.mjs run --dry-run");
+  assert.equal(doc.jobs["seal-check"].steps[6].run, "node verifier/scripts/ci/reviewed-candidate.mjs run --dry-run");
+  assert.equal(doc.jobs.upload.steps[2].run, "node scripts/ci/reviewed-candidate.mjs run --verify-admission");
   assert.deepEqual(doc.jobs.upload.needs, ["seal-check"]);
   assert.equal(doc.jobs.upload.if.includes("inputs.dry_run"), false);
   for (const [name, mutate] of REVIEWED_MUTATIONS) {
@@ -1347,53 +1361,34 @@ test("sealed test-only exports reject production imports & execute only with dec
   assert.deepEqual(run(fixture({ test: { import: "./dist/testing.js" }, default: null })).problems, []);
 });
 
-test("consumeCrates checks the packaged crate, patches request siblings, and compares the sealed upload metadata", () => {
+test("consumeCrates qualifies each selected exact archive through its committed registry PK example", () => {
   const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
   const root = tmp("crates-consume");
   const checks = [];
-  let failB = false;
-  const pathEnv = { PATH: process.env.PATH ?? "", ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) };
-  const pkgOf = (name) => ({ name, version: "0.1.0", dependencies: name === "rightkit-b" ? [{ name: "rightkit-a", req: "^0.1", kind: null, optional: false }] : [], features: {}, authors: [], keywords: [], categories: [], readme: null });
-  const cargo = (args, options) => {
-    if (args[0] === "metadata") { const name = path.basename(path.dirname(args[args.indexOf("--manifest-path") + 1])).replace(/-0\.1\.0$/, ""); return { status: 0, stdout: JSON.stringify({ packages: [pkgOf(name)] }) }; }
-    checks.push({ args, options });
-    return { status: failB && args.join(" ").includes("rightkit-b") ? 101 : 0, stdout: "", stderr: "error[E0432]: unresolved import" };
+  const registryConsumer = options => {
+    checks.push(options);
+    const unit = sealed.manifest.units.find(u => u.name === options.name);
+    return { qualification: "R2a", verified: true, name: unit.name, version: unit.version, archiveSha256: unit.sha256, recipe: { id: `ci/consumers/${unit.name}/src/main.rs` } };
   };
-  const { spawn } = spy({ cargo });
-  // the sealed metadata is what pack would derive from the packaged manifest
-  for (const unit of sealed.manifest.units) fs.writeFileSync(path.join(sealed.dir, unit.metaFile), `${JSON.stringify(buildCrateUploadMetadata(pkgOf(unit.name), null))}\n`);
-  const result = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, uploadMetadata: buildCrateUploadMetadata });
+  const spawn = () => assert.fail("generic Cargo source checks cannot qualify");
+  const result = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, registryConsumer, uploadMetadata: buildCrateUploadMetadata });
   assert.deepEqual([...result.values()].flatMap((r) => r.problems), []);
   assert.equal(checks.length, 2);
-  const [a, b] = checks.map((c) => c.args);
-  assert.deepEqual(a.slice(0, 2), ["check", "--manifest-path"], "no Cargo.lock in the fixture, so no --locked");
-  assert.ok(b.includes("--config") && b.some((x) => /^patch\.crates-io\.rightkit-a\.path=".*rightkit-a-0\.1\.0"$/.test(x)), "the sibling of the same request is patched in from its sealed crate");
-  assert.ok(!b.includes("--locked"));
-  assert.equal(checks[0].options.env.CARGO_TARGET_DIR.includes("rk-consume-crates-"), true);
-  // metadata drift, a failing check, and a host exclusion
-  fs.writeFileSync(path.join(sealed.dir, sealed.manifest.units[0].metaFile), `${JSON.stringify({ name: "rightkit-a", vers: "0.1.0", deps: [] })}\n`);
-  checks.length = 0; failB = true;
-  const drift = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, uploadMetadata: buildCrateUploadMetadata });
-  assert.match(drift.get("rightkit-a").problems.join(), /sealed upload metadata .* does not match the packaged Cargo\.toml/);
-  assert.match(drift.get("rightkit-b").problems.join(), /cargo check of the packaged crate failed/);
+  assert.deepEqual(checks.map(c => c.name), ["rightkit-a", "rightkit-b"]);
+  assert.ok(checks.every(c => c.packDir === sealed.dir && c.uploadMetadata === buildCrateUploadMetadata && c.spawn === spawn));
   checks.length = 0;
-  const excluded = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, excluded: ["rightkit-a", "rightkit-b"], uploadMetadata: buildCrateUploadMetadata });
+  const excluded = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, registryConsumer, excluded: ["rightkit-a", "rightkit-b"] });
   assert.equal(checks.length, 0);
   assert.equal(excluded.get("rightkit-a").report.checked, false);
 });
 
-test("a packaged Cargo.lock is honoured with --locked when no sibling needs patching", () => {
-  const sealed = sealCrates(["rightkit-a"]);
-  const dir = tmp("lock");
-  makeTgz(path.join(dir, "rightkit-a-0.1.0.crate"), "rightkit-a-0.1.0", { "Cargo.toml": "x", "Cargo.lock": "# lock\n", "src/lib.rs": "" });
-  const unit = { ...sealed.manifest.units[0], file: "rightkit-a-0.1.0.crate", metaFile: sealed.manifest.units[0].metaFile };
-  fs.copyFileSync(path.join(sealed.dir, unit.metaFile), path.join(dir, unit.metaFile));
-  const seen = [];
-  const cargo = (args) => (args[0] === "metadata" ? { status: 0, stdout: JSON.stringify({ packages: [{ name: "rightkit-a", version: "0.1.0", dependencies: [], features: {}, authors: [], keywords: [], categories: [], readme: null }] }) } : (seen.push(args), { status: 0 }));
-  const r = consumeCrates({ units: [unit], packDir: dir, scratchRoot: tmp("scratch"), spawn: spy({ cargo }).spawn, env: { PATH: process.env.PATH ?? "" }, uploadMetadata: () => ({ name: "rightkit-a", vers: "0.1.0", deps: [], features: {} }) });
-  assert.deepEqual(r.get("rightkit-a").problems, []);
-  assert.ok(seen[0].includes("--locked"));
-  assert.equal(r.get("rightkit-a").report.locked, true);
+test("missing recipes, wrong archive proof & PK runtime failure fail selected units without fallback", () => {
+  const units = [{ name: "rightkit-a", version: "0.1.0", sha256: "a".repeat(64) }, { name: "rightkit-b", version: "0.1.0", sha256: "b".repeat(64) }];
+  for (const registryConsumer of [() => { throw new Error("missing committed PK example ci/consumers/rightkit-a/src/main.rs"); }, () => ({ qualification: "R2a", verified: true, name: "rightkit-a", version: "0.1.0", archiveSha256: "f".repeat(64) }), () => { const error = new Error("PK runtime failed"); error.report = { qualification: "R2a", verified: false, commands: [{ command: "cargo", args: ["run", "--locked", "--offline"], status: 101 }] }; throw error; }]) {
+    const result = consumeCrates({ units, packDir: "unused", registryConsumer, spawn: () => assert.fail("must never fallback to generic check") });
+    assert.ok(result.get("rightkit-a").problems.length);
+    assert.ok(result.get("rightkit-b").problems.length);
+  }
 });
 
 // ---- assets, allow inputs and Chrome for Testing -------------------------------------------------

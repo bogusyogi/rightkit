@@ -115,7 +115,7 @@ test('failed gate output preserves stdout test names before long stderr', async 
 test('refuses when no test executed, or a skip outside an asset-gated unit', async () => {
   const root = workspace();
   const quiet = harness(root, 'npm', { run: (command, args) => { if (args.includes('--pack-destination')) throw new Error('must not pack'); return { status: 0, stdout: '', stderr: '' }; } });
-  await refused(quiet.run(), /not qualified.*no test executed/s);
+  await refused(quiet.run(), /not qualified: required test command .* executed no test \(0 skipped, 0 ignored; no runner summary reported a positive passed count\)/s);
   const skipping = harness(root, 'npm', { run: (command, args) => ({ status: 0, stdout: args.includes('test') ? `${LIBTEST}SKIP needs chrome\n` : '', stderr: '' }) });
   await refused(skipping.run(), /skipped/);
   assert.equal(fs.existsSync(path.join(root, 'release-evidence')), false);

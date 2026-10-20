@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { batchClippyMissingFeatureSets, checkPublicationGate, enforcePublicationGate, provenGateSteps } from './publication-gate.mjs';
+import { batchClippyMissingFeatureSets, checkPublicationGate, enforcePublicationGate, provenGateSteps, validatePublicationEvidence } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
 const run = (os, over = {}) => ({ host: { os, arch: 'arm64' }, commit: SHA, artifactSha256: 'b'.repeat(64), command: 'rightkit cargo test -p x --all-targets', passed: 12, failed: 0, features: ['default'], operator: 'adrdsouza', timestamp: '2026-10-06T00:00:00Z', ...over });
@@ -145,6 +145,63 @@ const batch = (over = {}) => ({ id: 'batch-1', commit: SHA, tree: TREE, crates: 
 const testStep = { command: 'cargo test -p rightkit-sync --no-fail-fast -- --show-output', ok: true, executed: 12, failed: 0, ignored: 0, skipped: 0, binaries: 3 };
 const darwinBatchEvidence = (over = {}) => evidence({ hostPolicy: 'darwin-only', hostPolicyReason: 'r', runs: [run('darwin', { steps: [testStep], batch: batch(over) })] });
 const batchGate = (ev, { tree = TREE } = {}) => ({ ...base(ev), git: (args) => (args[0] === 'rev-parse' ? (args[1] === 'HEAD' ? SHA : tree) : '') });
+
+const expectedIdentity = (over = {}) => ({ kind: 'cargo', name: 'rightkit-sync', version: '0.1.0', commit: SHA, tree: TREE, ...over });
+const pureGate = (ev = evidence(), over = {}, artifactBytes) => validatePublicationEvidence({ expected: expectedIdentity(over), evidence: ev, artifactBytes });
+
+test('pure evidence validation binds supplied source identity and keeps evidence nonenumerable', () => {
+  const ev = evidence();
+  const result = pureGate(ev);
+  assert.deepEqual(result, { ok: true, missing: [] });
+  assert.equal(result.evidence, ev);
+  assert.equal(Object.getOwnPropertyDescriptor(result, 'evidence').enumerable, false);
+  assert.equal(Object.isFrozen(result), true);
+  assert.match(pureGate(ev, { commit: 'c'.repeat(40) }).missing.join('\n'), /!= expected commit/);
+  assert.match(pureGate(ev, { commit: undefined }).missing.join('\n'), /expected commit is not a full/);
+  assert.match(pureGate(evidence({ commit: 'short' })).missing.join('\n'), /evidence commit is not a full/);
+  assert.match(pureGate(evidence({ kind: 'npm' })).missing.join('\n'), /evidence is for npm:rightkit-sync/);
+  assert.match(pureGate(evidence({ name: 'rightkit-other' })).missing.join('\n'), /evidence is for cargo:rightkit-other/);
+  assert.match(pureGate(evidence({ version: '0.0.9' })).missing.join('\n'), /evidence version 0\.0\.9 != 0\.1\.0/);
+  assert.match(pureGate(ev, { version: undefined }).missing.join('\n'), /publishing version is unknown/);
+  assert.match(pureGate(evidence({ schema: 2 })).missing.join('\n'), /evidence schema must be 1/);
+  for (const value of [null, undefined, [], 'receipt']) assert.match(validatePublicationEvidence({ expected: expectedIdentity(), evidence: value }).missing.join('\n'), /gate evidence must be an object/);
+});
+
+test('pure host requirements belong to caller policy and cannot come from evidence', () => {
+  const oneHost = evidence({ hostPolicy: 'darwin-only', hostPolicyReason: 'receipt cannot authorize CI', runs: [run('darwin')] });
+  assert.match(pureGate(oneHost).missing.join('\n'), /no Windows host run receipt/);
+  assert.equal(pureGate(oneHost, { requiredHosts: ['darwin'] }).ok, true);
+  assert.equal(pureGate(evidence(), { requiredHosts: ['darwin', 'win32'] }).ok, true);
+  for (const requiredHosts of [[], ['linux'], ['darwin', 'darwin'], ['darwin', 'linux'], Array(1), 'darwin', null]) {
+    assert.match(pureGate(evidence(), { requiredHosts }).missing.join('\n'), /expected requiredHosts must be a nonempty unique subset/);
+  }
+  assert.match(pureGate(evidence({ kind: 'swift', runs: [run('win32')] }), { kind: 'swift', requiredHosts: ['win32'] }).missing.join('\n'), /expected requiredHosts/);
+  assert.equal(pureGate(evidence({ kind: 'swift', runs: [run('darwin')] }), { kind: 'swift' }).ok, true);
+});
+
+test('pure validation requires native receipt fields and refuses any failed required-host run', () => {
+  for (const over of [{ host: { os: 'win32' } }, { features: [] }, { failed: undefined }, { failed: 1 }, { passed: 0 }, { commit: 'c'.repeat(40) }, { artifactSha256: undefined }]) {
+    assert.match(pureGate(evidence({ runs: [run('darwin'), run('win32'), run('win32', over)] })).missing.join('\n'), /Windows run receipt 1 invalid/);
+  }
+});
+
+test('pure validation binds actual artifact bytes without synthesizing evidence fields', () => {
+  const bytes = Buffer.from('packed');
+  const artifactSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  const ev = evidence({ artifactSha256, runs: [run('darwin', { artifactSha256 }), run('win32', { artifactSha256 })] });
+  assert.equal(pureGate(ev, {}, bytes).ok, true);
+  assert.match(pureGate(ev, {}, Buffer.from('swapped')).missing.join('\n'), /artifact sha256 does not match evidence/);
+  assert.match(pureGate(evidence({ artifactSha256: 'malformed' })).missing.join('\n'), /artifactSha256 must be a 64-hex hash/);
+});
+
+test('pure batch validation binds every batch receipt to caller-supplied tree and commit', () => {
+  const ev = darwinBatchEvidence();
+  assert.equal(pureGate(ev, { requiredHosts: ['darwin'] }).ok, true);
+  assert.match(pureGate(ev, { requiredHosts: ['darwin'], tree: 'f'.repeat(40) }).missing.join('\n'), /batch: batch\.tree \(must equal the HEAD tree/);
+  assert.match(pureGate(ev, { requiredHosts: ['darwin'], tree: undefined }).missing.join('\n'), /expected tree is not a full/);
+  assert.match(pureGate(darwinBatchEvidence({ batch: { commit: 'c'.repeat(40) } }), { requiredHosts: ['darwin'] }).missing.join('\n'), /batch: batch\.commit/);
+  assert.match(pureGate(darwinBatchEvidence({ rows: { fmt: { tree: 'f'.repeat(40) } } }), { requiredHosts: ['darwin'] }).missing.join('\n'), /batch check fmt not bound to the batch commit and tree/);
+});
 
 test('a batch receipt bound to the commit and the HEAD tree is accepted', () => {
   assert.deepEqual(checkPublicationGate(batchGate(darwinBatchEvidence())).missing, []);

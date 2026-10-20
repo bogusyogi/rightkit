@@ -1096,7 +1096,7 @@ describe('closeChromeGracefully: one monotonic budget, early removal, identity-s
     });
     expect(killed).toEqual([]);
     expect(signals).toEqual([]);
-    expect(report).toMatchObject({ step: 'sigkill', exited: true });
+    expect(report).toMatchObject({ step: 'already-exited', exited: true });
   });
 
   it('PID reuse: a pid listed by an old scan and a different pid by the later scan: only the fresh list is forced', async () => {

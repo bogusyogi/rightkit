@@ -7,6 +7,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { childEnv, loadSealed, sha } from "./upload.mjs";
+import { cargoRecipe, nativeFixture } from "./consumer-recipes.mjs";
+export { assertRegistryManifest } from "./consumer-recipes.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const slash = (s) => s.replaceAll("\\", "/");
@@ -18,14 +20,6 @@ export function archiveTool(platform = process.platform, env = process.env) {
 export function isWithin(parent, candidate) {
   const rel = path.relative(path.resolve(parent), path.resolve(candidate));
   return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
-}
-
-export function assertRegistryManifest(text, unit) {
-  if (/^\s*\[(?:patch|replace)(?:[.\]])/m.test(text) || /\b(?:path|git|workspace)\s*=/.test(text)) throw new Error("registry consumer must not contain path/git/workspace dependencies or patches");
-  if (!/^[a-zA-Z0-9_-]+$/.test(unit.name)) throw new Error("invalid consumer crate name");
-  const escaped = unit.name;
-  const pin = new RegExp(`^${escaped}\\s*=\\s*\\{[^\\n]*version\\s*=\\s*"=${unit.version.replaceAll(".", "\\.")}"[^\\n]*\\}`, "m");
-  if (!pin.test(text)) throw new Error(`consumer must pin ${unit.name} =${unit.version}`);
 }
 
 export function registryLockEvidence(lock, units) {
@@ -67,7 +61,7 @@ function checksumDirectory(dir, packageSha256) {
  * packDir holds publish.mjs manifest.json + sealed files. root owns source templates only.
  * reportFile must be outside root. scratchRoot defaults RUNNER_TEMP, never checkout.
  */
-export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = ROOT, scratchRoot = process.env.RUNNER_TEMP ?? os.tmpdir(), reportFile, env = process.env, spawn = spawnSync } = {}) {
+export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = ROOT, scratchRoot = process.env.RUNNER_TEMP ?? os.tmpdir(), reportFile, env = process.env, spawn = spawnSync, uploadMetadata } = {}) {
   if (env.GITHUB_ACTIONS !== "true") throw new Error("registry consumer execution requires GitHub CI");
   root = fs.realpathSync(root);
   scratchRoot = fs.realpathSync(scratchRoot);
@@ -82,44 +76,58 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
   const unit = units.find((u) => u.name === name);
   if (!unit || !/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error(`missing/unsafe sealed crate ${name}`);
   for (const u of units) if (!/^[a-zA-Z0-9_-]+$/.test(u.name) || !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(u.version)) throw new Error("invalid sealed crate identity");
-  const template = path.join(root, "ci", "consumers", name);
-  const manifest = fs.readFileSync(path.join(template, "Cargo.toml"), "utf8");
-  assertRegistryManifest(manifest, unit);
+  const recipe = cargoRecipe({ root, unit });
+  const template = recipe.directory; const manifest = recipe.manifest;
+  const fixture = nativeFixture({ unit, env });
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-registry-consumer-"));
   const consumer = path.join(scratch, "consumer");
   const vendor = path.join(scratch, "registry");
   const bootstrap = path.join(scratch, "bootstrap");
   const commandLog = [];
-  const cargoEnv = childEnv(env, { CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never" });
+  const cargoEnv = Object.fromEntries(Object.entries(childEnv(env)).filter(([key]) => !/^(?:GITHUB_|ACTIONS_|RUNNER_)/.test(key)));
+  Object.assign(cargoEnv, { GITHUB_ACTIONS: "true", RUNNER_TEMP: env.RUNNER_TEMP ?? scratchRoot, HOME: path.join(scratch, "home"), RUSTUP_HOME: env.RUSTUP_HOME || path.join(env.HOME || env.USERPROFILE || os.homedir(), ".rustup"), CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never" });
+  if (env.RUSTUP_TOOLCHAIN) cargoEnv.RUSTUP_TOOLCHAIN = env.RUSTUP_TOOLCHAIN;
+  fs.mkdirSync(cargoEnv.HOME); fs.mkdirSync(cargoEnv.CARGO_HOME);
   const tar = archiveTool(process.platform, env);
   const run = (command, args, cwd = scratch) => {
     const result = spawn(command, args, { cwd, env: cargoEnv, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout: 60 * 60_000 });
-    commandLog.push({ command, args, status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") });
+    commandLog.push({ command, args, cwd, status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") });
     if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${String(result.stderr || result.error?.message).slice(-3000)}`);
     return result.stdout;
   };
-  let report = { schema: 1, kind: "registry-consumer", name, version: unit.version, commit: sealed.manifest.commit, manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, verified: false, bootstrap: "path seed only acquires upstream vendor closure; never qualification", commands: commandLog };
+  let report = { schema: 1, kind: "registry-consumer", qualification: "R2a", name, version: unit.version, commit: sealed.manifest.commit, manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, runId: String(env.GITHUB_RUN_ID), runAttempt: String(env.GITHUB_RUN_ATTEMPT), manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), host: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : process.platform, runnerOS: env.RUNNER_OS ?? null, arch: process.arch, recipe: { ...recipe.evidence, sourceCommit: env.GITHUB_WORKFLOW_SHA || env.GITHUB_SHA }, fixture, verified: false, bootstrap: "path seed only acquires upstream vendor closure; never qualification", commands: commandLog };
   try {
     fs.mkdirSync(vendor);
     fs.mkdirSync(path.join(bootstrap, "src"), { recursive: true });
+    report.toolchain = { rustc: String(run("rustc", ["--version"])).trim(), cargo: String(run("cargo", ["--version"])).trim() };
     const extracted = new Map();
     for (const u of units) {
       const prefix = `${u.name}-${u.version}`;
       const entries = String(run(tar, ["-tzf", path.resolve(packDir, u.file)]))
         .split(/\r?\n/).filter(Boolean);
-      if (!entries.length || entries.some((p) => p.includes("\\") || !p.startsWith(`${prefix}/`) || p.split("/").some((s) => s === ".." || s === "."))) throw new Error(`unsafe archive entries: ${u.file}`);
+      if (!entries.length || entries.some((p) => p.includes("\\") || p.includes(":") || !p.startsWith(`${prefix}/`) || p.split("/").some((s) => s === ".." || s === "."))) throw new Error(`unsafe archive entries: ${u.file}`);
       const listing = run(tar, ["-tvzf", path.resolve(packDir, u.file)]);
       if (String(listing).split(/\r?\n/).filter(Boolean).some((line) => !["-", "d"].includes(line[0]))) throw new Error(`links/special entries in sealed archive: ${u.file}`);
       run(tar, ["-xzf", path.resolve(packDir, u.file), "-C", slash(scratch)]);
       const dir = path.join(scratch, prefix);
       checksumDirectory(dir, u.sha256); // Reject links before bootstrap Cargo reads manifests.
       extracted.set(u.name, dir);
+      if (uploadMetadata) {
+        // Metadata may create Cargo.lock. Its disposable copy never enters final registry.
+        const metadataDir = path.join(scratch, `metadata-${u.name}`); fs.cpSync(dir, metadataDir, { recursive: true });
+        const doc = JSON.parse(run("cargo", ["metadata", "--format-version", "1", "--no-deps", "--manifest-path", path.join(metadataDir, "Cargo.toml")], metadataDir));
+        const pkg = doc.packages?.find(p => p.name === u.name && p.version === u.version);
+        if (!pkg) throw new Error(`${u.name}: packaged Cargo.toml identity mismatch`);
+        const readme = pkg.readme ? path.resolve(metadataDir, pkg.readme) : null;
+        if (readme && (!isWithin(metadataDir, readme) || !fs.statSync(readme).isFile())) throw new Error("packaged README escapes archive");
+        const derived = `${JSON.stringify(uploadMetadata(pkg, readme ? fs.readFileSync(readme, "utf8") : null))}\n`;
+        if (derived !== fs.readFileSync(path.join(packDir, u.metaFile), "utf8")) throw new Error(`${u.name}: sealed upload metadata does not match packaged Cargo.toml & README`);
+      }
     }
     // Path references exist only in this disposable dependency-fetch seed. cargo vendor excludes
     // those path packages. Final registry directory receives original sealed bytes below.
-    const dependency = manifest.split(/\r?\n/).find((line) => line.startsWith(`${name} `));
-    const seedDependency = dependency.replace(/version\s*=\s*"[^"]+"/, `path=${quote(extracted.get(name))}`);
-    const seed = `[package]\nname="registry-bootstrap"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\n${seedDependency}\n[patch.crates-io]\n${units.map((u) => `${u.name}={path=${quote(extracted.get(u.name))}}`).join("\n")}\n`;
+    const seedManifest = manifest.replace(/^name\s*=\s*"[^"]+"/m, 'name="registry-bootstrap"').replace(recipe.dependency, recipe.dependency.replace(/version\s*=\s*"[^"]+"/, `path=${quote(extracted.get(name))}`));
+    const seed = `${seedManifest}\n[patch.crates-io]\n${units.map((u) => `${u.name}={path=${quote(extracted.get(u.name))}}`).join("\n")}\n`;
     fs.writeFileSync(path.join(bootstrap, "Cargo.toml"), seed);
     fs.writeFileSync(path.join(bootstrap, "src", "main.rs"), "fn main() {}\n");
     run("cargo", ["vendor", "--versioned-dirs", "--manifest-path", path.join(bootstrap, "Cargo.toml"), vendor], bootstrap);
@@ -136,15 +144,29 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     const lock = fs.readFileSync(lockFile, "utf8");
     const lockEvidence = registryLockEvidence(lock, units);
     if (!lockEvidence.some((r) => r.name === name)) throw new Error("qualified crate absent from registry lock");
+    const metadata = JSON.parse(run("cargo", ["metadata", "--format-version", "1", "--locked", "--offline"], consumer));
+    const selected = metadata.packages?.filter(p => p.name === name && p.version === unit.version);
+    if (selected?.length !== 1 || selected[0].source !== "registry+https://github.com/rust-lang/crates.io-index" || !isWithin(vendor, path.resolve(selected[0].manifest_path))) throw new Error("final consumer did not resolve selected crate from sealed directory registry");
+    for (const pkg of metadata.packages ?? []) {
+      if (path.resolve(pkg.manifest_path) === path.join(consumer, "Cargo.toml")) { if (pkg.source) throw new Error("final consumer root has unexpected source"); }
+      else if (pkg.source !== "registry+https://github.com/rust-lang/crates.io-index" || !isWithin(vendor, path.resolve(pkg.manifest_path))) throw new Error("final consumer has path/git/foreign registry closure");
+    }
+    const resolved = metadata.resolve?.nodes?.filter(node => node.id === selected[0].id);
+    if (resolved?.length !== 1 || !Array.isArray(resolved[0].features)) throw new Error("missing selected crate feature resolution");
+    if (recipe.evidence.dependency.features.some(feature => !resolved[0].features.includes(feature))) throw new Error("selected PK feature prescription absent from resolved crate");
     run("cargo", ["build", "--locked", "--offline"], consumer);
     const runtimeOutput = run("cargo", ["run", "--locked", "--offline"], consumer);
     if (fs.readFileSync(lockFile, "utf8") !== lock) throw new Error("lock changed during qualification");
+    for (const [file, digest] of Object.entries(recipe.evidence.files)) if (sha("sha256", fs.readFileSync(path.join(consumer, file))) !== digest) throw new Error(`PK example changed during qualification: ${file}`);
+    if (cargoRecipe({ root, unit }).evidence.sha256 !== recipe.evidence.sha256) throw new Error("committed PK example changed during qualification");
     // Re-read sealed bytes too: upload & qualification remain bound to identical archives.
     for (const u of units) if (sha("sha256", fs.readFileSync(path.join(packDir, u.file))) !== u.sha256) throw new Error(`archive changed during qualification: ${u.name}`);
-    report = { ...report, verified: true, consumerDirectory: consumer, lockEvidence, runtimeOutput };
+    if (sha("sha256", fs.readFileSync(path.join(packDir, "manifest.json"))) !== sealed.manifestSha256) throw new Error("sealed manifest changed during qualification");
+    report = { ...report, verified: true, consumerDirectory: consumer, lockSha256: sha("sha256", lock), lockEvidence, resolvedFeatures: resolved[0].features, finalManifestSha256: sha("sha256", fs.readFileSync(path.join(consumer, "Cargo.toml"))), finalSource: "sealed-directory-registry", build: { locked: true, offline: true, status: 0 }, runtime: { locked: true, offline: true, status: 0 }, runtimeOutput };
     return report;
   } catch (error) {
     report.error = error.message;
+    error.report = report;
     throw error;
   } finally {
     if (reportFile) {

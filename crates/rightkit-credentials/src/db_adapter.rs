@@ -64,7 +64,8 @@ fn key(secret: Secret) -> Result<Key, KeyStoreError> {
 // surface (PendingRevision has public Debug); no plaintext key is used as a revision token.
 fn revision(secret: &Secret) -> PendingRevision {
     let digest = Sha256::digest(secret.expose_bytes());
-    PendingRevision(format!("credentials-v1:{digest:x}"))
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    PendingRevision(format!("credentials-v1:{hex}"))
 }
 
 fn ensure_settled(
@@ -283,5 +284,27 @@ impl ProtectedKeySession for Session {
 
     fn clear_recovery(&mut self) -> Result<(), KeyStoreError> {
         self.with_store(|store| store.delete(&self.recovery).map(|_| ()).map_err(mapped))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::revision;
+    use crate::Secret;
+
+    #[test]
+    fn revision_preserves_sha256_token_format() {
+        for (input, expected) in [
+            (
+                "",
+                "credentials-v1:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                "abc",
+                "credentials-v1:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+        ] {
+            assert_eq!(revision(&Secret::from_string(input)).0, expected);
+        }
     }
 }

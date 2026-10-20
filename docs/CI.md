@@ -157,12 +157,13 @@ Commit approval after qualification source commit; promotion commit must descend
 Dispatch only committed candidate ID:
 
 ```bash
-gh workflow run publish-reviewed.yml -f candidate_id="<committed-candidate-id>"
+gh workflow run publish-reviewed.yml -f candidate_id="<committed-candidate-id>" -f dry_run=false
 ```
 
-Promotion has no `dry_run` dispatch input. Its secretless `seal-check` internally runs
-`reviewed-candidate.mjs run --dry-run`; credentialed `upload` repeats admission & uploads exact
-approved archives without rebuilding. Dispatch cannot supply paths, URLs, units or wider allowsets.
+Promotion defaults to `dry_run=true`: admission & authenticated transfer run without registry upload.
+Set `dry_run=false` explicitly for publication. Secretless `seal-check` internally runs
+`reviewed-candidate.mjs run --dry-run`; credentialed `upload` authenticates its same-run receipt &
+uploads exact approved archives without rebuilding. Dispatch cannot supply paths, URLs, units or wider allowsets.
 
 ### Qualification batch & scheduling
 
@@ -212,8 +213,10 @@ record exceptions; they do not establish contract closure or waive native runtim
 
 Sealed npm consumers install requested tarballs together into scratch projects, resolve declared
 entry points, import supported JS entries & run declared safe `binSmoke` commands. Sealed crate
-consumers check extracted archives, patch unpublished request siblings from sealed crates & check
-packaged crates. These checks do not substitute for every release qualification requirement.
+bootstrap checks may patch unpublished request siblings only to acquire upstream dependencies.
+Named Cargo R2a examples then build & run in isolation through a directory registry of original
+sealed crates, without path patches. Generic npm import smoke alone cannot qualify a named PK recipe.
+These checks do not substitute for every release qualification requirement.
 
 ### Manual holds & registry equality
 
@@ -237,8 +240,12 @@ must match sealed SHA-256. Registry errors, unreadable responses or mismatched b
 `reviewed-candidate.mjs` authenticates original `publish.yml` run/attempt, source repository/commit,
 workflow identity, successful required jobs & exact artifact IDs/digests through Actions API. It checks
 raw native receipt hashes, sealed manifest hash & every per-unit archive approval before promotion.
-Both admission & upload use trusted scripts/approval file from promotion commit; source package code
-is never checked out or built in privileged job.
+Secretless admission installs trusted verifier dependencies without lifecycle scripts, then checks out
+original source as data outside verifier. Full Git history, clean source tree, original native raw QA,
+actual command rows/counts, named PK consumer recipe & runtime owner checks bind admission to bytes.
+A same-run hashed admission artifact transfers this verdict into a fresh sparse credential job.
+Both jobs use trusted scripts/approval data from promotion commit; source package code is never
+checked out or built in credential job. Dry-run executes admission & transfer with neither registry upload.
 
 Historical native receipts remain immutable. If an original receipt lacks its own archive-scan field,
 `supplement-archive-scan.yml` can scan retained original archives without rebuilding them. Separate
@@ -252,7 +259,7 @@ original producing commit & archive identity. Rerunning only failed qualificatio
 complete same-attempt native pins; preserve original valid evidence or run complete qualification.
 
 `workflow-contract.mjs` enforces qualification structure, one pack & both native hosts with no registry
-privilege. `reviewed-workflow-contract.mjs` pins promotion's candidate-only input, global queue,
+privilege. `reviewed-workflow-contract.mjs` pins promotion's candidate ID/dry-run inputs, global queue,
 secretless admission, sparse checkout, token scope & upload dependency. Contracts reject weakened
 workflow structure; they cannot establish external repository policy or defend against a malicious
 committer who changes both workflow & contract.
@@ -266,7 +273,13 @@ branch workflows from receiving it. Branch protection would add a separate trust
 not claimed by this pipeline or required by existing R8 review policy.
 Registry tokens & OIDC authority belong only to promotion `upload`; read-only Actions authentication
 is used for artifact admission. Child-process environments are allow-listed; only npm upload child
-receives npm token. Secretless admission refuses registry/OIDC credentials.
+receives npm token. Secretless admission refuses registry/OIDC credentials. Credential-free transfer receives OIDC
+capability from its upload job but never requests an OIDC token.
+
+Current semantic capabilities fail closed: only reviewed PK01/PK11 Cargo recipes are inventoried;
+npm named recipes & authenticated isolated runtime feature/workload proof still require producer
+integration. Always-on runtime classes remain HOLD until that proof exists. Historical receipts
+without canonical source-gate/publication fields cannot be repaired by synthesizing missing metadata.
 
 ### Chrome for Testing
 

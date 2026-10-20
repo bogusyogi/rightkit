@@ -349,6 +349,14 @@ jobs:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
+      - name: Mount mandatory FS qualification volumes
+        if: ${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}
+        shell: bash
+        env:
+          FS_NATIVE_OUT: ${{ runner.temp }}/rightkit-ci/fs-native
+        run: |
+          node scripts/ci/fs-native-fixtures.mjs setup
+          node --input-type=module -e 'import fs from "node:fs"; import path from "node:path"; const plan = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json"), "utf8")); fs.appendFileSync(process.env.GITHUB_ENV, `RIGHTKIT_FS_TEST_OTHER_VOLUME=${plan.other}\n`);'
       - name: Build and test exactly the planned units
         shell: bash
         env:
@@ -363,10 +371,6 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_UNITS" --allow-host-exclusion "$PUBLISH_ALLOW_HOST_EXCLUSION" --allow-no-test "$PUBLISH_ALLOW_NO_TEST" --allow-ignored "$PUBLISH_ALLOW_IGNORED" --allow-missing-assets "$PUBLISH_ALLOW_MISSING_ASSETS"
-      - name: Run the exact logs archive through an isolated registry consumer
-        if: ${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-logs') }}
-        shell: bash
-        run: node scripts/ci/registry-consumer.mjs "$RUNNER_TEMP/rk-pack" rightkit-logs "$RUNNER_TEMP/rightkit-ci/registry-consumer-logs.json"
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash
         env:
@@ -377,6 +381,11 @@ jobs:
           PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
         run: node scripts/ci/publish.mjs verify
+      - name: Detach FS qualification volumes & remove bounded fixture state
+        if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}
+        env:
+          FS_NATIVE_OUT: ${{ runner.temp }}/rightkit-ci/fs-native
+        run: node scripts/ci/fs-native-fixtures.mjs cleanup
       - name: Keep this host's receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

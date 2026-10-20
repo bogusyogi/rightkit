@@ -219,13 +219,13 @@ const runCodesign = (f, request) => {
 test("agent codesign without identifier keeps schema 1 and the historical argv", (t) => {
   const f = fixture(t);
   const [call] = runCodesign(f, codesignRequest(f, [signItem(f)]));
-  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--sign", "Developer ID Application: Fixture (TEAM)", path.join(f.cwd, "app")]);
+  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--sign", "Developer ID Application: Fixture (TEAM)", fs.realpathSync(path.join(f.cwd, "app"))]);
   assert.doesNotThrow(() => validateSigningRequest(codesignRequest(f, [signItem(f)], 2), f.policy)); // schema 2 without identifier is harmless
 });
 test("agent codesign identifier travels as typed --identifier before --sign, with per-item entitlements", (t) => {
   const f = fixture(t);
   const [call] = runCodesign(f, codesignRequest(f, [signItem(f, { identifier: "com.example.helper-1", entitlements: path.join(f.cwd, "entitlements.plist") })], 2));
-  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--identifier", "com.example.helper-1", "--sign", "Developer ID Application: Fixture (TEAM)", "--entitlements", path.join(f.cwd, "entitlements.plist"), path.join(f.cwd, "app")]);
+  assert.deepEqual(call.args, ["--force", "--options", "runtime", "--timestamp", "--identifier", "com.example.helper-1", "--sign", "Developer ID Application: Fixture (TEAM)", "--entitlements", fs.realpathSync(path.join(f.cwd, "entitlements.plist")), fs.realpathSync(path.join(f.cwd, "app"))]);
 });
 test("agent refuses identifier under schema 1, bad identifiers, unknown fields and schema 3", (t) => {
   const f = fixture(t);

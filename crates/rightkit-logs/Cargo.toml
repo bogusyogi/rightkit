@@ -53,6 +53,10 @@ name = "budget"
 harness = false
 required-features = ["tracing"]
 
+[[bench]]
+name = "budget_detached"
+harness = false
+
 [dev-dependencies]
 rightkit-logs = { path = ".", features = ["testing"] }
 tempfile = "3"

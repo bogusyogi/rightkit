@@ -159,6 +159,14 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
+  const fsIf = "${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}";
+  const fsCleanupIf = "${{ always() && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-fs') }}";
+  const fsSetupAt = verifyRuns.findIndex(r => r.includes("node scripts/ci/fs-native-fixtures.mjs setup"));
+  const fsCleanupAt = verifyRuns.findIndex(r => r.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup");
+  const fsSetup = stepsOf(verify)[fsSetupAt]; const fsCleanup = stepsOf(verify)[fsCleanupAt];
+  check(fsSetupAt >= 0 && fsSetupAt < gateAt && fsCleanupAt > receiptAt && fsSetup?.if === fsIf && fsCleanup?.if === fsCleanupIf, "FS verification must mount native fixtures before gate & always clean up after archive consumer verification");
+  check(fsSetup?.run?.includes('path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json")') && fsSetup?.run?.includes('fs.appendFileSync(process.env.GITHUB_ENV, `RIGHTKIT_FS_TEST_OTHER_VOLUME=${plan.other}\\n`)') && fsSetup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native` && fsCleanup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native`, "FS gate must use mounted plan.other volume & retain fixture cleanup evidence");
+  check(!verifyRuns.some(r => /node scripts\/ci\/registry-consumer\.mjs/.test(r)), "publish.mjs verify owns selected PK consumers without duplicate standalone Cargo consumers");
   const chromeStep = stepsOf(verify).find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
   check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "false", "the Chrome pin step must require pinned downloads with PUBLISH_DRY_RUN false");
   const chromeCache = stepsOf(verify).find((s) => s.name === "Cache the pinned Chrome for Testing");
@@ -277,6 +285,9 @@ const CONDITION_MUTATIONS = [
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 export const MUTATIONS = [
+  ["FS verification loses mounted fixture setup", edit(j => { j.verify.steps = j.verify.steps.filter(s => !s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); })],
+  ["FS cleanup skips failed verification", edit(j => { j.verify.steps.find(s => s.run?.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup").if = "${{ success() }}"; })],
+  ["FS gate uses scratch instead of distinct mounted volume", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.run = s.run.replace("${plan.other}", "${plan.scratch}"); })],
   ["signer permits unexpected artifact entries", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('test "${#files[@]}" -eq 3', 'true'); })],
   ["signer permits artifact symlinks", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('  test ! -L "$in/$file"', '  true'); })],
   ["pack loses unsigned build dependency", edit((j) => { j.pack.needs = j.pack.needs.filter((n) => n !== "build-swap"); })],

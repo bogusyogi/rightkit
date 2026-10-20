@@ -44,7 +44,7 @@ const fixtureOwner = {
 };
 async function scan(bytes, extra = {}) {
   // Root can supply RIGHTKIT_TEST_SCRATCH=D:/scratch (or /Volumes/D/scratch).
-  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
+  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
   const scratchRoot = fs.mkdtempSync(path.join(parent, "archive-scan-fixture-"));
   try {
     const report = await scanArchiveForSecrets({ file: "fixture.tgz", registry: "npm", scratchRoot, scannerOwner: fixtureOwner, readArchive: () => bytes, ...extra });
