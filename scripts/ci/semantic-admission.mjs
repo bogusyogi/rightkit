@@ -14,7 +14,7 @@ import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
 import { workloadsFor } from "./runtime-qualify.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { npmConsumerQualificationProblems, RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
-import { declaredEntries } from "./consume.mjs";
+import { declaredEntries, binSmokePlan } from "./consume.mjs";
 import { npmRecipeQualificationProblems, validateRecipeEntry, shortName, sourceFiles as npmRecipeSourceFiles, hasReviewedNpmEntry } from "./npm-recipe-consumer.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -135,7 +135,13 @@ export function npmPortabilityQualificationProblems({ packageManifest, portabili
   const isJavaScript = file => /\.[cm]?js$/.test(new URL(file, "file:///rightkit-consumer/").pathname);
   const imported = runtime.filter(entry => entry.runtime.some(isJavaScript)).map(entry => entry.spec);
   const resolvedOnly = runtime.filter(entry => entry.runtime.every(file => !isJavaScript(file))).map(entry => entry.spec);
-  if (!portability || portability.entries !== runtime.length || portability.filesChecked !== declared.files.length || portability.noJsEntry !== (runtime.length === 0) || !setEqual(portability.imported, imported) || !setEqual(portability.resolvedOnly, resolvedOnly) || !setEqual(portability.patterns, declared.patterns) || !setEqual(portability.bins, declared.bins) || ["productionRejected", "conditionalImports", "skippedImport", "binSmoke"].some(field => !setEqual(portability[field], [])) || runtime.some(entry => entry.testConditions != null) || declared.patterns.length || declared.bins.length) return ["named npm R2a lacks complete unchanged generic portability proof"];
+  const smokePlan = binSmokePlan(packageManifest, declared);
+  const smoke = portability?.binSmoke;
+  const completeSmoke = !smokePlan.problems.length && Array.isArray(smoke) && smoke.length === smokePlan.checks.length && new Set(smoke.map(row => row?.bin)).size === smoke.length && smoke.every(row => {
+    const check = smokePlan.checks.find(check => check.bin === row?.bin);
+    return check && /\.[cm]?js$/.test(check.file) && row && !Array.isArray(row) && setEqual(Object.keys(row), ["bin", "args", "status"]) && same(row.args, check.args) && row.status === check.exitCode;
+  });
+  if (!portability || portability.entries !== runtime.length || portability.filesChecked !== declared.files.length || portability.noJsEntry !== (runtime.length === 0) || !setEqual(portability.imported, imported) || !setEqual(portability.resolvedOnly, resolvedOnly) || !setEqual(portability.patterns, declared.patterns) || !setEqual(portability.bins, declared.bins) || ["productionRejected", "conditionalImports", "skippedImport"].some(field => !setEqual(portability[field], [])) || !completeSmoke || runtime.some(entry => entry.testConditions != null) || declared.patterns.length) return ["named npm R2a lacks complete unchanged generic portability proof"];
   return [];
 }
 

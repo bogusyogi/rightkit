@@ -59,6 +59,70 @@ test("named npm portability retains generic entry counting for asset-only & type
   assert.deepEqual(npmPortabilityQualificationProblems(input), []);
 });
 
+function binPortabilityFixture() {
+  return {
+    packageManifest: { name: "@rightkit/qa-chrome", main: "dist/index.js", types: "dist/index.d.ts", exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } }, bin: { "rightkit-qa-chrome": "dist/cli.js" }, rightkit: { publishCheck: { binSmoke: { "rightkit-qa-chrome": ["list"] } } } },
+    portability: { entries: 1, imported: ["@rightkit/qa-chrome"], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport: [], patterns: [], bins: ["dist/cli.js"], binSmoke: [{ bin: "rightkit-qa-chrome", args: ["list"], status: 0 }], filesChecked: 3, noJsEntry: false },
+  };
+}
+
+test("named npm portability accepts declared Chrome CLI smoke evidence", () => {
+  assert.deepEqual(npmPortabilityQualificationProblems(binPortabilityFixture()), []);
+  const input = binPortabilityFixture();
+  input.packageManifest.bin = "dist/cli.js";
+  input.packageManifest.rightkit.publishCheck.binSmoke = { "qa-chrome": ["list"] };
+  input.portability.binSmoke[0].bin = "qa-chrome";
+  assert.deepEqual(npmPortabilityQualificationProblems(input), []);
+});
+
+test("named npm portability binds every bin alias independently in any evidence order", () => {
+  const input = binPortabilityFixture();
+  input.packageManifest.bin.alias = "dist/cli.js";
+  input.packageManifest.rightkit.publishCheck.binSmoke.alias = { args: ["--help"], exitCode: 2 };
+  input.portability.bins.push("dist/cli.js");
+  input.portability.binSmoke.unshift({ bin: "alias", args: ["--help"], status: 2 });
+  assert.deepEqual(npmPortabilityQualificationProblems(input), []);
+  input.portability.binSmoke[0] = structuredClone(input.portability.binSmoke[1]);
+  assert.ok(npmPortabilityQualificationProblems(input).length, "duplicate bin cannot replace another alias");
+});
+
+test("named npm portability rejects incomplete, malformed, substituted or failed bin evidence", () => {
+  const mutations = [
+    input => { delete input.portability.binSmoke; },
+    input => { input.portability.binSmoke = null; },
+    input => { input.portability.binSmoke = {}; },
+    input => { input.portability.binSmoke = []; },
+    input => { input.portability.binSmoke = [null]; },
+    input => { input.portability.binSmoke = ["rightkit-qa-chrome"]; },
+    input => { input.portability.binSmoke[0].bin = "unknown"; },
+    input => { input.portability.binSmoke[0].args = []; },
+    input => { input.portability.binSmoke[0].args = "list"; },
+    input => { input.portability.binSmoke[0].args = ["list", "--extra"]; },
+    input => { delete input.portability.binSmoke[0].status; },
+    input => { input.portability.binSmoke[0].status = null; },
+    input => { input.portability.binSmoke[0].status = "0"; },
+    input => { input.portability.binSmoke[0].status = 1; },
+    input => { input.portability.binSmoke[0].extra = true; },
+    input => { input.portability.binSmoke.push(structuredClone(input.portability.binSmoke[0])); },
+    input => { input.portability.binSmoke.push({ bin: "unknown", args: ["list"], status: 0 }); },
+    input => { input.portability.bins = []; },
+    input => { input.portability.bins = ["dist/unknown.js"]; },
+    input => { input.portability.filesChecked = 2; },
+    input => { delete input.packageManifest.rightkit.publishCheck.binSmoke; },
+    input => { input.packageManifest.rightkit.publishCheck.binSmoke = []; },
+    input => { input.packageManifest.rightkit.publishCheck.binSmoke["rightkit-qa-chrome"] = { args: [1] }; },
+    input => { input.packageManifest.rightkit.publishCheck.binSmoke["rightkit-qa-chrome"] = { args: ["list"], exitCode: 256 }; },
+    input => { input.packageManifest.rightkit.publishCheck.binSmoke["rightkit-qa-chrome"] = { args: ["list"], output: "" }; },
+    input => { input.packageManifest.rightkit.publishCheck.binSmoke.unknown = ["list"]; },
+    input => { input.packageManifest.bin["rightkit-qa-chrome"] = "dist/cli.sh"; input.portability.bins = ["dist/cli.sh"]; },
+    input => { input.packageManifest.bin.alias = "dist/cli.js"; input.packageManifest.rightkit.publishCheck.binSmoke.alias = ["list"]; input.portability.bins.push("dist/cli.js"); },
+  ];
+  for (const mutate of mutations) {
+    const input = binPortabilityFixture(); mutate(input);
+    assert.deepEqual(npmPortabilityQualificationProblems(input), ["named npm R2a lacks complete unchanged generic portability proof"]);
+  }
+});
+
 test("runtime classification reuses owner & always-on stays capability HOLD", () => {
   for (const input of [
     { crate: "rightkit-custom", meta: { continuous: true } },
