@@ -9,7 +9,7 @@
 //! Run: `rightkit cargo bench -p rightkit-qa --bench budget`
 //! Optional: `-- <commands> <idle_seconds>` (defaults 10000 and 30).
 
-use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
+use rightkit_child_process::{observe_idle_with_threads, process_usage, BudgetLabels};
 use rightkit_qa::engine::{CliOptions, EngineTarget};
 use rightkit_qa::process::Tracker;
 use serde_json::{json, Value};
@@ -81,11 +81,25 @@ fn main() {
         warm.resident_bytes as f64 / 1048576.0,
         before.resident_bytes as f64 / 1048576.0,
     );
-    let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
+    let idle = observe_idle_with_threads(Duration::from_secs(idle_s)).expect("idle window");
     let end = sidecar.status();
     println!("RESULT events_buffered={} frames", end.events_buffered);
     println!("RESULT stderr_bytes_buffered={} bytes", end.stderr_bytes);
-    print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-qa", version: env!("CARGO_PKG_VERSION"), scale_unit: "commands", scale: commands, what: "echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle", scope: "synthetic" }));
+    print!(
+        "{}",
+        idle.observation.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-qa",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "commands",
+                scale: commands,
+                what: "echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle",
+                scope: "synthetic",
+            },
+        )
+    );
+    print!("{}", idle.threads.result_lines(idle.observation.elapsed, 8));
     sidecar.close();
     let _ = std::fs::remove_dir_all(&scratch);
 }

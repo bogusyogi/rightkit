@@ -10,7 +10,9 @@
 //! Run: `rightkit cargo bench -p rightkit-job-queue --bench budget`
 //! Optional: `-- <calls> <idle_seconds>` (defaults 10000 and 30).
 
-use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, OwnedCommand};
+use rightkit_child_process::{
+    observe_idle_with_threads, process_usage, BudgetLabels, OwnedCommand,
+};
 use rightkit_job_queue::{EngineSupervisor, HealthCheck, SupervisorConfig};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -87,12 +89,26 @@ fn main() {
         warm.resident_bytes as f64 / 1048576.0,
         before.resident_bytes as f64 / 1048576.0,
     );
-    let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
+    let idle = observe_idle_with_threads(Duration::from_secs(idle_s)).expect("idle window");
     let end = sup.status();
     println!("RESULT restarts={} restarts", end.restarts);
     println!(
         "RESULT event_subscribers={} subscribers",
         end.event_subscribers
     );
-    print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-job-queue", version: env!("CARGO_PKG_VERSION"), scale_unit: "calls", scale: sent as u64, what: "echo calls to a live engine with 100 event subscribers and a 2 s health ping, then idle", scope: "synthetic" }));
+    print!(
+        "{}",
+        idle.observation.result_lines(
+            &warm,
+            &BudgetLabels {
+                krate: "rightkit-job-queue",
+                version: env!("CARGO_PKG_VERSION"),
+                scale_unit: "calls",
+                scale: sent as u64,
+                what: "echo calls to a live engine with 100 event subscribers and a 2 s health ping, then idle",
+                scope: "synthetic",
+            },
+        )
+    );
+    print!("{}", idle.threads.result_lines(idle.observation.elapsed, 8));
 }

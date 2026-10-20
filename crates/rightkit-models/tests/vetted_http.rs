@@ -179,6 +179,7 @@ fn download_resumes_with_range_and_verifies_the_sha256_over_the_vetted_client() 
     let url = format!("{}/m.bin", server.base);
     let tmp = tempfile::tempdir().unwrap();
     let dest = tmp.path().join("m.bin");
+    fs::write(&dest, b"previous model").unwrap();
     let part = rightkit_models::download::part_path_for(&dest);
     let pin = sha(&body);
     let client = loopback_client();
@@ -206,7 +207,7 @@ fn download_resumes_with_range_and_verifies_the_sha256_over_the_vetted_client() 
     assert_eq!(err.code, ErrorCode::Cancelled, "{err}");
     let kept = fs::metadata(&part).unwrap().len();
     assert!((200_000..1_000_000).contains(&kept), "kept {kept}");
-    assert!(!dest.exists());
+    assert_eq!(fs::read(&dest).unwrap(), b"previous model");
 
     // Second attempt resumes from `kept` and the file verifies.
     let mut last = (0, 0);
@@ -288,6 +289,333 @@ fn download_with_a_wrong_pin_fails_integrity_and_leaves_no_file() {
         leftovers.is_empty(),
         "failed download left files behind: {leftovers:?}"
     );
+}
+
+#[test]
+fn failed_http_body_preserves_existing_destination() {
+    let server = serve(|_, _| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec()
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("f.bin");
+    fs::write(&dest, b"previous model").unwrap();
+    let error = fetch(
+        &loopback_client(),
+        &format!("{}/short", server.base),
+        tmp.path(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Download, "{error}");
+    assert_eq!(fs::read(&dest).unwrap(), b"previous model");
+}
+
+#[test]
+fn cancellation_preserves_existing_destination_even_with_complete_checkpoint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("m.bin");
+    let part = rightkit_models::download::part_path_for(&dest);
+    let body = b"complete checkpoint";
+    let pin = sha(body);
+    let url = "https://models.example.test/m.bin";
+    fs::write(&dest, b"previous model").unwrap();
+    fs::write(&part, body).unwrap();
+    fs::write(
+        tmp.path().join("m.bin.part.meta"),
+        serde_json::to_vec(&serde_json::json!({
+            "url": url, "expected_sha256": pin, "etag": "\"saved\"", "total": body.len(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let error = download_resumable(
+        &loopback_client(),
+        DownloadRequest {
+            url,
+            part_path: &part,
+            dest_path: &dest,
+            expected_sha256: Some(&pin),
+            authorization: None,
+            cancelled: &|| true,
+        },
+        |_, _| {},
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Cancelled);
+    assert_eq!(fs::read(&dest).unwrap(), b"previous model");
+    assert_eq!(fs::read(&part).unwrap(), body);
+}
+
+#[test]
+fn checkpoint_aliases_cannot_truncate_existing_destination() {
+    for suffix in ["", ".meta", ".meta.meta"] {
+        for hard_link in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            let part = tmp.path().join("resume.part");
+            let checkpoint = tmp.path().join(format!("resume.part{suffix}"));
+            let dest = if hard_link {
+                tmp.path().join("m.bin")
+            } else {
+                checkpoint.clone()
+            };
+            fs::write(&dest, b"previous model").unwrap();
+            if hard_link {
+                fs::hard_link(&dest, &checkpoint).unwrap();
+            }
+            let error = download_resumable(
+                &loopback_client(),
+                DownloadRequest {
+                    url: "https://models.example.test/m.bin",
+                    part_path: &part,
+                    dest_path: &dest,
+                    expected_sha256: None,
+                    authorization: None,
+                    cancelled: &|| false,
+                },
+                |_, _| {},
+            )
+            .unwrap_err();
+            assert_eq!(error.code, ErrorCode::Io);
+            assert!(error.message.contains("checkpoint aliases destination"));
+            assert_eq!(fs::read(&dest).unwrap(), b"previous model");
+        }
+    }
+}
+
+fn absent_destination_alias_is_refused(
+    alias_parent: &std::path::Path,
+    real_parent: &std::path::Path,
+) {
+    let server = serve(|_, _| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec()
+    });
+    for suffix in ["", ".meta", ".meta.meta"] {
+        let dest = real_parent.join(format!("resume.part{suffix}"));
+        let part = alias_parent.join("resume.part");
+        assert!(!dest.exists());
+        let error = download_resumable(
+            &loopback_client(),
+            DownloadRequest {
+                url: &format!("{}/interrupted", server.base),
+                part_path: &part,
+                dest_path: &dest,
+                expected_sha256: None,
+                authorization: None,
+                cancelled: &|| false,
+            },
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Io);
+        assert!(
+            error.message.contains("checkpoint aliases destination"),
+            "{error}"
+        );
+        assert!(!dest.exists(), "refused alias exposed final destination");
+        assert!(!part.exists(), "refused alias created checkpoint bytes");
+    }
+    assert!(
+        server.paths().is_empty(),
+        "aliased paths reached interrupted HTTP fixture"
+    );
+}
+
+#[test]
+fn absent_destination_dotdot_aliases_are_refused_before_interrupted_http() {
+    let tmp = tempfile::tempdir().unwrap();
+    absent_destination_alias_is_refused(&tmp.path().join("sub").join(".."), tmp.path());
+}
+
+#[cfg(windows)]
+#[test]
+fn absent_destination_windows_equivalent_leaf_names_never_expose_partial_bytes() {
+    let server = serve(|_, _| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec()
+    });
+    for (destination, checkpoint) in [
+        ("model.bin", "MODEL.BIN"),
+        ("mÖdel.bin", "MöDEL.BIN"),
+        ("model.bin", "model.bin."),
+        ("model.bin", "model.bin "),
+        ("model.bin.", "model.bin"),
+        ("model.bin ", "model.bin"),
+        ("RESUME.PART.META", "resume.part"),
+        ("RESUME.PART.META.META", "resume.part"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join(destination);
+        let part = tmp.path().join(checkpoint);
+        let error = download_resumable(
+            &loopback_client(),
+            DownloadRequest {
+                url: &format!("{}/interrupted", server.base),
+                part_path: &part,
+                dest_path: &dest,
+                expected_sha256: None,
+                authorization: None,
+                cancelled: &|| false,
+            },
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.code,
+            ErrorCode::Io,
+            "{destination:?}, {checkpoint:?}: {error}"
+        );
+        assert!(
+            !dest.exists(),
+            "refused equivalent leaf exposed final destination"
+        );
+        assert!(!part.exists(), "refused equivalent leaf created checkpoint");
+        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+    assert!(server.paths().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_distinct_case_trailing_dot_space_and_unicode_checkpoint_names_still_work() {
+    let body = payload(50_000);
+    let server = model_server(body.clone());
+    let pin = sha(&body);
+    for checkpoint in ["MODEL.BIN", "model.bin.", "model.bin ", "mödel.bin"] {
+        let tmp = tempfile::tempdir().unwrap();
+        if checkpoint == "MODEL.BIN" {
+            // Case-distinct names exist only on case-sensitive Unix volumes.
+            fs::write(tmp.path().join("case-probe"), b"probe").unwrap();
+            let case_insensitive = tmp.path().join("CASE-PROBE").exists();
+            fs::remove_file(tmp.path().join("case-probe")).unwrap();
+            if case_insensitive {
+                continue;
+            }
+        }
+        let dest = tmp.path().join("model.bin");
+        let part = tmp.path().join(checkpoint);
+        let result = download_resumable(
+            &loopback_client(),
+            DownloadRequest {
+                url: &format!("{}/m.bin", server.base),
+                part_path: &part,
+                dest_path: &dest,
+                expected_sha256: Some(&pin),
+                authorization: None,
+                cancelled: &|| false,
+            },
+            |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(result.sha256, pin);
+        assert_eq!(fs::read(&dest).unwrap(), body);
+        assert!(!part.exists());
+        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 1);
+    }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn absent_destination_symlink_parent_aliases_are_refused_before_interrupted_http() {
+    let tmp = tempfile::tempdir().unwrap();
+    let real = tmp.path().join("real");
+    let alias = tmp.path().join("alias");
+    fs::create_dir(&real).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(&real, &alias)
+        .expect("native symlink-parent regression gate requires directory symlink privilege");
+    absent_destination_alias_is_refused(&alias, &real);
+}
+
+#[test]
+fn publication_uses_http_stream_not_completed_resume_checkpoint() {
+    let body = payload(50_000);
+    let server = model_server(body.clone());
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("m.bin");
+    let part = rightkit_models::download::part_path_for(&dest);
+    let pin = sha(&body);
+    let result = download_resumable(
+        &loopback_client(),
+        DownloadRequest {
+            url: &format!("{}/m.bin", server.base),
+            part_path: &part,
+            dest_path: &dest,
+            expected_sha256: Some(&pin),
+            authorization: None,
+            cancelled: &|| false,
+        },
+        |received, _| {
+            if received == body.len() as u64 {
+                fs::write(&part, vec![0; body.len()]).unwrap();
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(result.sha256, pin);
+    assert_eq!(fs::read(&dest).unwrap(), body);
+    assert!(!part.exists());
+}
+
+#[test]
+fn digest_and_synced_staging_failures_preserve_existing_destination() {
+    let body = payload(50_000);
+    let server = model_server(body.clone());
+    for corrupt_staging in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("m.bin");
+        let part = rightkit_models::download::part_path_for(&dest);
+        fs::write(&dest, b"previous model").unwrap();
+        let pin = if corrupt_staging {
+            sha(&body)
+        } else {
+            sha(b"wrong")
+        };
+        let mut corrupted = false;
+        let error = download_resumable(
+            &loopback_client(),
+            DownloadRequest {
+                url: &format!("{}/m.bin", server.base),
+                part_path: &part,
+                dest_path: &dest,
+                expected_sha256: Some(&pin),
+                authorization: None,
+                cancelled: &|| false,
+            },
+            |received, _| {
+                if corrupt_staging && received == body.len() as u64 {
+                    // Change only the unpublished atomic temp. A checked commit must
+                    // catch disk bytes that differ from the HTTP stream's digest.
+                    let staged: Vec<_> = fs::read_dir(tmp.path())
+                        .unwrap()
+                        .map(|entry| entry.unwrap().path())
+                        .filter(|path| path != &dest && path != &part)
+                        .filter(|path| {
+                            !path
+                                .file_name()
+                                .unwrap()
+                                .to_string_lossy()
+                                .ends_with(".meta")
+                        })
+                        .collect();
+                    assert_eq!(staged.len(), 1, "{staged:?}");
+                    fs::write(&staged[0], vec![0; body.len()]).unwrap();
+                    corrupted = true;
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.code,
+            if corrupt_staging {
+                ErrorCode::Io
+            } else {
+                ErrorCode::HashMismatch
+            },
+            "{error}"
+        );
+        assert_eq!(corrupted, corrupt_staging);
+        assert_eq!(fs::read(&dest).unwrap(), b"previous model");
+    }
 }
 
 #[test]

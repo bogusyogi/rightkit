@@ -17,7 +17,7 @@ function command(exe, args, options = {}) {
   const { logFile, ...spawnOptions } = options;
   const result = spawnSync(exe, args, { encoding: "utf8", windowsHide: true, timeout: 120_000, maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
   if (logFile) fs.writeFileSync(logFile, `${result.stdout ?? ""}${result.stderr ?? ""}`);
-  need(!result.error && result.status === 0, `${exe} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`);
+  need(!result.error && result.status === 0, `${exe} failed (status ${result.status}): ${result.error?.message ?? `${result.stderr ?? ""}${result.stdout ?? ""}`.trim()}`);
   return result.stdout;
 }
 export function validateSource(run, jobs, repository, id) {
@@ -107,7 +107,9 @@ function setup(env) {
     fs.writeFileSync(probe, "fixture"); fs.unlinkSync(probe);
     need(fs.statSync(mount).dev !== fs.statSync(temp).dev, "fixture did not mount a separate volume");
   }
-  const info = { other: plan.platform === "win32" ? command("fsutil.exe", ["fsinfo", "volumeinfo", `${plan.other}\\`]) : command("diskutil", ["info", plan.other]), fat: plan.fat ? command("fsutil.exe", ["fsinfo", "volumeinfo", `${plan.fat}\\`]) : null };
+  // fsutil fsinfo volumeinfo refuses a mounted-folder path; Get-Volume -FilePath resolves the volume mounted there.
+  const winFs = (mount) => { need(!/['`$]/.test(mount), "unsafe fixture path"); return command("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Volume -FilePath '${mount}\\').FileSystemType`]); };
+  const info = { other: plan.platform === "win32" ? winFs(plan.other) : command("diskutil", ["info", plan.other]), fat: plan.fat ? winFs(plan.fat) : null };
   write(path.join(plan.scratch, "native-volume-info.txt"), info);
   need(plan.platform === "win32" ? /NTFS/i.test(info.other) && /FAT32/i.test(info.fat) : /APFS/i.test(info.other), "mounted filesystem type differs from required native fixture");
 }

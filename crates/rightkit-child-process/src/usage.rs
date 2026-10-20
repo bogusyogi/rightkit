@@ -14,6 +14,12 @@
 //!
 //! Other Unix targets compile, and `process_usage` returns `ErrorKind::Unsupported` there.
 //!
+//! [`process_usage_with_threads`] and [`observe_idle_with_threads`] add a per-thread breakdown for
+//! finding which thread causes wake-ups. On Windows the per-thread `ContextSwitchCount` values come
+//! from the very table the total is summed from, so their sum is exactly `wakeups_total`. macOS and
+//! Linux list the threads (id and name) but report no per-thread wake-up counter (`None`): the macOS
+//! figure is a process-level interrupt count that does not decompose by thread.
+//!
 //! A figure the host cannot report is `None`; it is never reported as zero.
 
 use std::io;
@@ -146,6 +152,240 @@ pub fn observe_idle(duration: Duration) -> io::Result<IdleObservation> {
     })
 }
 
+/// One thread of the current process at the moment of a snapshot.
+///
+/// A figure the host cannot report for a thread is `None`, never zero.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct ThreadSample {
+    /// OS thread id: the Windows thread id, the Linux tid, or the macOS libproc thread handle.
+    pub thread_id: u64,
+    /// Creation time (Windows FILETIME ticks). Thread ids are reused, so `(thread_id, started)` is
+    /// what identifies a thread across snapshots. `None` where the host reports no creation time.
+    pub started: Option<u64>,
+    /// Wake-ups since the thread started: Windows `ContextSwitchCount` (one switch-in per wake).
+    /// `None` on macOS and Linux.
+    pub wakeups: Option<u64>,
+    /// CPU time (user plus kernel) since the thread started, in seconds. Windows only.
+    pub cpu_seconds: Option<f64>,
+    /// Thread name when the thread set one (Windows `SetThreadDescription`, Linux `comm`, macOS
+    /// `pth_name`); `None` when it has none or the thread was gone before it could be read.
+    pub name: Option<String>,
+    /// Windows Win32 start address of the thread (the routine handed to `CreateThread`, which for
+    /// a Rust thread is the std trampoline, so it tells a pool from a one-off but not the closure);
+    /// `None` elsewhere or when unreadable.
+    pub start_address: Option<u64>,
+}
+
+/// A [`ProcessUsage`] together with the threads it was summed from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessThreads {
+    pub usage: ProcessUsage,
+    /// Live threads of this process. On Windows `usage.wakeups_total` is exactly the sum of their
+    /// `wakeups` (see [`ProcessThreads::thread_wakeups_sum`]).
+    pub threads: Vec<ThreadSample>,
+}
+
+impl ProcessThreads {
+    /// Sum of the per-thread wake-up counters; `None` when any thread lacks one.
+    pub fn thread_wakeups_sum(&self) -> Option<u64> {
+        sum_wakeups(&self.threads)
+    }
+}
+
+fn sum_wakeups(threads: &[ThreadSample]) -> Option<u64> {
+    threads
+        .iter()
+        .try_fold(0u64, |total, thread| total.checked_add(thread.wakeups?))
+}
+
+/// Resource usage of the current process and its per-thread breakdown, from one snapshot.
+///
+/// More expensive than [`process_usage`] (it opens each thread to read its name and start
+/// address), so it is for benches and diagnosis. A thread that exits while the names are read
+/// keeps its counters and has no name. Fails when the host cannot list threads (Windows when the
+/// process table is unreadable, other Unix targets with `ErrorKind::Unsupported`).
+pub fn process_usage_with_threads() -> io::Result<ProcessThreads> {
+    let (usage, mut threads) = imp::sample_threads()?;
+    imp::enrich(&mut threads);
+    Ok(ProcessThreads { usage, threads })
+}
+
+/// What one thread did between two snapshots.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThreadDelta {
+    pub thread_id: u64,
+    /// Wake-ups in the window; `None` when either snapshot lacks the counter.
+    pub wakeups: Option<u64>,
+    /// CPU seconds in the window; `None` when either snapshot lacks it.
+    pub cpu_seconds: Option<f64>,
+    pub name: Option<String>,
+    pub start_address: Option<u64>,
+    /// The thread was not in the first snapshot: it began inside the window, so its whole count
+    /// (and CPU time) is the window's.
+    pub started_in_window: bool,
+}
+
+/// Per-thread change between two snapshots (see [`thread_deltas`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThreadDeltas {
+    /// Threads present in the second snapshot, most wake-ups first (unknown counts last, ties by
+    /// thread id).
+    pub threads: Vec<ThreadDelta>,
+    /// Threads in the first snapshot that were gone by the second (as they were at the first).
+    /// Their wake-ups inside the window are unknowable; that is a normal outcome, not an error.
+    pub exited: Vec<ThreadSample>,
+}
+
+/// Per-thread deltas from `start` to `end`. Threads are matched by `(thread_id, started)`, so a
+/// reused id is a new thread, not a continuation. A counter that went backwards counts as zero.
+pub fn thread_deltas(start: &[ThreadSample], end: &[ThreadSample]) -> ThreadDeltas {
+    use std::collections::HashMap;
+    let key = |thread: &ThreadSample| (thread.thread_id, thread.started);
+    let mut earlier: HashMap<(u64, Option<u64>), &ThreadSample> =
+        start.iter().map(|thread| (key(thread), thread)).collect();
+    let mut threads: Vec<ThreadDelta> = end
+        .iter()
+        .map(|now| {
+            let before = earlier.remove(&key(now));
+            ThreadDelta {
+                thread_id: now.thread_id,
+                wakeups: match before {
+                    Some(then) => counter_delta(now.wakeups, then.wakeups),
+                    None => now.wakeups,
+                },
+                cpu_seconds: match before {
+                    Some(then) => match (now.cpu_seconds, then.cpu_seconds) {
+                        (Some(now), Some(then)) => Some((now - then).max(0.0)),
+                        _ => None,
+                    },
+                    None => now.cpu_seconds,
+                },
+                name: now
+                    .name
+                    .clone()
+                    .or_else(|| before.and_then(|then| then.name.clone())),
+                start_address: now
+                    .start_address
+                    .or_else(|| before.and_then(|then| then.start_address)),
+                started_in_window: before.is_none(),
+            }
+        })
+        .collect();
+    threads.sort_by(|a, b| {
+        b.wakeups
+            .cmp(&a.wakeups)
+            .then(a.thread_id.cmp(&b.thread_id))
+    });
+    let mut exited: Vec<ThreadSample> = earlier.into_values().cloned().collect();
+    exited.sort_by_key(|thread| thread.thread_id);
+    ThreadDeltas { threads, exited }
+}
+
+fn counter_delta(now: Option<u64>, then: Option<u64>) -> Option<u64> {
+    Some(now?.saturating_sub(then?))
+}
+
+impl ThreadDeltas {
+    /// Sum of the listed threads' wake-ups; `None` when any is unknown. Minus the exited threads'
+    /// counts at the first snapshot ([`ThreadDeltas::exited_wakeups_at_start`]) it equals the
+    /// whole-process wake-up delta between the same two snapshots.
+    pub fn total_wakeups(&self) -> Option<u64> {
+        self.threads
+            .iter()
+            .try_fold(0u64, |total, thread| total.checked_add(thread.wakeups?))
+    }
+
+    /// Sum of the exited threads' wake-up counters at the first snapshot; `None` when unknown.
+    pub fn exited_wakeups_at_start(&self) -> Option<u64> {
+        sum_wakeups(&self.exited)
+    }
+
+    /// The `n` threads with the most wake-ups.
+    pub fn top(&self, n: usize) -> &[ThreadDelta] {
+        &self.threads[..n.min(self.threads.len())]
+    }
+
+    /// Evidence lines for the top `top` threads over a window of `elapsed`, in the
+    /// `RESULT <key> ...` style: one `RESULT thread_wakeups_summary ...` line, then one
+    /// `RESULT thread_wakeups rank=.. tid=.. wakeups=.. per_second=.. cpu_ms=.. born=0|1
+    /// start=0x.. name=".."` line per thread with a non-zero or unknown delta. Neither key is
+    /// `budget`, so the runtime-budget gate (which reads only the `RESULT budget` line) ignores them.
+    pub fn result_lines(&self, elapsed: Duration, top: usize) -> String {
+        let secs = elapsed.as_secs_f64();
+        let count = |v: Option<u64>| v.map_or_else(|| "unavailable".to_string(), |v| v.to_string());
+        let mut out = format!(
+            "RESULT thread_wakeups_summary threads={} born={} exited={} listed_wakeups={} exited_wakeups_at_start={} window_seconds={:.1}\n",
+            self.threads.len(),
+            self.threads.iter().filter(|t| t.started_in_window).count(),
+            self.exited.len(),
+            count(self.total_wakeups()),
+            count(self.exited_wakeups_at_start()),
+            secs,
+        );
+        let listed = self
+            .threads
+            .iter()
+            .filter(|t| t.wakeups != Some(0))
+            .take(top);
+        for (index, thread) in listed.enumerate() {
+            let per_second = match thread.wakeups {
+                Some(w) if secs > 0.0 => format!("{:.3}", w as f64 / secs),
+                Some(_) => "0.000".to_string(),
+                None => "unavailable".to_string(),
+            };
+            out.push_str(&format!(
+                "RESULT thread_wakeups rank={} tid={} wakeups={} per_second={per_second} cpu_ms={} born={} start={} name={}\n",
+                index + 1,
+                thread.thread_id,
+                count(thread.wakeups),
+                thread
+                    .cpu_seconds
+                    .map_or_else(|| "unavailable".to_string(), |s| format!("{:.1}", s * 1e3)),
+                u8::from(thread.started_in_window),
+                thread
+                    .start_address
+                    .map_or_else(|| "unavailable".to_string(), |a| format!("0x{a:x}")),
+                thread
+                    .name
+                    .as_ref()
+                    .map_or_else(|| "unavailable".to_string(), |n| format!("{n:?}")),
+            ));
+        }
+        out
+    }
+}
+
+/// An [`IdleObservation`] plus what each thread did over the same window.
+#[derive(Clone, Debug)]
+pub struct IdleThreadObservation {
+    /// Rates are computed from the same two snapshots the thread deltas come from.
+    pub observation: IdleObservation,
+    pub threads: ThreadDeltas,
+}
+
+/// [`observe_idle`] that also records per-thread deltas, so a wake-up overage can be attributed to
+/// threads. The thread snapshots and the process figures are the same two samples; names and
+/// start addresses are read after each sample, outside the measured counts.
+pub fn observe_idle_with_threads(duration: Duration) -> io::Result<IdleThreadObservation> {
+    let (start, mut start_threads) = imp::sample_threads()?;
+    let began = std::time::Instant::now();
+    imp::enrich(&mut start_threads);
+    std::thread::sleep(duration.saturating_sub(began.elapsed()));
+    let (end, mut end_threads) = imp::sample_threads()?;
+    let elapsed = began.elapsed();
+    imp::enrich(&mut end_threads);
+    Ok(IdleThreadObservation {
+        observation: IdleObservation {
+            elapsed,
+            start,
+            end,
+            rates: end.rates_since(&start, elapsed),
+        },
+        threads: thread_deltas(&start_threads, &end_threads),
+    })
+}
+
 /// Names and scale of the load behind an [`IdleObservation`], for [`IdleObservation::result_lines`].
 #[derive(Clone, Copy, Debug)]
 pub struct BudgetLabels<'a> {
@@ -272,7 +512,7 @@ impl IdleObservation {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::ProcessUsage;
+    use super::{ProcessUsage, ThreadSample};
     use std::io;
 
     extern "C" {
@@ -309,6 +549,95 @@ mod imp {
             disk_write_bytes: Some(words[W_DISK_WRITE]),
         })
     }
+
+    /// `PROC_PIDLISTTHREADS` from libproc.h: the thread handles of a process (`libc` does not
+    /// export it; `PROC_PIDTHREADINFO` is the flavor that takes one of those handles).
+    const PROC_PIDLISTTHREADS: i32 = 6;
+    /// Upper bound on the thread handles read (a process with more is refused, not truncated).
+    const MAX_THREADS: usize = 1 << 16;
+
+    /// The live threads of this process with their names. libproc offers no per-thread wake-up
+    /// counter, so `wakeups` is `None`. A thread whose info cannot be read (it exited after the
+    /// listing) is left out: it counts as exited, not as an error.
+    fn threads() -> io::Result<Vec<ThreadSample>> {
+        let pid = unsafe { libc::getpid() };
+        let mut capacity = 64usize;
+        let handles = loop {
+            let mut handles = vec![0u64; capacity];
+            let bytes = i32::try_from(capacity * std::mem::size_of::<u64>())
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "thread list too large"))?;
+            // SAFETY: `handles` is a writable buffer of exactly `bytes` bytes.
+            let written = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    PROC_PIDLISTTHREADS,
+                    0,
+                    handles.as_mut_ptr().cast(),
+                    bytes,
+                )
+            };
+            if written <= 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let count = written as usize / std::mem::size_of::<u64>();
+            // A full buffer may have been truncated: grow and ask again.
+            if count < capacity {
+                handles.truncate(count);
+                break handles;
+            }
+            capacity *= 2;
+            if capacity > MAX_THREADS {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "too many threads to list",
+                ));
+            }
+        };
+        let size = std::mem::size_of::<libc::proc_threadinfo>() as i32;
+        let mut threads = Vec::with_capacity(handles.len());
+        for handle in handles {
+            let mut info: libc::proc_threadinfo = unsafe { std::mem::zeroed() };
+            // SAFETY: `info` is a writable `proc_threadinfo` of exactly `size` bytes.
+            let read = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTHREADINFO,
+                    handle,
+                    (&mut info as *mut libc::proc_threadinfo).cast(),
+                    size,
+                )
+            };
+            if read != size {
+                continue;
+            }
+            let bytes: Vec<u8> = info
+                .pth_name
+                .iter()
+                .map(|&c| c as u8)
+                .take_while(|&c| c != 0)
+                .collect();
+            let name = String::from_utf8_lossy(&bytes).into_owned();
+            threads.push(ThreadSample {
+                thread_id: handle,
+                started: None,
+                wakeups: None,
+                cpu_seconds: None,
+                name: (!name.is_empty()).then_some(name),
+                start_address: None,
+            });
+        }
+        Ok(threads)
+    }
+
+    /// The process figures, then the thread list (two reads, not one atomic snapshot: macOS
+    /// reports no per-thread counter for them to reconcile with).
+    pub fn sample_threads() -> io::Result<(ProcessUsage, Vec<ThreadSample>)> {
+        let usage = sample()?;
+        Ok((usage, threads()?))
+    }
+
+    /// Names are read while listing; nothing more is available.
+    pub fn enrich(_threads: &mut [ThreadSample]) {}
 }
 
 #[cfg(all(
@@ -317,7 +646,7 @@ mod imp {
     not(any(target_os = "linux", target_os = "android"))
 ))]
 mod imp {
-    use super::ProcessUsage;
+    use super::{ProcessUsage, ThreadSample};
     use std::io;
 
     /// Chosen when the crate is compiled for a Unix this module has no sampler for: an
@@ -328,11 +657,17 @@ mod imp {
             "process usage sampling is implemented for macOS, Linux, Android and Windows only",
         ))
     }
+
+    pub fn sample_threads() -> io::Result<(ProcessUsage, Vec<ThreadSample>)> {
+        sample().map(|usage| (usage, Vec::new()))
+    }
+
+    pub fn enrich(_threads: &mut [ThreadSample]) {}
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod imp {
-    use super::ProcessUsage;
+    use super::{ProcessUsage, ThreadSample};
     use std::io;
 
     pub fn sample() -> io::Result<ProcessUsage> {
@@ -365,21 +700,63 @@ mod imp {
             disk_write_bytes: None,
         })
     }
+
+    /// The live threads (`/proc/self/task`) with their `comm` names. No per-thread wake-up
+    /// counter is reported (the process total is `None` here too). A thread that exits while
+    /// the directory is walked is skipped: it counts as exited, not as an error.
+    fn threads() -> io::Result<Vec<ThreadSample>> {
+        let mut threads = Vec::new();
+        for entry in std::fs::read_dir("/proc/self/task")? {
+            let Ok(entry) = entry else { continue };
+            let Some(tid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) else {
+                continue;
+            };
+            let name = comm.trim_end().to_string();
+            threads.push(ThreadSample {
+                thread_id: tid,
+                started: None,
+                wakeups: None,
+                cpu_seconds: None,
+                name: (!name.is_empty()).then_some(name),
+                start_address: None,
+            });
+        }
+        Ok(threads)
+    }
+
+    pub fn sample_threads() -> io::Result<(ProcessUsage, Vec<ThreadSample>)> {
+        let usage = sample()?;
+        Ok((usage, threads()?))
+    }
+
+    /// Names are read while listing; nothing more is available.
+    pub fn enrich(_threads: &mut [ThreadSample]) {}
 }
 
 #[cfg(windows)]
 mod imp {
-    use super::ProcessUsage;
+    use super::{ProcessUsage, ThreadSample};
     use std::io;
     use windows::Wdk::System::SystemInformation::{
         NtQuerySystemInformation, SystemProcessInformation,
     };
-    use windows::Win32::Foundation::{FILETIME, STATUS_INFO_LENGTH_MISMATCH};
+    use windows::Win32::Foundation::{
+        CloseHandle, LocalFree, FILETIME, HANDLE, HLOCAL, STATUS_INFO_LENGTH_MISMATCH,
+    };
     use windows::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
     };
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, GetCurrentProcessId, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
+        GetCurrentProcess, GetCurrentProcessId, GetProcessIoCounters, GetProcessTimes,
+        GetThreadDescription, GetThreadTimes, OpenThread, IO_COUNTERS, THREAD_QUERY_INFORMATION,
+        THREAD_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::System::WindowsProgramming::{
         SYSTEM_PROCESS_INFORMATION, SYSTEM_THREAD_INFORMATION,
@@ -402,12 +779,14 @@ mod imp {
     #[cfg(target_pointer_width = "64")]
     const MAX_QUERY_BYTES: usize = 256 * 1024 * 1024;
 
-    /// Total context switches (switch-ins, one per thread wake) over every live thread of this
-    /// process. `ContextSwitchCount` is the `u32` the crate names `Reserved3` in
-    /// `SYSTEM_THREAD_INFORMATION` (offset 0x40, right after `BasePriority`). `None` on any
-    /// failure or unexpected layout; never panics.
+    /// Every live thread of this process from one `SystemProcessInformation` snapshot, with the
+    /// counters that snapshot holds. `ContextSwitchCount` is the `u32` the crate names `Reserved3`
+    /// in `SYSTEM_THREAD_INFORMATION` (offset 0x40, right after `BasePriority`); the two times and
+    /// the creation time are the three `i64` the crate names `Reserved1` (kernel, user, create).
+    /// `wakeups` is always `Some` here. `None` on any failure or unexpected layout; never panics.
+    /// The total wake-up figure is the sum over this same vector, so the two can never disagree.
     #[cfg(target_pointer_width = "64")]
-    fn wakeups_total() -> Option<u64> {
+    fn thread_table() -> Option<Vec<ThreadSample>> {
         // 8-byte aligned backing store; entry offsets are multiples of 8.
         let mut words: Vec<u64> = vec![0; (1 << 20) / 8];
         let mut length: u32 = 0;
@@ -456,7 +835,7 @@ mod imp {
                 if end > valid {
                     return None;
                 }
-                let mut total = 0u64;
+                let mut threads = Vec::with_capacity(count);
                 for i in 0..count {
                     // SAFETY: `first + (i + 1) * thread_size <= end <= valid`.
                     let thread = unsafe {
@@ -469,9 +848,20 @@ mod imp {
                     if thread.ClientId.UniqueProcess.0 as usize != pid {
                         return None;
                     }
-                    total = total.checked_add(u64::from(thread.Reserved3))?;
+                    let [kernel, user, created] = thread.Reserved1;
+                    threads.push(ThreadSample {
+                        thread_id: thread.ClientId.UniqueThread.0 as usize as u64,
+                        started: u64::try_from(created).ok(),
+                        wakeups: Some(u64::from(thread.Reserved3)),
+                        // FILETIME-style ticks are 100 ns.
+                        cpu_seconds: Some(
+                            (kernel.max(0) as u64).saturating_add(user.max(0) as u64) as f64 / 1e7,
+                        ),
+                        name: None,
+                        start_address: None,
+                    });
                 }
-                return Some(total);
+                return Some(threads);
             }
             let next = entry.NextEntryOffset as usize;
             if next == 0 {
@@ -482,11 +872,132 @@ mod imp {
     }
 
     #[cfg(not(target_pointer_width = "64"))]
-    fn wakeups_total() -> Option<u64> {
+    fn thread_table() -> Option<Vec<ThreadSample>> {
         None
     }
 
+    /// Closes the thread handle it owns, exactly once.
+    struct ThreadHandle(HANDLE);
+
+    impl Drop for ThreadHandle {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from `OpenThread` and is closed only here.
+            let _ = unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// Opens a thread for querying. A thread that exited since the snapshot cannot be opened:
+    /// that is a normal outcome (`None`), not an error. Asks for `THREAD_QUERY_INFORMATION`
+    /// (the start-address query needs it) and falls back to the limited right (enough for the
+    /// description) when that is denied.
+    fn open_thread(id: u32) -> Option<ThreadHandle> {
+        let full = THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION;
+        // SAFETY: plain handle-returning calls; a result is wrapped so it is closed.
+        let opened = unsafe { OpenThread(full, false, id) }
+            .or_else(|_| unsafe { OpenThread(THREAD_QUERY_LIMITED_INFORMATION, false, id) });
+        opened.ok().map(ThreadHandle)
+    }
+
+    /// Creation time of an open thread in FILETIME ticks.
+    fn thread_created(thread: HANDLE) -> Option<u64> {
+        let (mut created, mut exited, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        // SAFETY: four valid out-pointers; `thread` is an open handle.
+        let read =
+            unsafe { GetThreadTimes(thread, &mut created, &mut exited, &mut kernel, &mut user) };
+        read.ok()?;
+        Some(ticks(created))
+    }
+
+    /// The name a thread gave itself (`SetThreadDescription`), or `None`.
+    fn thread_name(thread: HANDLE) -> Option<String> {
+        // SAFETY: `thread` is open with `THREAD_QUERY_LIMITED_INFORMATION`.
+        let description = unsafe { GetThreadDescription(thread) }.ok()?;
+        if description.is_null() {
+            return None;
+        }
+        // SAFETY: a non-null result is a NUL-terminated UTF-16 string allocated for us.
+        let name = unsafe { description.to_string() }.ok();
+        // SAFETY: the string must be released with `LocalFree`, once.
+        unsafe { LocalFree(Some(HLOCAL(description.0.cast()))) };
+        name.filter(|name| !name.is_empty())
+    }
+
+    /// `ThreadQuerySetWin32StartAddress`, the `NtQueryInformationThread` class that returns the
+    /// routine handed to `CreateThread`. The system process table's own start address is the
+    /// kernel-side one (`RtlUserThreadStart` for every thread) and says nothing.
+    #[cfg(target_pointer_width = "64")]
+    const THREAD_QUERY_SET_WIN32_START_ADDRESS: u32 = 9;
+
+    // Declared here rather than taken from the `windows` crate, whose `Wdk_System_Threading`
+    // feature this crate does not enable (std links `ntdll` already on every Windows target).
+    #[cfg(target_pointer_width = "64")]
+    #[link(name = "ntdll")]
+    extern "system" {
+        fn NtQueryInformationThread(
+            thread: HANDLE,
+            class: u32,
+            information: *mut std::ffi::c_void,
+            length: u32,
+            returned: *mut u32,
+        ) -> i32;
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    fn win32_start_address(thread: HANDLE) -> Option<u64> {
+        let mut address: usize = 0;
+        // SAFETY: `address` is a writable pointer-sized out value and the length says so.
+        let status = unsafe {
+            NtQueryInformationThread(
+                thread,
+                THREAD_QUERY_SET_WIN32_START_ADDRESS,
+                (&mut address as *mut usize).cast(),
+                std::mem::size_of::<usize>() as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        (status >= 0 && address != 0).then_some(address as u64)
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn win32_start_address(_thread: HANDLE) -> Option<u64> {
+        None
+    }
+
+    /// The process figures and the thread table from one table read: `wakeups_total` is the sum
+    /// of the returned threads' `wakeups`. Fails when the table cannot be read.
+    pub fn sample_threads() -> io::Result<(ProcessUsage, Vec<ThreadSample>)> {
+        let threads = thread_table().ok_or_else(|| io::Error::other("thread table unavailable"))?;
+        let usage = sample_with(super::sum_wakeups(&threads))?;
+        Ok((usage, threads))
+    }
+
+    /// Fills each thread's name and Win32 start address by opening it. A thread that exited
+    /// since the snapshot, was replaced by a new one with the same id (its creation time no
+    /// longer matches), or cannot be opened keeps `None` there; its counters are untouched.
+    pub fn enrich(threads: &mut [ThreadSample]) {
+        for thread in threads.iter_mut() {
+            let Some(handle) = u32::try_from(thread.thread_id).ok().and_then(open_thread) else {
+                continue;
+            };
+            if thread.started.is_some() && thread_created(handle.0) != thread.started {
+                continue;
+            }
+            thread.name = thread_name(handle.0);
+            thread.start_address = win32_start_address(handle.0);
+        }
+    }
+
     pub fn sample() -> io::Result<ProcessUsage> {
+        let table = thread_table();
+        sample_with(table.as_deref().and_then(super::sum_wakeups))
+    }
+
+    fn sample_with(wakeups_total: Option<u64>) -> io::Result<ProcessUsage> {
         unsafe {
             let process = GetCurrentProcess();
             let mut mem = PROCESS_MEMORY_COUNTERS_EX::default();
@@ -511,7 +1022,7 @@ mod imp {
                 footprint_bytes: mem.PrivateUsage as u64,
                 // FILETIME ticks are 100 ns.
                 cpu_seconds: (ticks(kernel) + ticks(user)) as f64 / 1e7,
-                wakeups_total: wakeups_total(),
+                wakeups_total,
                 disk_ops_total: Some(
                     io_counters.ReadOperationCount + io_counters.WriteOperationCount,
                 ),
@@ -663,5 +1174,236 @@ mod tests {
             Some(10.0)
         );
         assert_eq!(c.rates_since(&b, Duration::ZERO).cpu_percent, 0.0);
+    }
+
+    fn thread(id: u64, started: u64, wakeups: Option<u64>) -> ThreadSample {
+        ThreadSample {
+            thread_id: id,
+            started: Some(started),
+            wakeups,
+            cpu_seconds: wakeups.map(|w| w as f64 / 1000.0),
+            name: None,
+            start_address: None,
+        }
+    }
+
+    #[test]
+    fn deltas_match_by_identity_sort_by_wakeups_and_list_exited_threads() {
+        let start = [
+            thread(1, 100, Some(10)),
+            thread(2, 200, Some(50)),
+            thread(3, 300, Some(7)),
+        ];
+        let end = [
+            thread(1, 100, Some(14)),
+            thread(2, 200, Some(51)),
+            thread(4, 400, Some(30)),
+        ];
+        let deltas = thread_deltas(&start, &end);
+        let listed: Vec<(u64, Option<u64>, bool)> = deltas
+            .threads
+            .iter()
+            .map(|d| (d.thread_id, d.wakeups, d.started_in_window))
+            .collect();
+        // Thread 4 began inside the window: its whole count is the window's.
+        assert_eq!(
+            listed,
+            vec![
+                (4, Some(30), true),
+                (1, Some(4), false),
+                (2, Some(1), false),
+            ]
+        );
+        assert_eq!(deltas.exited.len(), 1);
+        assert_eq!(deltas.exited[0].thread_id, 3);
+        assert_eq!(deltas.total_wakeups(), Some(35));
+        assert_eq!(deltas.exited_wakeups_at_start(), Some(7));
+        // Listed minus exited-at-start is the whole-process delta between the same snapshots.
+        assert_eq!(
+            deltas.total_wakeups().unwrap() - deltas.exited_wakeups_at_start().unwrap(),
+            sum_wakeups(&end).unwrap() - sum_wakeups(&start).unwrap()
+        );
+        let cpu = deltas.threads.iter().find(|d| d.thread_id == 1).unwrap();
+        assert!((cpu.cpu_seconds.unwrap() - 0.004).abs() < 1e-9);
+        assert_eq!(deltas.top(2).len(), 2);
+        assert_eq!(deltas.top(99).len(), 3);
+        assert_eq!(deltas.top(0).len(), 0);
+    }
+
+    #[test]
+    fn a_reused_thread_id_with_a_new_creation_time_is_a_new_thread() {
+        let start = [thread(9, 100, Some(500))];
+        let end = [thread(9, 999, Some(3))];
+        let deltas = thread_deltas(&start, &end);
+        assert_eq!(deltas.threads.len(), 1);
+        assert_eq!(deltas.threads[0].wakeups, Some(3));
+        assert!(deltas.threads[0].started_in_window);
+        assert_eq!(deltas.exited.len(), 1);
+        assert_eq!(deltas.exited_wakeups_at_start(), Some(500));
+    }
+
+    #[test]
+    fn a_counter_that_went_backwards_counts_as_zero_not_a_wrapped_value() {
+        let deltas = thread_deltas(&[thread(1, 1, Some(10))], &[thread(1, 1, Some(4))]);
+        assert_eq!(deltas.threads[0].wakeups, Some(0));
+        assert_eq!(deltas.total_wakeups(), Some(0));
+    }
+
+    #[test]
+    fn unknown_counters_stay_unknown_and_sort_last() {
+        let start = [thread(1, 1, None), thread(2, 2, Some(1))];
+        let end = [thread(1, 1, None), thread(2, 2, Some(5))];
+        let deltas = thread_deltas(&start, &end);
+        assert_eq!(deltas.threads[0].thread_id, 2);
+        assert_eq!(deltas.threads[0].wakeups, Some(4));
+        assert_eq!(deltas.threads[1].wakeups, None);
+        assert_eq!(deltas.threads[1].cpu_seconds, None);
+        assert_eq!(deltas.total_wakeups(), None);
+        let none = ThreadDeltas {
+            threads: Vec::new(),
+            exited: Vec::new(),
+        };
+        assert_eq!(none.total_wakeups(), Some(0));
+        assert_eq!(
+            sum_wakeups(&[thread(1, 1, Some(2)), thread(2, 2, None)]),
+            None
+        );
+        assert_eq!(
+            sum_wakeups(&[thread(1, 1, Some(2)), thread(2, 2, Some(3))]),
+            Some(5)
+        );
+        assert_eq!(
+            sum_wakeups(&[thread(1, 1, Some(u64::MAX)), thread(2, 2, Some(1))]),
+            None
+        );
+    }
+
+    #[test]
+    fn a_name_or_address_read_only_at_one_end_is_kept() {
+        let mut first = thread(1, 1, Some(1));
+        first.name = Some("worker".to_string());
+        let mut last = thread(1, 1, Some(2));
+        last.start_address = Some(0x1000);
+        let deltas = thread_deltas(&[first], &[last]);
+        assert_eq!(deltas.threads[0].name.as_deref(), Some("worker"));
+        assert_eq!(deltas.threads[0].start_address, Some(0x1000));
+    }
+
+    #[test]
+    fn thread_result_lines_are_not_budget_lines_and_list_only_active_threads() {
+        let mut busy = thread(7, 1, Some(100));
+        busy.name = Some("tokio-runtime-worker".to_string());
+        busy.start_address = Some(0x7ff6_1234);
+        let deltas = thread_deltas(
+            &[thread(7, 1, Some(0)), thread(8, 2, Some(5))],
+            &[busy, thread(8, 2, Some(5))],
+        );
+        let text = deltas.result_lines(Duration::from_secs(50), 5);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(lines
+            .iter()
+            .all(|line| line.starts_with("RESULT thread_wakeups") && !line.contains("budget")));
+        assert_eq!(
+            lines[0],
+            "RESULT thread_wakeups_summary threads=2 born=0 exited=0 listed_wakeups=100 exited_wakeups_at_start=0 window_seconds=50.0"
+        );
+        assert!(lines[1]
+            .starts_with("RESULT thread_wakeups rank=1 tid=7 wakeups=100 per_second=2.000 "));
+        assert!(lines[1].ends_with(" born=0 start=0x7ff61234 name=\"tokio-runtime-worker\""));
+        // A zero window never divides by zero, and `top = 0` lists no thread.
+        let zero = deltas.result_lines(Duration::ZERO, 5);
+        assert!(zero.contains("per_second=0.000"), "{zero}");
+        assert_eq!(
+            deltas
+                .result_lines(Duration::from_secs(1), 0)
+                .lines()
+                .count(),
+            1
+        );
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        windows
+    ))]
+    #[test]
+    fn thread_snapshot_lists_unique_live_threads() {
+        let snapshot = process_usage_with_threads().unwrap();
+        assert!(!snapshot.threads.is_empty());
+        let mut ids: Vec<u64> = snapshot.threads.iter().map(|t| t.thread_id).collect();
+        let listed = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), listed, "a thread was listed twice");
+    }
+
+    /// On Windows the total and the per-thread counters come from one table: they agree exactly,
+    /// and a named thread shows up with its name, start address and the wake-ups it was given.
+    #[cfg(all(windows, target_pointer_width = "64"))]
+    #[test]
+    fn windows_threads_sum_to_the_total_and_attribute_wakeups_to_the_woken_thread() {
+        use std::sync::mpsc;
+        let (id_tx, id_rx) = mpsc::channel::<u32>();
+        let (wake_tx, wake_rx) = mpsc::channel::<()>();
+        let (ack_tx, ack_rx) = mpsc::channel::<()>();
+        let probe = std::thread::Builder::new()
+            .name("rk-usage-probe".to_string())
+            .spawn(move || {
+                // SAFETY: no arguments; returns the calling thread's id.
+                id_tx
+                    .send(unsafe { windows::Win32::System::Threading::GetCurrentThreadId() })
+                    .unwrap();
+                while wake_rx.recv().is_ok() {
+                    let _ = ack_tx.send(());
+                }
+            })
+            .unwrap();
+        let id = u64::from(id_rx.recv().unwrap());
+        let first = process_usage_with_threads().unwrap();
+        for _ in 0..5 {
+            std::thread::sleep(Duration::from_millis(10));
+            wake_tx.send(()).unwrap();
+            ack_rx.recv().unwrap();
+        }
+        let second = process_usage_with_threads().unwrap();
+        drop(wake_tx);
+        probe.join().unwrap();
+
+        for snapshot in [&first, &second] {
+            assert!(snapshot.usage.wakeups_total.is_some());
+            assert_eq!(snapshot.usage.wakeups_total, snapshot.thread_wakeups_sum());
+        }
+        let probe_now = second
+            .threads
+            .iter()
+            .find(|t| t.thread_id == id)
+            .expect("the probe thread is listed");
+        assert_eq!(probe_now.name.as_deref(), Some("rk-usage-probe"));
+        assert!(probe_now.start_address.is_some());
+        assert!(probe_now.started.is_some());
+        let deltas = thread_deltas(&first.threads, &second.threads);
+        let delta = deltas
+            .threads
+            .iter()
+            .find(|d| d.thread_id == id)
+            .expect("the probe thread has a delta");
+        assert!(!delta.started_in_window);
+        assert!(delta.wakeups.unwrap() >= 1, "{delta:?}");
+    }
+
+    /// The idle observation's process delta is what the per-thread deltas add up to.
+    #[cfg(all(windows, target_pointer_width = "64"))]
+    #[test]
+    fn windows_idle_thread_deltas_reconcile_with_the_process_delta() {
+        let observed = observe_idle_with_threads(Duration::from_millis(50)).unwrap();
+        assert!(observed.observation.elapsed >= Duration::from_millis(50));
+        let start = observed.observation.start.wakeups_total.unwrap() as i128;
+        let end = observed.observation.end.wakeups_total.unwrap() as i128;
+        let listed = observed.threads.total_wakeups().unwrap() as i128;
+        let exited = observed.threads.exited_wakeups_at_start().unwrap() as i128;
+        assert_eq!(listed - exited, end - start);
     }
 }

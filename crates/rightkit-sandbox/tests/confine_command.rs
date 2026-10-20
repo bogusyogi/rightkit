@@ -127,6 +127,35 @@ mod macos {
     use super::*;
     use std::time::Duration;
 
+    /// A directory the write-only profile does NOT grant, for the "writes outside are denied"
+    /// probes. The profile's `WRITE_ONLY_TEMP` set (src/seatbelt.rs) always lets a write-only
+    /// child write under `/private/var/folders` (the per-user `$TMPDIR` tree) and the other
+    /// system temp roots, so a probe under `std::env::temp_dir()` is writable by design and
+    /// cannot show a denial. The probe lives under `$HOME` instead, and the precondition that it
+    /// lies outside every fixed temp root is asserted, never assumed.
+    fn outside_the_write_only_grant(name: &str) -> PathBuf {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .expect("precondition: HOME must name a directory for the outside-the-grant probe");
+        let dir = home.join(format!(".rk-confine-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let dir = fs::canonicalize(&dir).unwrap();
+        for fixed in [
+            "/private/tmp",
+            "/private/var/folders",
+            "/private/var/tmp",
+            "/tmp",
+        ] {
+            assert!(
+                !dir.starts_with(fixed),
+                "precondition: {} must lie outside the write-only temp grant {fixed}",
+                dir.display()
+            );
+        }
+        dir
+    }
+
     fn sandbox() -> Sandbox {
         Sandbox::new(ResourceAuthority::new(ResourceProfile::Expanded))
     }
@@ -136,9 +165,9 @@ mod macos {
     #[test]
     fn write_only_mode_reads_everywhere_and_writes_only_where_granted() {
         let root = scratch("write-only");
-        let (allowed, outside) = (root.join("allowed"), root.join("outside"));
+        let allowed = root.join("allowed");
+        let outside = outside_the_write_only_grant("write-only-out");
         fs::create_dir_all(&allowed).unwrap();
-        fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("readable.txt"), "READABLE-OUTSIDE").unwrap();
         let policy = SandboxPolicy::new()
             .mode(ConfinementMode::WriteOnly)
@@ -170,6 +199,7 @@ mod macos {
         );
         assert!(!out.status.unwrap().success());
         let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outside);
     }
 
     #[test]
@@ -255,7 +285,7 @@ mod macos {
         use rightkit_sandbox::seatbelt::{write_only_profile, Prepared};
         use std::os::unix::process::CommandExt;
         let root = scratch("from-profile");
-        let outside = scratch("from-profile-out");
+        let outside = outside_the_write_only_grant("from-profile-out");
         let profile = write_only_profile(std::slice::from_ref(&root), NetworkPolicy::Allow);
         let prepared = Prepared::from_profile(profile).expect("profile");
         let mut cmd = sh(&format!(

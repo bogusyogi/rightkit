@@ -1,13 +1,18 @@
 //! Resumable single-file download with sha256 verification and atomic
-//! placement. Each file downloads to `<file>.part` (+ `.meta` resume record)
-//! and is renamed into place only after the hash verifies, so a half-written
-//! file never counts as installed. Origin: HeardRight `resumable_download.rs`
+//! placement. HTTP bytes stream through RightKit's `AtomicWriter` with a digest;
+//! `<file>.part` (+ `.meta` resume record) separately checkpoints resumable bytes,
+//! so failed transfers and hashes never replace the existing destination. Origin:
+//! HeardRight `resumable_download.rs`
 //! via ScrapeRight's model-store; adds cooperative cancel and typed errors.
 //!
 //! Byte-range resume requires a strong ETag match and matching resume
 //! metadata; anything unprovable restarts from zero rather than risking a
 //! spliced file. The one opt-in exception is [`DownloadOptions::resume_without_strong_etag`],
 //! which needs a pinned sha256 so a spliced file is still caught.
+//!
+//! Model payloads are rebuildable: checked commit syncs file contents before verification
+//! & atomic rename, without syncing the parent directory afterward. Success means verified,
+//! synced bytes are atomically visible; it does not promise rename persistence after power loss.
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
@@ -17,8 +22,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::error::{Error, ErrorCode};
-use crate::hash::sha256_file;
 use crate::http::{AsHttpClient, IdleReader, ModelHttp};
+use rightkit_fs::atomic::{AtomicOptions, AtomicWriter};
+use rightkit_fs::digest::Sha256Hasher;
 use rightkit_http::{HttpError, Request};
 
 const CANCELLED: &str = "download cancelled";
@@ -31,6 +37,100 @@ const CAP_PREFIX: &str = "download exceeds the size cap: ";
 
 fn io_msg(context: &str, error: impl std::fmt::Display) -> String {
     format!("{IO_PREFIX}{context}: {error}")
+}
+
+/// Default Rename has no post-publication cleanup, & disabling directory sync leaves no
+/// fallible operation after publication. `commit_checked` still syncs file contents first.
+/// Keep this policy restricted to rebuildable model payloads.
+fn model_payload_atomic_options() -> AtomicOptions {
+    AtomicOptions {
+        durable: false,
+        ..AtomicOptions::default()
+    }
+}
+
+/// Compare names in their resolved existing parent without rewriting caller paths.
+/// The file itself may be absent; canonicalizing the full file would miss that case.
+fn resolved_parent_name(path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io_msg("invalid download path", "missing filename"))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        // Use the filesystem owner's plain-name rule without rejecting Unicode or
+        // converting non-Unicode names lossily. Win32 drops these final UTF-16 units.
+        if name
+            .to_str()
+            .is_some_and(rightkit_fs::names::is_unsafe_windows_component)
+            || matches!(name.encode_wide().last(), Some(0x20 | 0x2e))
+        {
+            return Err(io_msg(
+                "invalid download path",
+                "not a plain Windows filename",
+            ));
+        }
+    }
+    let parent =
+        fs::canonicalize(parent).map_err(|error| io_msg("resolve download parent", error))?;
+    Ok(parent.join(name))
+}
+
+#[cfg(not(windows))]
+fn same_download_name(left: &Path, right: &Path) -> Result<bool, String> {
+    Ok(left == right)
+}
+
+#[cfg(windows)]
+fn same_download_name(left: &Path, right: &Path) -> Result<bool, String> {
+    use std::os::windows::ffi::OsStrExt;
+    // Different resolved parents cannot name the same absent entry. File identity
+    // also handles alternate spellings of the same parent without text folding.
+    let left_parent = left.parent().expect("resolved download name has a parent");
+    let right_parent = right.parent().expect("resolved download name has a parent");
+    if rightkit_fs::FileKey::of_path(left_parent)
+        .map_err(|e| io_msg("identify download parent", e))?
+        != rightkit_fs::FileKey::of_path(right_parent)
+            .map_err(|e| io_msg("identify download parent", e))?
+    {
+        return Ok(false);
+    }
+    let left: Vec<u16> = left
+        .file_name()
+        .expect("resolved download name has a leaf")
+        .encode_wide()
+        .collect();
+    let right: Vec<u16> = right
+        .file_name()
+        .expect("resolved download name has a leaf")
+        .encode_wide()
+        .collect();
+    let left_len = i32::try_from(left.len()).map_err(|e| io_msg("compare download names", e))?;
+    let right_len = i32::try_from(right.len()).map_err(|e| io_msg("compare download names", e))?;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CompareStringOrdinal(
+            left: *const u16,
+            left_len: i32,
+            right: *const u16,
+            right_len: i32,
+            ignore_case: i32,
+        ) -> i32;
+    }
+    // SAFETY: each pointer addresses its UTF-16 vector for the explicit length;
+    // the call retains no pointer. Native ordinal casing avoids Unicode approximations.
+    match unsafe { CompareStringOrdinal(left.as_ptr(), left_len, right.as_ptr(), right_len, 1) } {
+        0 => Err(io_msg(
+            "compare download names",
+            std::io::Error::last_os_error(),
+        )),
+        2 => Ok(true),
+        _ => Ok(false),
+    }
 }
 
 /// The total time budget of one download call ([`crate::http::ModelHttpOptions::total_timeout`]),
@@ -89,7 +189,7 @@ pub(crate) type FailureSlot = std::cell::RefCell<Option<LastFailure>>;
 
 pub struct DownloadRequest<'a> {
     pub url: &'a str,
-    /// Scratch `.part` file the body streams into (same dir as `dest_path`).
+    /// Scratch `.part` resume checkpoint (same dir as `dest_path`).
     pub part_path: &'a Path,
     /// Final destination, committed by atomic rename after verification.
     pub dest_path: &'a Path,
@@ -204,6 +304,8 @@ enum TransferError {
 fn write_response_body_with_progress(
     part: &Path,
     plan: ResponsePlan,
+    writer: &mut AtomicWriter,
+    digest: &mut Sha256Hasher,
     reader: &mut dyn Read,
     progress: &mut dyn FnMut(u64, u64),
     cancelled: &dyn Fn() -> bool,
@@ -265,6 +367,10 @@ fn write_response_body_with_progress(
                 )));
             }
         };
+        writer
+            .write_all(&buffer[..count])
+            .map_err(|error| TransferError::Fatal(io_msg("write atomic destination", error)))?;
+        digest.update(&buffer[..count]);
         file.write_all(&buffer[..count])
             .map_err(|error| TransferError::Fatal(io_msg("write partial", error)))?;
         received += count as u64;
@@ -291,8 +397,10 @@ fn valid_pin(pin: &str) -> bool {
 }
 
 /// Download `request.url` into `request.dest_path`, resuming a matching
-/// `.part` when present. The dest is only ever replaced by a fully-downloaded,
-/// hash-verified `.part` via atomic rename.
+/// `.part` when present. HTTP bytes enter destination-local atomic staging;
+/// only fully downloaded, hash-verified staging replaces the destination.
+/// A failure preserves existing destination contents. Success atomically exposes verified,
+/// synced file contents; parent-directory crash durability is not promised for rebuildable models.
 ///
 /// Byte-range resume needs a strong ETag (`"..."`, not `W/"..."`) that matches the saved resume
 /// record. A server that sends only a weak ETag, `Last-Modified` or no validator restarts from
@@ -442,13 +550,59 @@ fn download_inner(
     mut progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, String> {
+    let metadata_path = metadata_path(request.part_path);
+    let staged_metadata_path = self::metadata_path(&metadata_path);
+    // Resolve only parents, after the existing directory-creation step. Comparing
+    // complete paths with canonicalize would fail while the destination is absent.
     if let Some(parent) = request.part_path.parent() {
         fs::create_dir_all(parent).map_err(|error| io_msg("create download dir", error))?;
     }
     if let Some(parent) = request.dest_path.parent() {
         fs::create_dir_all(parent).map_err(|error| io_msg("create dest dir", error))?;
     }
-    let metadata_path = metadata_path(request.part_path);
+    let destination_name = resolved_parent_name(request.dest_path)?;
+    // A checkpoint must never alias the existing destination: creating/appending it
+    // would otherwise bypass atomic staging & damage the bytes we promise to preserve.
+    let destination_key = match fs::metadata(request.dest_path) {
+        Ok(_) => Some(
+            rightkit_fs::FileKey::of_path(request.dest_path)
+                .map_err(|error| io_msg("identify destination", error))?,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(io_msg("read destination metadata", error)),
+    };
+    for checkpoint in [
+        request.part_path,
+        metadata_path.as_path(),
+        staged_metadata_path.as_path(),
+    ] {
+        if same_download_name(&resolved_parent_name(checkpoint)?, &destination_name)? {
+            return Err(io_msg(
+                "invalid checkpoint",
+                "checkpoint aliases destination",
+            ));
+        }
+        if let Some(destination_key) = destination_key {
+            match fs::metadata(checkpoint) {
+                Ok(_) => {
+                    if rightkit_fs::FileKey::of_path(checkpoint)
+                        .map_err(|error| io_msg("identify checkpoint", error))?
+                        == destination_key
+                    {
+                        return Err(io_msg(
+                            "invalid checkpoint",
+                            "checkpoint aliases destination",
+                        ));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(io_msg("read checkpoint metadata", error)),
+            }
+        }
+    }
+    if (request.cancelled)() {
+        return Err(CANCELLED.to_string());
+    }
     let expected = request
         .expected_sha256
         .map(|pin| pin.trim().to_ascii_lowercase());
@@ -464,20 +618,24 @@ fn download_inner(
     if let Some(received) =
         completed_partial_candidate(request.part_path, &metadata_path, resume_url, &expected)?
     {
-        let got = sha256_file(request.part_path).map_err(|e| io_msg("hash partial", e))?;
-        if expected
-            .as_deref()
-            .map(|pin| got.eq_ignore_ascii_case(pin))
-            .unwrap_or(true)
-        {
-            commit_part(request.part_path, &metadata_path, request.dest_path)?;
-            return Ok(DownloadResult {
-                received,
-                total: received,
-                sha256: got,
-            });
+        match commit_part(
+            request.part_path,
+            &metadata_path,
+            request.dest_path,
+            expected.as_deref(),
+        ) {
+            Ok(got) => {
+                return Ok(DownloadResult {
+                    received,
+                    total: received,
+                    sha256: got,
+                });
+            }
+            Err(message) if message.contains("integrity check") => {
+                cleanup_poisoned(request.part_path, &metadata_path);
+            }
+            Err(message) => return Err(message),
         }
-        cleanup_poisoned(request.part_path, &metadata_path);
     }
 
     let attempts = (http.retries() as usize).saturating_add(1);
@@ -627,9 +785,19 @@ fn download_inner(
             Some(idle) => Box::new(IdleReader::new(response.into_reader(), idle)),
             None => response.into_reader(),
         };
+        let (mut writer, mut digest) = stage_partial(
+            request.part_path,
+            request.dest_path,
+            match plan {
+                ResponsePlan::Append { offset, .. } => offset,
+                _ => 0,
+            },
+        )?;
         match write_response_body_with_progress(
             request.part_path,
             plan,
+            &mut writer,
+            &mut digest,
             &mut *reader,
             &mut progress,
             request.cancelled,
@@ -637,16 +805,21 @@ fn download_inner(
             max_bytes,
         ) {
             Ok(received) => {
-                let got = sha256_file(request.part_path).map_err(|e| io_msg("hash download", e))?;
-                if let Some(pin) = expected.as_deref() {
-                    if !got.eq_ignore_ascii_case(pin) {
+                let got = match commit_staged(
+                    writer,
+                    digest,
+                    received,
+                    request.part_path,
+                    &metadata_path,
+                    expected.as_deref(),
+                ) {
+                    Ok(got) => got,
+                    Err(message) if message.contains("integrity check") => {
                         cleanup_poisoned(request.part_path, &metadata_path);
-                        return Err(format!(
-                            "downloaded model file failed integrity check: got {got}, expected {pin}"
-                        ));
+                        return Err(message);
                     }
-                }
-                commit_part(request.part_path, &metadata_path, request.dest_path)?;
+                    Err(message) => return Err(message),
+                };
                 let verified_total = if total == 0 { received } else { total };
                 return Ok(DownloadResult {
                     received,
@@ -679,20 +852,88 @@ fn download_inner(
     Err(last_transient.unwrap_or_else(|| "download failed after bounded retries".to_string()))
 }
 
-/// `.part` + `.meta` → final dest via atomic rename (same dir ⇒ same volume).
-/// The dest may already hold a corrupt file being repaired. `std::fs::rename`
-/// replaces an existing file in one step on Unix (rename(2)) and Windows
-/// (MoveFileExW with MOVEFILE_REPLACE_EXISTING), so the previous file is never
-/// deleted first: if the rename fails it is still there.
-fn commit_part(part: &Path, metadata: &Path, dest: &Path) -> Result<(), String> {
-    fs::rename(part, dest).map_err(|e| {
-        io_msg(
-            "commit",
-            format!("{} -> {}: {e}", part.display(), dest.display()),
-        )
-    })?;
+/// Seed only saved resume bytes. Incoming HTTP bytes never take this copy path.
+fn stage_partial(
+    part: &Path,
+    dest: &Path,
+    offset: u64,
+) -> Result<(AtomicWriter, Sha256Hasher), String> {
+    let mut writer = AtomicWriter::create(dest, model_payload_atomic_options())
+        .map_err(|e| io_msg("create atomic destination", e))?;
+    let mut digest = Sha256Hasher::new();
+    if offset > 0 {
+        let mut source = File::open(part).map_err(|e| io_msg("open saved partial", e))?;
+        let mut copied = 0;
+        let mut buffer = [0u8; 1 << 16];
+        loop {
+            let count = source
+                .read(&mut buffer)
+                .map_err(|e| io_msg("read saved partial", e))?;
+            if count == 0 {
+                break;
+            }
+            copied += count as u64;
+            if copied > offset {
+                return Err(io_msg("resume partial changed", "saved prefix grew"));
+            }
+            writer
+                .write_all(&buffer[..count])
+                .map_err(|e| io_msg("stage saved partial", e))?;
+            digest.update(&buffer[..count]);
+        }
+        if copied != offset {
+            return Err(io_msg("resume partial changed", "saved prefix shrank"));
+        }
+    }
+    Ok((writer, digest))
+}
+
+/// Recover a complete checkpoint after an interrupted earlier call.
+fn commit_part(
+    part: &Path,
+    metadata: &Path,
+    dest: &Path,
+    expected: Option<&str>,
+) -> Result<String, String> {
+    let received = fs::metadata(part)
+        .map_err(|e| io_msg("read completed partial", e))?
+        .len();
+    let (writer, digest) = stage_partial(part, dest, received)?;
+    commit_staged(writer, digest, received, part, metadata, expected)
+}
+
+/// Verify the synced staged bytes immediately before publication.
+fn commit_staged(
+    writer: AtomicWriter,
+    digest: Sha256Hasher,
+    received: u64,
+    part: &Path,
+    metadata: &Path,
+    expected: Option<&str>,
+) -> Result<String, String> {
+    let got = digest.finalize();
+    if let Some(pin) = expected {
+        if !got.eq_ignore_ascii_case(pin) {
+            return Err(format!(
+                "downloaded model file failed integrity check: got {got}, expected {pin}"
+            ));
+        }
+    }
+    writer
+        .commit_checked(|temp| {
+            let (written, length) = rightkit_fs::digest::sha256_file_with_len(temp)?;
+            if written != got || length != received {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "staged model bytes changed before publication",
+                ));
+            }
+            Ok(())
+        })
+        .map_err(|e| io_msg("commit atomic destination", e))?;
+    let _ = fs::remove_file(part);
     let _ = fs::remove_file(metadata);
-    Ok(())
+    Ok(got)
 }
 
 pub fn discard_partial(part: &Path) {
@@ -890,6 +1131,17 @@ pub fn http_agent() -> ureq::Agent {
 mod cap_tests {
     use super::*;
 
+    #[test]
+    fn rebuildable_payload_policy_has_no_postpublication_failure_steps() {
+        let options: rightkit_fs::atomic::AtomicWriteOptions =
+            model_payload_atomic_options().into();
+        // Durable writes can fail directory sync after replacing the target. Exclusive
+        // publication can fail cleanup after linking it. Neither belongs in this API,
+        // whose error result promises to preserve the previous destination.
+        assert!(!options.durable);
+        assert_eq!(options.replace, rightkit_fs::atomic::ReplaceMode::Rename);
+    }
+
     fn temp_part(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("rk-models-cap-{}-{name}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -899,10 +1151,14 @@ mod cap_tests {
     #[test]
     fn a_reported_total_over_the_cap_writes_nothing() {
         let part = temp_part("reported");
+        let (mut writer, mut digest) =
+            stage_partial(&part, &part.with_extension("bin"), 0).unwrap();
         let mut body: &[u8] = b"0123456789";
         let err = write_response_body_with_progress(
             &part,
             ResponsePlan::Replace { total: 10 },
+            &mut writer,
+            &mut digest,
             &mut body,
             &mut |_, _| {},
             &|| false,
@@ -918,11 +1174,15 @@ mod cap_tests {
     #[test]
     fn a_stream_past_the_cap_stops_even_without_a_reported_length() {
         let part = temp_part("streamed");
+        let (mut writer, mut digest) =
+            stage_partial(&part, &part.with_extension("bin"), 0).unwrap();
         let data = vec![7u8; 200_000];
         let mut body: &[u8] = &data;
         let err = write_response_body_with_progress(
             &part,
             ResponsePlan::Replace { total: 0 },
+            &mut writer,
+            &mut digest,
             &mut body,
             &mut |_, _| {},
             &|| false,
@@ -933,10 +1193,15 @@ mod cap_tests {
         assert!(matches!(err, TransferError::TooLarge(_)));
         assert!(fs::metadata(&part).unwrap().len() <= 100_000 + (1 << 16));
         // Within the cap: unchanged behaviour.
+        drop(writer);
+        let (mut writer, mut digest) =
+            stage_partial(&part, &part.with_extension("bin"), 0).unwrap();
         let mut ok: &[u8] = &data[..1000];
         let n = write_response_body_with_progress(
             &part,
             ResponsePlan::Replace { total: 1000 },
+            &mut writer,
+            &mut digest,
             &mut ok,
             &mut |_, _| {},
             &|| false,

@@ -79,8 +79,9 @@ pub use stderr_tail::StderrTail;
 #[cfg(unix)]
 pub use unix_child::UnixChild;
 pub use usage::{
-    observe_idle, process_usage, tree_usage, BudgetLabels, IdleObservation, ProcessUsage,
-    TreeUsage, UsageRates,
+    observe_idle, observe_idle_with_threads, process_usage, process_usage_with_threads,
+    thread_deltas, tree_usage, BudgetLabels, IdleObservation, IdleThreadObservation,
+    ProcessThreads, ProcessUsage, ThreadDelta, ThreadDeltas, ThreadSample, TreeUsage, UsageRates,
 };
 #[cfg(windows)]
 pub use windows_job::{ExitReason, WindowsJob, WindowsJobBuilder, DEFAULT_ACTIVE_PROCESS_LIMIT};

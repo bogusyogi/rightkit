@@ -75,7 +75,7 @@ pub struct StopReport {
     /// This is the background invariant; `frontmost_unchanged` remains diagnostic only.
     /// macOS checks the started pid and every process under the bundle executable; Windows
     /// checks the started pid only (the owner of the foreground window, from
-    /// `GetForegroundWindow` + `GetWindowThreadProcessId`, sampled every 20 ms). Both fail
+    /// foreground notifications + `GetWindowThreadProcessId`). Both fail
     /// closed when a foreground owner exists but cannot be read. Other targets always report
     /// `false` for a non-visible launch.
     pub owned_never_frontmost: bool,
@@ -377,22 +377,6 @@ fn classify_foreground(window_present: bool, thread_id: u32, pid: u32) -> Foregr
     }
 }
 
-#[cfg(windows)]
-fn foreground_pid() -> Foreground {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
-    };
-    unsafe {
-        let h = GetForegroundWindow();
-        if h.is_null() {
-            return classify_foreground(false, 0, 0);
-        }
-        let mut pid = 0u32;
-        let thread_id = GetWindowThreadProcessId(h, &mut pid);
-        classify_foreground(true, thread_id, pid)
-    }
-}
-
 /// The Windows background invariant: no sample found a process this session started in
 /// the foreground, and every foreground owner that existed could be read. Process
 /// identity is the started pid only; helper processes (WebView2 renderers) own no
@@ -428,7 +412,7 @@ fn owned_failure_reason(
     }
 }
 
-/// Samples the foreground on its own thread for the whole life of a control session, so
+/// Observes native foreground events for the whole life of a control session, so
 /// a transient steal (focus leaves and returns) is caught, and an unmeasurable
 /// foreground is reported as such instead of comparing equal.
 struct FocusMonitor {
@@ -441,6 +425,14 @@ struct FocusMonitor {
     #[cfg_attr(not(windows), allow(dead_code))]
     unreadable_owners: Arc<std::sync::atomic::AtomicUsize>,
     thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(windows)]
+    notifications: Option<windows_focus::Monitor>,
+    #[cfg(windows)]
+    foreground_pids: Arc<Mutex<Vec<u32>>>,
+    #[cfg(target_os = "macos")]
+    mac_notifications: Option<macos_focus::Monitor>,
+    #[cfg(target_os = "macos")]
+    mac_history: Arc<Mutex<Vec<macos_focus::Frame>>>,
 }
 
 impl FocusMonitor {
@@ -449,91 +441,100 @@ impl FocusMonitor {
         let owned: Arc<Mutex<(Vec<u32>, Option<String>)>> = Arc::new(Mutex::new((vec![], None)));
         let owned_frontmost = Arc::new(Mutex::new(vec![]));
         let unreadable_owners = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let record = move |seen: &Mutex<(usize, usize, Vec<String>)>,
-                           _owned: &Mutex<(Vec<u32>, Option<String>)>,
-                           _owned_frontmost: &Mutex<Vec<u32>>,
-                           _unreadable: &std::sync::atomic::AtomicUsize| {
-            {
-                let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
-                match frontmost() {
-                    Some(f) => {
-                        g.0 += 1;
-                        if g.2.last() != Some(&f) {
-                            g.2.push(f);
-                        }
-                    }
-                    None => g.1 += 1,
-                }
-            }
-            #[cfg(windows)]
-            if enforce_owned {
-                match foreground_pid() {
-                    Foreground::Pid(pid) => {
-                        let owned = _owned.lock().unwrap_or_else(|e| e.into_inner()).0.clone();
-                        if owned.contains(&pid) {
-                            let mut observed =
-                                _owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
-                            if !observed.contains(&pid) {
-                                observed.push(pid);
-                            }
-                        }
-                    }
-                    Foreground::NoWindow => {}
-                    Foreground::Unreadable => {
-                        _unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    }
-                }
-            }
-            #[cfg(target_os = "macos")]
-            if enforce_owned {
-                match rightkit_automation::macos::background::frontmost_pid() {
-                    Some(pid) => {
-                        let (primary, prefix) =
-                            _owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                        let mut candidates = primary;
-                        let mut inventory_ok = true;
-                        if let Some(prefix) = prefix {
-                            match pids_with_command_prefix(&prefix) {
-                                Ok(pids) => candidates.extend(pids),
-                                Err(_) => inventory_ok = false,
-                            }
-                        }
-                        if !inventory_ok {
-                            let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
-                            g.1 += 1;
-                        }
-                        if candidates.into_iter().any(|p| p == pid as u32) {
-                            let mut observed =
-                                _owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
-                            if !observed.contains(&(pid as u32)) {
-                                observed.push(pid as u32);
-                            }
-                        }
-                    }
-                    None => {
-                        // An unmeasurable PID makes the strict background proof fail.
-                        _unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
-                        g.1 += 1;
-                    }
-                }
-            }
-        };
-        record(&seen, &owned, &owned_frontmost, &unreadable_owners);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (s2, seen2, owned2, observed2, unreadable2) = (
-            stop.clone(),
-            seen.clone(),
-            owned.clone(),
-            owned_frontmost.clone(),
-            unreadable_owners.clone(),
-        );
-        let thread = std::thread::spawn(move || {
-            while !s2.load(std::sync::atomic::Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(20));
-                record(&seen2, &owned2, &observed2, &unreadable2);
-            }
-        });
+        let thread = None;
+        #[cfg(windows)]
+        let foreground_pids = Arc::new(Mutex::new(Vec::new()));
+        #[cfg(windows)]
+        let notifications = {
+            let (seen, owned, observed, unreadable, pids) = (
+                seen.clone(),
+                owned.clone(),
+                owned_frontmost.clone(),
+                unreadable_owners.clone(),
+                foreground_pids.clone(),
+            );
+            let failed = unreadable.clone();
+            windows_focus::Monitor::start(
+                move |hwnd| {
+                    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+                    let mut pid = 0;
+                    let thread_id = if hwnd.is_null() {
+                        0
+                    } else {
+                        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) }
+                    };
+                    let foreground = classify_foreground(!hwnd.is_null(), thread_id, pid);
+                    let mut samples = seen.lock().unwrap_or_else(|e| e.into_inner());
+                    match foreground {
+                        Foreground::Pid(pid) => {
+                            samples.0 += 1;
+                            let state = format!("{pid}:{:x}", hwnd as usize);
+                            if samples.2.last() != Some(&state) {
+                                samples.2.push(state);
+                            }
+                            // Retain startup events before track_primary can know the child PID.
+                            let mut history = pids.lock().unwrap_or_else(|e| e.into_inner());
+                            if !history.contains(&pid) {
+                                history.push(pid);
+                            }
+                            drop(history);
+                            if enforce_owned
+                                && owned
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .0
+                                    .contains(&pid)
+                            {
+                                let mut observed =
+                                    observed.lock().unwrap_or_else(|e| e.into_inner());
+                                if !observed.contains(&pid) {
+                                    observed.push(pid);
+                                }
+                            }
+                        }
+                        Foreground::NoWindow => samples.1 += 1,
+                        Foreground::Unreadable => {
+                            samples.1 += 1;
+                            unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                },
+                move || {
+                    failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                },
+            )
+        };
+        #[cfg(target_os = "macos")]
+        let mac_history = Arc::new(Mutex::new(Vec::<macos_focus::Frame>::new()));
+        #[cfg(target_os = "macos")]
+        let mac_notifications = {
+            let (seen, owned, observed, unreadable, history) = (
+                seen.clone(), owned.clone(), owned_frontmost.clone(),
+                unreadable_owners.clone(), mac_history.clone(),
+            );
+            let failed = unreadable.clone();
+            macos_focus::Monitor::start(move |frame| {
+                let mut history = history.lock().unwrap_or_else(|e| e.into_inner());
+                if history.len() >= 4096 {
+                    unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    return;
+                }
+                history.push(frame.clone());
+                let identity = owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let mut samples = seen.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(name) = frame.name.as_ref() {
+                    samples.0 += 1;
+                    if samples.2.last() != Some(name) { samples.2.push(name.clone()); }
+                } else { samples.1 += 1; }
+                if enforce_owned && macos_focus::owned_frame(&frame, &identity.0, identity.1.as_deref()) {
+                    let mut observed = observed.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(pid) = frame.pid {
+                        if !observed.contains(&pid) { observed.push(pid); }
+                    }
+                }
+            }, move || { failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst); })
+        };
         FocusMonitor {
             stop,
             seen,
@@ -541,7 +542,15 @@ impl FocusMonitor {
             enforce_owned,
             owned_frontmost,
             unreadable_owners,
-            thread: Some(thread),
+            thread,
+            #[cfg(windows)]
+            notifications,
+            #[cfg(windows)]
+            foreground_pids,
+            #[cfg(target_os = "macos")]
+            mac_notifications,
+            #[cfg(target_os = "macos")]
+            mac_history,
         }
     }
     fn track_primary(&self, pid: u32) {
@@ -549,20 +558,57 @@ impl FocusMonitor {
         if !owned.0.contains(&pid) {
             owned.0.push(pid);
         }
+        drop(owned);
+        #[cfg(windows)]
+        if self.enforce_owned
+            && self
+                .foreground_pids
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&pid)
+        {
+            let mut observed = self
+                .owned_frontmost
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !observed.contains(&pid) {
+                observed.push(pid);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        self.reconcile_mac_history();
     }
     #[cfg(target_os = "macos")]
     fn track_prefix(&self, prefix: String) {
         self.owned.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(prefix);
+        self.reconcile_mac_history();
+    }
+    #[cfg(target_os = "macos")]
+    fn reconcile_mac_history(&self) {
+        if !self.enforce_owned { return; }
+        let history = self.mac_history.lock().unwrap_or_else(|e| e.into_inner());
+        let identity = self.owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut observed = self.owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
+        for frame in history.iter() {
+            if macos_focus::owned_frame(frame, &identity.0, identity.1.as_deref()) {
+                if let Some(pid) = frame.pid {
+                    if !observed.contains(&pid) { observed.push(pid); }
+                }
+            }
+        }
     }
     /// `(unchanged, states, owned_never_frontmost, owned_frontmost_pids, pid_unavailable_samples,
     /// failure reason)`.
     fn finish(&mut self) -> (bool, Vec<String>, bool, Vec<u32>, usize, Option<String>) {
-        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        self.shutdown();
         let g = self.seen.lock().unwrap_or_else(|e| e.into_inner());
-        let unchanged = g.0 > 0 && g.1 == 0 && g.2.len() == 1;
+        let unchanged = g.0 > 0
+            && g.1 == 0
+            && g.2.len() == 1
+            && self
+                .unreadable_owners
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0;
         let observed = self
             .owned_frontmost
             .lock()
@@ -579,7 +625,8 @@ impl FocusMonitor {
             .is_some();
         #[cfg(target_os = "macos")]
         let owned_never_frontmost =
-            !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty());
+            !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty()
+                && self.unreadable_owners.load(std::sync::atomic::Ordering::SeqCst) == 0);
         #[cfg(windows)]
         let owned_never_frontmost = windows_owned_never_frontmost(
             self.enforce_owned,
@@ -609,7 +656,28 @@ impl FocusMonitor {
             failure,
         )
     }
+    fn shutdown(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        #[cfg(windows)]
+        drop(self.notifications.take());
+        #[cfg(target_os = "macos")]
+        drop(self.mac_notifications.take());
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
 }
+
+impl Drop for FocusMonitor {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+#[cfg(windows)]
+mod windows_focus;
+#[cfg(target_os = "macos")]
+mod macos_focus;
 
 /// Caller environment must not put secrets in a process listing: on macOS
 /// `open --env K=V` exposes values in argv. Callers may supply only `RIGHTKIT_*` keys;
@@ -1794,6 +1862,32 @@ mod launch_path_tests {
         assert!(windows_owned_never_frontmost(true, 0, &[]));
         assert!(!windows_owned_never_frontmost(true, 0, &[9]));
         assert!(!windows_owned_never_frontmost(true, 1, &[]));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_startup_focus_is_attributed_when_primary_pid_arrives() {
+        // A foreground event can arrive after spawn but before its PID is registered.
+        let mut monitor = FocusMonitor {
+            stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            seen: Arc::new(Mutex::new((
+                3,
+                0,
+                vec!["1:a".into(), "42:b".into(), "1:a".into()],
+            ))),
+            owned: Arc::new(Mutex::new((vec![], None))),
+            enforce_owned: true,
+            owned_frontmost: Arc::new(Mutex::new(vec![])),
+            unreadable_owners: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            thread: None,
+            notifications: None,
+            foreground_pids: Arc::new(Mutex::new(vec![1, 42])),
+        };
+        monitor.track_primary(42);
+        let (unchanged, _, never_frontmost, observed, _, _) = monitor.finish();
+        assert!(!unchanged);
+        assert!(!never_frontmost);
+        assert_eq!(observed, vec![42]);
     }
 
     #[test]

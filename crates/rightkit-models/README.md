@@ -55,6 +55,10 @@ let spec = ModelSpec::new("whisper-tiny", vec![RevisionSpec { /* revision, files
 
 ### Download HTTP options
 
+Downloads stream HTTP bytes directly into destination-local `rightkit-fs::AtomicWriter` staging while computing SHA-256. Separate `.part` checkpoints preserve cancellation & Range resume. Before publication, `commit_checked` syncs file contents & rehashes staged bytes; transfer, digest, sync, verification & rename failures preserve existing destination contents. Model payloads are rebuildable, so publication uses `durable: false` with default `Rename`: success atomically exposes verified, synced file contents, without parent-directory sync or rename persistence across power loss. This policy avoids reporting an ordinary failure after replacing previous content.
+
+Checkpoint, resume metadata & metadata-staging names must differ from destination, including when destination is absent. Parent resolution & existing file identities detect path aliases. Windows uses native ordinal case comparison in matching parent directories & RightKit filesystem plain-name rules to refuse trailing-dot/space aliases; Unicode names remain supported. Unix retains distinct case, trailing-dot & trailing-space names.
+
 `http::ModelHttpOptions` configures the transport for downloads (`http_client_with_options`, `ModelHttp::new`, `Store::with_http_options`, `ensure_with_grant_via`). Every default is the previous behaviour.
 
 | Option | Default | Meaning |

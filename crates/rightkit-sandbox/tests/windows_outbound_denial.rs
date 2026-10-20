@@ -30,6 +30,10 @@ const LOCAL_BLACKHOLE_EXIT: i32 = 18;
 const ACCEPT_SETTLE: Duration = Duration::from_millis(300);
 const DENIED_EXIT: i32 = 17;
 const REMOTE_CONTROL_DEADLINE: Duration = Duration::from_secs(10);
+/// Connect bound of both remote probes. The unsandboxed control must connect within it and the
+/// confined probe must not: a connect with no bound waits out the OS SYN retry (about 21 s on
+/// Windows), longer than `CHILD_DEADLINE`, so a silently dropped connect looked like a hang.
+const REMOTE_CONNECT_BOUND: Duration = Duration::from_secs(5);
 // Cloudflare advertises these IPv4 resolver endpoints on TCP 443:
 // https://blog.cloudflare.com/announcing-ddr-support/
 const REMOTE_CONTROLS: &[(Ipv4Addr, u16)] = &[
@@ -492,7 +496,7 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
         .find(|&(host, port)| {
             let output = sandbox
                 .spawn_supervised(
-                    tcp_probe_command(&script, host, port, false, None),
+                    tcp_probe_command(&script, host, port, false, Some(REMOTE_CONNECT_BOUND)),
                     &supervised_probe_env(),
                 )
                 .expect("spawn unsandboxed remote TCP positive control")
@@ -517,7 +521,7 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
     let pipe_spawn = sandbox
         .spawn_with_pipe_pair(
             &policy,
-            tcp_probe_command(&script, host, port, true, None),
+            tcp_probe_command(&script, host, port, true, Some(REMOTE_CONNECT_BOUND)),
             "--remote-debugging-io-pipes",
         )
         .expect("spawn network-denied AppContainer through pipe-pair path");
@@ -539,12 +543,27 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
         .expect("wait for network-denied AppContainer remote control");
     drop(io);
     output_completed(&output, "network-denied AppContainer remote control");
-    assert_eq!(
-        output.status.and_then(|status| status.code()),
-        Some(DENIED_EXIT),
-        "same helper reached remote TCP control despite NetworkPolicy::Deny"
+    // The unsandboxed helper connected to this endpoint inside `REMOTE_CONNECT_BOUND` (exit 0), so
+    // only the missing `internetClient` capability explains the confined helper not connecting:
+    // either Winsock refuses at once (WSAEACCES, exit 17) or the AppContainer drops the SYN and
+    // the bounded connect expires (exit 18). Hosted runners show the second mode, exactly as the
+    // narrow local control does and as `report_denial` documents. Exit 0 (it connected) or
+    // anything else (the helper failed some other way) still fails.
+    let remote_exit = output.status.and_then(|status| status.code());
+    assert!(
+        matches!(remote_exit, Some(DENIED_EXIT | LOCAL_BLACKHOLE_EXIT)),
+        "same helper reached remote TCP control despite NetworkPolicy::Deny, or failed for \
+         another reason: {remote_exit:?}"
     );
-    println!("windows outbound remote denial endpoint={host}:{port} exit={DENIED_EXIT}");
+    let remote_behavior = if remote_exit == Some(DENIED_EXIT) {
+        "access_denied"
+    } else {
+        "bounded_blackhole"
+    };
+    println!(
+        "windows outbound remote denial endpoint={host}:{port} exit={} behavior={remote_behavior}",
+        remote_exit.unwrap_or_default()
+    );
 
     profile.delete_after_child_exit();
 }

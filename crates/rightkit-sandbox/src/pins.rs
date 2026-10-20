@@ -214,7 +214,10 @@ impl Drop for PinHandle {
     }
 }
 
-/// The canonical roots currently pinned, for the spawn paths that add them to a policy.
+/// The canonical roots currently pinned, for the spawn paths that add them to a policy. The
+/// only non-test caller (`spawn::with_pins`) is compiled off Windows, so Windows builds keep it
+/// for tests alone.
+#[cfg(any(test, not(windows)))]
 pub(crate) fn pinned_read_roots() -> Vec<PathBuf> {
     let table = table().lock().unwrap_or_else(|e| e.into_inner());
     table

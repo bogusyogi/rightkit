@@ -34,7 +34,7 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.4", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).
 rightkit-automation = { version = "0.6.0", path = "../rightkit-automation" }
@@ -62,7 +62,7 @@ path = "src/bin/rightkit-qa.rs"
 rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["test-mode"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging"] }
 windows_061 = { package = "windows", version = "0.61", optional = true }
 webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
 windows_062 = { package = "windows", version = "0.62", optional = true }

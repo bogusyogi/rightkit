@@ -316,6 +316,19 @@ mod windows {
         Sandbox::new(ResourceAuthority::new(ResourceProfile::Expanded))
     }
 
+    /// The live DACL of `path` as `icacls` prints it, for a failure message. Call it while the
+    /// child that holds the leases is still alive: dropping the child revokes its ACEs.
+    fn icacls(path: &std::path::Path) -> String {
+        match std::process::Command::new("icacls.exe").arg(path).output() {
+            Ok(out) => format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
+            Err(e) => format!("icacls {} failed to start: {e}", path.display()),
+        }
+    }
+
     #[test]
     fn appcontainer_denies_write_and_read_outside_allowed_dir_but_allows_inside() {
         if !crate::common::real_user_stores_allowed(
@@ -549,7 +562,7 @@ mod windows {
         let root = scratch("tree");
         let policy = SandboxPolicy::new().allow_write(&root);
         let _profile = crate::common::ProfileCleanup::of(&policy);
-        let child = expanded()
+        let mut child = expanded()
             .spawn(
                 &policy,
                 cmd("powershell -NoProfile -NonInteractive -Command $PID ^| Set-Content pid.txt; Start-Sleep 300")
@@ -565,10 +578,27 @@ mod windows {
             {
                 break pid;
             }
-            assert!(
-                Instant::now() < deadline,
-                "confined grandchild never started"
-            );
+            if Instant::now() >= deadline {
+                // Name what the confined shell did, instead of only that nothing appeared: whether
+                // it already exited, with what code and output, and the DACLs it ran under.
+                let exited = child.has_exited().unwrap_or(false);
+                let code = child.observed_exit_code().ok().flatten();
+                let acls = icacls(&root);
+                let _ = child.terminate_tree();
+                let out = child.wait_with_output(Duration::from_secs(10));
+                let (stdout, stderr) = match &out {
+                    Ok(o) => (
+                        String::from_utf8_lossy(&o.stdout).into_owned(),
+                        String::from_utf8_lossy(&o.stderr).into_owned(),
+                    ),
+                    Err(e) => (String::new(), format!("collecting output failed: {e}")),
+                };
+                panic!(
+                    "confined grandchild never started: shell_exited={exited} exit_code={code:?}\n\
+                     pid.txt exists={}\nstdout: {stdout}\nstderr: {stderr}\nroot DACL:\n{acls}",
+                    pid_file.exists()
+                );
+            }
             std::thread::sleep(Duration::from_millis(100));
         };
         let grandchild = rightkit_child_process::AdoptedProcess::new(pid.try_into().unwrap());
@@ -600,7 +630,13 @@ mod windows {
             .allow_write(&root)
             .deny_read(root.join("secrets"));
         let _profile = crate::common::ProfileCleanup::of(&policy);
-        let script = r"type public.txt> public.copy & type secrets\key.txt> leak.txt";
+        // The trailing icacls calls record the DACLs the confined shell itself saw, while its
+        // ACEs are live; they decide nothing and only feed the failure message below.
+        let script = concat!(
+            r"type public.txt> public.copy & type secrets\key.txt> leak.txt",
+            r" & icacls secrets> acl-dir.txt 2>&1",
+            r" & icacls secrets\key.txt> acl-key.txt 2>&1",
+        );
         let out = expanded()
             .spawn(&policy, cmd(script).cwd(&root))
             .unwrap()
@@ -617,7 +653,13 @@ mod windows {
         let leaked = fs::read_to_string(root.join("leak.txt")).unwrap_or_default();
         assert!(
             !leaked.contains("TOP-SECRET"),
-            "the secret leaked: {leaked:?}"
+            "the secret leaked: {leaked:?}\nexit: {:?}\nstderr: {}\n\
+             DACL of secrets as the child saw it:\n{}\n\
+             DACL of secrets\\key.txt as the child saw it:\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr),
+            fs::read_to_string(root.join("acl-dir.txt")).unwrap_or_default(),
+            fs::read_to_string(root.join("acl-key.txt")).unwrap_or_default(),
         );
         // The deny ACE is revoked with the child: the user reads the file again afterwards.
         assert_eq!(

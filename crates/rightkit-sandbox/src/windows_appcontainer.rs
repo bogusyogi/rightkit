@@ -1075,8 +1075,14 @@ fn loopback_api() -> io::Result<&'static LoopbackApi> {
         // SAFETY: `module` is a live module handle and each name is a NUL-terminated export.
         let (get, set) = unsafe {
             (
-                GetProcAddress(module, b"NetworkIsolationGetAppContainerConfig\0".as_ptr()),
-                GetProcAddress(module, b"NetworkIsolationSetAppContainerConfig\0".as_ptr()),
+                GetProcAddress(
+                    module,
+                    c"NetworkIsolationGetAppContainerConfig".as_ptr().cast(),
+                ),
+                GetProcAddress(
+                    module,
+                    c"NetworkIsolationSetAppContainerConfig".as_ptr().cast(),
+                ),
             )
         };
         if get.is_null() || set.is_null() {
@@ -3388,7 +3394,7 @@ fn launch_container(
         set_inheritable(stdout_child)?;
         set_inheritable(stderr_child)?;
         create_suspended(
-            &profile,
+            profile,
             SuspendedLaunchParams {
                 program: &program,
                 command_line: &command_line,
@@ -4192,6 +4198,102 @@ mod tests {
         true
     }
 
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn CreateRestrictedToken(
+            existing: *mut c_void,
+            flags: u32,
+            disable_sid_count: u32,
+            sids_to_disable: *const c_void,
+            delete_privilege_count: u32,
+            privileges_to_delete: *const c_void,
+            restricted_sid_count: u32,
+            sids_to_restrict: *const c_void,
+            new_token: *mut *mut c_void,
+        ) -> i32;
+        fn ImpersonateLoggedOnUser(token: *mut c_void) -> i32;
+        fn RevertToSelf() -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    /// Impersonates, on this thread only, the process token with every privilege removed
+    /// (`CreateRestrictedToken` with `DISABLE_MAX_PRIVILEGE`). Reverted and closed on drop.
+    struct StandardUserImpersonation(*mut c_void);
+
+    impl StandardUserImpersonation {
+        fn start() -> Self {
+            const TOKEN_ALL_ACCESS: u32 = 0xF01FF;
+            const DISABLE_MAX_PRIVILEGE: u32 = 0x1;
+            let mut process_token = std::ptr::null_mut();
+            // SAFETY: valid out-pointer; the current-process pseudo handle needs no closing.
+            let opened = unsafe {
+                OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut process_token)
+            };
+            assert!(
+                opened != 0,
+                "precondition: open the process token: {}",
+                io::Error::last_os_error()
+            );
+            let mut restricted = std::ptr::null_mut();
+            // SAFETY: null SID and privilege arrays with zero counts remove every privilege and
+            // restrict no SID; valid out-pointer; process_token was opened above.
+            let created = unsafe {
+                CreateRestrictedToken(
+                    process_token,
+                    DISABLE_MAX_PRIVILEGE,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    &mut restricted,
+                )
+            };
+            let create_error = io::Error::last_os_error();
+            // SAFETY: process_token was opened above and is closed exactly once here.
+            unsafe { CloseHandle(process_token) };
+            assert!(
+                created != 0,
+                "precondition: create a standard-user token without privileges: {create_error}"
+            );
+            let guard = Self(restricted);
+            // SAFETY: `restricted` is a primary token owned by `guard`; reverted in Drop.
+            let impersonated = unsafe { ImpersonateLoggedOnUser(restricted) };
+            assert!(
+                impersonated != 0,
+                "precondition: impersonate the standard-user token: {}",
+                io::Error::last_os_error()
+            );
+            guard
+        }
+    }
+
+    impl Drop for StandardUserImpersonation {
+        fn drop(&mut self) {
+            // SAFETY: reverts this thread's impersonation begun in `start`, then closes the token
+            // that `start` created, exactly once.
+            unsafe {
+                RevertToSelf();
+                CloseHandle(self.0);
+            }
+        }
+    }
+
+    /// Runs `body` on this thread under a standard-user token. The DACL refusals the
+    /// `best_effort_still_fails_*` tests need are only real for a token without privileges: an
+    /// elevated runner's process token can rewrite any DACL, so the same write succeeds there.
+    fn as_standard_user<T>(body: impl FnOnce() -> T) -> T {
+        let _standard = StandardUserImpersonation::start();
+        body()
+    }
+
     /// Read the DACL of `path` the way a lease does before it writes (GetNamedSecurityInfoW).
     fn dacl_is_readable(path: &Path) -> io::Result<()> {
         let mut wide_path = wide(path);
@@ -4218,8 +4320,10 @@ mod tests {
         Ok(())
     }
 
-    /// A scratch directory (under this test's own temp tree) that its owner cannot re-ACL,
-    /// standard user or administrator alike. An explicit WRITE_DAC deny is not enough: the
+    /// A scratch directory (under this test's own temp tree) that the calling token cannot
+    /// re-ACL. Only a token without privileges is refused: an elevated process token can rewrite
+    /// any DACL (its privileges bypass the ACL), which is why the callers run under
+    /// `as_standard_user`. An explicit WRITE_DAC deny is not enough: the
     /// owner holds implicit READ_CONTROL | WRITE_DAC unless an OWNER RIGHTS (S-1-3-4) ACE is
     /// present. So the DACL is: the user may modify (no WRITE_DAC, no WRITE_OWNER) and
     /// OWNER RIGHTS may read, traverse and delete (enough for cleanup), nothing else.
@@ -4248,8 +4352,9 @@ mod tests {
             locked
         }
 
-        /// The DACL reads, and a real DACL write with this process's token is refused with
-        /// ERROR_ACCESS_DENIED: the tests exercise write refusal, not an unreadable DACL.
+        /// The DACL reads, and a real DACL write with the calling token is refused with
+        /// ERROR_ACCESS_DENIED: the tests exercise write refusal, not an unreadable DACL. Call it
+        /// only inside `as_standard_user`; the message names the precondition it checks.
         fn assert_precondition(&self) {
             dacl_is_readable(&self.0)
                 .unwrap_or_else(|e| panic!("DACL of {} must be readable: {e}", self.0.display()));
@@ -4264,7 +4369,9 @@ mod tests {
             match write {
                 Err(e) if e.raw_os_error() == Some(5) => {}
                 other => panic!(
-                    "a DACL write on {} must fail with ERROR_ACCESS_DENIED (5), got {other:?}",
+                    "precondition not met: a DACL write on {} must fail with ERROR_ACCESS_DENIED \
+                     (5) for the calling token, got {other:?}; this host cannot establish the \
+                     standard-user refusal the test needs",
                     self.0.display()
                 ),
             }
@@ -4313,17 +4420,19 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_the_grant_itself_cannot_be_leased") {
             return;
         }
-        let locked = Unleasable::new("be-grant");
-        let grants = vec![(locked.0.clone(), true)];
-        let _cleanup = profile_of(&grants, &[]);
-        let failed = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort);
-        match failed.err() {
-            Some(SandboxError::Io(e)) => {
-                assert!(e.to_string().contains("lease "), "{e}");
-                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+        as_standard_user(|| {
+            let locked = Unleasable::new("be-grant");
+            let grants = vec![(locked.0.clone(), true)];
+            let _cleanup = profile_of(&grants, &[]);
+            let failed = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort);
+            match failed.err() {
+                Some(SandboxError::Io(e)) => {
+                    assert!(e.to_string().contains("lease "), "{e}");
+                    assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+                }
+                other => panic!("a grant that cannot be leased must fail the launch: {other:?}"),
             }
-            other => panic!("a grant that cannot be leased must fail the launch: {other:?}"),
-        }
+        });
     }
 
     #[test]
@@ -4331,20 +4440,22 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased") {
             return;
         }
-        let ok = scratch_dir("be-deny-ok");
-        let locked = Unleasable::new("be-deny");
-        let grants = vec![(ok.clone(), true)];
-        let denies = vec![locked.0.clone()];
-        let _cleanup = profile_of(&grants, &denies);
-        let failed = prepare(grants, denies, AncestorLeasePolicy::BestEffort);
-        match failed.err() {
-            Some(SandboxError::Io(e)) => {
-                assert!(e.to_string().contains("deny "), "{e}");
-                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+        as_standard_user(|| {
+            let ok = scratch_dir("be-deny-ok");
+            let locked = Unleasable::new("be-deny");
+            let grants = vec![(ok.clone(), true)];
+            let denies = vec![locked.0.clone()];
+            let _cleanup = profile_of(&grants, &denies);
+            let failed = prepare(grants, denies, AncestorLeasePolicy::BestEffort);
+            match failed.err() {
+                Some(SandboxError::Io(e)) => {
+                    assert!(e.to_string().contains("deny "), "{e}");
+                    assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+                }
+                other => panic!("a deny that cannot be leased must fail the launch: {other:?}"),
             }
-            other => panic!("a deny that cannot be leased must fail the launch: {other:?}"),
-        }
-        let _ = std::fs::remove_dir_all(&ok);
+            let _ = std::fs::remove_dir_all(&ok);
+        });
     }
 
     #[test]
@@ -4352,33 +4463,35 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_the_image_directory_cannot_be_leased") {
             return;
         }
-        let ok = scratch_dir("be-image-ok");
-        let locked = Unleasable::new("be-image");
-        let grants = vec![(ok.clone(), true)];
-        let _cleanup = profile_of(&grants, &[]);
-        let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
-            .unwrap_or_else(|e| panic!("best effort preparation failed: {e}"));
-        // The image lives in a directory no container can be granted; the launch must stop
-        // before CreateProcess instead of starting a child that cannot execute its image.
-        let command = SandboxCommand::new(locked.0.join("image.exe"));
-        let failed = launch_container(
-            &prepared,
-            locked.0.join("image.exe"),
-            &command,
-            &EnvPolicy::default(),
-            Some("--remote-debugging-io-pipes"),
-            None,
-            StdinMode::Null,
-        );
-        match failed.err() {
-            Some(SandboxError::Io(e)) => {
-                assert!(e.to_string().contains("lease image"), "{e}");
-                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+        as_standard_user(|| {
+            let ok = scratch_dir("be-image-ok");
+            let locked = Unleasable::new("be-image");
+            let grants = vec![(ok.clone(), true)];
+            let _cleanup = profile_of(&grants, &[]);
+            let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
+                .unwrap_or_else(|e| panic!("best effort preparation failed: {e}"));
+            // The image lives in a directory no container can be granted; the launch must stop
+            // before CreateProcess instead of starting a child that cannot execute its image.
+            let command = SandboxCommand::new(locked.0.join("image.exe"));
+            let failed = launch_container(
+                &prepared,
+                locked.0.join("image.exe"),
+                &command,
+                &EnvPolicy::default(),
+                Some("--remote-debugging-io-pipes"),
+                None,
+                StdinMode::Null,
+            );
+            match failed.err() {
+                Some(SandboxError::Io(e)) => {
+                    assert!(e.to_string().contains("lease image"), "{e}");
+                    assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+                }
+                other => panic!("an unleasable image directory must fail the launch: {other:?}"),
             }
-            other => panic!("an unleasable image directory must fail the launch: {other:?}"),
-        }
-        drop(prepared);
-        let _ = std::fs::remove_dir_all(&ok);
+            drop(prepared);
+            let _ = std::fs::remove_dir_all(&ok);
+        });
     }
 
     #[test]
