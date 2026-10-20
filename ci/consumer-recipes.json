@@ -23,15 +23,23 @@
         "./react"
       ],
       "closure": {
-        "install": {},
-        "declaredOnly": [
-          "react"
-        ]
+        "install": {
+          "react": "19.3.1"
+        },
+        "declaredOnly": []
+      },
+      "importClosures": {
+        ".": {},
+        "./contract-vectors": {},
+        "./native": {},
+        "./react": {
+          "react": "19.3.1"
+        }
       },
       "files": {
-        "ci/consumers/npm/app-update/README.md": "32b35507eb427dc5a5f516e18c89b7ce4eecfca865baaeb9a263b9a903d5324d",
+        "ci/consumers/npm/app-update/README.md": "e6c18530765bd8d876fefc8800da1ca2ded1099e310e4a666e10c855031ffa40",
         "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
-        "ci/consumers/npm/app-update/package.json": "2672646d884960b763ff24207d148ba20888678d8a0615d36c5f309ca10f476e",
+        "ci/consumers/npm/app-update/package.json": "ff6bbd8955ee8c52d636d20794e8c00b01bf5651c6a5b7fd44521c4e54575b10",
         "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "688010e5eb0f8cc72d8165666d356521357298f37d790043858091185e38afc1"
       }

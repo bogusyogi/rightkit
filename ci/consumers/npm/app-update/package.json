@@ -3,5 +3,8 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.24.0",
-  "scripts": { "qualify": "node consumer.mjs" }
+  "scripts": { "qualify": "node consumer.mjs" },
+  "dependencies": {
+    "react": "19.3.1"
+  }
 }
