@@ -1,0 +1,49 @@
+name: chrome-native-diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnostic:
+    if: ${{ github.ref == 'refs/heads/main' && github.event.repository.private == false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/rightkit-chrome-managed
+      CHROME_DIAGNOSTIC_ARTIFACT: ${{ runner.temp }}/chrome-diagnostic-packed
+      CHROME_DIAGNOSTIC_OUT: ${{ runner.temp }}/chrome-native-diagnostic
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Download frozen pack from successful pack job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: publish-packed
+          path: ${{ env.CHROME_DIAGNOSTIC_ARTIFACT }}
+          run-id: "39496214838"
+          github-token: ${{ github.token }}
+      - name: Provision pinned managed Chrome
+        run: node scripts/ci/provision-chrome.mjs
+      - name: Observe frozen native behavior
+        run: node scripts/ci/chrome-native-diagnostic.mjs
+      - name: Retain diagnostics only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: chrome-native-diagnostic-${{ matrix.os }}
+          path: ${{ env.CHROME_DIAGNOSTIC_OUT }}
+          if-no-files-found: warn
+          retention-days: "90"
