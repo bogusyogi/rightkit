@@ -63,7 +63,7 @@ function admissionZip(files) {
 async function admittedUploadFixture(input) {
   const manifestBytes = fs.readFileSync(path.join(input.packDir, "manifest.json"));
   const manifest = JSON.parse(manifestBytes);
-  const root = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch"), "rk-admission-"));
+  const root = tmp("admission");
   const files = { packed: Object.fromEntries(fs.readdirSync(input.packDir).map((name) => [name, fs.readFileSync(path.join(input.packDir, name))])) };
   for (const host of ["macos", "windows"]) {
     const name = `verify-${host}.json`;
