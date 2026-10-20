@@ -21,8 +21,12 @@ function fakeGh(runs) {
       if (runs.fail?.includes(name)) throw new Error("boom\nsecond line");
       return { stdout: Buffer.from(JSON.stringify(runs.files[name] ?? {})) };
     }
-    const zip = args.find((arg) => arg.endsWith(".zip") || args.includes("-xf") && arg === args[args.indexOf("-xf") + 1]);
-    const dir = args[args.indexOf("-d") + 1] ?? args[args.indexOf("-C") + 1];
+    const zipFlag = args.includes("-xf") ? "-xf" : null;
+    const zip = zipFlag ? args[args.indexOf(zipFlag) + 1] : args.find((arg) => arg.endsWith(".zip"));
+    const destinationFlag = args.includes("-d") ? "-d" : args.includes("-C") ? "-C" : null;
+    assert.ok(destinationFlag, `extractor has a destination flag: ${args.join(" ")}`);
+    const dir = args[args.indexOf(destinationFlag) + 1];
+    assert.ok(dir && !dir.startsWith("-"), `extractor destination is a path: ${args.join(" ")}`);
     for (const [rel, text] of Object.entries(JSON.parse(fs.readFileSync(zip, "utf8")))) {
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       fs.writeFileSync(path.join(dir, rel), text);

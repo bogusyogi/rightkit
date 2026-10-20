@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { APPROVED, authenticatePublication, registryUrl, lockEvidence, validatePublication } from "./registry-readback.mjs";
+
+test("workflow runner scratch context stays below job steps boundary", () => {
+  const source = readFileSync(new URL("../../.github/workflows/registry-readback.yml", import.meta.url), "utf8");
+  const jobs = source.slice(source.indexOf("\njobs:")).split(/^  [A-Za-z][\w-]*:[ \t\r]*$/m).slice(1);
+  assert.equal(jobs.length, 2);
+  for (const job of jobs) {
+    const steps = job.indexOf("    steps:");
+    assert.ok(steps >= 0, "job needs steps");
+    assert.doesNotMatch(job.slice(0, steps), /\$\{\{\s*runner\./, "runner context is unavailable at job env scope");
+  }
+});
 
 function runFixture() {
   return { id: APPROVED.runId, repository: { full_name: APPROVED.repository }, head_repository: { full_name: APPROVED.repository }, path: ".github/workflows/publish.yml", event: "workflow_dispatch", head_branch: "main", head_sha: APPROVED.commit, status: "completed", conclusion: "success", run_attempt: 1 };
