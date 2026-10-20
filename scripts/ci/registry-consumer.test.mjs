@@ -3,12 +3,42 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { assertRegistryManifest, isWithin, registryLockEvidence, runRegistryConsumer } from "./registry-consumer.mjs";
+import { spawnSync } from "node:child_process";
+import { archiveTool, assertRegistryManifest, isWithin, registryLockEvidence, runRegistryConsumer } from "./registry-consumer.mjs";
 import { sha } from "./upload.mjs";
 
 const unit = { name: "rightkit-logs", version: "0.3.4", sha256: "a".repeat(64) };
 const manifest = `[package]\nname="consumer"\nversion="0.0.0"\n[workspace]\n[dependencies]\nrightkit-logs = { version = "=0.3.4", default-features = false, features = [] }\n`;
 const lock = (u = unit, extra = {}) => `version = 4\n\n[[package]]\nname = "consumer"\nversion = "0.0.0"\n\n[[package]]\nname = "${u.name}"\nversion = "${extra.version ?? u.version}"\nsource = "${extra.source ?? "registry+https://github.com/rust-lang/crates.io-index"}"\nchecksum = "${extra.checksum ?? u.sha256}"\n`;
+
+test("archive tool bypasses Git Bash GNU tar on Windows", () => {
+  assert.equal(archiveTool("win32", { SystemRoot: "C:\\Windows" }), "C:\\Windows\\System32\\tar.exe");
+  assert.equal(archiveTool("win32", { SYSTEMROOT: "E:\\Windows" }), "E:\\Windows\\System32\\tar.exe");
+  assert.equal(archiveTool("darwin", {}), "tar");
+});
+
+test("native archive tool lists & extracts absolute runner paths", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-tar-path-"));
+  try {
+    const source = path.join(scratch, "source");
+    const destination = path.join(scratch, "destination");
+    fs.mkdirSync(source);
+    fs.mkdirSync(destination);
+    fs.writeFileSync(path.join(source, "payload.txt"), "sealed bytes\n");
+    const archive = path.join(scratch, "sealed.crate");
+    const run = (args) => {
+      const result = spawnSync(archiveTool(), args, { encoding: "utf8", timeout: 30_000 });
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout;
+    };
+    run(["-czf", archive, "-C", source, "payload.txt"]);
+    assert.match(run(["-tzf", archive]), /payload\.txt/);
+    assert.match(run(["-tvzf", archive]), /payload\.txt/);
+    run(["-xzf", archive, "-C", destination.replaceAll("\\", "/")]);
+    assert.equal(fs.readFileSync(path.join(destination, "payload.txt"), "utf8"), "sealed bytes\n");
+  } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+});
 
 test("consumer requires exact version & refuses path/git/patch escape hatches", () => {
   assert.doesNotThrow(() => assertRegistryManifest(manifest, unit));

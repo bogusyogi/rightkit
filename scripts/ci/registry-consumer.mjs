@@ -11,6 +11,10 @@ import { childEnv, loadSealed, sha } from "./upload.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const slash = (s) => s.replaceAll("\\", "/");
 const quote = (s) => JSON.stringify(slash(s));
+export function archiveTool(platform = process.platform, env = process.env) {
+  // Git Bash puts GNU tar first on PATH; it interprets D: as a remote host.
+  return platform === "win32" ? path.win32.join(env.SystemRoot || env.SYSTEMROOT || "C:\\Windows", "System32", "tar.exe") : "tar";
+}
 export function isWithin(parent, candidate) {
   const rel = path.relative(path.resolve(parent), path.resolve(candidate));
   return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
@@ -87,6 +91,7 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
   const bootstrap = path.join(scratch, "bootstrap");
   const commandLog = [];
   const cargoEnv = childEnv(env, { CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never" });
+  const tar = archiveTool(process.platform, env);
   const run = (command, args, cwd = scratch) => {
     const result = spawn(command, args, { cwd, env: cargoEnv, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout: 60 * 60_000 });
     commandLog.push({ command, args, status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") });
@@ -100,12 +105,12 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     const extracted = new Map();
     for (const u of units) {
       const prefix = `${u.name}-${u.version}`;
-      const entries = String(run("tar", ["-tzf", path.resolve(packDir, u.file)]))
+      const entries = String(run(tar, ["-tzf", path.resolve(packDir, u.file)]))
         .split(/\r?\n/).filter(Boolean);
       if (!entries.length || entries.some((p) => p.includes("\\") || !p.startsWith(`${prefix}/`) || p.split("/").some((s) => s === ".." || s === "."))) throw new Error(`unsafe archive entries: ${u.file}`);
-      const listing = run("tar", ["-tvzf", path.resolve(packDir, u.file)]);
+      const listing = run(tar, ["-tvzf", path.resolve(packDir, u.file)]);
       if (String(listing).split(/\r?\n/).filter(Boolean).some((line) => !["-", "d"].includes(line[0]))) throw new Error(`links/special entries in sealed archive: ${u.file}`);
-      run("tar", ["-xzf", path.resolve(packDir, u.file), "-C", slash(scratch)]);
+      run(tar, ["-xzf", path.resolve(packDir, u.file), "-C", slash(scratch)]);
       const dir = path.join(scratch, prefix);
       checksumDirectory(dir, u.sha256); // Reject links before bootstrap Cargo reads manifests.
       extracted.set(u.name, dir);
