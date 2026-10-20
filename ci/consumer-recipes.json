@@ -519,7 +519,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-http/src/main.rs",
       "files": {
-        "Cargo.toml": "c3e48ad3370673b5c430a09a89c25e6e96a826e99bba34953e46718afba87278",
+        "Cargo.toml": "a623e01d68d993c3b4f1119027b4447d0c43cf0d3cac0ec10588212ad02b9637",
         "README.md": "acc7418ea97ef234347c2def02056d097c38a65d1b62b63619b1280d4e822fa7",
         "src/main.rs": "e53aafef247c6a91a2dc1feca5d88ac06e964789e7b3dc095cacf066ff72b314"
       }

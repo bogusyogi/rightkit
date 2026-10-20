@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-http = { version = "=0.3.7", features = ["untrusted"] }
+rightkit-http = { version = "=0.3.8", features = ["untrusted"] }
