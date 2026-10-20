@@ -116,6 +116,48 @@ Do not use a Git dependency, sibling checkout, vendored copy or filesystem link.
 
 ## Host adapter
 
+`JsonlStoreConfig` assembles native log stems, byte limits, count retention,
+explicit bundle sources & collection redaction over existing primitives:
+
+```rust
+use rightkit_logs::{JsonlStore, JsonlStoreConfig, LogSource};
+
+let mut config = JsonlStoreConfig::from_stem("app-data/logs", "events", 4 * 1024 * 1024)?;
+config.generations = 2; // current file plus two predecessors
+config.bundle_sources = vec![LogSource::new("renderer", &config.path)];
+let store = JsonlStore::from_config(&config);
+// config.collect(metadata) uses configured sources & CollectionPolicy.
+# Ok::<(), std::io::Error>(())
+```
+
+CodeRight can replace its `MAX_LOG_BYTES`, path assembly & `collect_for_path`
+policy assembly with this configuration, naming its source `renderer` & retaining
+its additional redaction fragments. ViewRight names its source `app`, keeps
+`AsyncWriter::set_recording` for its diagnostics preference & flushes before
+collect/clear. These are migration examples; app files are unchanged here.
+`JsonlStore::clear` deletes only its current file & configured predecessors;
+declaring another bundle source does not authorize deleting it. Collection keeps
+its existing current-plus-one-predecessor default; explicitly declare other
+generation paths as sources when needed, with `include_rotated = false` to
+avoid reading overlapping predecessors. Daily tracing retains its existing
+`TracingFileConfig::{file_prefix,max_files}` inputs.
+
+Opt into parsed consent caching on existing outbox assembly:
+
+```rust
+use rightkit_logs::{ConsentStore, Outbox, OutboxConfig};
+
+let consent = ConsentStore::new("app-data/consent.json").with_cache(true);
+let outbox = Outbox::open("app-data/outbox.json", consent, OutboxConfig::default());
+```
+
+Every consent check still reads file bytes. Cache saves JSON parsing only;
+changed bytes, deletion, read failure or corruption invalidate cached state.
+`invalidate_cache` clears it explicitly; clones share it. Grants never survive
+cross-process revocation through stale metadata or TTL. Default remains uncached.
+Outbox & uploader keep existing consent checks; consent revocation & queue purge
+remain their existing explicit operations.
+
 Keep the app layer thin:
 
 1. Construct `JsonlStore` with the app-data `events.jsonl` path and the chosen byte cap.

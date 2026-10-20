@@ -46,7 +46,7 @@ pub use scrub::{redact_quoted, redact_url_text, scrub_text, scrub_text_counted, 
 pub use stderr_fmt::stderr_layer;
 #[cfg(feature = "tracing")]
 pub use stderr_tracing::install_stderr_tracing;
-pub use store::{tail_bytes, JsonlStore, StoreStatus};
+pub use store::{tail_bytes, JsonlStore, JsonlStoreConfig, StoreStatus};
 pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture, StderrLine};
 #[cfg(feature = "tracing")]
 pub use tracing_file::{

@@ -10,6 +10,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+type ConsentCache = Arc<Mutex<Option<(Vec<u8>, Consent)>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum Consent {
@@ -39,6 +41,7 @@ impl Consent {
 #[derive(Debug, Clone)]
 pub struct ConsentStore {
     path: PathBuf,
+    cache: Option<ConsentCache>,
     /// Message of the last `status` read that failed for a reason other than the file being
     /// absent; cleared by the next successful read. Shared between clones.
     last_read_error: Arc<Mutex<Option<String>>>,
@@ -48,12 +51,29 @@ impl ConsentStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
+            cache: None,
             last_read_error: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Reuse parsed consent when freshly read file bytes are unchanged. Every
+    /// check still reads disk, including grants: no TTL or metadata-only cache
+    /// can hide another process's revoke, replacement, deletion or corruption.
+    /// Clones share this cache. Disabled by default.
+    pub fn with_cache(mut self, enabled: bool) -> Self {
+        self.cache = enabled.then(|| Arc::new(Mutex::new(None)));
+        self
+    }
+
+    /// Drop parsed consent without changing persisted consent.
+    pub fn invalidate_cache(&self) {
+        if let Some(cache) = &self.cache {
+            *cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        }
     }
 
     /// Current state. A missing, unreadable or corrupt file is `Unset`:
@@ -79,13 +99,36 @@ impl ConsentStore {
     /// valid state is `ErrorKind::InvalidData`. Callers that treat an error as "no consent" get
     /// the same result as `status`.
     pub fn try_status(&self) -> io::Result<Consent> {
+        // Serialize cache replacement with reads, never let an older read
+        // overwrite a newer cached state from another thread.
+        let mut cache = self
+            .cache
+            .as_ref()
+            .map(|cache| cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
         let bytes = match fs::read(&self.path) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Consent::Unset),
-            Err(error) => return Err(error),
+            Err(error) => {
+                if let Some(cache) = cache.as_mut() {
+                    **cache = None;
+                }
+                return if error.kind() == io::ErrorKind::NotFound {
+                    Ok(Consent::Unset)
+                } else {
+                    Err(error)
+                };
+            }
         };
-        serde_json::from_slice(&bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        if let Some((cached_bytes, consent)) = cache.as_ref().and_then(|cache| cache.as_ref()) {
+            if *cached_bytes == bytes {
+                return Ok(consent.clone());
+            }
+        }
+        let parsed = serde_json::from_slice::<Consent>(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
+        if let Some(cache) = cache.as_mut() {
+            **cache = parsed.as_ref().ok().map(|consent| (bytes, consent.clone()));
+        }
+        parsed
     }
 
     /// Why the most recent `status` call returned `Unset` for a reason other than the file
@@ -117,6 +160,7 @@ impl ConsentStore {
     }
 
     fn write(&self, state: &Consent) -> io::Result<()> {
+        self.invalidate_cache();
         let bytes = serde_json::to_vec_pretty(state).map_err(io::Error::other)?;
         crate::atomic::write_atomic(&self.path, &bytes)
     }

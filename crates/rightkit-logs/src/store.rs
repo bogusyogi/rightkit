@@ -12,6 +12,55 @@ use std::time::{Duration, Instant};
 const ROTATION_LOCK_WAIT: Duration = Duration::from_millis(500);
 const ROTATION_LOCK_POLL: Duration = Duration::from_millis(25);
 
+/// Declarative inputs for the existing JSONL store & diagnostics collector.
+/// Paths & bundle sources come from trusted native host configuration.
+#[derive(Debug, Clone)]
+pub struct JsonlStoreConfig {
+    pub path: PathBuf,
+    /// Rotation threshold; zero disables size rotation.
+    pub max_file_bytes: u64,
+    /// Number of predecessors retained; zero behaves as one.
+    pub generations: u32,
+    /// Explicit sources only; no directory scanning or renderer paths.
+    pub bundle_sources: Vec<crate::LogSource>,
+    pub collection: crate::CollectionPolicy,
+}
+
+impl JsonlStoreConfig {
+    /// Same rotation defaults as [`JsonlStore::new`]; bundle includes this log.
+    pub fn new(path: impl Into<PathBuf>, max_file_bytes: u64) -> Self {
+        let path = path.into();
+        Self {
+            bundle_sources: vec![crate::LogSource::new("app", &path)],
+            path,
+            max_file_bytes,
+            generations: 1,
+            collection: crate::CollectionPolicy::default(),
+        }
+    }
+
+    /// Choose `<dir>/<stem>.jsonl`. Reject separators, dot components &
+    /// Windows drive/stream syntax on every host. No directories are created.
+    pub fn from_stem(
+        dir: impl AsRef<Path>,
+        stem: &str,
+        max_file_bytes: u64,
+    ) -> io::Result<Self> {
+        if stem.is_empty()
+            || matches!(stem, "." | "..")
+            || stem.chars().any(|c| matches!(c, '/' | '\\' | ':' | '\0'))
+        {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid log stem"));
+        }
+        Ok(Self::new(dir.as_ref().join(format!("{stem}.jsonl")), max_file_bytes))
+    }
+
+    /// Collect declared sources through the existing bounded/redacting collector.
+    pub fn collect(&self, metadata: crate::BundleMetadata) -> crate::DiagnosticsBundle {
+        crate::collect_diagnostics(&self.bundle_sources, metadata, &self.collection)
+    }
+}
+
 /// Failures a [`JsonlStore`] has absorbed instead of returning or printing them. Read with
 /// [`JsonlStore::status`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,6 +87,11 @@ pub struct JsonlStore {
 }
 
 impl JsonlStore {
+    /// Compose declarative path & count retention without another logging backend.
+    pub fn from_config(config: &JsonlStoreConfig) -> Self {
+        Self::new(&config.path, config.max_file_bytes).with_generations(config.generations)
+    }
+
     /// `max_file_bytes` is the rotation size; `0` disables rotation.
     ///
     /// If rotation fails (for example the rotated name is blocked), the event is still appended to
