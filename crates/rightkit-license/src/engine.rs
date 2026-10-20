@@ -33,6 +33,21 @@
 //! 4. A test or debug override belongs behind a Cargo feature or `cfg(test)` that
 //!    release builds cannot enable; do not branch on an environment variable.
 //!
+//! ## The native client's record (M12)
+//! A credential source may return the stored record text instead of a bare token: an envelope
+//! (`state` `active` or `tombstone`) or the older bare `@rightkit/license` record. A tombstone
+//! (a deactivated licence) is [`EngineEntitlementError::NoLicense`]; an old bare record is
+//! active with no revision. With the `client` feature, `CredentialTokenSource::from_record_store`
+//! also makes the engine an authorizer of the native client: each read first tries the per-app
+//! licence operation lock for 250 ms and checks the rotation fence, and while the lock is held,
+//! a rotation marker exists or a write is unresolved the check fails closed as
+//! [`EngineEntitlementError::Unreadable`] (never `NoLicense`, never an entitlement). The cached
+//! verdict below is still bounded by its TTL, so a deactivation reaches an engine at the latest
+//! after [`MAX_CACHE_TTL_SECS`] or at the next [`EngineEntitlements::invalidate`]. With the `client`
+//! feature an in-process engine can attach the client's `LicenseInvalidation`
+//! (`EngineEntitlements::with_invalidation`), after which a verdict cached before the client's
+//! latest change is never served, so a deactivation reaches it at once.
+//!
 //! [`require_pro`]: EngineEntitlements::require_pro
 
 use std::fmt;
@@ -166,6 +181,9 @@ impl EngineEntitlementsConfig {
 struct Cached {
     entitlement: Entitlement,
     verified_at: i64,
+    /// The licence-change generation this verdict was verified under (always 0 unless a
+    /// `LicenseInvalidation` is attached). A verdict from an older generation is never served.
+    generation: u64,
 }
 
 /// Verifies the stored licence inside an engine process. See the module docs.
@@ -174,6 +192,8 @@ pub struct EngineEntitlements<C = SystemClock> {
     clock: C,
     wall: WallClock,
     cache: Mutex<Option<Cached>>,
+    #[cfg(feature = "client")]
+    invalidation: Option<crate::LicenseInvalidation>,
 }
 
 impl EngineEntitlements<SystemClock> {
@@ -192,6 +212,34 @@ impl<C: TrustedClock> EngineEntitlements<C> {
             clock,
             wall: Box::new(system_now_unix),
             cache: Mutex::new(None),
+            #[cfg(feature = "client")]
+            invalidation: None,
+        }
+    }
+
+    /// Attach the native licence client's change counter (feature `client`). From then on a
+    /// verdict cached before the client's latest change is never served: the next check
+    /// re-reads and re-verifies the stored record, so a deactivation, refresh or activation
+    /// reaches this verifier at once instead of after the cache TTL. An engine verifier that is
+    /// rebuilt attaches the same handle again; nothing is carried between instances. The signal
+    /// has no data and can only make a check stricter, so it grants nothing.
+    #[cfg(feature = "client")]
+    pub fn with_invalidation(mut self, invalidation: &crate::LicenseInvalidation) -> Self {
+        self.invalidation = Some(invalidation.clone());
+        self
+    }
+
+    /// The change generation a verdict verified now belongs to.
+    fn generation_now(&self) -> u64 {
+        #[cfg(feature = "client")]
+        {
+            self.invalidation
+                .as_ref()
+                .map_or(0, crate::LicenseInvalidation::generation)
+        }
+        #[cfg(not(feature = "client"))]
+        {
+            0
         }
     }
 
@@ -216,6 +264,9 @@ impl<C: TrustedClock> EngineEntitlements<C> {
 
     /// The verified entitlement, or why there is none.
     pub fn current(&self) -> Result<Entitlement, EngineEntitlementError> {
+        // Read before verifying: a change that lands during the verification leaves the new
+        // verdict marked with the older generation, so it is not served afterwards.
+        let generation = self.generation_now();
         let wall = (self.wall)()
             .map_err(|e| EngineEntitlementError::Clock(ClockRefusal::Unavailable(e)))?;
         let now = self
@@ -228,6 +279,7 @@ impl<C: TrustedClock> EngineEntitlements<C> {
                 if self.cfg.ttl_secs > 0
                     && (0..self.cfg.ttl_secs).contains(&age)
                     && now < c.entitlement.exp
+                    && c.generation == generation
                 {
                     return Ok(c.entitlement.clone());
                 }
@@ -238,6 +290,7 @@ impl<C: TrustedClock> EngineEntitlements<C> {
             *guard = Some(Cached {
                 entitlement: ent.clone(),
                 verified_at: now,
+                generation,
             });
         }
         Ok(ent)

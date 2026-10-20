@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-license"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license."
@@ -20,18 +20,33 @@ subject-entitlement = ["dep:rightkit-http"]
 # Google-subject entitlement decision (local cache or service, with offline grace) to an
 # Allowed / Grace / Denied verdict, an exit code and a message. Implies `subject-entitlement`.
 engine-gate = ["subject-entitlement"]
+# Native licence client (M12): activate, refresh, deactivate, trial and device-lease calls over the
+# fixed HTTPS endpoints, the envelope-versioned record in the OS credential store, worker-fenced
+# persistence, and the fenced engine token source. Adds `rightkit-http`, `rightkit-credentials` and
+# `zeroize`; the default build is unchanged.
+client = ["dep:rightkit-http", "dep:rightkit-credentials", "dep:zeroize"]
+# Native update authorization (G1): `UpdateAuthProvider::authorize`, one lock acquisition per request.
+# Adds `url` (2.x, the type of `authorize`'s URL argument and the one the updater plugin uses).
+update-auth = ["client", "dep:url"]
+# TEST ONLY. Lets a test point the client at a loopback `http://` origin
+# (`LicenseClientConfig::with_test_origin`). Never enable it in a shipped build.
+client-testing = ["client"]
 
 [dependencies]
 ed25519-dalek = "3"
 base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rightkit-http = { version = "0.3.1", path = "../rightkit-http", optional = true }
+rightkit-http = { version = "0.3.6", path = "../rightkit-http", optional = true }
+rightkit-credentials = { version = "0.3.1", path = "../rightkit-credentials", optional = true }
+zeroize = { version = "1.9", optional = true }
+url = { version = "2", optional = true }
 
 [dev-dependencies]
-# Loopback mock server for tests/subject_entitlement.rs (gated on the feature above).
-rightkit-http = { version = "0.3.1", path = "../rightkit-http", features = ["testing"] }
+# Loopback mock server for tests/subject_entitlement.rs and tests/client_*.rs (gated on the features above).
+rightkit-http = { version = "0.3.6", path = "../rightkit-http", features = ["testing"] }
+tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "offline Ed25519 entitlement-token verification per call; no refresh loop or background task in this crate; resident-static: one empty process-wide Mutex serialises ledger access and holds no data; the file-backed clock store takes an OS file lock for the length of one read-compare-write and keeps nothing resident; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
+continuous_reason = "offline Ed25519 entitlement-token verification per call; no refresh loop or background task in this crate (the native client runs only when the app calls it); resident-static: one empty process-wide Mutex serialises ledger access and holds no data, and with feature client a thread_local lock-level mask of three bits per calling thread (client/order.rs) holds nothing secret; the file-backed clock store takes an OS file lock for the length of one read-compare-write and keeps nothing resident; thread-spawn (feature client only): one write worker per record write or reconcile (client/lock.rs run_fenced) that owns the licence operation lock until its credentials calls have returned and then ends, never resident, and the same worker per account session write (client/account.rs, which owns the account lock the same way); sleep (feature client only): a 5 ms poll of CrossProcessLock::try_acquire bounded by the caller deadline (client/lock.rs, client/clockstore.rs) and a 50 ms poll in the write worker while a timed-out credentials call is still running (client/persist.rs settle), which ends when that call returns; no timer, listener or watcher in non-test src (checked by runtime-budgets.mjs, reviewed 2026-10-19)"

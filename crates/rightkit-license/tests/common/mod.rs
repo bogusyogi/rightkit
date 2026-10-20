@@ -15,6 +15,10 @@ pub fn pubkey() -> [u8; 32] {
     signing_key().verifying_key().to_bytes()
 }
 
+pub fn other_signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[9_u8; 32])
+}
+
 pub fn other_pubkey() -> [u8; 32] {
     SigningKey::from_bytes(&[9_u8; 32])
         .verifying_key()

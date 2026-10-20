@@ -67,6 +67,17 @@ impl CrossProcessLock {
         }
     }
 
+    /// [`try_acquire`](Self::try_acquire) for the shared lock: `Ok(None)` while an exclusive
+    /// holder has it. Never blocks.
+    #[cfg(feature = "client")]
+    pub(crate) fn try_acquire_shared(path: &Path) -> io::Result<Option<Self>> {
+        match Self::lock_file(Self::open_file(path)?, false, LockWait::DoNotWait) {
+            Ok(lock) => Ok(Some(lock)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     fn open(path: &Path, exclusive: bool) -> io::Result<Self> {
         Self::lock_file(Self::open_file(path)?, exclusive, LockWait::Block)
     }
@@ -184,7 +195,7 @@ impl FileClockStore {
         sidecar(&self.path, "lock")
     }
 
-    fn read_unlocked(&self) -> Result<Option<ClockState>, FileClockStoreError> {
+    pub(crate) fn read_unlocked(&self) -> Result<Option<ClockState>, FileClockStoreError> {
         match fs::read_to_string(&self.path) {
             Ok(raw) => ClockState::decode(&raw)
                 .map(Some)
@@ -196,7 +207,7 @@ impl FileClockStore {
 
     /// Write `state` through a temporary file and an atomic rename. The caller holds the
     /// exclusive lock.
-    fn write_unlocked(&self, state: &ClockState) -> Result<(), FileClockStoreError> {
+    pub(crate) fn write_unlocked(&self, state: &ClockState) -> Result<(), FileClockStoreError> {
         create_parent(&self.path)?;
         let temporary = sidecar(&self.path, "tmp");
         let written = (|| -> io::Result<()> {

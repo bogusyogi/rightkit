@@ -36,6 +36,19 @@
 //! with a daily re-check, strict `expires_at` and a 7-day offline grace. It is off by default
 //! and independent of the signed-token path above. See the `subject` module docs.
 //!
+//! ## Native client (feature `client`, `update-auth`, 0.2.4)
+//! `LicenseClient` runs the whole licence lifecycle natively: activate, refresh, deactivate,
+//! trial and device-lease calls over fixed HTTPS endpoints, the envelope-versioned record in the
+//! OS credential store, worker-fenced persistence and a fenced engine token source
+//! (`CredentialTokenSource::from_record_store`). It returns only the fixed-schema views
+//! (`LicenseView`, `RefreshView`, `TrialView`) and a typed `LicenseError`; no credential reaches
+//! a renderer. `UpdateAuthProvider` (feature `update-auth`) decides the headers of each updater
+//! request. `AccountSessionClient` is the native passwordless account session (sign-in, devices,
+//! sign-out, deletion), `LicenseClient::{bridge_publish, bridge_exchange, link_request,
+//! link_redeem}` the Pro bridge and device-link codes, and `LicenseInvalidation` carries each
+//! licence change to live `EngineEntitlements` verifiers. See the `client` module docs. Off by
+//! default; the default build is unchanged.
+//!
 //! ## Caller responsibilities
 //! Verification here is deliberately narrow. The caller still owns:
 //! - **The nested lease entitlement.** The envelope signature covers seven metadata
@@ -47,6 +60,8 @@
 //!   held; checking `expiresAt`/`graceSeconds`, `deviceIdHash` and `generation` (and
 //!   rejecting a lower generation than the one stored) is the caller's job.
 
+#[cfg(feature = "client")]
+mod client;
 mod clock;
 mod engine;
 mod file_store;
@@ -54,6 +69,7 @@ mod file_store;
 mod gate;
 mod lease;
 mod lifecycle;
+mod record_text;
 mod refresh;
 mod revocation;
 #[cfg(feature = "subject-entitlement")]
@@ -72,6 +88,24 @@ pub use subject::{
     SubjectEntitlementSource, SubjectSource, TokenError, SUBJECT_OFFLINE_GRACE_SECS,
     SUBJECT_RECHECK_SECS,
 };
+
+#[cfg(feature = "client")]
+pub use client::{
+    AccountClientConfig, AccountCommandError, AccountDeletion, AccountDeviceView, AccountError,
+    AccountErrorCode, AccountRejectReason, AccountSessionClient, AccountStatusView, BridgePlatform,
+    CommandCode, CommandError, DeleteAccountConfirmation, DeletionRefusal, DeviceIdError,
+    DeviceIdSource, LegacySource, LicenseClient, LicenseClientConfig, LicenseError,
+    LicenseInvalidation, LicenseMode, LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome,
+    MessageCode, RefreshView, RefreshViewOutcome, RejectReason, RevisionState, SecretString,
+    TrialView, ViewKind, ViewStage, ViewStatus, ACCOUNT_SESSION_TTL_SECS, DEFAULT_RECORD_ACCOUNT,
+    DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
+};
+#[cfg(feature = "update-auth")]
+pub use client::{
+    AuthorizedHeaders, LicenseRevision, StagedIdentity, UpdateAuthConfig, UpdateAuthError,
+    UpdateAuthProvider, UpdateBinding, UpdateRoute, DEFAULT_HEADER_TTL,
+};
+pub use record_text::stored_signed_token;
 
 pub use revocation::{
     peek_unverified_claims, verify_token_not_revoked, RevocationError, RevokedIds, UnverifiedClaims,

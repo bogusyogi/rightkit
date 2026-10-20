@@ -23,6 +23,9 @@ use std::path::PathBuf;
 use super::{EngineEntitlementError, MAX_TOKEN_BYTES};
 
 type CredentialReader = Box<dyn Fn() -> Result<Option<String>, String> + Send + Sync>;
+/// What [`CredentialTokenSource::with_fence`] takes: acquire whatever excludes the licence
+/// writers and return the guard that is held for the length of one read.
+type SourceFence = Box<dyn Fn() -> Result<Box<dyn std::any::Any>, String> + Send + Sync>;
 
 /// Where an engine verifier loads the stored signed token from.
 pub trait TokenSource: Send + Sync {
@@ -61,8 +64,18 @@ impl TokenSource for FileTokenSource {
 /// Opt-in token source backed by a host credential store. The reader returns
 /// the stored signed token (e.g. an OS-store `get`): `Ok(None)` = no licence
 /// stored, `Err(_)` = store unavailable/unreadable.
+///
+/// The reader may also return the stored record text itself (an M12 envelope or the older bare
+/// `@rightkit/license` record, both JSON): the token is then taken out of it, a tombstone
+/// (a deactivated licence) is no licence, and a record whose status is not active is no
+/// licence. See [`crate::stored_signed_token`].
+///
+/// With the `client` feature, `CredentialTokenSource::from_record_store` builds a source that
+/// also observes the native client's mutation fencing (the licence operation lock, a rotation
+/// marker, unresolved state) and fails closed while a write may be in flight.
 pub struct CredentialTokenSource {
     reader: CredentialReader,
+    fence: Option<SourceFence>,
 }
 
 impl CredentialTokenSource {
@@ -71,12 +84,30 @@ impl CredentialTokenSource {
     ) -> Self {
         Self {
             reader: Box::new(reader),
+            fence: None,
         }
+    }
+
+    /// Run `fence` before every read and keep the guard it returns until the read is done. An
+    /// `Err` from the fence is the read's `Err` (the check fails closed as unreadable). This is
+    /// how a reader excludes a licence writer that is mid-write; the native client's own fence
+    /// is built by `CredentialTokenSource::from_record_store` (feature `client`).
+    pub fn with_fence(
+        mut self,
+        fence: impl Fn() -> Result<Box<dyn std::any::Any>, String> + Send + Sync + 'static,
+    ) -> Self {
+        self.fence = Some(Box::new(fence));
+        self
     }
 }
 
 impl TokenSource for CredentialTokenSource {
     fn load_token(&self) -> Result<Option<String>, String> {
+        // Held until the reader has returned.
+        let _hold = match &self.fence {
+            Some(fence) => Some(fence()?),
+            None => None,
+        };
         (self.reader)()
     }
 }
@@ -99,6 +130,19 @@ pub(crate) fn load_bounded_token(
     let token = raw.trim();
     if token.is_empty() {
         return Err(EngineEntitlementError::Unreadable("empty token".into()));
+    }
+    // A signed token is `payload.signature` and never starts with `{`; a source that hands over
+    // the stored record instead is unwrapped here (envelope or bare record, tombstone = none).
+    if token.starts_with('{') {
+        let inner = crate::record_text::stored_signed_token(token)
+            .map_err(EngineEntitlementError::Unreadable)?
+            .ok_or(EngineEntitlementError::NoLicense)?;
+        if inner.len() as u64 > MAX_TOKEN_BYTES {
+            return Err(EngineEntitlementError::Unreadable(
+                "token too large".to_string(),
+            ));
+        }
+        return Ok(inner);
     }
     Ok(token.to_string())
 }

@@ -31,9 +31,28 @@ The token is minted by the backend signer outside this repository (`rightapps` `
 
 Do not use it to issue or sign licences. Signing belongs to the backend signer.
 
+## Native client (features `client`, `update-auth`)
+
+`LicenseClient` runs the licence lifecycle natively so no credential reaches a renderer: activate, refresh (with clock re-anchor), deactivate, trial requests, native-only device-lease calls and `import_legacy`, over fixed HTTPS endpoints, with the record stored as a revisioned envelope (`active` or `tombstone`) in the OS credential store. It returns only fixed-schema views (`LicenseView`, `RefreshView`, `TrialView`) and a typed `LicenseError`. Writes are fenced: the per-app operation lock is held for the whole mutation and by the write worker until the credential store has really finished, and every reader (status, the engine `CredentialTokenSource::from_record_store`, `UpdateAuthProvider::authorize`) takes the same lock with a bounded try and fails closed while a write is unresolved. See the `client` module docs and CHANGELOG 0.2.4.
+
+```rust
+use std::sync::Arc;
+use rightkit_license::{LicenseClient, LicenseClientConfig, LicenseSetup, SecretString};
+
+let config = LicenseClientConfig::new("heardright", "heardright.app", "1.4.0", PUBLIC_KEY, store, license_dir)?;
+let client = LicenseClient::new(LicenseSetup::configured(config), Arc::new(my_device_source))?;
+let view = client.activate(SecretString::new(key_typed_by_the_user))?; // a LicenseView, no token in it
+```
+
+The same `client` feature carries the rest of the licence-adjacent native work, over the service paths the apps use today and no others:
+
+- `AccountSessionClient` is the passwordless account session: `request_sign_in`, `complete_sign_in`, `status`, `refresh`, `sign_out`, `list_devices`, `rename_device`, `remove_device`, and `delete_account` as a typed destructive action that keeps a server refusal (`AccountDeletion::Refused`) and an unprovable outcome (`Indeterminate`) as results and clears the local session only on a 200. The session token is one revisioned credential item that never leaves native code; a result that arrives after a sign-out is discarded, not written. `request_link` and `redeem_link` run on the `LicenseClient` it is built with.
+- `LicenseClient::{bridge_publish, bridge_exchange}` are the Pro bridge (`/v1/licenses/bridge/{from-activation,exchange}`): the bridge token is a native `SecretString`, and the lease an exchange returns goes through every check of a typed-key lease. `LicenseClient::{link_request, link_redeem}` are the device-link codes (`/v1/pro/{app}/devices/windows-link/{request,redeem}`).
+- `LicenseInvalidation` carries every committed licence change to live engine verifiers: `EngineEntitlements::with_invalidation(&client.invalidation())` makes a verifier re-read the stored record after any change instead of serving its cached verdict, and `subscribe` hints another process.
+
 ## Cargo features
 
-`subject-entitlement` (Google-subject entitlement client, adds `rightkit-http`) and `engine-gate` (engine startup gate: Allowed / Grace / Denied verdict, exit codes, messages; implies `subject-entitlement`; see CHANGELOG 0.2.2). Both are off by default. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
+`client` (native licence client, adds `rightkit-http`, `rightkit-credentials`, `zeroize`), `update-auth` (implies `client`, adds `url`; updater request authorization), `client-testing` (implies `client`; test-only loopback origin, never shipped), `subject-entitlement` (Google-subject entitlement client, adds `rightkit-http`) and `engine-gate` (engine startup gate: Allowed / Grace / Denied verdict, exit codes, messages; implies `subject-entitlement`; see CHANGELOG 0.2.2). All are off by default. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
 
 ## Usage
 
