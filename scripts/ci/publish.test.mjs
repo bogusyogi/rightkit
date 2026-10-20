@@ -752,6 +752,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "npm @rightkit/doc-render@0.2.1 05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
     "npm @rightkit/license@0.3.0 9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
     "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
+    "npm @rightkit/onboarding@0.6.3 9db84e3f619ab01cc932e5a9323ee77022287c82e752604a339fc3ddff8047a3",
     "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
   ]);
   // Each approval names its exact reviewer: the first three compared exact CI archives with previously signed
@@ -761,6 +762,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "@rightkit/license@0.3.0": foundation,
     "@rightkit/logs@0.1.6": foundation,
     "@rightkit/react-shell@0.7.2": foundation,
+    "@rightkit/onboarding@0.6.3": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_view_foundation/39494691758/onboarding-0.6.3" },
     "@rightkit/doc-render@0.2.1": { reviewer: "RK2 Astra (R8 exact-archive SIGN)", reviewRef: "agent-review:/root/swift_native_evidence/39468856523/doc-render" },
     "rightkit-fs@0.4.6": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39482266477/fs-0.4.6" },
     "rightkit-http@0.3.8": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39485850149/http-0.3.8" },
