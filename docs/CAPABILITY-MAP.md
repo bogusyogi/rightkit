@@ -92,7 +92,7 @@ Capabilities: 92 (57 with fingerprints, 35 declaration-only). Internal owners th
 | spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.1.1 (crates.io) |
 | spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.1 (crates.io) |
 | sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.5.1 (crates.io) |
-| structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.5 (npm); rightkit-logs: published 0.3.3 (crates.io) |
+| structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.5 (npm); rightkit-logs: published 0.3.5 (crates.io) |
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
 | tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.3.0 (npm); rightkit-device: published 0.3.1 (crates.io) |
