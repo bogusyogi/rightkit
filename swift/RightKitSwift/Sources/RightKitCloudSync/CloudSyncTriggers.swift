@@ -19,22 +19,28 @@ public struct CloudSyncPush: Sendable {
     /// iOS grants ~30s; finish before it so a slow CloudKit never gets the app throttled. The
     /// coalesced request stays resumable through a later foreground/push trigger.
     public var watchdog: TimeInterval
+    /// True (the default): a push that does not name this subscription is refused. False accepts one
+    /// that names no subscription (CloudKit may prune the id) and still refuses one that names another.
+    public var requireSubscriptionID: Bool
 
-    public init(containerIdentifier: String, subscriptionID: String, zoneName: String, watchdog: TimeInterval = 25) {
+    public init(
+        containerIdentifier: String, subscriptionID: String, zoneName: String, watchdog: TimeInterval = 25,
+        requireSubscriptionID: Bool = true
+    ) {
         self.containerIdentifier = containerIdentifier
         self.subscriptionID = subscriptionID
         self.zoneName = zoneName
         self.watchdog = watchdog
+        self.requireSubscriptionID = requireSubscriptionID
     }
 
     #if canImport(CloudKit)
-    /// True only for this app's private-database zone notification.
+    /// True only for this app's private-database zone notification (the rules of ``CloudKitWakeFilter``).
     public func matches(userInfo: [AnyHashable: Any]) -> Bool {
-        guard let n = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKRecordZoneNotification else {
-            return false
-        }
-        return n.containerIdentifier == containerIdentifier && n.databaseScope == .private
-            && n.subscriptionID == subscriptionID && n.recordZoneID?.zoneName == zoneName
+        CloudKitWakeFilter(
+            containerIdentifier: containerIdentifier, zoneName: zoneName, subscriptionID: subscriptionID,
+            requireSubscriptionID: requireSubscriptionID
+        ).evaluate(userInfo: userInfo) == .accept
     }
     #endif
 

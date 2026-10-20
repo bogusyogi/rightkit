@@ -204,6 +204,42 @@ public actor PendingLicenseRemovalQueue {
         return delivered
     }
 
+    /// Imports removals a pre-RightKit controller queued in its own format: a JSON array of
+    /// `{"deviceIdHash": ..., "leaseId": ...}` rows and any number of bare activation tokens. Each
+    /// becomes the same entry a new removal would be, and one already queued is not duplicated. Persisted as
+    /// one exclusive read-modify-write, like ``enqueue(_:)``.
+    ///
+    /// Returns how many entries were newly queued, or `nil` when NOTHING was imported (the storage could
+    /// not grant its exclusion, or `leaseRemovalsJSON` is present but unreadable). The caller deletes its
+    /// legacy copy only after a non-nil result, so an owed removal is never lost in the move.
+    @discardableResult
+    public func adoptLegacy(leaseRemovalsJSON: Data?, activationTokens: [String] = []) -> Int? {
+        struct LegacyLeaseRemoval: Decodable { let deviceIdHash: String; let leaseId: String }
+        var incoming: [PendingLicenseRemoval] = []
+        if let data = leaseRemovalsJSON {
+            guard let rows = try? JSONDecoder().decode([LegacyLeaseRemoval].self, from: data) else { return nil }
+            for row in rows where !row.deviceIdHash.isEmpty && !row.leaseId.isEmpty {
+                incoming.append(.lease(deviceIdHash: row.deviceIdHash, leaseId: row.leaseId))
+            }
+        }
+        for token in activationTokens {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { incoming.append(.activation(activationToken: trimmed)) }
+        }
+        guard !incoming.isEmpty else { return 0 }
+        let (storage, key) = (self.storage, self.key)
+        var added = 0
+        let granted = storage.transact(forKey: key) {
+            var current = Self.load(storage, key)
+            for removal in incoming where !current.contains(removal) {
+                current.append(removal)
+                added += 1
+            }
+            Self.save(current, storage, key)
+        }
+        return granted ? added : nil
+    }
+
     private func load() -> [PendingLicenseRemoval] { Self.load(storage, key) }
 
     private static func load(_ storage: any LicenseDeviceStateStoring, _ key: String) -> [PendingLicenseRemoval] {
@@ -284,5 +320,38 @@ public extension StoredLicense {
             return false
         }
         return activationToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+}
+
+/// One-time move of removals that an earlier controller kept in `UserDefaults` (an activation token
+/// stored as a string, lease removals stored as a JSON array) into the shared durable queue.
+public enum LegacyLicenseRemovalMigration {
+    /// Reads the legacy values, hands them to ``PendingLicenseRemovalQueue/adoptLegacy(leaseRemovalsJSON:activationTokens:)``
+    /// and deletes the legacy keys only after it reported success. Returns the number of entries newly
+    /// queued, or `nil` when nothing was moved (the legacy values are left untouched for the next launch).
+    @discardableResult
+    public static func adopt(
+        into queue: PendingLicenseRemovalQueue, defaults: UserDefaults = .standard,
+        activationTokenKey: String?, leaseRemovalsKey: String?
+    ) async -> Int? {
+        let leaseData = leaseRemovalsKey.flatMap { defaults.data(forKey: $0) }
+        let token = activationTokenKey.flatMap { defaults.string(forKey: $0) }
+        guard let added = await queue.adoptLegacy(leaseRemovalsJSON: leaseData, activationTokens: token.map { [$0] } ?? []) else { return nil }
+        if leaseData != nil, let leaseRemovalsKey { defaults.removeObject(forKey: leaseRemovalsKey) }
+        if token != nil, let activationTokenKey { defaults.removeObject(forKey: activationTokenKey) }
+        return added
+    }
+
+    /// Moves a legacy "this device gave up its license, do not re-consume the continuity bridge" boolean
+    /// (a `UserDefaults` flag) into `gate`. Without this, a device that removed its license before the app
+    /// adopted ``BridgeConsumptionGate`` would consume the bridge again and take its seat back. The legacy key
+    /// is deleted only once the gate reads suppressed. Returns whether the gate is suppressed afterwards.
+    @discardableResult
+    public static func adoptBridgeSuppression(into gate: BridgeConsumptionGate, defaults: UserDefaults = .standard, legacyKey: String) -> Bool {
+        guard defaults.bool(forKey: legacyKey) else { return gate.isSuppressed }
+        gate.suppress()
+        guard gate.isSuppressed else { return false }
+        defaults.removeObject(forKey: legacyKey)
+        return true
     }
 }

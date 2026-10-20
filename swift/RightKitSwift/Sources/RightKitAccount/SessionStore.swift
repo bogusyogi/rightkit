@@ -71,6 +71,11 @@ public struct AccountSessionKeychainStore: AccountSessionKeyStoring {
 ///
 /// An account is optional. Free use and a locally verified Pro entitlement never read it, and
 /// signing out clears this session and nothing else (not the device lease, StoreKit, or synced keys).
+///
+/// Every call suspends on the network, and the actor runs other calls meanwhile. So a sign-in or a
+/// renewal that was already in flight when the user signed out (or the server expired the session,
+/// or the account was deleted) never writes its session back: each such clearing advances a fence,
+/// and a round trip that started before the fence moved drops its answer.
 public actor AccountSessionStore {
     /// Mirrors the server's one-year session TTL; a display estimate, never authoritative.
     public static let sessionTTLSeconds: Int64 = 365 * 24 * 60 * 60
@@ -78,36 +83,73 @@ public actor AccountSessionStore {
     private let client: AccountSessionClient
     private let keyStore: any AccountSessionKeyStoring
     private let now: @Sendable () -> Date
+    private let onChange: (@Sendable (AccountSessionStatus) -> Void)?
+    /// Advanced by every local clearing (sign-out, expiry, deletion). See the type documentation.
+    private var clearings: UInt64 = 0
 
+    /// - Parameter onChange: called, on this actor, after every local change of the session
+    ///   (sign-in, renewal, sign-out, expiry, deletion) with the new status. An app turns it into its
+    ///   own notification or observable update; RightKit names no notification.
     public init(
         client: AccountSessionClient, keyStore: any AccountSessionKeyStoring,
         now: @escaping @Sendable () -> Date = { Date() },
+        onChange: (@Sendable (AccountSessionStatus) -> Void)? = nil,
     ) {
         self.client = client
         self.keyStore = keyStore
         self.now = now
+        self.onChange = onChange
     }
 
     /// Local read only. Nothing that gates Free or Pro use may depend on the network.
     public func status() -> AccountSessionStatus { Self.status(of: keyStore.read()) }
 
     /// Account-screen refresh: renews an active server session. A transient failure keeps the locally
-    /// known state; an expired session signs out locally.
+    /// known state; an expired session signs out locally. Failures are not reported: use
+    /// ``renewChecked()`` to learn why a renewal did not happen.
     @discardableResult
     public func renew() async -> AccountSessionStatus {
+        do { return try await renewChecked() } catch { return status() }
+    }
+
+    /// ``renew()`` that throws what went wrong (``AccountSessionError``). With no session it
+    /// returns the signed-out status without a network call. An expired session (401) is cleared locally
+    /// and rethrown as ``AccountSessionError/sessionExpired``; any other failure keeps the session.
+    @discardableResult
+    public func renewChecked() async throws -> AccountSessionStatus {
         guard let session = keyStore.read() else { return status() }
+        let started = clearings
         do {
             let email = try await client.renewSession(token: session.token)
+            // Signed out, expired elsewhere or replaced while the request was out: the answer is stale.
+            guard started == clearings, keyStore.read()?.token == session.token else { return status() }
             try persist(token: session.token, email: email ?? session.email)
         } catch {
-            _ = clearOnExpiry(error, expectedToken: session.token)
+            throw clearOnExpiry(error, expectedToken: session.token)
         }
         return status()
     }
 
     @discardableResult
     public func signInWithApple(identityToken: String) async throws -> AccountSessionStatus {
+        let started = clearings
         let result = try await client.signInWithApple(identityToken: identityToken)
+        guard started == clearings else { return status() }
+        try persist(token: result.token, email: result.email)
+        return status()
+    }
+
+    /// Asks the server to mail a sign-in link. Nothing is stored.
+    public func requestMagicLink(email: String) async throws {
+        try await client.requestMagicLink(email: email)
+    }
+
+    /// Redeems the token of a sign-in link and stores the session it opens.
+    @discardableResult
+    public func completeMagicLink(token: String) async throws -> AccountSessionStatus {
+        let started = clearings
+        let result = try await client.consumeMagicLink(token: token)
+        guard started == clearings else { return status() }
         try persist(token: result.token, email: result.email)
         return status()
     }
@@ -121,7 +163,7 @@ public actor AccountSessionStore {
     /// Local-first and non-destructive: the Keychain item goes before the network call.
     public func signOut() async {
         let session = keyStore.read()
-        keyStore.clear()
+        clearSession()
         if let session { await client.signOut(token: session.token) }
     }
 
@@ -130,7 +172,25 @@ public actor AccountSessionStore {
     public func deleteAccount() async throws {
         let token = try bearerToken()
         do { try await client.deleteAccount(token: token) } catch { throw clearOnExpiry(error, expectedToken: token) }
-        keyStore.clear()
+        clearSession()
+    }
+
+    /// Every device leased to the signed-in account. A 401 clears the local session.
+    public func devices() async throws -> [AccountDeviceRow] {
+        let token = try bearerToken()
+        do { return try await client.devices(token: token) } catch { throw clearOnExpiry(error, expectedToken: token) }
+    }
+
+    /// Renames a device (`AccountDeviceRow.id`). A 401 clears the local session.
+    public func renameDevice(id: String, label: String) async throws {
+        let token = try bearerToken()
+        do { try await client.renameDevice(id: id, label: label, token: token) } catch { throw clearOnExpiry(error, expectedToken: token) }
+    }
+
+    /// Removes a device (`AccountDeviceRow.id`), freeing its seat. A 401 clears the local session.
+    public func removeDevice(id: String) async throws {
+        let token = try bearerToken()
+        do { try await client.removeDevice(id: id, token: token) } catch { throw clearOnExpiry(error, expectedToken: token) }
     }
 
     /// Links the StoreKit purchase proven by `signedTransaction` to the signed-in account.
@@ -149,12 +209,19 @@ public actor AccountSessionStore {
     /// token: drop it locally. Returns the error so callers can `throw` it.
     @discardableResult
     public func clearOnExpiry(_ error: Error, expectedToken: String) -> Error {
-        if case AccountSessionError.sessionExpired = error, keyStore.read()?.token == expectedToken { keyStore.clear() }
+        if case AccountSessionError.sessionExpired = error, keyStore.read()?.token == expectedToken { clearSession() }
         return error
+    }
+
+    private func clearSession() {
+        clearings &+= 1
+        keyStore.clear()
+        onChange?(.signedOut)
     }
 
     private func persist(token: String, email: String?) throws {
         try keyStore.write(StoredAccountSession(token: token, email: email, issuedAtUnix: Int64(now().timeIntervalSince1970)))
+        onChange?(status())
     }
 
     private static func status(of session: StoredAccountSession?) -> AccountSessionStatus {

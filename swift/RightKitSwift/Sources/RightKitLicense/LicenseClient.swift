@@ -292,7 +292,19 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         }
     }
 
-    public func load() async -> StoredLicense? {
+    public func load() async -> StoredLicense? { loadNow() }
+
+    public func save(_ license: StoredLicense) async throws { try saveNow(license) }
+
+    public func remove() async throws { try removeNow() }
+
+    // Synchronous forms of the three operations. The Keychain calls are synchronous anyway; these
+    // let an app with legacy synchronous call sites read and write the same record without
+    // blocking a thread on an `async` call (a semaphore around `Task.detached` can deadlock when
+    // the caller sits on the thread the task needs). They take the same process-wide lock.
+
+    /// The stored record, or nil when absent or unreadable. Same read as ``load()``.
+    public func loadNow() -> StoredLicense? {
         let found: Data? = Self.lock.withLock {
             guard let store = try? secrets(), let data = try? store.get(account) else { return nil }
             _ = try? store.reapplyAccessibility(account)
@@ -303,7 +315,8 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         return try? decoder.decode(StoredLicense.self, from: data)
     }
 
-    public func save(_ license: StoredLicense) async throws {
+    /// Same write as ``save(_:)``.
+    public func saveNow(_ license: StoredLicense) throws {
         let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
         guard let data = try? encoder.encode(license) else { throw LicenseStorageError.encoding }
         try Self.lock.withLock {
@@ -311,7 +324,8 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         }
     }
 
-    public func remove() async throws {
+    /// Same delete as ``remove()``.
+    public func removeNow() throws {
         try Self.lock.withLock {
             do { try secrets().delete(account) } catch { throw Self.map(error) }
         }
@@ -591,6 +605,24 @@ public struct WindowsLinkCode: Codable, Equatable, Sendable {
     public init(code: String, expiresAt: String) { self.code = code; self.expiresAt = expiresAt }
 }
 
+/// What one refresh round trip proposes, before anything is saved. See
+/// ``LicenseActivationClient/fetchRefresh(for:)``.
+public struct LicenseRefreshResult: Sendable, Equatable {
+    /// The record to publish: the refreshed record, or the starting record when nothing changed.
+    public var license: StoredLicense
+    /// The server answered 404/410: this device's lease is gone (the record is already marked `revoked`).
+    public var deviceRemoved: Bool
+    /// Whether `license` must be saved. False when the round trip changed nothing (no token, a
+    /// tolerated server error, a renewal answer without a lease).
+    public var shouldPersist: Bool
+
+    public init(license: StoredLicense, deviceRemoved: Bool, shouldPersist: Bool) {
+        self.license = license
+        self.deviceRemoved = deviceRemoved
+        self.shouldPersist = shouldPersist
+    }
+}
+
 public extension LicenseActivationClient {
     typealias Configuration = LicenseClientConfiguration
 }
@@ -623,16 +655,37 @@ public struct LicenseActivationClient: Sendable {
     /// ``renewLease()`` instead (``LicenseController/refresh(silent:)`` routes them).
     public func refresh() async throws -> StoredLicense? {
         guard let current = await store.load(), let token = current.activationToken, !token.isEmpty else { return await store.load() }
+        let result = try await fetchLegacyRefresh(for: current, activationToken: token)
+        if result.shouldPersist { try await store.save(result.license) }
+        return result.license
+    }
+
+    /// One refresh round trip for `current` that PERSISTS NOTHING: a lease-bound record renews, any
+    /// other record goes through the legacy `refresh` call. The caller decides whether the answer
+    /// is still wanted and saves `result.license` itself when `result.shouldPersist`. This is the
+    /// compare-and-save seam: ``LicenseController`` checks, after the network wait, that no
+    /// removal, activation or external write happened since the refresh started, and drops the
+    /// answer otherwise. Failure handling is identical to ``refresh()`` and ``renewLease()``.
+    public func fetchRefresh(for current: StoredLicense) async throws -> LicenseRefreshResult {
+        if current.leaseId != nil { return try await fetchLeaseRenewal(for: current) }
+        guard let token = current.activationToken, !token.isEmpty else {
+            return LicenseRefreshResult(license: current, deviceRemoved: false, shouldPersist: false)
+        }
+        return try await fetchLegacyRefresh(for: current, activationToken: token)
+    }
+
+    private func fetchLegacyRefresh(for current: StoredLicense, activationToken token: String) async throws -> LicenseRefreshResult {
+        let unchanged = LicenseRefreshResult(license: current, deviceRemoved: false, shouldPersist: false)
         let body: LicenseServerResponse
         do {
             body = try await post(path: "refresh", payload: ["app": configuration.app, "activationToken": token, "deviceId": current.deviceId])
         } catch {
             switch configuration.refreshErrorPolicy {
             case .surfaceAll: throw error
-            case .keepRecordOnAnyError: return current
+            case .keepRecordOnAnyError: return unchanged
             case .keepRecordOnServerError:
-                guard let error = error as? LicenseError else { return current }
-                if case .serverStatus(let status, _) = error, !(400..<500).contains(status) { return current }
+                guard let error = error as? LicenseError else { return unchanged }
+                if case .serverStatus(let status, _) = error, !(400..<500).contains(status) { return unchanged }
                 throw error
             }
         }
@@ -641,8 +694,7 @@ public struct LicenseActivationClient: Sendable {
             refreshed: Self.license(from: body, deviceId: current.deviceId, key: current.key, activatedAt: current.activatedAt),
             revokingStatuses: configuration.revokingStatuses
         )
-        try await store.save(updated)
-        return updated
+        return LicenseRefreshResult(license: updated, deviceRemoved: false, shouldPersist: true)
     }
 
     public func deactivate() async throws {
@@ -685,22 +737,39 @@ public struct LicenseActivationClient: Sendable {
 
     /// ``renewLease()`` plus whether the server answered 404/410 (this device's lease is gone).
     func renewLeaseOutcome() async throws -> (license: StoredLicense?, deviceRemoved: Bool) {
-        guard let current = await store.load(), let leaseId = current.leaseId else { return (await store.load(), false) }
+        guard let current = await store.load(), current.leaseId != nil else { return (await store.load(), false) }
+        let result = try await fetchLeaseRenewal(for: current)
+        if result.shouldPersist {
+            // A failed save of a renewed lease leaves the stored record as it was, as it always has;
+            // a failed save of the 404/410 revocation still throws.
+            do { try await store.save(result.license) } catch {
+                if result.deviceRemoved { throw error }
+                return (current, false)
+            }
+        }
+        return (result.license, result.deviceRemoved)
+    }
+
+    /// The renewal round trip without the save. Signature and scope are verified before the result
+    /// is offered; an unsupported scope throws ``LicenseScopeError``.
+    private func fetchLeaseRenewal(for current: StoredLicense) async throws -> LicenseRefreshResult {
+        let unchanged = LicenseRefreshResult(license: current, deviceRemoved: false, shouldPersist: false)
+        guard let leaseId = current.leaseId else { return unchanged }
         let payload = leaseBody(["deviceIdHash": Self.deviceIDHash(current.deviceId), "leaseId": leaseId])
         do {
             let body: LicenseServerResponse = try await post(url: configuration.leaseURL(["renew"]), payload: payload)
-            guard let lease = body.lease else { return (current, false) }
+            guard let lease = body.lease else { return unchanged }
             let renewed = try verifiedLicense(from: lease, activationToken: current.activationToken ?? "", deviceId: current.deviceId, activatedAt: current.activatedAt)
-            try await store.save(renewed); return (renewed, false)
+            return LicenseRefreshResult(license: renewed, deviceRemoved: false, shouldPersist: true)
         } catch let error as LicenseScopeError {
             throw error
         } catch let error as LicenseError {
             if case .serverStatus(let status, _) = error, status == 404 || status == 410 {
                 var revoked = current; revoked.status = "revoked"; revoked.signedToken = nil; revoked.entitlements = nil; revoked.validUntil = nil
-                try await store.save(revoked); return (revoked, true)
+                return LicenseRefreshResult(license: revoked, deviceRemoved: true, shouldPersist: true)
             }
-            return (current, false)
-        } catch { return (current, false) }
+            return unchanged
+        } catch { return unchanged }
     }
 
     /// Verifies the envelope signature against the configured key, then its scope against
@@ -1048,6 +1117,14 @@ public final class LicenseController: ObservableObject {
     public let bridgeConsumption: BridgeConsumptionGate?
     /// Last operation on the serial chain; the next operation awaits it before it starts.
     private var operationTail: Task<Void, Never>?
+    /// Advanced, synchronously at the call, by every operation that changes which license this
+    /// device holds (`activate`, `activateLease`, `persist`, `remove`). A refresh remembers the value
+    /// it started under and saves its answer only if it is unchanged: a refresh that raced one of
+    /// those operations can never put the older record back.
+    private(set) var mutationGeneration: UInt64 = 0
+    /// The network half of the refresh in flight, so `remove()` can end the wait instead of queueing
+    /// behind a slow server.
+    private var inFlightRefresh: Task<LicenseRefreshResult, any Error>?
 
     public init(client: LicenseActivationClient, messages: LicenseMessages = LicenseMessages()) {
         self.client = client
@@ -1149,6 +1226,7 @@ public final class LicenseController: ObservableObject {
     /// Activation through the renewable device-lease endpoint. Clears bridge suppression on
     /// success: an explicit activation is the user's way back after a removal.
     public func activateLease(_ key: String, deviceLabel: String? = nil) async {
+        mutationGeneration &+= 1
         await serialized {
             self.isBusy = true; defer { self.isBusy = false }
             do {
@@ -1163,6 +1241,7 @@ public final class LicenseController: ObservableObject {
     /// the app performed) through the same device-only store as an activation. Does not clear
     /// bridge suppression.
     public func persist(_ verified: StoredLicense) async throws {
+        mutationGeneration &+= 1
         try await serializedThrowing {
             try await self.client.store.save(verified)
             self.license = verified
@@ -1172,6 +1251,7 @@ public final class LicenseController: ObservableObject {
     public var isProCandidate: Bool { verifiesPro(license) }
 
     public func activate(_ key: String) async {
+        mutationGeneration &+= 1
         await serialized {
             self.isBusy = true; defer { self.isBusy = false }
             do {
@@ -1196,14 +1276,18 @@ public final class LicenseController: ObservableObject {
     private func performRefresh(silent: Bool) async {
         if !silent { isBusy = true }
         defer { if !silent { isBusy = false } }
+        let generation = mutationGeneration
         do {
-            let (fetched, removed) = try await routedRefresh()
+            // nil: a removal, activation or external write overtook this refresh. Its answer is
+            // dropped whole (no publish, no message): the newer operation owns the outcome.
+            guard let (fetched, removed) = try await routedRefresh(generation: generation) else { return }
             let refreshed = await stampDeviceRemoved(fetched, removed: removed)
             publish(refreshed, silent: silent)
             if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
             // A completed round trip proves connectivity: flush owed removals now.
             await deliverPendingRemovals()
         } catch {
+            guard generation == mutationGeneration else { return }
             if Self.isDeviceRemoved(error), let stamped = await stampDeviceRemoved(license, removed: true) { license = stamped }
             if !silent { message = failureMessage(for: error) }
         }
@@ -1240,6 +1324,10 @@ public final class LicenseController: ObservableObject {
     /// consumption, queue the owed server removal durably, delete the local record (Pro ends
     /// immediately, even offline), then attempt delivery; an undelivered removal stays queued.
     public func remove() async {
+        // At the call, before queueing: the refresh in flight is superseded and its network wait
+        // ends now, so removal does not sit behind a slow server and no refresh can undo it.
+        mutationGeneration &+= 1
+        inFlightRefresh?.cancel()
         await serialized { await self.performRemove() }
     }
 
@@ -1258,9 +1346,21 @@ public final class LicenseController: ObservableObject {
         await deliverPendingRemovals()
     }
 
-    private func routedRefresh() async throws -> (StoredLicense?, deviceRemoved: Bool) {
-        if await client.load()?.leaseId != nil { return try await client.renewLeaseOutcome() }
-        return (try await client.refresh(), false)
+    /// The refresh round trip plus compare-and-save. A lease-bound record renews, any other record
+    /// refreshes (``LicenseActivationClient/fetchRefresh(for:)``). The network wait runs in a task
+    /// of its own that `remove()` cancels. After the wait the answer is saved only if the
+    /// generation is unchanged AND the stored record is still the one the refresh started from
+    /// (so an external writer, such as another process, is not overwritten); otherwise returns nil.
+    private func routedRefresh(generation: UInt64) async throws -> (StoredLicense?, deviceRemoved: Bool)? {
+        guard let started = await client.load() else { return (nil, false) }
+        let network = self.client
+        let fetch = Task { try await network.fetchRefresh(for: started) }
+        inFlightRefresh = fetch
+        defer { inFlightRefresh = nil }
+        let result = try await fetch.value
+        guard generation == mutationGeneration, await client.load() == started else { return nil }
+        if result.shouldPersist { try await client.store.save(result.license) }
+        return (result.license, result.deviceRemoved)
     }
 
     private func publish(_ refreshed: StoredLicense?, silent: Bool) {

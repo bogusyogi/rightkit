@@ -239,3 +239,70 @@ protocol ContinuityBridgeStatusReporting {
 
 extension ContinuityBridgeIssue: ContinuityBridgeStatusReporting {}
 extension ContinuityBridgeExchange: ContinuityBridgeStatusReporting {}
+
+// MARK: Verified results
+
+private let bridgeLeaseRejected = "Could not save the device entitlement locally."
+
+private func verifiedBridgeLicense(
+    ok: Bool?, message: String?, activationToken: String?, lease: LicenseLeaseEnvelope?, missing: String,
+    deviceId: String, publicKeyBase64url: String, allowedScopes: Set<String>
+) throws -> StoredLicense {
+    guard ok != false, let activationToken, !activationToken.isEmpty, let lease else {
+        throw ContinuityBridgeFailure.rejected(message ?? missing)
+    }
+    do {
+        // Signature first, then scope; nothing is persisted here.
+        return try LicenseActivationClient.license(
+            fromLease: lease, activationToken: activationToken, deviceId: deviceId,
+            publicKeyBase64url: publicKeyBase64url, key: nil, allowedScopes: allowedScopes
+        )
+    } catch {
+        throw ContinuityBridgeFailure.rejected(bridgeLeaseRejected)
+    }
+}
+
+public extension ContinuityBridgeExchange {
+    /// The device license this exchange authorizes, after the lease signature and scope verify
+    /// against `publicKeyBase64url`. A body without a token and lease, or a lease that does not
+    /// verify, is ``ContinuityBridgeFailure/rejected(_:)`` (never a partial license). Nothing is stored.
+    func verifiedLicense(
+        deviceId: String, publicKeyBase64url: String,
+        allowedScopes: Set<String> = LicenseEntitlementScope.mobileCompatible
+    ) throws -> StoredLicense {
+        try verifiedBridgeLicense(
+            ok: ok, message: message, activationToken: activationToken, lease: lease,
+            missing: "The bridge exchange returned no device lease.",
+            deviceId: deviceId, publicKeyBase64url: publicKeyBase64url, allowedScopes: allowedScopes
+        )
+    }
+}
+
+public extension ContinuityBridgeIssue {
+    /// The device license a `from-storekit` / `from-activation` answer authorizes through its
+    /// `activation` object, verified like ``ContinuityBridgeExchange/verifiedLicense(deviceId:publicKeyBase64url:allowedScopes:)``.
+    /// Read ``licenseKey`` before calling this: a server-verified full-license key can arrive in a body that
+    /// carries no usable lease.
+    func verifiedLicense(
+        deviceId: String, publicKeyBase64url: String,
+        allowedScopes: Set<String> = LicenseEntitlementScope.mobileCompatible
+    ) throws -> StoredLicense {
+        try verifiedBridgeLicense(
+            ok: ok, message: message, activationToken: activation?.activationToken, lease: activation?.lease,
+            missing: "The authorization response contained no device lease.",
+            deviceId: deviceId, publicKeyBase64url: publicKeyBase64url, allowedScopes: allowedScopes
+        )
+    }
+}
+
+public extension ContinuityBridgeClient {
+    /// ``exchange(bridgeToken:deviceId:)`` and the verification of its lease in one call. Returns the
+    /// verified, unsaved device license; the caller persists it (``LicenseController/persist(_:)``).
+    func exchangeForLicense(
+        bridgeToken: String, deviceId: String, publicKeyBase64url: String,
+        allowedScopes: Set<String> = LicenseEntitlementScope.mobileCompatible
+    ) async throws -> StoredLicense {
+        try await exchange(bridgeToken: bridgeToken, deviceId: deviceId)
+            .verifiedLicense(deviceId: deviceId, publicKeyBase64url: publicKeyBase64url, allowedScopes: allowedScopes)
+    }
+}

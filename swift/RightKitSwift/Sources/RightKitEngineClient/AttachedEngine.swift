@@ -305,18 +305,50 @@ final class AttachedCore: Sendable {
 
     // MARK: Endpoint and connections
 
+    /// `resident.json` as the daemon heartbeat writes it
+    /// (`rightkit_daemon::ticker::spawn_heartbeat`, every second):
+    /// `{"pid":N,"updated_ms":<Unix ms>,"state":{"endpoint":"<socket path>",...}}`. A flat
+    /// `{"endpoint":"..."}` (a hand-written record) is also read.
     private struct Record: Decodable {
-        let endpoint: String
+        struct State: Decodable {
+            let endpoint: String
+        }
+        let updatedMs: Double?
+        let state: State?
+        let endpoint: String?
+
+        enum CodingKeys: String, CodingKey {
+            case updatedMs = "updated_ms"
+            case state
+            case endpoint
+        }
+    }
+
+    /// A heartbeat older than this is not a running engine (it is written every second), so a
+    /// record left behind by a crash or a kill does not name a socket to dial.
+    static let recordFreshSeconds: Double = 30
+
+    /// The endpoint a `resident.json` body names, or nil when the body is unreadable, names none, or
+    /// is a heartbeat older than ``recordFreshSeconds``. A flat record has no timestamp and is
+    /// accepted as written.
+    static func endpoint(fromRecord data: Data, now: Date = Date()) -> String? {
+        guard let record = try? JSONDecoder().decode(Record.self, from: data) else { return nil }
+        if let state = record.state {
+            guard !state.endpoint.isEmpty, let updatedMs = record.updatedMs,
+                now.timeIntervalSince1970 - updatedMs / 1000 <= recordFreshSeconds
+            else { return nil }
+            return state.endpoint
+        }
+        guard let endpoint = record.endpoint, !endpoint.isEmpty else { return nil }
+        return endpoint
     }
 
     private func resolveEndpoint() throws -> String {
         if let endpointOverride { return endpointOverride }
-        guard let data = try? Data(contentsOf: recordURL),
-            let record = try? JSONDecoder().decode(Record.self, from: data), !record.endpoint.isEmpty
-        else {
+        guard let data = try? Data(contentsOf: recordURL), let endpoint = Self.endpoint(fromRecord: data) else {
             throw AttachedFailure.starting("no engine record yet", engineName: engineName)
         }
-        return record.endpoint
+        return endpoint
     }
 
     private var recordExists: Bool {

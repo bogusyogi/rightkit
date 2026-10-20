@@ -47,9 +47,22 @@ public protocol AppleCredentialBackend: AnyObject, Sendable {
     func readBroadSynced(service: String, account: String) -> Result<Data?, AppleCredentialError>
     /// Passive status probe of `service`. Default: ``status()``.
     func status(service: String) -> Result<String?, AppleCredentialError>
+    /// Removes `account` from every location the backend knows: both scopes, and on the Security backend also
+    /// the legacy file Keychain. Every location is attempted; the first failure is returned. Absent items
+    /// succeed. Default: delete both scopes.
+    func deleteEverywhere(service: String, account: String) -> Result<Void, AppleCredentialError>
 }
 
 public extension AppleCredentialBackend {
+    func deleteEverywhere(service: String, account: String) -> Result<Void, AppleCredentialError> {
+        var first: AppleCredentialError?
+        for scope in AppleCredentialScope.allCases {
+            if case let .failure(error) = delete(service: service, account: account, scope: scope), first == nil { first = error }
+        }
+        if let first { return .failure(first) }
+        return .success(())
+    }
+
     func accounts(service: String, scope: AppleCredentialScope) -> Result<[String], AppleCredentialError> {
         .failure(.unavailable("This credential backend cannot enumerate accounts."))
     }
@@ -457,6 +470,15 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         let query = scoped(service, account, scope)
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound ? .success(()) : .failure(Self.error(forStatus: status))
+    }
+
+    /// ``AppleCredentialBackend/deleteEverywhere(service:account:)`` over ``deleteAnyScope(service:account:)``:
+    /// both sync states and the legacy file Keychain, each attempted, the first real failure returned.
+    public func deleteEverywhere(service: String, account: String) -> Result<Void, AppleCredentialError> {
+        for outcome in deleteAnyScope(service: service, account: account) where !outcome.succeeded {
+            return .failure(Self.error(forStatus: outcome.rawStatus))
+        }
+        return .success(())
     }
 
     func deletionQuery(_ service: String, _ account: String, _ scope: CredentialDeletionScope) -> [String: Any] {

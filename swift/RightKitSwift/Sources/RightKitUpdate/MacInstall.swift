@@ -126,6 +126,96 @@ public struct DeveloperIDVerifier: UpdateVerifier {
     }
 }
 
+/// Reopens an installed macOS app after the running process has quit.
+///
+/// An app cannot restart itself and keep running, so a small shell helper does it. The helper runs in
+/// its own session (`POSIX_SPAWN_SETSID`) so it is not taken down with the app, waits for the app's pid
+/// to exit, and then opens the installed copy. If the app never quits within the wait the helper does
+/// NOTHING (it opens no second instance and leaves the work directory for a retry) and removes only its
+/// own script. The caller quits right after `spawn`.
+public enum MacAppRelauncher {
+    /// How long the helper waits for the app to quit before giving up.
+    public static let defaultWaitSeconds = 60
+
+    /// Starts the detached helper. Pass `workDirectory` to have it removed once the app is reopened
+    /// (an update's staging folder); nil removes nothing besides the helper's own script.
+    ///
+    /// - Throws: ``UpdateError/installFailed(_:)`` when the helper cannot be written or started.
+    public static func spawn(
+        reopening appURL: URL, workDirectory: URL? = nil,
+        after pid: Int32 = ProcessInfo.processInfo.processIdentifier, waitSeconds: Int = defaultWaitSeconds
+    ) throws {
+        try spawn(
+            appPath: appURL.path, workPath: workDirectory?.path ?? "", pid: pid,
+            iterations: max(1, waitSeconds) * 5, opener: "/usr/bin/open"
+        )
+    }
+
+    /// The helper script. Arguments: the pid to wait for, the app, the work directory (may be empty),
+    /// the script's own directory, the number of 0.2 s waits, and the tool that opens the app.
+    static func scriptText() -> String {
+        """
+        #!/bin/sh
+        pid="$1"; app="$2"; work="$3"; self="$4"; limit="$5"; opener="$6"
+        waited=0
+        while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$limit" ]; do
+            sleep 0.2
+            waited=$((waited + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            rm -rf "$self"
+            exit 1
+        fi
+        "$opener" "$app"
+        if [ -n "$work" ]; then rm -rf "$work"; fi
+        rm -rf "$self"
+        """
+    }
+
+    static func spawn(appPath: String, workPath: String, pid: Int32, iterations: Int, opener: String) throws {
+        let fm = FileManager.default
+        let scriptDirectory = fm.temporaryDirectory.appendingPathComponent("rightkit.relaunch-\(UUID().uuidString)", isDirectory: true)
+        let script = scriptDirectory.appendingPathComponent("relaunch.sh")
+        do {
+            try fm.createDirectory(at: scriptDirectory, withIntermediateDirectories: true)
+            try scriptText().write(to: script, atomically: true, encoding: .utf8)
+        } catch {
+            try? fm.removeItem(at: scriptDirectory)
+            throw UpdateError.installFailed("the relaunch helper could not be written")
+        }
+
+        let arguments = ["/bin/sh", script.path, String(pid), appPath, workPath, scriptDirectory.path, String(iterations), opener]
+        var attributes: posix_spawnattr_t?
+        var actions: posix_spawn_file_actions_t?
+        posix_spawnattr_init(&attributes)
+        posix_spawn_file_actions_init(&actions)
+        defer {
+            posix_spawnattr_destroy(&attributes)
+            posix_spawn_file_actions_destroy(&actions)
+        }
+        // POSIX_SPAWN_SETSID (0x0400): the helper leads its own session.
+        posix_spawnattr_setflags(&attributes, Int16(0x0400))
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+
+        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
+        argv.append(nil)
+        defer { argv.forEach { free($0) } }
+        // The environment is passed by value: reading the C global `environ` is not concurrency-safe.
+        var envp: [UnsafeMutablePointer<CChar>?] = ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") }
+        envp.append(nil)
+        defer { envp.forEach { free($0) } }
+
+        var child: pid_t = 0
+        let status = posix_spawn(&child, "/bin/sh", &actions, &attributes, argv, envp)
+        guard status == 0 else {
+            try? fm.removeItem(at: scriptDirectory)
+            throw UpdateError.installFailed("the relaunch helper could not start")
+        }
+    }
+}
+
 /// Stages, installs and relaunches a macOS app bundle in place.
 public struct MacAppInstaller: UpdateInstalling {
     public let installURL: URL
@@ -200,28 +290,7 @@ public struct MacAppInstaller: UpdateInstalling {
     }
 
     public func relaunch(_ staged: StagedBundle) throws {
-        let script = staged.workDirectory.appendingPathComponent("relaunch.sh")
-        let body = """
-            #!/bin/sh
-            pid="$1"; app="$2"; work="$3"
-            waited=0
-            while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 300 ]; do
-                sleep 0.2
-                waited=$((waited + 1))
-            done
-            /usr/bin/open "$app"
-            rm -rf "$work"
-            """
-        do { try body.write(to: script, atomically: true, encoding: .utf8) } catch {
-            throw UpdateError.installFailed("the relaunch helper could not be written")
-        }
-        let helper = Process()
-        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
-        helper.arguments = [script.path, String(ProcessInfo.processInfo.processIdentifier), installURL.path, staged.workDirectory.path]
-        helper.standardInput = FileHandle.nullDevice
-        helper.standardOutput = FileHandle.nullDevice
-        helper.standardError = FileHandle.nullDevice
-        do { try helper.run() } catch { throw UpdateError.installFailed("the relaunch helper could not start") }
+        try MacAppRelauncher.spawn(reopening: installURL, workDirectory: staged.workDirectory)
     }
 
     // MARK: Helpers
