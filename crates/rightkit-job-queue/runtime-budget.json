@@ -83,6 +83,60 @@
         "file": "runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt",
         "sha256": "4c46731e95be2e61c632f4bc633e95cdaf40f2fb0784f0827f90fb387c50fdaf"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.4.1",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-job-queue/benches/budget.rs)",
+        "unit": "calls",
+        "count": 10000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-job-queue --features supervisor --bench budget",
+      "observed": {
+        "residentMemoryBytes": 6668288,
+        "idleCpuPercent": 0.002,
+        "wakeupsPerSecond": 0.5,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.4.1-synthetic.txt",
+        "sha256": "40bbd334b6e58a245c7e5c82d6e51f35841246023ca0036bb809942abe6e59e6"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.4.1",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-job-queue/benches/budget.rs)",
+        "unit": "calls",
+        "count": 10000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-job-queue --features supervisor --bench budget",
+      "observed": {
+        "residentMemoryBytes": 7032832,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 3.559,
+        "diskOpsPerSecond": 0.998
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.4.1-synthetic.txt",
+        "sha256": "54b15fc0571561007a6323a7f6cbffda6fdda6736a9be8a90e664b56ff8255c3"
+      }
     }
   ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. The 0.2.9 staged pool (pool::StagedPool) adds a continuous dispatcher thread and a compute lane thread while it runs; its resident memory, idle CPU, wake-ups and disk operations are not yet measured, so the ceilings above do not yet cover it and no numbers are declared for it."

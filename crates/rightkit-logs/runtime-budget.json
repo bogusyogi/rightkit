@@ -83,6 +83,60 @@
         "file": "runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt",
         "sha256": "5c0dbad6bc7790e05ab4b2f7381ff09bc85dc13d3ce189954b52ffb408d298c9"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.3.4",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 35651584,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.3.4-synthetic.txt",
+        "sha256": "ac5c8ebba355f66ffc635843f30904fdf72a3593eb4e3cc2e13aa620150d487f"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.3.4",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 12767232,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 1.394,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.3.4-synthetic.txt",
+        "sha256": "06d8990bb2b52016618ce52905288700aeb3c25a026cecccc71343e69945c2cc"
+      }
     }
   ],
   "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below."

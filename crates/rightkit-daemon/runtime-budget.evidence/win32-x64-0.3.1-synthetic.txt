@@ -1,0 +1,137 @@
+rustright managed-agent: request 737168dc-55d5-4f37-b365-eaccb8722bca
+[rightkit] target warm-candidate at start (4 entries, generation 5)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling windows-link v0.2.1
+   Compiling cfg-if v1.0.4
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling memchr v2.8.3
+   Compiling serde v1.0.229
+   Compiling itoa v1.0.18
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling once_cell v1.21.4
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling zeroize v1.9.0
+   Compiling zerocopy v0.8.54
+   Compiling getrandom v0.3.4
+   Compiling version_check v0.9.5
+   Compiling ref-cast v1.0.27
+   Compiling windows-result v0.4.1
+   Compiling windows-strings v0.5.1
+   Compiling windows-sys v0.61.2
+   Compiling getrandom v0.2.17
+   Compiling untrusted v0.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling regex-syntax v0.8.11
+   Compiling aho-corasick v1.1.4
+   Compiling httparse v1.10.1
+   Compiling log v0.4.33
+   Compiling percent-encoding v2.3.2
+   Compiling rustls-pki-types v1.15.0
+   Compiling rustls v0.23.45
+   Compiling cc v1.2.67
+   Compiling ahash v0.8.12
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.4.3
+   Compiling scopeguard v1.2.0
+   Compiling subtle v2.6.1
+   Compiling smallvec v1.15.2
+   Compiling windows-threading v0.2.1
+   Compiling unicode-general-category v1.1.0
+   Compiling allocator-api2 v0.2.21
+   Compiling equivalent v1.0.2
+   Compiling thiserror v2.0.21
+   Compiling foldhash v0.2.0
+   Compiling jsonschema-value v0.58.6
+   Compiling bytes v1.12.1
+   Compiling borrow-or-share v0.2.4
+   Compiling bit-vec v0.8.0
+   Compiling heck v0.5.0
+   Compiling ring v0.17.14
+   Compiling http v1.4.2
+   Compiling lock_api v0.4.14
+   Compiling num-cmp v0.1.0
+   Compiling micromap v0.3.0
+   Compiling bytecount v0.6.9
+   Compiling base64 v0.23.1
+   Compiling vsimd v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling outref v0.5.2
+   Compiling hashbrown v0.17.1
+   Compiling webpki-roots v1.0.9
+   Compiling slab v0.4.12
+   Compiling data-encoding v2.11.1
+   Compiling utf8-zero v0.8.1
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.33
+   Compiling syn v3.0.6
+   Compiling syn v2.0.118
+   Compiling ureq-proto v0.6.4
+   Compiling futures-task v0.3.33
+   Compiling uuid-simd v0.8.0
+   Compiling tower-service v0.3.3
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling fastrand v2.4.1
+   Compiling futures-util v0.3.33
+   Compiling parking_lot v0.12.5
+   Compiling tempfile v3.27.0
+   Compiling windows-implement v0.60.2
+   Compiling windows-interface v0.59.3
+   Compiling strum_macros v0.28.0
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling num-integer v0.1.46
+   Compiling num-complex v0.4.6
+   Compiling tower v0.5.3
+   Compiling num-bigint v0.4.8
+   Compiling num-iter v0.1.46
+   Compiling windows-core v0.62.2
+   Compiling num-rational v0.4.2
+   Compiling num v0.4.3
+   Compiling windows-future v0.3.2
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling fraction v0.17.0
+   Compiling rightkit-fs v0.4.5 (D:\Claude\rightkit\crates\rightkit-fs)
+   Compiling windows v0.62.2
+   Compiling fluent-uri v0.4.1
+   Compiling email_address v0.2.9
+   Compiling rightkit-sidecar v0.3.0 (D:\Claude\rightkit\crates\rightkit-sidecar)
+   Compiling strum v0.28.0
+   Compiling regex-automata v0.4.18
+   Compiling jsonschema-regex v0.58.6
+   Compiling referencing v0.58.6
+   Compiling fancy-regex v0.19.2
+   Compiling regex v1.13.0
+   Compiling rustls-webpki v0.103.15
+   Compiling rustls-platform-verifier v0.7.1
+   Compiling ureq v3.4.2
+   Compiling rightkit-http v0.3.7 (D:\Claude\rightkit\crates\rightkit-http)
+   Compiling jsonschema v0.58.6
+   Compiling rightkit-child-process v0.5.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling rightkit-daemon v0.3.1 (D:\Claude\rightkit\crates\rightkit-daemon)
+   Compiling rightkit-contracts v0.1.7 (D:\Claude\rightkit\crates\rightkit-contracts)
+    Finished `release-iterate` profile [optimized] target(s) in 3m 14s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\c17ac1aa6139\g\005\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-8180a722931361a1.exe)
+warm-up: 20000 requests over 64 connections in 10.59 s (1889 req/s), open connections 64, inflight 0, resident 12.0 MiB (before host 6.1 MiB)
+RESULT open_connections=64 connections
+RESULT warm_resident_bytes=12595200 bytes
+RESULT idle_resident_bytes=12611584 bytes
+RESULT resident_memory_bytes=12611584 bytes
+RESULT footprint_bytes=9875456 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.156 percent
+RESULT wakeups_per_second=1.132 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=64 open connections after echo requests, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-daemon version=0.3.1 resident_bytes=12611584 idle_cpu_percent=0.156 wakeups_per_s=1.132 disk_ops_per_s=0.000 scale_unit=connections scale_count=64
+[rightkit] target cold (target-nonempty-but-no-fresh-artifacts); not-fresh 156/156

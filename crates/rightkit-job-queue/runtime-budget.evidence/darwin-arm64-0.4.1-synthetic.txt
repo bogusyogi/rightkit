@@ -1,0 +1,21 @@
+rustright managed-agent: request 9f8dedf8-9264-4c4c-8b18-283e4754e19b
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+    Finished `release-iterate` profile [optimized] target(s) in 0.70s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-bd0d8fbf6e911929)
+warm-up: 10000 calls in 0.06 s (162038 calls/s), lifecycle Ready, resident 6.3 MiB (before start 5.4 MiB)
+RESULT restarts=0 restarts
+RESULT event_subscribers=100 subscribers
+RESULT warm_resident_bytes=6651904 bytes
+RESULT idle_resident_bytes=6668288 bytes
+RESULT resident_memory_bytes=6668288 bytes
+RESULT footprint_bytes=2327008 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.002 percent
+RESULT wakeups_per_second=0.500 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=10000 echo calls to a live engine with 100 event subscribers and a 2 s health ping, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-job-queue version=0.4.1 resident_bytes=6668288 idle_cpu_percent=0.002 wakeups_per_s=0.500 disk_ops_per_s=unavailable scale_unit=calls scale_count=10000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/674

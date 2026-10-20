@@ -83,6 +83,60 @@
         "file": "runtime-budget.evidence/darwin-arm64-0.2.7-synthetic.txt",
         "sha256": "b931363f9d99d12675a7cbc916a6ef5053e979d842dbd2c5e2bb4d4481d194d4"
       }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.3.1",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-daemon/benches/budget.rs)",
+        "unit": "connections",
+        "count": 64
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "observed": {
+        "residentMemoryBytes": 11223040,
+        "idleCpuPercent": 0.001,
+        "wakeupsPerSecond": 0.929,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.3.1-synthetic.txt",
+        "sha256": "08af2d3aa5a18dcca511d4117ea5c606a99a27b929b781a2ee7fc8a35ec64d99"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.3.1",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-daemon/benches/budget.rs)",
+        "unit": "connections",
+        "count": 64
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "observed": {
+        "residentMemoryBytes": 12611584,
+        "idleCpuPercent": 0.156,
+        "wakeupsPerSecond": 1.132,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.3.1-synthetic.txt",
+        "sha256": "c0286684cc3930b1e07aa3420232d7e0fda055ffe016c27e146ac25915360e5c"
+      }
     }
   ],
   "profiles": {
