@@ -28,6 +28,14 @@ mod recover;
 mod restore;
 mod unreadable;
 
+#[cfg(all(feature = "encrypted-lifecycle", not(feature = "cipher")))]
+compile_error!("rightkit-db feature `encrypted-lifecycle` needs a SQLCipher backend; also enable `sqlcipher` or `sqlcipher-system`");
+
+/// The encrypted-store lifecycle: key selection, rotation, recovery, restore and relocation behind
+/// one cross-process guard. Needs `encrypted-lifecycle` and a SQLCipher backend.
+#[cfg(all(feature = "encrypted-lifecycle", feature = "cipher"))]
+pub mod encrypted_lifecycle;
+
 pub use backup::{
     online_backup_to, remove_database_files, replace_database, replace_database_locked,
     restore_from, store_lock_path, BackupProgress, StoreLock,

@@ -411,6 +411,7 @@ fn backup_path(db: &Path, options: &MigrateOptions, current: i64, target: i64) -
         ".migrating",
         ".restore-journal",
         ".store-lock",
+        ".transition-journal",
         QUARANTINE_JOURNAL_SUFFIX,
     ]
     .iter()

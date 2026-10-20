@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -24,6 +24,11 @@ sqlcipher = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 sqlcipher-system = ["cipher", "rusqlite/bundled-sqlcipher"]
 # Enabled by either SQLCipher feature; gates keyed-open and rekey code. Not meant to be named directly.
 cipher = []
+# The encrypted-store lifecycle (`rightkit_db::encrypted_lifecycle`): `ProtectedKeyStore`, `StoreTransition`,
+# `EncryptedStore`, `rotate_key`, `recover_rotation`, backup/restore quiescence and `relocate`. It adds no
+# dependency, and never one on rightkit-credentials or rightkit-daemon. It must be combined with `sqlcipher`
+# or `sqlcipher-system`; alone it fails to compile rather than run against an unencrypted build.
+encrypted-lifecycle = []
 hooks = ["rusqlite/hooks"]
 
 [dependencies]
