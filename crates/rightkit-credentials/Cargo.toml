@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-credentials"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
@@ -47,4 +47,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the process-wide MemoryBackend holds only the secrets the caller stores, and the mint, UI-policy and Windows target locks hold no data; on Linux each mutation waits on a per-user flock, and on Android on a per-directory flock (android.rs), that the holder releases when its call ends; sleep: a rotation call (rotation.rs) retries its process-local mutex and its per-credential lock file with a 5 ms sleep until the store timeout, then ends in Error::InProgress, and holds both only for that call; no listener, timer or watcher (reviewed 2026-10-19)"
+continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; the trusted-helper check (apple_helper.rs verify_helper) runs one /usr/bin/codesign child per exchange of an AppleHelper::new_trusted client and polls it with a sleep of at most 10 ms until it exits or 20 s pass, then kills and reaps it; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the process-wide MemoryBackend holds only the secrets the caller stores, and the mint, UI-policy and Windows target locks hold no data; on Linux each mutation waits on a per-user flock, and on Android on a per-directory flock (android.rs), that the holder releases when its call ends; sleep: the codesign poll above; a rotation call (rotation.rs) retries its process-local mutex and its per-credential lock file with a 5 ms sleep until the store timeout, then ends in Error::InProgress, and holds both only for that call; no listener, timer or watcher (reviewed 2026-10-19)"

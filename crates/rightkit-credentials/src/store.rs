@@ -538,6 +538,16 @@ impl Store {
         ))
     }
 
+    /// Whether a mutation of `account` is inside a backend call right now, including one whose
+    /// caller timed out. Non-blocking.
+    pub(crate) fn mutation_in_flight(&self, account: &str) -> Result<bool> {
+        let key = (
+            backend_identity(&self.backend),
+            self.backend.credential_identity(&self.ns, account)?,
+        );
+        Ok(in_flight().contains_key(&key))
+    }
+
     /// Called under the rotation lock before changing its marker. A timed-out primary write
     /// still owns its target: abort/rebegin must not retire its recovery value until it returns.
     pub(crate) fn rotation_ready(&self, account: &str) -> Result<()> {

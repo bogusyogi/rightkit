@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.3.0 — unpublished staging
+## 0.3.1 — 2026-10-20
+
+- Added (M12): `Store::rotation_status(account) -> Result<RotationStatus { held, pending }>` and `RotationStatus::is_idle`. A non-blocking probe of the rotation fence: `held` is true while a rotation call, or an abandoned (timed-out) mutation of the credential or its marker, is still inside a backend call; `pending` is true while a marker exists. It lets a reader (the licence authorizers) fail closed while a late write could still replace the value it is about to read. Additive; no existing behaviour changed. A durable store needs `rotation_lock_dir`, as for rotation.
+- Added: `apple_helper::resolve_bundled_login_item` (nested LoginItems helper, containment-checked) and `AppleHelper::new_trusted(path, HelperTrust::team(..))`, which verifies the helper's code signature against the team requirement immediately before every spawn and refuses to deliver secrets otherwise (ScrapeRight G10; plan M11 native prerequisite).
+
+## 0.3.0 (published)
 
 - BREAKING (D23): a durable store now refuses rotation without `rotation_lock_dir`, and `MemoryBackend` is no longer compiled into release builds. Published as a minor bump, not a patch.
 

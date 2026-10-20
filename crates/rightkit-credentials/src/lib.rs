@@ -42,6 +42,6 @@ pub use migrate::{
 pub use namespace::{
     macos_credential_identity, windows_credential_identity, Namespace, WindowsTarget,
 };
-pub use rotation::ROTATION_PENDING_SUFFIX;
+pub use rotation::{RotationStatus, ROTATION_PENDING_SUFFIX};
 pub use secret::Secret;
 pub use store::{Config, Diagnostics, GuardMode, Store, WriteIntent, UNIVERSAL_GUARD_ENV};

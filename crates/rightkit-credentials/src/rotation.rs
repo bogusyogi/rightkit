@@ -178,6 +178,54 @@ impl RotationLock {
     }
 }
 
+/// A non-blocking look at the fence around one credential's rotation, for a reader that must
+/// not trust the value while a write may still land. See [`Store::rotation_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RotationStatus {
+    /// A rotation call, or a mutation of the credential or its marker that timed out and is
+    /// still inside a backend call, holds the rotation lock or the target right now.
+    pub held: bool,
+    /// A rotation marker exists: a rotation was begun and not resolved.
+    pub pending: bool,
+}
+
+impl RotationStatus {
+    /// Nothing is in flight and nothing is pending: the primary value can be trusted.
+    pub fn is_idle(self) -> bool {
+        !self.held && !self.pending
+    }
+}
+
+impl RotationLock {
+    /// Whether the process-local mutex or the lock file is held by anyone right now. Takes
+    /// each layer with a single non-blocking try and releases it at once; never waits.
+    pub(crate) fn is_held(&self) -> Result<bool> {
+        match self.local.try_lock() {
+            Ok(guard) => drop(guard),
+            Err(TryLockError::WouldBlock) => return Ok(true),
+            Err(TryLockError::Poisoned(_)) => return Err(unavailable("rotation lock poisoned")),
+        }
+        let Some(path) = &self.file else {
+            return Ok(false);
+        };
+        let file = open_lock_file(path)?;
+        match file.try_lock() {
+            Ok(()) => {
+                let _ = file.unlock();
+                Ok(false)
+            }
+            Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+            Err(std::fs::TryLockError::Error(e)) if e.kind() == std::io::ErrorKind::Unsupported => {
+                Err(unavailable("this platform has no file locks for rotation"))
+            }
+            Err(std::fs::TryLockError::Error(e)) => Err(Error::Backend {
+                op: "rotation lock",
+                code: e.raw_os_error().map_or(-1, i64::from),
+            }),
+        }
+    }
+}
+
 impl RotationHeld<'_> {
     /// `store` with this invocation's cross-process lock attached to its mutations. A timed-out
     /// backend call cannot be cancelled: its worker thread keeps running and may still write
@@ -311,6 +359,22 @@ impl Store {
         store.add_if_absent(&marker(account), new)
     }
 
+    /// Whether the rotation fence of `account` is free, without waiting or changing anything:
+    /// `held` when a rotation call holds the rotation lock or an abandoned (timed-out) mutation
+    /// of the credential or its marker is still inside a backend call, `pending` when a
+    /// marker exists. A reader that must not act on a value a late write could replace checks
+    /// `is_idle` after it has excluded the writers it knows of (the licence operation lock) and
+    /// before it reads. A durable store needs [`crate::Config::rotation_lock_dir`], as for
+    /// rotation; without it this is `Error::Unavailable` (fail closed).
+    pub fn rotation_status(&self, account: &str) -> Result<RotationStatus> {
+        let (store, lock) = self.rotation_store(account)?;
+        let held = lock.is_held()?
+            || store.mutation_in_flight(account)?
+            || store.mutation_in_flight(&marker(account))?;
+        let pending = store.pending_rotation(account)?.is_some();
+        Ok(RotationStatus { held, pending })
+    }
+
     /// The pending new value, if a rotation was begun and not resolved.
     pub fn pending_rotation(&self, account: &str) -> Result<Option<Secret>> {
         Ok(self.get(&marker(account))?.filter(|s| !s.is_empty()))
@@ -434,6 +498,23 @@ mod tests {
         assert_ne!(lock_file_name("ab", "c"), lock_file_name("a", "bc"));
         assert!(a.starts_with("rotation-") && a.ends_with(".lock"));
         assert_eq!(a.len(), "rotation-".len() + 32 + ".lock".len());
+    }
+
+    #[test]
+    fn is_held_sees_the_local_mutex_and_the_lock_file_and_never_blocks() {
+        let dir = private_tempdir();
+        let path = dir.path().join("rotation-test.lock");
+        let first = lock_over(&path, Duration::from_millis(100));
+        let probe = lock_over(&path, Duration::from_millis(100));
+        assert!(!probe.is_held().unwrap());
+        let held = first.acquire().unwrap();
+        // The probe has its own local mutex, so this is the lock file layer.
+        assert!(probe.is_held().unwrap());
+        // The holder's own probe sees its local mutex.
+        assert!(first.is_held().unwrap());
+        drop(held);
+        assert!(!probe.is_held().unwrap());
+        assert!(!first.is_held().unwrap());
     }
 
     #[test]

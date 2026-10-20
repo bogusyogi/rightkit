@@ -7,14 +7,22 @@
 //! One deadline (`timeout`, default 10 s) covers the whole exchange: writing the request,
 //! reading the reply and the helper exiting. The helper is killed and reaped on every path,
 //! including a write that blocks because the helper never reads its stdin.
+//!
+//! # Trust
+//!
+//! [`AppleHelper::new`] runs whatever is at the path, so it sends secrets to an unverified
+//! program. Production code must build the client with [`AppleHelper::new_trusted`] and a
+//! [`HelperTrust`], which checks the helper's code signature against a team requirement
+//! immediately before every spawn, and resolve a nested login-item helper with
+//! `resolve_bundled_login_item` (macOS).
 
 use crate::error::{Error, Result};
 use crate::secret::Secret;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -433,11 +441,59 @@ pub struct HelperStatus {
     pub detail: Option<String>,
 }
 
+/// The signing identity a helper must have before [`AppleHelper::new_trusted`] will run it: a
+/// Developer ID chain (`anchor apple generic`) whose leaf certificate belongs to one team.
+///
+/// The check is the macOS `codesign` code-requirement check; see [`AppleHelper::new_trusted`]
+/// for exactly when it runs and what it does not cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HelperTrust {
+    team: String,
+}
+
+impl HelperTrust {
+    /// Require a helper signed by the Developer ID team `team_id`: exactly 10 ASCII uppercase
+    /// letters or digits (an Apple team identifier). Anything else is refused, so the value can
+    /// never alter the requirement text.
+    pub fn team(team_id: &str) -> Result<Self> {
+        let valid = team_id.len() == 10
+            && team_id
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
+        if !valid {
+            return Err(Error::Invalid {
+                what: "team id",
+                reason: "must be 10 uppercase ASCII letters or digits".into(),
+            });
+        }
+        Ok(Self {
+            team: team_id.to_string(),
+        })
+    }
+
+    /// The team identifier.
+    pub fn team_id(&self) -> &str {
+        &self.team
+    }
+
+    /// The code requirement:
+    /// `anchor apple generic and certificate leaf[subject.OU] = "<TEAM>"`.
+    pub fn requirement(&self) -> String {
+        format!(
+            "anchor apple generic and certificate leaf[subject.OU] = \"{}\"",
+            self.team
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppleHelper {
     path: PathBuf,
     args: Vec<OsString>,
     timeout: Duration,
+    /// `Some` for a client built by [`AppleHelper::new_trusted`]: verified before every spawn.
+    trust: Option<HelperTrust>,
 }
 
 /// Owns the helper process and kills and reaps it when dropped, so no path out of an exchange
@@ -455,11 +511,45 @@ impl Drop for Reaped {
 impl AppleHelper {
     /// `path` must be the helper inside the app bundle (it carries the keychain-access-groups
     /// entitlement); resolve and contain it under the bundle before calling.
+    ///
+    /// This client does NOT check the helper's code signature: it executes whatever is at
+    /// `path` and writes secret values to it. Production code must use
+    /// [`AppleHelper::new_trusted`]; keep `new` for tests and tools that handle no real secret.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
             args: Vec::new(),
             timeout: Duration::from_secs(10),
+            trust: None,
+        }
+    }
+
+    /// Like [`AppleHelper::new`], but every exchange first verifies the helper's code signature
+    /// and refuses to run it otherwise, so a swapped, unsigned or foreign-signed helper never
+    /// receives a secret.
+    ///
+    /// IMMEDIATELY before EVERY spawn (each `status`, `read`, `exists`, `write`,
+    /// `delete_everywhere` and `copy_synced_to_device_only` call) the helper path is
+    /// canonicalised and `/usr/bin/codesign --verify --strict -R "=<requirement>" <target>` is run
+    /// (absolute path, no `PATH` lookup, no shell), where `<target>` is the enclosing `.app` when
+    /// the path has the form `<X>.app/Contents/MacOS/<file>` (the signed unit) and the file
+    /// itself otherwise. The check is bounded to 20 s; a timeout kills the `codesign` process.
+    /// A non-zero exit, a timeout, a missing or unrunnable `codesign` (including every non-macOS
+    /// platform), or a path that is not a regular file refuses the call with
+    /// [`Error::Helper`] (`"untrusted helper: ..."`), before the helper is started and before
+    /// any secret is written anywhere. There is no skip, environment override or debug fallback.
+    ///
+    /// Residual TOCTOU: the check and the spawn are two steps on the same canonical path. A
+    /// process that can replace files inside the signed bundle between them could still run a
+    /// different program, because `codesign` verifies a path, not the process later created from
+    /// it. Such a process can also replace the app itself, so this defends against a swapped,
+    /// unsigned or foreign-signed helper, not against a compromised install directory. The
+    /// requirement proves who signed the helper (the team), not that it is the helper you meant;
+    /// resolve the path with `resolve_bundled_login_item` (macOS) so placement is checked as well.
+    pub fn new_trusted(path: impl Into<PathBuf>, trust: HelperTrust) -> Self {
+        Self {
+            trust: Some(trust),
+            ..Self::new(path)
         }
     }
     /// One deadline for the whole exchange: writing the request, reading the reply and the helper
@@ -501,6 +591,13 @@ impl AppleHelper {
     /// whatever the outcome (a helper that has closed stdout but is still alive is killed
     /// rather than waited for).
     fn exchange(&self, line: Zeroizing<Vec<u8>>) -> Result<Zeroizing<String>> {
+        // A trusted client verifies the helper first and then runs exactly the path it
+        // verified. This happens before the exchange deadline starts and before anything is
+        // spawned or written, so a failed check cannot reach the secret in `line`.
+        let exec_path = match &self.trust {
+            Some(trust) => verify_helper(&self.path, trust)?,
+            None => self.path.clone(),
+        };
         let started = Instant::now();
         // A timeout too large to add to the clock is treated as "a year".
         let deadline = started
@@ -513,7 +610,7 @@ impl AppleHelper {
         let remaining = || deadline.saturating_duration_since(Instant::now());
 
         let mut child = Reaped(
-            Command::new(&self.path)
+            Command::new(&exec_path)
                 .args(&self.args)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
@@ -677,6 +774,193 @@ fn resolve_in_bundle(exe: &std::path::Path, name: &str) -> Option<PathBuf> {
     })
 }
 
+/// The nested login-item location, relative to the bundle root: the helper `<name>` is the
+/// executable of its own `<name>.app` (which is the unit that is signed and carries the
+/// provisioning profile).
+const LOGIN_ITEMS_DIR: &str = "Contents/Library/LoginItems";
+
+/// Resolve the nested login-item helper `name` of the running app:
+/// `<main bundle>/Contents/Library/LoginItems/<name>.app/Contents/MacOS/<name>`.
+///
+/// `name` must be a single path component (not empty, not `.` or `..`, no separator). The result
+/// is canonical, a regular file, and must lie inside the nested `<name>.app` that itself lies
+/// inside the canonical main bundle, so a symlink that leaves the helper app or the bundle is
+/// refused (and so is one that points at another file of the same bundle). Any doubt is an
+/// error: [`Error::Invalid`] for a bad `name`, [`Error::Helper`] for everything else.
+///
+/// This checks placement only; pass the result to [`AppleHelper::new_trusted`] so the code
+/// signature is checked as well. [`resolve_bundled`] cannot find this layout.
+#[cfg(target_os = "macos")]
+pub fn resolve_bundled_login_item(name: &str) -> Result<PathBuf> {
+    let exe = std::env::current_exe().map_err(|e| {
+        Error::Helper(format!(
+            "cannot locate the running executable: {}",
+            e.kind()
+        ))
+    })?;
+    login_item_in_bundle(&exe, name)
+}
+
+/// The path logic of `resolve_bundled_login_item`, independent of the OS and of the running
+/// executable (`exe` is any file inside the main `.app`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn login_item_in_bundle(exe: &Path, name: &str) -> Result<PathBuf> {
+    use std::path::Component;
+    let bad_name = |reason: &str| Error::Invalid {
+        what: "login item helper name",
+        reason: reason.to_string(),
+    };
+    if name.is_empty() {
+        return Err(bad_name("empty"));
+    }
+    let mut parts = Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(Component::Normal(n)), None) if n == OsStr::new(name) => {}
+        _ => return Err(bad_name("must be a single path component")),
+    }
+    // Refuse both separator spellings on every OS, so a name that is one component here cannot
+    // be several on another.
+    if name.contains(['/', '\\']) {
+        return Err(bad_name("must be a single path component"));
+    }
+    let missing = |what: &str| Error::Helper(format!("login item helper {what}"));
+    let exe = exe
+        .canonicalize()
+        .map_err(|_| missing("not found: the running executable cannot be resolved"))?;
+    let bundle = exe
+        .ancestors()
+        .find(|a| {
+            a.extension().is_some_and(|e| e.eq_ignore_ascii_case("app"))
+                && a.join("Contents").is_dir()
+        })
+        .ok_or_else(|| missing("not found: the running executable is not inside an .app bundle"))?;
+    let bundle = bundle
+        .canonicalize()
+        .map_err(|_| missing("not found: the app bundle cannot be resolved"))?;
+    let app = bundle.join(LOGIN_ITEMS_DIR).join(format!("{name}.app"));
+    let app = app
+        .canonicalize()
+        .map_err(|_| missing("not found in Contents/Library/LoginItems"))?;
+    if !app.starts_with(&bundle) {
+        return Err(missing("resolves outside the app bundle"));
+    }
+    let binary = app
+        .join("Contents")
+        .join("MacOS")
+        .join(name)
+        .canonicalize()
+        .map_err(|_| missing("executable not found in its .app"))?;
+    if !binary.starts_with(&app) {
+        return Err(missing("executable resolves outside its .app"));
+    }
+    if !binary.is_file() {
+        return Err(missing("executable is not a regular file"));
+    }
+    Ok(binary)
+}
+
+const CODESIGN: &str = "/usr/bin/codesign";
+const CODESIGN_TIMEOUT: Duration = Duration::from_secs(20);
+
+fn untrusted(reason: impl std::fmt::Display) -> Error {
+    Error::Helper(format!("untrusted helper: {reason}"))
+}
+
+/// What `codesign` should be pointed at: the enclosing `.app` when `binary` is
+/// `<X>.app/Contents/MacOS/<file>` (the sealed, signed unit), else the file itself.
+fn signed_unit(binary: &Path) -> &Path {
+    let named = |p: &Path, n: &str| p.file_name().is_some_and(|f| f == OsStr::new(n));
+    let layout = binary.parent().and_then(|macos| {
+        let contents = macos.parent()?;
+        let app = contents.parent()?;
+        (named(macos, "MacOS")
+            && named(contents, "Contents")
+            && app
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("app")))
+        .then_some(app)
+    });
+    layout.unwrap_or(binary)
+}
+
+/// Verify `path` against `trust` and return the canonical path that was verified, which the
+/// caller must execute (not `path`). Fails closed on every doubt; see
+/// [`AppleHelper::new_trusted`].
+fn verify_helper(path: &Path, trust: &HelperTrust) -> Result<PathBuf> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| untrusted(format!("cannot resolve the helper path ({})", e.kind())))?;
+    if !canonical.is_file() {
+        return Err(untrusted("the helper is not a regular file"));
+    }
+    // `-R` takes a requirement file path unless the text starts with `=`.
+    let requirement = OsString::from(format!("={}", trust.requirement()));
+    let target = signed_unit(&canonical);
+    let args: [&OsStr; 5] = [
+        OsStr::new("--verify"),
+        OsStr::new("--strict"),
+        OsStr::new("-R"),
+        &requirement,
+        target.as_os_str(),
+    ];
+    match run_bounded(Path::new(CODESIGN), &args, CODESIGN_TIMEOUT) {
+        Ok(Bounded::Exited(status)) if status.success() => Ok(canonical),
+        Ok(Bounded::Exited(status)) => Err(untrusted(format!(
+            "the code signature check failed ({status})"
+        ))),
+        Ok(Bounded::TimedOut) => Err(untrusted(format!(
+            "the code signature check did not finish within {} s",
+            CODESIGN_TIMEOUT.as_secs()
+        ))),
+        Err(e) => Err(untrusted(format!(
+            "the code signature check could not run ({})",
+            e.kind()
+        ))),
+    }
+}
+
+enum Bounded {
+    Exited(std::process::ExitStatus),
+    TimedOut,
+}
+
+/// Run `program` with no stdin and no output, wait at most `limit`, and kill and reap it if it
+/// is still running then (or if waiting fails). Output goes to the null device so there is no
+/// pipe that could fill and stall the child.
+///
+/// Only the child itself is killed, not a process tree: `codesign` starts no children that
+/// outlive it. The poll sleeps at most 10 ms at a time and the call ends by `limit`.
+fn run_bounded(program: &Path, args: &[&OsStr], limit: Duration) -> std::io::Result<Bounded> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let now = Instant::now();
+    let deadline = now
+        .checked_add(limit)
+        .unwrap_or_else(|| now + Duration::from_secs(365 * 24 * 60 * 60));
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Bounded::Exited(status)),
+            Ok(None) => {}
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(Bounded::TimedOut);
+        }
+        std::thread::sleep(left.min(Duration::from_millis(10)));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,6 +1114,307 @@ newline"}"#,
             r#"{"error":"a","error":"b"}"#,
         ] {
             assert!(parse_read_reply(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    // ---- login-item resolver (path logic runs on every OS) ----
+
+    /// `Demo.app` with a main executable and, optionally, a nested helper app.
+    fn demo_bundle(tmp: &Path, helper: Option<&str>) -> PathBuf {
+        let contents = tmp.join("Demo.app").join("Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        let exe = contents.join("MacOS").join("demo");
+        std::fs::write(&exe, b"x").unwrap();
+        if let Some(name) = helper {
+            let dir = contents
+                .join("Library")
+                .join("LoginItems")
+                .join(format!("{name}.app"))
+                .join("Contents")
+                .join("MacOS");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        exe
+    }
+
+    #[test]
+    fn login_item_resolves_the_nested_app_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = demo_bundle(tmp.path(), Some("Helper"));
+        let found = login_item_in_bundle(&exe, "Helper").unwrap();
+        let expected = tmp
+            .path()
+            .join("Demo.app/Contents/Library/LoginItems/Helper.app/Contents/MacOS/Helper")
+            .canonicalize()
+            .unwrap();
+        assert_eq!(found, expected);
+        assert!(found.is_file());
+    }
+
+    #[test]
+    fn login_item_refuses_names_that_are_not_one_component() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = demo_bundle(tmp.path(), Some("Helper"));
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "../Helper",
+            "Helper/",
+            "/Helper",
+            "a\\b",
+            "..\\Helper",
+        ] {
+            assert!(
+                matches!(login_item_in_bundle(&exe, bad), Err(Error::Invalid { .. })),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn login_item_refuses_a_missing_binary_or_app() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = demo_bundle(tmp.path(), Some("Helper"));
+        assert!(login_item_in_bundle(&exe, "Other").is_err());
+        // The app exists but its executable does not.
+        let app = tmp
+            .path()
+            .join("Demo.app/Contents/Library/LoginItems/Empty.app/Contents/MacOS");
+        std::fs::create_dir_all(&app).unwrap();
+        assert!(login_item_in_bundle(&exe, "Empty").is_err());
+        // Not inside any bundle at all.
+        let plain = tmp.path().join("plain");
+        std::fs::write(&plain, b"x").unwrap();
+        assert!(login_item_in_bundle(&plain, "Helper").is_err());
+    }
+
+    #[test]
+    fn login_item_refuses_a_directory_in_place_of_the_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = demo_bundle(tmp.path(), None);
+        let dir = tmp
+            .path()
+            .join("Demo.app/Contents/Library/LoginItems/Dir.app/Contents/MacOS/Dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(login_item_in_bundle(&exe, "Dir").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn login_item_refuses_symlinks_that_leave_the_helper_app_or_the_bundle() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = demo_bundle(tmp.path(), Some("Helper"));
+        let macos = |n: &str| {
+            tmp.path().join(format!(
+                "Demo.app/Contents/Library/LoginItems/{n}.app/Contents/MacOS"
+            ))
+        };
+        // The helper binary is a symlink to a file outside the bundle.
+        let outside = tmp.path().join("outside");
+        std::fs::write(&outside, b"x").unwrap();
+        std::fs::create_dir_all(macos("Evil")).unwrap();
+        symlink(&outside, macos("Evil").join("Evil")).unwrap();
+        assert!(login_item_in_bundle(&exe, "Evil").is_err());
+        // The helper binary is a symlink to another file of the same bundle (the main exe).
+        std::fs::create_dir_all(macos("Alias")).unwrap();
+        symlink(&exe, macos("Alias").join("Alias")).unwrap();
+        assert!(login_item_in_bundle(&exe, "Alias").is_err());
+        // The whole nested .app is a symlink to a directory outside the bundle.
+        let elsewhere = tmp.path().join("elsewhere/Out.app/Contents/MacOS");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("Out"), b"x").unwrap();
+        symlink(
+            tmp.path().join("elsewhere/Out.app"),
+            tmp.path()
+                .join("Demo.app/Contents/Library/LoginItems/Out.app"),
+        )
+        .unwrap();
+        assert!(login_item_in_bundle(&exe, "Out").is_err());
+        // The honest helper still resolves.
+        assert!(login_item_in_bundle(&exe, "Helper").is_ok());
+    }
+
+    // ---- trust ----
+
+    #[test]
+    fn helper_trust_builds_the_documented_requirement_and_validates_the_team() {
+        let trust = HelperTrust::team("6KLGD3LLKF").unwrap();
+        assert_eq!(trust.team_id(), "6KLGD3LLKF");
+        assert_eq!(
+            trust.requirement(),
+            "anchor apple generic and certificate leaf[subject.OU] = \"6KLGD3LLKF\""
+        );
+        for bad in [
+            "",
+            "6KLGD3LLK",
+            "6KLGD3LLKF1",
+            "6klgd3llkf",
+            "6KLGD3LLK\"",
+            "6KLGD3LLK ",
+            "6KLGD3LLK\n",
+            "6KLGD3LLK\u{c9}",
+        ] {
+            assert!(
+                matches!(HelperTrust::team(bad), Err(Error::Invalid { .. })),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn signed_unit_is_the_enclosing_app_only_for_the_bundle_layout() {
+        let nested = Path::new("/a/Demo.app/Contents/Library/LoginItems/H.app/Contents/MacOS/H");
+        assert_eq!(
+            signed_unit(nested),
+            Path::new("/a/Demo.app/Contents/Library/LoginItems/H.app")
+        );
+        for plain in [
+            "/a/bin/helper",
+            "/a/Demo.app/Contents/Helpers/h",
+            "/a/Contents/MacOS/h",
+        ] {
+            assert_eq!(signed_unit(Path::new(plain)), Path::new(plain));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_bounded_kills_a_child_that_outlives_the_limit() {
+        let sh = |script: &'static str| {
+            run_bounded(
+                Path::new("/bin/sh"),
+                &[OsStr::new("-c"), OsStr::new(script)],
+                Duration::from_secs(10),
+            )
+            .unwrap()
+        };
+        let started = Instant::now();
+        let out = run_bounded(
+            Path::new("/bin/sleep"),
+            &[OsStr::new("30")],
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        assert!(matches!(out, Bounded::TimedOut));
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(matches!(sh("exit 0"), Bounded::Exited(s) if s.success()));
+        assert!(matches!(sh("exit 3"), Bounded::Exited(s) if !s.success()));
+        assert!(run_bounded(Path::new("/nonexistent/prog"), &[], Duration::from_secs(1)).is_err());
+    }
+
+    /// An unsigned helper (a script: on macOS `codesign` reports it unsigned, elsewhere there is
+    /// no `codesign` at all) is refused, is never started, and receives no secret. Runs on every
+    /// unix; NEEDS A REAL MAC for the macOS-specific half (the real `codesign` refusal).
+    #[cfg(unix)]
+    #[test]
+    fn new_trusted_never_runs_an_unsigned_helper_or_sends_it_the_secret() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ran = tmp.path().join("ran");
+        let stdin_copy = tmp.path().join("stdin");
+        // `/bin/sh -c <script>` stands in for the helper (no freshly written executable, so no
+        // "text file busy" race): were it ever started it would leave both marker files.
+        let helper = PathBuf::from("/bin/sh");
+        let script = format!(
+            "touch '{}'; cat > '{}'; echo '{{\"ok\":true}}'",
+            ran.display(),
+            stdin_copy.display()
+        );
+        let trust = HelperTrust::team("ABCDE12345").unwrap();
+        let trusted = AppleHelper::new_trusted(&helper, trust).args(["-c", script.as_str()]);
+        let secret = Secret::from_bytes(b"top-secret-marker");
+        let err = trusted.write(Scope::Device, "acct", &secret).unwrap_err();
+        assert!(
+            matches!(&err, Error::Helper(m) if m.starts_with("untrusted helper")),
+            "{err:?}"
+        );
+        assert!(!err.to_string().contains("top-secret-marker"));
+        assert!(trusted.status().is_err());
+        assert!(trusted.read(Scope::Device, "acct").is_err());
+        assert!(!ran.exists(), "the unsigned helper was started");
+        assert!(!stdin_copy.exists(), "the unsigned helper received input");
+        // Control: the untrusted constructor does run the same script.
+        AppleHelper::new(&helper)
+            .args(["-c", script.as_str()])
+            .write(Scope::Device, "acct", &secret)
+            .unwrap();
+        assert!(ran.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_trusted_refuses_a_missing_helper_and_a_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let trust = HelperTrust::team("ABCDE12345").unwrap();
+        for path in [tmp.path().join("nope"), tmp.path().to_path_buf()] {
+            let err = AppleHelper::new_trusted(path, trust.clone())
+                .status()
+                .unwrap_err();
+            assert!(matches!(&err, Error::Helper(m) if m.starts_with("untrusted helper")));
+        }
+    }
+
+    /// NEEDS A REAL MAC: valid, foreign-signed and unsigned helpers against the real `codesign`.
+    #[cfg(target_os = "macos")]
+    mod macos_codesign {
+        use super::*;
+
+        fn team(id: &str) -> HelperTrust {
+            HelperTrust::team(id).unwrap()
+        }
+
+        #[test]
+        fn an_apple_signed_binary_fails_a_developer_id_team_requirement() {
+            // /usr/bin/true is validly signed, but by Apple, not by a Developer ID team.
+            let err = verify_helper(Path::new("/usr/bin/true"), &team("ABCDE12345")).unwrap_err();
+            assert!(matches!(&err, Error::Helper(m) if m.starts_with("untrusted helper")));
+        }
+
+        #[test]
+        fn an_ad_hoc_signed_copy_fails_a_team_requirement() {
+            let tmp = tempfile::tempdir().unwrap();
+            let copy = tmp.path().join("true-copy");
+            std::fs::copy("/usr/bin/true", &copy).unwrap();
+            let signed = Command::new(CODESIGN)
+                .args(["--force", "-s", "-"])
+                .arg(&copy)
+                .status()
+                .unwrap();
+            assert!(signed.success(), "ad-hoc signing the copy failed");
+            assert!(verify_helper(&copy, &team("ABCDE12345")).is_err());
+        }
+
+        #[test]
+        fn a_script_is_unsigned_and_refused() {
+            let tmp = tempfile::tempdir().unwrap();
+            let script = tmp.path().join("h");
+            std::fs::write(&script, "#!/bin/sh\n").unwrap();
+            assert!(verify_helper(&script, &team("ABCDE12345")).is_err());
+        }
+
+        /// Optional positive/foreign check against a real Developer ID signed helper:
+        /// `RIGHTKIT_TEST_SIGNED_HELPER=<binary, or X.app/Contents/MacOS/X>` and
+        /// `RIGHTKIT_TEST_SIGNED_TEAM=<its team id>`. Returns early (passes) when unset.
+        #[test]
+        fn a_helper_signed_by_the_named_team_passes_and_another_team_fails() {
+            let (Ok(path), Ok(team_id)) = (
+                std::env::var("RIGHTKIT_TEST_SIGNED_HELPER"),
+                std::env::var("RIGHTKIT_TEST_SIGNED_TEAM"),
+            ) else {
+                return;
+            };
+            let path = PathBuf::from(path);
+            let verified = verify_helper(&path, &team(&team_id)).unwrap();
+            assert_eq!(verified, path.canonicalize().unwrap());
+            let other = if team_id == "ABCDE12345" {
+                "ZYXWV98765"
+            } else {
+                "ABCDE12345"
+            };
+            assert!(verify_helper(&path, &team(other)).is_err());
         }
     }
 }
